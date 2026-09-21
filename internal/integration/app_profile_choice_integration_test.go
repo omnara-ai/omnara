@@ -320,7 +320,7 @@ func TestChatProfileChoiceConcurrentSiblingDoesNotPostAnotherMenu(t *testing.T) 
 	require.Empty(t, integrationdb.AwaitSuccess(t, one, "menu publication"))
 }
 
-func TestUnavailableChatSetupDoesNotDropOtherLaunchesOrListeners(t *testing.T) {
+func TestUnavailableChatSetupDoesNotDropOtherLaunchesOrSubscriptions(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 1)
 	other := seedIndependentApp(t, f.pool, f.app, "working-setup")
@@ -428,7 +428,7 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	require.Len(t, f.provider.notices, 1)
 }
 
-func TestChatProfileChoiceLateFilesReachEachChosenAgentWithoutListener(t *testing.T) {
+func TestChatProfileChoiceLateFilesReachEachChosenAgentWithoutSubscription(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
@@ -451,8 +451,8 @@ func TestChatProfileChoiceLateFilesReachEachChosenAgentWithoutListener(t *testin
 	require.Len(t, results, 1, "the second choice must not replay its original request into the first agent")
 	second := results[0].Launch.Agent.ID
 	require.NotEqual(t, first, second)
-	removeTestAgentListeners(t, f.store, f.ids.ProjectID, first)
-	removeTestAgentListeners(t, f.store, f.ids.ProjectID, second)
+	removeTestAgentSubscriptions(t, f.store, f.app, first)
+	removeTestAgentSubscriptions(t, f.store, other, second)
 
 	content := []byte("the original attachment")
 	id := uuid.New()
@@ -498,7 +498,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			ctx := t.Context()
 			require.Empty(t, f.receive("mention", f.event))
 			f.choose(f.provider.menus[0], "heavy")
-			selected := f.claim() // No agent/listener exists yet.
+			selected := f.claim() // No agent/subscription exists yet.
 			router := NewAppRouter(f.store.Execution(), f.store.Integrations())
 			if scenario.frozen {
 				var events []AppEvent

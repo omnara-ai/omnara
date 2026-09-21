@@ -73,15 +73,6 @@ func validateCompiledApps(compiled Compiled) error {
 			return err
 		}
 	}
-	for key, capability := range compiled.Listeners {
-		name, _, ok := toolcatalog.SplitAppListenerName(key)
-		if !ok {
-			return fmt.Errorf("invalid listener key %q", key)
-		}
-		if err := check(name, capability.AppID, capability.Config); err != nil {
-			return err
-		}
-	}
 	for key, capability := range compiled.InteractionHandlers {
 		if err := toolcatalog.ValidateAppName(key); err != nil {
 			return err
@@ -103,17 +94,12 @@ func appToolsFromCompiled(compiled Compiled) map[string]ToolCompiled {
 	return result
 }
 
-type PreparedAppListener struct {
-	AppID string
-	appdefinition.PreparedListener
-}
 type PreparedAppInteractionHandler struct {
 	AppID string
 	appdefinition.PreparedInteractionHandler
 }
 type PreparedAppCapabilities struct {
 	Tools               []RuntimeTool
-	Listeners           map[string]PreparedAppListener
 	InteractionHandlers map[string]PreparedAppInteractionHandler
 	// Unavailable records capability paths that cannot be prepared (including
 	// missing/disconnected apps). Other capabilities and dashboard use remain usable.
@@ -139,7 +125,6 @@ func PrepareAppCapabilities(compiled Compiled, apps map[string]AppResolution) (P
 		return PreparedAppCapabilities{}, err
 	}
 	result := PreparedAppCapabilities{
-		Listeners:           map[string]PreparedAppListener{},
 		InteractionHandlers: map[string]PreparedAppInteractionHandler{},
 		Unavailable:         map[string]error{},
 	}
@@ -171,25 +156,6 @@ func PrepareAppCapabilities(compiled Compiled, apps map[string]AppResolution) (P
 			return PreparedAppCapabilities{}, err
 		}
 		result.Tools = append(result.Tools, runtime)
-	}
-	for key, capability := range compiled.Listeners {
-		definition, err := resolvedDefinition(capability.AppID, apps)
-		if err != nil {
-			result.Unavailable[jsonPointer("listeners", key)] = err
-			continue
-		}
-		_, name, _ := toolcatalog.SplitAppListenerName(key)
-		metadata, ok := definition.Listeners[name]
-		if !ok {
-			result.Unavailable[jsonPointer("listeners", key)] = fmt.Errorf("app does not export listener %q", name)
-			continue
-		}
-		prepared, err := metadata.Prepare(capability.Config)
-		if err != nil {
-			result.Unavailable[jsonPointer("listeners", key)] = err
-			continue
-		}
-		result.Listeners[key] = PreparedAppListener{AppID: capability.AppID, PreparedListener: prepared}
 	}
 	for key, capability := range compiled.InteractionHandlers {
 		definition, err := resolvedDefinition(capability.AppID, apps)

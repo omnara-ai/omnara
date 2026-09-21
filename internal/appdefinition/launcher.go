@@ -16,81 +16,27 @@ func CanonicalLauncherScope(provider, kind, ref string) (string, string, error) 
 	invalid := func() (string, string, error) {
 		return "", "", fmt.Errorf("invalid %s launcher scope %q", provider, kind)
 	}
-	var scope Scope
-	switch provider {
-	case ProviderSlack:
-		switch kind {
-		case "workspace":
-			if !slackWorkspace.MatchString(ref) {
-				return invalid()
-			}
-			return kind, ref, nil
-		case "channel", "dm":
-			scope.Slack = &SlackScope{ChannelID: ref}
-		case "thread":
-			channel, timestamp, ok := strings.Cut(ref, ":")
-			if !ok {
-				return invalid()
-			}
-			scope.Slack = &SlackScope{ChannelID: channel, ThreadTS: timestamp}
-		default:
+	switch {
+	case provider == ProviderSlack && kind == "workspace":
+		if !slackWorkspace.MatchString(ref) {
 			return invalid()
 		}
-	case ProviderGitHub:
-		switch kind {
-		case "installation":
-			id, err := strconv.ParseInt(ref, 10, 64)
-			if err != nil || id <= 0 {
-				return invalid()
-			}
-			return kind, strconv.FormatInt(id, 10), nil
-		case "repository", "pull_request":
-			repository, number := ref, 1
-			if kind == "pull_request" {
-				var rawNumber string
-				var ok bool
-				repository, rawNumber, ok = strings.Cut(ref, "#")
-				var err error
-				number, err = strconv.Atoi(rawNumber)
-				if !ok || err != nil || number <= 0 {
-					return invalid()
-				}
-			}
-			repositoryID, err := strconv.ParseInt(repository, 10, 64)
-			if err != nil || repositoryID <= 0 {
-				return invalid()
-			}
-			if kind == "repository" {
-				return kind, strconv.FormatInt(repositoryID, 10), nil
-			}
-			scope.GitHub = &GitHubScope{RepositoryID: repositoryID, PullRequest: number}
-		default:
+		return kind, ref, nil
+	case provider == ProviderGitHub && (kind == "installation" || kind == "repository"):
+		id, err := strconv.ParseInt(ref, 10, 64)
+		if err != nil || id <= 0 {
 			return invalid()
 		}
-	case ProviderDiscord:
-		switch kind {
-		case "guild":
-			if !discordID.MatchString(ref) {
-				return invalid()
-			}
-			return kind, ref, nil
-		case "channel":
-			scope.Discord = &DiscordScope{ChannelID: ref}
-		case "thread":
-			channel, thread, ok := strings.Cut(ref, ":")
-			if !ok {
-				return invalid()
-			}
-			scope.Discord = &DiscordScope{ChannelID: channel, ThreadID: thread}
-		default:
+		return kind, strconv.FormatInt(id, 10), nil
+	case provider == ProviderDiscord && kind == "guild":
+		if !discordID.MatchString(ref) {
 			return invalid()
 		}
-	default:
+		return kind, ref, nil
+	}
+	scope, err := ParseConversation(provider, kind, ref)
+	if err != nil {
 		return invalid()
 	}
-	canonicalKind, canonicalRef, err := scope.Conversation()
-	if err != nil || canonicalKind != kind {
-		return invalid()
-	}
-	return canonicalKind, canonicalRef, nil
+	return scope.Conversation()
 }

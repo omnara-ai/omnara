@@ -22,7 +22,7 @@ type AppEvent struct {
 	// Launches are explicit decisions made by app code before generic planning.
 	Launches []AppLaunchIntent `json:"launches,omitempty"`
 	// Directed requests deliver only to their named setup/slot recipients. In
-	// particular, choosing an old menu must not replay its source to new listeners.
+	// particular, choosing an old menu must not replay its source to new subscriptions.
 	Directed               bool                                  `json:"directed,omitempty"`
 	Sibling                *executionstore.InboxMessageSibling   `json:"sibling,omitempty"`
 	Event                  appdefinition.Event                   `json:"event"`
@@ -51,8 +51,9 @@ type AppPlannedFile struct {
 
 // AppInboxSlot deliberately shares the kernel admission JSON envelopes. Only
 // profile launches contain Selection; existing agents never reserve membership.
-// BaseConfig identifies what was read, while Launch.DerivedConfig is the complete
-// immutable result to admit. Neither is rebuilt from current source on recovery.
+// BaseConfig identifies what was read. Launch freezes the derived tool/handler
+// config and concrete subscriptions, including resolved events. Recovery admits
+// those snapshots without rebuilding either from current source.
 type AppInboxSlot struct {
 	Sibling        *executionstore.InboxMessageSibling          `json:"sibling,omitempty"`
 	Scope          appdefinition.Scope                          `json:"scope"`
@@ -65,8 +66,7 @@ type AppInboxSlot struct {
 	Files          []AppPlannedFile                             `json:"files,omitempty"`
 	BaseConfigID   uuid.UUID                                    `json:"base_config_id,omitempty"`
 	BaseConfigHash string                                       `json:"base_config_hash,omitempty"`
-	ListenerKey    string                                       `json:"listener_key,omitempty"`
-	Listener       *executionstore.InboxListenerAuthority       `json:"listener,omitempty"`
+	Subscription   *executionstore.InboxSubscriptionAuthority   `json:"subscription,omitempty"`
 }
 
 type AppInboxPlan map[string]AppInboxSlot

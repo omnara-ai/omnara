@@ -252,13 +252,12 @@ FROM integration_targets target
 WHERE target.project_id = $1 AND target.app_id = $2
   AND target.provider_ref_kind = $3 AND target.provider_ref = $4
   AND (target.routing_role = 'selected' OR (target.routing_role = 'followed' AND target.deleted_at IS NULL AND EXISTS (
-    SELECT 1 FROM agent_listeners listener
-    JOIN agents agent ON agent.project_id = listener.project_id AND agent.id = listener.agent_id
-    WHERE listener.project_id = target.project_id AND listener.agent_id = target.agent_id
-      AND listener.app_id = target.app_id
-      AND listener.scope_kind = target.provider_ref_kind AND listener.scope_ref = target.provider_ref
-      AND listener.active AND listener.origin = 'runtime'
-      AND listener.source_config_id = agent.current_config_id AND agent.state = 'active'
+    SELECT 1 FROM app_subscriptions subscription
+    JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
+    WHERE subscription.project_id = target.project_id AND subscription.agent_id = target.agent_id
+      AND subscription.app_id = target.app_id
+      AND subscription.scope_kind = target.provider_ref_kind AND subscription.scope_ref = target.provider_ref
+      AND agent.state = 'active'
   )))
 ORDER BY target.id
 `

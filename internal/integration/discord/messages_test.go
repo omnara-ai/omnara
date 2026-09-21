@@ -184,42 +184,19 @@ func TestEditDoesNotRetryUnknownDelivery(t *testing.T) {
 	}
 }
 
-func TestNormalizeAndMatchOnlyMentionsOrSelectedThreadReplies(t *testing.T) {
+func TestNormalizeMessageUsesBotIdentityAndIgnoresEdits(t *testing.T) {
 	dispatch := Dispatch{Type: "MESSAGE_CREATE", Data: json.RawMessage(`{"id":"666","guild_id":"333","channel_id":"444","type":0,"content":"hello <@111>","author":{"id":"888"},"mentions":[{"id":"111"}]}`)}
 	event, ok, err := NormalizeMessage(dispatch, "222")
 	if err != nil || !ok || event.MentionsBot {
 		t.Fatal("application ID mistaken for bot mention")
 	}
-	parent := Channel{ID: "444", GuildID: "333", Type: 0}
-	parentScope := Scope{GuildID: "333", ChannelID: "444"}
-	if event.MatchesListener(parentScope, parent) {
-		t.Fatal("unmentioned channel message matched listener")
+	if event.Message.ID != "666" || event.Message.ChannelID != "444" || event.Message.GuildID != "333" ||
+		event.Message.Author.ID != "888" || event.Message.Content != "hello <@111>" {
+		t.Fatalf("message fields were not preserved: %+v", event.Message)
 	}
-	event.MentionsBot = true
-	if !event.MatchesListener(parentScope, parent) {
-		t.Fatal("bot mention missed")
-	}
-	event.MentionsBot = false
-	event.Message.ChannelID = "555"
-	thread := Channel{ID: "555", GuildID: "333", ParentID: "444", Type: 11}
-	if !event.MatchesListener(scope(), thread) {
-		t.Fatal("selected thread reply missed")
-	}
-	if event.MatchesListener(parentScope, thread) {
-		t.Fatal("broad parent listener accepted arbitrary thread")
-	}
-	thread.ParentID = "999"
-	if event.MatchesListener(scope(), thread) {
-		t.Fatal("wrong parent accepted")
-	}
-	thread.ParentID = "444"
-	event.Automated = true
-	if event.MatchesListener(scope(), thread) {
-		t.Fatal("automated event matched")
-	}
-	event.Automated, event.Self = false, true
-	if event.MatchesListener(scope(), thread) {
-		t.Fatal("self event matched")
+	event, ok, err = NormalizeMessage(dispatch, "111")
+	if err != nil || !ok || !event.MentionsBot || event.Self || event.Automated {
+		t.Fatalf("human mention of the bot was not decoded: event=%+v, err=%v", event, err)
 	}
 	_, ok, err = NormalizeMessage(Dispatch{Type: "MESSAGE_UPDATE"}, "222")
 	if err != nil || ok {

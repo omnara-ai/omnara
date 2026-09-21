@@ -17,7 +17,7 @@ another app. Metadata/settings edits do not advance `SetupRevision` or restart a
 provider session. Disconnect preserves recoverable work; delete tombstones the app.
 
 Multiple saved apps may use the same physical bot, including across projects.
-Each keeps its own setup, credential checks, inbox, listeners and runtime leases.
+Each keeps its own setup, credential checks, inbox, subscriptions and runtime leases.
 There is no global identity deduplication or credential-based app rediscovery.
 Shared provider HTTP endpoints route to those independent apps.
 
@@ -29,8 +29,6 @@ tools:
   app__support__post_message:
     config:
       channel_id: C123
-listeners:
-  support__thread_messages: {}
 interaction_handlers:
   support: {}
 ```
@@ -44,18 +42,19 @@ arguments cannot be overridden. Config is not a generic destination ACL:
 provider credentials are the access boundary, with ordinary tool permissions,
 project grants and provider checks still enforced at execution.
 
-A tool grants no receive authority. Named listeners own their event selection,
-initial `conversations` and later runtime follows. An empty listener starts with
-no subscriptions but can receive a confirmed conversation through
-`follow_replies` or hosted launch admission. Both require the listener key to
-remain pinned to the same app. Removing a sending tool does not remove a listener;
-removing the listener revokes all its subscriptions. Interaction handlers are
-separate optional capabilities with their own fixed config and runtime arguments.
+A tool grants no receive authority. App-owned subscriptions connect agents to a
+named subscription type, one concrete `conversation` and resolved `events`.
+Create them through the app-scoped subscription API or launch attachments; hosted
+launchers attach their conversation atomically. An explicitly requested
+`follow_replies` attaches a subscription only after an authorized, confirmed post.
+No receive grant belongs in config. Removing tools or changing config preserves
+subscriptions; deleting a subscription stops its forwarding. Interaction handlers
+remain separate optional capabilities with fixed config and runtime arguments.
 
 ## Reuse an existing provider
 
-Use an existing definition when its tools, listeners and launcher triggers express
-the behavior. Slack and Discord use `omnara.slack` and `omnara.discord`; GitHub
+Use an existing definition when its tools, subscriptions and launcher triggers
+express the behavior. Slack and Discord use `omnara.slack` and `omnara.discord`; GitHub
 mention and PR-open launchers use `omnara.github`. Different profiles or destinations
 normally need saved apps/config examples and journey tests, not another endpoint,
 table, scheduler or app definition.
@@ -71,7 +70,7 @@ remain part of execution authority. Approval descriptions must show the effectiv
 destination even when its arguments are hidden by config.
 
 For new incoming events, extend normalization in `<provider>_event.go` (Slack uses
-`app_slack.go`) and the definition's event/listener contracts. Launcher trigger
+`app_slack.go`) and the definition's event/subscription contracts. Launcher trigger
 validation belongs with saved-app settings and the reviewed definition. Keep
 provider I/O outside router and database transactions. The code registry supplies
 the public catalog and config schemas; do not create per-capability catalog rows.
@@ -80,7 +79,7 @@ the public catalog and config schemas; do not create per-capability catalog rows
 
 | Responsibility | Location |
 | --- | --- |
-| Exported tools, named listeners, optional handler, typed config and concrete addresses | `internal/appdefinition` |
+| Exported tools, named subscription types, optional handler, typed config and concrete addresses | `internal/appdefinition` |
 | HTTP/socket clients, signatures, protocol validation and bounded retries | `internal/integration/<provider>/` |
 | Verified receipt expansion into ordinary agent input | `internal/integration/<provider>_event.go` |
 | Tool schemas and qualified execution | `internal/toolcatalog`, `internal/harness/tools` |
@@ -140,23 +139,26 @@ interaction presenter.
 
 ## Trace and test a journey
 
-A Slack mention launches into its thread; later messages use the named listener.
-`app__support__post_message` can send proactively and request `follow_replies`
-only when `support__thread_messages` is present. Verified inputs include the app
-name and actual channel/thread IDs so flexible tools can address the conversation.
+A Slack mention launches into its thread; later messages use its app-owned
+`thread_messages` subscription. `app__support__post_message` can send proactively
+and explicitly request `follow_replies` without any receive capability in config.
+Verified inputs include the app name and actual channel/thread IDs so flexible
+tools can address the conversation.
 Discord follows the same pattern with leased Gateway intake and bounded thread
 preparation; see [discord_event.md](discord_event.md) and
 [discord/README.md](discord/README.md).
 
 A GitHub mention or PR-open event selects the configured launcher. The derived
-config supplies fixed repository/PR tool arguments and a named PR listener.
+config supplies fixed repository/PR tool arguments; its separate `pull_request`
+subscription freezes the conversation and definition default events.
 Human comments steer/cancel open interactions; commits queue. Inline comment IDs
 and diff coordinates stay in tools. Repository checkout remains machine/profile
 setup. See [github_event.md](github_event.md).
 
 Test the changed boundary: protocol/normalization, fixed and flexible tools,
-listener reconciliation, captured callbacks, and inbox-to-agent replay. Include
-independent apps sharing a physical identity, cross-project isolation, revoked
+subscription attachment, deletion and event filtering, captured callbacks, and
+inbox-to-agent replay. Include independent apps sharing a physical identity,
+cross-project isolation, revoked
 credentials, setup races, partial fanout/launch recovery, and uncertain sends.
 Use local HTTP/WebSocket fixtures; live tests are a separate check.
 

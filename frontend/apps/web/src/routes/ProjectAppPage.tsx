@@ -5,6 +5,7 @@ import { useState } from 'react'
 
 import { appProvider } from '@/components/apps/appDefinitions'
 import { ConnectSlackDialog } from '@/components/apps/ConnectSlackDialog'
+import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
 import { ProjectAppHeader } from '@/components/apps/ProjectAppHeader'
 import { ProjectAppSchedules } from '@/components/apps/ProjectAppSchedules'
@@ -163,6 +164,14 @@ function ProjectAppSettings({
         </>
       ) : (
         !connecting && <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />
+      )}
+      {!editing && !connecting && (
+        <ProjectAppConversations
+          orgId={orgId}
+          projectId={projectId}
+          app={app}
+          canManage={canManage}
+        />
       )}
       {!editing && !connecting && (provider === 'slack' || provider === 'discord') && (
         <ProjectAppSchedules orgId={orgId} projectId={projectId} app={app} canManage={canManage} />

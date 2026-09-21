@@ -111,8 +111,8 @@ func EverySlotAppLauncher(_ context.Context, input AppLaunchContext) ([]AppLaunc
 		return nil, nil
 	}
 	profilesSelected := false
-	for _, listener := range input.Candidates.Listeners {
-		profilesSelected = profilesSelected || listener.Address == input.Address
+	for _, subscription := range input.Candidates.Subscriptions {
+		profilesSelected = profilesSelected || subscription.Address == input.Address
 	}
 	for _, selected := range input.Candidates.Selections {
 		profilesSelected = profilesSelected || selected.AppID == input.App.ID

@@ -61,19 +61,12 @@ export function AgentConfigBasicForm({
             resolvedTools={form.resolvedTools}
             onToolsChange={form.setTools}
           />
-          {(Object.keys(form.listeners).length > 0 ||
-            Object.keys(form.interactionHandlers).length > 0) && (
+          {Object.keys(form.interactionHandlers).length > 0 && (
             <div className="rounded-md border p-3 text-sm">
               <p className="font-medium">App capabilities</p>
-              {Object.keys(form.listeners).length > 0 && (
-                <p>Listeners: {Object.keys(form.listeners).join(', ')}</p>
-              )}
-              {Object.keys(form.interactionHandlers).length > 0 && (
-                <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
-              )}
+              <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
               <p className="text-muted-foreground">
-                Edit listener and interaction settings in YAML. Sending tools are configured
-                separately.
+                Edit interaction settings in YAML. Sending tools are configured separately.
               </p>
             </div>
           )}

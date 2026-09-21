@@ -252,7 +252,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 		pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`, ids.ProjectID).Scan(&count),
 	)
 	require.Equal(t, 2, count)
-	// The second receipt follows current listeners; edited slot C cannot replace B.
+	// The second receipt follows current subscriptions; edited slot C cannot replace B.
 	event.SemanticKey = "message:2"
 	event.ContentBlocks = json.RawMessage(`[{"type":"text","text":"follow up"}]`)
 	event.Files = nil
@@ -261,7 +261,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	require.Len(t, follow, 2)
 	for _, slot := range follow {
 		require.Nil(t, slot.Selection)
-		require.NotNil(t, slot.Listener)
+		require.NotNil(t, slot.Subscription)
 	}
 	_, err = router.Admit(ctx, receipts[1-winner].Lease())
 	require.NoError(t, err)

@@ -20,20 +20,17 @@ import (
 
 func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 	for _, scenario := range []string{
-		"success_replay", "completion_rollback", "revoked", "invalid_address", "unsupported_tool",
+		"success_replay", "completion_rollback", "disconnected", "invalid_address", "unsupported_tool",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newAppActivationFixture(t)
-			resource := f.listener()
-			resource.Config = json.RawMessage(`{}`)
 			toolName := "app__chat__post_message"
 			arguments := json.RawMessage(`{"text":"Start here","follow_replies":true}`)
 			if scenario == "unsupported_tool" {
 				toolName = "app__chat__read"
 				arguments = json.RawMessage(`{}`)
 			}
-			resources := map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": resource}
-			definition := f.withSendingTools(t, f.definition(t, "Confirmed replies", resources))
+			definition := f.withSendingTools(t, f.definition(t, "Confirmed replies"))
 			launchInput := f.launchInput(uuid.Nil, "post-follow")
 			launchInput.DerivedConfig = &definition
 			launch, err := f.store.Execution().LaunchAgent(f.ctx, launchInput)
@@ -75,8 +72,8 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 				),
 			}
 			follow := executionstore.ConfirmedAppFollow{
-				ListenerKey: "chat__thread_messages",
-				AppID:       f.app.ID,
+				SubscriptionType: "thread_messages",
+				AppID:            f.app.ID,
 				Scope: appdefinition.Scope{
 					Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"},
 				},
@@ -91,13 +88,8 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 				FOR EACH ROW EXECUTE FUNCTION reject_follow_completion()`,
 				)
 				require.NoError(t, err)
-			case "revoked":
-				resources = nil
-				_, err := f.store.Execution().ChangeAgentConfig(
-					f.ctx,
-					f.changeInput(t, launch.Agent.ID, "Stop following", resources, "revoke-follow"),
-				)
-				require.NoError(t, err)
+			case "disconnected":
+				f.disable(t)
 			case "invalid_address":
 				follow.Scope.Slack.ChannelID = "invalid"
 			}
@@ -110,7 +102,7 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 				} else {
 					require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 				}
-				require.Empty(t, f.listeners(t, launch.Agent.ID))
+				require.Empty(t, f.subscriptions(t, launch.Agent.ID))
 				var targets int
 				require.NoError(
 					t,
@@ -127,44 +119,55 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolCallStateCompleted, result.State)
-			listeners := f.listeners(t, launch.Agent.ID)
-			require.Len(t, listeners, 1)
-			require.Equal(t, "C123:111.222", listeners[0].ScopeRef)
-			require.Equal(t, ids[0], *listeners[0].ToolCallID)
+			subscriptions := f.subscriptions(t, launch.Agent.ID)
+			require.Len(t, subscriptions, 1)
+			require.Equal(t, "C123:111.222", subscriptions[0].ScopeRef)
+			require.Equal(t, ids[0], *subscriptions[0].ToolCallID)
 			_, err = f.store.Execution().CompleteAppPostToolCall(f.ctx, completion, follow)
 			require.NoError(t, err)
-			require.Len(t, f.listeners(t, launch.Agent.ID), 1)
-			// Freeze a reply before a second post refreshes this same follow.
-			// The new post changes provenance, not permission to receive the reply.
+			require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
+			// Freeze a reply before a second post reuses this same subscription.
 			slot := inboxInputPlan(launch.Agent.ID, f.app, "message:between-posts")
 			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
-			slot.Listener = &executionstore.InboxListenerAuthority{
+			slot.Subscription = &executionstore.InboxSubscriptionAuthority{
 				Event: "message",
-				Alternatives: []executionstore.InboxListenerReference{{
-					ListenerKey: "chat__thread_messages", Address: slot.Input.Origin.Address,
+				Alternatives: []executionstore.InboxSubscriptionReference{{
+					Type: "thread_messages", Address: slot.Input.Origin.Address,
 				}},
 			}
 			receipt := freezeInboxInput(t, f, slot, "reply-between-posts", time.Minute)
+			// Lowering quota blocks growth, not existing routing or a fresh post to
+			// an already followed conversation.
+			_, err = f.store.pool.Exec(f.ctx, `INSERT INTO org_resource_limit_overrides
+			 (org_id,max_active_app_subscriptions_per_agent) VALUES($1,0)`, testOrgID)
+			require.NoError(t, err)
+			attachment := integrationstore.CreateAppSubscriptionInput{
+				OrgID: testOrgID, ProjectID: testProjectID, AppID: f.app.ID, AgentID: launch.Agent.ID,
+				Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
+			}
+			existing, err := f.store.Integrations().CreateAppSubscription(f.ctx, attachment)
+			require.NoError(t, err)
+			require.Equal(t, subscriptions[0].ID, existing.ID)
+			attachment.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"999.000"}`)
+			_, err = f.store.Integrations().CreateAppSubscription(f.ctx, attachment)
+			require.ErrorIs(t, err, storeerr.ErrConflict)
 			claimToolCallForTest(t, f.ctx, f.store, launch.Agent.ID, ids[1], lock.ID, true)
 			second := completion
 			second.ID = ids[1]
 			_, err = f.store.Execution().CompleteAppPostToolCall(f.ctx, second, follow)
 			require.NoError(t, err)
-			listeners = f.listeners(t, launch.Agent.ID)
-			require.Len(t, listeners, 1, "another post into the same followed conversation reuses its listener")
-			require.Equal(t, ids[1], *listeners[0].ToolCallID)
+			subscriptions = f.subscriptions(t, launch.Agent.ID)
+			require.Len(t, subscriptions, 1, "another post into the same followed conversation reuses its subscription")
+			require.Equal(t, ids[0], *subscriptions[0].ToolCallID,
+				"reusing a subscription preserves its identity and provenance")
 			admitted, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
 			require.NoError(t, err)
 			require.True(t, admitted.Created)
 			slot.Input.IdempotencyKey = "message:revoked-follow"
 			revoked := freezeInboxInput(t, f, slot, "revoked-follow-reply", time.Minute)
-			resources = nil
-			_, err = f.store.Execution().ChangeAgentConfig(
-				f.ctx,
-				f.changeInput(t, launch.Agent.ID, "Stop following", resources, "revoke-follow"),
-			)
+			err = f.store.Integrations().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, subscriptions[0].ID)
 			require.NoError(t, err)
-			require.Empty(t, f.listeners(t, launch.Agent.ID))
+			require.Empty(t, f.subscriptions(t, launch.Agent.ID))
 			_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, revoked.Lease(), "recipient")
 			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 			replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
@@ -173,12 +176,12 @@ func TestAppPostCompletionAtomicallyRegistersFollow(t *testing.T) {
 			require.Equal(t, admitted.AgentInput.ID, replayed.AgentInput.ID)
 			_, err = f.store.Execution().CompleteAppPostToolCall(f.ctx, completion, follow)
 			require.NoError(t, err)
-			require.Empty(t, f.listeners(t, launch.Agent.ID), "replaying completion must not restore a revoked follow")
+			require.Empty(t, f.subscriptions(t, launch.Agent.ID), "replaying completion must not restore a revoked follow")
 		})
 	}
 }
 
-func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
+func TestAppPostCompletionUsesOriginalSenderAndLiveApp(t *testing.T) {
 	for _, scenario := range []struct {
 		name    string
 		allowed bool
@@ -187,24 +190,15 @@ func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
 		{name: "sender_denied", allowed: true},
 		{name: "sender_disabled", allowed: true},
 		{name: "sender_reconfigured", allowed: true},
-		{name: "listener_removed"},
 		{name: "app_disconnected"},
 		{name: "original_sender_missing"},
 		{name: "original_sender_denied"},
 		{name: "original_sender_disabled"},
-		{name: "original_listener_missing"},
 		{name: "follow_not_requested"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			f := newAppActivationFixture(t)
-			listener := f.listener()
-			listener.Config = json.RawMessage(`{}`)
-			definition := f.withSendingTools(
-				t,
-				f.definition(t, "Follow confirmed replies", map[string]agentconfig.AppCapabilityCompiled{
-					"chat__thread_messages": listener,
-				}),
-			)
+			definition := f.withSendingTools(t, f.definition(t, "Follow confirmed replies"))
 			var original, current agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &original))
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &current))
@@ -220,8 +214,6 @@ func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
 			case "original_sender_disabled":
 				sender.Enabled = false
 				original.Tools[name] = sender
-			case "original_listener_missing":
-				original.Listeners = nil
 			case "follow_not_requested":
 				arguments = json.RawMessage(`{"text":"Confirmed post"}`)
 			}
@@ -250,7 +242,7 @@ func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
 				),
 			}
 			follow := executionstore.ConfirmedAppFollow{
-				ListenerKey: "chat__thread_messages", AppID: f.app.ID,
+				SubscriptionType: "thread_messages", AppID: f.app.ID,
 				Scope: appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"}},
 			}
 			// The post is already confirmed. Only its original sender and the live
@@ -268,13 +260,11 @@ func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
 			case "sender_reconfigured":
 				sender.Config = json.RawMessage(`{"channel_id":"C999"}`)
 				current.Tools[name] = sender
-			case "listener_removed":
-				current.Listeners = nil
 			}
 			current.Instruction = "Config edited after confirmation"
-			update := f.changeInput(t, launch.Agent.ID, current.Instruction, current.Listeners, "after-confirmation")
+			update := f.changeInput(t, launch.Agent.ID, current.Instruction, "after-confirmation")
 			update.CreateAgentConfigInput = f.encodedDefinition(t, current)
-			changed, err := f.store.Execution().ChangeAgentConfig(f.ctx, update)
+			_, err = f.store.Execution().ChangeAgentConfig(f.ctx, update)
 			require.NoError(t, err)
 			if scenario.name == "app_disconnected" {
 				f.disable(t)
@@ -282,7 +272,7 @@ func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
 			result, err := f.store.Execution().CompleteAppPostToolCall(f.ctx, completion, follow)
 			if !scenario.allowed {
 				require.ErrorIs(t, err, storeerr.ErrUnauthorized)
-				require.Empty(t, f.listeners(t, launch.Agent.ID))
+				require.Empty(t, f.subscriptions(t, launch.Agent.ID))
 				record, err := f.store.Execution().GetToolCall(f.ctx, testProjectID, launch.Agent.ID, ids[0])
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ToolCallStateRunning, record.State, "rejected follow must not commit completion")
@@ -291,17 +281,18 @@ func TestAppPostCompletionUsesOriginalSenderAndCurrentListener(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolCallStateCompleted, result.State)
 			require.Equal(t, executionstore.ToolResultOutcomeSucceeded, result.Outcome)
-			listeners := f.listeners(t, launch.Agent.ID)
-			require.Len(t, listeners, 1)
-			require.Equal(t, f.app.ID, listeners[0].AppID)
-			require.Equal(t, "C123:111.222", listeners[0].ScopeRef, "follow the confirmed destination, not the edited sender")
-			require.Equal(t, changed.AgentConfig.ID, listeners[0].SourceConfigID)
-			require.Equal(t, []string{"message"}, listeners[0].Events)
-			require.Equal(t, ids[0], *listeners[0].ToolCallID)
+			subscriptions := f.subscriptions(t, launch.Agent.ID)
+			require.Len(t, subscriptions, 1)
+			require.Equal(t, f.app.ID, subscriptions[0].AppID)
+			require.Equal(t, "C123:111.222", subscriptions[0].ScopeRef,
+				"follow the confirmed destination, not the edited sender")
+			require.Equal(t, []string{"message"}, subscriptions[0].Events)
+			require.Equal(t, ids[0], *subscriptions[0].ToolCallID)
 			replayed, err := f.store.Execution().CompleteAppPostToolCall(f.ctx, completion, follow)
 			require.NoError(t, err)
 			require.JSONEq(t, string(result.ResultContentParts), string(replayed.ResultContentParts))
-			require.Equal(t, listeners, f.listeners(t, launch.Agent.ID), "completion replay must preserve the same subscription")
+			require.Equal(t, subscriptions, f.subscriptions(t, launch.Agent.ID),
+				"completion replay must preserve the same subscription")
 		})
 	}
 }

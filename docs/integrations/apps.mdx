@@ -1,12 +1,13 @@
 ---
 title: Apps
-description: Connect project-owned apps and choose their tools, listeners and interaction handlers
+description: Connect project-owned apps, subscribe conversations, and choose tools and interaction handlers
 icon: "puzzle-piece"
 ---
 
 An app connects your project to a service such as Slack, Discord or GitHub. It
 owns the provider setup, credentials and optional launch behavior. Create it once,
-then use its capabilities in agent configs. Customers running their own service
+then select its tools and handlers in agent configs and attach conversations to
+agents. Customers running their own service
 can use the ordinary [inputs, custom tools and interaction APIs](/integrations/custom-integrations).
 
 ## Create an app
@@ -24,17 +25,21 @@ with the same bot remain independent setups, with separate credential updates
 and lifecycle. Avoid overlapping launchers for the same conversation: duplicate
 menus, agents or replies are possible.
 
-The detail page shows setup state, launch settings and available capabilities.
+The detail page shows setup state, launch settings, available capabilities and a
+paginated **Conversations** list with each destination agent.
 Changing offered profiles affects future launches. Disconnecting stops provider
-access. Deleting an app removes its schedules and releases its credential
-reference. Neither action removes agents, their history, or messages already
+access and pauses subscription delivery. Its conversations remain visible and can
+still be removed while disconnected. Deleting an app removes its schedules and
+subscriptions and releases its credential reference. Neither action removes agents, their history, or messages already
 posted in the provider. Agents remain usable through the dashboard and API.
 
 ## Select capabilities independently
 
-An app can supply tools, named listeners and one interaction handler. Configs
-choose each independently. A tool lets the model act; a listener delivers incoming
-messages; a handler presents questions and approvals outside the dashboard.
+An app can supply tools, named subscription types and one interaction handler.
+A tool lets the model act; an app-owned subscription forwards incoming events to
+an agent; a handler presents questions and approvals outside the dashboard.
+Configs select tools and handlers. Launch requests or the subscriptions API attach
+conversations independently of config.
 The launcher is separate: it decides whether and how to start agents.
 
 For example, after creating a GitHub app named `reviews` and a Slack app named
@@ -70,32 +75,69 @@ automatically rebound. Credentials are loaded
 live, so rotation does not require rewriting configs. A pending tool call cannot
 silently acquire a different app, fixed config or permission after a config change.
 
-## Listen now or follow a conversation later
+## Subscribe a conversation
 
-Listeners use `<app-name>__<listener-name>`. For example:
+A subscription connects one app, one agent, a named type and one concrete provider
+conversation. Multiple apps or conversations can forward to the same agent.
+Subscriptions belong to the app: saving, activating or changing an agent config
+never adds or removes them. Source YAML has no `listeners` block.
 
-```yaml
-tools:
-  app__engineering__post_message:
-    config: {channel_id: C123}
-listeners:
-  engineering__thread_messages:
-    config:
-      conversations:
-        - {channel_id: C123, thread_ts: "111.222333"}
+The app and app-definition catalog expose
+`capabilities.subscriptions[type].conversation_schema` and `.events`. The type is
+local to the app, such as `thread_messages` or `pull_request`; do not prefix it
+with the app name. The conversation is one flat provider address, not a config
+or a list. Omit `events` to use the definition's defaults.
+
+For an existing agent, send this body to
+`POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions`:
+
+```json
+{
+  "agent_id": "YOUR_AGENT_ID",
+  "type": "thread_messages",
+  "conversation": {"channel_id": "C123", "thread_ts": "111.222333"}
+}
 ```
 
-Saving this config does not subscribe anything. Activating it for an agent creates
-its initial subscriptions. The sending tool is independent: removing or denying
-it leaves those subscriptions intact.
+For a new agent, include `subscriptions` in its
+[launch request](/agents/overview#attach-apps-and-an-initial-input-atomically).
+Each attachment has `app_id`, `type`, `conversation` and optional `events`.
+The subscriptions and initial input are committed with the agent before its first
+step. Attaching only subscriptions does not derive a new config.
 
-An empty listener config creates no initial subscriptions, but permits runtime
-following. A Slack or Discord post with `follow_replies: true` registers the
-confirmed conversation under the matching configured listener. Use this for
-profiles that deliberately choose their own destinations. For a fresh scheduled
-agent confined to one thread, configure an app schedule instead.
-Removing the listener stops both initial and runtime subscriptions. Re-adding it
-does not resurrect old follows, and a sending tool cannot recreate a missing listener.
+Use `GET` on the same app subscriptions path with `limit` and optional `cursor`
+to list conversations. The response contains `data` and `next_cursor`; each row
+includes its `asub_…` ID, app, project, agent ID/name, type, concrete conversation,
+resolved events and creation time. Listing requires project read permission;
+creation and deletion require project management permission.
+
+### Stop forwarding
+
+Open the app's **Conversations** section and choose **Stop forwarding**, or call
+`DELETE /orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions/{subscriptionID}`.
+This stops incoming forwarding for that subscription. The agent, sending tools,
+interaction handlers and history remain. A stopped selected thread does not
+launch a replacement agent on the next mention. Explicitly attach the conversation
+again through the API to resume forwarding. Independent existing-agent launcher
+slots and already accepted chooser handoffs are not canceled by this deletion.
+
+Repeating an active attachment returns the same subscription. A different event
+selection for that attachment is a conflict: delete it and attach again to change
+the filter. A fresh attachment after deletion receives a new ID, so retrying an old
+DELETE cannot remove the new attachment. App disconnection preserves subscriptions;
+app deletion or agent archival removes them.
+
+### Follow replies after posting
+
+A Slack or Discord post with explicit `follow_replies: true` creates an app-owned
+subscription to the confirmed conversation. The ordinary posting tool's permission
+is sufficient; no receive grant or empty config entry is required. Removing or
+denying the sending tool later leaves that subscription intact. Stopping forwarding
+does not revoke the posting tool: another authorized post with follow enabled,
+including a post already in flight, can establish a subscription again. Replaying
+a completed tool call does not restore a deleted subscription.
+
+For a fresh scheduled agent confined to one thread, configure an app schedule.
 
 ## Launch from provider events
 
@@ -105,15 +147,16 @@ With several profiles, the bot presents a selection menu and starts only the
 chosen profile. [GitHub](/integrations/github) can start work from a PR mention
 or PR creation; its launcher runs each configured slot.
 
-A profile launch derives a config with the app's tools, listener and supported
-interaction handler for that conversation. The profile stays unchanged. Existing
+A profile launch derives a config with the app's tools and supported interaction
+handler, and separately attaches a subscription for that conversation. The profile
+stays unchanged. Existing
 explicit entries win as complete entries, including disabled tools and different
 fixed destinations. The launcher adds missing entries only. An existing-agent
 launcher slot forwards input without adding capabilities.
 
-The create-agent API also accepts `tools`, `listeners` and `interaction_handlers`
-when deriving a config from a pinned config or profile. Config authoring and app
-management require project management permission. App credential setup requires a
+The create-agent API accepts `tools` and `interaction_handlers` when deriving a
+config from a pinned config or profile, plus independent `subscriptions`
+attachments. Config authoring and app management require project management permission. App credential setup requires a
 user session or personal access token; organization API keys can perform ordinary
 runtime work. App capabilities and runtime subscriptions are not inherited by subagents.
 
@@ -127,7 +170,7 @@ an opening-message template, and the task to give the agent. Mention launches
 and schedules are independent; the same app can use either or both.
 
 For each occurrence, the app posts the opening message and then launches a fresh
-agent in its thread. The agent receives thread tools, a reply listener, and an
+agent in its thread. The agent receives thread tools, a reply subscription, and an
 interaction handler before its first step. The profile's existing explicit
 entries still win. Ask the agent to post its report using the app tool; normal
 model output remains in Omnara. Replies in Monday's thread continue Monday's

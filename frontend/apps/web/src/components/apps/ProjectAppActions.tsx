@@ -39,7 +39,7 @@ export function ProjectAppActions({
               setError('')
               if (
                 !window.confirm(
-                  `Disconnect ${app.name}? Its tools, listeners and launcher will lose provider access. Agents and history are kept.`,
+                  `Disconnect ${app.name}? Provider access and conversation forwarding will pause. Subscriptions, agents and history are kept.`,
                 )
               )
                 return
@@ -60,7 +60,7 @@ export function ProjectAppActions({
           onClick={() => {
             if (
               !window.confirm(
-                `Remove app ${app.name}? This deletes its schedules and revokes its tools, listeners and launcher. Existing agents and history are kept.`,
+                `Remove app ${app.name}? This deletes its schedules and subscriptions and revokes its tools and launcher. Existing agents and history are kept.`,
               )
             )
               return

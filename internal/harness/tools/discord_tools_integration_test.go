@@ -187,18 +187,7 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 			record, err := f.Store.Execution().
 				GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
-			var follows int
-			require.NoError(
-				t,
-				f.Pool.QueryRow(
-					ctx,
-					`SELECT count(*) FROM agent_listeners WHERE agent_id=$1 AND active AND tool_call_id IS NOT NULL`,
-					f.Agent.ID,
-				).
-					Scan(
-						&follows,
-					),
-			)
+			follows := len(appToolSubscriptions(t, f))
 			if scenario == "valid-without-guild" || scenario == "new-thread-without-guild" {
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
 				require.Equal(t, 1, posts)

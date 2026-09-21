@@ -104,61 +104,37 @@ func compileAppTool(name string, source AgentConfigToolSource, opts CompileOptio
 }
 
 func compileAppCapabilities(source AgentConfigSource, opts CompileOptions, compiled *Compiled) error {
-	for _, field := range []string{"listeners", "interaction_handlers"} {
-		entries := source.Listeners
-		target := &compiled.Listeners
-		if field == "interaction_handlers" {
-			entries, target = source.InteractionHandlers, &compiled.InteractionHandlers
+	const field = "interaction_handlers"
+	if len(source.InteractionHandlers) > 0 {
+		compiled.InteractionHandlers = map[string]AppCapabilityCompiled{}
+	}
+	for _, name := range slices.Sorted(maps.Keys(source.InteractionHandlers)) {
+		if err := toolcatalog.ValidateAppName(name); err != nil {
+			return issueOr(jsonPointer(field, name), err)
 		}
-		if len(entries) > 0 {
-			*target = map[string]AppCapabilityCompiled{}
+		app, err := opts.ResolveAppName(name)
+		if err != nil {
+			return issueOr(jsonPointer(field, name), err)
 		}
-		for _, key := range slices.Sorted(maps.Keys(entries)) {
-			name, listener := key, ""
-			if field == "listeners" {
-				var ok bool
-				name, listener, ok = toolcatalog.SplitAppListenerName(key)
-				if !ok {
-					return issuef(jsonPointer(field, key), "invalid app listener name")
-				}
-			} else if err := toolcatalog.ValidateAppName(name); err != nil {
-				return issueOr(jsonPointer(field, key), err)
-			}
-			app, err := opts.ResolveAppName(name)
-			if err != nil {
-				return issueOr(jsonPointer(field, key), err)
-			}
-			definition, _ := appdefinition.Lookup(app.Definition)
-			raw, err := sourceConfig(entries[key].Config)
-			if err != nil {
-				return issueOr(jsonPointer(field, key, "config"), err)
-			}
-			var config json.RawMessage
-			if field == "listeners" {
-				capability, ok := definition.Listeners[listener]
-				if !ok {
-					return issuef(jsonPointer(field, key), "app does not export listener %q", listener)
-				}
-				prepared, prepareErr := capability.Prepare(raw)
-				config, err = prepared.Config, prepareErr
-			} else {
-				if definition.InteractionHandler == nil {
-					return issuef(jsonPointer(field, key), "app does not export an interaction handler")
-				}
-				prepared, prepareErr := definition.InteractionHandler.Prepare(raw)
-				config, err = prepared.Config, prepareErr
-			}
-			if err != nil {
-				return issueOr(jsonPointer(field, key, "config"), err)
-			}
-			(*target)[key] = AppCapabilityCompiled{AppID: app.AppID, Config: config}
+		definition, _ := appdefinition.Lookup(app.Definition)
+		if definition.InteractionHandler == nil {
+			return issuef(jsonPointer(field, name), "app does not export an interaction handler")
 		}
+		raw, err := sourceConfig(source.InteractionHandlers[name].Config)
+		if err != nil {
+			return issueOr(jsonPointer(field, name, "config"), err)
+		}
+		prepared, err := definition.InteractionHandler.Prepare(raw)
+		if err != nil {
+			return issueOr(jsonPointer(field, name, "config"), err)
+		}
+		compiled.InteractionHandlers[name] = AppCapabilityCompiled{AppID: app.AppID, Config: prepared.Config}
 	}
 	return nil
 }
 
 // ReferencedAppIDs is the distinct project-scoped read set for preparation.
-// Disabled tools grant no authority; listeners and handlers remain independent.
+// Disabled tools grant no authority; handlers remain independent.
 func ReferencedAppIDs(compiled Compiled) []string {
 	ids := map[string]struct{}{}
 	for _, tool := range compiled.Tools {
@@ -166,10 +142,8 @@ func ReferencedAppIDs(compiled Compiled) []string {
 			ids[tool.AppID] = struct{}{}
 		}
 	}
-	for _, entries := range []map[string]AppCapabilityCompiled{compiled.Listeners, compiled.InteractionHandlers} {
-		for _, capability := range entries {
-			ids[capability.AppID] = struct{}{}
-		}
+	for _, capability := range compiled.InteractionHandlers {
+		ids[capability.AppID] = struct{}{}
 	}
 	return slices.Sorted(maps.Keys(ids))
 }

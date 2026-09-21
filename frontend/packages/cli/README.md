@@ -101,10 +101,12 @@ Discord launchers use `channel` with a numeric channel ID and `mention`.
 `apps profiles` edits offered Slack or Discord profiles while preserving existing
 agent slots. One profile launches immediately; several offer a selection menu.
 
-Select capabilities independently in agent configurations: tools use keys such as
-`app__engineering__post_message`, listeners use `engineering__thread_messages`,
-and interaction handlers use `engineering`. `apps get` and `apps definitions` show
-the capability schemas. A launcher adds its provider's fixed capability bundle to
+Select tools and interaction handlers independently in agent configurations:
+tools use keys such as `app__engineering__post_message`, and interaction handlers
+use `engineering`. Incoming subscriptions belong to the app and are attached via
+launch requests or the app subscriptions API; configs have no `listeners` block.
+`apps get` and `apps definitions` show `capabilities.subscriptions`, whose local
+type names map to `conversation_schema` and supported `events`. A launcher adds its provider's fixed capability bundle to
 future agents; editing settings does not rewrite existing agents.
 
 ```sh

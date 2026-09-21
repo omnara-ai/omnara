@@ -36,7 +36,7 @@ provider.PrepareConversation(ctx, app, raw, frozenScope, authority)
 
 `frozenScope` is `appdefinition.DiscordScope` from the frozen plan.
 `authority(context.Context) error` must revalidate the receipt lease and a live
-recipient/listener/launcher that accepts that exact scope. It runs before every
+recipient/subscription/launcher that accepts that exact scope. It runs before every
 HTTP attempt, including the eventual thread POST. The provider independently
 rechecks app identity/`SetupRevision`, current credential version and project
 secret availability. A nil authority callback is rejected. Empty plans must not
@@ -47,16 +47,17 @@ message and reconciles uncertain creation by that immutable ID. Re-running
 preparation does not create another thread. Existing thread replies make no
 provider mutations. There is no stop/delete/archive/join side effect.
 
-Ordinary thread replies require an exact subscription under
-`<appName>__thread_messages`, with `Origin=configured` or `Origin=runtime`.
-The listener's config owns event selection and initial `conversations`; a
-confirmed `follow_replies` send or hosted launch can add a runtime conversation.
-A verified root mention can reach a configured channel listener before its thread
-exists, including when the app has no launcher. Removing that listener before
-preparation prevents the thread creation and input. Replies, including mentions
-inside threads, still require an exact thread subscription. A tool with a fixed
-parent channel does not subscribe the agent to child threads. Parent/guild
-addresses also support explicit mention launcher matching.
+Ordinary thread replies require an exact app-owned `thread_messages`
+subscription. Each attachment owns its concrete conversation and event selection;
+confirmed `follow_replies` sends and hosted launches can attach conversations
+without receive grants in agent config. A verified root mention can reach a
+channel subscription before its thread exists, including when the app has no
+launcher. Deleting that subscription before preparation prevents thread creation
+and input. Replies, including mentions inside threads, still require an exact
+thread subscription. A tool with a fixed parent channel does not subscribe the
+agent to child threads. Parent/guild addresses also support explicit mention
+launcher matching.
+
 Tools and handlers have independent fixed config, with omitted destination fields
 left as runtime arguments; provider credentials remain the access boundary.
 Prompt presentation, runtime messages and signed callbacks resolve the complete

@@ -12,7 +12,6 @@ import {
 
 export function agentBuilderToolsSource(source: BasicConfig): string {
   return JSON.stringify({
-    listeners: source.listeners,
     interaction_handlers: source.interactionHandlers,
     tools: Object.fromEntries(source.tools.map((tool) => [tool.name, toolWire(tool)])),
     mcp: Object.fromEntries(

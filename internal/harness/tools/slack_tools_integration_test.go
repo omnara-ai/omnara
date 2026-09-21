@@ -46,6 +46,7 @@ func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newSlackAppToolFixture(t, "slack-follow")
+	require.Empty(t, appToolSubscriptions(t, f))
 	posts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if serveSlackToolIdentity(w, r) {
@@ -81,20 +82,11 @@ func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
 		require.Equal(t, "222.1", body["thread_ts"])
 	}
 	require.Equal(t, 2, posts)
-	var listeners int
-	require.NoError(
-		t,
-		f.Pool.QueryRow(
-			ctx,
-			`SELECT count(*) FROM agent_listeners
-WHERE agent_id=$1 AND listener_key='chat__thread_messages' AND scope_ref='C123:222.1' AND active`,
-			f.Agent.ID,
-		).
-			Scan(
-				&listeners,
-			),
-	)
-	require.Equal(t, 1, listeners, "repeated posts follow the same thread once")
+	subscriptions := appToolSubscriptions(t, f)
+	require.Len(t, subscriptions, 1, "repeated posts follow the same thread once")
+	require.Equal(t, "thread_messages", subscriptions[0].Type)
+	require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:222.1"}, subscriptions[0].Address)
+	require.Equal(t, f.toolCallID(t, ctx, calls[0].ID), subscriptions[0].ToolCallID)
 	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[0])
 	require.NoError(t, err)
 	require.Equal(t, "222.1", toolResultMapFromTestParts(t, result.ContentParts)["thread_ts"])
@@ -104,7 +96,7 @@ WHERE agent_id=$1 AND listener_key='chat__thread_messages' AND scope_ref='C123:2
 func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 	for _, scenario := range []string{
 		"rate-limit",
-		"without-listener",
+		"send-only",
 		"rate-limit-exhausted",
 		"unknown-found",
 		"unknown-missing",
@@ -115,7 +107,7 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, scenario, toolFixtureOptions{
-				withSlackApp: true, withoutAppListener: scenario == "without-listener",
+				withSlackApp: true,
 			})
 			posts, reads := 0, 0
 			var change *executionstore.ChangeAgentConfigInput
@@ -213,12 +205,13 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 				GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)
+			require.Empty(t, appToolSubscriptions(t, f), "sending without follow_replies must not subscribe")
 			switch scenario {
 			case "rate-limit", "unrelated-config-during-retry":
 				require.Equal(t, 2, posts)
 				require.Equal(t, "222.1", body["message_ts"])
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
-			case "without-listener":
+			case "send-only":
 				require.Equal(t, 1, posts)
 				require.Equal(t, "222.1", body["message_ts"])
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
@@ -418,9 +411,9 @@ func TestSlackAppDMPostFollowsIncomingReply(t *testing.T) {
 	}
 }
 
-func TestSlackRuntimeFollowBelongsToListener(t *testing.T) {
+func TestSlackFollowSubscriptionsSurviveConfigChanges(t *testing.T) {
 	for _, scenario := range []string{
-		"tool-removed", "tool-denied", "tool-reconfigured", "initial-conversations-changed", "listener-removed",
+		"tool-removed", "tool-denied", "tool-disabled", "tool-reconfigured", "all-app-capabilities-removed",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -434,25 +427,16 @@ func TestSlackRuntimeFollowBelongsToListener(t *testing.T) {
 				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1"})
 			}))
 			defer server.Close()
-			call := f.recordToolCall(
-				t,
-				ctx,
-				"follow",
-				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"text":"hello","follow_replies":true}`,
-				f.Now,
-			)
+			call := f.recordToolCall(t, ctx, "follow", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
+				`{"text":"hello","follow_replies":true}`, f.Now)
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 			require.NoError(t, err)
 			require.Equal(t, "222.1", toolResultMapFromTestParts(t, result.ContentParts)["thread_ts"])
-			var listenerID string
-			require.NoError(t, f.Pool.QueryRow(ctx, `SELECT id FROM agent_listeners
-WHERE agent_id=$1 AND app_id=$2 AND listener_key='chat__thread_messages'
-  AND scope_ref='C123:222.1' AND origin='runtime' AND active`, f.Agent.ID, f.Install.ID).Scan(&listenerID))
+			before := appToolSubscriptions(t, f)
+			require.Len(t, before, 1)
 			source, err := agentconfig.ParseSource(
-				agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
-				[]byte(f.AgentConfig.Source),
+				agentconfig.SourceFormat(f.AgentConfig.SourceFormat), []byte(f.AgentConfig.Source),
 			)
 			require.NoError(t, err)
 			entry := source.Tools[call.Name]
@@ -463,49 +447,76 @@ WHERE agent_id=$1 AND app_id=$2 AND listener_key='chat__thread_messages'
 				permission := toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
 				entry.Permission = &permission
 				source.Tools[call.Name] = entry
+			case "tool-disabled":
+				disabled := false
+				entry.Enabled = &disabled
+				source.Tools[call.Name] = entry
 			case "tool-reconfigured":
 				entry.Config["channel_id"] = "C999"
 				source.Tools[call.Name] = entry
-			case "initial-conversations-changed":
-				source.Listeners["chat__thread_messages"] = agentconfig.AgentConfigAppCapabilitySource{Config: map[string]any{
-					"conversations": []any{map[string]any{"channel_id": "C999", "thread_ts": "333.4"}},
-					"events":        []string{"message"},
-				}}
-			case "listener-removed":
-				delete(source.Listeners, "chat__thread_messages")
+			case "all-app-capabilities-removed":
+				source.Tools = nil
+				source.InteractionHandlers = nil
 			}
-			changed, err := f.Store.Execution().ChangeAgentConfig(ctx, appToolConfigChangeInput(t, f, source))
+			changeAppToolConfig(t, ctx, f, source)
+			require.Equal(t, before, appToolSubscriptions(t, f), "config activation must preserve app-owned subscriptions")
+			replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 			require.NoError(t, err)
-			var active bool
-			var configID string
-			var events []string
-			require.NoError(
-				t,
-				f.Pool.QueryRow(ctx, `SELECT active, source_config_id, events FROM agent_listeners WHERE id=$1`, listenerID).
-					Scan(&active, &configID, &events),
-			)
-			require.Equal(t, scenario != "listener-removed", active)
-			if active {
-				require.Equal(t, changed.AgentConfig.ID.String(), configID)
-				require.Equal(t, []string{"message"}, events)
-			}
-			if scenario == "listener-removed" {
-				// Restoring a listener does not resurrect runtime follows revoked earlier.
-				source.Listeners["chat__thread_messages"] = agentconfig.AgentConfigAppCapabilitySource{}
-				changeAppToolConfig(t, ctx, f, source)
-			}
-			_, err = dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
-			require.NoError(t, err)
+			require.JSONEq(t, string(result.ContentParts), string(replay.ContentParts))
 			require.Equal(t, 1, posts, "completed replay must never send again")
-			require.NoError(t, f.Pool.QueryRow(ctx, `SELECT active FROM agent_listeners WHERE id=$1`, listenerID).Scan(&active))
-			require.Equal(t, scenario != "listener-removed", active, "completed replay cannot restore a revoked follow")
+			require.Equal(t, before, appToolSubscriptions(t, f))
 		})
 	}
 }
 
+func TestSlackCompletedFollowReplayCannotRestoreDetachedSubscription(t *testing.T) {
+	ctx := t.Context()
+	f := newSlackAppToolFixture(t, "follow-detach")
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSlackToolIdentity(w, r) {
+			return
+		}
+		posts++
+		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1"})
+	}))
+	defer server.Close()
+	calls := []model.ToolCall{
+		{ID: "first", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"text":"hello","follow_replies":true}`)},
+		{ID: "fresh", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"text":"hello again","thread_ts":"222.1","follow_replies":true}`)},
+	}
+	f.recordToolCalls(t, ctx, calls, f.Now)
+	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[0])
+	require.NoError(t, err)
+	before := appToolSubscriptions(t, f)
+	require.Len(t, before, 1)
+	require.NoError(t, f.Store.Integrations().DeleteAppSubscription(
+		ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, before[0].ID,
+	))
+	require.Empty(t, appToolSubscriptions(t, f))
+	replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[0])
+	require.NoError(t, err)
+	require.JSONEq(t, string(result.ContentParts), string(replay.ContentParts))
+	require.Equal(t, 1, posts)
+	require.Empty(t, appToolSubscriptions(t, f), "completed replay must not restore the detached route")
+	_, err = dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[1])
+	require.NoError(t, err)
+	after := appToolSubscriptions(t, f)
+	require.Len(t, after, 1, "a fresh authorized send can subscribe again")
+	require.Equal(t, 2, posts)
+	require.NotEqual(t, before[0].ID, after[0].ID)
+	require.Equal(t, before[0].Address, after[0].Address)
+	require.Equal(t, f.toolCallID(t, ctx, calls[1].ID), after[0].ToolCallID)
+	require.NoError(t, f.Store.Integrations().DeleteAppSubscription(
+		ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, before[0].ID,
+	))
+	require.Equal(t, after, appToolSubscriptions(t, f), "old DELETE replay cannot revoke a new attachment")
+}
+
 func TestSlackConfirmedSendDoesNotRepeatForFollowPersistence(t *testing.T) {
 	for _, scenario := range []string{
-		"transient-write-failure", "listener-removed-during-send",
+		"transient-write-failure", "subscription-detached-during-send", "app-disconnected-during-send",
 		"sender-removed", "sender-denied", "sender-disabled", "sender-reconfigured",
 	} {
 		t.Run(scenario, func(t *testing.T) {
@@ -520,8 +531,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER fail_first_follow_write BEFORE INSERT ON agent_listeners
-FOR EACH ROW WHEN (NEW.origin = 'runtime') EXECUTE FUNCTION fail_first_follow_write();`)
+CREATE TRIGGER fail_first_follow_write BEFORE INSERT ON app_subscriptions
+FOR EACH ROW WHEN (NEW.tool_call_id IS NOT NULL) EXECUTE FUNCTION fail_first_follow_write();`)
 				require.NoError(t, err)
 			}
 			source, err := agentconfig.ParseSource(
@@ -532,8 +543,6 @@ FOR EACH ROW WHEN (NEW.origin = 'runtime') EXECUTE FUNCTION fail_first_follow_wr
 			name := toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage)
 			entry := source.Tools[name]
 			switch scenario {
-			case "listener-removed-during-send":
-				delete(source.Listeners, "chat__thread_messages")
 			case "sender-removed":
 				delete(source.Tools, name)
 			case "sender-denied":
@@ -549,13 +558,26 @@ FOR EACH ROW WHEN (NEW.origin = 'runtime') EXECUTE FUNCTION fail_first_follow_wr
 				source.Tools[name] = entry
 			}
 			change := appToolConfigChangeInput(t, f, source)
+			var prior integrationstore.AppSubscriptionRecord
+			if scenario == "subscription-detached-during-send" {
+				prior = attachToolSubscription(t, f, "thread_messages", `{"channel_id":"C123","thread_ts":"222.1"}`, nil)
+			}
 			posts := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if serveSlackToolIdentity(w, r) {
 					return
 				}
 				posts++
-				if scenario != "transient-write-failure" {
+				if scenario == "subscription-detached-during-send" {
+					assert.NoError(t, f.Store.Integrations().DeleteAppSubscription(
+						ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, prior.ID,
+					))
+				} else if scenario == "app-disconnected-during-send" {
+					_, err := f.Store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+						ProjectID: toolsTestProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
+					})
+					assert.NoError(t, err)
+				} else if scenario != "transient-write-failure" {
 					_, err := f.Store.Execution().ChangeAgentConfig(ctx, change)
 					assert.NoError(t, err)
 				}
@@ -576,27 +598,24 @@ FOR EACH ROW WHEN (NEW.origin = 'runtime') EXECUTE FUNCTION fail_first_follow_wr
 			body := toolResultMapFromTestParts(t, result.ContentParts)
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
-			var follows int
-			require.NoError(
-				t,
-				f.Pool.QueryRow(ctx, `SELECT count(*) FROM agent_listeners
-WHERE agent_id=$1 AND origin='runtime' AND active`, f.Agent.ID).
-					Scan(&follows),
-			)
-			if scenario != "listener-removed-during-send" {
+			subscriptions := appToolSubscriptions(t, f)
+			if scenario == "app-disconnected-during-send" {
+				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+				require.Equal(t, "follow_registration_failed", body["code"])
+				require.Contains(t, string(record.ResultContentParts), "222.1", "preserve the confirmed provider receipt")
+				require.Empty(t, subscriptions)
+			} else {
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
 				require.Equal(t, "222.1", body["message_ts"])
-				require.Equal(t, 1, follows)
+				require.Len(t, subscriptions, 1)
+				if scenario == "subscription-detached-during-send" {
+					require.NotEqual(t, prior.ID, subscriptions[0].ID)
+				}
 				if scenario == "transient-write-failure" {
 					var attempts int
 					require.NoError(t, f.Pool.QueryRow(ctx, `SELECT last_value FROM follow_write_attempts`).Scan(&attempts))
 					require.Equal(t, 2, attempts, "retry persistence after the confirmed send")
 				}
-			} else {
-				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-				require.Equal(t, "follow_registration_failed", body["code"])
-				require.Contains(t, string(record.ResultContentParts), "222.1", "preserve the confirmed provider receipt")
-				require.Zero(t, follows)
 			}
 			_, err = dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 			require.NoError(t, err)

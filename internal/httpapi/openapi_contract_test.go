@@ -377,6 +377,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"SaveProjectAppRequest.name":                   "#/components/schemas/ProjectAppName",
 		"Agent.name":                                   "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                  "#/components/schemas/AgentName",
+		"AppSubscription.agent_name":                   "#/components/schemas/AgentName",
 		"CreateAgentRequest.name":                      "#/components/schemas/AgentName",
 		"Skill.name":                                   "#/components/schemas/SkillName",
 		"Actor.display_name":                           "",

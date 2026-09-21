@@ -294,8 +294,8 @@ WHERE input.agent_id=$1 AND input.input_kind='content'`, agentID).Scan(&actorPro
 		require.Equal(t, "omnara", actorProvider, "the scheduled task is not attributed to a Slack user")
 		require.Equal(t, trigger["id"], actorUser)
 		var scope string
-		require.NoError(t, env.db.QueryRow(ctx, `SELECT scope_ref FROM agent_listeners
-WHERE agent_id=$1 AND app_id=$2 AND listener_key='chat__thread_messages' AND active`, agentID, app.ID).Scan(&scope))
+		require.NoError(t, env.db.QueryRow(ctx, `SELECT scope_ref FROM app_subscriptions
+WHERE agent_id=$1 AND app_id=$2 AND subscription_type='thread_messages'`, agentID, app.ID).Scan(&scope))
 		require.Equal(t, "C123:"+roots[i], scope, "replies are subscribed before any model post or human reply")
 		// The shared workers omit presentation discovery. Exercise its production
 		// presenter synchronously, while the real kernel-created question is open.
@@ -341,8 +341,8 @@ WHERE input.agent_id=$1 AND input.input_kind='content' AND block.block_kind='tex
 	sendServiceSlackReply(t, ctx, env, "EvMentionAlongsideSchedule", "333.100", "333.100", mention)
 	var mentionAgent uuid.UUID
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {
-		err := env.db.QueryRow(ctx, `SELECT agent_id FROM agent_listeners
-WHERE app_id=$1 AND scope_ref='C123:333.100' AND active`, app.ID).Scan(&mentionAgent)
+		err := env.db.QueryRow(ctx, `SELECT agent_id FROM app_subscriptions
+WHERE app_id=$1 AND scope_ref='C123:333.100'`, app.ID).Scan(&mentionAgent)
 		if !errors.Is(err, pgx.ErrNoRows) {
 			require.NoError(t, err)
 		}

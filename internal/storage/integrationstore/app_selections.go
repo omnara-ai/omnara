@@ -16,7 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// A settled selection asks the planner to re-read listeners. A reserved one
+// A settled selection asks the planner to re-read subscriptions. A reserved one
 // belongs to another immutable plan; failed owners need explicit recovery.
 var (
 	ErrAppSelectionReserved = errors.New("app conversation reserved by another receipt")

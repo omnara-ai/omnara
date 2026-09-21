@@ -2808,17 +2808,6 @@ export const zConfigToolSource = z.object({
     type: z.enum(['built_in', 'custom']).optional()
 });
 
-export const zCreateAgentRequest = z.object({
-    profile: zAgentProfileId.optional(),
-    config: zAgentConfigId,
-    name: zAgentName.optional(),
-    message: z.string().optional(),
-    tools: z.record(z.string(), zConfigToolSource).optional(),
-    listeners: z.record(z.string(), zConfigAppCapabilitySource).optional(),
-    interaction_handlers: z.record(z.string(), zConfigAppCapabilitySource).optional(),
-    initial_input: zAgentLaunchInitialInput.optional()
-});
-
 /**
  * Immutable, project-unique app name used in config keys and qualified tool names.
  */
@@ -2853,9 +2842,63 @@ export const zAppCapabilityDefinition = z.object({
     input_schema: z.record(z.string(), z.unknown()).optional()
 });
 
+export const zAppSubscriptionId = z.string().regex(/^asub_[a-z2-7]{26}$/);
+
+/**
+ * One concrete provider address, validated by the app subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ */
+export const zAppSubscriptionConversation = z.record(z.string(), z.unknown());
+
+export const zAppSubscriptionAttachment = z.object({
+    app_id: zProjectAppId,
+    type: z.string().min(1),
+    conversation: zAppSubscriptionConversation,
+    events: z.array(z.string()).min(1).optional()
+});
+
+export const zCreateAgentRequest = z.object({
+    profile: zAgentProfileId.optional(),
+    config: zAgentConfigId,
+    name: zAgentName.optional(),
+    message: z.string().optional(),
+    tools: z.record(z.string(), zConfigToolSource).optional(),
+    subscriptions: z.array(zAppSubscriptionAttachment).max(100).optional(),
+    interaction_handlers: z.record(z.string(), zConfigAppCapabilitySource).optional(),
+    initial_input: zAgentLaunchInitialInput.optional()
+});
+
+export const zCreateAppSubscriptionRequest = z.object({
+    agent_id: zAgentId,
+    type: z.string().min(1),
+    conversation: zAppSubscriptionConversation,
+    events: z.array(z.string()).min(1).optional()
+});
+
+export const zAppSubscription = z.object({
+    id: zAppSubscriptionId,
+    project_id: zProjectId,
+    app_id: zProjectAppId,
+    agent_id: zAgentId,
+    agent_name: zAgentName,
+    type: z.string().min(1),
+    conversation: zAppSubscriptionConversation,
+    events: z.array(z.string()),
+    created_at: zTimestamp
+});
+
+export const zListAppSubscriptionsResponse = z.object({
+    data: z.array(zAppSubscription),
+    next_cursor: z.string().nullable()
+});
+
+export const zAppSubscriptionDefinition = z.object({
+    conversation_schema: z.record(z.string(), z.unknown()),
+    events: z.array(z.string())
+});
+
 export const zAppCapabilities = z.object({
     tools: z.record(z.string(), zAppCapabilityDefinition),
-    listeners: z.record(z.string(), zAppCapabilityDefinition),
+    subscriptions: z.record(z.string(), zAppSubscriptionDefinition),
     interaction_handler: zAppCapabilityDefinition.optional()
 });
 
@@ -4939,6 +4982,47 @@ export const zUpdateProjectAppPath = z.object({
  * Update app launcher settings.
  */
 export const zUpdateProjectAppResponse = zProjectApp;
+
+export const zListAppSubscriptionsPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    appID: zProjectAppId
+});
+
+export const zListAppSubscriptionsQuery = z.object({
+    limit: z.int().gte(1).lte(100).optional().default(50),
+    cursor: z.string().max(1024).optional()
+});
+
+/**
+ * App conversation subscriptions.
+ */
+export const zListAppSubscriptionsResponse2 = zListAppSubscriptionsResponse;
+
+export const zCreateAppSubscriptionBody = zCreateAppSubscriptionRequest;
+
+export const zCreateAppSubscriptionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    appID: zProjectAppId
+});
+
+/**
+ * Created or existing subscription.
+ */
+export const zCreateAppSubscriptionResponse = zAppSubscription;
+
+export const zDeleteAppSubscriptionPath = z.object({
+    orgID: zOrganizationId,
+    projectID: zProjectId,
+    appID: zProjectAppId,
+    subscriptionID: zAppSubscriptionId
+});
+
+/**
+ * Subscription removed or already absent.
+ */
+export const zDeleteAppSubscriptionResponse = z.void();
 
 export const zConfigureProjectAppBody = zConfigureProjectAppRequest;
 

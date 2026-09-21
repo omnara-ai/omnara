@@ -29,10 +29,10 @@ fixture tests establish neither production readiness nor a fixed completion time
   destinations and preserved explicit policy. Shared profiles do not acquire
   those destinations. Archived agents, subagents and agents with no prior turn
   are included when they have a live project, app and target.
-- Old conversations get no listeners or interaction handlers. Old automatic
+- Old conversations get no subscriptions or interaction handlers. Old automatic
   prompt destinations are cleared. Plain replies in old threads do not resume
   the previous agent; a fresh mention can launch a new one. Resume old agents
-  through the dashboard/API or explicitly add receiving capabilities later.
+  through the dashboard/API or explicitly attach a subscription later.
 
 ## API and configuration changes
 
@@ -49,7 +49,13 @@ verify them against the published package; do not substitute a raw source checko
 for the package in their Node runtime.
 
 New configs select `app__<name>__<operation>` under `tools`, with optional fixed
-`config`. Named `listeners` and `interaction_handlers` are independent blocks.
+`config`. `interaction_handlers` remains a separate config block. Source configs
+have no `listeners` block. Receive subscriptions belong to apps: use launch
+`subscriptions` attachments or `/apps/{appID}/subscriptions` to attach existing
+agents. Their IDs use `asub_`; catalog entries expose
+`capabilities.subscriptions[type].conversation_schema` and `.events`.
+Changing configs does not reconcile subscriptions. Disconnecting preserves them
+and permits listing/deletion; permanent app deletion or agent archival removes them.
 The generic send tool is removed; the selection tools are
 `list_interaction_handlers` and `set_interaction_handler`. Configs keep resolved
 app IDs, so name reuse cannot redirect an existing agent.
@@ -125,7 +131,7 @@ bypass their checks if preparation missed a blocker.
 
 The [39 → 40 → 41 fixture test](https://github.com/omnara-ai/omnara/blob/main/internal/dbmigrate/slack_app_cutover_integration_test.go)
 checks scoped successors, historical config reads, strict runtime decoding, no
-listeners or new runnable work, and later public input. A real continuable retry
+subscriptions or new runnable work, and later public input. A real continuable retry
 fails at **39**; historical failures superseded by success/stop are allowed. An
 injected Go41 failure leaves **40**, and rerunning succeeds after the injected
 cause is removed. This is not a snapshot-restore test or live Slack rehearsal.
@@ -213,7 +219,7 @@ actually persisted by the new service.
    existing agents/history/targets and credential references remain; Slack app
    setup has qualified tools with immutable app references; eligible agents have isolated
    successor scopes and preserved explicit policy; old pointers are cleared and
-   no old-thread listeners were created. Inspect metadata/IDs, not secret values.
+   no old-thread subscriptions were created. Inspect metadata/IDs, not secret values.
    Use the fixture assertions above as the acceptance checklist.
 3. Start only the matching new cluster images behind maintenance, keeping
    schedules and normal inputs paused until checks finish. **Starting workers can
@@ -246,6 +252,10 @@ maintenance inbox show --project proj_... --receipt RECEIPT_UUID
 maintenance inbox retry --project proj_... --receipt RECEIPT_UUID
 maintenance inbox discard --project proj_... --receipt RECEIPT_UUID --reason "operator explanation"
 ```
+
+A removed subscription is rechecked before input admission, including for already
+prepared events. Revoked input follows the existing bounded retries and retained
+failure behavior; deletion does not erase inbox receipts.
 
 Inspect the failure before choosing retry or discard. Output contains metadata,
 frozen identities and progress flags, without provider payloads or credentials.

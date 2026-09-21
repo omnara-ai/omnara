@@ -148,7 +148,7 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if !found {
 		return storeerr.ErrNotFound
 	}
-	derived, listener, err := deriveAppLaunch(base, app, root)
+	derived, subscription, err := deriveAppLaunch(base, app, root)
 	if err != nil {
 		return err
 	}
@@ -175,12 +175,13 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	key := "scheduled"
 	address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
 	plan := AppInboxPlan{key: {
-		Scope: root, AgentID: agentID, ListenerKey: listener,
+		Scope: root, AgentID: agentID,
 		Selection:    &integrationstore.InboxAppSelection{AppID: app.ID, Address: address, Slot: key},
 		BaseConfigID: derived.BaseConfigID, BaseConfigHash: derived.BaseConfigHash,
 		Launch: &executionstore.LaunchAgentInput{
 			ProjectID: receipt.ProjectID, ProfileID: launch.ProfileID,
 			DerivedConfig: &derived.Config, DerivedBaseConfigID: derived.BaseConfigID,
+			Subscriptions:  []integrationstore.AppSubscriptionAttachment{subscription},
 			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
 			IdempotencyKey: "app:" + receipt.ID.String() + ":" + key,
 			InitialInput: &executionstore.LaunchInitialInput{

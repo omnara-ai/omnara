@@ -66,6 +66,24 @@ export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   return failures
 }
 
+export function installAppFailureTracking(page: Page) {
+  return installFailureTracking(page, [
+    /^page: Canceled$/,
+    /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
+    /request: .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    // Chromium can abort the empty 204 DELETE stream through the TLS proxy.
+    // The schedule journey asserts the 204 response and removal from the list.
+    /request: .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /request: .*\/subscriptions\/asub_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /request: .*\/apps\/app_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
+    /request: .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
+    // Navigation and successful writes cancel obsolete reads; writes are checked below.
+    // Full-document navigation also cancels intent-preloaded route chunks.
+    // HTTP failures and import/page errors are still recorded independently.
+    /request: .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
+  ])
+}
+
 export async function createAppDraft(
   page: Page,
   projectID: string,
@@ -160,8 +178,8 @@ export function expectSlackAuthorization(oauthURL: string, browserOrigin: string
 export async function expectAppCapabilities(page: Page, app: ProjectApp) {
   const capabilities = page.getByRole('region', { name: 'Capabilities', exact: true })
   await expect(capabilities.getByText(`app__${app.name}__read`, { exact: true })).toBeVisible()
-  const listener = app.provider === 'github' ? 'pull_request' : 'thread_messages'
-  await expect(capabilities.getByText(`${app.name}__${listener}`, { exact: true })).toBeVisible()
+  const subscription = app.provider === 'github' ? 'pull_request' : 'thread_messages'
+  await expect(capabilities.getByText(subscription, { exact: true })).toBeVisible()
   if (app.provider !== 'github')
     await expect(capabilities.getByText(app.name, { exact: true })).toBeVisible()
 }

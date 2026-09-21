@@ -91,17 +91,21 @@ uncertain; inspect GitHub before repeating the action.
 
 ## Configure incoming PR work
 
-A manually configured listener looks like:
+To forward events from one PR to an existing agent, send this body to
+`POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions`:
 
-```yaml
-listeners:
-  reviews__pull_request:
-    config:
-      conversations: [{repository_id: 123456, pull_request: 42}]
-      events: [discussion_comment, review_comment, commit]
+```json
+{
+  "agent_id": "YOUR_AGENT_ID",
+  "type": "pull_request",
+  "conversation": {"repository_id": 123456, "pull_request": 42},
+  "events": ["discussion_comment", "review_comment", "commit"]
+}
 ```
 
-A PR listener selects `discussion_comment`, `review_comment` and/or `commit`.
+A PR subscription selects `discussion_comment`, `review_comment` and/or `commit`;
+omitting `events` selects all three. Event filters belong to explicit subscription
+attachments. Use **Stop forwarding** on the app page to remove a subscription.
 Here `discussion_comment` means a comment in the PR conversation, not a GitHub
 Discussions post. Submitted reviews arrive as `review_comment`; commits come
 from PR synchronization events, not arbitrary repository pushes.
@@ -124,8 +128,9 @@ For PR-open launches, this is the project app body for
 }
 ```
 
-The launcher derives the PR tools and listener for the triggering PR, adding
-missing entries and preserving explicit entries from the profile. Use
+The launcher derives the PR tools, adding missing entries and preserving explicit
+entries from the profile. It attaches a subscription for the triggering PR with
+the default event selection. Use
 `trigger: "mention"` instead for explicit mentions in new human PR comments.
 Human discussion/review input steers the agent and cancels open interactions;
 PR opens and synchronization events queue. Bot comments, edits and unrelated
@@ -154,5 +159,5 @@ conversation history is preserved. Failed receipts remain available while their
 project and app still exist.
 
 See [Composable apps](/integrations/apps) for mixing these tools with another
-provider's listener or approval destination, and [Custom integrations](/integrations/custom-integrations)
+provider's subscription or approval destination, and [Custom integrations](/integrations/custom-integrations)
 for a service that routes its own events through the public API.

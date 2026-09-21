@@ -29,7 +29,8 @@ func (s strictOpenAPIServer) ListAppDefinitions(
 
 func appCapabilitiesResponse(id string) (openapi.AppCapabilities, error) {
 	result := openapi.AppCapabilities{
-		Tools: make(map[string]openapi.AppCapabilityDefinition), Listeners: make(map[string]openapi.AppCapabilityDefinition),
+		Tools:         make(map[string]openapi.AppCapabilityDefinition),
+		Subscriptions: make(map[string]openapi.AppSubscriptionDefinition),
 	}
 	definition, ok := appdefinition.Lookup(id)
 	if !ok {
@@ -54,16 +55,16 @@ func appCapabilitiesResponse(id string) (openapi.AppCapabilities, error) {
 		}
 		result.Tools[operation] = entry
 	}
-	for name, listener := range definition.Listeners {
-		config, err := listener.ConfigSchema()
+	for name, subscription := range definition.Subscriptions {
+		conversation, err := subscription.ConversationSchema()
 		if err != nil {
 			return result, err
 		}
-		entry, err := appCapabilityResponse(config, nil, "")
-		if err != nil {
+		entry := openapi.AppSubscriptionDefinition{Events: subscription.Events}
+		if err := json.Unmarshal(conversation, &entry.ConversationSchema); err != nil {
 			return result, err
 		}
-		result.Listeners[name] = entry
+		result.Subscriptions[name] = entry
 	}
 	if handler := definition.InteractionHandler; handler != nil {
 		config, err := handler.ConfigSchema()

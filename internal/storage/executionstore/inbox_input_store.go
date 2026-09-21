@@ -24,27 +24,27 @@ type InboxMessageSibling struct {
 }
 
 // InboxInputSlot freezes one existing recipient. It has no selection envelope:
-// app triggers and listeners deliver ordinary inputs, never change configuration,
+// app triggers and subscriptions deliver ordinary inputs, never change configuration,
 // reserve conversation membership or add subscriptions. Routing is caller-owned.
 type InboxInputSlot struct {
-	Sibling     *InboxMessageSibling         `json:"sibling,omitempty"`
-	AgentID     uuid.UUID                    `json:"agent_id"`
-	Input       CreateAgentContentInputInput `json:"input"`
-	ArtifactIDs []uuid.UUID                  `json:"artifact_ids,omitempty"`
-	Listener    *InboxListenerAuthority      `json:"listener,omitempty"`
+	Sibling      *InboxMessageSibling         `json:"sibling,omitempty"`
+	AgentID      uuid.UUID                    `json:"agent_id"`
+	Input        CreateAgentContentInputInput `json:"input"`
+	ArtifactIDs  []uuid.UUID                  `json:"artifact_ids,omitempty"`
+	Subscription *InboxSubscriptionAuthority  `json:"subscription,omitempty"`
 }
 
-// InboxListenerAuthority requires live receive authority for a frozen recipient. Alternatives
+// InboxSubscriptionAuthority requires live receive authority for a frozen recipient. Alternatives
 // preserve overlap deduplication: any matching current subscription is enough.
 // Pure app AgentID triggers omit this field; they are accepted ordinary inputs.
-type InboxListenerAuthority struct {
-	Event        string                   `json:"event"`
-	Alternatives []InboxListenerReference `json:"alternatives"`
+type InboxSubscriptionAuthority struct {
+	Event        string                       `json:"event"`
+	Alternatives []InboxSubscriptionReference `json:"alternatives"`
 }
 
-type InboxListenerReference struct {
-	ListenerKey string                               `json:"listener_key"`
-	Address     integrationstore.ConversationAddress `json:"address"`
+type InboxSubscriptionReference struct {
+	Type    string                               `json:"type"`
+	Address integrationstore.ConversationAddress `json:"address"`
 }
 
 type InboxInputPreparation struct {
@@ -229,7 +229,7 @@ func (s *Store) admitInboxInputSlotOnce(
 		}
 	}
 
-	if slot.Listener != nil {
+	if slot.Subscription != nil {
 		if err := lifecyclelock.Agents(
 			ctx,
 			tx,
@@ -249,7 +249,7 @@ func (s *Store) admitInboxInputSlotOnce(
 			return InboxInputResult{}, err
 		}
 		if !replay {
-			if err := validateInboxListenerTx(ctx, tx, slot); err != nil {
+			if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {
 				return InboxInputResult{}, err
 			}
 		}

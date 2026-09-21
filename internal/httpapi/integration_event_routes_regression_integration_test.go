@@ -5,6 +5,7 @@ package httpapi
 import (
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -173,28 +174,29 @@ func TestSlackSharedBotUninstallVerifiesEachAppAndFencesSetupRevision(t *testing
 	}
 }
 
-func TestSlackChannelOnlyListenerReceivesRootMentionAndThreadReply(t *testing.T) {
+func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	provider := newSlackEventsTestServer(t)
 	t.Cleanup(provider.Close)
-	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "channel-listener")
+	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "channel-subscription")
 	app, err := f.Project.Store.Integrations().UpdateProjectApp(ctx, f.Install.ID, integrationstore.SaveProjectAppInput{
 		OrgID: f.Install.OrgID, ProjectID: f.Install.ProjectID, Name: f.Install.Name, DefinitionID: f.Install.DefinitionID,
 	})
 	require.NoError(t, err)
 	require.Nil(t, app.Settings.Launcher)
-	source := projectAppHTTPSource(map[string]any{
-		"listeners": map[string]any{app.Name + "__thread_messages": map[string]any{
-			"config": map[string]any{"conversations": []any{map[string]any{"channel_id": "C123"}}},
-		}},
-	})
-	config := createPublicHTTPAgentConfig(t, f.Handler, f.Project, "channel-listener", "json",
+	source := projectAppHTTPSource(nil)
+	config := createPublicHTTPAgentConfig(t, f.Handler, f.Project, "channel-subscription", "json",
 		projectAppHTTPJSON(t, source), f.Project.AdminToken, http.StatusCreated)
 	configID := mustPublicHTTPID(t, publicid.KindAgentConfig, testutil.RequireType[string](t, config["id"]))
 	launched, err := f.Project.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: f.Project.ProjectUUID, AgentConfigID: configID, LaunchedBy: httpUserPrincipal(f.Project.AdminUserUUID),
+	})
+	require.NoError(t, err)
+	_, err = f.Project.Store.Integrations().CreateAppSubscription(ctx, integrationstore.CreateAppSubscriptionInput{
+		OrgID: f.Project.OrgUUID, ProjectID: f.Project.ProjectUUID, AppID: app.ID, AgentID: launched.Agent.ID,
+		Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"C123"}`),
 	})
 	require.NoError(t, err)
 	for _, event := range []struct {
@@ -216,15 +218,15 @@ func TestSlackChannelOnlyListenerReceivesRootMentionAndThreadReply(t *testing.T)
 		requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", http.StatusOK,
 			unitSlackSignedHeaders(body, "signing-secret"))
 		drainSlackJourney(t, ctx, f.Project, f.Slack)
-		var agents, inputs, runtimeListeners int
+		var agents, inputs, subscriptions int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT
 			(SELECT count(*) FROM agents WHERE project_id=$1),
 			(SELECT count(*) FROM agent_inputs WHERE agent_id=$2 AND input_kind='content'),
-			(SELECT count(*) FROM agent_listeners WHERE agent_id=$2 AND origin='runtime')`,
-			f.Project.ProjectUUID, launched.Agent.ID).Scan(&agents, &inputs, &runtimeListeners))
-		require.Equal(t, 1, agents, event.key+": listening must not launch another agent")
+			(SELECT count(*) FROM app_subscriptions WHERE agent_id=$2)`,
+			f.Project.ProjectUUID, launched.Agent.ID).Scan(&agents, &inputs, &subscriptions))
+		require.Equal(t, 1, agents, event.key+": forwarding must not launch another agent")
 		require.Equal(t, event.inputs, inputs, event.key)
-		require.Zero(t, runtimeListeners, "delivery must use the channel subscription without adding a follow")
+		require.Equal(t, 1, subscriptions, "delivery must use the channel subscription without adding a follow")
 	}
 	target, err := slackJourneyTarget(t, pool, f.Project.Store.Integrations(), ctx,
 		f.Project.ProjectUUID, app.ID, "C123:111.222")

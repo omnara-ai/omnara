@@ -18,7 +18,6 @@ import {
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
-  listeners: {},
   interactionHandlers: {},
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',

@@ -119,13 +119,13 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			require.Equal(t, "external", actorProvider)
 			require.Equal(t, "helpdesk", actorTenant)
 			require.Equal(t, "customer-7", actorUser)
-			var apps, listeners int
+			var apps, subscriptions int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT
     (SELECT count(*) FROM project_apps WHERE project_id=$1),
-    (SELECT count(*) FROM agent_listeners WHERE agent_id=$2)`, f.project.ProjectUUID, f.agent.ID).
-				Scan(&apps, &listeners))
+    (SELECT count(*) FROM app_subscriptions WHERE agent_id=$2)`, f.project.ProjectUUID, f.agent.ID).
+				Scan(&apps, &subscriptions))
 			require.Zero(t, apps)
-			require.Zero(t, listeners)
+			require.Zero(t, subscriptions)
 		})
 	}
 }

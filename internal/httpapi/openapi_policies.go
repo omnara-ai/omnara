@@ -116,6 +116,9 @@ const (
 	operationDeleteProjectApp              operationID = "DeleteProjectApp"
 	operationGetProjectApp                 operationID = "GetProjectApp"
 	operationListProjectApps               operationID = "ListProjectApps"
+	operationListAppSubscriptions          operationID = "ListAppSubscriptions"
+	operationCreateAppSubscription         operationID = "CreateAppSubscription"
+	operationDeleteAppSubscription         operationID = "DeleteAppSubscription"
 	operationListCronTriggers              operationID = "ListCronTriggers"
 	operationGetCronTrigger                operationID = "GetCronTrigger"
 	operationUpdateCronTrigger             operationID = "UpdateCronTrigger"
@@ -350,6 +353,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationDeleteProjectApp:              accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetProjectApp:                 accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListProjectApps:               accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListAppSubscriptions:          accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateAppSubscription:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteAppSubscription:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationUpdateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationGetCronTrigger:                accountPolicy(projectScope(identitystore.ProjectActionRead)),

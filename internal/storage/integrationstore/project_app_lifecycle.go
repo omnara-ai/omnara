@@ -105,6 +105,11 @@ func (s *Store) deleteProjectAppOnce(ctx context.Context, orgID, projectID, id u
 	if err := lifecyclelock.Agents(ctx, tx, refs); err != nil {
 		return err
 	}
+	if err := q.DeleteProjectAppSubscriptions(ctx, dbsqlc.DeleteProjectAppSubscriptionsParams{
+		ProjectID: projectID, AppID: id,
+	}); err != nil {
+		return err
+	}
 	if err := s.access.ClearAppTargetsFromAgents(ctx, tx, projectID, id); err != nil {
 		return err
 	}

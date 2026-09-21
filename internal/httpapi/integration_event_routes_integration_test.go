@@ -3285,7 +3285,13 @@ func TestSlackEventsLauncherIndependentOfDisabledPostTool(
 	require.NoError(t, json.Unmarshal(compiledConfig.CompiledDefinition, &compiled))
 	require.False(t,
 		compiled.Tools[toolcatalog.AppToolName(fixture.Install.Name, toolcatalog.AppOperationPostMessage)].Enabled)
-	require.NotEmpty(t, compiled.Listeners)
+	subscriptions, err := fixture.Project.Store.Integrations().ListAppSubscriptions(
+		ctx, integrationstore.ListAppSubscriptionsInput{
+			ProjectID: fixture.Project.ProjectUUID, AppID: fixture.Install.ID, Limit: 100,
+		})
+	require.NoError(t, err)
+	require.Len(t, subscriptions.Subscriptions, 1)
+	require.Equal(t, agent.ID, subscriptions.Subscriptions[0].AgentID)
 }
 
 func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {

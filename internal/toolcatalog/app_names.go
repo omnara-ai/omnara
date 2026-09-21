@@ -54,12 +54,3 @@ func SplitAppToolName(name string) (app, operation string, ok bool) {
 	}
 	return app, operation, true
 }
-
-// SplitAppListenerName parses a listener key without a tool prefix or tool-name length restriction.
-func SplitAppListenerName(key string) (app, listener string, ok bool) {
-	app, listener, found := strings.Cut(key, MCPToolNameSeparator)
-	if !found || ValidateAppName(app) != nil || !mcpRemoteToolNamePattern.MatchString(listener) {
-		return "", "", false
-	}
-	return app, listener, true
-}

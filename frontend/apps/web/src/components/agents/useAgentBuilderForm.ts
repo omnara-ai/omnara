@@ -69,7 +69,6 @@ export interface BasicConfig {
   modelName: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
-  listeners: Record<string, ConfigAppCapabilitySource>
   interactionHandlers: Record<string, ConfigAppCapabilitySource>
   mcpServers: BasicMcpServer[]
   skillIds: string[]
@@ -103,7 +102,6 @@ export const emptyBasicConfig: BasicConfig = {
   modelName: '',
   machineSources: [],
   tools: [],
-  listeners: {},
   interactionHandlers: {},
   mcpServers: [],
   skillIds: [],
@@ -170,7 +168,6 @@ export function useAgentBuilderForm(
     model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
     machineSources: draft.machineSources,
     tools: draft.tools,
-    listeners: draft.listeners,
     interactionHandlers: draft.interactionHandlers,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,

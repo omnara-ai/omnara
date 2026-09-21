@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -217,12 +216,6 @@ func (s *Store) changeAgentConfigOnce(
 			return ChangeAgentConfigResult{}, fmt.Errorf("reload agent after config change: %w", err)
 		}
 		if currentAgent.CurrentConfigID == config.ID {
-			if err := integrationstore.ReconcileAgentListenersTx(ctx, tx, integrationstore.ReconcileAgentListenersInput{
-				OrgID: project.OrgID, ProjectID: input.ProjectID, AgentID: input.AgentID, ConfigID: config.ID,
-				Next: nextContract.Listeners,
-			}); err != nil {
-				return ChangeAgentConfigResult{}, err
-			}
 			if _, err := s.ReconcileInteractionSelectionTx(ctx, tx, input.ProjectID, input.AgentID); err != nil {
 				return ChangeAgentConfigResult{}, err
 			}

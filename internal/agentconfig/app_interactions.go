@@ -74,6 +74,6 @@ func ListInteractionHandlers(
 // ReferencedAppIDs shares the same selection logic as compiled-config preparation.
 func (contract RuntimeContract) ReferencedAppIDs() []string {
 	return ReferencedAppIDs(
-		Compiled{Tools: contract.AppTools, Listeners: contract.Listeners, InteractionHandlers: contract.InteractionHandlers},
+		Compiled{Tools: contract.AppTools, InteractionHandlers: contract.InteractionHandlers},
 	)
 }

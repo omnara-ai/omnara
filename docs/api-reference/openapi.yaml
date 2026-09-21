@@ -3216,7 +3216,7 @@ paths:
       tags: [Agents]
       summary: Create agent
       description: >-
-        Launch from a pinned config, optionally adding agent-local app tools, listeners and interaction handlers
+        Launch from a pinned config, optionally adding agent-local app tools, subscriptions and interaction handlers
         and admitting an attributed initial text input in the same transaction.
         Adding app capabilities requires project management permission; launching an
         existing config requires agent operate permission. Reusing an idempotency
@@ -6907,6 +6907,136 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: appID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectAppID'
+    get:
+      operationId: listAppSubscriptions
+      tags: [Integrations]
+      summary: List app conversation subscriptions
+      description: Requires project read permission. Disconnected apps retain their subscriptions and support listing.
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: App conversation subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAppSubscriptionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+    post:
+      operationId: createAppSubscription
+      tags: [Integrations]
+      summary: Attach an agent to an app conversation
+      description: Requires project management permission. Repeating an active attachment returns the same subscription. Different events for the same attachment return a conflict. Subscriptions do not change the agent config or grant sending tools.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppSubscriptionRequest'
+      responses:
+        '201':
+          description: Created or existing subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions/{subscriptionID}:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+      - name: appID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectAppID'
+      - name: subscriptionID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/AppSubscriptionID'
+    delete:
+      operationId: deleteAppSubscription
+      tags: [Integrations]
+      summary: Stop forwarding an app conversation to an agent
+      description: Requires project management permission. Missing subscriptions are a no-op within an existing app. Disconnected apps support deletion. Sending tools, interaction handlers, and the agent remain available. A selected thread does not launch a replacement agent when forwarding stops; attaching again resumes forwarding with a new subscription ID.
+      security:
+        - bearerAuth: []
+        - browserSessionCookie: []
+          csrfHeader: []
+      responses:
+        '204':
+          description: Subscription removed or already absent.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup:
     parameters:
       - name: orgID
@@ -9473,11 +9603,12 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/ConfigToolSource'
           description: Additional app tool entries (app__<app-name>__<operation>) for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
-        listeners:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/ConfigAppCapabilitySource'
-          description: Additional named app listeners. Existing entries win unchanged. Requires project management permission.
+        subscriptions:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AppSubscriptionAttachment'
+          description: App-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
         interaction_handlers:
           type: object
           additionalProperties:
@@ -13436,19 +13567,122 @@ components:
           type: object
           additionalProperties: true
           description: Argument schema with empty fixed config. Configured tools and handlers expose their effective schema at runtime.
+    AppSubscriptionID:
+      type: string
+      pattern: '^asub_[a-z2-7]{26}$'
+    AppSubscriptionConversation:
+      type: object
+      additionalProperties: true
+      x-go-type: json.RawMessage
+      x-go-type-skip-optional-pointer: true
+      description: One concrete provider address, validated by the app subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+    AppSubscriptionAttachment:
+      type: object
+      additionalProperties: false
+      required: [app_id, type, conversation]
+      properties:
+        app_id:
+          $ref: '#/components/schemas/ProjectAppID'
+        type:
+          type: string
+          minLength: 1
+          description: Named subscription type exported by the app definition.
+        conversation:
+          $ref: '#/components/schemas/AppSubscriptionConversation'
+        events:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+          description: Event selection validated against the app definition. Omit to use its defaults.
+    CreateAppSubscriptionRequest:
+      type: object
+      additionalProperties: false
+      required: [agent_id, type, conversation]
+      properties:
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        type:
+          type: string
+          minLength: 1
+          description: Named subscription type exported by the app definition.
+        conversation:
+          $ref: '#/components/schemas/AppSubscriptionConversation'
+        events:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+          description: Event selection validated against the app definition. Omit to use its defaults.
+    AppSubscription:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, app_id, agent_id, agent_name, type, conversation, events, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/AppSubscriptionID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        app_id:
+          $ref: '#/components/schemas/ProjectAppID'
+        agent_id:
+          $ref: '#/components/schemas/AgentID'
+        agent_name:
+          $ref: '#/components/schemas/AgentName'
+        type:
+          type: string
+          minLength: 1
+          description: Named subscription type exported by the app definition.
+        conversation:
+          $ref: '#/components/schemas/AppSubscriptionConversation'
+        events:
+          type: array
+          items:
+            type: string
+          description: Resolved event selection for this subscription.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    ListAppSubscriptionsResponse:
+      type: object
+      additionalProperties: false
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AppSubscription'
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page, or null when this is the last page.
+    AppSubscriptionDefinition:
+      type: object
+      additionalProperties: false
+      required: [conversation_schema, events]
+      properties:
+        conversation_schema:
+          type: object
+          additionalProperties: true
+          description: Schema for one concrete provider conversation address.
+        events:
+          type: array
+          items:
+            type: string
+          description: Supported event types; omitted event selections default to this set.
     AppCapabilities:
       type: object
       additionalProperties: false
-      required: [tools, listeners]
+      required: [tools, subscriptions]
       properties:
         tools:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/AppCapabilityDefinition'
-        listeners:
+        subscriptions:
           type: object
           additionalProperties:
-            $ref: '#/components/schemas/AppCapabilityDefinition'
+            $ref: '#/components/schemas/AppSubscriptionDefinition'
         interaction_handler:
           $ref: '#/components/schemas/AppCapabilityDefinition'
     AppDefinition:

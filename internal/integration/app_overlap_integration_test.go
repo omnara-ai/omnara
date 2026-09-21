@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -68,7 +66,9 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 		require.Len(t, plan, 1, "each receipt belongs only to its saved app")
 		for _, slot := range plan {
 			require.Equal(t, app.ID, slot.Selection.AppID)
-			require.Equal(t, app.Name+"__thread_messages", slot.ListenerKey)
+			require.Len(t, slot.Launch.Subscriptions, 1)
+			require.Equal(t, app.ID, slot.Launch.Subscriptions[0].AppID)
+			require.Equal(t, "thread_messages", slot.Launch.Subscriptions[0].Type)
 		}
 		results, err := router.Admit(ctx, receipt.Lease())
 		require.NoError(t, err)
@@ -98,23 +98,23 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 			for _, slot := range plan {
 				require.Equal(t, agents[app.ID], slot.AgentID)
 				require.Nil(t, slot.Launch)
-				require.NotNil(t, slot.Listener)
-				require.Equal(t, []executionstore.InboxListenerReference{{
-					ListenerKey: app.Name + "__thread_messages",
-					Address:     integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
-				}}, slot.Listener.Alternatives)
+				require.NotNil(t, slot.Subscription)
+				require.Equal(t, []executionstore.InboxSubscriptionReference{{
+					Type:    "thread_messages",
+					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
+				}}, slot.Subscription.Alternatives)
 			}
 			results, err := router.Admit(ctx, receipt.Lease())
 			require.NoError(t, err)
 			require.Equal(t, !replay, results[0].Input.Created)
 		}
 	}
-	var listeners, inputs int
+	var subscriptions, inputs int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT
-		(SELECT count(*) FROM agent_listeners WHERE project_id=$1 AND active AND origin='runtime' AND tool_call_id IS NULL),
+		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1 AND tool_call_id IS NULL),
 		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`, ids.ProjectID).
-		Scan(&listeners, &inputs))
-	require.Equal(t, 2, listeners)
+		Scan(&subscriptions, &inputs))
+	require.Equal(t, 2, subscriptions)
 	require.Equal(t, 4, inputs)
 
 	// A stale frozen policy decision cannot launch a replacement profile.
@@ -163,7 +163,7 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 	require.Equal(t, 2, attempts)
 }
 
-func TestAppRouterDirectedSettledIntentWithoutListener(t *testing.T) {
+func TestAppRouterDirectedSettledIntentWithoutSubscription(t *testing.T) {
 	t.Parallel()
 	pool, store, ids, appSetup := appWorkerFixture(t)
 	ctx := t.Context()
@@ -213,22 +213,14 @@ func TestAppRouterDirectedSettledIntentWithoutListener(t *testing.T) {
 	require.Len(t, results, 1)
 	require.True(t, results[0].Launch.Created)
 	agentID, targetID := results[0].Launch.Agent.ID, results[0].Launch.IntegrationTarget.ID
-	_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		AgentID: agentID, ExpectedCurrentConfigID: results[0].Launch.Agent.CurrentConfigID,
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			OrgID: ids.OrgID, ProjectID: ids.ProjectID, ConfiguredModelID: base.ConfiguredModelID,
-			CompiledDefinition: base.CompiledDefinition, CompilerVersion: base.CompilerVersion,
-			EffectiveDefinitionHash: base.EffectiveDefinitionHash,
-		},
-	})
-	require.NoError(t, err)
+	removeTestAgentSubscriptions(t, store, app, agentID)
 
 	// The app stage can redeliver its original source to the settled selection
 	// without granting a subscription. The ordinary future event still gets none.
 	for _, directed := range []bool{false, true} {
 		key := "ordinary-followup"
 		nextEvent := event
-		nextEvent.Event.Mentioned = false
+		nextEvent.Event.Mentioned = true
 		if directed {
 			key = "original-choice-replay"
 			nextEvent.Directed = true
@@ -237,7 +229,11 @@ func TestAppRouterDirectedSettledIntentWithoutListener(t *testing.T) {
 			nextEvent.SemanticKey = "slack:message:T123:C123:1.3"
 		}
 		next := capture(key)
-		plan, err = router.Freeze(ctx, next.Lease(), []AppEvent{nextEvent})
+		if directed {
+			plan, err = router.Freeze(ctx, next.Lease(), []AppEvent{nextEvent})
+		} else {
+			plan, err = freezeTestAppEvents(ctx, router, next.Lease(), []AppEvent{nextEvent})
+		}
 		require.NoError(t, err)
 		if directed {
 			require.Len(t, plan, 1)
@@ -246,7 +242,7 @@ func TestAppRouterDirectedSettledIntentWithoutListener(t *testing.T) {
 				require.NotNil(t, slot.Input)
 				require.Nil(t, slot.Launch)
 				require.Nil(t, slot.Selection)
-				require.Nil(t, slot.Listener)
+				require.Nil(t, slot.Subscription)
 			}
 		} else {
 			require.Empty(t, plan)
@@ -261,39 +257,15 @@ func TestAppRouterDirectedSettledIntentWithoutListener(t *testing.T) {
 			require.Empty(t, results)
 		}
 	}
-	var agents, targets, listeners, inputs int
+	var agents, targets, subscriptions, inputs int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM agents WHERE project_id=$1),
 		(SELECT count(*) FROM integration_targets WHERE project_id=$1),
-		(SELECT count(*) FROM agent_listeners WHERE project_id=$1 AND active),
+		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
 		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`,
-		ids.ProjectID).Scan(&agents, &targets, &listeners, &inputs))
+		ids.ProjectID).Scan(&agents, &targets, &subscriptions, &inputs))
 	require.Equal(t, 1, agents)
 	require.Equal(t, 1, targets)
-	require.Zero(t, listeners)
+	require.Zero(t, subscriptions)
 	require.Equal(t, 1, inputs)
-}
-
-func removeTestAgentListeners(t *testing.T, store *storage.Store, projectID, agentID uuid.UUID) {
-	t.Helper()
-	ctx := t.Context()
-	agent, err := store.Execution().GetAgentInProject(ctx, projectID, agentID)
-	require.NoError(t, err)
-	config, found, err := store.Execution().GetAgentConfig(ctx, projectID, agent.CurrentConfigID)
-	require.NoError(t, err)
-	require.True(t, found)
-	var compiled agentconfig.Compiled
-	require.NoError(t, json.Unmarshal(config.CompiledDefinition, &compiled))
-	compiled.Listeners = nil
-	encoded, err := agentconfig.EncodeCompiled(compiled)
-	require.NoError(t, err)
-	_, err = store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
-		AgentID: agentID, ExpectedCurrentConfigID: agent.CurrentConfigID,
-		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
-			OrgID: agent.OrgID, ProjectID: projectID, ConfiguredModelID: config.ConfiguredModelID,
-			CompiledDefinition: encoded.CanonicalJSON, CompilerVersion: config.CompilerVersion,
-			EffectiveDefinitionHash: encoded.Hash,
-		},
-	})
-	require.NoError(t, err)
 }

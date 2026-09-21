@@ -481,7 +481,6 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     {
       source_format: 'json',
       source: JSON.stringify({
-        listeners: {},
         interaction_handlers: {},
         tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
         mcp: {},

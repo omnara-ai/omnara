@@ -163,6 +163,9 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
+			var subscriptions int
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
+			require.Zero(t, subscriptions, "neither live nor deleted app history grants receive routes at cutover")
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(
 					t,
@@ -232,6 +235,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			require.Equal(t, map[string]any{"channel_id": "C123", "thread_ts": "111.222"}, tool["config"])
 			require.NotContains(t, config["tools"], "app__slack-2__post_message")
 			require.NotContains(t, config, "listeners")
+			require.NotContains(t, config, "subscriptions")
 			require.NotContains(t, config, "interaction_handlers")
 		})
 	}
@@ -260,7 +264,10 @@ func assertSlackTombstoneSourceResave(
 	require.JSONEq(t, string(definition), string(compiled))
 	contract, err := agentconfig.RuntimeContractFromCompiled(compiled, "", hash)
 	require.NoError(t, err)
-	require.Empty(t, contract.Listeners)
+	var configFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(compiled, &configFields))
+	require.NotContains(t, configFields, "listeners")
+	require.NotContains(t, configFields, "subscriptions")
 	require.Empty(t, contract.InteractionHandlers)
 	require.NotContains(t, source, "send_integration_message")
 	require.NotContains(t, source, "app_id")

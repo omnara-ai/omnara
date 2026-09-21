@@ -1,6 +1,8 @@
 package agentconfig
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,14 +39,10 @@ func compileAppTest(t *testing.T, extra string, opts CompileOptions) Result {
 func TestAppCapabilitiesCompileAndPrepareIndependently(t *testing.T) {
 	for _, extra := range []string{
 		"tools: {app__engineering-team__post_message: {}}",
-		"listeners: {engineering-team__thread_messages: {}}",
 		"interaction_handlers: {engineering-team: {}}",
 		`tools:
   app__engineering-team__post_message:
     config: {channel_id: C123}
-listeners:
-  engineering-team__thread_messages:
-    config: {conversations: [{channel_id: C456, thread_ts: "1.2"}]}
 interaction_handlers:
   engineering-team: {config: {channel_id: C789}}`,
 	} {
@@ -68,12 +66,10 @@ interaction_handlers:
 			require.NoError(t, err)
 			require.Empty(t, prepared.Unavailable)
 			require.Len(t, prepared.Tools, len(contract.AppTools))
-			require.Len(t, prepared.Listeners, len(result.Compiled.Listeners))
 			require.Len(t, prepared.InteractionHandlers, len(result.Compiled.InteractionHandlers))
 			unavailable, err := PrepareAppCapabilities(result.Compiled, nil)
 			require.NoError(t, err)
 			require.Empty(t, unavailable.Tools)
-			require.Empty(t, unavailable.Listeners)
 			require.Empty(t, unavailable.InteractionHandlers)
 			require.NotEmpty(t, unavailable.Unavailable)
 		})
@@ -93,6 +89,9 @@ func TestAppSourceValidationAndUnsupportedConfig(t *testing.T) {
 		"tools: {app__bad: {}}",
 		"tools: {mcp__reserved__read: {}}",
 		"tools: {app__" + strings.Repeat("a", 32) + "__" + strings.Repeat("b", 30) + ": {}}",
+		"listeners: {}",
+		"listeners: {engineering-team__thread_messages: {}}",
+		"listeners: {engineering-team__thread_messages: {config: {conversations: [{channel_id: C123}]}}}",
 		"listeners: {engineering-team__unknown: {}}",
 		"listeners: {engineering-team__thread_messages: {config: {events: [bogus]}}}",
 		"listeners: {engineering-team__thread_messages: {enabled: false}}",
@@ -122,16 +121,25 @@ func TestAppSourceValidationAndUnsupportedConfig(t *testing.T) {
 	}
 	_, err = Compile(
 		SourceFormatYAML,
-		[]byte(validAgentSource("listeners: {engineering-team__thread_messages: {}}")),
+		[]byte(validAgentSource("interaction_handlers: {engineering-team: {}}")),
 		opts,
 	)
 	require.ErrorContains(t, err, "app ID")
 }
 
+func TestRuntimeContractRejectsConfigListeners(t *testing.T) {
+	for _, value := range []string{`{}`, `{"chat__thread_messages":{"app_id":"app_old","config":{}}}`} {
+		raw := canonicalizeJSON(json.RawMessage(`{"instruction":"hello","listeners":` + value + `}`))
+		hash := sha256.Sum256(raw)
+		_, err := RuntimeContractFromCompiled(raw, CompilerVersion, hex.EncodeToString(hash[:]))
+		require.ErrorContains(t, err, `unknown field "listeners"`)
+	}
+}
+
 func TestAppCompiledRejectsForgedStructuralAuthority(t *testing.T) {
 	opts, _ := appTestOptions(t)
 	result := compileAppTest(t, `tools: {app__engineering-team__read: {}}
-listeners: {engineering-team__thread_messages: {}}`, opts)
+interaction_handlers: {engineering-team: {}}`, opts)
 	for _, mutate := range []func(*Compiled){
 		func(c *Compiled) {
 			tool := c.Tools["app__engineering-team__read"]
@@ -150,9 +158,9 @@ listeners: {engineering-team__thread_messages: {}}`, opts)
 		},
 		func(c *Compiled) { tool := c.Tools["app__engineering-team__read"]; c.Tools["web_search"] = tool },
 		func(c *Compiled) {
-			capability := c.Listeners["engineering-team__thread_messages"]
+			capability := c.InteractionHandlers["engineering-team"]
 			capability.AppID = testMachineSourcePublicID(t, publicid.KindProjectApp, "other")
-			c.Listeners["engineering-team__thread_messages"] = capability
+			c.InteractionHandlers["engineering-team"] = capability
 		},
 	} {
 		var compiled Compiled
@@ -170,8 +178,6 @@ func TestCompositionPreservesExistingEntriesAndSubagentsStripApps(t *testing.T) 
 	base := compileAppTest(t, `tools:
   app__engineering-team__post_message: {enabled: false, permission: {mode: always_deny}, config: {channel_id: C123}}
   ordinary__custom: {type: custom, description: Custom, input_schema: {type: object}}
-listeners:
-  engineering-team__thread_messages: {}
 interaction_handlers:
   engineering-team: {config: {channel_id: C123}}
 mcp:
@@ -182,11 +188,8 @@ subagents: {worker: {type: self}}`, opts).Compiled
 			"app__engineering-team__post_message": {Config: map[string]any{"channel_id": "C456"}},
 			"app__engineering-team__read":         {},
 		},
-		Listeners: map[string]AgentConfigAppCapabilitySource{
-			"engineering-team__thread_messages": {Config: map[string]any{"malformed": "ignored"}},
-		},
 		InteractionHandlers: map[string]AgentConfigAppCapabilitySource{
-			"engineering-team": {Config: map[string]any{"channel_id": "C456"}},
+			"engineering-team": {Config: map[string]any{"malformed": "ignored"}},
 		},
 	}
 	derived, err := DeriveWithAppCapabilities(base, addition, opts)
@@ -196,13 +199,11 @@ subagents: {worker: {type: self}}`, opts).Compiled
 		base.Tools["app__engineering-team__post_message"],
 		derived.Tools["app__engineering-team__post_message"],
 	)
-	require.Equal(t, base.Listeners, derived.Listeners)
 	require.Equal(t, base.InteractionHandlers, derived.InteractionHandlers)
 	require.Contains(t, derived.Tools, "app__engineering-team__read")
 	require.NotContains(t, base.Tools, "app__engineering-team__read")
 	child, err := SubagentCompiledFrom(derived, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{}, nil)
 	require.NoError(t, err)
-	require.Empty(t, child.Listeners)
 	require.Empty(t, child.InteractionHandlers)
 	for key, tool := range child.Tools {
 		require.Empty(t, tool.AppID)
@@ -308,7 +309,6 @@ func TestCompositionDoesNotResolveExistingOrNonAppMetadata(t *testing.T) {
 	opts, _ := appTestOptions(t)
 	source := AppCapabilitiesSource{
 		Tools:               map[string]AgentConfigToolSource{"app__engineering-team__read": {}},
-		Listeners:           map[string]AgentConfigAppCapabilitySource{"engineering-team__thread_messages": {}},
 		InteractionHandlers: map[string]AgentConfigAppCapabilitySource{"engineering-team": {}},
 	}
 	base, err := CompileAppCapabilitiesSource(source, opts)
@@ -326,9 +326,6 @@ func TestCompositionDoesNotResolveExistingOrNonAppMetadata(t *testing.T) {
 		Type:   "invalid",
 		Config: map[string]any{"malformed": make(chan int)},
 	}
-	source.Listeners["engineering-team__thread_messages"] = AgentConfigAppCapabilitySource{
-		Config: map[string]any{"bad": true},
-	}
 	source.InteractionHandlers["engineering-team"] = AgentConfigAppCapabilitySource{
 		Config: map[string]any{"channel_id": "invalid"},
 	}
@@ -340,7 +337,7 @@ func TestCompositionDoesNotResolveExistingOrNonAppMetadata(t *testing.T) {
 
 func TestReferencedAppIDsExcludeDisabledToolsOnly(t *testing.T) {
 	apps := map[string]AppResolution{}
-	for index, name := range []string{"disabled", "shared", "enabled", "denied", "listener", "handler"} {
+	for index, name := range []string{"disabled", "shared", "enabled", "denied", "handler"} {
 		id, err := publicid.Encode(publicid.KindProjectApp, publicidTestID(130+index))
 		require.NoError(t, err)
 		apps[name] = AppResolution{AppID: id, Definition: appdefinition.Slack}
@@ -356,9 +353,6 @@ func TestReferencedAppIDsExcludeDisabledToolsOnly(t *testing.T) {
   app__enabled__read: {}
   app__enabled__post_message: {}
   app__denied__read: {permission: {mode: always_deny}}
-listeners:
-  shared__thread_messages: {}
-  listener__thread_messages: {}
 interaction_handlers:
   shared: {}
   handler: {}`, opts)
@@ -366,7 +360,6 @@ interaction_handlers:
 		apps["shared"].AppID,
 		apps["enabled"].AppID,
 		apps["denied"].AppID,
-		apps["listener"].AppID,
 		apps["handler"].AppID,
 	}
 	slices.Sort(want)
@@ -388,8 +381,8 @@ func TestDisabledAppReferencesStillRequireConsistentPinnedIdentity(t *testing.T)
 	opts, _ := appTestOptions(t)
 	result := compileAppTest(t, `tools:
   app__engineering-team__read: {enabled: false}
-listeners:
-  engineering-team__thread_messages: {}`, opts)
+interaction_handlers:
+  engineering-team: {}`, opts)
 	tool := result.Compiled.Tools["app__engineering-team__read"]
 	tool.AppID = testMachineSourcePublicID(t, publicid.KindProjectApp, "recreated")
 	result.Compiled.Tools["app__engineering-team__read"] = tool

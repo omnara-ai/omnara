@@ -97,7 +97,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 		"unrelated",
 		"added-handler",
 		"fixed-same-destination",
-		"listener-removed",
+		"subscription-detached",
 	} {
 		for _, changeBeforeApproval := range []bool{false, true} {
 			t.Run(
@@ -118,6 +118,10 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						`{"text":"hello","thread_ts":"111.222","follow_replies":true}`,
 						f.Now,
 					)
+					var subscription integrationstore.AppSubscriptionRecord
+					if scenario == "subscription-detached" {
+						subscription = attachToolSubscription(t, f, "thread_messages", `{"channel_id":"C123","thread_ts":"111.222"}`, nil)
+					}
 					turn := slackAppToolTurn(f)
 					require.Equal(t, toolpermission.ModeAlwaysAsk, turn.Tools[call.Name].Permission.Mode)
 					posts := 0
@@ -185,8 +189,11 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 							source.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{
 								"chat": {Config: map[string]any{"channel_id": "C123"}},
 							}
-						case "listener-removed":
-							delete(source.Listeners, "chat__thread_messages")
+						case "subscription-detached":
+							require.NoError(t, f.Store.Integrations().DeleteAppSubscription(
+								ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, subscription.ID,
+							))
+							return
 						}
 
 						changeAppToolConfig(t, ctx, f, source)
@@ -221,25 +228,19 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 					record, err := f.Store.Execution().
 						GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 					require.NoError(t, err)
-					allowed := scenario == "unrelated" || scenario == "added-handler"
+					allowed := scenario == "unrelated" || scenario == "added-handler" || scenario == "subscription-detached"
 					wantPosts, wantOutcome := 0, executionstore.ToolResultOutcomeFailed
 					if allowed {
 						wantPosts, wantOutcome = 1, executionstore.ToolResultOutcomeSucceeded
 					}
 					require.Equal(t, wantPosts, posts)
 					require.Equal(t, wantOutcome, record.Outcome)
-					var follows int
-					require.NoError(
-						t,
-						f.Pool.QueryRow(
-							ctx,
-							`SELECT count(*) FROM agent_listeners WHERE agent_id=$1 AND active AND tool_call_id IS NOT NULL`,
-							f.Agent.ID,
-						).
-							Scan(
-								&follows,
-							),
-					)
+					listed := f
+					if scenario == "rebound" {
+						listed.Install, err = f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "chat")
+						require.NoError(t, err)
+					}
+					follows := len(appToolSubscriptions(t, listed))
 					require.Equal(t, wantPosts, follows)
 				},
 			)
@@ -382,47 +383,81 @@ func TestAppToolRejectsFixedArgumentOverrideBeforeProviderIO(t *testing.T) {
 	}
 }
 
-func TestAppToolMissingListenerRejectsFollowBeforeProviderIO(t *testing.T) {
+// All app tool fixtures have no receive capability in agent config. A failed
+// publication must not turn explicit follow_replies into an active subscription.
+func TestAppFollowFailedPostCreatesNoSubscription(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
 		t.Run(provider, func(t *testing.T) {
 			ctx := t.Context()
-			f := newIntegrationToolFixtureWithOptions(t, ctx, "missing-listener", toolFixtureOptions{
-				withSlackApp: provider == "slack", withDiscordApp: provider == "discord", withoutAppListener: true,
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "failed-follow", toolFixtureOptions{
+				withSlackApp: provider == "slack", withDiscordApp: provider == "discord",
 			})
 			input := `{"text":"hello","follow_replies":true}`
 			if provider == "discord" {
-				input = `{"content":"hello","follow_replies":true}`
+				input = `{"content":"hello","thread_id":"555","follow_replies":true}`
 			}
 			call := f.recordToolCall(
-				t,
-				ctx,
-				"follow",
-				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				input,
-				f.Now,
+				t, ctx, "follow", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), input, f.Now,
 			)
-			requests := 0
+			posts := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if serveSlackToolIdentity(w, r) {
 					return
 				}
-				requests++
-				w.WriteHeader(http.StatusInternalServerError)
+				switch r.URL.Path {
+				case "/v10/users/@me":
+					writeToolTestJSON(w, map[string]any{"id": "222", "bot": true})
+				case "/v10/applications/@me":
+					writeToolTestJSON(w, map[string]any{"id": "111"})
+				case "/v10/channels/555":
+					writeToolTestJSON(w, map[string]any{"id": "555", "parent_id": "444", "guild_id": "333", "type": 11})
+				case "/chat.postMessage":
+					posts++
+					writeToolTestJSON(w, map[string]any{"ok": false, "error": "missing_scope"})
+				case "/v10/channels/555/messages":
+					posts++
+					w.WriteHeader(http.StatusForbidden)
+					writeToolTestJSON(w, map[string]any{"code": 50013, "message": "Missing permissions"})
+				default:
+					t.Errorf("unexpected provider request %s", r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
+				}
 			}))
 			defer server.Close()
-			_, err := dispatchAsyncToolToTerminal(
-				t,
-				ctx,
-				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)},
-				slackAppToolTurn(f),
-				call,
-			)
+			_, err := dispatchAsyncToolToTerminal(t, ctx,
+				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 			require.NoError(t, err)
-			require.Zero(t, requests, "missing listener must fail before credential or destination provider checks")
+			require.Equal(t, 1, posts)
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-			require.Contains(t, string(record.ResultContentParts), "listener")
+			require.Empty(t, appToolSubscriptions(t, f))
 		})
 	}
+}
+
+func appToolSubscriptions(t *testing.T, f integrationToolFixture) []integrationstore.AppSubscriptionRecord {
+	t.Helper()
+	page, err := f.Store.Integrations().ListAppSubscriptions(t.Context(), integrationstore.ListAppSubscriptionsInput{
+		ProjectID: toolsTestProjectID, AppID: f.Install.ID, Limit: 100,
+	})
+	require.NoError(t, err)
+	require.False(t, page.HasMore)
+	return page.Subscriptions
+}
+
+func attachToolSubscription(
+	t *testing.T,
+	f integrationToolFixture,
+	subscriptionType, conversation string,
+	events []string,
+) integrationstore.AppSubscriptionRecord {
+	t.Helper()
+	subscription, err := f.Store.Integrations().
+		CreateAppSubscription(t.Context(), integrationstore.CreateAppSubscriptionInput{
+			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, AppID: f.Install.ID, AgentID: f.Agent.ID,
+			Type: subscriptionType, Conversation: json.RawMessage(conversation), Events: events,
+		})
+	require.NoError(t, err)
+	return subscription
 }

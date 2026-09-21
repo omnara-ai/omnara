@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -42,8 +43,9 @@ type LaunchAgentInput struct {
 	DerivedBaseConfigID uuid.UUID
 	Subagent            *SubagentLaunch
 	// InitialInput is mutually exclusive with Message/MessageActor.
-	InitialInput *LaunchInitialInput
-	admission    *launchAdmission
+	InitialInput  *LaunchInitialInput
+	Subscriptions []integrationstore.AppSubscriptionAttachment
+	admission     *launchAdmission
 }
 
 type LaunchAgentResult struct {
@@ -89,6 +91,9 @@ func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) 
 		return LaunchAgentInput{}, storeerr.InvalidRequest(
 			errors.New("profile-attributed derived launch requires a base config"),
 		)
+	}
+	if len(input.Subscriptions) > integrationstore.MaxAppSubscriptionsPerLaunch {
+		return LaunchAgentInput{}, storeerr.InvalidRequest(errors.New("at most 100 launch subscriptions are allowed"))
 	}
 	if input.InitialInput != nil && (input.Message != "" || input.MessageActor != nil) {
 		return LaunchAgentInput{}, storeerr.InvalidRequest(
@@ -156,6 +161,9 @@ func (s *Store) launchAgentTx(
 	if initial != nil && initial.Origin != nil {
 		originApps = append(originApps, initial.Origin.AppID)
 	}
+	for _, subscription := range input.Subscriptions {
+		originApps = append(originApps, subscription.AppID)
+	}
 	resources, err := launchAppIDsTx(ctx, qtx, input)
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
@@ -176,6 +184,15 @@ func (s *Store) launchAgentTx(
 	var origins []AgentInputOrigin
 	if initial != nil && initial.Origin != nil {
 		origins = append(origins, AgentInputOrigin(*initial.Origin))
+	}
+	subscriptions := make([]integrationstore.RegisterAppSubscriptionInput, 0, len(input.Subscriptions))
+	for _, attachment := range input.Subscriptions {
+		prepared, err := integrationstore.PrepareAppSubscriptionTx(ctx, tx, input.ProjectID, attachment)
+		if err != nil {
+			return launchReplayAfterFailureTx(ctx, qtx, input, err)
+		}
+		subscriptions = append(subscriptions, prepared)
+		origins = append(origins, AgentInputOrigin{AppID: prepared.AppID, Address: prepared.Address})
 	}
 	if err := lockAppConversationsTx(ctx, tx, input.ProjectID, origins...); err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
@@ -325,12 +342,20 @@ func (s *Store) launchAgentTx(
 	}
 	result.Agent = agent
 	result.ConfigChange = configChange
-	if err := integrationstore.ReconcileAgentListenersTx(ctx, tx, integrationstore.ReconcileAgentListenersInput{
-		OrgID: project.OrgID, ProjectID: input.ProjectID, AgentID: agent.ID, ConfigID: config.ID,
-		Next: contract.Listeners,
-	}); err != nil {
+	for i := range subscriptions {
+		subscriptions[i].AgentID = agent.ID
+	}
+	registered, err := integrationstore.RegisterAppSubscriptionsTx(ctx, tx, subscriptions)
+	if err != nil {
 		return LaunchAgentResult{}, err
 	}
+	for i, subscription := range registered {
+		if !slices.Equal(subscription.Events, subscriptions[i].Events) {
+			return LaunchAgentResult{}, storeerr.Tag(storeerr.ErrConflict,
+				errors.New("duplicate launch subscription has different events"))
+		}
+	}
+
 	result.MCPConnections, err = createAgentMCPConnectionsTx(
 		ctx,
 		qtx,

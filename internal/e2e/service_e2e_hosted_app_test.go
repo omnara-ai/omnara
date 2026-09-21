@@ -66,8 +66,6 @@ tools:
   app__chat__post_message:
     config: {channel_id: C123}
     permission: {mode: always_allow}
-listeners:
-  chat__thread_messages: {config: {}}
 `
 	config := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/agent-configs",
 		map[string]any{"source_format": "yaml", "source": source}, "", project.adminToken, http.StatusCreated)
@@ -99,10 +97,10 @@ listeners:
 	agentID := testutil.RequireType[string](t, agent["id"])
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
-	var listeners int
+	var subscriptions int
 	require.NoError(t, env.db.QueryRow(ctx,
-		`SELECT count(*) FROM agent_listeners WHERE agent_id=$1`, agentUUID).Scan(&listeners))
-	require.Zero(t, listeners, "listener authority alone must not subscribe to any conversation")
+		`SELECT count(*) FROM app_subscriptions WHERE agent_id=$1`, agentUUID).Scan(&subscriptions))
+	require.Zero(t, subscriptions, "launching a profile with a sending tool must not create receive routes")
 
 	const postText = "Scheduled status: ready for review."
 	const postedText = "The scheduled status is posted."
@@ -148,17 +146,20 @@ listeners:
 	env.updateServiceE2EProviderBaseURL(t, ctx, project.projectID, "openai-prod", model.URL)
 	startServiceSlackWorkers(t, ctx, store, provider, log)
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, postedText)
-	var scope, origin string
+	var scope, providerCallID string
+	var events []string
 	require.NoError(t, env.db.QueryRow(ctx, `
-SELECT scope_ref, origin FROM agent_listeners
-WHERE agent_id=$1 AND app_id=$2 AND listener_key='chat__thread_messages' AND active`, agentUUID, app.ID).
-		Scan(&scope, &origin))
+SELECT subscription.scope_ref, subscription.events, call.provider_call_id FROM app_subscriptions subscription
+JOIN tool_calls call ON call.agent_id=subscription.agent_id AND call.id=subscription.tool_call_id
+WHERE subscription.agent_id=$1 AND subscription.app_id=$2 AND subscription.subscription_type='thread_messages'`,
+		agentUUID, app.ID).Scan(&scope, &events, &providerCallID))
 	require.Equal(t, "C123:111.222", scope)
-	require.Equal(t, "runtime", origin)
+	require.Equal(t, []string{"message"}, events)
+	require.Equal(t, callID, providerCallID, "the confirmed post must own subscription provenance")
 	require.EqualValues(t, 1, posts.Load())
 
-	// Neither a launcher nor an initially configured subscription can route
-	// these messages. Only the successful post's runtime follow can admit one.
+	// No launcher or initial attachment can route these messages. Only the
+	// successful post's app subscription can admit the followed reply.
 	sendServiceSlackReply(t, ctx, env, "EvOther", "999.111", "999.222", "Unfollowed thread")
 	sendServiceSlackReply(t, ctx, env, "EvReply", "111.222", "111.333", replyText)
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, finalText)
@@ -211,7 +212,7 @@ func seedServiceSlackApp(
 	userID, err := publicid.Decode(publicid.KindUser, project.adminUserID)
 	require.NoError(t, err)
 	// OAuth is covered at the HTTP boundary separately. Seed only its verified
-	// credential binding; targets, listeners, receipts, and inputs remain real work.
+	// credential binding; targets, subscriptions, receipts, and inputs remain real work.
 	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID: app.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: projectID,
 		Name: "local-slack", Actor: identitystore.NewUserPrincipal(userID),

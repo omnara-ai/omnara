@@ -1,6 +1,6 @@
-// Package appdefinition describes config attachments without depending on
-// storage, provider transports, or the agent compiler. Launchers and credentials
-// belong to project setup; none are part of these immutable agent capabilities.
+// Package appdefinition describes app tools, subscriptions and interaction
+// handlers without depending on storage, provider transports or the agent compiler.
+// Launchers and credentials belong to project setup.
 package appdefinition
 
 import (
@@ -24,7 +24,7 @@ type Definition struct {
 	ID                 string
 	Provider           string
 	Tools              []string
-	Listeners          map[string]ListenerDefinition
+	Subscriptions      map[string]SubscriptionDefinition
 	InteractionHandler *InteractionHandlerDefinition
 }
 
@@ -46,7 +46,7 @@ func Lookup(id string) (Definition, bool) {
 			ID:       id,
 			Provider: ProviderSlack,
 			Tools:    []string{"read", "post_message"},
-			Listeners: map[string]ListenerDefinition{
+			Subscriptions: map[string]SubscriptionDefinition{
 				"thread_messages": {Name: "thread_messages", Provider: ProviderSlack, Events: []string{"message"}},
 			},
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
@@ -56,7 +56,7 @@ func Lookup(id string) (Definition, bool) {
 			ID:       id,
 			Provider: ProviderDiscord,
 			Tools:    []string{"read", "post_message"},
-			Listeners: map[string]ListenerDefinition{
+			Subscriptions: map[string]SubscriptionDefinition{
 				"thread_messages": {Name: "thread_messages", Provider: ProviderDiscord, Events: []string{"message"}},
 			},
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
@@ -66,7 +66,7 @@ func Lookup(id string) (Definition, bool) {
 			ID:       id,
 			Provider: ProviderGitHub,
 			Tools:    []string{"read", "discussion_comment", "inline_comment", "reply"},
-			Listeners: map[string]ListenerDefinition{
+			Subscriptions: map[string]SubscriptionDefinition{
 				"pull_request": {
 					Name:     "pull_request",
 					Provider: ProviderGitHub,

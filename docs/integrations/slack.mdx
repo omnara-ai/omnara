@@ -1,6 +1,6 @@
 ---
 title: Slack
-description: Launch thread agents from mentions and select Slack tools, listeners and approvals
+description: Launch thread agents from mentions and select Slack tools, subscriptions and approvals
 icon: "slack"
 ---
 
@@ -8,7 +8,7 @@ import SlackCreateApp from '/snippets/slack-create-app.mdx'
 import SlackExistingApp from '/snippets/slack-existing-app.mdx'
 
 Create a Slack app from your project's **Apps** page. Your Omnara app owns the
-Slack setup and credentials. Its launcher, tools, listener and interaction handler
+Slack setup and credentials. Its launcher, tools, subscriptions and interaction handler
 can be used independently; see [Apps](/integrations/apps).
 
 ## Connect Slack
@@ -55,8 +55,9 @@ Anyone in the conversation can choose. Menus expire after an hour, and follow-up
 messages sent before the choice may be missed. Edit offered profiles for future
 requests without changing existing conversations.
 
-A launch derives a config with read/post tools, a thread listener and a Slack
-interaction handler. Existing explicit config entries are preserved. Thread
+A launch derives a config with read/post tools and a Slack interaction handler,
+and attaches a thread subscription before the first input. Existing explicit
+config entries are preserved. Thread
 replies steer the selected agent and cancel its outstanding interactions. Bot
 messages are ignored. Overlapping launchers using the same bot are discouraged.
 
@@ -77,7 +78,7 @@ mentions. Keep slot keys stable when editing.
 ## Scheduled threads
 
 Use **Add schedule** on the app page to post a template opening message and launch
-one profile in its new thread. The tools, reply listener and interaction handler
+one profile in its new thread. The tools, reply subscription and interaction handler
 are ready when the agent starts. Schedules can coexist with mention launches.
 See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
@@ -90,17 +91,23 @@ tools:
     config: {channel_id: C123}
   app__engineering__post_message:
     config: {channel_id: C123}
-listeners:
-  engineering__thread_messages:
-    config: {}
 ```
 
 This agent can read and post in `C123`, but receives no messages initially. A
 post with `follow_replies: true` subscribes it to the confirmed conversation.
-To subscribe immediately, put typed addresses in the listener's
-`config.conversations`, for example `{channel_id: C123, thread_ts: "111.222333"}`.
-Removing the sending tool leaves these subscriptions intact; removing the
-listener stops them all.
+To subscribe immediately, use the app subscriptions API with this body:
+
+```json
+{
+  "agent_id": "YOUR_AGENT_ID",
+  "type": "thread_messages",
+  "conversation": {"channel_id": "C123", "thread_ts": "111.222333"}
+}
+```
+
+Subscriptions use the `message` event by default. Removing the sending tool or
+changing the config leaves subscriptions intact. Use **Stop forwarding** on the
+app page or the [subscriptions API](/integrations/apps#stop-forwarding) to remove one.
 
 `read` accepts `cursor` and `limit`. `post_message` accepts `text` and up to 20
 `artifact_ids`. Destination fields not fixed in config are supplied as model

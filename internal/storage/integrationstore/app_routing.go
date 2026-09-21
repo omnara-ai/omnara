@@ -12,21 +12,11 @@ import (
 )
 
 // AppRoutingCandidates is a snapshot for planning only. Admission rechecks the
-// live listener/config or launcher authority in its transaction.
+// live subscription or launcher authority in its transaction.
 type AppRoutingCandidates struct {
-	Launcher   *ProjectAppRecord
-	Listeners  []AgentListenerRecord
-	Selections []IntegrationTargetRecord
-}
-
-type AgentListenerRecord struct {
-	ID, ProjectID, AgentID, AppID uuid.UUID
-	ListenerKey                   string
-	Address                       ConversationAddress
-	Events                        []string
-	SourceConfigID                uuid.UUID
-	ToolCallID                    uuid.UUID
-	Origin                        ListenerOrigin
+	Launcher      *ProjectAppRecord
+	Subscriptions []AppSubscriptionRecord
+	Selections    []IntegrationTargetRecord
 }
 
 // AppRoutingCandidatesForInbox reads routing in the caller's fenced receipt
@@ -121,9 +111,9 @@ func (s *Store) AppRoutingCandidatesTx(
 	if err != nil {
 		return AppRoutingCandidates{}, err
 	}
-	listeners, err := q.ListMatchingAgentListeners(
+	subscriptions, err := q.ListMatchingAppSubscriptions(
 		ctx,
-		dbsqlc.ListMatchingAgentListenersParams{
+		dbsqlc.ListMatchingAppSubscriptionsParams{
 			ProjectID: projectID,
 			AppID:     appID,
 			Scopes:    rawScopes,
@@ -133,22 +123,8 @@ func (s *Store) AppRoutingCandidatesTx(
 	if err != nil {
 		return AppRoutingCandidates{}, err
 	}
-	for _, row := range listeners {
-		listener := AgentListenerRecord{
-			ID:             row.ID,
-			ProjectID:      row.ProjectID,
-			AgentID:        row.AgentID,
-			AppID:          row.AppID,
-			ListenerKey:    row.ListenerKey,
-			Origin:         ListenerOrigin(row.Origin),
-			Address:        ConversationAddress{Kind: row.ScopeKind, Ref: row.ScopeRef},
-			Events:         row.Events,
-			SourceConfigID: row.SourceConfigID,
-		}
-		if row.ToolCallID != nil {
-			listener.ToolCallID = *row.ToolCallID
-		}
-		result.Listeners = append(result.Listeners, listener)
+	for _, row := range subscriptions {
+		result.Subscriptions = append(result.Subscriptions, appSubscriptionRecord(row))
 	}
 	selections, err := q.ListConversationSelections(
 		ctx,

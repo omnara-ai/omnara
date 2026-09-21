@@ -104,10 +104,11 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 }
 
 const listProjectAppAgentIDsForLifecycle = `-- name: ListProjectAppAgentIDsForLifecycle :many
-SELECT DISTINCT agent_id
-FROM integration_targets
-WHERE project_id = $1
-  AND app_id = $2
+SELECT target.agent_id FROM integration_targets target
+WHERE target.project_id = $1 AND target.app_id = $2
+UNION
+SELECT subscription.agent_id FROM app_subscriptions subscription
+WHERE subscription.project_id = $1 AND subscription.app_id = $2
 ORDER BY agent_id
 `
 

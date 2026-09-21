@@ -39,7 +39,7 @@ func (r *AppRouter) freezeEmptyIfUnrouted(
 			if err != nil {
 				return err
 			}
-			if len(candidates.Listeners) > 0 {
+			if len(candidates.Subscriptions) > 0 {
 				return nil
 			}
 			if app := candidates.Launcher; app != nil && app.State == integrationstore.ProjectAppStateActive &&

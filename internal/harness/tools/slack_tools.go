@@ -198,9 +198,9 @@ func completedAppPost(
 	return completeAsync{
 		content: content,
 		follow: &executionstore.ConfirmedAppFollow{
-			ListenerKey: access.FollowListenerKey,
-			AppID:       access.App.ID,
-			Scope:       scope,
+			SubscriptionType: access.Authority.Definition.FollowSubscription,
+			AppID:            access.App.ID,
+			Scope:            scope,
 		},
 	}
 }

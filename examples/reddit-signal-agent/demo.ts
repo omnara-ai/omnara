@@ -347,7 +347,7 @@ if (slackAppConfigurationToken) {
     throw new Error(`${appName} already belongs to another app definition; choose a different name`)
   }
   // The app owns its launcher profile. Launching from Slack supplies the
-  // namespaced tools, thread listener, and interaction handler to the agent.
+  // namespaced tools, app-owned thread subscription, and interaction handler to the agent.
   const body = {
     name: appName,
     definition_id: 'omnara.slack',

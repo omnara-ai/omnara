@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -18,25 +16,19 @@ import (
 func newAppLifecycleJourney(t *testing.T) appInteractionFixture {
 	t.Helper()
 	f := newAppInteractionFixture(t)
-	definition := f.definition(t, "Live app lifecycle", f.handlers)
-	var compiled agentconfig.Compiled
-	require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
-	compiled.Listeners = map[string]agentconfig.AppCapabilityCompiled{
-		"chat__thread_messages": {
-			AppID:  f.handlers["chat"].AppID,
-			Config: json.RawMessage(`{"conversations":[{"channel_id":"C123"}]}`),
-		},
-		"other__thread_messages": {
-			AppID:  f.handlers["other"].AppID,
-			Config: json.RawMessage(`{"conversations":[{"channel_id":"C456"}]}`),
-		},
+	for _, spec := range []struct {
+		app     integrationstore.ProjectAppRecord
+		channel string
+	}{
+		{f.app, "C123"}, {f.otherApp, "C456"},
+	} {
+		_, err := f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+			OrgID: testOrgID, ProjectID: testProjectID, AppID: spec.app.ID, AgentID: f.process.AgentID,
+			Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"` + spec.channel + `"}`),
+		})
+		require.NoError(t, err)
 	}
-	_, err := f.store.Execution().ChangeAgentConfig(f.ctx, executionstore.ChangeAgentConfigInput{
-		CreateAgentConfigInput: f.activation().encodedDefinition(t, compiled), AgentID: f.process.AgentID,
-		ActorType: identitystore.PrincipalTypeUser, ActorID: f.user.ID, IdempotencyKey: "lifecycle-listeners",
-	})
-	require.NoError(t, err)
-	require.Len(t, f.activation().listeners(t, f.process.AgentID), 2)
+	require.Len(t, f.activation().subscriptions(t, f.process.AgentID), 2)
 	selected := f.selectOrigin(t, f.a.ID)
 	require.Equal(t, "chat", selected.HandlerKey)
 	require.Equal(t, f.a.ID, selected.IntegrationTargetID)
@@ -99,7 +91,7 @@ func TestAppDeletionClearsInteractionSelectionAndReleasesCredentials(t *testing.
 	require.Equal(t, f.process.AgentID, input.AgentID)
 }
 
-func TestScopeTeardownSweepsLiveAppsListenersTargetsAndCredentials(t *testing.T) {
+func TestScopeTeardownSweepsLiveAppsSubscriptionsTargetsAndCredentials(t *testing.T) {
 	t.Parallel()
 	for _, scope := range []string{"project", "organization"} {
 		t.Run(scope, func(t *testing.T) {
@@ -119,18 +111,18 @@ func TestScopeTeardownSweepsLiveAppsListenersTargetsAndCredentials(t *testing.T)
 				_, err = f.store.Organizations().DeleteOrganization(f.ctx, testOrgID, userPrincipal(f.user.ID))
 			}
 			require.NoError(t, err, "teardown must release app credentials before checking secret references")
-			var deletedApps, liveTargets, activeListeners, versions int
+			var deletedApps, liveTargets, activeSubscriptions, versions int
 			require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT
 			 (SELECT count(*) FROM project_apps WHERE project_id=$1 AND deleted_at IS NOT NULL
 			    AND state='disconnected' AND credential_secret_id IS NULL),
 			 (SELECT count(*) FROM integration_targets WHERE project_id=$1 AND deleted_at IS NULL),
-			 (SELECT count(*) FROM agent_listeners WHERE project_id=$1 AND active),
+			 (SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
 			 (SELECT count(*) FROM secret_versions WHERE secret_id IN ($2,$3))`,
 				testProjectID, f.app.CredentialSecretID, f.otherApp.CredentialSecretID).
-				Scan(&deletedApps, &liveTargets, &activeListeners, &versions))
+				Scan(&deletedApps, &liveTargets, &activeSubscriptions, &versions))
 			require.Equal(t, 2, deletedApps)
 			require.Zero(t, liveTargets)
-			require.Zero(t, activeListeners)
+			require.Zero(t, activeSubscriptions)
 			require.Zero(t, versions)
 			// Archival keeps agent metadata and accepted history; neither grants live app authority.
 			var agentState string

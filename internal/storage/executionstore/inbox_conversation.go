@@ -18,7 +18,7 @@ import (
 // from a frozen, uncommitted recipient. It performs no writes or provider I/O.
 // Call before each provider request; admission still rechecks all authority.
 // Frozen profile selections survive launcher edits. App disconnection, profile
-// deletion, config revocation and listener removal take effect immediately.
+// deletion, config revocation and subscription removal take effect immediately.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -140,8 +140,8 @@ func (s *Store) CheckInboxConversationAuthority(
 		if agent.State == AgentStateArchived {
 			return storeerr.ErrUnauthorized
 		}
-		if slot.Listener != nil {
-			if err := validateInboxListenerTx(ctx, tx, slot); err != nil {
+		if slot.Subscription != nil {
+			if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {
 				return err
 			}
 		}

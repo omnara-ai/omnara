@@ -138,7 +138,7 @@ func (r *AppRouter) Freeze(
 				}
 			}
 			// A plain follow-up may arrive before the first reserved agent has any
-			// listener. It must retry, not freeze empty and disappear. Check each
+			// subscription. It must retry, not freeze empty and disappear. Check each
 			// zero-recipient event, including within a multi-event expansion.
 			for _, request := range requests {
 				if !recipientEvents[request.order] {
@@ -221,7 +221,7 @@ func prepareAppEvents(
 // Root Discord mentions normalize to their future thread address. Their verified
 // source channel may authorize that one input; ordinary thread replies, including
 // mentions within a thread, still require an exact thread subscription.
-func (r appEventCandidates) matchesListenerAddress(address integrationstore.ConversationAddress) bool {
+func (r appEventCandidates) matchesSubscriptionAddress(address integrationstore.ConversationAddress) bool {
 	if !slices.Contains(r.scopes, address) {
 		return false
 	}
@@ -240,10 +240,10 @@ func (r appEventCandidates) matchesListenerAddress(address integrationstore.Conv
 
 func sameAppCandidates(a, b integrationstore.AppRoutingCandidates) bool {
 	canonical := func(c integrationstore.AppRoutingCandidates) integrationstore.AppRoutingCandidates {
-		c.Listeners, c.Selections = slices.Clone(c.Listeners), slices.Clone(c.Selections)
+		c.Subscriptions, c.Selections = slices.Clone(c.Subscriptions), slices.Clone(c.Selections)
 		slices.SortFunc(
-			c.Listeners,
-			func(a, b integrationstore.AgentListenerRecord) int { return bytes.Compare(a.ID[:], b.ID[:]) },
+			c.Subscriptions,
+			func(a, b integrationstore.AppSubscriptionRecord) int { return bytes.Compare(a.ID[:], b.ID[:]) },
 		)
 		slices.SortFunc(
 			c.Selections,
@@ -262,13 +262,7 @@ func (r *AppRouter) buildAppPlan(
 ) (AppInboxPlan, error) {
 	plan := AppInboxPlan{}
 	profiles := map[uuid.UUID]executionstore.AgentProfileRecord{}
-	type plannedRecipient struct {
-		agentID        uuid.UUID
-		listeners      map[string]agentconfig.AppCapabilityCompiled
-		launchListener string
-		launchAddress  integrationstore.ConversationAddress
-	}
-	var planned []plannedRecipient
+	var planned []integrationstore.AppSubscriptionRecord
 	requests = slices.Clone(requests)
 	slices.SortFunc(requests, func(a, b appEventCandidates) int { return a.order - b.order })
 	// Explicit decisions can repeat across an expansion, including late files.
@@ -290,71 +284,38 @@ func (r *AppRouter) buildAppPlan(
 			return nil, err
 		}
 		event.ContentBlocks = content
-		recipients := map[uuid.UUID]*executionstore.InboxListenerAuthority{}
-		addListener := func(agentID uuid.UUID, ref executionstore.InboxListenerReference) {
+		recipients := map[uuid.UUID]*executionstore.InboxSubscriptionAuthority{}
+		addSubscription := func(agentID uuid.UUID, ref executionstore.InboxSubscriptionReference) {
 			authority := recipients[agentID]
 			if authority == nil {
-				authority = &executionstore.InboxListenerAuthority{Event: event.Event.Kind}
+				authority = &executionstore.InboxSubscriptionAuthority{Event: event.Event.Kind}
 				recipients[agentID] = authority
 			}
 			authority.Alternatives = append(authority.Alternatives, ref)
 		}
-		for _, listener := range candidates.Listeners {
-			if event.Directed || !request.matchesListenerAddress(listener.Address) {
+		for _, subscription := range candidates.Subscriptions {
+			if event.Directed || !request.matchesSubscriptionAddress(subscription.Address) {
 				continue
 			}
-			addListener(
-				listener.AgentID,
-				executionstore.InboxListenerReference{
-					ListenerKey: listener.ListenerKey,
-					Address:     listener.Address,
+			addSubscription(
+				subscription.AgentID,
+				executionstore.InboxSubscriptionReference{
+					Type:    subscription.Type,
+					Address: subscription.Address,
 				},
 			)
 		}
-		for _, recipient := range planned {
+		for _, subscription := range planned {
 			if event.Directed {
 				break
 			}
-			for key, capability := range recipient.listeners {
-				id, err := publicid.Decode(publicid.KindProjectApp, capability.AppID)
-				if err != nil {
-					return nil, err
-				}
-				if id != appSetup.ID {
-					continue
-				}
-				_, name, ok := toolcatalog.SplitAppListenerName(key)
-				definition, found := appdefinition.Lookup(appSetup.DefinitionID)
-				listener, exported := definition.Listeners[name]
-				if !ok || !found || !exported {
-					return nil, fmt.Errorf("invalid app listener %q", key)
-				}
-				prepared, err := listener.Prepare(capability.Config)
-				if err != nil {
-					return nil, err
-				}
-				if !slices.Contains(prepared.Events, event.Event.Kind) {
-					continue
-				}
-				if key == recipient.launchListener && recipient.launchAddress == request.address {
-					addListener(recipient.agentID, executionstore.InboxListenerReference{
-						ListenerKey: key, Address: recipient.launchAddress,
-					})
-				}
-				for _, conversation := range prepared.Conversations {
-					kind, ref, err := conversation.Conversation()
-					if err != nil {
-						return nil, err
-					}
-					address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
-					if !request.matchesListenerAddress(address) {
-						continue
-					}
-					addListener(recipient.agentID, executionstore.InboxListenerReference{
-						ListenerKey: key, Address: address,
-					})
-				}
+			if subscription.AppID != appSetup.ID || !slices.Contains(subscription.Events, event.Event.Kind) ||
+				!request.matchesSubscriptionAddress(subscription.Address) {
+				continue
 			}
+			addSubscription(subscription.AgentID, executionstore.InboxSubscriptionReference{
+				Type: subscription.Type, Address: subscription.Address,
+			})
 		}
 		for _, intent := range event.Launches {
 			app, settledAgent, err := resolveAppLaunchIntent(receipt.ProjectID, intent, candidates)
@@ -374,7 +335,7 @@ func (r *AppRouter) buildAppPlan(
 					return nil, fmt.Errorf("%w: settled agent uses another profile", ErrAppLaunchUnavailable)
 				}
 				// A chosen source or an intent racing another receipt's settlement
-				// can reuse this recipient. It grants this input, not a listener.
+				// can reuse this recipient. It grants this input, not a subscription.
 				recipients[settledAgent] = nil
 				continue
 			}
@@ -395,15 +356,7 @@ func (r *AppRouter) buildAppPlan(
 				}
 				profiles[profileID] = profile
 			}
-			derived, listenerKey, err := deriveAppLaunch(profile.CurrentConfig, app, event.Event.Scope)
-			if err != nil {
-				return nil, err
-			}
-			contract, err := agentconfig.RuntimeContractFromCompiled(
-				derived.Config.CompiledDefinition,
-				derived.Config.CompilerVersion,
-				derived.Config.EffectiveDefinitionHash,
-			)
+			derived, subscription, err := deriveAppLaunch(profile.CurrentConfig, app, event.Event.Scope)
 			if err != nil {
 				return nil, err
 			}
@@ -427,6 +380,7 @@ func (r *AppRouter) buildAppPlan(
 				LaunchedBy:          identitystore.NewUserPrincipal(appSetup.InstalledByUserID),
 				DerivedConfig:       &derived.Config,
 				DerivedBaseConfigID: derived.BaseConfigID,
+				Subscriptions:       []integrationstore.AppSubscriptionAttachment{subscription},
 				IdempotencyKey:      "app:" + receipt.ID.String() + ":" + key,
 				InitialInput: &executionstore.LaunchInitialInput{
 					ContentBlocks:          content,
@@ -453,25 +407,29 @@ func (r *AppRouter) buildAppPlan(
 				ArtifactIDs:    appArtifactIDs(files),
 				BaseConfigID:   derived.BaseConfigID,
 				BaseConfigHash: derived.BaseConfigHash,
-				ListenerKey:    listenerKey,
 			}
-			planned = append(planned, plannedRecipient{agentID, contract.Listeners, listenerKey, request.address})
+			// This launch attaches exactly its source conversation. Keep a concrete
+			// route for later events in this expansion, before admission persists it.
+			planned = append(planned, integrationstore.AppSubscriptionRecord{
+				AppID: subscription.AppID, AgentID: agentID, Type: subscription.Type,
+				Address: request.address, Events: subscription.Events,
+			})
 			selected[identity] = selectedRecipient{agentID, request.order}
 		}
-		for agentID, listener := range recipients {
+		for agentID, subscription := range recipients {
 			content, files, err := appRecipientContent(event)
 			if err != nil {
 				return nil, err
 			}
 			key := appPlanKey(event.SemanticKey, "input", agentID.String())
 			plan[key] = AppInboxSlot{
-				Sibling:     event.Sibling,
-				Scope:       event.Event.Scope,
-				EventOrder:  request.order,
-				Listener:    listener,
-				AgentID:     agentID,
-				Files:       files,
-				ArtifactIDs: appArtifactIDs(files),
+				Sibling:      event.Sibling,
+				Scope:        event.Event.Scope,
+				EventOrder:   request.order,
+				Subscription: subscription,
+				AgentID:      agentID,
+				Files:        files,
+				ArtifactIDs:  appArtifactIDs(files),
 				Input: &executionstore.CreateAgentContentInputInput{
 					ProjectID:     receipt.ProjectID,
 					AgentID:       agentID,
@@ -543,14 +501,16 @@ func resolveAppLaunchIntent(
 }
 
 // deriveAppLaunch adds the hosted launcher's concrete capabilities without
-// changing explicit profile entries. Admission separately follows the launch
-// conversation, even if the profile already declared an empty listener.
+// changing explicit profile entries. It resolves subscription defaults now so
+// replay and later events use the exact attachment that atomic admission receives.
 func deriveAppLaunch(
 	base executionstore.AgentConfigRecord,
 	app integrationstore.ProjectAppRecord,
 	scope appdefinition.Scope,
-) (AppProfileDerivation, string, error) {
-	fail := func(err error) (AppProfileDerivation, string, error) { return AppProfileDerivation{}, "", err }
+) (AppProfileDerivation, integrationstore.AppSubscriptionAttachment, error) {
+	fail := func(err error) (AppProfileDerivation, integrationstore.AppSubscriptionAttachment, error) {
+		return AppProfileDerivation{}, integrationstore.AppSubscriptionAttachment{}, err
+	}
 	if base.ProjectID != app.ProjectID || app.State != integrationstore.ProjectAppStateActive {
 		return fail(storeerr.ErrUnauthorized)
 	}
@@ -565,22 +525,15 @@ func deriveAppLaunch(
 	if err != nil {
 		return fail(err)
 	}
-	listenerName := "thread_messages"
+	subscriptionType := "thread_messages"
 	if app.DefinitionID == appdefinition.GitHub {
-		listenerName = "pull_request"
+		subscriptionType = "pull_request"
 	}
-	_, exists := definition.Listeners[listenerName]
+	subscription, exists := definition.Subscriptions[subscriptionType]
 	if !exists {
-		return fail(fmt.Errorf("app has no launch listener"))
+		return fail(fmt.Errorf("app has no launch subscription"))
 	}
-	listenerKey := app.Name + "__" + listenerName
-	var original agentconfig.Compiled
-	if err := json.Unmarshal(base.CompiledDefinition, &original); err != nil {
-		return fail(err)
-	}
-	if capability, exists := original.Listeners[listenerKey]; exists && capability.AppID != instance {
-		return fail(fmt.Errorf("%w: launch listener references another app", ErrAppLaunchUnavailable))
-	}
+
 	var destination any
 	switch app.Provider {
 	case appdefinition.ProviderSlack:
@@ -604,7 +557,6 @@ func deriveAppLaunch(
 	for _, operation := range definition.Tools {
 		additions.Tools[toolcatalog.AppToolName(app.Name, operation)] = agentconfig.AgentConfigToolSource{Config: config}
 	}
-	additions.Listeners = map[string]agentconfig.AgentConfigAppCapabilitySource{listenerKey: {}}
 	if definition.InteractionHandler != nil {
 		additions.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{app.Name: {Config: config}}
 	}
@@ -619,7 +571,17 @@ func deriveAppLaunch(
 	if err != nil {
 		return fail(err)
 	}
-	return derived, listenerKey, nil
+	conversation, err := scope.ConversationJSON()
+	if err != nil {
+		return fail(err)
+	}
+	prepared, err := subscription.Prepare(conversation, nil)
+	if err != nil {
+		return fail(err)
+	}
+	return derived, integrationstore.AppSubscriptionAttachment{
+		AppID: app.ID, Type: subscriptionType, Conversation: conversation, Events: slices.Clone(prepared.Events),
+	}, nil
 }
 
 func appPlanKey(parts ...string) string {

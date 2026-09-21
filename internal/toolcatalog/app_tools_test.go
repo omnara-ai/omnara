@@ -68,8 +68,12 @@ func TestEveryAppOperationFlexibleAndFixedConfig(t *testing.T) {
 				_, err = tool.CanonicalConfig([]byte(`{"unsupported":true}`))
 				require.Error(t, err)
 				if operation == AppOperationPostMessage {
-					require.Equal(t, "thread_messages", tool.FollowListener)
+					require.Equal(t, "thread_messages", tool.FollowSubscription)
 					require.True(t, a.FollowReplies)
+					require.Contains(t, definition.Subscriptions, tool.FollowSubscription)
+				} else {
+					require.Empty(t, tool.FollowSubscription)
+					require.False(t, a.FollowReplies)
 				}
 			})
 		}

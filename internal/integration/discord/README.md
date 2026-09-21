@@ -2,7 +2,7 @@
 
 This package owns customer-bot REST, one Gateway connection per shard, message
 normalization, and signed HTTP interactions. It owns no database, runtime lease,
-listener registration, tool authority, command registration, or application
+subscription registration, tool authority, command registration, or application
 selection. All tests use local HTTP/WebSocket fixtures; no live provider calls.
 
 ## Identity and credentials
@@ -133,15 +133,20 @@ once. A fresh run after failed sequence 11 resumes from stored sequence 10.
 ## Mention, reply, tools and files
 
 `NormalizeMessage` exposes actor, self/bot/webhook facts and mentions using **bot
-user ID**. `MatchesListener` permits a mention in a selected parent or a message
-in one selected/followed thread; it is not a generic whole-channel subscription.
-The caller resolves current channel metadata and live listener authority.
-`<name>__thread_messages` owns configured and runtime subscriptions independently
-of sending tools. An empty listener has no initial conversations. Confirmed
-`follow_replies` sends require that listener in the original and current agent
-config, pinned to the same app. Hosted launch admission adds its conversation as
-a runtime subscription atomically, with no tool-call ID. Removing a sending tool
-does not remove subscriptions; removing their listener does.
+user ID**. The app adapter in `../discord_event.go` excludes self/automated events
+and verifies current channel metadata before producing concrete conversation
+addresses. `AppRouter` matches app-owned subscriptions: a verified root mention
+may use its source channel subscription, while replies require an exact thread
+subscription. App launcher policy separately decides whether to launch a profile
+or send to an explicit existing agent. Frozen subscription inputs recheck live
+receive authority during admission before creating agent input. See
+[Discord event routing](../discord_event.md) and [app routing](../app_routing.md).
+App-owned `thread_messages` subscriptions attach one conversation and event set
+to an agent independently of sending tools. Confirmed, explicitly requested
+`follow_replies` sends require posting authority, without a receive grant in
+agent config. Hosted launch admission adds its frozen conversation and resolved
+events atomically, with no tool-call ID. Removing a sending tool preserves
+subscriptions; deleting a subscription stops forwarding.
 
 The inbox worker calls `EnsureThread` after durable intake. For a parent mention,
 it creates or reuses the source message's single thread. A mention inside a

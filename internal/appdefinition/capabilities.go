@@ -4,120 +4,56 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-
-	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
 
-type ListenerDefinition struct {
+// SubscriptionDefinition exports a named app-owned receive capability. Its
+// conversation is one concrete provider address, independent of agent config.
+type SubscriptionDefinition struct {
 	Name     string
 	Provider string
 	Events   []string
 }
 
-type SlackListenerConfig struct {
-	Conversations []SlackScope `json:"conversations,omitempty"`
-	Events        []string     `json:"events,omitempty"`
-}
-type GitHubListenerConfig struct {
-	Conversations []GitHubScope `json:"conversations,omitempty"`
-	Events        []string      `json:"events,omitempty"`
-}
-type DiscordListenerConfig struct {
-	Conversations []DiscordScope `json:"conversations,omitempty"`
-	Events        []string       `json:"events,omitempty"`
+type PreparedSubscription struct {
+	Scope  Scope
+	Events []string
 }
 
-// PreparedListener exposes initial subscriptions separately from ongoing event
-// authority. An empty Conversations slice grants no initial subscriptions.
-type PreparedListener struct {
-	Name          string
-	Provider      string
-	Config        json.RawMessage
-	Conversations []Scope
-	Events        []string
-}
-
-func (d ListenerDefinition) ConfigSchema() (json.RawMessage, error) {
+func (d SubscriptionDefinition) ConversationSchema() (json.RawMessage, error) {
 	properties, required, err := destinationProperties(d.Provider)
 	if err != nil {
 		return nil, err
 	}
-	conversationSchema, err := objectSchema(properties, required)
-	if err != nil {
-		return nil, err
-	}
-	return objectSchema(map[string]any{
-		"conversations": map[string]any{"type": "array", "items": conversationSchema, "uniqueItems": true},
-		"events": map[string]any{
-			"type":        "array",
-			"items":       map[string]any{"type": "string", "enum": d.Events},
-			"minItems":    1,
-			"uniqueItems": true,
-		},
-	}, nil)
+	return objectSchema(properties, required)
 }
 
-func (d ListenerDefinition) Prepare(raw json.RawMessage) (PreparedListener, error) {
-	if len(raw) == 0 {
-		raw = json.RawMessage(`{}`)
-	}
-	schema, err := d.ConfigSchema()
+// Prepare resolves omitted events to all supported events and returns an owned,
+// sorted selection. Explicit empty, duplicate or unknown events are rejected.
+func (d SubscriptionDefinition) Prepare(conversation json.RawMessage, events []string) (PreparedSubscription, error) {
+	scope, err := ResolveDestination(d.Provider, nil, conversation)
 	if err != nil {
-		return PreparedListener{}, err
+		return PreparedSubscription{}, fmt.Errorf("subscription %s conversation: %w", d.Name, err)
 	}
-	if err := jsonschema.Validate(schema, raw); err != nil {
-		return PreparedListener{}, fmt.Errorf("listener %s config: %w", d.Name, err)
+	if events == nil {
+		events = d.Events
 	}
-	result := PreparedListener{Name: d.Name, Provider: d.Provider}
-	var canonical any
-	switch d.Provider {
-	case ProviderSlack:
-		var config SlackListenerConfig
-		if err := json.Unmarshal(raw, &config); err != nil {
-			return result, err
+	if len(events) == 0 {
+		return PreparedSubscription{}, fmt.Errorf("subscription %s requires at least one event", d.Name)
+	}
+	if len(events) > len(d.Events) {
+		return PreparedSubscription{}, fmt.Errorf("subscription %s accepts at most %d events", d.Name, len(d.Events))
+	}
+	selected := slices.Clone(events)
+	slices.Sort(selected)
+	for i, event := range selected {
+		if !slices.Contains(d.Events, event) {
+			return PreparedSubscription{}, fmt.Errorf("subscription %s does not support event %q", d.Name, event)
 		}
-		if len(config.Events) == 0 {
-			config.Events = slices.Clone(d.Events)
-		}
-		slices.Sort(config.Events)
-		result.Events, canonical = config.Events, config
-		for _, address := range config.Conversations {
-			result.Conversations = append(result.Conversations, Scope{Slack: &address})
-		}
-	case ProviderGitHub:
-		var config GitHubListenerConfig
-		if err := json.Unmarshal(raw, &config); err != nil {
-			return result, err
-		}
-		if len(config.Events) == 0 {
-			config.Events = slices.Clone(d.Events)
-		}
-		slices.Sort(config.Events)
-		result.Events, canonical = config.Events, config
-		for _, address := range config.Conversations {
-			result.Conversations = append(result.Conversations, Scope{GitHub: &address})
-		}
-	case ProviderDiscord:
-		var config DiscordListenerConfig
-		if err := json.Unmarshal(raw, &config); err != nil {
-			return result, err
-		}
-		if len(config.Events) == 0 {
-			config.Events = slices.Clone(d.Events)
-		}
-		slices.Sort(config.Events)
-		result.Events, canonical = config.Events, config
-		for _, address := range config.Conversations {
-			result.Conversations = append(result.Conversations, Scope{Discord: &address})
+		if i > 0 && selected[i-1] == event {
+			return PreparedSubscription{}, fmt.Errorf("subscription %s repeats event %q", d.Name, event)
 		}
 	}
-	for _, address := range result.Conversations {
-		if err := address.Validate(d.Provider); err != nil {
-			return result, err
-		}
-	}
-	result.Config, err = json.Marshal(canonical)
-	return result, err
+	return PreparedSubscription{Scope: scope, Events: selected}, nil
 }
 
 type InteractionHandlerDefinition struct{ Provider string }

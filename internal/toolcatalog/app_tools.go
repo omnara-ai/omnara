@@ -21,12 +21,12 @@ const (
 // AppToolDefinition is provider metadata, independent of saved app identities.
 // Use Prepare for model exposure and ResolveArgs before provider execution.
 type AppToolDefinition struct {
-	Operation      string
-	Provider       string
-	Description    string
-	FollowListener string
-	required       []string
-	properties     map[string]any
+	Operation          string
+	Provider           string
+	Description        string
+	FollowSubscription string
+	required           []string
+	properties         map[string]any
 }
 
 // Definitions and their private property maps are read-only after construction.
@@ -150,9 +150,9 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			properties:  map[string]any{"cursor": text(), "limit": limit()}},
 		{
 			Operation: AppOperationPostMessage, Provider: appdefinition.ProviderSlack,
-			FollowListener: "thread_messages",
+			FollowSubscription: "thread_messages",
 			Description: "Post a Slack message at the supplied destination. " +
-				"follow_replies requires the app’s configured thread_messages listener and successful local registration after posting.",
+				"follow_replies subscribes this agent to replies after successful posting and local registration.",
 			required: []string{"text"},
 			properties: map[string]any{
 				"text":           text(),
@@ -206,9 +206,9 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			properties:  map[string]any{"before": text(), "limit": limit()}},
 		{
 			Operation: AppOperationPostMessage, Provider: appdefinition.ProviderDiscord,
-			FollowListener: "thread_messages",
+			FollowSubscription: "thread_messages",
 			Description: "Post a Discord message at the supplied destination. " +
-				"follow_replies requires the app’s configured thread_messages listener and successful local registration after posting.",
+				"follow_replies subscribes this agent to replies after successful posting and local registration.",
 			required: []string{"content"},
 			properties: map[string]any{
 				"content":        text(),

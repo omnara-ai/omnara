@@ -238,10 +238,12 @@ Slack and Discord offer `read` and `post_message`. GitHub offers `read`,
 `discussion_comment`, `inline_comment` and `reply`. See the provider guides for
 arguments and pagination. Ordinary model output remains in Omnara.
 
-Slack and Discord posts may request `follow_replies: true` when the agent config
-contains that app's `thread_messages` listener. Confirmed publication registers
-the returned conversation under the listener; it does not choose an approval
-destination. The listener remains independent of later sender changes.
+Slack and Discord posts may explicitly request `follow_replies: true`. Successful
+publication and local registration attach an app-owned subscription to the
+confirmed conversation using the posting tool's existing authorization; no config
+receive grant is required. This does not select an approval destination. Later
+config or sender changes leave the subscription intact. Manage it from the app's
+[Conversations list or subscriptions API](/integrations/apps#stop-forwarding).
 
 ### `list_interaction_handlers` / `set_interaction_handler`
 

@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -25,11 +23,10 @@ import (
 func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	t.Parallel()
 	f := newAppActivationFixture(t)
-	definition := f.definition(t, "Initial origin", map[string]agentconfig.AppCapabilityCompiled{
-		"chat__thread_messages": f.listener(),
-	})
+	definition := f.definition(t, "Initial origin")
 	input := f.launchInput(uuid.Nil, "initial-origin")
 	input.DerivedConfig = &definition
+	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
 	input.InitialInput = &executionstore.LaunchInitialInput{
 		ContentBlocks: json.RawMessage(
 			`[{"type":"text","text":"First","metadata":{"part":"1"}},{"type":"text","text":"Second"}]`,
@@ -61,7 +58,7 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	require.Equal(t, integrationstore.TargetAttribution, launch.IntegrationTarget.RoutingRole)
 	require.Equal(t, "integration:slack:"+f.app.ID.String(), launch.AgentInput.IdempotencyScope)
 	require.Equal(t, input.InitialInput.SemanticEventKey, launch.AgentInput.InputIdempotencyKey)
-	require.Len(t, f.listeners(t, launch.Agent.ID), 1)
+	require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
 	f.disable(t)
 	replayed, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
@@ -88,13 +85,10 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			f := newAppActivationFixture(t)
-			definition := f.definition(
-				t,
-				"Failed initial input",
-				map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": f.listener()},
-			)
+			definition := f.definition(t, "Failed initial input")
 			input := f.launchInput(uuid.Nil, "invalid-initial")
 			input.DerivedConfig = &definition
+			input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"test"}]`),
 				Actor: &executionstore.ActorParams{
@@ -124,6 +118,7 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 				{`SELECT count(*) FROM agents WHERE idempotency_key=$1`, input.IdempotencyKey},
 				{`SELECT count(*) FROM agent_configs WHERE effective_definition_hash=$1`, definition.EffectiveDefinitionHash},
 				{`SELECT count(*) FROM integration_targets WHERE provider_ref=$1`, input.InitialInput.Origin.Address.Ref},
+				{`SELECT count(*) FROM app_subscriptions WHERE app_id=$1`, f.app.ID.String()},
 			} {
 				var count int
 				require.NoError(t, f.store.pool.QueryRow(f.ctx, check.query, check.value).Scan(&count))
@@ -249,14 +244,14 @@ func newInboxLaunchFixture(
 	for _, key := range keys {
 		plannedID, err := uuid.NewV7()
 		require.NoError(t, err)
-		definition := f.definition(
-			t,
-			"Frozen initial config "+key,
-			map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": f.listener()},
-		)
+		definition := f.definition(t, "Frozen initial config "+key)
 		launch := f.launchInput(uuid.Nil, "inbox-launch-"+key)
 		launch.DerivedConfig, launch.ProfileID = &definition, f.profile.ID
 		launch.DerivedBaseConfigID = f.profile.CurrentConfigID
+		subscription := f.attachment()
+		subscription.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"123.456"}`)
+		subscription.Events = []string{"message"}
+		launch.Subscriptions = []integrationstore.AppSubscriptionAttachment{subscription}
 		launch.InitialInput = &executionstore.LaunchInitialInput{
 			ContentBlocks: json.RawMessage(
 				`[{"type":"text","text":"First event"}]`,
@@ -275,9 +270,8 @@ func newInboxLaunchFixture(
 			DeliveryMode:     executionstore.DeliveryModeSteering,
 		}
 		slot := executionstore.InboxLaunchSlot{
-			AgentID:     plannedID,
-			ListenerKey: "chat__thread_messages",
-			Launch:      launch,
+			AgentID: plannedID,
+			Launch:  launch,
 			Selection: integrationstore.InboxAppSelection{
 				AppID:   f.app.ID,
 				Address: launch.InitialInput.Origin.Address,
@@ -349,7 +343,7 @@ func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 			slot.Launch.DerivedConfig.EffectiveDefinitionHash,
 		},
 		{`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, slot.AgentID},
-		{`SELECT count(*) FROM agent_listeners WHERE agent_id=$1`, slot.AgentID},
+		{`SELECT count(*) FROM app_subscriptions WHERE agent_id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM artifacts WHERE agent_id=$1`, slot.AgentID},
 	} {
@@ -399,7 +393,10 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	require.Equal(t, f.slots["a"].ArtifactIDs[0], created.Artifacts[0].ID)
 	require.Equal(t, created.Agent.ID, created.Artifacts[0].AgentID)
 	require.JSONEq(t, string(f.slots["a"].Launch.InitialInput.ContentBlocks), string(created.InputContentBlocks))
-	require.Len(t, f.listeners(t, created.Agent.ID), 2)
+	subscriptions := f.subscriptions(t, created.Agent.ID)
+	require.Len(t, subscriptions, 1, "one concrete frozen attachment is registered atomically")
+	require.Equal(t, "thread_messages", subscriptions[0].SubscriptionType)
+	require.Equal(t, "C123:123.456", subscriptions[0].ScopeRef)
 	var count int
 	require.NoError(
 		t,
@@ -424,13 +421,19 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	)
 	f.disable(t)
 	changed, err := f.store.Execution().
-		ChangeAgentConfig(f.ctx, f.changeInput(t, created.Agent.ID, "After launch", nil, "after-launch"))
+		ChangeAgentConfig(f.ctx, f.changeInput(t, created.Agent.ID, "After launch", "after-launch"))
 	require.NoError(t, err)
+	require.Equal(t, subscriptions, f.subscriptions(t, created.Agent.ID),
+		"config activation and disconnection preserve subscriptions")
+	for _, subscription := range subscriptions {
+		require.NoError(t, f.store.Integrations().DeleteAppSubscription(
+			f.ctx, testOrgID, testProjectID, subscription.AppID, subscription.ID))
+	}
 	replayed, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, changed.AgentConfig.ID, replayed.Agent.CurrentConfigID)
-	require.Empty(t, f.listeners(t, created.Agent.ID), "replay cannot rematerialize old resources")
+	require.Empty(t, f.subscriptions(t, created.Agent.ID), "replay cannot rematerialize old resources")
 }
 
 func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
@@ -594,16 +597,11 @@ func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 		f.store,
 		slackProjectAppSetupInput(f.profile.ID, uuid.Nil, f.user.ID, credential, "A_SECONDARY", "T_SECONDARY"),
 	)
-	resource := f.listener()
-	resource.AppID = publicResourceID(publicid.KindProjectApp, secondary.ID)
-	definition := f.definition(
-		t,
-		"Secondary resource gate",
-		map[string]agentconfig.AppCapabilityCompiled{
-			"chat__thread_messages":              f.listener(),
-			secondary.Name + "__thread_messages": resource,
-		},
-	)
+	resource := f.attachment()
+	resource.AppID = secondary.ID
+	resource.Conversation = json.RawMessage(`{"channel_id":"CSECOND","thread_ts":"456.789"}`)
+	resource.Events = []string{"message"}
+	definition := f.definition(t, "Secondary subscription gate")
 	slot := f.slots["a"]
 	var err error
 	slot.AgentID, err = uuid.NewV7()
@@ -615,6 +613,12 @@ func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 	initial.Origin, initial.SemanticEventKey = &origin, "message:789.012"
 	slot.Launch.InitialInput = &initial
 	slot.Launch.DerivedConfig = &definition
+	primary := f.attachment()
+	primary.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
+	primary.Events = []string{"message"}
+	// The secondary app is referenced only by a subscription, in reverse
+	// order from the app lifecycle locks. The config grants no app capability.
+	slot.Launch.Subscriptions = []integrationstore.AppSubscriptionAttachment{resource, primary}
 	slot.Launch.IdempotencyKey = "secondary-launch"
 	_, _, err = f.store.Integrations().
 		AcceptIntegrationReceipt(
@@ -672,5 +676,42 @@ func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 	require.NoError(t, blocker.Commit(f.ctx))
 	result := integrationdb.AwaitSuccess(t, done, "secondary app admission")
 	require.Equal(t, slot.AgentID, result.Agent.ID)
-	require.Len(t, f.listeners(t, result.Agent.ID), 3)
+	subscriptions := f.subscriptions(t, result.Agent.ID)
+	require.Len(t, subscriptions, 2)
+	appIDs := make([]uuid.UUID, 0, len(subscriptions))
+	for _, subscription := range subscriptions {
+		appIDs = append(appIDs, subscription.AppID)
+	}
+	require.ElementsMatch(t, []uuid.UUID{f.app.ID, secondary.ID}, appIDs)
+}
+
+func TestLaunchSubscriptionConversationLocksPrecedeLaunchKey(t *testing.T) {
+	t.Parallel()
+	f := newAppActivationFixture(t)
+	input := f.launchInput(f.profile.CurrentConfigID, "subscription-conversation-locks")
+	first, second := f.attachment(), f.attachment()
+	first.Conversation = json.RawMessage(`{"channel_id":"C100"}`)
+	second.Conversation = json.RawMessage(`{"channel_id":"C900"}`)
+	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{second, first}
+	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+	require.NoError(t, integrationstore.LockConversationTx(f.ctx, blocker, testProjectID, f.app.ID,
+		integrationstore.ConversationAddress{Kind: "channel", Ref: "C100"}))
+	done := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
+		return f.store.Execution().LaunchAgent(f.ctx, input)
+	})
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAppConversation", 1)
+	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
+	defer cancel()
+	require.NoError(t, integrationstore.LockConversationTx(lockCtx, blocker, testProjectID, f.app.ID,
+		integrationstore.ConversationAddress{Kind: "channel", Ref: "C900"}),
+		"attachment conversations must be locked in canonical order, independent of request order")
+	require.NoError(t, dbsqlc.New(blocker).LockAgentLaunchIdempotencyKey(
+		lockCtx, dbsqlc.LockAgentLaunchIdempotencyKeyParams{
+			ProjectID: testProjectID, IdempotencyKey: input.IdempotencyKey,
+		}), "all attachment conversations must be locked before the launch key")
+	require.NoError(t, blocker.Commit(f.ctx))
+	result := integrationdb.AwaitSuccess(t, done, "subscription-only launch")
+	require.True(t, result.Created)
+	require.Equal(t, f.profile.CurrentConfigID, result.Agent.CurrentConfigID)
+	require.Len(t, f.subscriptions(t, result.Agent.ID), 2)
 }

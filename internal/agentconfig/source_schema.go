@@ -32,7 +32,6 @@ type AgentConfigSource struct {
 	MachineSources      []AgentConfigMachineSource                `json:"machine_sources,omitempty"`
 	Tools               map[string]AgentConfigToolSource          `json:"tools,omitempty"`
 	MCP                 map[string]AgentConfigMCPSource           `json:"mcp,omitempty"`
-	Listeners           map[string]AgentConfigAppCapabilitySource `json:"listeners,omitempty"`
 	InteractionHandlers map[string]AgentConfigAppCapabilitySource `json:"interaction_handlers,omitempty"`
 	Skills              []string                                  `json:"skills,omitempty"`
 	Subagents           map[string]AgentConfigSubagentSource      `json:"subagents,omitempty"`

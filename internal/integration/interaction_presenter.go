@@ -25,7 +25,7 @@ import (
 )
 
 // InteractionPresenter mirrors core interactions. Handler authority is independent
-// of model send tools and listeners. Errors never resolve or fail the interaction.
+// of model send tools and subscriptions. Errors never resolve or fail the interaction.
 type InteractionPresenter struct {
 	Store      *storage.Store
 	HTTPClient *http.Client

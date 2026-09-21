@@ -12,7 +12,7 @@ func (e Executor) interactionPresenter() integration.InteractionPresenter {
 }
 
 // PostIntegrationRuntimeMessage preserves the kernel entrypoint while using
-// current handler selection, independently of model send tools or listeners.
+// current handler selection, independently of model send tools or subscriptions.
 func (e Executor) PostIntegrationRuntimeMessage(ctx context.Context, turn Turn, text string) error {
 	return e.interactionPresenter().PostRuntimeMessage(ctx, turn.ProjectID, turn.AgentID, turn.RuntimeLockID, text)
 }

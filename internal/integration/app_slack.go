@@ -138,7 +138,7 @@ func (p *SlackAppInboxProvider) requestAccess(
 
 // NormalizeSlackAppEvent is pure. HTTP verifies signatures before capture; this
 // boundary rechecks receipt/account identity and excludes bot/remote mutations.
-// Root human messages are listener events, but only mentions trigger a launcher.
+// Root human messages are subscription events, but only mentions trigger a launcher.
 // Both message and app_mention callbacks use the same semantic message identity.
 func NormalizeSlackAppEvent(
 	appSetup integrationstore.ProjectAppRecord,

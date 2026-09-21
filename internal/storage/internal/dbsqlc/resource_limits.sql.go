@@ -309,7 +309,7 @@ SELECT
     max_non_terminal_processes_per_agent,
     max_active_cron_triggers_per_project,
     max_active_project_apps_per_project,
-    max_active_app_listeners_per_agent
+    max_active_app_subscriptions_per_agent
 FROM effective_resource_limits
 WHERE org_id = $1
 `
@@ -339,7 +339,7 @@ func (q *Queries) GetEffectiveResourceLimits(ctx context.Context, arg GetEffecti
 		&i.MaxNonTerminalProcessesPerAgent,
 		&i.MaxActiveCronTriggersPerProject,
 		&i.MaxActiveProjectAppsPerProject,
-		&i.MaxActiveAppListenersPerAgent,
+		&i.MaxActiveAppSubscriptionsPerAgent,
 	)
 	return i, err
 }

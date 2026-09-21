@@ -1,13 +1,13 @@
 ---
 title: Discord
-description: Connect your bot and choose messaging tools, listeners and approval destinations
+description: Connect your bot and choose messaging tools, subscriptions and approval destinations
 icon: "discord"
 ---
 
 Create an Omnara app named, for example, `support` with definition
-`omnara.discord`. It owns the Discord credentials and optional launcher. Tools,
-listeners and the interaction handler are independently selectable in
-[agent configs](/integrations/apps).
+`omnara.discord`. It owns the Discord credentials and optional launcher. Select
+tools and the interaction handler in agent configs, and attach
+conversations with app-owned subscriptions; see [Apps](/integrations/apps).
 
 ## Connect your bot
 
@@ -53,15 +53,16 @@ immediately; several profiles produce a menu and start only the selected profile
 Anyone in the conversation can choose. The menu expires after an hour; send
 follow-ups after selecting, because earlier replies may be missed.
 
-The launcher derives the agent's tools, listener and interaction handler for the
-thread, preserving existing explicit entries in the profile config. Human messages
+The launcher derives the agent's tools and interaction handler for the thread,
+preserving existing explicit entries in the profile config, and attaches a thread
+subscription. Human messages
 steer the agent and cancel open interactions. Bot and webhook messages are ignored.
 Edit the offered profiles to change future launches; existing agents keep their configs.
 
 ## Scheduled threads
 
 Use **Add schedule** on the app page to post a template opening message and launch
-one profile in its new thread. The tools, reply listener and interaction handler
+one profile in its new thread. The tools, reply subscription and interaction handler
 are ready when the agent starts. Schedules can coexist with mention launches.
 See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
@@ -78,20 +79,32 @@ tools:
     config:
       guild_id: "333333333333333333"
       channel_id: "444444444444444444"
-listeners:
-  support__thread_messages:
-    config: {}
 ```
 
 `read` supports `before` and `limit`. `post_message` takes `content` and up to 10
 `artifact_ids`. Add a fixed `thread_id` to keep a tool in one thread. Fields not
 fixed in config become model arguments; fixed fields cannot be overridden.
 
-The empty listener starts with no subscriptions. A confirmed post with
-`follow_replies: true` adds its conversation. For immediate subscription, put
-addresses containing `guild_id`, `channel_id` and optional `thread_id` into
-`config.conversations`. Channel-root intake requires a bot mention. Removing the
-sending tool does not remove subscriptions; removing the listener removes all of them.
+A confirmed post with `follow_replies: true` adds an app-owned subscription to its
+conversation. For an immediate subscription, send this body to the
+[app subscriptions API](/integrations/apps#subscribe-a-conversation):
+
+```json
+{
+  "agent_id": "YOUR_AGENT_ID",
+  "type": "thread_messages",
+  "conversation": {
+    "guild_id": "333333333333333333",
+    "channel_id": "444444444444444444",
+    "thread_id": "555555555555555555"
+  }
+}
+```
+
+The default event is `message`. Omit `thread_id` for a channel subscription;
+channel-root intake requires a bot mention. Removing the sending tool or changing
+config does not remove subscriptions. Use **Stop forwarding** on the app page or
+DELETE the subscription to remove it, including while the app is disconnected.
 
 ## Questions, approvals and profile menus
 

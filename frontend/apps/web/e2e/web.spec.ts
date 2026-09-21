@@ -5,11 +5,13 @@ import { type Cookie, expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
 import { exerciseDiscordAppSchedule } from './app-schedules'
+import { exerciseAppConversations, stopDisconnectedConversation } from './app-subscriptions'
 import {
   createAppDraft,
   expectInteractionToolMenu,
   expectSlackAuthorization,
   fillProviderAccount,
+  installAppFailureTracking,
   installFailureTracking,
   mockSlackSetupReturn,
   mockVerifiedAppSetup,
@@ -594,19 +596,7 @@ for (const provider of ['github', 'discord'] as const) {
     page,
   }) => {
     test.setTimeout(60_000)
-    const failures = installFailureTracking(page, [
-      /^page: Canceled$/,
-      /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
-      /request: .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-      // Chromium can abort the empty 204 DELETE stream through the TLS proxy.
-      // The schedule journey asserts the 204 response and removal from the list.
-      /request: .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-      /request: .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
-      // Navigation and successful writes cancel obsolete reads; writes are checked below.
-      // Full-document navigation also cancels intent-preloaded route chunks.
-      // HTTP failures and import/page errors are still recorded independently.
-      /request: .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
-    ])
+    const failures = installAppFailureTracking(page)
     const appName = `${provider}-browser-${test.info().retry}`
     const profileName = uniqueName(`${provider} App Profile`)
     await createProfile(page, profileName, 'Answer in the selected conversation.')
@@ -756,6 +746,8 @@ for (const provider of ['github', 'discord'] as const) {
     expect((await savedRevision).status()).toBe(200)
     await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled()
 
+    const conversation = await exerciseAppConversations(page, app, profileId, apiProjectPath)
+
     // A second app may select the same secret. Its lifecycle stays independent.
     const { app: secondary } = await createAppDraft(
       page,
@@ -790,6 +782,7 @@ for (const provider of ['github', 'discord'] as const) {
     expect(offline.setup_revision).toBeGreaterThan(app.setup_revision)
     expect(offline.settings).toEqual(changedApp.settings)
     expect((await readApp(page, apiProjectPath, secondary.id)).state).toBe('active')
+    await stopDisconnectedConversation(page, app, conversation, apiProjectPath)
     await page.getByRole('button', { name: 'Reconnect account', exact: true }).click()
     await expect(
       page.getByLabel(provider === 'github' ? 'GitHub App ID' : 'Discord Application ID', {

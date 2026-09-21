@@ -83,7 +83,7 @@ func (s *Store) recoverFailedInbox(ctx context.Context, projectID, receiptID uui
 		return err
 	}
 	// Sharing this gate with empty-plan decisions makes operator retry the
-	// precise boundary at which plain follow-ups begin waiting for a listener again.
+	// precise boundary at which plain follow-ups begin waiting for a subscription again.
 	if err := lockInboxSelectionConversations(ctx, tx, projectID, receipt.AppID, identities); err != nil {
 		return err
 	}

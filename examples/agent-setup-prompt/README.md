@@ -45,7 +45,7 @@ and retry — don't skip ahead.
      list them from GET /tool-catalog. The compiler supplies
      list_interaction_handlers and set_interaction_handler by default. If I
      chose Slack, its app launcher below supplies namespaced read/send tools,
-     a thread listener and an interaction handler to agents it launches;
+     an app-owned thread subscription and an interaction handler to agents it launches;
      leave app tools out of the base profile. Tell the agent to use the
      available app__<app-name>__post_message tool for answers and updates
      in Slack, or reply directly in Omnara when no Slack tool is available

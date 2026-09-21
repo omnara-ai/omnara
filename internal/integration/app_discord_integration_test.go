@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -163,7 +161,7 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			require.False(t, results[0].Launch.Created)
 			require.Equal(t, 1, f.posts)
 			// Exact selected thread delivers human steering. A sibling thread has no
-			// listener and must not launch or create input even under the same parent.
+			// subscription and must not launch or create input even under the same parent.
 			f.override = nil
 			reply := f.message
 			reply.ID, reply.ChannelID, reply.Content, reply.Mentions = "501", "500", "continue", nil
@@ -194,7 +192,7 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 	}
 }
 
-func TestAppDiscordChannelListenerReceivesRootMentionWithoutLauncher(t *testing.T) {
+func TestAppDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher(t *testing.T) {
 	for _, exactThread := range []bool{false, true} {
 		t.Run(fmt.Sprintf("exact_thread=%t", exactThread), func(t *testing.T) {
 			ctx := t.Context()
@@ -204,28 +202,24 @@ func TestAppDiscordChannelListenerReceivesRootMentionWithoutLauncher(t *testing.
 			require.Nil(t, app.Settings.Launcher)
 			f, provider := newDiscordInboxFixture(t)
 			f.appSetup, provider.apps = app, store.Integrations()
-			conversations := []any{map[string]any{"channel_id": "300"}}
-			if exactThread {
-				conversations = append(conversations, map[string]any{"channel_id": "300", "thread_id": "500"})
-			}
-			source, err := json.Marshal(map[string]any{
-				"instruction": "Help", "model": map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
-				"listeners": map[string]any{"chat__thread_messages": map[string]any{
-					"config": map[string]any{"conversations": conversations},
-				}},
-			})
-			require.NoError(t, err)
-			storagefixture.SeedModelForAgentYAML(t, ctx, store.Models(), ids.OrgID, ids.ProjectID, string(source))
-			compiled, err := agentconfigcompile.Compile(ctx, store, ids.OrgID, ids.ProjectID,
-				agentconfig.CompileOptions{}, agentconfig.SourceFormatJSON, string(source))
-			require.NoError(t, err)
-			config, err := store.Execution().CreateAgentConfig(ctx, compiled.CreateInput(ids.ProjectID))
-			require.NoError(t, err)
+			config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+				"instruction: Help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
 			launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 				ProjectID: ids.ProjectID, LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
 				AgentConfigID: config.ID,
 			})
 			require.NoError(t, err)
+			createTestAppSubscription(t, store, app, launched.Agent.ID, "thread_messages", `{"channel_id":"300"}`)
+			if exactThread {
+				createTestAppSubscription(
+					t,
+					store,
+					app,
+					launched.Agent.ID,
+					"thread_messages",
+					`{"channel_id":"300","thread_id":"500"}`,
+				)
+			}
 			router := NewAppRouter(store.Execution(), store.Integrations())
 			consumer := NewAppInboxConsumer(router, store.Integrations(), nil,
 				map[string]AppInboxProvider{"discord": provider}, nil, testAppLaunchWorkflow(router))
@@ -266,7 +260,7 @@ func TestAppDiscordChannelListenerReceivesRootMentionWithoutLauncher(t *testing.
 				if exactThread {
 					require.Len(t, results, 1)
 				} else {
-					require.Empty(t, results, "even a thread mention cannot borrow its parent's listener")
+					require.Empty(t, results, "even a thread mention cannot borrow its parent's subscription")
 				}
 			}
 			// Revoke after freezing a second root mention, before thread preparation.
@@ -278,16 +272,16 @@ func TestAppDiscordChannelListenerReceivesRootMentionWithoutLauncher(t *testing.
 			plan, err := freezeTestAppEvents(ctx, router, receipt.Lease(), expansion.Events)
 			require.NoError(t, err)
 			require.Len(t, plan, 1)
-			removeTestAgentListeners(t, store, ids.ProjectID, launched.Agent.ID)
+			removeTestAgentSubscriptions(t, store, app, launched.Agent.ID)
 			_, err = consumer.Consume(ctx, receipt.Lease())
 			require.Error(t, err)
-			require.Equal(t, 1, f.posts, "revoked channel listener must prevent preparation and input")
+			require.Equal(t, 1, f.posts, "revoked channel subscription must prevent preparation and input")
 			var agents, inputs int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT
 				(SELECT count(*) FROM agents WHERE project_id=$1),
 				(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`, ids.ProjectID).
 				Scan(&agents, &inputs))
-			require.Equal(t, 1, agents, "receiving through a listener never creates another agent")
+			require.Equal(t, 1, agents, "receiving through a subscription never creates another agent")
 			wantInputs := 1
 			if exactThread {
 				wantInputs += 2

@@ -42,7 +42,6 @@ type launchAdmission struct {
 	AgentID       uuid.UUID
 	AppID         uuid.UUID
 	SelectionSlot string
-	ListenerKey   string
 	Artifacts     []artifactstore.PreparedArtifact
 }
 
@@ -131,26 +130,6 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		if admission != nil {
 			targetInput.Role = integrationstore.TargetSelected
 			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
-		}
-		if admission != nil && admission.ListenerKey != "" {
-			config, err := loadAgentConfigTx(ctx, q, agent.ProjectID, agent.CurrentConfigID)
-			if err != nil {
-				return err
-			}
-			contract, err := launchableRuntimeContract(config)
-			if err != nil {
-				return err
-			}
-			capability, ok := contract.Listeners[admission.ListenerKey]
-			if !ok {
-				return storeerr.ErrUnauthorized
-			}
-			if err := integrationstore.RegisterRuntimeListenerTx(ctx, tx, integrationstore.RegisterRuntimeListenerInput{
-				OrgID: agent.OrgID, ProjectID: agent.ProjectID, AgentID: agent.ID, ConfigID: agent.CurrentConfigID,
-				AppID: origin.AppID, ListenerKey: admission.ListenerKey, Capability: capability, Address: origin.Address,
-			}); err != nil {
-				return err
-			}
 		}
 		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
 		if err != nil {

@@ -23,6 +23,7 @@ const (
 	KindCronTrigger             Kind = "cron_trigger"
 	KindProjectApp              Kind = "project_app"
 	KindAppProfileChoice        Kind = "app_profile_choice"
+	KindAppSubscription         Kind = "app_subscription"
 	KindIntegrationTarget       Kind = "integration_target"
 	KindAgentEvent              Kind = "agent_event"
 	KindAgentInput              Kind = "agent_input"
@@ -69,6 +70,7 @@ var kindPrefixes = map[Kind]string{
 	KindCronTrigger:             "cron",
 	KindProjectApp:              "app",
 	KindAppProfileChoice:        "apc",
+	KindAppSubscription:         "asub",
 	KindIntegrationTarget:       "itgt",
 	KindAgentEvent:              "evt",
 	KindAgentInput:              "ain",

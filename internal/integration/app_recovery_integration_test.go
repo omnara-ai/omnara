@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -19,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppRouterDiscardMixedPlanPreservesAdmittedListenerInput(t *testing.T) {
+func TestAppRouterDiscardMixedPlanPreservesAdmittedSubscriptionInput(t *testing.T) {
 	t.Parallel()
 	pool, store, ids, appSetup := appWorkerFixture(t)
 	ctx := t.Context()
@@ -27,23 +25,15 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedListenerInput(t *testing.T) {
 	router := NewAppRouter(store.Execution(), inbox)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	publicApp, err := publicid.Encode(publicid.KindProjectApp, appSetup)
-	require.NoError(t, err)
-	var compiled agentconfig.Compiled
-	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
-	compiled.Listeners = map[string]agentconfig.AppCapabilityCompiled{"chat__thread_messages": {
-		AppID: publicApp, Config: json.RawMessage(`{"conversations":[{"channel_id":"C123"}],"events":["message"]}`),
-	}}
-	encoded, err := agentconfig.EncodeCompiled(compiled)
-	require.NoError(t, err)
 	existing, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: ids.ProjectID, LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
-		DerivedConfig: &executionstore.CreateAgentConfigInput{
-			ConfiguredModelID: base.ConfiguredModelID, CompiledDefinition: encoded.CanonicalJSON,
-			CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: encoded.Hash,
-		},
+		AgentConfigID: base.ID,
 	})
 	require.NoError(t, err)
+	appRecord, err := inbox.GetProjectApp(ctx, ids.ProjectID, appSetup)
+	require.NoError(t, err)
+	createTestAppSubscription(t, store, appRecord, existing.Agent.ID, "thread_messages", `{"channel_id":"C123"}`)
+
 	createProfile := func(name string) executionstore.AgentProfileRecord {
 		t.Helper()
 		profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
@@ -92,7 +82,7 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedListenerInput(t *testing.T) {
 		}
 	}
 	require.NotEqual(t, uuid.Nil, abandonedAgent)
-	// The broad channel listener still accepts the input when the independently
+	// The broad channel subscription still accepts the input when the independently
 	// selected launch profile disappears after freeze.
 	_, err = pool.Exec(ctx, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, profile.ID)
 	require.NoError(t, err)
@@ -147,7 +137,7 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedListenerInput(t *testing.T) {
 		pool.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_idempotency_key=$2`,
 			existing.Agent.ID, event.SemanticKey).Scan(&count),
 	)
-	require.Equal(t, 1, count, "discard and fresh selection must not duplicate the committed listener input")
+	require.Equal(t, 1, count, "discard and fresh selection must not duplicate the committed subscription input")
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE id=$1`, abandonedAgent).Scan(&count))
 	require.Zero(t, count, "discarded planned identity must remain unlaunched")
 }

@@ -216,37 +216,29 @@ CREATE UNIQUE INDEX integration_targets_selection_idx
 CREATE INDEX integration_targets_conversation_idx
     ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref);
 
--- Configured listeners own receive authority. Config activation seeds their
--- conversations; launches and confirmed sends add runtime subscriptions under
--- the same listener. A tool call is provenance, not ongoing receive authority.
-CREATE TABLE agent_listeners (
+-- Apps own receive subscriptions independently of agent configurations. Removing a
+-- subscription deletes only its forwarding rule; target selection history stays.
+CREATE TABLE app_subscriptions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
     agent_id uuid NOT NULL,
     app_id uuid NOT NULL,
-    listener_key text NOT NULL CHECK (listener_key <> ''),
+    subscription_type text NOT NULL CHECK (subscription_type <> ''),
     scope_kind text NOT NULL CHECK (scope_kind <> ''),
     scope_ref text NOT NULL CHECK (scope_ref <> ''),
     events text[] NOT NULL CHECK (cardinality(events) > 0),
-    source_config_id uuid NOT NULL,
-    origin text NOT NULL CHECK (origin IN ('configured', 'runtime')),
     tool_call_id uuid,
-    active boolean NOT NULL DEFAULT true,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
-    CHECK (tool_call_id IS NULL OR origin = 'runtime'),
     FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
-    FOREIGN KEY (project_id, source_config_id) REFERENCES agent_configs(project_id, id),
     FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id)
 );
--- Declared and runtime subscriptions overlap independently. Launching/following
--- the same conversation again reuses its runtime subscription.
-CREATE UNIQUE INDEX agent_listeners_scope_origin_idx
-    ON agent_listeners(project_id, agent_id, app_id, listener_key, scope_kind, scope_ref, origin);
-CREATE INDEX agent_listeners_scope_idx ON agent_listeners(project_id, app_id, scope_kind, scope_ref)
-    WHERE active;
-CREATE INDEX agent_listeners_agent_idx ON agent_listeners(project_id, agent_id);
+CREATE UNIQUE INDEX app_subscriptions_conversation_idx
+    ON app_subscriptions(project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref);
+CREATE INDEX app_subscriptions_routing_idx
+    ON app_subscriptions(project_id, app_id, scope_kind, scope_ref);
+CREATE INDEX app_subscriptions_app_list_idx
+    ON app_subscriptions(project_id, app_id, created_at DESC, id DESC);
 
 -- Persistent transports own one bounded unit (a Discord shard today). Only
 -- provider setup and credential changes fence the owner, not launcher edits.
@@ -359,7 +351,7 @@ CREATE INDEX app_profile_choices_expiry_idx ON app_profile_choices(expires_at, i
 -- App limits follow the existing organization override mechanism.
 ALTER TABLE org_resource_limit_overrides
     ADD COLUMN max_active_project_apps_per_project bigint CHECK (max_active_project_apps_per_project >= 0),
-    ADD COLUMN max_active_app_listeners_per_agent bigint CHECK (max_active_app_listeners_per_agent >= 0);
+    ADD COLUMN max_active_app_subscriptions_per_agent bigint CHECK (max_active_app_subscriptions_per_agent >= 0);
 
 CREATE OR REPLACE VIEW default_resource_limits AS
 SELECT
@@ -379,7 +371,7 @@ SELECT
     32::bigint AS max_non_terminal_processes_per_agent,
     1000::bigint AS max_active_cron_triggers_per_project,
     1000::bigint AS max_active_project_apps_per_project,
-    1024::bigint AS max_active_app_listeners_per_agent;
+    1024::bigint AS max_active_app_subscriptions_per_agent;
 
 CREATE OR REPLACE VIEW effective_resource_limits AS
 SELECT
@@ -400,7 +392,7 @@ SELECT
     coalesce(overrides.max_non_terminal_processes_per_agent, defaults.max_non_terminal_processes_per_agent) AS max_non_terminal_processes_per_agent,
     coalesce(overrides.max_active_cron_triggers_per_project, defaults.max_active_cron_triggers_per_project) AS max_active_cron_triggers_per_project,
     coalesce(overrides.max_active_project_apps_per_project, defaults.max_active_project_apps_per_project) AS max_active_project_apps_per_project,
-    coalesce(overrides.max_active_app_listeners_per_agent, defaults.max_active_app_listeners_per_agent) AS max_active_app_listeners_per_agent
+    coalesce(overrides.max_active_app_subscriptions_per_agent, defaults.max_active_app_subscriptions_per_agent) AS max_active_app_subscriptions_per_agent
 FROM orgs
 CROSS JOIN default_resource_limits AS defaults
 LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.id

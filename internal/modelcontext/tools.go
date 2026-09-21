@@ -33,7 +33,6 @@ func RuntimeContractToolSpecs(
 	prepared, err := agentconfig.PrepareAppCapabilities(
 		agentconfig.Compiled{
 			Tools:               contract.AppTools,
-			Listeners:           contract.Listeners,
 			InteractionHandlers: contract.InteractionHandlers,
 		},
 		apps,

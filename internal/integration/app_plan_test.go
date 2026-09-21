@@ -175,12 +175,14 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.NoError(t, json.Unmarshal(slot.Launch.DerivedConfig.CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
 		require.False(t, compiled.Tools[toolcatalog.AppToolName("chat", "post_message")].Enabled)
-		key := app.Name + "__thread_messages"
-		require.Equal(t, key, slot.ListenerKey)
-		require.Equal(t, compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].AppID, compiled.Listeners[key].AppID)
+		require.Len(t, slot.Launch.Subscriptions, 1)
+		subscription := slot.Launch.Subscriptions[0]
+		require.Equal(t, app.ID, subscription.AppID)
+		require.Equal(t, "thread_messages", subscription.Type)
+		require.Equal(t, []string{"message"}, subscription.Events)
+		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`, string(subscription.Conversation))
 		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`,
 			string(compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].Config))
-		require.JSONEq(t, `{"events":["message"]}`, string(compiled.Listeners[key].Config))
 		require.NotEmpty(t, compiled.InteractionHandlers[app.Name].AppID)
 		raw, err := json.Marshal(slot)
 		require.NoError(t, err)
@@ -188,6 +190,7 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &kernel))
 		require.Equal(t, *slot.Selection, kernel.Selection)
 		require.Equal(t, slot.AgentID, kernel.AgentID)
+		require.Equal(t, slot.Launch.Subscriptions, kernel.Launch.Subscriptions)
 	}
 	// Frozen replay is read-only even after provider/app/profile changes. The
 	// embedded nil store interface would panic if replanning were attempted.
@@ -213,16 +216,11 @@ func TestAppPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T) {
 	require.NoError(t, err)
 	requests[0].candidates = integrationstore.AppRoutingCandidates{
 		Launcher: &app,
-		Listeners: []integrationstore.AgentListenerRecord{
+		Subscriptions: []integrationstore.AppSubscriptionRecord{
 			{
-				AgentID:     agent,
-				ListenerKey: "channel",
-				Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
-			},
-			{
-				AgentID:     agent,
-				ListenerKey: "another",
-				Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
+				AgentID: agent,
+				Type:    "thread_messages",
+				Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
 			},
 		},
 		Selections: []integrationstore.IntegrationTargetRecord{{AppID: app.ID, SelectionSlot: "removed-old-slot"}},
@@ -235,25 +233,25 @@ func TestAppPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T) {
 	for _, slot := range plan {
 		require.Nil(t, slot.Selection)
 		require.Nil(t, slot.Launch)
-		require.Nil(t, slot.Listener, "explicit trigger is independent of listener revocation")
+		require.Nil(t, slot.Subscription, "explicit trigger is independent of subscription revocation")
 		require.Equal(t, agent, slot.AgentID)
 	}
 	// A matching exact continuation suppresses new profiles; a broad channel
-	// listener alone does not suppress an unrelated thread's first selection.
+	// subscription alone does not suppress an unrelated thread's first selection.
 	requests[0].candidates.Selections = nil
-	requests[0].candidates.Listeners[0].Address = requests[0].address
+	requests[0].candidates.Subscriptions[0].Address = requests[0].address
 	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
 	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
-	requests[0].candidates.Listeners[0].Address = integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"}
+	requests[0].candidates.Subscriptions[0].Address = integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"}
 	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
 	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
 	require.Len(t, plan, 3)
 }
 
-func TestAppPlanExpansionContinuesLauncherRuntimeListener(t *testing.T) {
+func TestAppPlanExpansionContinuesLauncherRuntimeSubscription(t *testing.T) {
 	router, _, integrations, app, first := appPlannerFixture(t)
 	second := first
 	second.SemanticKey = "message:0"
@@ -276,7 +274,7 @@ func TestAppPlanExpansionContinuesLauncherRuntimeListener(t *testing.T) {
 		} else {
 			inputs++
 			require.Equal(t, 1, slot.EventOrder)
-			require.NotNil(t, slot.Listener)
+			require.NotNil(t, slot.Subscription)
 			require.Equal(t, second.SemanticKey, slot.Input.IdempotencyKey)
 		}
 	}
@@ -284,7 +282,7 @@ func TestAppPlanExpansionContinuesLauncherRuntimeListener(t *testing.T) {
 	require.Equal(t, 2, inputs)
 }
 
-func TestAppPlanDiscordThreadRequiresExactListener(t *testing.T) {
+func TestAppPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 	router, _, integrations, _, event := appPlannerFixture(t)
 	integrations.appSetup.Provider = "discord"
 	integrations.appSetup.ProviderTenantID = "11"
@@ -296,21 +294,21 @@ func TestAppPlanDiscordThreadRequiresExactListener(t *testing.T) {
 	requests, err := prepareAppEvents([]AppEvent{event}, integrations.appSetup)
 	require.NoError(t, err)
 	parent, exact := uuid.New(), uuid.New()
-	requests[0].candidates.Listeners = []integrationstore.AgentListenerRecord{
+	requests[0].candidates.Subscriptions = []integrationstore.AppSubscriptionRecord{
 		{
-			AgentID:     parent,
-			ListenerKey: "channel",
-			Address:     integrationstore.ConversationAddress{Kind: "channel", Ref: "300"},
+			AgentID: parent,
+			Type:    "thread_messages",
+			Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "300"},
 		},
 		{
-			AgentID:     parent,
-			ListenerKey: "guild",
-			Address:     integrationstore.ConversationAddress{Kind: "guild", Ref: "100"},
+			AgentID: parent,
+			Type:    "thread_messages",
+			Address: integrationstore.ConversationAddress{Kind: "guild", Ref: "100"},
 		},
 		{
-			AgentID:     exact,
-			ListenerKey: "thread",
-			Address:     integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"},
+			AgentID: exact,
+			Type:    "thread_messages",
+			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"},
 		},
 	}
 	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
@@ -320,7 +318,7 @@ func TestAppPlanDiscordThreadRequiresExactListener(t *testing.T) {
 	for _, slot := range plan {
 		require.Equal(t, exact, slot.AgentID)
 	}
-	requests[0].candidates.Listeners = requests[0].candidates.Listeners[:2]
+	requests[0].candidates.Subscriptions = requests[0].candidates.Subscriptions[:2]
 	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
 	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
@@ -342,8 +340,8 @@ func TestAppPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	requests[0].event.Event.Mentioned = false
 	requests[0].event.Directed = true
 	requests[0].event.Launches = []AppLaunchIntent{{AppID: app.ID, Slot: "b", ProfileID: execution.profile.ID}}
-	requests[0].candidates.Listeners = []integrationstore.AgentListenerRecord{
-		{AgentID: uuid.New(), ListenerKey: "unrelated", Address: requests[0].address},
+	requests[0].candidates.Subscriptions = []integrationstore.AppSubscriptionRecord{
+		{AgentID: uuid.New(), Type: "thread_messages", Address: requests[0].address},
 	}
 	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)
@@ -411,7 +409,7 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 	for _, settled := range []bool{false, true} {
 		name := "planned in expansion"
 		if settled {
-			name = "settled without listener"
+			name = "settled without subscription"
 		}
 		t.Run(name, func(t *testing.T) {
 			router, execution, integrations, app, first := appPlannerFixture(t)
@@ -437,8 +435,8 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 			agents := map[string]uuid.UUID{"a": uuid.New(), "b": uuid.New()}
 			for i := range requests {
 				requests[i].candidates.Launcher = &app
-				requests[i].candidates.Listeners = []integrationstore.AgentListenerRecord{
-					{AgentID: uuid.New(), ListenerKey: "unrelated", Address: requests[i].address},
+				requests[i].candidates.Subscriptions = []integrationstore.AppSubscriptionRecord{
+					{AgentID: uuid.New(), Type: "thread_messages", Address: requests[i].address},
 				}
 				if settled {
 					for slot, agent := range agents {
@@ -476,7 +474,7 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 					continue
 				}
 				require.Nil(t, slot.Selection)
-				require.Nil(t, slot.Listener, "explicit original-source delivery does not depend on a listener")
+				require.Nil(t, slot.Subscription, "explicit original-source delivery does not depend on a subscription")
 				if slot.EventOrder == 1 {
 					inputs++
 					require.Equal(t, agents["a"], slot.AgentID)
@@ -488,7 +486,7 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 					require.Equal(t, first.SemanticKey, slot.Input.IdempotencyKey)
 				}
 			}
-			require.Equal(t, 1, inputs, "directed files must skip even listeners planned earlier in this expansion")
+			require.Equal(t, 1, inputs, "directed files must skip even subscriptions planned earlier in this expansion")
 		})
 	}
 }
@@ -499,42 +497,31 @@ func TestAppLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
 	appID := compiled.Tools[toolcatalog.AppToolName(app.Name, "post_message")].AppID
-	toolKey, listenerKey := toolcatalog.AppToolName(app.Name, "post_message"), app.Name+"__thread_messages"
+	toolKey := toolcatalog.AppToolName(app.Name, "post_message")
 	tool := compiled.Tools[toolKey]
 	tool.Config = json.RawMessage(`{"channel_id":"C999","thread_ts":"9.9"}`)
 	tool.Deferred = true
 	compiled.Tools[toolKey] = tool
-	compiled.Listeners = map[string]agentconfig.AppCapabilityCompiled{listenerKey: {AppID: appID, Config: json.RawMessage(`{}`)}}
 	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: appID, Config: json.RawMessage(`{"channel_id":"C999"}`)}}
 	encoded, err := agentconfig.EncodeCompiled(compiled)
 	require.NoError(t, err)
 	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
-	derived, key, err := deriveAppLaunch(base, app, event.Event.Scope)
+	derived, subscription, err := deriveAppLaunch(base, app, event.Event.Scope)
 	require.NoError(t, err)
-	require.Equal(t, listenerKey, key, "launch admission follows this listener independently of its empty config")
+	require.Equal(t, "thread_messages", subscription.Type)
 	var actual agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(derived.Config.CompiledDefinition, &actual))
 	require.Equal(t, tool, actual.Tools[toolKey])
-	require.Equal(t, compiled.Listeners, actual.Listeners)
 	require.Equal(t, compiled.InteractionHandlers, actual.InteractionHandlers)
 	require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`,
 		string(actual.Tools[toolcatalog.AppToolName(app.Name, "read")].Config))
-
-	other, err := publicid.Encode(publicid.KindProjectApp, uuid.New())
-	require.NoError(t, err)
-	compiled.Listeners[listenerKey] = agentconfig.AppCapabilityCompiled{AppID: other, Config: json.RawMessage(`{}`)}
-	encoded, err = agentconfig.EncodeCompiled(compiled)
-	require.NoError(t, err)
-	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
-	_, _, err = deriveAppLaunch(base, app, event.Event.Scope)
-	require.ErrorIs(t, err, ErrAppLaunchUnavailable, "a reused app name must not retarget its pinned listener")
 }
 
 func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 	for _, test := range []struct {
-		definition, provider, listener string
-		scope                          appdefinition.Scope
-		address                        string
+		definition, provider, subscriptionType string
+		scope                                  appdefinition.Scope
+		address                                string
 	}{
 		{
 			appdefinition.Slack, "slack", "thread_messages",
@@ -556,18 +543,18 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			_, execution, _, app, _ := appPlannerFixture(t)
 			base := execution.profile.CurrentConfig
 			app.Provider, app.DefinitionID, app.Name = test.provider, test.definition, "receiver"
-			derived, key, err := deriveAppLaunch(base, app, test.scope)
+			derived, subscription, err := deriveAppLaunch(base, app, test.scope)
 			require.NoError(t, err)
-			require.Equal(t, "receiver__"+test.listener, key)
+			require.Equal(t, test.subscriptionType, subscription.Type)
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(derived.Config.CompiledDefinition, &compiled))
 			definition, _ := appdefinition.Lookup(app.DefinitionID)
 			for _, operation := range definition.Tools {
 				require.JSONEq(t, test.address, string(compiled.Tools[toolcatalog.AppToolName(app.Name, operation)].Config))
 			}
-			prepared, err := definition.Listeners[test.listener].Prepare(compiled.Listeners[key].Config)
-			require.NoError(t, err)
-			require.Empty(t, prepared.Conversations)
+			require.Equal(t, app.ID, subscription.AppID)
+			require.JSONEq(t, test.address, string(subscription.Conversation))
+			require.ElementsMatch(t, definition.Subscriptions[subscription.Type].Events, subscription.Events)
 			if definition.InteractionHandler != nil {
 				require.JSONEq(t, test.address, string(compiled.InteractionHandlers[app.Name].Config))
 			} else {
@@ -584,6 +571,117 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			require.Equal(t, "true", blocks[1].Metadata["omnara_hidden"])
 			require.Contains(t, blocks[1].Text, `"app":"receiver"`)
 			require.Contains(t, blocks[1].Text, test.address)
+		})
+	}
+}
+
+func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
+	for _, provider := range []string{
+		appdefinition.ProviderSlack, appdefinition.ProviderDiscord, appdefinition.ProviderGitHub,
+	} {
+		t.Run(provider, func(t *testing.T) {
+			router, execution, integrations, app, first := appPlannerFixture(t)
+			app.Name = "receiver" // Keep the fixture's explicit tool policy independent.
+			app.Settings.Launcher.Slots = app.Settings.Launcher.Slots[:1]
+			subscriptionType, kind := "thread_messages", "message"
+			expectedEvents := []string{"message"}
+			otherScope := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.3"}}
+			switch provider {
+			case appdefinition.ProviderDiscord:
+				app.Provider, app.DefinitionID, app.ProviderTenantID = provider, appdefinition.Discord, "11"
+				first.Event.Scope = appdefinition.Scope{
+					Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
+				}
+				otherScope = appdefinition.Scope{
+					Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "501"},
+				}
+			case appdefinition.ProviderGitHub:
+				app.Provider, app.DefinitionID = provider, appdefinition.GitHub
+				app.ProviderTenantID, app.ProviderAccountRef = "11", "22"
+				first.Event.Scope = appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 123, PullRequest: 42}}
+				otherScope = appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 123, PullRequest: 43}}
+				first.Event.Kind = "pull_request_opened"
+				subscriptionType, kind = "pull_request", "commit"
+				expectedEvents = []string{"commit", "discussion_comment", "review_comment"}
+			}
+			integrations.appSetup = app
+			first.Actor.Provider, first.Actor.ProviderTenantID = provider, app.ProviderTenantID
+			first.SemanticKey = "z:launch"
+			first.Launches = []AppLaunchIntent{{AppID: app.ID, Slot: "a", ProfileID: execution.profile.ID}}
+			reply := first
+			reply.Launches, reply.Event.Mentioned, reply.Event.Kind = nil, false, kind
+			reply.SemanticKey = "b:reply"
+			before := reply
+			before.SemanticKey = "c:before-launch"
+			media := reply
+			media.SemanticKey = "a:media"
+			placeholder := uuid.New()
+			media.ContentBlocks = json.RawMessage(`[{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`)
+			media.Files = []AppPlannedFile{{ArtifactID: placeholder, ProviderFileID: "F123"}}
+			other := reply
+			other.SemanticKey, other.Event.Scope = "other:conversation", otherScope
+			events := []AppEvent{before, first, reply, media, other}
+			if provider == appdefinition.ProviderGitHub {
+				excluded := reply
+				excluded.SemanticKey, excluded.Event.Kind = "excluded:event", "pull_request_opened"
+				events = append(events, excluded)
+			}
+			requests, err := prepareAppEvents(events, app)
+			require.NoError(t, err)
+			for i := range requests {
+				requests[i].candidates.Launcher = &app
+			}
+			plan, err := router.buildAppPlan(t.Context(), integrations.receipt, app, requests)
+			require.NoError(t, err)
+			require.Len(t, plan, 3, "only the launch and later matching conversation/events receive input")
+			var agentID uuid.UUID
+			for _, slot := range plan {
+				if slot.Launch == nil {
+					continue
+				}
+				agentID = slot.AgentID
+				require.Equal(t, 1, slot.EventOrder)
+				require.Len(t, slot.Launch.Subscriptions, 1)
+				subscription := slot.Launch.Subscriptions[0]
+				require.Equal(t, app.ID, subscription.AppID)
+				require.Equal(t, subscriptionType, subscription.Type)
+				require.Equal(t, expectedEvents, subscription.Events, "defaults are resolved and canonical before freezing")
+				conversation, err := first.Event.Scope.ConversationJSON()
+				require.NoError(t, err)
+				require.JSONEq(t, string(conversation), string(subscription.Conversation))
+			}
+			require.NotEqual(t, uuid.Nil, agentID)
+			addressKind, addressRef, err := first.Event.Scope.Conversation()
+			require.NoError(t, err)
+			for _, slot := range plan {
+				if slot.Input == nil {
+					continue
+				}
+				require.Equal(t, agentID, slot.AgentID)
+				require.Equal(t, &executionstore.InboxSubscriptionAuthority{
+					Event: kind, Alternatives: []executionstore.InboxSubscriptionReference{{
+						Type: subscriptionType, Address: integrationstore.ConversationAddress{Kind: addressKind, Ref: addressRef},
+					}},
+				}, slot.Subscription)
+				if slot.EventOrder == 3 {
+					require.Len(t, slot.Files, 1)
+					require.NotEqual(t, placeholder, slot.Files[0].ArtifactID)
+					require.Equal(t, "F123", slot.Files[0].ProviderFileID)
+				} else {
+					require.Equal(t, 2, slot.EventOrder)
+				}
+			}
+			integrations.receipt.Plan, err = json.Marshal(plan)
+			require.NoError(t, err)
+			// A changed current profile or definition cannot rebuild resolved events
+			// or media identities on retry. The nil store methods catch replanning.
+			execution.profile.CurrentConfig = executionstore.AgentConfigRecord{}
+			integrations.appSetup.DefinitionID = "no-longer-available"
+			replayed, err := router.Freeze(t.Context(), integrations.receipt.Lease(), []AppEvent{other})
+			require.NoError(t, err)
+			replayedJSON, err := json.Marshal(replayed)
+			require.NoError(t, err)
+			require.JSONEq(t, string(integrations.receipt.Plan), string(replayedJSON))
 		})
 	}
 }

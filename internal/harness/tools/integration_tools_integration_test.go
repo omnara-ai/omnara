@@ -857,16 +857,15 @@ func newIntegrationToolFixtureWithMCP(
 }
 
 type toolFixtureOptions struct {
-	withMCP            bool
-	withSubagents      bool
-	withSlackApp       bool
-	withDiscordApp     bool
-	withGitHubApp      bool
-	withoutAppListener bool
-	githubPermission   string
-	discordGuild       string
-	slackChannel       string
-	slackPermission    string
+	withMCP          bool
+	withSubagents    bool
+	withSlackApp     bool
+	withDiscordApp   bool
+	withGitHubApp    bool
+	githubPermission string
+	discordGuild     string
+	slackChannel     string
+	slackPermission  string
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -1221,9 +1220,6 @@ tools:
 		}
 		sourceYAML += "  app__chat__read:\n    config: " + string(raw) + "\n" +
 			"  app__chat__post_message:\n    permission: {mode: " + permission + "}\n    config: " + string(raw) + "\n"
-		if !fixtureOptions.withoutAppListener {
-			sourceYAML += "listeners:\n  chat__thread_messages: {}\n"
-		}
 	}
 	if fixtureOptions.withGitHubApp {
 		permission := fixtureOptions.githubPermission
@@ -1233,10 +1229,6 @@ tools:
 		for _, operation := range []string{"read", "discussion_comment", "inline_comment", "reply"} {
 			sourceYAML += "  app__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n" +
 				"    config: {repository_id: 123, pull_request: 7}\n"
-		}
-		if !fixtureOptions.withoutAppListener {
-			sourceYAML += "listeners:\n  chat__pull_request:\n" +
-				"    config: {conversations: [{repository_id: 123, pull_request: 7}]}\n"
 		}
 	}
 	if withMCP {

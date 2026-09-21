@@ -177,7 +177,20 @@ func TestScheduledLaunchHasFixedCapabilitiesWithoutMentionLauncher(t *testing.T)
 	raw := string(config.CompiledDefinition)
 	require.Contains(t, raw, "100.1")
 	require.Contains(t, raw, "app__chat__post_message")
-	require.Contains(t, raw, "chat__thread_messages")
+	require.NotContains(t, compiled, "subscriptions")
+	subscriptions, err := f.store.Integrations().ListAppSubscriptions(
+		t.Context(), integrationstore.ListAppSubscriptionsInput{ProjectID: f.ids.ProjectID, AppID: f.appID, Limit: 100},
+	)
+	require.NoError(t, err)
+	require.Len(t, subscriptions.Subscriptions, 1)
+	require.Equal(t, launched.Agent.ID, subscriptions.Subscriptions[0].AgentID)
+	require.Equal(t, "thread_messages", subscriptions.Subscriptions[0].Type)
+	require.Equal(t, []string{"message"}, subscriptions.Subscriptions[0].Events)
+	require.Equal(
+		t,
+		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
+		subscriptions.Subscriptions[0].Address,
+	)
 	require.NotEqual(t, uuid.Nil, launched.IntegrationTarget.ID)
 	var selected uuid.UUID
 	var handler string
@@ -220,6 +233,14 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 	plan, err := decodeAppInboxPlan(saved.Plan)
 	require.NoError(t, err)
 	require.Equal(t, f.provider.root, plan["scheduled"].Scope)
+	require.Len(t, plan["scheduled"].Launch.Subscriptions, 1)
+	require.Equal(t, f.appID, plan["scheduled"].Launch.Subscriptions[0].AppID)
+	require.Equal(t, []string{"message"}, plan["scheduled"].Launch.Subscriptions[0].Events)
+	require.JSONEq(
+		t,
+		`{"channel_id":"C123","thread_ts":"100.1"}`,
+		string(plan["scheduled"].Launch.Subscriptions[0].Conversation),
+	)
 	// A plain reply after the reservation cannot freeze as unrouted before launch.
 	follow, _, err := f.store.Integrations().AcceptIntegrationReceipt(
 		t.Context(),

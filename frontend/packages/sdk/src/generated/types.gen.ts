@@ -1380,11 +1380,9 @@ export type CreateAgentRequest = {
         [key: string]: ConfigToolSource;
     };
     /**
-     * Additional named app listeners. Existing entries win unchanged. Requires project management permission.
+     * App-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
      */
-    listeners?: {
-        [key: string]: ConfigAppCapabilitySource;
-    };
+    subscriptions?: Array<AppSubscriptionAttachment>;
     /**
      * Additional app interaction handlers, keyed by immutable app name. Existing entries win unchanged. Requires project management permission.
      */
@@ -3522,12 +3520,86 @@ export type AppCapabilityDefinition = {
     };
 };
 
+export type AppSubscriptionId = string;
+
+/**
+ * One concrete provider address, validated by the app subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ */
+export type AppSubscriptionConversation = {
+    [key: string]: unknown;
+};
+
+export type AppSubscriptionAttachment = {
+    app_id: ProjectAppId;
+    /**
+     * Named subscription type exported by the app definition.
+     */
+    type: string;
+    conversation: AppSubscriptionConversation;
+    /**
+     * Event selection validated against the app definition. Omit to use its defaults.
+     */
+    events?: Array<string>;
+};
+
+export type CreateAppSubscriptionRequest = {
+    agent_id: AgentId;
+    /**
+     * Named subscription type exported by the app definition.
+     */
+    type: string;
+    conversation: AppSubscriptionConversation;
+    /**
+     * Event selection validated against the app definition. Omit to use its defaults.
+     */
+    events?: Array<string>;
+};
+
+export type AppSubscription = {
+    id: AppSubscriptionId;
+    project_id: ProjectId;
+    app_id: ProjectAppId;
+    agent_id: AgentId;
+    agent_name: AgentName;
+    /**
+     * Named subscription type exported by the app definition.
+     */
+    type: string;
+    conversation: AppSubscriptionConversation;
+    /**
+     * Resolved event selection for this subscription.
+     */
+    events: Array<string>;
+    created_at: Timestamp;
+};
+
+export type ListAppSubscriptionsResponse = {
+    data: Array<AppSubscription>;
+    /**
+     * Opaque cursor for the next page, or null when this is the last page.
+     */
+    next_cursor: string | null;
+};
+
+export type AppSubscriptionDefinition = {
+    /**
+     * Schema for one concrete provider conversation address.
+     */
+    conversation_schema: {
+        [key: string]: unknown;
+    };
+    /**
+     * Supported event types; omitted event selections default to this set.
+     */
+    events: Array<string>;
+};
+
 export type AppCapabilities = {
     tools: {
         [key: string]: AppCapabilityDefinition;
     };
-    listeners: {
-        [key: string]: AppCapabilityDefinition;
+    subscriptions: {
+        [key: string]: AppSubscriptionDefinition;
     };
     interaction_handler?: AppCapabilityDefinition;
 };
@@ -14492,6 +14564,211 @@ export type UpdateProjectAppResponses = {
 };
 
 export type UpdateProjectAppResponse = UpdateProjectAppResponses[keyof UpdateProjectAppResponses];
+
+export type ListAppSubscriptionsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        appID: ProjectAppId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions';
+};
+
+export type ListAppSubscriptionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListAppSubscriptionsError = ListAppSubscriptionsErrors[keyof ListAppSubscriptionsErrors];
+
+export type ListAppSubscriptionsResponses = {
+    /**
+     * App conversation subscriptions.
+     */
+    200: ListAppSubscriptionsResponse;
+};
+
+export type ListAppSubscriptionsResponse2 = ListAppSubscriptionsResponses[keyof ListAppSubscriptionsResponses];
+
+export type CreateAppSubscriptionData = {
+    body: CreateAppSubscriptionRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        appID: ProjectAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions';
+};
+
+export type CreateAppSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateAppSubscriptionError = CreateAppSubscriptionErrors[keyof CreateAppSubscriptionErrors];
+
+export type CreateAppSubscriptionResponses = {
+    /**
+     * Created or existing subscription.
+     */
+    201: AppSubscription;
+};
+
+export type CreateAppSubscriptionResponse = CreateAppSubscriptionResponses[keyof CreateAppSubscriptionResponses];
+
+export type DeleteAppSubscriptionData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        appID: ProjectAppId;
+        subscriptionID: AppSubscriptionId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions/{subscriptionID}';
+};
+
+export type DeleteAppSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteAppSubscriptionError = DeleteAppSubscriptionErrors[keyof DeleteAppSubscriptionErrors];
+
+export type DeleteAppSubscriptionResponses = {
+    /**
+     * Subscription removed or already absent.
+     */
+    204: void;
+};
+
+export type DeleteAppSubscriptionResponse = DeleteAppSubscriptionResponses[keyof DeleteAppSubscriptionResponses];
 
 export type ConfigureProjectAppData = {
     body: ConfigureProjectAppRequest;

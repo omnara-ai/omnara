@@ -21,7 +21,6 @@ type appToolAccess struct {
 	OriginalContract  agentconfig.RuntimeContract
 	CurrentConfigID   uuid.UUID
 	App               integrationstore.ProjectAppRecord
-	FollowListenerKey string
 	Credential        secrets.Payload
 	CredentialVersion uuid.UUID
 }
@@ -91,18 +90,6 @@ func (e Executor) resolveAppToolScope(
 		CurrentConfigID:  agent.CurrentConfigID,
 		App:              app,
 	}
-	if args.FollowReplies {
-		key := name + "__" + authority.Definition.FollowListener
-		before, was := original.Listeners[key]
-		after, is := current.Listeners[key]
-		if authority.Definition.FollowListener == "" || !was || !is || before.AppID != pinned.AppID ||
-			after.AppID != pinned.AppID {
-			return appToolAccess{}, errors.New(
-				"following replies requires the app's listener in the original and current config",
-			)
-		}
-		access.FollowListenerKey = key
-	}
 	return access, nil
 }
 
@@ -158,9 +145,6 @@ func (e Executor) recheckAppToolAccess(
 		metadata := map[string]agentconfig.AppResolution{ref: {AppID: ref, Definition: access.App.DefinitionID}}
 		if _, err := agentconfig.ResolveAppToolAuthority(access.OriginalContract, current, tool.Name, metadata); err != nil {
 			return fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
-		}
-		if access.FollowListenerKey != "" && current.Listeners[access.FollowListenerKey].AppID != ref {
-			return fmt.Errorf("%w: listener removed", ErrToolAuthorizationInvalidated)
 		}
 	}
 	app, err := e.Store.Integrations().GetProjectApp(ctx, turn.ProjectID, access.App.ID)

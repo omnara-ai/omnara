@@ -43,7 +43,7 @@ func newAppLaunchHTTPFixture(t *testing.T, seed string) appLaunchHTTPFixture {
 func (f appLaunchHTTPFixture) body() map[string]any {
 	initial := customIntegrationHTTPInput()
 	initial["actor"] = map[string]any{"provider_tenant_id": "customer-directory", "provider_user_id": "requester-7"}
-	body := hostedLaunchHTTPCapabilities(f.appName)
+	body := hostedLaunchHTTPCapabilities(f.appName, f.appID)
 	body["config"], body["profile"], body["initial_input"] = f.configID, f.profileID, initial
 	return body
 }
@@ -56,7 +56,7 @@ func (f appLaunchHTTPFixture) counts(t *testing.T) [6]int {
 		(SELECT count(*) FROM agents WHERE project_id=$1),
 		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content'),
 		(SELECT count(*) FROM integration_targets WHERE project_id=$1),
-		(SELECT count(*) FROM agent_listeners WHERE project_id=$1),
+		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
 		(SELECT count(*) FROM actors WHERE project_id=$1)`, f.project.ProjectUUID).
 		Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5]))
 	return counts
@@ -68,7 +68,7 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	ctx := t.Context()
 	pool := integrationPoolForHandler(t, f.handler)
 	before := f.counts(t)
-	// Fail after derived config activation and listener insertion. All
+	// Fail after derived config activation and subscription insertion. All
 	// of them, including actor resolution, must roll back with initial admission.
 	_, err := pool.Exec(ctx, `CREATE FUNCTION reject_launch_initial() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN IF NEW.input_kind='content' THEN RAISE EXCEPTION 'fixture rejects initial input'; END IF;
@@ -79,7 +79,7 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	body := projectAppHTTPJSON(t, f.body())
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		body, "atomic-launch", http.StatusInternalServerError, authHeaders(f.launchToken))
-	require.Equal(t, before, f.counts(t), "failed input must leave no config, agent, input, target, listener or actor")
+	require.Equal(t, before, f.counts(t), "failed input must leave no config, agent, input, target, subscription or actor")
 	_, err = pool.Exec(ctx, `DROP TRIGGER reject_launch_initial ON agent_inputs; DROP FUNCTION reject_launch_initial()`)
 	require.NoError(t, err)
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
@@ -97,7 +97,6 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	require.True(t, found)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(stored.CompiledDefinition, &compiled))
-	require.Equal(t, f.appID, compiled.Listeners[f.appName+"__thread_messages"].AppID)
 	require.Equal(t, f.appID, compiled.InteractionHandlers[f.appName].AppID)
 	require.Equal(t, f.appID, compiled.Tools[toolcatalog.AppToolName(f.appName, toolcatalog.AppOperationRead)].AppID)
 	var provider, actorTenant, actorUser string
@@ -118,12 +117,14 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])
 	after := f.counts(t)
 	for _, i := range []int{0, 1, 2, 4} {
-		require.Equal(t, before[i]+1, after[i], "one new config, agent, content input and listener")
+		require.Equal(t, before[i]+1, after[i], "one new config, agent, content input and subscription")
 	}
 	require.Equal(t, before[3], after[3],
 		"ordinary external input and configured capabilities create no attribution target")
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, f.project.ProjectPath+"/apps/"+f.appID,
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
+	after = f.counts(t)
+	require.Zero(t, after[4], "app deletion retires its subscriptions")
 	replayed := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		body, "atomic-launch", http.StatusOK, authHeaders(f.launchToken))
 	require.Len(t, replayed, 1)
@@ -155,7 +156,7 @@ func TestPublicAppLaunchAuthorizationAndAppBoundary(t *testing.T) {
 	otherApp := createSlackHTTPApp(t, t.Context(), other, "A999", "T999", "Other support")
 	for _, name := range []string{otherApp.Name, "missing-app"} {
 		request := f.body()
-		for key, value := range hostedLaunchHTTPCapabilities(name) {
+		for key, value := range hostedLaunchHTTPCapabilities(name, testPublicID(t, publicid.KindProjectApp, otherApp.ID)) {
 			request[key] = value
 		}
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
@@ -170,7 +171,7 @@ func TestPublicAppLaunchAuthorizationAndAppBoundary(t *testing.T) {
 		projectAppHTTPJSON(t, plain), "operator-launch", http.StatusCreated, authHeaders(operator))
 	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, created["agent_config"])["id"])
 	require.Equal(t, before[0], f.counts(t)[0])
-	require.Equal(t, before[4], f.counts(t)[4], "ordinary input creates no listener")
+	require.Equal(t, before[4], f.counts(t)[4], "ordinary input creates no subscription")
 }
 
 func TestPublicAppLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) {
@@ -199,7 +200,7 @@ func TestPublicAppLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) {
 			}}}
 		}, "invalid"},
 		{"unknown-app", func(body map[string]any) {
-			for key, value := range hostedLaunchHTTPCapabilities("missing-app") {
+			for key, value := range hostedLaunchHTTPCapabilities("missing-app", f.appID) {
 				body[key] = value
 			}
 		}, "invalid"},
@@ -263,7 +264,7 @@ func TestPublicAppLaunchInitialInputReplay(t *testing.T) {
 			require.Equal(t, before[2]+1, after[2])
 			if !withApp {
 				require.Equal(t, before[0], after[0], "ordinary initial input does not derive a config")
-				require.Equal(t, before[4], after[4], "ordinary initial input creates no listener")
+				require.Equal(t, before[4], after[4], "ordinary initial input creates no subscription")
 			}
 			replay := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 				encoded, "launch-event", http.StatusOK, authHeaders(f.launchToken))
@@ -284,19 +285,114 @@ func TestPublicAppLaunchInitialInputReplay(t *testing.T) {
 	}
 }
 
-func hostedLaunchHTTPCapabilities(appName string) map[string]any {
+func hostedLaunchHTTPCapabilities(appName, appID string) map[string]any {
 	fixed := map[string]any{"channel_id": "C123", "thread_ts": "123.456"}
 	return map[string]any{
 		"tools": map[string]any{toolcatalog.AppToolName(appName, toolcatalog.AppOperationRead): map[string]any{"config": fixed}},
-		"listeners": map[string]any{appName + "__thread_messages": map[string]any{"config": map[string]any{
-			"conversations": []any{fixed}, "events": []string{"message"},
-		}}},
+		"subscriptions": []any{map[string]any{
+			"app_id": appID, "type": "thread_messages", "conversation": fixed, "events": []string{"message"},
+		}},
 		"interaction_handlers": map[string]any{appName: map[string]any{"config": fixed}},
 	}
 }
 
 func removeLaunchHTTPCapabilities(body map[string]any) {
 	delete(body, "tools")
-	delete(body, "listeners")
+	delete(body, "subscriptions")
 	delete(body, "interaction_handlers")
+}
+
+func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "subscription-launch")
+	body := f.body()
+	delete(body, "tools")
+	delete(body, "interaction_handlers")
+	before := f.counts(t)
+	for _, role := range []string{"viewer", "operator"} {
+		token := customIntegrationHTTPKey(t, f.handler, f.project, "subscription-launch-"+role, role)
+		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+			projectAppHTTPJSON(t, body), "subscription-launch", http.StatusForbidden, authHeaders(token))
+	}
+	require.Equal(t, before, f.counts(t), "subscription-only launch still requires manage")
+	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, body), "subscription-launch", http.StatusCreated, authHeaders(f.launchToken))
+	agent := testutil.RequireType[map[string]any](t, launched["agent"])
+	require.Equal(t, f.configID, agent["current_config_id"])
+	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, launched["agent_config"])["id"])
+	after := f.counts(t)
+	require.Equal(t, before[0], after[0], "subscriptions alone must not derive an empty config")
+	require.Equal(t, before[1]+1, after[1])
+	require.Equal(t, before[2]+1, after[2])
+	require.Equal(t, before[4]+1, after[4])
+	path := f.project.ProjectPath + "/apps/" + f.appID + "/subscriptions"
+	page := requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusOK, authHeaders(f.launchToken))
+	data := testutil.RequireType[[]any](t, page["data"])
+	require.Len(t, data, 1)
+	subscription := testutil.RequireType[map[string]any](t, data[0])
+	require.Equal(t, agent["id"], subscription["agent_id"])
+	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path+"/"+testutil.RequireType[string](t, subscription["id"]),
+		"", "", http.StatusNoContent, authHeaders(f.launchToken))
+	after = f.counts(t)
+	// Changed replay attachments are ignored, including provider validation.
+	body["subscriptions"] = []any{map[string]any{"app_id": f.appID, "type": "missing", "conversation": map[string]any{}}}
+	replay := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, body), "subscription-launch", http.StatusOK, authHeaders(f.launchToken))
+	require.Equal(t, agent["id"], testutil.RequireType[map[string]any](t, replay["agent"])["id"])
+	require.Equal(t, after, f.counts(t), "launch replay cannot restore a detached subscription")
+}
+
+func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "subscription-launch-invalid")
+	other := projectAppHTTPSecondProject(t, f.handler, f.project)
+	foreign := createSlackHTTPApp(t, t.Context(), other, "AFOREIGN", "TFOREIGN", "Foreign")
+	before := f.counts(t)
+	for _, tc := range []struct {
+		name   string
+		status int
+		edit   func(map[string]any)
+	}{
+		{"unknown-app", http.StatusNotFound, func(a map[string]any) {
+			a["app_id"] = testPublicID(t, publicid.KindProjectApp, uuid.New())
+		}},
+		{"foreign-app", http.StatusNotFound, func(a map[string]any) {
+			a["app_id"] = testPublicID(t, publicid.KindProjectApp, foreign.ID)
+		}},
+		{"wrong-id-kind", http.StatusBadRequest, func(a map[string]any) { a["app_id"] = f.configID }},
+		{"unknown-type", http.StatusBadRequest, func(a map[string]any) { a["type"] = "missing" }},
+		{"qualified-type", http.StatusBadRequest, func(a map[string]any) { a["type"] = f.appName + "__thread_messages" }},
+		{"empty-conversation", http.StatusBadRequest, func(a map[string]any) { a["conversation"] = map[string]any{} }},
+		{"invalid-event", http.StatusBadRequest, func(a map[string]any) { a["events"] = []string{"commit"} }},
+		{"config-alias", http.StatusBadRequest, func(a map[string]any) {
+			a["config"] = a["conversation"]
+			delete(a, "conversation")
+		}},
+	} {
+		t.Logf("invalid subscription case: %s", tc.name)
+		body := f.body()
+		delete(body, "tools")
+		delete(body, "interaction_handlers")
+		bad := map[string]any{
+			"app_id": f.appID, "type": "thread_messages", "conversation": map[string]any{"channel_id": "COTHER"},
+		}
+		tc.edit(bad)
+		body["subscriptions"] = append(testutil.RequireType[[]any](t, body["subscriptions"]), bad)
+		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+			projectAppHTTPJSON(t, body), "invalid-subscription", tc.status, authHeaders(f.launchToken))
+		require.Equal(t, before, f.counts(t), "failed validation must roll back all launch resources: %s", tc.name)
+	}
+	body := f.body()
+	body["listeners"] = map[string]any{}
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, body), "legacy-listener", http.StatusBadRequest, authHeaders(f.launchToken))
+	delete(body, "listeners")
+	attachments := make([]any, 101)
+	for i := range attachments {
+		attachments[i] = testutil.RequireType[[]any](t, body["subscriptions"])[0]
+	}
+	body["subscriptions"] = attachments
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		projectAppHTTPJSON(t, body), "too-many-subscriptions", http.StatusBadRequest, authHeaders(f.launchToken))
+	require.Equal(t, before, f.counts(t))
 }

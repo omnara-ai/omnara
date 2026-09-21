@@ -6,10 +6,11 @@ WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
 -- name: ListProjectAppAgentIDsForLifecycle :many
 -- @sqlc-vet-disable integration-targets-deleted-at
 -- Include historical targets whose agents may still hold references to clear.
-SELECT DISTINCT agent_id
-FROM integration_targets
-WHERE project_id = sqlc.arg(project_id)
-  AND app_id = sqlc.arg(app_id)
+SELECT target.agent_id FROM integration_targets target
+WHERE target.project_id = sqlc.arg(project_id) AND target.app_id = sqlc.arg(app_id)
+UNION
+SELECT subscription.agent_id FROM app_subscriptions subscription
+WHERE subscription.project_id = sqlc.arg(project_id) AND subscription.app_id = sqlc.arg(app_id)
 ORDER BY agent_id;
 
 -- name: ClearDeletedIntegrationTargetsFromAgents :exec

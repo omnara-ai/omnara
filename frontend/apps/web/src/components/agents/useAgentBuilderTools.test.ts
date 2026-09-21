@@ -34,7 +34,6 @@ describe('agentBuilderToolsSource', () => {
       }),
     )
     expect(payload).toEqual({
-      listeners: {},
       interaction_handlers: {},
       tools: {
         web_search: { type: 'built_in' },
@@ -57,12 +56,10 @@ describe('agentBuilderToolsSource', () => {
 
   it('preserves independent capabilities and fixed tool settings through builder edits', () => {
     const tool = { config: { channel_id: 'C123', thread_ts: '123.456' } }
-    const listener = { config: { conversations: [{ channel_id: 'C123', thread_ts: '123.456' }] } }
     const handler = { config: { channel_id: 'C456' } }
     const source = {
       instruction: 'Review',
       tools: { app__chat__post_message: tool },
-      listeners: { chat__thread_messages: listener },
       interaction_handlers: { chat: handler },
     }
     const session = createBasicConfigSession(JSON.stringify(source))
@@ -71,11 +68,9 @@ describe('agentBuilderToolsSource', () => {
     const preview: unknown = JSON.parse(agentBuilderToolsSource(changed))
     expect(preview).toMatchObject({
       tools: { app__chat__post_message: tool },
-      listeners: source.listeners,
       interaction_handlers: source.interaction_handlers,
     })
     const updated = createBasicConfigSession(session.apply(changed)).initialDraft
-    expect(updated?.listeners).toEqual(source.listeners)
     expect(updated?.interactionHandlers).toEqual(source.interaction_handlers)
     expect(updated?.tools[0]?.config).toEqual(tool.config)
   })

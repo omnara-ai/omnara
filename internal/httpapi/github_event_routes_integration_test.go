@@ -253,7 +253,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			results = f.consume(t, commit)
 			require.Len(t, results, 1)
 			require.Equal(t, executionstore.DeliveryModeQueued, results[0].Input.AgentInput.DeliveryMode)
-			// Renaming does not lose the listener; reusing that name for a different
+			// Renaming does not lose the subscription; reusing that name for a different
 			// repository ID cannot reach this agent or this repository launcher.
 			renamed := strings.ReplaceAll(githubHTTPComment(t, 42, 3003, "renamed repository"),
 				"owner/repository", "new-owner/new-name")
@@ -274,16 +274,12 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 	}
 }
 
-func TestGitHubHTTPExistingAgentListenerJourney(t *testing.T) {
+func TestGitHubHTTPExistingAgentSubscriptionJourney(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "github-existing")
 	source := map[string]any{
 		"instruction": "Review this pull request.",
 		"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
-		"listeners": map[string]any{f.app.Name + "__pull_request": map[string]any{"config": map[string]any{
-			"conversations": []any{map[string]any{"repository_id": 1001, "pull_request": 42}},
-			"events":        []string{"discussion_comment", "review_comment", "commit"},
-		}}},
 	}
 	config := createPublicHTTPAgentConfig(t, f.handler, f.project, "existing-config", "json",
 		projectAppHTTPJSON(t, source), f.project.AdminToken, http.StatusCreated)
@@ -294,6 +290,13 @@ func TestGitHubHTTPExistingAgentListenerJourney(t *testing.T) {
 		"existing-reviewer", http.StatusCreated, authHeaders(f.project.AdminToken))
 	publicAgentID := testutil.RequireType[string](t,
 		testutil.RequireType[map[string]any](t, launched["agent"])["id"])
+	requestJSONWithHeaders(t, f.handler, http.MethodPost,
+		f.project.ProjectPath+"/apps/"+testPublicID(t, publicid.KindProjectApp, f.app.ID)+"/subscriptions",
+		projectAppHTTPJSON(t, map[string]any{
+			"agent_id": publicAgentID, "type": "pull_request",
+			"conversation": map[string]any{"repository_id": 1001, "pull_request": 42},
+			"events":       []string{"discussion_comment", "review_comment", "commit"},
+		}), "", http.StatusCreated, authHeaders(f.project.AdminToken))
 	raw := githubHTTPComment(t, 42, 4001, "Human steering without a mention")
 	githubHTTPWebhook(t, f.handler, "issue_comment", "existing", githubJourneyWebhookSecret, raw, http.StatusNoContent)
 	results := f.consume(t, raw)

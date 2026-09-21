@@ -2,6 +2,7 @@ package appdefinition
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/jsonschema"
@@ -38,41 +39,108 @@ func TestRegistryAndTypedDestinations(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestListenerConfigExpandsInitialAddressesAndEvents(t *testing.T) {
+func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
 	for _, test := range []struct {
-		id, name, raw string
-		count         int
+		id, name, conversation, kind, ref string
 	}{
-		{Slack, "thread_messages", `{"conversations":[{"channel_id":"C123","thread_ts":"1.2"},{"channel_id":"D123"}]}`, 2},
-		{Discord, "thread_messages", `{"conversations":[{"channel_id":"123","thread_id":"456"}]}`, 1},
-		{GitHub, "pull_request", `{"events":["commit"],"conversations":[{"repository_id":123,"pull_request":42}]}`, 1},
+		{Slack, "thread_messages", `{"channel_id":"C123","thread_ts":"1.2"}`, "thread", "C123:1.2"},
+		{Slack, "thread_messages", `{"channel_id":"D123"}`, "dm", "D123"},
+		{Slack, "thread_messages", `{"channel_id":"C123"}`, "channel", "C123"},
+		{Discord, "thread_messages", `{"channel_id":"123","thread_id":"456"}`, "thread", "123:456"},
+		{Discord, "thread_messages", `{"channel_id":"123"}`, "channel", "123"},
+		{GitHub, "pull_request", `{"repository_id":123,"pull_request":42}`, "pull_request", "123#42"},
 	} {
-		t.Run(test.id, func(t *testing.T) {
+		t.Run(test.id+"/"+test.kind, func(t *testing.T) {
 			d, _ := Lookup(test.id)
-			listener := d.Listeners[test.name]
-			empty, err := listener.Prepare(nil)
+			subscription := d.Subscriptions[test.name]
+			schema, err := subscription.ConversationSchema()
 			require.NoError(t, err)
-			require.Empty(t, empty.Conversations)
-			require.ElementsMatch(t, listener.Events, empty.Events)
-			full, err := listener.Prepare([]byte(test.raw))
+			require.NoError(t, jsonschema.Validate(schema, []byte(test.conversation)))
+			prepared, err := subscription.Prepare([]byte(test.conversation), nil)
 			require.NoError(t, err)
-			require.Len(t, full.Conversations, test.count)
-			for _, address := range full.Conversations {
-				_, _, err := address.Conversation()
-				require.NoError(t, err)
-			}
-			again, err := listener.Prepare(full.Config)
+			require.ElementsMatch(t, subscription.Events, prepared.Events)
+			require.True(t, slices.IsSorted(prepared.Events))
+			kind, ref, err := prepared.Scope.Conversation()
 			require.NoError(t, err)
-			require.Equal(t, full, again)
+			require.Equal(t, test.kind, kind)
+			require.Equal(t, test.ref, ref)
+			parsed, err := ParseConversation(d.Provider, kind, ref)
+			require.NoError(t, err)
+			raw, err := parsed.ConversationJSON()
+			require.NoError(t, err)
+			require.JSONEq(t, test.conversation, string(raw))
+			again, err := subscription.Prepare(raw, prepared.Events)
+			require.NoError(t, err)
+			require.Equal(t, prepared, again)
 			for _, raw := range []string{
-				`{"events":[]}`, `{"events":["bogus"]}`, `{"events":["commit","commit"]}`,
-				`{"conversations":[{}]}`, `{"scope":{}}`, `null`,
+				`{}`, `null`, `[]`, `{"conversations":[]}`, `{"slack":{"channel_id":"C123"}}`,
+				`{"channel_id":"C123","events":["message"]}`, `{"channel_id":"bad"}`,
+				`{"channel_id":"C123","thread_ts":""}`, `{"repository_id":0,"pull_request":1}`,
+				`{"repository_id":9223372036854775808,"pull_request":1}`,
+				`{"channel_id":"123","thread_id":"123456789012345678901"}`,
 			} {
-				_, err := listener.Prepare([]byte(raw))
+				_, err := subscription.Prepare([]byte(raw), nil)
 				require.Error(t, err, raw)
+			}
+			_, err = subscription.Prepare(nil, nil)
+			require.Error(t, err)
+			for _, events := range [][]string{{}, {"bogus"}, {subscription.Events[0], subscription.Events[0]}} {
+				_, err := subscription.Prepare([]byte(test.conversation), events)
+				require.Error(t, err, events)
 			}
 		})
 	}
+}
+
+func TestSubscriptionEventSelectionIsCanonicalAndOwned(t *testing.T) {
+	d, _ := Lookup(GitHub)
+	subscription := d.Subscriptions["pull_request"]
+	events := []string{"review_comment", "commit"}
+	prepared, err := subscription.Prepare([]byte(`{"repository_id":123,"pull_request":42}`), events)
+	require.NoError(t, err)
+	require.Equal(t, []string{"commit", "review_comment"}, prepared.Events)
+	require.Equal(t, []string{"review_comment", "commit"}, events)
+	prepared.Events[0] = "changed"
+	require.Equal(t, "commit", events[1])
+	prepared, err = subscription.Prepare([]byte(`{"repository_id":123,"pull_request":42}`), nil)
+	require.NoError(t, err)
+	prepared.Events[0] = "changed"
+	require.NotContains(t, subscription.Events, "changed")
+	_, err = (SubscriptionDefinition{Provider: "unknown"}).ConversationSchema()
+	require.Error(t, err)
+	_, err = (SubscriptionDefinition{Provider: "unknown"}).Prepare([]byte(`{"channel_id":"C123"}`), nil)
+	require.Error(t, err)
+}
+
+func TestParseConversationRejectsParentAndMismatchedAddresses(t *testing.T) {
+	for _, test := range []struct{ provider, kind, ref string }{
+		{ProviderSlack, "workspace", "T123"}, {ProviderSlack, "channel", "D123"},
+		{ProviderSlack, "dm", "C123"}, {ProviderSlack, "thread", "C123:"},
+		{ProviderSlack, "thread", "C123:1.2:3.4"}, {ProviderSlack, "channel", "C123:1.2"},
+		{ProviderDiscord, "guild", "123"}, {ProviderDiscord, "thread", "123:"},
+		{ProviderDiscord, "dm", "123"}, {ProviderDiscord, "thread", "123:0"},
+		{ProviderGitHub, "repository", "123"}, {ProviderGitHub, "installation", "123"},
+		{ProviderGitHub, "pull_request", "0#1"}, {ProviderGitHub, "pull_request", "1#0"},
+		{ProviderGitHub, "pull_request", "123"}, {ProviderGitHub, "pull_request", "1#1#1"},
+		{ProviderGitHub, "pull_request", "9223372036854775808#1"}, {"unknown", "channel", "C123"},
+	} {
+		_, err := ParseConversation(test.provider, test.kind, test.ref)
+		require.Error(t, err, test)
+	}
+	scope, err := ParseConversation(ProviderGitHub, " pull_request ", " 00123#0042 ")
+	require.NoError(t, err)
+	kind, ref, err := scope.Conversation()
+	require.NoError(t, err)
+	require.Equal(t, "pull_request", kind)
+	require.Equal(t, "123#42", ref)
+	_, err = (Scope{}).ConversationJSON()
+	require.Error(t, err)
+	_, err = (Scope{Slack: &SlackScope{ChannelID: "C123"}, Discord: &DiscordScope{ChannelID: "123"}}).ConversationJSON()
+	require.Error(t, err)
+	withGuild := Scope{Discord: &DiscordScope{GuildID: "111", ChannelID: "123", ThreadID: "456"}}
+	raw, err := withGuild.ConversationJSON()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"guild_id":"111","channel_id":"123","thread_id":"456"}`, string(raw))
 }
 
 func TestInteractionHandlersIndependentFlexibleOrFixed(t *testing.T) {

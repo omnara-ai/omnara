@@ -208,7 +208,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			after, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(t, before.CurrentConfigID, after.CurrentConfigID)
-			require.Empty(t, f.activation().listeners(t, f.process.AgentID))
+			require.Empty(t, f.activation().subscriptions(t, f.process.AgentID))
 			selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 			require.NoError(t, err)
 			require.Equal(

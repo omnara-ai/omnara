@@ -64,9 +64,6 @@ func TestBuildPreparesNamespacedToolWithFixedConfig(t *testing.T) {
     permission: {mode: always_ask}
     config: {channel_id: C123, thread_ts: "111.222"}
   app__engineering__read: {}
-listeners:
-  engineering__thread_messages:
-    config: {conversations: [{channel_id: C456, thread_ts: "333.444"}]}
 interaction_handlers:
   engineering: {config: {channel_id: C789}}
 `)
@@ -187,7 +184,7 @@ func TestBuildInteractionSelectionCannotRetargetPinnedApp(t *testing.T) {
 
 func TestBuildInteractionDefaultsWithoutHandlersAndDashboardContext(t *testing.T) {
 	for _, source := range []string{
-		"", "listeners: {engineering__thread_messages: {}}\n", "interaction_handlers: {engineering: {}}\n",
+		"", "tools: {app__engineering__read: {}}\n", "interaction_handlers: {engineering: {}}\n",
 	} {
 		t.Run(source, func(t *testing.T) {
 			store, _ := appContextFixture(t, source)

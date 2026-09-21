@@ -112,7 +112,6 @@ func SubagentCompiledFrom(
 ) (Compiled, error) {
 	child := base
 	child.Tools = copyTools(base.Tools)
-	child.Listeners = nil
 	child.InteractionHandlers = nil
 	child.MCP = maps.Clone(base.MCP)
 	for name, tool := range child.Tools {

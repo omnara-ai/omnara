@@ -11,7 +11,6 @@ import (
 
 type AppCapabilitiesSource struct {
 	Tools               map[string]AgentConfigToolSource          `json:"tools,omitempty"`
-	Listeners           map[string]AgentConfigAppCapabilitySource `json:"listeners,omitempty"`
 	InteractionHandlers map[string]AgentConfigAppCapabilitySource `json:"interaction_handlers,omitempty"`
 }
 
@@ -45,7 +44,7 @@ func CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOpti
 		compiled.Tools[key] = tool
 	}
 	if err := compileAppCapabilities(
-		AgentConfigSource{Listeners: source.Listeners, InteractionHandlers: source.InteractionHandlers},
+		AgentConfigSource{InteractionHandlers: source.InteractionHandlers},
 		opts,
 		&compiled,
 	); err != nil {
@@ -60,13 +59,9 @@ func CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOpti
 // Launcher subscriptions are admitted separately by storage.
 func DeriveWithAppCapabilities(base Compiled, source AppCapabilitiesSource, opts CompileOptions) (Compiled, error) {
 	source.Tools = maps.Clone(source.Tools)
-	source.Listeners = maps.Clone(source.Listeners)
 	source.InteractionHandlers = maps.Clone(source.InteractionHandlers)
 	for key := range base.Tools {
 		delete(source.Tools, key)
-	}
-	for key := range base.Listeners {
-		delete(source.Listeners, key)
 	}
 	for key := range base.InteractionHandlers {
 		delete(source.InteractionHandlers, key)
@@ -87,17 +82,10 @@ func DeriveWithAppCapabilities(base Compiled, source AppCapabilitiesSource, opts
 		derived.Tools = map[string]ToolCompiled{}
 	}
 	maps.Copy(derived.Tools, additions.Tools)
-	for _, pair := range []struct {
-		target *map[string]AppCapabilityCompiled
-		source map[string]AppCapabilityCompiled
-	}{
-		{&derived.Listeners, additions.Listeners}, {&derived.InteractionHandlers, additions.InteractionHandlers},
-	} {
-		if len(pair.source) > 0 && *pair.target == nil {
-			*pair.target = map[string]AppCapabilityCompiled{}
-		}
-		maps.Copy(*pair.target, pair.source)
+	if len(additions.InteractionHandlers) > 0 && derived.InteractionHandlers == nil {
+		derived.InteractionHandlers = map[string]AppCapabilityCompiled{}
 	}
+	maps.Copy(derived.InteractionHandlers, additions.InteractionHandlers)
 	if err := validateCompiledApps(derived); err != nil {
 		return Compiled{}, err
 	}

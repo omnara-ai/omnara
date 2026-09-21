@@ -592,7 +592,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	// Previous target pointers were also automatic prompt destinations. Keep the
-	// targets as history, but no new handler/listener authority is inferred from them.
+	// targets as history, without inferring handlers or app subscriptions from them.
 	_, err = tx.ExecContext(
 		ctx,
 		`UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE integration_target_id IS NOT NULL`,

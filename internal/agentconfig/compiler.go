@@ -29,7 +29,6 @@ type Compiled struct {
 	MachineSources      []MachineSourceCompiled          `json:"machine_sources,omitempty"`
 	Tools               map[string]ToolCompiled          `json:"tools,omitempty"`
 	MCP                 map[string]MCPServerCompiled     `json:"mcp,omitempty"`
-	Listeners           map[string]AppCapabilityCompiled `json:"listeners,omitempty"`
 	InteractionHandlers map[string]AppCapabilityCompiled `json:"interaction_handlers,omitempty"`
 	Skills              []SkillCompiled                  `json:"skills,omitempty"`
 	Subagents           map[string]SubagentCompiled      `json:"subagents,omitempty"`

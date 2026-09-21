@@ -39,15 +39,3 @@ func TestAppToolNamesRejectOverflowWithoutTruncation(t *testing.T) {
 	// The limit is on the whole tool name, not an arbitrary operation-length cap.
 	require.NoError(t, ValidateAppToolName("a", strings.Repeat("b", 56)))
 }
-
-func TestAppListenerNamesHaveNoToolPrefix(t *testing.T) {
-	app, listener, ok := SplitAppListenerName("engineering__thread__messages")
-	require.True(t, ok)
-	require.Equal(t, "engineering", app)
-	require.Equal(t, "thread__messages", listener)
-	_, _, ok = SplitAppListenerName("engineering")
-	require.False(t, ok)
-	_, _, ok = SplitAppListenerName("app__engineering__thread_messages")
-	// Here "app" is just a legitimate app name, not a special prefix.
-	require.True(t, ok)
-}

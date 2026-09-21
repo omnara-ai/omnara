@@ -42,18 +42,3 @@ func NormalizeMessage(dispatch Dispatch, botUserID string) (MessageEvent, bool, 
 	}
 	return event, true, nil
 }
-
-// MatchesListener is deliberately limited to a mention in a selected parent or
-// a message in one selected/followed thread. The caller must supply channel
-// metadata from Discord and a live authorized scope, not event-authored scope.
-func (e MessageEvent) MatchesListener(scope Scope, channel Channel) bool {
-	if !scope.valid() || e.Self || e.Automated || (e.Message.Type != 0 && e.Message.Type != 19) ||
-		channel.ID != e.Message.ChannelID || channel.GuildID != e.Message.GuildID ||
-		(scope.GuildID != "" && scope.GuildID != channel.GuildID) {
-		return false
-	}
-	if scope.ThreadID != "" {
-		return channel.IsThread() && channel.ParentID == scope.ChannelID && channel.ID == scope.ThreadID
-	}
-	return !channel.IsThread() && channel.ID == scope.ChannelID && e.MentionsBot
-}

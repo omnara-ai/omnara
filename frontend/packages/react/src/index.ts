@@ -61,6 +61,11 @@ export {
   useUpdateAgentConfig,
 } from './domains/agents'
 export {
+  useAppSubscriptions,
+  useCreateAppSubscription,
+  useDeleteAppSubscription,
+} from './domains/app-subscriptions'
+export {
   type CronTriggerListFilters,
   type CronTriggerListOptions,
   type CronTriggerListSort,

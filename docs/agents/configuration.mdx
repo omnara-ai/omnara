@@ -133,13 +133,14 @@ Existing machine configs gain missing machine-tool defaults only when saved agai
 
 Create a project app first, then reference its tools as
 `tools.app__<app-name>__<operation>`. Optional tool `config` fixes implementation
-settings independently of model arguments. Named `listeners` and
-`interaction_handlers` are separate config blocks. Removing a tool does not
-remove subscriptions; removing a listener removes its initial and runtime subscriptions.
+settings independently of model arguments. `interaction_handlers` is a separate
+config block. Incoming subscriptions belong to the app and are attached through
+launch requests or the app subscriptions API, not config. Removing a tool or
+changing config does not remove subscriptions.
 
 App names resolve to immutable IDs when compiled, while credentials remain live
 on the app. See [Apps](/integrations/apps) for examples and provider launchers.
-Tools, listeners and interaction handlers are not inherited by spawned subagents.
+App tools, subscriptions and interaction handlers are not inherited by spawned subagents.
 
 ### Deferred tools
 

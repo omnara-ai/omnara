@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
+func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	execution := executionstore.New(f.pool, executionstore.Config{})
@@ -96,18 +96,18 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 	second, err := ensure(input)
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, second.ID)
-	var listeners int
+	var subscriptions int
 	require.NoError(
 		t,
 		f.pool.QueryRow(
 			f.ctx,
-			`SELECT count(*) FROM agent_listeners WHERE agent_id=$1`,
+			`SELECT count(*) FROM app_subscriptions WHERE agent_id=$1`,
 			launch.Agent.ID,
 		).Scan(
-			&listeners,
+			&subscriptions,
 		),
 	)
-	require.Zero(t, listeners)
+	require.Zero(t, subscriptions)
 	input.Role, input.SelectionSlot = integrationstore.TargetAttribution, ""
 	attribution, err := ensure(input)
 	require.NoError(t, err)
@@ -158,8 +158,8 @@ func TestAppConversationSelectionsRemainIndependentOfListeners(t *testing.T) {
 		"message",
 	)
 	require.NoError(t, err)
-	require.Len(t, candidates.Selections, 2) // A follow without a live listener does not suppress launch.
-	require.Empty(t, candidates.Listeners)
+	require.Len(t, candidates.Selections, 2) // A follow without a live subscription does not suppress launch.
+	require.Empty(t, candidates.Subscriptions)
 	require.ElementsMatch(
 		t,
 		[]uuid.UUID{sharedAgent.ID, second.ID},

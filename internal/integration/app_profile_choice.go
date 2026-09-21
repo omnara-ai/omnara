@@ -124,7 +124,7 @@ func (l *ChatAppLauncher) decideProfiles(
 		})
 	if errors.Is(err, integrationstore.ErrAppSelectionSettled) {
 		// Admission may have settled this setup after the launcher's snapshot.
-		// Freeze will re-read current listeners; do not publish a stale menu.
+		// Freeze will re-read current subscriptions; do not publish a stale menu.
 		return nil, nil
 	}
 	if err != nil {

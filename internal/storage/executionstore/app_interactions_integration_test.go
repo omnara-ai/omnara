@@ -344,7 +344,7 @@ func TestAppInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 		t,
 		[]string{"chat", "other", "overlap"},
 		keys,
-		"handlers need no listener, tool, or materialized target",
+		"handlers need no subscription, tool, or materialized target",
 	)
 	toolID := createToolCallForProcessTest(
 		t,

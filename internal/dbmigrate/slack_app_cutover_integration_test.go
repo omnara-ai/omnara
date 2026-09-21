@@ -661,7 +661,10 @@ tools:
 					snapshot.AgentConfig.EffectiveDefinitionHash,
 				)
 				require.NoError(t, err)
-				require.Empty(t, contract.Listeners)
+				var configFields map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &configFields))
+				require.NotContains(t, configFields, "listeners")
+				require.NotContains(t, configFields, "subscriptions")
 				require.Empty(t, contract.InteractionHandlers)
 				var raw agentconfig.Compiled
 				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &raw))
@@ -739,9 +742,9 @@ tools:
 			}
 			require.NoError(t, rows.Err())
 
-			var listeners, pointers int
-			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_listeners`).Scan(&listeners))
-			require.Zero(t, listeners)
+			var subscriptions, pointers int
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
+			require.Zero(t, subscriptions, "cutover preserves sending and history without creating receive routes")
 			require.NoError(
 				t,
 				db.QueryRowContext(

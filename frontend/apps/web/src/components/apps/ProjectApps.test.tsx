@@ -137,6 +137,11 @@ it.each([true, false])(
     const api = fakeApi([
       {
         method: 'GET',
+        path: `${projectPath}/apps/${app.id}/subscriptions`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+      {
+        method: 'GET',
         path: `${projectPath}/apps/${app.id}`,
         respond: () => jsonResponse(z.json().parse(app)),
       },
@@ -203,6 +208,11 @@ it.each([true, false])(
       fakeApi([
         {
           method: 'GET',
+          path: `${projectPath}/apps/${app.id}/subscriptions`,
+          respond: () => Response.json({ data: [], next_cursor: null }),
+        },
+        {
+          method: 'GET',
           path: `${projectPath}/apps/${app.id}`,
           respond: () => jsonResponse(z.json().parse(app)),
         },
@@ -237,12 +247,8 @@ it.each(['slack', 'discord', 'github'] as const)(
     const section = container.querySelector('[aria-label="Capabilities"]')
     const keys = [...(section?.querySelectorAll('code') ?? [])].map((code) => code.textContent)
     expect(keys).toContain('app__customer-support__read')
-    expect(keys).toContain('listeners')
-    expect(keys).toContain(
-      provider === 'github'
-        ? 'customer-support__pull_request'
-        : 'customer-support__thread_messages',
-    )
+    expect(section?.textContent).toContain('Subscription types')
+    expect(keys).toContain(provider === 'github' ? 'pull_request' : 'thread_messages')
     if (provider === 'github') {
       expect(keys).not.toContain('interaction_handlers')
       expect(keys).not.toContain('customer-support')
@@ -256,6 +262,11 @@ it.each(['slack', 'discord', 'github'] as const)(
 it('keeps an edit draft mounted through a failed background refresh', async () => {
   let unavailable = false
   const api = fakeApi([
+    {
+      method: 'GET',
+      path: `${projectPath}/apps/${savedApp.id}/subscriptions`,
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    },
     {
       method: 'GET',
       path: `${projectPath}/apps/${savedApp.id}`,
@@ -304,6 +315,11 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
     release = resolve
   })
   const api = fakeApi([
+    {
+      method: 'GET',
+      path: `${projectPath}/apps/${app.id}/subscriptions`,
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    },
     {
       method: 'GET',
       path: `${projectPath}/apps/${app.id}`,
@@ -365,6 +381,11 @@ it('removes deleted app details and does not restore them from a delayed read', 
   })
   let reads = 0
   const api = fakeApi([
+    {
+      method: 'GET',
+      path: `${projectPath}/apps/${savedApp.id}/subscriptions`,
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    },
     {
       method: 'GET',
       path: `${projectPath}/apps/${savedApp.id}`,
@@ -438,6 +459,11 @@ it.each([401, 403, 404])(
   async (status) => {
     let unavailable = false
     const api = fakeApi([
+      {
+        method: 'GET',
+        path: `${projectPath}/apps/${savedApp.id}/subscriptions`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
       {
         method: 'GET',
         path: `${projectPath}/apps/${savedApp.id}`,

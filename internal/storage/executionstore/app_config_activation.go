@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 // launchAppIDsTx reads immutable config authority without taking profile,
@@ -40,7 +41,15 @@ func launchAppIDsTx(
 	if err != nil {
 		return nil, err
 	}
-	return contract.ReferencedAppIDs(), nil
+	refs := contract.ReferencedAppIDs()
+	for _, subscription := range input.Subscriptions {
+		ref, err := publicid.Encode(publicid.KindProjectApp, subscription.AppID)
+		if err != nil {
+			return nil, storeerr.InvalidRequest(err)
+		}
+		refs = append(refs, ref)
+	}
+	return refs, nil
 }
 
 func configChangeReplayExistsTx(ctx context.Context, q *dbsqlc.Queries, input ChangeAgentConfigInput) (bool, error) {

@@ -482,6 +482,11 @@ func archiveAgentTx(
 		return nil, storeerr.ErrNotFound
 	}
 
+	if err := qtx.DeleteAgentAppSubscriptions(ctx, dbsqlc.DeleteAgentAppSubscriptionsParams{
+		ProjectID: projectID, AgentID: agentID,
+	}); err != nil {
+		return nil, fmt.Errorf("remove archived agent subscriptions: %w", err)
+	}
 	if _, err := qtx.CancelQueuedBacklogInputsForAgent(ctx, dbsqlc.CancelQueuedBacklogInputsForAgentParams{
 		ProjectID: projectID,
 		AgentID:   agentID,

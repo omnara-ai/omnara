@@ -141,8 +141,8 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectAppsForProjectDeletion(ctx, dbsqlc.DeleteProjectAppsForProjectDeletionParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project apps: %w", err)
 	}
-	if err := q.DeactivateProjectListeners(ctx, dbsqlc.DeactivateProjectListenersParams{ProjectID: projectID}); err != nil {
-		return fmt.Errorf("deactivate project listeners: %w", err)
+	if err := q.DeleteProjectSubscriptions(ctx, dbsqlc.DeleteProjectSubscriptionsParams{ProjectID: projectID}); err != nil {
+		return fmt.Errorf("delete project subscriptions: %w", err)
 	}
 	if err := q.DeleteProjectIntegrationTargets(ctx, dbsqlc.DeleteProjectIntegrationTargetsParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integration targets: %w", err)

@@ -139,9 +139,13 @@ export function appDefinition(provider: AppDefinition['provider'] = 'slack'): Ap
               reply: capability,
             }
           : { read: capability, post_message: capability },
-      listeners: {
+      subscriptions: {
         [provider === 'github' ? 'pull_request' : 'thread_messages']: {
-          config_schema: { type: 'object', properties: {} },
+          conversation_schema: { type: 'object', properties: {} },
+          events:
+            provider === 'github'
+              ? ['discussion_comment', 'review_comment', 'commit']
+              : ['message'],
         },
       },
     },

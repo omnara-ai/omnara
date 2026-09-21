@@ -192,17 +192,21 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 			"/repos/octo/renamed/pulls/7/comments/30/replies", `{"body":"Resolved"}`,
 		},
 	} {
-		for _, withListener := range []bool{false, true} {
-			t.Run(tt.operation+map[bool]string{false: "/no-listener", true: "/listener"}[withListener], func(t *testing.T) {
+		for _, withSubscription := range []bool{false, true} {
+			scenario := tt.operation + map[bool]string{false: "/no-subscription", true: "/subscription"}[withSubscription]
+			t.Run(scenario, func(t *testing.T) {
 				ctx := t.Context()
 				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-comment", toolFixtureOptions{
-					withGitHubApp: true, withoutAppListener: !withListener,
+					withGitHubApp: true,
 				})
-				listenersBefore := githubToolListenerCount(t, f)
-				if withListener {
-					require.Positive(t, listenersBefore)
+				if withSubscription {
+					attachToolSubscription(t, f, "pull_request", `{"repository_id":123,"pull_request":7}`, []string{"commit"})
+				}
+				subscriptionsBefore := appToolSubscriptions(t, f)
+				if withSubscription {
+					require.Len(t, subscriptionsBefore, 1)
 				} else {
-					require.Zero(t, listenersBefore)
+					require.Empty(t, subscriptionsBefore)
 				}
 				var posts, replyReads atomic.Int32
 				server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +246,7 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 				require.Equal(t, float64(501), body["id"])
 				require.Equal(t, "provider-confirmed", body["body"])
 				require.Equal(t, "https://github.com/octo/renamed/pull/7#comment-501", body["html_url"])
-				require.Equal(t, listenersBefore, githubToolListenerCount(t, f), "sending must not add subscriptions")
+				require.Equal(t, subscriptionsBefore, appToolSubscriptions(t, f), "sending must not add subscriptions")
 				source, err := agentconfig.ParseSource(
 					agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
 					[]byte(f.AgentConfig.Source),
@@ -250,7 +254,8 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 				require.NoError(t, err)
 				delete(source.Tools, name)
 				changeAppToolConfig(t, ctx, f, source)
-				require.Equal(t, listenersBefore, githubToolListenerCount(t, f), "removing a sender must not revoke its listener")
+				require.Equal(t, subscriptionsBefore, appToolSubscriptions(t, f),
+					"removing a sender must not revoke its subscription")
 				replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 				require.NoError(t, err)
 				require.JSONEq(t, string(result.ContentParts), string(replay.ContentParts))
@@ -261,18 +266,6 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 			})
 		}
 	}
-}
-
-func githubToolListenerCount(t *testing.T, f integrationToolFixture) int {
-	t.Helper()
-	var count int
-	require.NoError(t, f.Pool.QueryRow(
-		t.Context(),
-		`SELECT count(*) FROM agent_listeners WHERE agent_id=$1 AND app_id=$2 AND listener_key='chat__pull_request' AND active`,
-		f.Agent.ID,
-		f.Install.ID,
-	).Scan(&count))
-	return count
 }
 
 func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {

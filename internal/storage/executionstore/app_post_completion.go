@@ -17,12 +17,12 @@ import (
 )
 
 // ConfirmedAppFollow is produced only after a provider confirms the post. The
-// original config must authorize the send and follow; the live app, listener and
-// agent govern registration. Subsequent sender edits cannot revoke that receipt.
+// original config must authorize the send and follow; the live app and agent
+// govern registration. Subsequent sender edits cannot revoke that receipt.
 type ConfirmedAppFollow struct {
-	ListenerKey string
-	AppID       uuid.UUID
-	Scope       appdefinition.Scope
+	SubscriptionType string
+	AppID            uuid.UUID
+	Scope            appdefinition.Scope
 }
 
 func (s *Store) CompleteAppPostToolCall(
@@ -52,9 +52,9 @@ func (s *Store) completeAppPostOnce(
 	input CompleteRuntimeToolCallInput,
 	follow ConfirmedAppFollow,
 ) (ToolCallRecord, error) {
-	if follow.ListenerKey == "" || follow.AppID == uuid.Nil || input.Outcome != ToolResultOutcomeSucceeded {
+	if follow.SubscriptionType == "" || follow.AppID == uuid.Nil || input.Outcome != ToolResultOutcomeSucceeded {
 		return ToolCallRecord{}, storeerr.InvalidRequest(
-			errors.New("confirmed follow requires a listener, app and successful post"),
+			errors.New("confirmed follow requires a subscription type, app and successful post"),
 		)
 	}
 	kind, ref, err := follow.Scope.Conversation()
@@ -140,15 +140,7 @@ func (s *Store) registerAppFollowTx(
 	if err != nil {
 		return err
 	}
-	current, err := loadAgentConfigTx(ctx, q, tool.ProjectID, agent.CurrentConfigID)
-	if err != nil {
-		return err
-	}
 	originalContract, err := launchableRuntimeContract(original)
-	if err != nil {
-		return err
-	}
-	currentContract, err := launchableRuntimeContract(current)
 	if err != nil {
 		return err
 	}
@@ -161,17 +153,15 @@ func (s *Store) registerAppFollowTx(
 		return err
 	}
 	// Provider I/O already checked the current sender. Completion validates the
-	// original send's provenance; the current listener independently owns replies.
+	// original send's provenance; future tool edits do not revoke a confirmed post.
 	authority, err := agentconfig.ResolveAppToolAuthority(originalContract, originalContract, tool.Name,
 		map[string]agentconfig.AppResolution{appRef: {AppID: appRef, Definition: app.DefinitionID}})
 	if err != nil {
 		return storeerr.ErrUnauthorized
 	}
 	name, _, ok := toolcatalog.SplitAppToolName(tool.Name)
-	if !ok || app.ProjectID != tool.ProjectID || app.Name != name || authority.Definition.FollowListener == "" ||
-		follow.ListenerKey != name+"__"+authority.Definition.FollowListener ||
-		originalContract.Listeners[follow.ListenerKey].AppID != appRef ||
-		currentContract.Listeners[follow.ListenerKey].AppID != appRef {
+	if !ok || app.ProjectID != tool.ProjectID || app.Name != name || authority.Definition.FollowSubscription == "" ||
+		follow.SubscriptionType != authority.Definition.FollowSubscription {
 		return storeerr.ErrUnauthorized
 	}
 	arguments, err := authority.Definition.ResolveArgs(authority.Tool.Config, tool.Input)
@@ -190,15 +180,9 @@ func (s *Store) registerAppFollowTx(
 	}); err != nil {
 		return err
 	}
-	return integrationstore.RegisterRuntimeListenerTx(ctx, tx, integrationstore.RegisterRuntimeListenerInput{
-		OrgID:       agent.OrgID,
-		ProjectID:   tool.ProjectID,
-		AgentID:     tool.AgentID,
-		ConfigID:    agent.CurrentConfigID,
-		AppID:       follow.AppID,
-		ListenerKey: follow.ListenerKey,
-		Capability:  currentContract.Listeners[follow.ListenerKey],
-		Address:     address,
-		ToolCallID:  &tool.ID,
+	_, err = integrationstore.RegisterAppSubscriptionTx(ctx, tx, integrationstore.RegisterAppSubscriptionInput{
+		OrgID: agent.OrgID, ProjectID: tool.ProjectID, AgentID: tool.AgentID,
+		AppID: follow.AppID, Type: follow.SubscriptionType, Address: address, ToolCallID: &tool.ID,
 	})
+	return err
 }

@@ -11,8 +11,6 @@ tools:
   app__engineering__post_message:
     permission: {mode: always_ask}
     config: {channel_id: C123}
-listeners:
-  engineering__thread_messages: {}
 interaction_handlers:
   engineering:
     config: {channel_id: C456}
@@ -29,32 +27,39 @@ custom tools accept empty config and reject unsupported nonempty config. Custom
 and MCP schemas are not transformed; only `app__` and `mcp__` are reserved
 prefixes. Ordinary custom names may contain `__`.
 
-`AgentConfigSource.Listeners` and `.InteractionHandlers` are
+`AgentConfigSource.InteractionHandlers` is a
 `map[string]AgentConfigAppCapabilitySource`, whose only field is
-`Config map[string]any`. Compiled maps contain
-`AppCapabilityCompiled{AppID string, Config json.RawMessage}`. Listener keys are
-`<app>__<listener>`; handler keys are the app name. Tools use
-`ToolCompiled.AppID` and `.Config` alongside their existing enabled, permission
-and deferred settings.
+`Config map[string]any`. The compiled map contains
+`AppCapabilityCompiled{AppID string, Config json.RawMessage}`, keyed by app name.
+Tools use `ToolCompiled.AppID` and `.Config` alongside their existing enabled,
+permission and deferred settings.
 
-Shipped listeners are `thread_messages` for Slack/Discord and `pull_request` for
-GitHub. `appdefinition.Lookup(definition).Listeners[name].Prepare(config)` returns
-canonical config, allowed events, and initial `[]Scope` conversations. Omitted
-events mean the listener's supported events. Empty conversations subscribe nowhere.
-Each concrete scope's `Conversation()` returns the routing kind/key. Runtime
-follows belong to the selected listener; removing a send tool cannot revoke them.
-The send operation's `FollowListener` identifies the listener required before a
-follow-enabled send. Activation, reconciliation and confirmed-send transactions
-remain storage responsibilities; saving a config alone creates no subscriptions.
+Subscriptions are app-owned records attached at launch or through subscription
+management. They are absent from source, compiled and runtime configs; source
+`listeners` is rejected. Shipped subscription types are `thread_messages` for
+Slack/Discord and `pull_request` for GitHub.
+`appdefinition.Lookup(definition).Subscriptions[name].Prepare(conversation, events)`
+validates one flat provider address and returns its concrete `Scope` and sorted
+selected events. Omitted events mean all supported events; an explicit empty
+selection is invalid. `Scope.Conversation()` returns the indexed routing kind/key.
+
+The send operation's `FollowSubscription` identifies its app-local subscription
+type. Explicit `follow_replies` on an authorized post requires successful provider
+publication and local registration, without a separate receive grant in config.
+Removing or reconfiguring a send tool leaves existing subscriptions intact.
+Deleting a subscription stops forwarding through that route, while a fresh
+explicit follow may reattach. Completed tool-call replay never reattaches.
+Storage owns launch attachment and confirmed-send transactions; saving or
+activating config does not create, update or delete subscriptions.
 
 ## Preparation and immutable authority
 
 `RuntimeContractFromCompiled` validates and decodes without database I/O or new
 default injection. It places ordinary tools in `.Tools`, pinned app tools in
-`.AppTools`, and retains `.Listeners`/`.InteractionHandlers`. App tools are not
+`.AppTools`, and retains `.InteractionHandlers`. App tools are not
 model-ready until preparation. `ReferencedAppIDs(compiled)` and
 `contract.ReferencedAppIDs()` return the same sorted, distinct read set. Disabled
-tools contribute no IDs; independently configured listeners or handlers still do.
+tools contribute no IDs; independently configured handlers still do.
 Disabled entries remain stored and undergo the same strict name/AppID consistency
 validation as enabled entries.
 
@@ -67,7 +72,7 @@ PrepareAppCapabilities(compiled Compiled, apps map[string]AppResolution) (Prepar
 
 `apps` is keyed by pinned public app ID; each value contains the same `AppID` and
 its immutable `Definition`. The result contains effective `.Tools []RuntimeTool`,
-prepared `.Listeners` and `.InteractionHandlers`, plus `.Unavailable` errors keyed
+prepared `.InteractionHandlers`, plus `.Unavailable` errors keyed
 by capability JSON pointer. A missing/inactive app affects its own capabilities;
 ordinary config and dashboard decoding still work. Merge prepared tools with the
 ordinary runtime tools before model exposure. Credentials are resolved separately,
@@ -97,7 +102,7 @@ a call. Reusing an app name cannot redirect a captured call or interaction.
 
 ## Composition and subagents
 
-`AppCapabilitiesSource` has `Tools`, `Listeners`, and `InteractionHandlers` maps
+`AppCapabilitiesSource` has `Tools` and `InteractionHandlers` maps
 with the same source entry types. The exported entry points are:
 
 ```go
@@ -107,15 +112,15 @@ DeriveWithAppCapabilities(base Compiled, additions AppCapabilitiesSource, opts C
 
 The first compiles capabilities alone, without defaults or model/machine/skill
 resolution. Derivation removes all existing keys before validating/resolving
-additions. Existing disabled tools, permissions, empty listeners, and destinations
+additions. Existing disabled tools, permissions, handlers and destinations
 win completely; even malformed or unavailable redundant additions are ignored.
 Base model/machine/skill identities remain pinned. Launcher admission separately
-registers the actual launch conversation under the configured listener.
+registers concrete subscription attachments independently of config derivation.
 
-`SubagentCompiledFrom` removes all app tools, listeners and handlers. Ordinary
+`SubagentCompiledFrom` removes all app tools and handlers. Ordinary
 custom tools, MCP and built-ins remain independent. Runtime subscriptions are
-never inherited. Resources, app provenance, bundles, provider-wide policies and
-generic scope-containment authority have been removed.
+never inherited. This does not prohibit explicitly attaching subscriptions to an
+existing subagent through the ordinary management contract.
 
 ## Interaction helpers
 

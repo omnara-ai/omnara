@@ -248,13 +248,13 @@ tools:
 	third := <-requests
 	require.Contains(t, mustJSONString(third), "The customer replied: thank you.")
 	require.EqualValues(t, 3, requestCount.Load())
-	var apps, listeners, targets int
+	var apps, subscriptions, targets int
 	require.NoError(t, env.db.QueryRow(ctx, `SELECT
   (SELECT count(*) FROM project_apps WHERE project_id=$1),
-  (SELECT count(*) FROM agent_listeners WHERE agent_id=$2),
+  (SELECT count(*) FROM app_subscriptions WHERE agent_id=$2),
   (SELECT count(*) FROM integration_targets WHERE agent_id=$2)`, projectUUID, agentUUID).
-		Scan(&apps, &listeners, &targets))
+		Scan(&apps, &subscriptions, &targets))
 	require.Zero(t, apps)
-	require.Zero(t, listeners)
+	require.Zero(t, subscriptions)
 	require.Zero(t, targets)
 }

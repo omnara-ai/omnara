@@ -8,8 +8,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 func (s strictOpenAPIServer) preparePublicAgentLaunch(
@@ -34,17 +36,34 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 	if body.Tools != nil {
 		additions.Tools = *body.Tools
 	}
-	if body.Listeners != nil {
-		additions.Listeners = *body.Listeners
-	}
 	if body.InteractionHandlers != nil {
 		additions.InteractionHandlers = *body.InteractionHandlers
 	}
-	if len(additions.Tools) == 0 && len(additions.Listeners) == 0 && len(additions.InteractionHandlers) == 0 {
+	hasConfigAdditions := len(additions.Tools) > 0 || len(additions.InteractionHandlers) > 0
+	hasSubscriptions := body.Subscriptions != nil && len(*body.Subscriptions) > 0
+	if !hasConfigAdditions && !hasSubscriptions {
 		return input, nil
 	}
 	if err := s.server.authorizeProject(ctx, project.OrgID, project.ID, identitystore.ProjectActionManage); err != nil {
 		return input, *err
+	}
+	if body.Subscriptions != nil {
+		for _, source := range *body.Subscriptions {
+			appID, ok := parseOpenAPIPublicID(publicid.KindProjectApp, source.AppId)
+			if !ok {
+				return input, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid subscription app_id")
+			}
+			attachment := integrationstore.AppSubscriptionAttachment{
+				AppID: appID, Type: source.Type, Conversation: source.Conversation,
+			}
+			if source.Events != nil {
+				attachment.Events = *source.Events
+			}
+			input.Subscriptions = append(input.Subscriptions, attachment)
+		}
+	}
+	if !hasConfigAdditions {
+		return input, nil
 	}
 	base, found, err := s.server.store.Execution().GetAgentConfig(ctx, project.ID, input.AgentConfigID)
 	if err != nil {

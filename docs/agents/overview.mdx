@@ -41,18 +41,21 @@ Create an agent from a [config](/agents/configuration), or from a [profile](/age
 
 ### Attach apps and an initial input atomically
 
-The create-agent API accepts `tools`, `listeners` and `interaction_handlers`
+The create-agent API accepts `tools` and `interaction_handlers`
 alongside the pinned `config`. They use the same names and fixed configs as
 ordinary config authoring. Derivation adds missing entries and preserves existing
 entries as a whole, including explicit disabled tools. The base's pinned model
 and other identities are retained.
 When `profile` is supplied, the base `config` must be its current config or a
 historical version of that profile.
-Adding attachments requires project management permission; operating an existing
+The separate `subscriptions` array attaches app-owned conversations to the new
+agent, using `app_id`, `type`, `conversation` and optional `events`. Subscriptions
+alone leave the pinned config unchanged.
+Adding tools, handlers or subscriptions requires project management permission; operating an existing
 config requires only agent operate permission.
 
 Use `initial_input` instead of `message` to supply text blocks with an attributed
-actor. This example attaches read access to one GitHub PR without changing the
+actor. This example attaches read access and incoming events for one GitHub PR without changing the
 profile. The saved GitHub app is named `reviews`:
 
 ```json
@@ -63,6 +66,12 @@ profile. The saved GitHub app is named `reviews`:
       "config": {"repository_id": 123456, "pull_request": 42}
     }
   },
+  "subscriptions": [{
+    "app_id": "YOUR_GITHUB_APP_ID",
+    "type": "pull_request",
+    "conversation": {"repository_id": 123456, "pull_request": 42},
+    "events": ["discussion_comment", "review_comment", "commit"]
+  }],
   "initial_input": {
     "content_blocks": [{"type": "text", "text": "Review pull request 42."}],
     "actor": {"provider_tenant_id": "review-service", "provider_user_id": "customer-7"}
@@ -74,7 +83,7 @@ User-authenticated requests omit `actor`; API keys may supply an external actor.
 Initial input supports queued text blocks; send inline media through the agent
 input endpoint after launch.
 
-The derived config, agent, selected listeners and initial input commit together.
+The derived config, agent, subscriptions and initial input commit together.
 A failure leaves none of those writes. The profile stays unchanged. Supply an
 `Idempotency-Key` to make retries safe: the first success returns `201` with the
 launch envelope, and reusing the key within the project returns `200` with only
@@ -110,7 +119,7 @@ Stopping cancels the agent's current turn, pending tool calls, and open interact
 
 ## Archive an agent
 
-Archiving retires an agent. It stops current work, drops queued inputs, releases machine bindings, and deletes pooled machines created for the agent. The agent leaves active listings, but its event history remains available by ID.
+Archiving retires an agent. It deletes its app subscriptions, stops current work, drops queued inputs, releases machine bindings, and deletes pooled machines created for the agent. The agent leaves active listings, but its event history remains available by ID.
 
 Machines you connected yourself, configs, and profiles are not deleted.
 

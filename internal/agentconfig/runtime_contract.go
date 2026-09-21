@@ -23,7 +23,6 @@ type RuntimeContract struct {
 	Tools               []RuntimeTool
 	MCPServers          []RuntimeMCPServer
 	AppTools            map[string]ToolCompiled
-	Listeners           map[string]AppCapabilityCompiled
 	InteractionHandlers map[string]AppCapabilityCompiled
 	Skills              []SkillCompiled
 	Subagents           map[string]SubagentCompiled
@@ -125,7 +124,6 @@ func RuntimeContractFromCompiled(
 		Tools:               tools,
 		MCPServers:          mcpServers,
 		AppTools:            appToolsFromCompiled(compiled),
-		Listeners:           compiled.Listeners,
 		InteractionHandlers: compiled.InteractionHandlers,
 		Skills:              compiled.Skills,
 		Subagents:           compiled.Subagents,

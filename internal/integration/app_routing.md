@@ -27,33 +27,39 @@ always require retry. Reconnect reads the new setup and credential on the next
 delivery; there is no identity or credential cache. GitHub and Discord retain
 their existing active-only ordinary lookup.
 
-A receipt identifies the only app whose launchers, listeners and reservations
+A receipt identifies the only app whose launchers, subscriptions and reservations
 participate in routing. Conversation locks and semantic idempotency include its
 app ID. Same-bot apps in one or different projects can independently launch and
 receive in the same physical conversation.
 
-Agent config has independent `tools`, `listeners` and `interaction_handlers`
-maps. Compilation pins public project-app IDs and immutable per-entry config.
-Qualified tools use `app__<name>__<operation>`; listener keys use
-`<name>__thread_messages` or `<name>__pull_request`; handler keys use the app name.
-Whole authored entries win during hosted derivation, including enabled state,
-permissions, deferred loading and config. Derivation only adds missing entries.
+Agent config has independent `tools` and `interaction_handlers` maps.
+Compilation pins public project-app IDs and immutable per-entry config. Qualified
+tools use `app__<name>__<operation>`; handler keys use the app name. Whole authored
+entries win during hosted derivation, including enabled state, permissions,
+deferred loading and config. Derivation only adds missing entries.
 
 Tool/handler config fixes hidden arguments. Unspecified destination fields remain
 runtime arguments subject to provider validation and credentials. There is no
 shared resource object or generic scope-containment ACL. Tools confer no receive
-authority, and attribution/selection targets confer neither tool nor listener
+authority, and attribution/selection targets confer neither tool nor subscription
 authority. Incoming model context carries the immutable app name and actual
 provider address IDs so flexible tools can reply without guessing.
 
-A named listener owns subscriptions with `Origin=configured` or `Origin=runtime`.
-Its `conversations` seed configured subscriptions; an empty list seeds none.
-Runtime follows attach a confirmed conversation to that existing listener and
-use its current event selection. Reconciliation preserves runtime follows while
-the same listener key remains pinned to the same app, even if its initial list or
-sending tools change. Removing the listener revokes both origins. Admission
-references contain `ListenerKey`, `Address` and `Origin` and must match the current
-subscription; there is no separate followed boolean or tool-resource authority.
+An app-owned subscription connects one agent, a local definition type such as
+`thread_messages` or `pull_request`, one concrete conversation and resolved events.
+Config activation and tool removal do not reconcile subscriptions. Explicit
+attachments and confirmed `follow_replies` sends use the same subscription store;
+a follow requires the posting tool's authority and a confirmed send, with no
+empty receive grant in config. Subscriptions own no credentials or transport.
+
+Frozen input authority contains an event plus alternative `Type`/`Address`
+references. Admission rechecks a matching live subscription under the agent gate.
+Deleting a subscription blocks uncommitted forwarding while it is absent; a fresh
+matching attachment may authorize the input. Subscription IDs are not ingress
+generations. A committed replay cannot restore a deleted subscription. Stopped
+forwarding does not relaunch a selected conversation: selection history remains,
+and explicit reattachment resumes forwarding. App disconnection suspends delivery
+while preserving subscriptions; app deletion and agent archival remove them.
 
 ## Decisions, choices and frozen plans
 
@@ -81,7 +87,7 @@ Callbacks are not ordinary webhook fanout.
 
 Selected receipts carry trusted normalized `events`, skip expansion and policy,
 and enter normal freeze/admission directed to the chosen app/profile. A late click
-cannot replay the original request into unrelated listeners. Slack attachment
+cannot replay the original request into unrelated subscriptions. Slack attachment
 siblings update retained source and payload together; frozen file digests still
 must match on admission. A selected exact sibling can reach its settled recipient
 without granting a subscription to future messages.
@@ -96,7 +102,7 @@ replay barrier. Live-app choice bookkeeping is retained for at least seven days
 after expiry and while selected work remains unfinished/failed. Disconnect keeps
 recovery data; deleted apps/projects/organizations may release it earlier.
 
-Routing uses listeners present at planning time, with no retrospective backfill
+Routing uses subscriptions present at planning time, with no retrospective backfill
 of messages processed before a human selection. Before freezing zero-recipient
 work, storage checks pending/processing reservations for that app/address so a
 follow-up can wait for initial launch admission. Failed reservations do not hold
@@ -109,10 +115,10 @@ conversation gates. It loads each profile's pinned compiled config outside those
 transactions, adds missing capabilities, then rechecks routing before freezing.
 Changes return `ErrAppRoutingChanged`; reserved membership returns
 `ErrAppSelectionReserved` with the owner receipt. Retained selections prevent
-replacement launches after their agent/listener retires.
+replacement launches after their agent/subscription retires.
 
 Each profile slot freezes a UUIDv7 agent, selection provenance, base config ID/hash,
-complete `Launch.DerivedConfig`, and `InboxLaunchSlot.ListenerKey`. Source text is
+complete `Launch.DerivedConfig`, and concrete `Launch.Subscriptions`. Source text is
 absent because it would describe the unmodified profile. Retries do not compile
 source, resolve current profile names, or substitute edited launcher slots. They
 preserve model, machine, skill, subagent and tool policy identities. Derived
@@ -122,20 +128,23 @@ ordinary launch limits still govern unfinished work. Disconnect revokes new
 provider work while keeping the frozen plan available for recovery after reconnect.
 
 Hosted launchers supply tools and an optional handler with fixed launch-address
-config, plus an empty named listener. An existing listener entry must already be
-pinned to the same app and is never merged or overridden. During atomic launch
-admission, `ListenerKey` registers the launch conversation as a runtime
-subscription, without a tool-call ID. This works even when the profile supplied
-an empty listener or different initial conversations. Ordinary external initial
-input creates no provider target; merely discovering a handler also creates none.
+config. Each launch separately freezes one attachment containing the app ID,
+local subscription type, concrete conversation and resolved default events from
+the app definition. Atomic admission writes this subscription before the initial
+input and first step. It has no tool-call ID. Later messages and media in the same
+expansion use these actual frozen subscriptions, including their event filters,
+even though the agent does not exist yet. Neither profile config nor current
+defaults reconstruct receive authority on replay. Ordinary external initial input
+creates no provider target; merely discovering a handler also creates none.
 
 Existing-agent trigger slots freeze ordinary input without a profile selection,
-derived config or subscription mutation. Overlapping listener/trigger matches
+derived config or subscription mutation. Overlapping subscription/trigger matches
 produce one semantic input per agent. Explicit triggers use their frozen accepted
-origin; listener-only slots retain alternatives checked against live subscriptions
-under the agent gate. Removing receive authority blocks uncommitted listener
-work. Committed semantic replay does not restore subscriptions, change handler
-selection or cancel newer interactions.
+origin; subscription-only slots retain alternatives checked against live subscriptions
+under the agent gate. Removing receive authority blocks uncommitted subscription
+work, which follows the existing bounded retries and retained-failure recovery.
+Committed semantic replay does not restore subscriptions, change handler selection
+or cancel newer interactions.
 
 ## Admission, media and leases
 
@@ -148,13 +157,13 @@ provider bytes fail visibly instead of overwriting frozen content.
 
 `Admit(ctx, lease)` visits slots in expansion order and attempts independent
 recipients even when another fails. Profile admission atomically commits derived
-config, agent, configured listeners, launch runtime subscription, selected target,
-artifacts, initial input and slot progress. Existing-agent admission commits
+config, agent, launch subscriptions, selected target, artifacts, initial input
+and slot progress. Existing-agent admission commits
 attribution, artifacts, input and progress together. Lease expiry rolls everything
 in that slot back. The receipt completes only when every slot commits; partial
 successes and joined errors feed the existing retry policy. Later events in the
-same expansion can continue newly planned agents through their configured or
-launch runtime subscriptions.
+same expansion can continue newly planned agents through their frozen launch
+subscriptions.
 
 `NewAppInboxConsumer(router, inbox, artifacts, providers, presenter, launchers)`
 requires explicit provider and launcher registrations. Provider credential reads
@@ -173,7 +182,7 @@ each HTTP attempt, `CheckInboxConversationAuthority` checks an accepting pending
 recipient at the exact origin under project/app, receipt, conversation and
 profile/model or agent gates, fencing the lease after waits. It releases locks
 before I/O. Empty plans and completed replay create no thread. Thread replies
-require an exact listener subscription; parent/guild launcher matching does not
+require an exact subscription; parent/guild launcher matching does not
 subscribe every child thread. See [discord_event.md](discord_event.md).
 
 `NewAppInboxWorker` retains bounded concurrency (default four). `RunOnce` recovers
@@ -284,7 +293,7 @@ without a plan can also publish again. Atomic admission still creates at most on
 agent per occurrence. This bounded delivery limitation is deliberate.
 
 The frozen selection reserves the conversation before Discord EnsureThread runs.
-Admission then uses the existing config/agent/listener/initial-input transaction.
+Admission then uses the existing config/agent/subscription/initial-input transaction.
 Its Omnara cron actor is authorized from the locked scheduled receipt, not a flag
 in provider JSON or plan JSON. The thread origin selects its interaction handler.
 Retries of committed admission do not repeat provider preparation.

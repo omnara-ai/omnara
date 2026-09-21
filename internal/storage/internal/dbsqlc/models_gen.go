@@ -78,23 +78,6 @@ type AgentInteractionReadProjection struct {
 	PresentationReceipt *json.RawMessage
 }
 
-type AgentListener struct {
-	ID             uuid.UUID
-	ProjectID      uuid.UUID
-	AgentID        uuid.UUID
-	AppID          uuid.UUID
-	ListenerKey    string
-	ScopeKind      string
-	ScopeRef       string
-	Events         []string
-	SourceConfigID uuid.UUID
-	Origin         string
-	ToolCallID     *uuid.UUID
-	Active         bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
 type AgentMcpConnection struct {
 	ID                 uuid.UUID
 	AgentID            uuid.UUID
@@ -143,6 +126,19 @@ type AppProfileChoice struct {
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type AppSubscription struct {
+	ID               uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	AppID            uuid.UUID
+	SubscriptionType string
+	ScopeKind        string
+	ScopeRef         string
+	Events           []string
+	ToolCallID       *uuid.UUID
+	CreatedAt        time.Time
 }
 
 type AuthConnector struct {
@@ -241,7 +237,7 @@ type EffectiveResourceLimit struct {
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
 	MaxActiveProjectAppsPerProject            int64
-	MaxActiveAppListenersPerAgent             int64
+	MaxActiveAppSubscriptionsPerAgent         int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {

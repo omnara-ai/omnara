@@ -179,7 +179,15 @@ func TestProjectAppHTTPCatalogAndValidation(t *testing.T) {
 			require.NotEmpty(t, tool["config_schema"])
 			require.NotEmpty(t, tool["input_schema"])
 		}
-		require.NotEmpty(t, capabilities["listeners"])
+		require.NotContains(t, capabilities, "listeners")
+		subscriptions := testutil.RequireType[map[string]any](t, capabilities["subscriptions"])
+		require.NotEmpty(t, subscriptions)
+		for _, value := range subscriptions {
+			subscription := testutil.RequireType[map[string]any](t, value)
+			require.NotEmpty(t, subscription["conversation_schema"])
+			require.NotEmpty(t, subscription["events"])
+			require.NotContains(t, subscription, "config_schema")
+		}
 		if definition["provider"] == "github" {
 			require.Nil(t, capabilities["interaction_handler"])
 		} else {
@@ -208,7 +216,6 @@ func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
 	name := "app__" + app.Name + "__read"
 	source := projectAppHTTPJSON(t, projectAppHTTPSource(map[string]any{
 		"tools":                map[string]any{name: map[string]any{"config": map[string]any{"channel_id": "C123"}}},
-		"listeners":            map[string]any{app.Name + "__thread_messages": map[string]any{"config": map[string]any{}}},
 		"interaction_handlers": map[string]any{app.Name: map[string]any{"config": map[string]any{}}},
 	}))
 	config := createPublicHTTPAgentConfig(t, handler, project, "pinned", "json", source,
@@ -221,7 +228,6 @@ func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(stored.CompiledDefinition, &compiled))
 	appID := testPublicID(t, publicid.KindProjectApp, app.ID)
 	require.Equal(t, appID, compiled.Tools[name].AppID)
-	require.Equal(t, appID, compiled.Listeners[app.Name+"__thread_messages"].AppID)
 	require.Equal(t, appID, compiled.InteractionHandlers[app.Name].AppID)
 	requestJSONWithHeaders(t, handler, http.MethodDelete, project.ProjectPath+"/apps/"+appID,
 		"", "", http.StatusNoContent, authHeaders(project.AdminToken))

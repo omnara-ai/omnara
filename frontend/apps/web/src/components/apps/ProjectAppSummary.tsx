@@ -50,8 +50,9 @@ export function ProjectAppSummary({
       <section className="flex flex-col gap-2" aria-label="Capabilities">
         <h2 className="font-medium">Available capabilities</h2>
         <p className="text-muted-foreground">
-          Select tools, listeners and interaction handlers separately in an agent configuration.
-          Each capability uses this app’s account and credentials.
+          Select tools and interaction handlers in an agent configuration. Attach conversations
+          through launches or the subscriptions API. Each capability uses this app’s account and
+          credentials.
         </p>
         <ul className="flex flex-col gap-2">
           {Object.entries(app.capabilities.tools).map(([operation, capability]) => (
@@ -65,21 +66,17 @@ export function ProjectAppSummary({
             </li>
           ))}
         </ul>
-        {Object.keys(app.capabilities.listeners).length > 0 && (
+        {Object.keys(app.capabilities.subscriptions).length > 0 && (
           <div>
-            <h3 className="font-medium">Listeners</h3>
+            <h3 className="font-medium">Subscription types</h3>
             <p className="text-muted-foreground">
-              Select under <code>listeners</code>:
+              Use these types with this app’s subscriptions API:
             </p>
             <ul className="flex flex-col gap-2">
-              {Object.entries(app.capabilities.listeners).map(([name, capability]) => (
+              {Object.entries(app.capabilities.subscriptions).map(([name, capability]) => (
                 <li key={name}>
-                  <code>
-                    {app.name}__{name}
-                  </code>
-                  {capability.description && (
-                    <p className="text-muted-foreground">{capability.description}</p>
-                  )}
+                  <code>{name}</code>
+                  <p className="text-muted-foreground">Events: {capability.events.join(', ')}</p>
                 </li>
               ))}
             </ul>
@@ -145,7 +142,8 @@ function AppLauncherSummary({
         </>
       ) : (
         <p className="text-muted-foreground">
-          No event launcher configured. Select this app’s capabilities in an agent configuration.
+          No event launcher configured. Select tools and handlers in agent configs, or attach
+          conversations through the subscriptions API.
         </p>
       )}
     </section>

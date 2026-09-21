@@ -20,8 +20,10 @@ import (
 // Launch contains a pinned config ID or an already compiled derived snapshot;
 // admission never resolves the current profile/app settings again. Existing-agent
 // trigger slots are ordinary inputs, not launches, and have no selection envelope.
+// Subscriptions are explicit app-owned attachments and may include other apps or
+// conversations in the project. Selection reserves the launch conversation; it
+// does not constrain receive routes chosen by the trusted application planner.
 type InboxLaunchSlot struct {
-	ListenerKey string                             `json:"listener_key"`
 	Selection   integrationstore.InboxAppSelection `json:"selection"`
 	AgentID     uuid.UUID                          `json:"agent_id"`
 	Launch      LaunchAgentInput                   `json:"launch"`
@@ -137,12 +139,15 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		return LaunchAgentResult{}, err
 	}
 	selection := slot.Selection
-	if err := lockAppConversationsTx(
-		ctx,
-		tx,
-		lease.ProjectID,
-		AgentInputOrigin{AppID: selection.AppID, Address: selection.Address},
-	); err != nil {
+	origins := []AgentInputOrigin{{AppID: selection.AppID, Address: selection.Address}}
+	for _, attachment := range slot.Launch.Subscriptions {
+		prepared, err := integrationstore.PrepareAppSubscriptionTx(ctx, tx, lease.ProjectID, attachment)
+		if err != nil {
+			return LaunchAgentResult{}, err
+		}
+		origins = append(origins, AgentInputOrigin{AppID: prepared.AppID, Address: prepared.Address})
+	}
+	if err := lockAppConversationsTx(ctx, tx, lease.ProjectID, origins...); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduledLaunch
@@ -160,7 +165,6 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		AgentID:       slot.AgentID,
 		AppID:         selection.AppID,
 		SelectionSlot: selection.Slot,
-		ListenerKey:   slot.ListenerKey,
 		Artifacts:     artifacts,
 	}
 	txNotifications := s.newTxNotifications()
@@ -186,7 +190,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		return LaunchAgentResult{}, err
 	}
 	// CommitSlot checks wall-clock expiry again after all lock waits and work.
-	// Losing the lease rolls back config, agent, listeners, target, media and input.
+	// Losing the lease rolls back config, agent, subscriptions, target, media and input.
 	if err := work.CommitSlot(ctx, slotKey, committed); err != nil {
 		return LaunchAgentResult{}, err
 	}

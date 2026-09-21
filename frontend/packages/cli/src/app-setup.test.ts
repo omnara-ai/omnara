@@ -32,7 +32,7 @@ const app = (provider: string) => ({
   provider_account_ref: '222',
   provider_agent_display_name: 'Bot',
   provider_config: {},
-  capabilities: { tools: {}, listeners: {} },
+  capabilities: { tools: {}, subscriptions: {} },
   created_at: now,
   updated_at: now,
 })

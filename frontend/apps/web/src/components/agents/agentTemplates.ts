@@ -77,7 +77,6 @@ export function agentTemplateBasicConfig(
   defaultModel?: ConfiguredModelSummary,
 ): BasicConfig {
   return {
-    listeners: {},
     interactionHandlers: {},
     mcpServers: [],
     skillIds: [],
