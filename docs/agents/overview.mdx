@@ -51,22 +51,18 @@ historical version of that profile.
 The separate `subscriptions` array attaches app-owned conversations to the new
 agent, using `app_id`, `type`, `conversation` and optional `events`. Subscriptions
 alone leave the pinned config unchanged. Ordinary API attachments do not establish
-sending context: tools take explicit destination arguments, and handler selection
-always takes a complete destination. Only provider and scheduled launches bind
-app-agent context automatically.
+sending context. The shipped app tools require context assigned by a provider or
+scheduled launch. Handler selection independently takes a complete destination.
 Adding tools, handlers or subscriptions requires project management permission; operating an existing
 config requires only agent operate permission.
 
 Use `initial_input` instead of `message` to supply text blocks with an attributed
-actor. This example selects a GitHub read tool and subscribes to one PR without changing the
-profile. The saved GitHub app is named `reviews`:
+actor. This example subscribes a new agent to events from one PR without changing
+its config:
 
 ```json
 {
   "config": "acfg_mv4qtrwz3jehcyd5n6a2bfgik7",
-  "tools": {
-    "app__reviews__read": {}
-  },
   "subscriptions": [{
     "app_id": "YOUR_GITHUB_APP_ID",
     "type": "pull_request",
@@ -74,7 +70,7 @@ profile. The saved GitHub app is named `reviews`:
     "events": ["discussion_comment", "review_comment", "commit"]
   }],
   "initial_input": {
-    "content_blocks": [{"type": "text", "text": "Review pull request 42."}],
+    "content_blocks": [{"type": "text", "text": "Track updates to pull request 42."}],
     "actor": {"provider_tenant_id": "review-service", "provider_user_id": "customer-7"}
   }
 }
@@ -84,7 +80,7 @@ User-authenticated requests omit `actor`; API keys may supply an external actor.
 Initial input supports queued text blocks; send inline media through the agent
 input endpoint after launch.
 
-The derived config, agent, subscriptions and initial input commit together.
+The agent, subscriptions, initial input and any derived config commit together.
 A failure leaves none of those writes. The profile stays unchanged. Supply an
 `Idempotency-Key` to make retries safe: the first success returns `201` with the
 launch envelope, and reusing the key within the project returns `200` with only

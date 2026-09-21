@@ -3513,7 +3513,7 @@ export type ConfigureProjectAppRequest = {
 export type AppCapabilityDefinition = {
     description?: string;
     /**
-     * Static argument schema for this operation or interaction handler. Tools accept optional destination fields; execution requires a complete destination when no app-agent context exists, and rejects fields that differ from that context. Handler selection always requires a complete destination, independently of sending context.
+     * Static argument schema for this operation or interaction handler. Shipped app tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Handler selection requires a complete destination independently of tool context.
      */
     input_schema: {
         [key: string]: unknown;

@@ -127,7 +127,7 @@ func (s *Store) admitOriginContentTx(
 	}
 	target, err := s.integrations.EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 		ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: app.ID,
-		Address: input.Origin.Address, DisplayName: input.Origin.DisplayName, Role: integrationstore.TargetAttribution,
+		Address: input.Origin.Address, DisplayName: input.Origin.DisplayName,
 	})
 	if err != nil {
 		return InboxInputResult{}, err

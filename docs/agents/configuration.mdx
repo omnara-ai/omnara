@@ -134,8 +134,8 @@ Existing machine configs gain missing machine-tool defaults only when saved agai
 Create a project app first, then reference its tools as
 `tools.app__<app-name>__<operation>`. Tool entries contain enabled state, deferred
 loading and permissions; handler entries use `interaction_handlers: {app-name: {}}`.
-Tools use immutable app-agent context established by a provider or scheduled
-launch, or explicit complete destination arguments when unbound. Handler selection
+The shipped tools use immutable app-agent context established by a provider or
+scheduled launch. They fail before provider I/O if no conversation is assigned. Handler selection
 always takes complete destination arguments and is independent of sending context.
 Incoming subscriptions belong to the app and are attached through launch requests
 or the app subscriptions API, not config. Removing a tool or changing config does

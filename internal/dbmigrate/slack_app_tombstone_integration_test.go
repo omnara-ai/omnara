@@ -167,13 +167,11 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted app history grants receive routes at cutover")
 			var isContext bool
-			var role string
 			var slot sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT is_tool_context,routing_role,selection_slot FROM integration_targets WHERE id=$1`, targetID).
-				Scan(&isContext, &role, &slot))
+				`SELECT is_tool_context,selection_slot FROM integration_targets WHERE id=$1`, targetID).
+				Scan(&isContext, &slot))
 			require.Equal(t, !scenario.onlyDeleted, isContext, "only targets formerly producing successors become tool contexts")
-			require.Equal(t, "attribution", role)
 			require.False(t, slot.Valid)
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(

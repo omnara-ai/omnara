@@ -68,13 +68,12 @@ tools:
     permission: {mode: always_ask}
 ```
 
-Use the numeric repository ID, not its owner/name. Without app-agent context,
-each tool call supplies `repository_id` and `pull_request`, for example
-`{"repository_id":123456,"pull_request":42}` for a read. A provider launch binds
-this app's tools to its PR: destination fields may be omitted or must match that
-context when supplied. Selecting a subscription does not bind the sending tools.
-The static schemas include destination and operation arguments. Access to
-repository contents or a checkout is separate machine/profile configuration.
+The GitHub launcher assigns one pull request to the agent. Every tool operates on
+that PR, so the model supplies neither repository nor PR identifiers. Adding these
+tools to an agent without an assigned PR is insufficient; calls fail before
+contacting GitHub. Subscriptions independently control incoming events and do not
+assign or change the tools' PR. Access to repository contents or a checkout is
+separate machine/profile configuration.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
 `discussion_comments` or `review_comments`; lists support `page` and `limit`.

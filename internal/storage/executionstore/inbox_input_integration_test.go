@@ -197,7 +197,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 				require.Equal(t, result.AgentInput.ID, prompt.ResolvedByInputID)
 			}
 			require.Equal(t, executionstore.DeliveryModeSteering, result.AgentInput.DeliveryMode)
-			require.Equal(t, integrationstore.TargetAttribution, result.IntegrationTarget.RoutingRole)
+			require.Empty(t, result.IntegrationTarget.SelectionSlot)
 			require.Equal(t, app.ID, result.IntegrationTarget.AppID)
 			actor, err := f.store.Execution().GetActor(f.ctx, testProjectID, result.AgentInput.ActorID)
 			require.NoError(t, err)

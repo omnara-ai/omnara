@@ -442,7 +442,6 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 								AppID:         app.ID,
 								SelectionSlot: slot,
 								AgentID:       agent,
-								RoutingRole:   integrationstore.TargetSelected,
 							})
 					}
 				}

@@ -8,8 +8,7 @@ import (
 )
 
 // DestinationProperties returns fresh static provider address fields and the
-// fields required for a concrete destination. Tools may make these fields optional
-// in their schemas when an immutable conversation context supplies the address.
+// fields required for a concrete subscription, handler or schedule destination.
 func DestinationProperties(provider string) (map[string]any, []string, error) {
 	text := func(pattern string) any { return map[string]any{"type": "string", "pattern": pattern} }
 	positive := func() any { return map[string]any{"type": "integer", "minimum": 1} }

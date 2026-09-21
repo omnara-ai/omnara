@@ -113,7 +113,7 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 	}
 	var subscriptions, inputs int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT
-		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1 AND tool_call_id IS NULL),
+		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
 		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content')`, ids.ProjectID).
 		Scan(&subscriptions, &inputs))
 	require.Equal(t, 2, subscriptions)

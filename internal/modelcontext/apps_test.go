@@ -72,14 +72,9 @@ interaction_handlers:
 	post := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__post_message")
 	require.Equal(t, toolcatalog.ToolTypeBuiltIn, post.Type)
 	require.Equal(t, toolpermission.ModeAlwaysAsk, post.Permission.Mode)
-	for _, args := range []string{
-		`{"text":"hello"}`, `{"text":"hello","channel_id":"C456"}`,
-		`{"text":"hello","thread_ts":"333.444"}`,
-	} {
-		require.NoError(t, jsonschema.Validate(post.InputSchema, []byte(args)))
-	}
+	require.NoError(t, jsonschema.Validate(post.InputSchema, []byte(`{"text":"hello"}`)))
 	read := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__read")
-	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{"channel_id":"C456","thread_ts":"333.444"}`)))
+	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{"cursor":"next","limit":25}`)))
 	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{}`)))
 	require.Equal(t, []appDefinitionRequest{{ProjectID: testProjectID, IDs: []string{appID}}}, store.appDefinitionRequests,
 		"one project-scoped metadata read deduplicates tools and handler")

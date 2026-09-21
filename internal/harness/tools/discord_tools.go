@@ -19,9 +19,8 @@ type discordReadInput struct {
 }
 
 type discordPostInput struct {
-	Content       string   `json:"content"`
-	ArtifactIDs   []string `json:"artifact_ids,omitempty"`
-	FollowReplies bool     `json:"follow_replies,omitempty"`
+	Content     string   `json:"content"`
+	ArtifactIDs []string `json:"artifact_ids,omitempty"`
 }
 
 func runDiscordTool(
@@ -30,12 +29,10 @@ func runDiscordTool(
 	record executionstore.ToolCallRecord,
 	access appToolAccess,
 ) (asyncPhaseResult, error) {
-	scope := access.Arguments.Destination
-	if scope.Discord == nil {
-		return appToolFailure(errors.New("app tool destination does not match Discord"))
+	address := access.Conversation.Discord
+	if address == nil {
+		return appToolFailure(errors.New("app conversation does not match Discord"))
 	}
-	address := *scope.Discord
-	scope.Discord = &address
 	client, err := discord.NewClient(discord.Config{
 		Credentials: discord.Credentials{
 			ApplicationID: access.App.ProviderTenantID,
@@ -53,10 +50,10 @@ func runDiscordTool(
 	if err := client.CheckIdentity(ctx); err != nil {
 		return discordToolFailure(err)
 	}
-	providerScope := discord.Scope{GuildID: address.GuildID, ChannelID: address.ChannelID, ThreadID: address.ThreadID}
+	providerScope := discord.Scope{ChannelID: address.ChannelID, ThreadID: address.ThreadID}
 	if access.Authority.Definition.Operation == toolcatalog.AppOperationRead {
 		var input discordReadInput
-		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "Discord read"); err != nil {
+		if err := decodeSingleStrictJSON(record.Input, &input, "Discord read"); err != nil {
 			return appToolFailure(err)
 		}
 		page, err := client.ListMessages(
@@ -71,21 +68,8 @@ func runDiscordTool(
 		return completeAsynchronously(content), err
 	}
 	var input discordPostInput
-	if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "Discord post"); err != nil {
+	if err := decodeSingleStrictJSON(record.Input, &input, "Discord post"); err != nil {
 		return appToolFailure(err)
-	}
-	if input.FollowReplies {
-		channel, err := client.GetScopedChannel(ctx, providerScope)
-		if err != nil {
-			return discordToolFailure(err)
-		}
-		if channel.GuildID == "" {
-			return appToolFailure(
-				errors.New("following Discord replies requires a server channel; direct messages are not subscribed"),
-			)
-		}
-		address.GuildID = channel.GuildID
-		providerScope.GuildID = channel.GuildID
 	}
 	args := discord.MessageArgs{Content: input.Content, Nonce: base64.RawURLEncoding.EncodeToString(record.ID[:])}
 	var total int
@@ -115,37 +99,18 @@ func runDiscordTool(
 	if err != nil {
 		return discordToolFailure(err)
 	}
-	if input.FollowReplies && address.ThreadID == "" {
-		thread, err := client.EnsureThread(ctx, providerScope, message.ID, "Omnara conversation")
-		if err != nil {
-			content, marshalErr := structuredToolResultContent(
-				map[string]any{
-					"code":       "thread_creation_failed",
-					"message":    "The message was posted, but its reply thread could not be confirmed. Do not resend the message to repair this.",
-					"message_id": message.ID,
-					"channel_id": message.ChannelID,
-				},
-			)
-			if marshalErr != nil {
-				return nil, marshalErr
-			}
-			return failAsynchronously(content, err), nil
-		}
-		address.ThreadID = thread.ID
-	}
 	content, err := structuredToolResultContent(
 		map[string]any{
-			"app":            access.App.Name,
-			"channel_id":     address.ChannelID,
-			"message_id":     message.ID,
-			"thread_id":      address.ThreadID,
-			"follow_replies": input.FollowReplies,
+			"app":        access.App.Name,
+			"channel_id": address.ChannelID,
+			"message_id": message.ID,
+			"thread_id":  address.ThreadID,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-	return completedAppPost(content, access, scope, input.FollowReplies), nil
+	return completeAsynchronously(content), nil
 }
 
 func discordToolFailure(err error) (asyncPhaseResult, error) {

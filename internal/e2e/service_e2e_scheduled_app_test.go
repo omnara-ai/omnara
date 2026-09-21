@@ -214,7 +214,7 @@ tools:
 		case 1:
 			assert.Contains(t, mustJSONString(body["input"]), replies[i])
 			assert.True(t, requestContainsTool(body, "app__chat__post_message"))
-			// No destination arguments or follow_replies: the derived tool is fixed.
+			// The tool posts directly to the conversation assigned at launch.
 			writeOpenAIFunctionCall(w, fail, fmt.Sprintf("resp_post_%d", i), callID,
 				"app__chat__post_message", map[string]any{"text": reports[i]})
 		case 2:

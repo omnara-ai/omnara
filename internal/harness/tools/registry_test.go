@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -201,7 +202,8 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 func TestAppMessageArtifactArguments(t *testing.T) {
 	definition, ok := toolcatalog.LookupAppTool(appdefinition.SlackThread, toolcatalog.AppOperationPostMessage)
 	require.True(t, ok)
-	conversation := &appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "111.222"}}
+	entry, err := definition.Prepare(toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage))
+	require.NoError(t, err)
 	artifactIDs := make([]string, 21)
 	for index := range artifactIDs {
 		id, err := publicid.Encode(publicid.KindArtifact, integrationToolTestID(fmt.Sprintf("artifact-%d", index)))
@@ -212,17 +214,17 @@ func TestAppMessageArtifactArguments(t *testing.T) {
 		`{"text":"hello","artifact_ids":["` + artifactIDs[0] + `"]}`,
 		`{"text":"hello","artifact_ids":[]}`,
 	} {
-		_, err := definition.ResolveArgs(json.RawMessage(input), conversation)
+		err := jsonschema.Validate(entry.InputSchema, json.RawMessage(input))
 		require.NoError(t, err)
 	}
 	for _, input := range []string{`{"text":"hello","artifact_ids":null}`, `{"text":"hello","artifact_ids":[""]}`} {
-		_, err := definition.ResolveArgs(json.RawMessage(input), conversation)
+		err := jsonschema.Validate(entry.InputSchema, json.RawMessage(input))
 		require.Error(t, err)
 	}
 	for _, count := range []int{20, 21} {
 		input, err := json.Marshal(map[string]any{"text": "hello", "artifact_ids": artifactIDs[:count]})
 		require.NoError(t, err)
-		_, err = definition.ResolveArgs(input, conversation)
+		err = jsonschema.Validate(entry.InputSchema, input)
 		if count == 20 {
 			require.NoError(t, err)
 		} else {

@@ -2,16 +2,16 @@ package appdefinition
 
 import "encoding/json"
 
-// AppendInputContext records the verified reply address alongside ordinary content.
-// Flexible tools need typed provider IDs and the saved app name, rather than a
-// display label or an opaque attribution target. Hidden blocks remain visible
-// to the model while the console can render the original message separately.
+// AppendInputContext identifies the verified source alongside ordinary content.
+// A receive subscription can differ from the app tools' assigned conversation;
+// this source does not change their destination. Hidden blocks remain visible
+// to the model while the console renders the original message separately.
 func AppendInputContext(
 	appName string, scope Scope, content json.RawMessage,
 ) (json.RawMessage, error) {
 	context, err := json.Marshal(struct {
 		App     string `json:"app"`
-		Address Scope  `json:"reply_address"`
+		Address Scope  `json:"source_conversation"`
 	}{appName, scope})
 	if err != nil {
 		return nil, err

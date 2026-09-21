@@ -32,14 +32,9 @@ validates one flat provider address and returns its concrete `Scope` and sorted
 selected events. Omitted events mean all supported events; an explicit empty
 selection is invalid. `Scope.Conversation()` returns the indexed routing kind/key.
 
-The send operation's `FollowSubscription` identifies its app-local subscription
-type. Explicit `follow_replies` on an authorized post requires successful provider
-publication and local registration, without a separate receive grant in config.
 Removing or reconfiguring a send tool leaves existing subscriptions intact.
-Deleting a subscription stops forwarding through that route, while a fresh
-explicit follow may reattach. Completed tool-call replay never reattaches.
-Storage owns launch attachment and confirmed-send transactions; saving or
-activating config does not create, update or delete subscriptions.
+Storage owns launch attachment transactions; saving or activating config and
+posting messages do not create, update or delete subscriptions.
 
 ## Preparation and immutable authority
 
@@ -67,19 +62,12 @@ contains model-facing schema and policy, without app IDs.
 Handlers are prepared independently during listing and selection. Credentials
 are resolved separately, live, immediately before provider execution.
 
-`toolcatalog.LookupAppTool(appType, operation)` returns provider metadata.
-`Prepare(qualifiedName)` creates a static catalog entry: destination fields are
-optional, and operation-specific action requirements always apply.
-`ResolveArgs(raw, context *appdefinition.Scope)` validates the schema and returns
-`AppToolArguments{Destination Scope, Arguments json.RawMessage, FollowReplies bool}`.
-`Arguments` contains operation arguments; `Destination` contains the concrete
-validated address. With context, omitted fields inherit that address and supplied
-fields must stay within it: a Slack channel/DM or Discord server channel context permits child
-threads in that channel, while a thread context remains exact. GitHub context
-remains exact to its repository and pull request. Without context, a complete
-destination is required at execution. Discord guild metadata is optional and
-provider-verified; indexed contexts may lack it. Approval summaries can use `Destination.ConversationJSON()`
-to describe the resolved address without changing the model schema.
+`toolcatalog.LookupAppTool(appType, operation)` returns an app operation.
+`Prepare(qualifiedName)` creates its static action-only schema. Execution loads the
+immutable conversation assigned at launch, validates the original arguments
+against that schema, and passes the action to the provider implementation. Missing
+context fails before provider I/O. Approval summaries use the assigned
+`Scope.ConversationJSON()` without adding destination fields to the tool schema.
 
 Pending calls must pass:
 

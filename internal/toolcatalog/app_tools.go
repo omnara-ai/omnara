@@ -3,11 +3,9 @@ package toolcatalog
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"slices"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
 
 const (
@@ -18,19 +16,17 @@ const (
 	AppOperationReply             = "reply"
 )
 
-// AppToolDefinition is provider metadata, independent of saved app identities.
-// Use Prepare for model exposure and ResolveArgs before provider execution.
+// AppToolDefinition describes one app operation, independent of saved app identities.
 type AppToolDefinition struct {
-	Operation          string
-	Provider           string
-	Description        string
-	FollowSubscription string
-	required           []string
-	properties         map[string]any
+	Operation   string
+	AppType     appdefinition.Type
+	Description string
+	required    []string
+	properties  map[string]any
 }
 
 // Definitions and their private property maps are read-only after construction.
-// Prepare copies operation properties into a fresh static destination schema.
+// Prepare serializes operation properties into a fresh static schema.
 var appToolDefinitions = buildAppToolDefinitions()
 
 func LookupAppTool(appType appdefinition.Type, operation string) (AppToolDefinition, bool) {
@@ -39,7 +35,7 @@ func LookupAppTool(appType appdefinition.Type, operation string) (AppToolDefinit
 		return AppToolDefinition{}, false
 	}
 	for _, tool := range appToolDefinitions {
-		if tool.Provider == app.Provider && tool.Operation == operation {
+		if tool.AppType == appType && tool.Operation == operation {
 			return tool, true
 		}
 	}
@@ -51,101 +47,17 @@ func (d AppToolDefinition) Prepare(name string) (Entry, error) {
 	if !ok || operation != d.Operation {
 		return Entry{}, fmt.Errorf("invalid qualified app operation %q", name)
 	}
-	properties, _, err := appdefinition.DestinationProperties(d.Provider)
+	entry, err := toolEntry(name, d.Description, d.required, d.properties)
 	if err != nil {
 		return Entry{}, err
 	}
-	maps.Copy(properties, d.properties)
-	description := d.Description + " Destination fields may be omitted when this app has a conversation context; " +
-		"supplied destinations must stay within that context. Without a context, supply a complete destination."
-	entry, err := toolEntry(name, description, d.required, properties)
-	if err != nil {
-		return Entry{}, err
-	}
-	if d.Provider == appdefinition.ProviderGitHub && d.Operation == AppOperationInlineComment {
+	if d.AppType == appdefinition.GitHubPR && d.Operation == AppOperationInlineComment {
 		var schema map[string]any
 		_ = json.Unmarshal(entry.InputSchema, &schema)
 		schema["dependentRequired"] = map[string][]string{"start_line": {"start_side"}, "start_side": {"start_line"}}
 		entry.InputSchema, err = json.Marshal(schema)
 	}
 	return entry, err
-}
-
-// AppToolArguments carries the concrete typed destination and validated action
-// arguments separately. Conversation context never changes the model schema.
-type AppToolArguments struct {
-	Destination   appdefinition.Scope
-	Arguments     json.RawMessage
-	FollowReplies bool
-}
-
-func (d AppToolDefinition) ResolveArgs(raw json.RawMessage, context *appdefinition.Scope) (AppToolArguments, error) {
-	entry, err := d.Prepare(AppToolName("app", d.Operation))
-	if err != nil {
-		return AppToolArguments{}, err
-	}
-	if err := jsonschema.Validate(entry.InputSchema, raw); err != nil {
-		return AppToolArguments{}, err
-	}
-	var args map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return AppToolArguments{}, err
-	}
-	destinations, _, _ := appdefinition.DestinationProperties(d.Provider)
-	address := map[string]json.RawMessage{}
-	if context != nil {
-		if err := context.Validate(d.Provider); err != nil {
-			return AppToolArguments{}, err
-		}
-		contextJSON, err := context.ConversationJSON()
-		if err != nil {
-			return AppToolArguments{}, err
-		}
-		if err := json.Unmarshal(contextJSON, &address); err != nil {
-			return AppToolArguments{}, err
-		}
-	}
-	for key := range destinations {
-		if value, ok := args[key]; ok {
-			address[key] = value
-			delete(args, key)
-		}
-	}
-	addressJSON, err := json.Marshal(address)
-	if err != nil {
-		return AppToolArguments{}, err
-	}
-	destination, err := appdefinition.ResolveDestination(d.Provider, addressJSON)
-	if err != nil {
-		return AppToolArguments{}, err
-	}
-	if context != nil {
-		matches := false
-		switch d.Provider {
-		case appdefinition.ProviderSlack:
-			// A legacy channel/DM context includes its child threads. A
-			// thread context remains confined to that exact thread.
-			matches = destination.Slack.ChannelID == context.Slack.ChannelID &&
-				(context.Slack.ThreadTS == "" || destination.Slack.ThreadTS == context.Slack.ThreadTS)
-		case appdefinition.ProviderGitHub:
-			matches = *destination.GitHub == *context.GitHub
-		case appdefinition.ProviderDiscord:
-			// Indexed context lacks guild metadata. A supplied guild is verified
-			// live by the provider. Channel context includes child threads.
-			matches = destination.Discord.ChannelID == context.Discord.ChannelID &&
-				(context.Discord.ThreadID == "" || destination.Discord.ThreadID == context.Discord.ThreadID) &&
-				(context.Discord.GuildID == "" || destination.Discord.GuildID == context.Discord.GuildID)
-		}
-		if !matches {
-			return AppToolArguments{}, fmt.Errorf("destination does not match tool context")
-		}
-	}
-	var follow bool
-	if value, ok := args["follow_replies"]; ok {
-		_ = json.Unmarshal(value, &follow)
-	}
-	action, err := json.Marshal(args)
-	return AppToolArguments{Destination: destination, Arguments: action, FollowReplies: follow}, err
 }
 
 func buildAppToolDefinitions() []AppToolDefinition {
@@ -161,23 +73,20 @@ func buildAppToolDefinitions() []AppToolDefinition {
 		}
 	}
 	return []AppToolDefinition{
-		{Operation: AppOperationRead, Provider: appdefinition.ProviderSlack,
-			Description: "Read messages from the Slack channel or thread at the supplied destination.",
+		{Operation: AppOperationRead, AppType: appdefinition.SlackThread,
+			Description: "Read messages from this agent's assigned Slack conversation.",
 			properties:  map[string]any{"cursor": text(), "limit": limit()}},
 		{
-			Operation: AppOperationPostMessage, Provider: appdefinition.ProviderSlack,
-			FollowSubscription: "thread_messages",
-			Description: "Post a Slack message at the supplied destination. " +
-				"follow_replies subscribes this agent to replies after successful posting and local registration.",
-			required: []string{"text"},
+			Operation: AppOperationPostMessage, AppType: appdefinition.SlackThread,
+			Description: "Post a message to this agent's assigned Slack conversation.",
+			required:    []string{"text"},
 			properties: map[string]any{
-				"text":           text(),
-				"artifact_ids":   artifacts(20),
-				"follow_replies": map[string]any{"type": "boolean"},
+				"text":         text(),
+				"artifact_ids": artifacts(20),
 			},
 		},
 		{
-			Operation: AppOperationRead, Provider: appdefinition.ProviderGitHub,
+			Operation: AppOperationRead, AppType: appdefinition.GitHubPR,
 			Description: "Read the selected GitHub pull request. section defaults to pull_request; " +
 				"comment and file sections are paginated with page and limit. " +
 				"Diff/file patches can be incomplete for very large or binary changes.",
@@ -191,13 +100,13 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			},
 		},
 		{
-			Operation: AppOperationDiscussionComment, Provider: appdefinition.ProviderGitHub,
+			Operation: AppOperationDiscussionComment, AppType: appdefinition.GitHubPR,
 			Description: "Post a discussion comment on the selected GitHub pull request.",
 			required:    []string{"body"},
 			properties:  map[string]any{"body": text()},
 		},
 		{
-			Operation: AppOperationInlineComment, Provider: appdefinition.ProviderGitHub,
+			Operation: AppOperationInlineComment, AppType: appdefinition.GitHubPR,
 			Description: "Post a review comment on a diff in the selected GitHub pull request. " +
 				"Use start_line and start_side together for a multiline comment.",
 			required: []string{"body", "commit_id", "path", "line", "side"},
@@ -212,24 +121,21 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			},
 		},
 		{
-			Operation: AppOperationReply, Provider: appdefinition.ProviderGitHub,
+			Operation: AppOperationReply, AppType: appdefinition.GitHubPR,
 			Description: "Reply to a review comment in the selected GitHub pull request.",
 			required:    []string{"comment_id", "body"},
 			properties:  map[string]any{"comment_id": positive(), "body": text()},
 		},
-		{Operation: AppOperationRead, Provider: appdefinition.ProviderDiscord,
-			Description: "Read messages from the Discord channel or thread at the supplied destination.",
+		{Operation: AppOperationRead, AppType: appdefinition.DiscordThread,
+			Description: "Read messages from this agent's assigned Discord thread.",
 			properties:  map[string]any{"before": text(), "limit": limit()}},
 		{
-			Operation: AppOperationPostMessage, Provider: appdefinition.ProviderDiscord,
-			FollowSubscription: "thread_messages",
-			Description: "Post a Discord message at the supplied destination. " +
-				"follow_replies subscribes this agent to replies after successful posting and local registration.",
-			required: []string{"content"},
+			Operation: AppOperationPostMessage, AppType: appdefinition.DiscordThread,
+			Description: "Post a message to this agent's assigned Discord thread.",
+			required:    []string{"content"},
 			properties: map[string]any{
-				"content":        text(),
-				"artifact_ids":   artifacts(10),
-				"follow_replies": map[string]any{"type": "boolean"},
+				"content":      text(),
+				"artifact_ids": artifacts(10),
 			},
 		},
 	}

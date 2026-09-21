@@ -34,9 +34,8 @@ an app by its credential. Token, public-key and transport changes advance setup
 authority; unrelated metadata edits do not restart sessions.
 
 The interaction public key is the application's Ed25519 key, not the bot token or
-an HMAC secret. Pass it to `NewInteractionHandler`. Tools resolve destinations
-from saved sending context or explicit arguments, then validate them with the
-provider. Interaction destinations are independently selected. The bot
+an HMAC secret. Pass it to `NewInteractionHandler`. Thread tools load their
+assigned conversation, then validate it with the provider. Interaction destinations are independently selected. The bot
 credentials and provider permissions are the access boundary, not a shared
 resource-scope ACL.
 
@@ -136,10 +135,9 @@ or send to an explicit existing agent. Frozen subscription inputs recheck live
 receive authority during admission before creating agent input. See
 [Discord event routing](../discord_event.md) and [app routing](../app_routing.md).
 App-owned `thread_messages` subscriptions attach one conversation and event set
-to an agent independently of sending tools. Confirmed, explicitly requested
-`follow_replies` sends require posting authority, without a receive grant in
-agent config. Hosted launch admission adds its frozen conversation and resolved
-events atomically, with no tool-call ID. Removing a sending tool preserves
+to an agent independently of sending tools. Hosted launch admission adds its
+frozen conversation and resolved events atomically. Posting does not add or
+restore subscriptions. Removing a sending tool preserves
 subscriptions; deleting a subscription stops forwarding.
 
 The inbox worker calls `EnsureThread` after durable intake. For a parent mention,

@@ -1,24 +1,24 @@
 -- name: InsertAppSubscription :one
-INSERT INTO app_subscriptions(project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id)
+INSERT INTO app_subscriptions(project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events)
 VALUES (sqlc.arg(project_id), sqlc.arg(agent_id), sqlc.arg(app_id), sqlc.arg(subscription_type),
-        sqlc.arg(scope_kind), sqlc.arg(scope_ref), sqlc.arg(events)::text[], sqlc.narg(tool_call_id))
-RETURNING id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id, created_at;
+        sqlc.arg(scope_kind), sqlc.arg(scope_ref), sqlc.arg(events)::text[])
+RETURNING id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, created_at;
 
 -- name: GetAppSubscriptionForConversation :one
-SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id, created_at
+SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, created_at
 FROM app_subscriptions
 WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id) AND app_id = sqlc.arg(app_id)
   AND subscription_type = sqlc.arg(subscription_type) AND scope_kind = sqlc.arg(scope_kind) AND scope_ref = sqlc.arg(scope_ref);
 
 -- name: GetAppSubscription :one
-SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id, created_at
+SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, created_at
 FROM app_subscriptions
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id) AND id = sqlc.arg(id);
 
 -- name: ListAppSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.app_id,
        subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,
-       subscription.tool_call_id, subscription.created_at, agent.name AS agent_name
+       subscription.created_at, agent.name AS agent_name
 FROM app_subscriptions subscription
 JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
 WHERE subscription.project_id = sqlc.arg(project_id) AND subscription.app_id = sqlc.arg(app_id)
@@ -50,7 +50,7 @@ WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id);
 -- name: ListMatchingAppSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.app_id,
        subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,
-       subscription.tool_call_id, subscription.created_at
+       subscription.created_at
 FROM jsonb_to_recordset(sqlc.arg(scopes)::jsonb) AS scope(kind text, ref text)
 JOIN app_subscriptions subscription ON subscription.scope_kind = scope.kind AND subscription.scope_ref = scope.ref
 JOIN project_apps app ON app.project_id = subscription.project_id AND app.id = subscription.app_id

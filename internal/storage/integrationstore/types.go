@@ -42,20 +42,19 @@ type ConfigureProjectAppInput struct {
 }
 
 type IntegrationTargetRecord struct {
-	RoutingRole      TargetRoutingRole `json:"routing_role"`
-	AppID            uuid.UUID         `json:"app_id,omitempty"`
-	SelectionSlot    string            `json:"selection_slot,omitempty"`
-	DeletedAt        *time.Time        `json:"deleted_at,omitempty"`
-	ID               uuid.UUID         `json:"id"`
-	OrgID            uuid.UUID         `json:"org_id"`
-	ProjectID        uuid.UUID         `json:"project_id"`
-	AgentID          uuid.UUID         `json:"agent_id"`
-	IsToolContext    bool              `json:"is_tool_context"`
-	ProviderRef      string            `json:"provider_ref"`
-	ProviderRefKind  string            `json:"provider_ref_kind"`
-	DisplayName      string            `json:"display_name"`
-	ProviderMetadata json.RawMessage   `json:"provider_metadata"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
-	Created          bool              `json:"-"`
+	AppID            uuid.UUID       `json:"app_id,omitempty"`
+	SelectionSlot    string          `json:"selection_slot,omitempty"`
+	DeletedAt        *time.Time      `json:"deleted_at,omitempty"`
+	ID               uuid.UUID       `json:"id"`
+	OrgID            uuid.UUID       `json:"org_id"`
+	ProjectID        uuid.UUID       `json:"project_id"`
+	AgentID          uuid.UUID       `json:"agent_id"`
+	IsToolContext    bool            `json:"is_tool_context"`
+	ProviderRef      string          `json:"provider_ref"`
+	ProviderRefKind  string          `json:"provider_ref_kind"`
+	DisplayName      string          `json:"display_name"`
+	ProviderMetadata json.RawMessage `json:"provider_metadata"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	Created          bool            `json:"-"`
 }

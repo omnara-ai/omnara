@@ -74,21 +74,18 @@ interaction_handlers:
 
 Tools use `app__<app-name>__<operation>`, with one entry per app and operation.
 Tool entries select enabled state, deferred loading and permissions. Handler entries
-are empty objects. Destinations are runtime arguments.
+are empty objects. Interaction handlers take destination arguments; tools use the
+conversation assigned at launch.
 The catalog exposes the static argument schema in
 `capabilities.tools[operation].input_schema` and
 `capabilities.interaction_handler.input_schema`.
 
-A provider or scheduled launch records one immutable conversation context for
-that app and agent. Tools may omit destination fields in that context; supplied
-fields must stay within it. A Slack channel/DM or Discord server channel context permits child
-threads in that channel; a thread context stays confined to that thread. GitHub
-context stays confined to its repository and pull request. An agent without
-context must supply a complete provider destination on every call. For example,
-the config above calls `app__reviews__read` with `{"repository_id":123456,"pull_request":42}`.
-Instructions guide the model but do not restrict its destination. Adding a
-subscription, following replies, or selecting a handler does not establish or
-change sending context. Retiring a context does not grant unrestricted sending.
+A provider or scheduled launch records one immutable conversation for that app
+and agent. Slack and Discord tools use that conversation; GitHub tools use that pull
+request. Calls contain only the action and pagination arguments, such as
+`{"text":"Update"}` or `{"section":"files","page":2}`. Tools fail before contacting
+the provider if the agent has no assigned conversation. Adding a subscription or
+selecting an interaction handler does not establish or change sending context.
 
 The app's credential permissions remain the provider access boundary; Omnara also
 checks project ownership, current app status and ordinary
@@ -154,17 +151,9 @@ the filter. A fresh attachment after deletion receives a new ID, so retrying an 
 DELETE cannot remove the new attachment. App disconnection preserves subscriptions;
 app deletion or agent archival removes them.
 
-### Follow replies after posting
-
-A Slack or Discord post with explicit `follow_replies: true` creates an app-owned
-subscription to the confirmed conversation. The ordinary posting tool's permission
-is sufficient; no receive grant or empty config entry is required. Removing or
-denying the sending tool later leaves that subscription intact. Stopping forwarding
-does not revoke the posting tool: another authorized post with follow enabled,
-including a post already in flight, can establish a subscription again. Replaying
-a completed tool call does not restore a deleted subscription.
-
-For a fresh scheduled agent confined to one thread, configure an app schedule.
+Sending and receiving are independent. Posting a message does not create or
+restore subscriptions. To start a fresh scheduled agent in a new thread, configure
+an app schedule; the launch assigns its sending conversation and reply subscription.
 
 ## Launch from provider events
 

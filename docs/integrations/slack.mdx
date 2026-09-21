@@ -83,18 +83,20 @@ are ready when the agent starts. Schedules can coexist with mention launches.
 See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
 
-## Use tools without a launcher
+## Thread tools and subscriptions
 
-```yaml
-tools:
-  app__engineering__read: {}
-  app__engineering__post_message: {}
-```
+A mention or scheduled launch supplies `read` and `post_message` for its assigned
+thread. `read` accepts `cursor` and `limit`; `post_message` accepts `text` and up to
+20 `artifact_ids`. For example, `{"text":"Update"}` posts directly to that thread.
+The model cannot choose another channel or thread. Adding these tools to an agent
+without an assigned conversation is insufficient; calls fail before contacting Slack.
 
-This agent supplies `channel_id` and optional `thread_ts` on tool calls, and
-receives no messages initially. A
-post with `follow_replies: true` subscribes it to the confirmed conversation.
-To subscribe immediately, use the app subscriptions API with this body:
+The launcher also subscribes the agent to replies. Sending messages does not
+change subscriptions. Removing the sending tool or changing the config leaves
+subscriptions intact. Use **Stop forwarding** on the app page or the
+[subscriptions API](/integrations/apps#stop-forwarding) to remove one.
+
+The subscriptions API can independently forward messages to an existing agent:
 
 ```json
 {
@@ -104,18 +106,8 @@ To subscribe immediately, use the app subscriptions API with this body:
 }
 ```
 
-Subscriptions use the `message` event by default. Removing the sending tool or
-changing the config leaves subscriptions intact. Use **Stop forwarding** on the
-app page or the [subscriptions API](/integrations/apps#stop-forwarding) to remove one.
-
-`read` accepts `cursor` and `limit`. `post_message` accepts `text` and up to 20
-`artifact_ids`. For example, an unbound post uses
-`{"channel_id":"C123","thread_ts":"111.222333","text":"Update"}`.
-A provider or scheduled launch binds this app's tools to the launch conversation:
-omitted destination fields use that context. A channel/DM context permits child
-threads in that channel; a thread context stays confined to that thread.
-Destinations outside the context are rejected. Tool schemas stay static. For files
-in a new followed thread, post text first, then attach files in that thread.
+Subscriptions use the `message` event by default. Attaching a subscription does
+not assign or change the conversation used by this app's tools.
 
 Add `interaction_handlers: {engineering: {}}` to offer Slack questions and approvals.
 The model selects it with `set_interaction_handler` and complete `channel_id` plus

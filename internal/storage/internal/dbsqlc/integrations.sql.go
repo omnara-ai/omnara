@@ -53,7 +53,7 @@ func (q *Queries) DeleteIntegrationTargets(ctx context.Context, arg DeleteIntegr
 
 const getAgentAppToolContext = `-- name: GetAgentAppToolContext :one
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = $1
@@ -78,7 +78,6 @@ type GetAgentAppToolContextRow struct {
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
-	RoutingRole      string
 	SelectionSlot    *string
 	IsToolContext    bool
 	DeletedAt        *time.Time
@@ -101,7 +100,6 @@ func (q *Queries) GetAgentAppToolContext(ctx context.Context, arg GetAgentAppToo
 		&i.ProviderRefKind,
 		&i.DisplayName,
 		&i.ProviderMetadata,
-		&i.RoutingRole,
 		&i.SelectionSlot,
 		&i.IsToolContext,
 		&i.DeletedAt,
@@ -113,7 +111,7 @@ func (q *Queries) GetAgentAppToolContext(ctx context.Context, arg GetAgentAppToo
 
 const getIntegrationTarget = `-- name: GetIntegrationTarget :one
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = $1
@@ -136,7 +134,6 @@ type GetIntegrationTargetRow struct {
 	ProviderRefKind  string
 	DisplayName      string
 	ProviderMetadata json.RawMessage
-	RoutingRole      string
 	SelectionSlot    *string
 	IsToolContext    bool
 	DeletedAt        *time.Time
@@ -157,7 +154,6 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 		&i.ProviderRefKind,
 		&i.DisplayName,
 		&i.ProviderMetadata,
-		&i.RoutingRole,
 		&i.SelectionSlot,
 		&i.IsToolContext,
 		&i.DeletedAt,

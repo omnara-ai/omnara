@@ -231,21 +231,18 @@ Existing media references remain inline so their attachments remain available to
 
 Select [app tools](/integrations/apps) by qualified name, such as
 `app__engineering__post_message`. An app owns its credentials. Hosted launches save
-an immutable sending conversation for each agent/app. Tools may omit destination
-arguments to use that context; supplied values must stay within it. A channel
-context permits its child threads, while a thread context stays in that thread.
-Without context, supply a complete address. Tool declarations have no hidden
+an immutable sending conversation for each agent/app. Tools use that conversation
+and accept only action and pagination arguments. They fail before provider I/O
+when the agent has no assigned conversation. Tool declarations have no hidden
 `config`. Credential access, live app state and ordinary permission govern execution.
 
-Slack and Discord offer `read` and `post_message`. GitHub offers `read`,
-`discussion_comment`, `inline_comment` and `reply`. See the provider guides for
-arguments and pagination. Ordinary model output remains in Omnara.
+Slack and Discord offer `read` and `post_message` within their assigned conversation.
+GitHub offers `read`, `discussion_comment`, `inline_comment` and `reply` within its
+assigned PR. See the provider guides for arguments and pagination. Ordinary model
+output remains in Omnara.
 
-Slack and Discord posts may explicitly request `follow_replies: true`. Successful
-publication and local registration attach an app-owned subscription to the
-confirmed conversation using the posting tool's existing authorization; no config
-receive grant is required. This does not select an approval destination. Later
-config or sender changes leave the subscription intact. Manage it from the app's
+Posting never changes where the agent listens. Launchers attach subscriptions;
+manage them independently from the app's
 [Conversations list or subscriptions API](/integrations/apps#stop-forwarding).
 
 ### `list_interaction_handlers` / `set_interaction_handler`

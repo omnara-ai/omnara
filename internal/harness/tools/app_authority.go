@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -19,7 +20,7 @@ import (
 
 type appToolAccess struct {
 	Authority         agentconfig.AppToolAuthority
-	Arguments         toolcatalog.AppToolArguments
+	Conversation      appdefinition.Scope
 	OriginalContract  agentconfig.RuntimeContract
 	CurrentConfigID   uuid.UUID
 	App               integrationstore.ProjectAppRecord
@@ -29,6 +30,8 @@ type appToolAccess struct {
 
 // Resolve the immutable proposed tool first; a reused app name cannot retarget
 // it. The current config and live app remain revocable execution authority.
+// The three shipped apps require an assigned conversation; this is their tool
+// policy, not a restriction on app-owned subscriptions or future app types.
 func (e Executor) resolveAppToolScope(
 	ctx context.Context,
 	turn Turn,
@@ -88,21 +91,25 @@ func (e Executor) resolveAppToolScope(
 	if err != nil {
 		return appToolAccess{}, err
 	}
-	var conversation *appdefinition.Scope
-	if found {
-		scope, err := appdefinition.ParseConversation(app.Provider, target.ProviderRefKind, target.ProviderRef)
-		if err != nil {
-			return appToolAccess{}, appToolPreparationFailure(err)
-		}
-		conversation = &scope
+	if !found {
+		return appToolAccess{}, appToolPreparationFailure(fmt.Errorf(
+			"app %q has no assigned conversation for this agent; its tools require an agent launched by this app", app.Name,
+		))
 	}
-	args, err := authority.Definition.ResolveArgs(tool.Input, conversation)
+	conversation, err := appdefinition.ParseConversation(app.Provider, target.ProviderRefKind, target.ProviderRef)
 	if err != nil {
+		return appToolAccess{}, appToolPreparationFailure(err)
+	}
+	entry, err := authority.Definition.Prepare(tool.Name)
+	if err != nil {
+		return appToolAccess{}, err
+	}
+	if err := jsonschema.Validate(entry.InputSchema, tool.Input); err != nil {
 		return appToolAccess{}, appToolPreparationFailure(err)
 	}
 	access := appToolAccess{
 		Authority:        authority,
-		Arguments:        args,
+		Conversation:     conversation,
 		OriginalContract: original,
 		CurrentConfigID:  agent.CurrentConfigID,
 		App:              app,

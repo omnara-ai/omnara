@@ -367,7 +367,6 @@ func SetInteractionHandlerForToolCall(
 					AgentID:   t.input.AgentID,
 					AppID:     handler.appID,
 					Address:   address,
-					Role:      integrationstore.TargetAttribution,
 				},
 			)
 			if err != nil {

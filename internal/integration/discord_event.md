@@ -49,7 +49,7 @@ provider mutations. There is no stop/delete/archive/join side effect.
 
 Ordinary thread replies require an exact app-owned `thread_messages`
 subscription. Each attachment owns its concrete conversation and event selection;
-confirmed `follow_replies` sends and hosted launches can attach conversations
+explicit attachments and hosted launches can attach conversations
 without receive grants in agent config. A verified root mention can reach a
 channel subscription before its thread exists, including when the app has no
 launcher. Deleting that subscription before preparation prevents thread creation
@@ -58,7 +58,7 @@ thread subscription. A sending context for a parent channel does not subscribe t
 agent to child threads. Parent/guild addresses also support explicit mention
 launcher matching.
 
-Tools use saved sending context when available, otherwise explicit arguments.
+Thread tools require the saved conversation and accept action arguments only.
 Handlers independently take complete destinations; provider credentials remain
 the access boundary. Prompt presentation, runtime messages and signed callbacks
 resolve the captured destination, including a supplied guild alongside channel/thread.

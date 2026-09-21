@@ -51,7 +51,7 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	require.JSONEq(t, string(input.InitialInput.Metadata), string(launch.AgentInput.Metadata))
 	require.JSONEq(t, string(input.InitialInput.ContentBlocks), string(launch.InputContentBlocks))
 	require.Equal(t, launch.IntegrationTarget.ID, launch.AgentInput.IntegrationTargetID)
-	require.Equal(t, integrationstore.TargetAttribution, launch.IntegrationTarget.RoutingRole)
+	require.Empty(t, launch.IntegrationTarget.SelectionSlot)
 	require.Equal(t, "integration:slack:"+f.app.ID.String(), launch.AgentInput.IdempotencyScope)
 	require.Equal(t, input.InitialInput.SemanticEventKey, launch.AgentInput.InputIdempotencyKey)
 	require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
@@ -373,9 +373,9 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 			created = result
 		}
 	}
-	require.Equal(t, integrationstore.TargetSelected, created.IntegrationTarget.RoutingRole)
 	require.Equal(t, f.app.ID, created.IntegrationTarget.AppID)
 	require.Equal(t, "a", created.IntegrationTarget.SelectionSlot)
+	require.True(t, created.IntegrationTarget.IsToolContext, "launch assigns the conversation used by app tools")
 	require.Equal(t, created.IntegrationTarget.ID, created.AgentInput.IntegrationTargetID)
 	require.Len(t, created.Artifacts, 1)
 	require.Equal(t, f.slots["a"].ArtifactIDs[0], created.Artifacts[0].ID)

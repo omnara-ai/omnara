@@ -857,14 +857,15 @@ func newIntegrationToolFixtureWithMCP(
 }
 
 type toolFixtureOptions struct {
-	withMCP          bool
-	withSubagents    bool
-	withSlackApp     bool
-	withDiscordApp   bool
-	withGitHubApp    bool
-	githubPermission string
-	withToolContext  bool
-	slackPermission  string
+	withMCP            bool
+	withSubagents      bool
+	withSlackApp       bool
+	withDiscordApp     bool
+	withGitHubApp      bool
+	githubPermission   string
+	withToolContext    bool
+	toolContextAddress integrationstore.ConversationAddress
+	slackPermission    string
 }
 
 func newIntegrationToolFixtureWithOptions(
@@ -934,8 +935,14 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	if fixtureOptions.withDiscordApp {
 		address = integrationstore.ConversationAddress{Kind: "channel", Ref: "444"}
+		if fixtureOptions.withToolContext {
+			address = integrationstore.ConversationAddress{Kind: "thread", Ref: "444:555"}
+		}
 	} else if fixtureOptions.withGitHubApp {
 		address = integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#7"}
+	}
+	if fixtureOptions.toolContextAddress.Kind != "" {
+		address = fixtureOptions.toolContextAddress
 	}
 	origin := &executionstore.LaunchInputOrigin{AppID: install.ID, Address: address}
 	appActor, err := executionstore.AppActorParams(install.ID, "U_FIXTURE", nil)
@@ -943,7 +950,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	actor := &appActor
 	if fixtureOptions.withToolContext {
 		// Context is inserted once below. Ordinary attribution must never be
-		// promoted to context or implicitly restrict a model's destinations.
+		// promoted to context or authorize conversation-bound app tools.
 		origin = nil
 		actor, err = executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(user.ID))
 		require.NoError(t, err)

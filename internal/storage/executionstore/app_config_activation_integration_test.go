@@ -125,7 +125,7 @@ func (f appActivationFixture) changeInput(
 func (f appActivationFixture) subscriptions(t *testing.T, agentID uuid.UUID) []dbsqlc.AppSubscription {
 	t.Helper()
 	rows, err := f.store.pool.Query(f.ctx, `SELECT id,project_id,agent_id,app_id,subscription_type,
-		scope_kind,scope_ref,events,tool_call_id,created_at FROM app_subscriptions
+		scope_kind,scope_ref,events,created_at FROM app_subscriptions
 		WHERE project_id=$1 AND agent_id=$2 ORDER BY id`, testProjectID, agentID)
 	require.NoError(t, err)
 	subscriptions, err := pgx.CollectRows(rows, pgx.RowToStructByName[dbsqlc.AppSubscription])
@@ -229,7 +229,6 @@ func TestAppSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) {
 	require.Equal(t, "channel", before[0].ScopeKind)
 	require.Equal(t, "C123", before[0].ScopeRef)
 	require.Equal(t, []string{"message"}, before[0].Events)
-	require.Nil(t, before[0].ToolCallID)
 	update := f.changeInput(t, launch.Agent.ID, "Unrelated instruction change", "app-edit")
 	update.ExpectedCurrentConfigID = config.ID
 	changed, err := f.store.Execution().ChangeAgentConfig(f.ctx, update)

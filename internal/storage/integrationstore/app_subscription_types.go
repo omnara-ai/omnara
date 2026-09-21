@@ -25,7 +25,6 @@ type AppSubscriptionRecord struct {
 	Type                          string
 	Address                       ConversationAddress
 	Events                        []string
-	ToolCallID                    uuid.UUID
 	CreatedAt                     time.Time
 	AgentName                     string
 	Conversation                  json.RawMessage
@@ -36,7 +35,6 @@ type RegisterAppSubscriptionInput struct {
 	Type                             string
 	Address                          ConversationAddress
 	Events                           []string
-	ToolCallID                       *uuid.UUID
 }
 
 type CreateAppSubscriptionInput struct {

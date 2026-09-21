@@ -8,10 +8,8 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -25,7 +23,9 @@ import (
 
 func newSlackAppToolFixture(t *testing.T, label string) integrationToolFixture {
 	t.Helper()
-	return newIntegrationToolFixtureWithOptions(t, t.Context(), label, toolFixtureOptions{withSlackApp: true})
+	return newIntegrationToolFixtureWithOptions(t, t.Context(), label, toolFixtureOptions{
+		withSlackApp: true, withToolContext: true,
+	})
 }
 
 func slackAppToolTurn(f integrationToolFixture) Turn {
@@ -42,10 +42,10 @@ func slackAppToolTurn(f integrationToolFixture) Turn {
 	return turn
 }
 
-func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
+func TestSlackAppSendDistinctCallsAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	f := newSlackAppToolFixture(t, "slack-follow")
+	f := newSlackAppToolFixture(t, "slack-send")
 	require.Empty(t, appToolSubscriptions(t, f))
 	posts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +56,7 @@ func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
 		var body map[string]any
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		assert.Equal(t, "C123", body["channel"])
+		assert.Equal(t, "111.222", body["thread_ts"])
 		posts++
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222." + strconv.Itoa(posts)})
 	}))
@@ -64,12 +65,12 @@ func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
 		{
 			ID:    "first",
 			Name:  toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-			Input: json.RawMessage(`{"channel_id":"C123","text":"hello","follow_replies":true}`),
+			Input: json.RawMessage(`{"text":"hello"}`),
 		},
 		{
 			ID:    "second",
 			Name:  toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-			Input: json.RawMessage(`{"channel_id":"C123","text":"hello","thread_ts":"222.1","follow_replies":true}`),
+			Input: json.RawMessage(`{"text":"hello again"}`),
 		},
 	}
 	f.recordToolCalls(t, ctx, calls, f.Now)
@@ -79,17 +80,13 @@ func TestSlackAppSendDistinctCallsFollowAndReplay(t *testing.T) {
 		require.NoError(t, err)
 		body := toolResultMapFromTestParts(t, result.ContentParts)
 		require.Equal(t, "chat", body["app"])
-		require.Equal(t, "222.1", body["thread_ts"])
+		require.Equal(t, "111.222", body["thread_ts"])
 	}
 	require.Equal(t, 2, posts)
-	subscriptions := appToolSubscriptions(t, f)
-	require.Len(t, subscriptions, 1, "repeated posts follow the same thread once")
-	require.Equal(t, "thread_messages", subscriptions[0].Type)
-	require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:222.1"}, subscriptions[0].Address)
-	require.Equal(t, f.toolCallID(t, ctx, calls[0].ID), subscriptions[0].ToolCallID)
+	require.Empty(t, appToolSubscriptions(t, f), "sending must not create subscriptions")
 	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[0])
 	require.NoError(t, err)
-	require.Equal(t, "222.1", toolResultMapFromTestParts(t, result.ContentParts)["thread_ts"])
+	require.Equal(t, "111.222", toolResultMapFromTestParts(t, result.ContentParts)["thread_ts"])
 	require.Equal(t, 2, posts, "completed call replay does not repost")
 }
 
@@ -107,7 +104,7 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, scenario, toolFixtureOptions{
-				withSlackApp: true,
+				withSlackApp: true, withToolContext: true,
 			})
 			posts, reads := 0, 0
 			var change *executionstore.ChangeAgentConfigInput
@@ -190,7 +187,7 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 				ctx,
 				"send",
 				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"channel_id":"C123","text":"reply","thread_ts":"111.222"}`,
+				`{"text":"reply"}`,
 				f.Now,
 			)
 			result, err := dispatchAsyncToolToTerminal(
@@ -205,7 +202,7 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 				GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)
-			require.Empty(t, appToolSubscriptions(t, f), "sending without follow_replies must not subscribe")
+			require.Empty(t, appToolSubscriptions(t, f), "sending must not create subscriptions")
 			switch scenario {
 			case "rate-limit", "unrelated-config-during-retry":
 				require.Equal(t, 2, posts)
@@ -237,6 +234,9 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 func TestSlackAppTargetAloneDoesNotGrantSend(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixture(t, ctx, "no-app-authority")
+	require.NotZero(t, f.Target.ID)
+	require.False(t, f.Target.IsToolContext)
+	require.NotContains(t, f.AppTools, toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage))
 	posts := 0
 	server := httptest.NewServer(
 		http.HandlerFunc(
@@ -249,7 +249,7 @@ func TestSlackAppTargetAloneDoesNotGrantSend(t *testing.T) {
 		ctx,
 		"no-app",
 		toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-		`{"channel_id":"C123","text":"hello"}`,
+		`{"text":"hello"}`,
 		f.Now,
 	)
 	_, err := dispatchAsyncToolToTerminal(
@@ -264,6 +264,7 @@ func TestSlackAppTargetAloneDoesNotGrantSend(t *testing.T) {
 	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 	assert.NoError(t, err)
 	assert.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+	assert.Contains(t, string(record.ResultContentParts), "was not configured")
 }
 
 func TestSlackAppReadPagination(t *testing.T) {
@@ -297,7 +298,7 @@ func TestSlackAppReadPagination(t *testing.T) {
 		ctx,
 		"read",
 		toolcatalog.AppToolName("chat", toolcatalog.AppOperationRead),
-		`{"channel_id":"C123","thread_ts":"111.222","cursor":"page-two","limit":10}`,
+		`{"cursor":"page-two","limit":10}`,
 		f.Now,
 	)
 	result, err := dispatchAsyncToolToTerminal(
@@ -311,309 +312,56 @@ func TestSlackAppReadPagination(t *testing.T) {
 	require.Equal(t, "page-three", toolResultMapFromTestParts(t, result.ContentParts)["next_cursor"])
 }
 
-// DM replies are ordinary conversation messages, including when Slack includes
-// thread_ts. The outbound follow must match the incoming normalizer's address.
-func TestSlackAppDMPostFollowsIncomingReply(t *testing.T) {
-	for _, threaded := range []bool{false, true} {
-		t.Run(strconv.FormatBool(threaded), func(t *testing.T) {
+func TestSlackAppLegacyContextsPreserveReadAndPost(t *testing.T) {
+	for _, test := range []struct{ kind, channel string }{{"dm", "D123"}, {"channel", "C123"}} {
+		t.Run(test.kind, func(t *testing.T) {
 			ctx := t.Context()
-			f := newIntegrationToolFixtureWithOptions(
-				t,
-				ctx,
-				"dm-follow",
-				toolFixtureOptions{withSlackApp: true},
-			)
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "legacy-context", toolFixtureOptions{
+				withSlackApp: true, withToolContext: true,
+				toolContextAddress: integrationstore.ConversationAddress{Kind: test.kind, Ref: test.channel},
+			})
+			reads, posts := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if serveSlackToolIdentity(w, r) {
 					return
 				}
-				assert.Equal(t, "/chat.postMessage", r.URL.Path)
-				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "D123", "ts": "222.1"})
-			}))
-			defer server.Close()
-			input := `{"channel_id":"D123","text":"question","follow_replies":true}`
-			if threaded {
-				input = `{"channel_id":"D123","text":"question","thread_ts":"111.2","follow_replies":true}`
-			}
-			call := f.recordToolCall(
-				t,
-				ctx,
-				"dm-send",
-				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				input,
-				f.Now,
-			)
-			result, err := dispatchAsyncToolToTerminal(
-				t,
-				ctx,
-				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)},
-				slackAppToolTurn(f),
-				call,
-			)
-			require.NoError(t, err)
-			require.Equal(t, "D123", toolResultMapFromTestParts(t, result.ContentParts)["channel_id"])
-			payload := json.RawMessage(
-				`{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"EvReply","authorizations":[{"team_id":"T123","user_id":"B123","is_bot":true}],"event":{"type":"message","channel":"D123","channel_type":"im","user":"U123","text":"here is the answer","ts":"223.1","thread_ts":"111.2"}}`,
-			)
-			event, ok, err := integration.NormalizeSlackAppEvent(f.Install, payload)
-			require.NoError(t, err)
-			require.True(t, ok)
-			_, _, err = f.Store.Integrations().
-				AcceptIntegrationReceipt(
-					ctx,
-					integrationstore.VerifiedIntegrationReceipt{
-						ProjectID:  f.Agent.ProjectID,
-						AppID:      f.Install.ID,
-						ReceiptKey: "dm-reply",
-						Payload:    payload,
-					},
-				)
-			require.NoError(t, err)
-			receipt, ok, err := f.Store.Integrations().
-				ClaimIntegrationInbox(
-					ctx,
-					integrationstore.ClaimIntegrationInboxInput{
-						ProjectID:     f.Agent.ProjectID,
-						AppID:         f.Install.ID,
-						LeaseDuration: time.Minute,
-					},
-				)
-			require.NoError(t, err)
-			require.True(t, ok)
-			router := integration.NewAppRouter(f.Store.Execution(), f.Store.Integrations())
-			plan, err := router.Freeze(ctx, receipt.Lease(), []integration.AppEvent{event})
-			require.NoError(t, err)
-			require.Len(t, plan, 1, "the followed DM selects the existing agent")
-			for _, slot := range plan {
-				require.Equal(t, f.Agent.ID, slot.AgentID)
-				require.Nil(t, slot.Launch)
-			}
-			accepted, err := router.Admit(ctx, receipt.Lease())
-			require.NoError(t, err)
-			require.Len(t, accepted, 1)
-			require.NotNil(t, accepted[0].Input)
-			require.Contains(t, string(accepted[0].Input.ContentBlocks), "here is the answer")
-			var inputs int
-			require.NoError(
-				t,
-				f.Pool.QueryRow(
-					ctx,
-					`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND id=$2`,
-					f.Agent.ID,
-					accepted[0].Input.AgentInput.ID,
-				).
-					Scan(
-						&inputs,
-					),
-			)
-			require.Equal(t, 1, inputs)
-		})
-	}
-}
-
-func TestSlackFollowSubscriptionsSurviveConfigChanges(t *testing.T) {
-	for _, scenario := range []string{
-		"tool-removed", "tool-denied", "tool-disabled", "all-app-capabilities-removed",
-	} {
-		t.Run(scenario, func(t *testing.T) {
-			ctx := t.Context()
-			f := newSlackAppToolFixture(t, "follow-owner")
-			posts := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if serveSlackToolIdentity(w, r) {
-					return
+				switch r.URL.Path {
+				case "/conversations.history":
+					reads++
+					assert.NoError(t, r.ParseForm())
+					assert.Equal(t, test.channel, r.Form.Get("channel"))
+					assert.Empty(t, r.Form.Get("ts"))
+					writeToolTestJSON(w, map[string]any{"ok": true, "messages": []any{map[string]any{"ts": "222.1", "text": "hello"}}})
+				case "/chat.postMessage":
+					posts++
+					var body map[string]any
+					assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+					assert.Equal(t, test.channel, body["channel"])
+					assert.NotContains(t, body, "thread_ts", "legacy contexts keep posting to their saved conversation")
+					assert.Equal(t, "hello", body["text"])
+					writeToolTestJSON(w, map[string]any{"ok": true, "channel": test.channel, "ts": "222.2"})
+				default:
+					t.Errorf("unexpected provider request %s", r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
 				}
-				posts++
-				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1"})
 			}))
 			defer server.Close()
-			call := f.recordToolCall(t, ctx, "follow", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"channel_id":"C123","text":"hello","follow_replies":true}`, f.Now)
+			calls := []model.ToolCall{
+				{ID: "read", Name: "app__chat__read", Input: json.RawMessage(`{}`)},
+				{ID: "post", Name: "app__chat__post_message", Input: json.RawMessage(`{"text":"hello"}`)},
+			}
+			f.recordToolCalls(t, ctx, calls, f.Now)
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
-			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
-			require.NoError(t, err)
-			require.Equal(t, "222.1", toolResultMapFromTestParts(t, result.ContentParts)["thread_ts"])
-			before := appToolSubscriptions(t, f)
-			require.Len(t, before, 1)
-			source, err := agentconfig.ParseSource(
-				agentconfig.SourceFormat(f.AgentConfig.SourceFormat), []byte(f.AgentConfig.Source),
-			)
-			require.NoError(t, err)
-			entry := source.Tools[call.Name]
-			switch scenario {
-			case "tool-removed":
-				delete(source.Tools, call.Name)
-			case "tool-denied":
-				permission := toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
-				entry.Permission = &permission
-				source.Tools[call.Name] = entry
-			case "tool-disabled":
-				disabled := false
-				entry.Enabled = &disabled
-				source.Tools[call.Name] = entry
-			case "all-app-capabilities-removed":
-				source.Tools = nil
-				source.InteractionHandlers = nil
-			}
-			changeAppToolConfig(t, ctx, f, source)
-			require.Equal(t, before, appToolSubscriptions(t, f), "config activation must preserve app-owned subscriptions")
-			replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
-			require.NoError(t, err)
-			require.JSONEq(t, string(result.ContentParts), string(replay.ContentParts))
-			require.Equal(t, 1, posts, "completed replay must never send again")
-			require.Equal(t, before, appToolSubscriptions(t, f))
-		})
-	}
-}
-
-func TestSlackCompletedFollowReplayCannotRestoreDetachedSubscription(t *testing.T) {
-	ctx := t.Context()
-	f := newSlackAppToolFixture(t, "follow-detach")
-	posts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if serveSlackToolIdentity(w, r) {
-			return
-		}
-		posts++
-		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1"})
-	}))
-	defer server.Close()
-	calls := []model.ToolCall{
-		{ID: "first", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"channel_id":"C123","text":"hello","follow_replies":true}`)},
-		{ID: "fresh", Name: toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), Input: json.RawMessage(`{"channel_id":"C123","text":"hello again","thread_ts":"222.1","follow_replies":true}`)},
-	}
-	f.recordToolCalls(t, ctx, calls, f.Now)
-	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
-	result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[0])
-	require.NoError(t, err)
-	before := appToolSubscriptions(t, f)
-	require.Len(t, before, 1)
-	require.NoError(t, f.Store.Integrations().DeleteAppSubscription(
-		ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, before[0].ID,
-	))
-	require.Empty(t, appToolSubscriptions(t, f))
-	replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[0])
-	require.NoError(t, err)
-	require.JSONEq(t, string(result.ContentParts), string(replay.ContentParts))
-	require.Equal(t, 1, posts)
-	require.Empty(t, appToolSubscriptions(t, f), "completed replay must not restore the detached route")
-	_, err = dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), calls[1])
-	require.NoError(t, err)
-	after := appToolSubscriptions(t, f)
-	require.Len(t, after, 1, "a fresh authorized send can subscribe again")
-	require.Equal(t, 2, posts)
-	require.NotEqual(t, before[0].ID, after[0].ID)
-	require.Equal(t, before[0].Address, after[0].Address)
-	require.Equal(t, f.toolCallID(t, ctx, calls[1].ID), after[0].ToolCallID)
-	require.NoError(t, f.Store.Integrations().DeleteAppSubscription(
-		ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, before[0].ID,
-	))
-	require.Equal(t, after, appToolSubscriptions(t, f), "old DELETE replay cannot revoke a new attachment")
-}
-
-func TestSlackConfirmedSendDoesNotRepeatForFollowPersistence(t *testing.T) {
-	for _, scenario := range []string{
-		"transient-write-failure", "subscription-detached-during-send", "app-disconnected-during-send",
-		"sender-removed", "sender-denied", "sender-disabled",
-	} {
-		t.Run(scenario, func(t *testing.T) {
-			ctx := t.Context()
-			f := newSlackAppToolFixture(t, "follow-completion")
-			if scenario == "transient-write-failure" {
-				_, err := f.Pool.Exec(ctx, `CREATE SEQUENCE follow_write_attempts;
-CREATE FUNCTION fail_first_follow_write() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF nextval('follow_write_attempts') = 1 THEN
-    RAISE EXCEPTION 'injected follow persistence failure' USING ERRCODE = '40001';
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER fail_first_follow_write BEFORE INSERT ON app_subscriptions
-FOR EACH ROW WHEN (NEW.tool_call_id IS NOT NULL) EXECUTE FUNCTION fail_first_follow_write();`)
+			for _, call := range calls {
+				_, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 				require.NoError(t, err)
+				record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+				require.NoError(t, err)
+				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome, string(record.ResultContentParts))
 			}
-			source, err := agentconfig.ParseSource(
-				agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
-				[]byte(f.AgentConfig.Source),
-			)
-			require.NoError(t, err)
-			name := toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage)
-			entry := source.Tools[name]
-			switch scenario {
-			case "sender-removed":
-				delete(source.Tools, name)
-			case "sender-denied":
-				permission := toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny)
-				entry.Permission = &permission
-				source.Tools[name] = entry
-			case "sender-disabled":
-				disabled := false
-				entry.Enabled = &disabled
-				source.Tools[name] = entry
-			}
-			change := appToolConfigChangeInput(t, f, source)
-			var prior integrationstore.AppSubscriptionRecord
-			if scenario == "subscription-detached-during-send" {
-				prior = attachToolSubscription(t, f, "thread_messages", `{"channel_id":"C123","thread_ts":"222.1"}`, nil)
-			}
-			posts := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if serveSlackToolIdentity(w, r) {
-					return
-				}
-				posts++
-				if scenario == "subscription-detached-during-send" {
-					assert.NoError(t, f.Store.Integrations().DeleteAppSubscription(
-						ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, prior.ID,
-					))
-				} else if scenario == "app-disconnected-during-send" {
-					_, err := f.Store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
-						ProjectID: toolsTestProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
-					})
-					assert.NoError(t, err)
-				} else if scenario != "transient-write-failure" {
-					_, err := f.Store.Execution().ChangeAgentConfig(ctx, change)
-					assert.NoError(t, err)
-				}
-				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1"})
-			}))
-			defer server.Close()
-			call := f.recordToolCall(
-				t,
-				ctx,
-				"follow",
-				toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"channel_id":"C123","text":"hello","follow_replies":true}`,
-				f.Now,
-			)
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
-			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
-			require.NoError(t, err)
-			body := toolResultMapFromTestParts(t, result.ContentParts)
-			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
-			require.NoError(t, err)
-			subscriptions := appToolSubscriptions(t, f)
-			if scenario == "app-disconnected-during-send" {
-				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-				require.Equal(t, "follow_registration_failed", body["code"])
-				require.Contains(t, string(record.ResultContentParts), "222.1", "preserve the confirmed provider receipt")
-				require.Empty(t, subscriptions)
-			} else {
-				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
-				require.Equal(t, "222.1", body["message_ts"])
-				require.Len(t, subscriptions, 1)
-				if scenario == "subscription-detached-during-send" {
-					require.NotEqual(t, prior.ID, subscriptions[0].ID)
-				}
-				if scenario == "transient-write-failure" {
-					var attempts int
-					require.NoError(t, f.Pool.QueryRow(ctx, `SELECT last_value FROM follow_write_attempts`).Scan(&attempts))
-					require.Equal(t, 2, attempts, "retry persistence after the confirmed send")
-				}
-			}
-			_, err = dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
-			require.NoError(t, err)
-			require.Equal(t, 1, posts, "persistence retry and replay must not repeat a confirmed send")
+			require.Equal(t, 1, reads)
+			require.Equal(t, 1, posts)
+			require.Empty(t, appToolSubscriptions(t, f))
 		})
 	}
 }
@@ -668,12 +416,12 @@ func TestSlackAppRotatedTokenKeepsVerifiedIdentity(t *testing.T) {
 					writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1", "messages": []any{}})
 				}))
 				defer server.Close()
-				name, input := operation, `{"channel_id":"C123"}`
+				name, input := operation, `{}`
 				if operation != "read" {
-					name, input = "post_message", `{"channel_id":"C123","text":"hello"}`
+					name, input = "post_message", `{"text":"hello"}`
 				}
 				if operation == "upload" {
-					input = `{"channel_id":"C123","text":"report","artifact_ids":["art_aeaqcaibaeaqcaibaeaqcaibae"]}`
+					input = `{"text":"report","artifact_ids":["art_aeaqcaibaeaqcaibaeaqcaibae"]}`
 				}
 				call := f.recordToolCall(t, ctx, "rotated", toolcatalog.AppToolName("chat", name), input, f.Now)
 				_, err = dispatchAsyncToolToTerminal(t, ctx,

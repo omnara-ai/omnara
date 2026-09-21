@@ -43,7 +43,7 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	input := integrationstore.EnsureConversationTargetInput{
 		ProjectID: f.project, AgentID: launch.Agent.ID,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
-		Role:    integrationstore.TargetSelected, AppID: createApp("first"), SelectionSlot: "agent",
+		AppID:   createApp("first"), SelectionSlot: "agent",
 	}
 	ensure := func(
 		input integrationstore.EnsureConversationTargetInput,
@@ -53,6 +53,10 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	first, err := ensure(input)
 	require.NoError(t, err)
 	require.True(t, first.Created)
+	require.False(t, first.IsToolContext, "launch selection does not imply tool context")
+	_, found, err := store.GetAgentAppToolContext(f.ctx, f.project, input.AgentID, input.AppID)
+	require.NoError(t, err)
+	require.False(t, found)
 	replay, err := ensure(input)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replay.ID)
@@ -95,38 +99,40 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 		),
 	)
 	require.Zero(t, subscriptions)
-	input.Role, input.SelectionSlot = integrationstore.TargetAttribution, ""
+	input.SelectionSlot = ""
 	attribution, err := ensure(input)
 	require.NoError(t, err)
 	require.Equal(t, second.ID, attribution.ID)
-	input.Role = integrationstore.TargetFollowed
-	follow, err := ensure(input)
-	require.NoError(t, err)
-	require.Equal(t, attribution.ID, follow.ID)
-	require.Equal(
-		t,
-		integrationstore.TargetSelected,
-		follow.RoutingRole,
-		"origin/follow must preserve launch selection",
-	)
-	// A previously unseen conversation can be attributed and subsequently
-	// followed without changing its address identity.
+	require.Equal(t, "reviewer", attribution.SelectionSlot, "input attribution must preserve launch selection")
+
+	// Attributing a new conversation does not create a launch selection.
 	originalAddress := input.Address
 	input.Address.Ref = "C123:789.123"
-	input.Role = integrationstore.TargetAttribution
 	attribution, err = ensure(input)
 	require.NoError(t, err)
-	input.Role = integrationstore.TargetFollowed
-	follow, err = ensure(input)
+	require.Empty(t, attribution.SelectionSlot)
+	replay, err = ensure(input)
 	require.NoError(t, err)
-	require.Equal(t, attribution.ID, follow.ID)
-	require.Equal(t, integrationstore.TargetFollowed, follow.RoutingRole)
+	require.Equal(t, attribution.ID, replay.ID)
+	require.Empty(t, replay.SelectionSlot)
 	input.Address = originalAddress
+
+	// An independent receive route and attribution on the same conversation
+	// cannot become launch selection history.
+	input.AppID = first.AppID
+	attribution, err = ensure(input)
+	require.NoError(t, err)
+	require.Empty(t, attribution.SelectionSlot)
+	_, err = store.CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+		OrgID: f.org, ProjectID: f.project, AppID: input.AppID, AgentID: input.AgentID,
+		Type: "thread_messages", Conversation: []byte(`{"channel_id":"C123","thread_ts":"123.456"}`),
+	})
+	require.NoError(t, err)
 
 	// Retiring a selected association retains the selection tombstone. A later
 	// mention may not silently launch a replacement for that app/slot.
 	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, second.ID)
-	input.Role, input.AppID, input.SelectionSlot = integrationstore.TargetSelected, second.AppID, "reviewer"
+	input.AppID, input.SelectionSlot = second.AppID, "reviewer"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	tx, err := f.pool.Begin(f.ctx)
@@ -145,7 +151,7 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 		"message",
 	)
 	require.NoError(t, err)
-	require.Len(t, candidates.Selections, 2) // A follow without a live subscription does not suppress launch.
+	require.Len(t, candidates.Selections, 2) // Retired launch selections remain visible.
 	require.Empty(t, candidates.Subscriptions)
 	require.ElementsMatch(
 		t,
@@ -158,6 +164,8 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, other.Selections, 1)
 	require.Equal(t, first.ID, other.Selections[0].ID)
+	require.Len(t, other.Subscriptions, 1)
+	require.Equal(t, input.AgentID, other.Subscriptions[0].AgentID)
 }
 
 func (f inboxFixture) ensureConversationTarget(
@@ -203,7 +211,6 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 	input := integrationstore.EnsureConversationTargetInput{
 		ProjectID: f.project, AgentID: launch.Agent.ID, AppID: f.appID,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
-		Role:    integrationstore.TargetAttribution,
 	}
 	ordinary, err := f.ensureConversationTarget(input)
 	require.NoError(t, err)
@@ -211,17 +218,17 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 	input.IsToolContext = true
 	_, err = f.ensureConversationTarget(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "an existing attribution target cannot be promoted")
-	input.IsToolContext, input.Role = false, integrationstore.TargetFollowed
-	followed, err := f.ensureConversationTarget(input)
+	input.IsToolContext = false
+	replayedAttribution, err := f.ensureConversationTarget(input)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.TargetFollowed, followed.RoutingRole)
-	require.False(t, followed.IsToolContext)
+	require.Equal(t, ordinary.ID, replayedAttribution.ID)
+	require.False(t, replayedAttribution.IsToolContext)
 	_, found, err := f.store.GetAgentAppToolContext(f.ctx, f.project, input.AgentID, f.appID)
 	require.NoError(t, err)
-	require.False(t, found, "followed/attribution roles do not imply tool context")
+	require.False(t, found, "attribution does not imply tool context")
 
 	input.Address.Ref = "C123:3.4"
-	input.IsToolContext, input.Role, input.SelectionSlot = true, integrationstore.TargetSelected, "reviewer"
+	input.IsToolContext, input.SelectionSlot = true, "reviewer"
 	original, err := f.ensureConversationTarget(input)
 	require.NoError(t, err)
 	require.True(t, original.Created)
@@ -229,7 +236,6 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 	record, err := f.store.GetIntegrationTarget(f.ctx, f.project, original.ID)
 	require.NoError(t, err)
 	require.True(t, record.IsToolContext)
-	require.Equal(t, original.RoutingRole, record.RoutingRole)
 	require.Equal(t, original.SelectionSlot, record.SelectionSlot)
 	replay, err := f.ensureConversationTarget(input)
 	require.NoError(t, err)
@@ -263,7 +269,7 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 		`UPDATE integration_targets SET display_name='renamed',provider_metadata='{"retained":true}' WHERE id=$1`,
 		original.ID,
 	)
-	input.IsToolContext, input.Role, input.SelectionSlot = true, integrationstore.TargetAttribution, ""
+	input.IsToolContext, input.SelectionSlot = true, ""
 	input.Address.Ref = "C123:5.6"
 	_, err = f.ensureConversationTarget(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "a different address cannot replace the context")
@@ -272,6 +278,7 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 	second, err := f.ensureConversationTarget(input)
 	require.NoError(t, err)
 	require.True(t, second.IsToolContext, "each app has its own context")
+	require.Empty(t, second.SelectionSlot, "tool context need not be a launch selection")
 	input.AppID = f.appID
 	secondLaunch, err := execution.LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
 		ProjectID: f.project, AgentConfigID: configID, LaunchedBy: identitystore.NewUserPrincipal(f.user),
@@ -289,9 +296,6 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 	_, err = f.ensureConversationTarget(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "even a retired context at the same address cannot be recreated")
 	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, f.appID)
-	tx, err := f.pool.Begin(f.ctx)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback(f.ctx) }()
 	for _, scope := range [][3]uuid.UUID{
 		{f.project, launch.Agent.ID, f.appID},
 		{uuid.New(), launch.Agent.ID, f.appID},
@@ -302,10 +306,6 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 		record, found, err := f.store.GetAgentAppToolContext(f.ctx, scope[0], scope[1], scope[2])
 		require.NoError(t, err)
 		require.Equal(t, wantFound, found)
-		inTx, txFound, err := f.store.GetAgentAppToolContextTx(f.ctx, tx, scope[0], scope[1], scope[2])
-		require.NoError(t, err)
-		require.Equal(t, found, txFound)
-		require.Equal(t, record, inTx)
 		if found {
 			require.Equal(t, original.ID, record.ID)
 			require.Equal(t, original.ProviderRef, record.ProviderRef)
@@ -333,8 +333,8 @@ func TestAgentAppToolContextConcurrentCreation(t *testing.T) {
 			require.NoError(t, err)
 			input := integrationstore.EnsureConversationTargetInput{
 				ProjectID: f.project, AgentID: launch.Agent.ID, AppID: f.appID,
-				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
-				Role:    integrationstore.TargetAttribution, IsToolContext: true,
+				Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
+				IsToolContext: true,
 			}
 			type result struct {
 				record integrationstore.IntegrationTargetRecord

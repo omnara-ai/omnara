@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -345,15 +344,8 @@ func (s *Store) launchAgentTx(
 	for i := range subscriptions {
 		subscriptions[i].AgentID = agent.ID
 	}
-	registered, err := integrationstore.RegisterAppSubscriptionsTx(ctx, tx, subscriptions)
-	if err != nil {
+	if _, err := integrationstore.RegisterAppSubscriptionsTx(ctx, tx, subscriptions); err != nil {
 		return LaunchAgentResult{}, err
-	}
-	for i, subscription := range registered {
-		if !slices.Equal(subscription.Events, subscriptions[i].Events) {
-			return LaunchAgentResult{}, storeerr.Tag(storeerr.ErrConflict,
-				errors.New("duplicate launch subscription has different events"))
-		}
 	}
 
 	result.MCPConnections, err = createAgentMCPConnectionsTx(

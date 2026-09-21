@@ -312,7 +312,7 @@ func TestAppProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing
 				[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: launch.Agent.ID}}))
 			target, err := f.store.EnsureConversationTargetTx(f.ctx, tx, integrationstore.EnsureConversationTargetInput{
 				ProjectID: f.project, AgentID: launch.Agent.ID, AppID: f.appID,
-				Address: f.input.Address, Role: integrationstore.TargetSelected, SelectionSlot: "support",
+				Address: f.input.Address, SelectionSlot: "support",
 			})
 			require.NoError(t, err)
 			if tc.retired {

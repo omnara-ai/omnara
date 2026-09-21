@@ -67,27 +67,18 @@ are ready when the agent starts. Schedules can coexist with mention launches.
 See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
 
-## Select capabilities manually
+## Thread tools and subscriptions
 
-```yaml
-tools:
-  app__support__read: {}
-  app__support__post_message: {}
-```
+A mention or scheduled launch supplies `read` and `post_message` for its assigned
+thread. `read` supports `before` and `limit`; `post_message` takes `content` and up
+to 10 `artifact_ids`. The model supplies neither channel nor thread IDs. Adding
+these tools to an agent without an assigned conversation is insufficient; calls
+fail before contacting Discord.
 
-`read` supports `before` and `limit`. `post_message` takes `content` and up to 10
-`artifact_ids`. Without app-agent context, supply `channel_id` and optional
-`thread_id` on every call. A provider or scheduled launch binds the tools to the
-launch conversation: omitted destination fields use that context. A server channel
-context permits child threads in that channel; a thread context stays confined to
-that thread. Destinations outside the context are rejected. The static schema
-always includes destination arguments.
-Optional `guild_id` is verified against Discord before sending; the indexed
-conversation context does not store guild metadata.
-
-A confirmed post with `follow_replies: true` adds an app-owned subscription to its
-conversation. For an immediate subscription, send this body to the
-[app subscriptions API](/integrations/apps#subscribe-a-conversation):
+The launcher subscribes the agent to replies. Posting does not change that
+subscription. To independently forward messages to an existing agent, send this
+body to the [app subscriptions API](/integrations/apps#subscribe-a-conversation).
+This does not assign or change the conversation used by the app's tools.
 
 ```json
 {

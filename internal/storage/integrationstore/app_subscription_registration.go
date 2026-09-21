@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
-	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -41,7 +41,7 @@ func PrepareAppSubscriptionTx(
 }
 
 // RegisterAppSubscriptionTx requires project, app, conversation and agent gates.
-// A confirmed follow reuses existing receive policy without changing its events.
+// Repeated registration reuses an identical policy; conflicting event sets fail.
 func RegisterAppSubscriptionTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -94,7 +94,7 @@ func RegisterAppSubscriptionsTx(
 		result = append(result, record)
 	}
 	// Lowered quotas prevent growth; they must not revoke existing receive routes
-	// or make an unchanged confirmed follow fail.
+	// or make an unchanged registration fail.
 	if !inserted {
 		return result, nil
 	}
@@ -154,11 +154,15 @@ func registerAppSubscriptionTx(
 	if created {
 		row, err = q.InsertAppSubscription(ctx, dbsqlc.InsertAppSubscriptionParams{
 			ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: input.AppID, SubscriptionType: input.Type,
-			ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref, Events: prepared.Events, ToolCallID: input.ToolCallID,
+			ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref, Events: prepared.Events,
 		})
 	}
 	if err != nil {
 		return AppSubscriptionRecord{}, false, err
+	}
+	if !slices.Equal(row.Events, prepared.Events) {
+		return AppSubscriptionRecord{}, false, storeerr.Tag(storeerr.ErrConflict,
+			errors.New("conversation already subscribed with different events; remove it before changing events"))
 	}
 	record := appSubscriptionRecord(row)
 	record.Conversation = conversation
@@ -190,6 +194,6 @@ func appSubscriptionRecord(row dbsqlc.AppSubscription) AppSubscriptionRecord {
 	return AppSubscriptionRecord{
 		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
 		Type: row.SubscriptionType, Address: ConversationAddress{Kind: row.ScopeKind, Ref: row.ScopeRef},
-		Events: row.Events, ToolCallID: storeutil.IDFromPtr(row.ToolCallID), CreatedAt: row.CreatedAt,
+		Events: row.Events, CreatedAt: row.CreatedAt,
 	}
 }

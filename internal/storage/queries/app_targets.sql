@@ -1,4 +1,4 @@
--- The conversation gate serializes launcher selection with confirmed follows.
+-- The conversation gate serializes launcher selection with subscription changes.
 -- Acquire it after project/app gates and before agent locks.
 -- name: LockAppConversation :exec
 SELECT pg_advisory_xact_lock(hashtextextended(
@@ -9,33 +9,26 @@ SELECT pg_advisory_xact_lock(hashtextextended(
 -- must not cause the next comment to launch a replacement.
 -- name: ListConversationSelections :many
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
        deleted_at, created_at, updated_at
 FROM integration_targets target
 WHERE target.project_id = sqlc.arg(project_id) AND target.app_id = sqlc.arg(app_id)
   AND target.provider_ref_kind = sqlc.arg(kind) AND target.provider_ref = sqlc.arg(ref)
-  AND (target.routing_role = 'selected' OR (target.routing_role = 'followed' AND target.deleted_at IS NULL AND EXISTS (
-    SELECT 1 FROM app_subscriptions subscription
-    JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
-    WHERE subscription.project_id = target.project_id AND subscription.agent_id = target.agent_id
-      AND subscription.app_id = target.app_id
-      AND subscription.scope_kind = target.provider_ref_kind AND subscription.scope_ref = target.provider_ref
-      AND agent.state = 'active'
-  )))
+  AND target.selection_slot IS NOT NULL
 ORDER BY target.id;
 
 -- name: GetAppSelectionTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
   AND provider_ref_kind = sqlc.arg(kind) AND provider_ref = sqlc.arg(ref)
-  AND routing_role = 'selected' AND selection_slot = sqlc.arg(slot);
+  AND selection_slot = sqlc.arg(slot);
 
 -- name: GetAgentConversationTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id)
@@ -56,16 +49,11 @@ LIMIT 1;
 
 -- name: InsertAppConversationTarget :one
 INSERT INTO integration_targets(project_id, agent_id, app_id,
-    provider_ref_kind, provider_ref, display_name, routing_role, selection_slot, is_tool_context, created_at, updated_at)
+    provider_ref_kind, provider_ref, display_name, selection_slot, is_tool_context, created_at, updated_at)
 VALUES (sqlc.arg(project_id), sqlc.arg(agent_id), sqlc.arg(app_id),
-    sqlc.arg(kind), sqlc.arg(ref), sqlc.arg(display_name), sqlc.arg(routing_role), sqlc.narg(slot), sqlc.arg(is_tool_context),
+    sqlc.arg(kind), sqlc.arg(ref), sqlc.arg(display_name), sqlc.narg(slot), sqlc.arg(is_tool_context),
     transaction_timestamp(), transaction_timestamp())
 ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, app_id, provider_ref,
-          provider_ref_kind, display_name, provider_metadata, routing_role, selection_slot, is_tool_context,
+          provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
           deleted_at, created_at, updated_at;
-
--- name: MarkConversationTargetFollowed :exec
-UPDATE integration_targets SET routing_role = 'followed', updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id) AND id = sqlc.arg(id)
-  AND routing_role = 'attribution' AND deleted_at IS NULL;

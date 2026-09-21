@@ -101,7 +101,7 @@ func (f appInteractionFixture) target(
 	target, err := f.store.Integrations().
 		EnsureConversationTargetTx(f.ctx, tx, integrationstore.EnsureConversationTargetInput{
 			ProjectID: testProjectID, AgentID: agentID, AppID: appID,
-			Address: conversation, Role: integrationstore.TargetAttribution,
+			Address: conversation,
 		})
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(f.ctx))

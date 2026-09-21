@@ -33,18 +33,16 @@ interaction_handlers:
 
 Compilation resolves the immutable name to a public project-app ID. Runtime lookup
 uses that pinned app's registered type; name reuse cannot retarget it.
-Tool schemas are static. Hosted launch admission saves one immutable sending
-conversation per agent/app on its target. Calls can omit that destination or
-supply matching fields; a channel context permits threads inside that channel,
-while a thread context remains confined to that thread. Without context, callers
-supply a complete address. Provider credentials remain the access boundary,
-with ordinary tool permissions, project grants and provider checks at execution.
+Tool schemas are static. The shipped Slack/Discord thread and GitHub PR apps save
+one immutable sending conversation per agent/app during launch admission. Their
+tools accept action arguments only and fail before provider I/O without that
+context. Provider credentials, ordinary tool permissions and project grants remain
+execution boundaries. Future apps may define different tool behavior explicitly.
 
 A tool grants no receive authority. App-owned subscriptions connect agents to a
 named subscription type, one concrete `conversation` and resolved `events`.
 Create them through the app-scoped subscription API or launch attachments; hosted
-launchers attach their conversation atomically. An explicitly requested
-`follow_replies` attaches a subscription only after an authorized, confirmed post.
+launchers attach their conversation atomically. Posting never changes subscriptions.
 No receive grant belongs in config. Removing tools or changing config preserves
 subscriptions; deleting a subscription stops its forwarding. Interaction handlers
 remain separate optional capabilities with complete runtime destination arguments,
@@ -76,8 +74,8 @@ For a new operation, extend the definition's exported tool list in
 `internal/harness/tools/app_tools.go`; there is no global provider-tool alias.
 Reuse `resolveAppToolAccess` and `recheckAppToolAccess` so the original proposed
 config, current config, active app, setup revision and credential version all
-remain part of execution authority. Approval descriptions must show the effective
-destination even when the call relies on saved conversation context.
+remain part of execution authority. Approval descriptions must show the assigned
+conversation.
 
 For new incoming events, extend normalization in `<provider>_event.go` (Slack uses
 `app_slack.go`) and the definition's event/subscription contracts. Launcher trigger
@@ -193,10 +191,9 @@ interaction presenter.
 ## Trace and test a journey
 
 A Slack mention launches into its thread; later messages use its app-owned
-`thread_messages` subscription. `app__support__post_message` can send proactively
-and explicitly request `follow_replies` without any receive capability in config.
-Verified inputs include the app name and actual channel/thread IDs so flexible
-tools can address the conversation.
+`thread_messages` subscription. `app__support__post_message` posts to that assigned
+thread. Scheduled launches first post an opening message, then attach the new
+agent to its thread. Verified inputs include their app and source conversation.
 Discord follows the same pattern with leased Gateway intake and bounded thread
 preparation; see [discord_event.md](discord_event.md) and
 [discord/README.md](discord/README.md).
@@ -209,7 +206,7 @@ Human comments steer/cancel open interactions; commits queue. Inline comment IDs
 and diff coordinates stay in tools. Repository checkout remains machine/profile
 setup. See [github_event.md](github_event.md).
 
-Test the changed boundary: protocol/normalization, context-bound and explicit-destination tools,
+Test the changed boundary: protocol/normalization, conversation-bound tools,
 subscription attachment, deletion and event filtering, captured callbacks, and
 inbox-to-agent replay. Include independent apps sharing a physical identity,
 cross-project isolation, revoked

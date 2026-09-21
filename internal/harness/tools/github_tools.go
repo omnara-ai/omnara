@@ -37,11 +37,10 @@ func runGitHubTool(
 	record executionstore.ToolCallRecord,
 	access appToolAccess,
 ) (asyncPhaseResult, error) {
-	scope := access.Arguments.Destination
-	if scope.GitHub == nil {
-		return appToolFailure(errors.New("app tool destination does not match GitHub"))
+	address := access.Conversation.GitHub
+	if address == nil {
+		return appToolFailure(errors.New("app conversation does not match GitHub"))
 	}
-	address := *scope.GitHub
 	client, err := call.Executor.githubToolClient(call.Turn, record, access)
 	if err != nil {
 		return appToolFailure(err)
@@ -51,7 +50,7 @@ func runGitHubTool(
 	switch access.Authority.Definition.Operation {
 	case toolcatalog.AppOperationRead:
 		var input githubReadInput
-		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub read"); err != nil {
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub read"); err != nil {
 			return appToolFailure(err)
 		}
 		options := github.PageOptions{Page: input.Page, PerPage: input.Limit}
@@ -71,19 +70,19 @@ func runGitHubTool(
 		}
 	case toolcatalog.AppOperationDiscussionComment:
 		var input githubDiscussionInput
-		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub discussion comment"); err != nil {
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub discussion comment"); err != nil {
 			return appToolFailure(err)
 		}
 		result, err = client.CreateDiscussionComment(ctx, providerScope, input.Body)
 	case toolcatalog.AppOperationInlineComment:
 		var input githubInlineInput
-		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub inline comment"); err != nil {
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub inline comment"); err != nil {
 			return appToolFailure(err)
 		}
 		result, err = client.CreateInlineComment(ctx, providerScope, input.InlineCommentArgs)
 	case toolcatalog.AppOperationReply:
 		var input githubReplyInput
-		if err := decodeSingleStrictJSON(access.Arguments.Arguments, &input, "GitHub review reply"); err != nil {
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub review reply"); err != nil {
 			return appToolFailure(err)
 		}
 		result, err = client.Reply(ctx, providerScope, input.CommentID, input.Body)

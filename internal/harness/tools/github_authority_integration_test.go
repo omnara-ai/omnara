@@ -93,38 +93,6 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 	}
 }
 
-func TestGitHubAppRejectsContextMismatchAndUnsupportedFollow(t *testing.T) {
-	for _, call := range githubToolTestCalls() {
-		for _, extra := range []string{`{"repository_id":124}`, `{"pull_request":8}`, `{"follow_replies":true}`} {
-			t.Run(call.ID+"/"+extra, func(t *testing.T) {
-				ctx := t.Context()
-				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-arguments", toolFixtureOptions{
-					withGitHubApp: true, withToolContext: true,
-				})
-				var args map[string]any
-				require.NoError(t, json.Unmarshal(call.Input, &args))
-				require.NoError(t, json.Unmarshal([]byte(extra), &args))
-				input, err := json.Marshal(args)
-				require.NoError(t, err)
-				proposed := f.recordToolCall(t, ctx, call.ID, call.Name, string(input), f.Now)
-				var requests atomic.Int32
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					requests.Add(1)
-					w.WriteHeader(http.StatusForbidden)
-				}))
-				defer server.Close()
-				_, err = dispatchAsyncToolToTerminal(t, ctx,
-					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), proposed)
-				require.NoError(t, err)
-				record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
-				require.NoError(t, err)
-				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-				require.Zero(t, requests.Load(), "invalid arguments must not mint a provider token")
-			})
-		}
-	}
-}
-
 func TestGitHubAppReplyRejectsForeignPullRequest(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-foreign-reply", toolFixtureOptions{

@@ -39,20 +39,17 @@ entries win during hosted derivation, including enabled state, permissions,
 and deferred loading. Derivation only adds missing entries.
 
 Tool schemas are static. An initial hosted target supplies immutable sending
-context for its agent/app. Calls may omit the address; supplied fields must stay
-inside that context. Channel contexts permit child threads; thread contexts do
-not permit switching threads. Without context, tools require explicit addresses.
-Credentials and provider validation remain the access boundary. Handlers take
-complete destination arguments independently of sending context. Tools confer no
-receive authority, and ordinary attribution never becomes a sending context.
-Incoming model context carries the app name and actual provider address IDs.
+context for its agent/app. The shipped tools accept action arguments only and fail
+before provider I/O without context. Credentials and provider validation remain the
+access boundary. Handlers take complete destination arguments independently.
+Ordinary attribution never becomes a sending context. Incoming model context
+carries the app name and source conversation.
 
 An app-owned subscription connects one agent, a local definition type such as
 `thread_messages` or `pull_request`, one concrete conversation and resolved events.
-Config activation and tool removal do not reconcile subscriptions. Explicit
-attachments and confirmed `follow_replies` sends use the same subscription store;
-a follow requires the posting tool's authority and a confirmed send, with no
-empty receive grant in config. Subscriptions own no credentials or transport.
+Config activation, tool removal and posting do not reconcile subscriptions.
+Explicit attachments and launchers use the same subscription store.
+Subscriptions own no credentials or transport.
 
 Frozen input authority contains an event plus alternative `Type`/`Address`
 references. Admission rechecks a matching live subscription under the agent gate.

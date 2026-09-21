@@ -74,7 +74,7 @@ func integrationTargetRecordFromGetSQLC(
 		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
 		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
 		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
-		RoutingRole: row.RoutingRole, SelectionSlot: row.SelectionSlot, IsToolContext: row.IsToolContext,
+		SelectionSlot: row.SelectionSlot, IsToolContext: row.IsToolContext,
 		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, row.OrgID)
 }
@@ -85,23 +85,7 @@ func (s *Store) GetAgentAppToolContext(
 	ctx context.Context,
 	projectID, agentID, appID uuid.UUID,
 ) (IntegrationTargetRecord, bool, error) {
-	return getAgentAppToolContext(ctx, s.q, projectID, agentID, appID)
-}
-
-func (s *Store) GetAgentAppToolContextTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	projectID, agentID, appID uuid.UUID,
-) (IntegrationTargetRecord, bool, error) {
-	return getAgentAppToolContext(ctx, dbsqlc.New(tx), projectID, agentID, appID)
-}
-
-func getAgentAppToolContext(
-	ctx context.Context,
-	q *dbsqlc.Queries,
-	projectID, agentID, appID uuid.UUID,
-) (IntegrationTargetRecord, bool, error) {
-	row, err := q.GetAgentAppToolContext(ctx, dbsqlc.GetAgentAppToolContextParams{
+	row, err := s.q.GetAgentAppToolContext(ctx, dbsqlc.GetAgentAppToolContextParams{
 		ProjectID: projectID, AgentID: agentID, AppID: appID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

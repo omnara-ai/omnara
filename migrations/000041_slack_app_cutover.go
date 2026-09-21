@@ -546,7 +546,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 		return err
 	}
 	// These exact targets formerly supplied each successor's fixed tool config.
-	// Designation is migration-only; routing roles remain attribution so a new
+	// Designation is migration-only; selection slots remain NULL so a new
 	// mention can still launch through the app. Restore the guard before commit.
 	if _, err := tx.ExecContext(
 		ctx,

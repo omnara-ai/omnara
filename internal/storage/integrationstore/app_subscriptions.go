@@ -3,7 +3,6 @@ package integrationstore
 import (
 	"context"
 	"errors"
-	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -51,10 +50,6 @@ func (s *Store) CreateAppSubscription(
 	record, err := RegisterAppSubscriptionTx(ctx, tx, prepared)
 	if err != nil {
 		return AppSubscriptionRecord{}, err
-	}
-	if !slices.Equal(record.Events, prepared.Events) {
-		return AppSubscriptionRecord{}, storeerr.Tag(storeerr.ErrConflict,
-			errors.New("conversation already subscribed with different events; remove it before changing events"))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return AppSubscriptionRecord{}, err
@@ -132,7 +127,7 @@ func (s *Store) ListAppSubscriptions(
 		record := appSubscriptionRecord(dbsqlc.AppSubscription{
 			ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
 			SubscriptionType: row.SubscriptionType, ScopeKind: row.ScopeKind, ScopeRef: row.ScopeRef,
-			Events: row.Events, ToolCallID: row.ToolCallID, CreatedAt: row.CreatedAt,
+			Events: row.Events, CreatedAt: row.CreatedAt,
 		})
 		record.AgentName = row.AgentName
 		scope, err := appdefinition.ParseConversation(app.Provider, row.ScopeKind, row.ScopeRef)

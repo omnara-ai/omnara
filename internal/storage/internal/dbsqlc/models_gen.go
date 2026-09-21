@@ -132,7 +132,6 @@ type AppSubscription struct {
 	ScopeKind        string
 	ScopeRef         string
 	Events           []string
-	ToolCallID       *uuid.UUID
 	CreatedAt        time.Time
 }
 

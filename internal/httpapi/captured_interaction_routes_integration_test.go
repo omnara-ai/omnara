@@ -233,7 +233,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	origin, err := project.Store.Integrations().
 		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 			ProjectID: project.ProjectUUID, AgentID: agentUUID, AppID: app.ID,
-			Address: address, Role: integrationstore.TargetAttribution,
+			Address: address,
 		})
 	require.NoError(t, err)
 	_, err = project.Store.Execution().SelectInteractionDestinationForOriginTx(

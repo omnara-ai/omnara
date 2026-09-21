@@ -76,7 +76,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 				t,
 				ctx,
 				seed,
-				toolFixtureOptions{withSlackApp: true},
+				toolFixtureOptions{withSlackApp: true, withToolContext: true},
 				storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
 			)
 			artifactCount := tt.artifactCount
@@ -279,9 +279,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 			} else {
 				input, err := json.Marshal(map[string]any{
 					"text":         "here is the report",
-					"channel_id":   "C123",
 					"artifact_ids": artifactIDs,
-					"thread_ts":    "111.222",
 				})
 				require.NoError(t, err)
 				call := fixture.recordToolCall(

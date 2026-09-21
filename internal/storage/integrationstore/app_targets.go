@@ -14,14 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type TargetRoutingRole string
-
-const (
-	TargetAttribution TargetRoutingRole = "attribution"
-	TargetSelected    TargetRoutingRole = "selected"
-	TargetFollowed    TargetRoutingRole = "followed"
-)
-
 type ConversationAddress struct {
 	Kind string `json:"kind"`
 	Ref  string `json:"ref"`
@@ -46,13 +38,12 @@ type EnsureConversationTargetInput struct {
 	ProjectID, AgentID, AppID uuid.UUID
 	Address                   ConversationAddress
 	DisplayName               string
-	Role                      TargetRoutingRole
 	SelectionSlot             string
 	IsToolContext             bool
 }
 
 // LockConversationTx must precede agent locks, after the project and all
-// app gates. Planning and confirmed follows use this same lock.
+// app gates. Planning and subscription changes use this same lock.
 func LockConversationTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -87,14 +78,6 @@ func (s *Store) EnsureConversationTargetTx(
 	if err := input.Address.Validate(); err != nil {
 		return IntegrationTargetRecord{}, err
 	}
-	if input.Role != TargetAttribution && input.Role != TargetSelected && input.Role != TargetFollowed {
-		return IntegrationTargetRecord{}, storeerr.InvalidRequest(errors.New("invalid target routing role"))
-	}
-	if (input.Role == TargetSelected) != (input.SelectionSlot != "") {
-		return IntegrationTargetRecord{}, storeerr.InvalidRequest(
-			errors.New("only a selected target requires a slot"),
-		)
-	}
 	q := dbsqlc.New(tx)
 	app, err := getProjectApp(ctx, q, input.ProjectID, input.AppID)
 	if err != nil {
@@ -117,7 +100,7 @@ func (s *Store) EnsureConversationTargetTx(
 		return IntegrationTargetRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	var existing dbsqlc.GetAgentConversationTargetRow
-	if input.Role == TargetSelected {
+	if input.SelectionSlot != "" {
 		row, findErr := q.GetAppSelectionTarget(ctx, dbsqlc.GetAppSelectionTargetParams{
 			ProjectID: input.ProjectID,
 			AppID:     input.AppID,
@@ -137,25 +120,12 @@ func (s *Store) EnsureConversationTargetTx(
 			(input.IsToolContext && !existing.IsToolContext) {
 			return IntegrationTargetRecord{}, storeerr.ErrConflict
 		}
-		if input.Role == TargetFollowed && existing.RoutingRole == string(TargetAttribution) {
-			if err := q.MarkConversationTargetFollowed(
-				ctx,
-				dbsqlc.MarkConversationTargetFollowedParams{
-					ProjectID: input.ProjectID,
-					AgentID:   input.AgentID,
-					ID:        existing.ID,
-				},
-			); err != nil {
-				return IntegrationTargetRecord{}, err
-			}
-			existing.RoutingRole = string(TargetFollowed)
-		}
 		return appTargetRecord(existing, app.OrgID), nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationTargetRecord{}, err
 	}
-	if input.Role == TargetSelected {
+	if input.SelectionSlot != "" {
 		// Profile launches create a fresh agent for each selected slot.
 		// Existing-agent launch slots are ordinary triggers and use an
 		// attribution target, never a second selection on the same agent.
@@ -178,7 +148,6 @@ func (s *Store) EnsureConversationTargetTx(
 		Ref:           input.Address.Ref,
 		DisplayName:   strings.TrimSpace(input.DisplayName),
 		IsToolContext: input.IsToolContext,
-		RoutingRole:   string(input.Role),
 		Slot:          storeutil.TextFromEmpty(input.SelectionSlot),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -197,8 +166,8 @@ func appTargetRecord(row dbsqlc.GetAgentConversationTargetRow, orgID uuid.UUID) 
 		ID: row.ID, OrgID: orgID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
 		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
 		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
-		RoutingRole: TargetRoutingRole(row.RoutingRole), IsToolContext: row.IsToolContext,
-		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		IsToolContext: row.IsToolContext,
+		DeletedAt:     row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	if row.SelectionSlot != nil {
 		record.SelectionSlot = *row.SelectionSlot

@@ -559,7 +559,7 @@ func attachKernelSlackHandler(
 	target, err := fixture.Store.Integrations().
 		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 			ProjectID: kernelTestProjectID, AgentID: agentID, AppID: install.ID,
-			Address: address, Role: integrationstore.TargetAttribution,
+			Address: address,
 		})
 	require.NoError(t, err)
 	selection, err := fixture.Store.Execution().SelectInteractionDestinationForOriginTx(

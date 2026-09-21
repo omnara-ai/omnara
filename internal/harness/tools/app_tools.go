@@ -35,15 +35,15 @@ func runAppTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	if err != nil {
 		return appToolFailure(err)
 	}
-	switch access.App.Provider {
-	case appdefinition.ProviderSlack:
+	switch access.App.AppType {
+	case appdefinition.SlackThread:
 		return runSlackTool(ctx, call, record, access)
-	case appdefinition.ProviderDiscord:
+	case appdefinition.DiscordThread:
 		return runDiscordTool(ctx, call, record, access)
-	case appdefinition.ProviderGitHub:
+	case appdefinition.GitHubPR:
 		return runGitHubTool(ctx, call, record, access)
 	default:
-		return appToolFailure(fmt.Errorf("unsupported app provider %q", access.App.Provider))
+		return appToolFailure(fmt.Errorf("unsupported app type %q", access.App.AppType))
 	}
 }
 
@@ -75,7 +75,7 @@ func appPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	destination, err := access.Arguments.Destination.ConversationJSON()
+	destination, err := access.Conversation.ConversationJSON()
 	if err != nil {
 		return toolpermission.Request{}, err
 	}

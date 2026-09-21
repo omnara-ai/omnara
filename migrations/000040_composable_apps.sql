@@ -197,14 +197,12 @@ CREATE TRIGGER project_apps_identity_immutable BEFORE UPDATE ON project_apps
 FOR EACH ROW EXECUTE FUNCTION project_apps_reject_identity_change();
 
 -- Targets retain attribution and successful selection even after receiving is
--- disabled. They are neither a provider credential grant nor a subscription.
+-- disabled. A non-null selection slot denotes a launcher selection; NULL denotes
+-- attribution. Tool context is independent of both selection and receiving.
 ALTER TABLE integration_targets
     DROP COLUMN target_ref, -- Drops the obsolete alias index and nonempty check too.
     ADD COLUMN is_tool_context boolean NOT NULL DEFAULT false,
-    ADD COLUMN routing_role text NOT NULL DEFAULT 'attribution'
-        CHECK (routing_role IN ('attribution', 'selected', 'followed')),
     ADD COLUMN selection_slot text,
-    ADD CHECK ((routing_role = 'selected') = (selection_slot IS NOT NULL)),
     ADD CHECK (selection_slot IS NULL OR selection_slot <> '');
 
 DROP INDEX integration_targets_active_provider_ref_idx;
@@ -213,7 +211,7 @@ CREATE UNIQUE INDEX integration_targets_active_agent_address_idx
     WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX integration_targets_selection_idx
     ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref, selection_slot)
-    WHERE routing_role = 'selected';
+    WHERE selection_slot IS NOT NULL;
 -- Retirement must retain confinement and cannot free a second sending context.
 CREATE UNIQUE INDEX integration_targets_tool_context_idx
     ON integration_targets(project_id, agent_id, app_id) WHERE is_tool_context;
@@ -251,11 +249,9 @@ CREATE TABLE app_subscriptions (
     scope_kind text NOT NULL CHECK (scope_kind <> ''),
     scope_ref text NOT NULL CHECK (scope_ref <> ''),
     events text[] NOT NULL CHECK (cardinality(events) > 0),
-    tool_call_id uuid,
     created_at timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
-    FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
-    FOREIGN KEY (agent_id, tool_call_id) REFERENCES tool_calls(agent_id, id)
+    FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id)
 );
 CREATE UNIQUE INDEX app_subscriptions_conversation_idx
     ON app_subscriptions(project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref);

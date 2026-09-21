@@ -112,7 +112,7 @@ func TestGitHubAppReadSections(t *testing.T) {
 		want                                    map[string]any
 	}{
 		{"default", `{}`, "", "", "", map[string]any{"number": float64(7), "title": "Review this change"}},
-		{"pull_request", `{"repository_id":123,"pull_request":7,"section":"pull_request"}`, "", "", "",
+		{"pull_request", `{"section":"pull_request"}`, "", "", "",
 			map[string]any{"body": "PR context"}},
 		{
 			"discussion_comments", `{"section":"discussion_comments","page":2,"limit":1}`,
@@ -183,7 +183,7 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 	for _, tt := range []struct {
 		operation, input, path, payload string
 	}{
-		{"discussion_comment", `{"repository_id":123,"pull_request":7,"body":"Review ready"}`,
+		{"discussion_comment", `{"body":"Review ready"}`,
 			"/repos/octo/renamed/issues/7/comments", `{"body":"Review ready"}`},
 		{
 			"inline_comment",

@@ -123,7 +123,7 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 		}
 	}
 	_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, discussion.Lease(), "recipient")
-	require.ErrorIs(t, err, storeerr.ErrUnauthorized, "the old event must stop reaching the followed PR")
+	require.ErrorIs(t, err, storeerr.ErrUnauthorized, "the old event must stop reaching the subscribed PR")
 	accepted, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, review.Lease(), "recipient")
 	require.NoError(t, err)
 	require.True(t, accepted.Created)

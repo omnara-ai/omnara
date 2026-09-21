@@ -26,7 +26,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
 
 -- name: GetIntegrationTarget :one
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = sqlc.arg(project_id)
@@ -37,7 +37,7 @@ WHERE target.project_id = sqlc.arg(project_id)
 -- the caller; never treat retirement or disconnection as unrestricted sending.
 -- name: GetAgentAppToolContext :one
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.routing_role, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
+  target.provider_ref_kind, target.display_name, target.provider_metadata, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = sqlc.arg(project_id)

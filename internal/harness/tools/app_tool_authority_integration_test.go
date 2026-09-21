@@ -26,7 +26,7 @@ import (
 func TestAppToolApprovalShowsResolvedDestination(t *testing.T) {
 	for _, tt := range []struct{ provider, operation, input, destination string }{
 		{"slack", "post_message", `{"text":"Review ready"}`, `{"channel_id":"C123","thread_ts":"111.222"}`},
-		{"discord", "post_message", `{"content":"Review ready"}`, `{"channel_id":"444"}`},
+		{"discord", "post_message", `{"content":"Review ready"}`, `{"channel_id":"444","thread_id":"555"}`},
 		{"github", "discussion_comment", `{"body":"Review ready"}`, `{"repository_id":123,"pull_request":7}`},
 	} {
 		t.Run(tt.provider, func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestAppToolApprovalShowsResolvedDestination(t *testing.T) {
 			var destination map[string]any
 			require.NoError(t, json.Unmarshal([]byte(tt.destination), &destination))
 			for field := range destination {
-				require.Contains(t, schema.Properties, field, "model schemas retain every destination field")
+				require.NotContains(t, schema.Properties, field, "destinations are assigned by the app")
 			}
 			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -77,19 +77,20 @@ func TestAppToolApprovalShowsResolvedDestination(t *testing.T) {
 func TestAppToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) {
 	for _, test := range []struct {
 		name, provider, operation, args, message string
-		context                                  bool
+		context, malformed                       bool
 	}{
-		{"slack-mismatch", "slack", "post_message",
-			`{"channel_id":"C999","text":"hello"}`, "does not match tool context", true},
-		{"discord-mismatch", "discord", "post_message",
-			`{"channel_id":"999","content":"hello"}`, "does not match tool context", true},
-		{"github-mismatch", "github", "discussion_comment",
-			`{"pull_request":8,"body":"hello"}`, "does not match tool context", true},
-		{"slack-missing", "slack", "post_message", `{"text":"hello"}`, "channel_id", false},
-		{"discord-missing", "discord", "post_message", `{"content":"hello"}`, "channel_id", false},
-		{"github-missing", "github", "discussion_comment", `{"body":"hello"}`, "repository_id", false},
-		{"disconnected", "slack", "post_message", `{"text":"hello"}`, "app is unavailable", true},
-		{"removed-tool", "slack", "post_message", `{"text":"hello"}`, "unavailable in the original or current config", true},
+		{"slack-destination", "slack", "post_message",
+			`{"channel_id":"C999","text":"hello"}`, "additional properties", true, true},
+		{"discord-destination", "discord", "post_message",
+			`{"channel_id":"999","content":"hello"}`, "additional properties", true, true},
+		{"github-destination", "github", "discussion_comment",
+			`{"pull_request":8,"body":"hello"}`, "additional properties", true, true},
+		{"slack-missing", "slack", "post_message", `{"text":"hello"}`, "no assigned conversation", false, false},
+		{"discord-missing", "discord", "post_message", `{"content":"hello"}`, "no assigned conversation", false, false},
+		{"github-missing", "github", "discussion_comment", `{"body":"hello"}`, "no assigned conversation", false, false},
+		{"disconnected", "slack", "post_message", `{"text":"hello"}`, "app is unavailable", true, false},
+		{"removed-tool", "slack", "post_message",
+			`{"text":"hello"}`, "unavailable in the original or current config", true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -128,8 +129,13 @@ func TestAppToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) {
 			require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
 			body := toolResultMapFromTestParts(t, record.ResultContentParts)
-			require.Equal(t, "app_tool_failed", body["code"])
-			require.Contains(t, body["message"], test.message)
+			if test.malformed {
+				require.Equal(t, "malformed", body["error_code"])
+				require.Contains(t, body["error"], test.message)
+			} else {
+				require.Equal(t, "app_tool_failed", body["code"])
+				require.Contains(t, body["message"], test.message)
+			}
 			require.NoError(t, executor.PrepareToolCallPermission(ctx, f.turn(), call), "terminal failure replay must finish")
 			_, found, err := f.Store.Execution().GetAgentInteractionByToolCallKind(ctx, toolsTestProjectID,
 				f.Agent.ID, id, executionstore.AgentInteractionKindPermission)
@@ -199,7 +205,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						ctx,
 						"post",
 						toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-						`{"text":"hello","thread_ts":"111.222","follow_replies":true}`,
+						`{"text":"hello"}`,
 						f.Now,
 					)
 					var subscription integrationstore.AppSubscriptionRecord
@@ -318,8 +324,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						listed.Install, err = f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "chat")
 						require.NoError(t, err)
 					}
-					follows := len(appToolSubscriptions(t, listed))
-					require.Equal(t, wantPosts, follows)
+					require.Empty(t, appToolSubscriptions(t, listed), "approval and sending must not create subscriptions")
 				},
 			)
 		}
@@ -372,7 +377,7 @@ func appToolConfigChangeInput(
 }
 
 func TestAsyncFailurePreservesProviderEvidenceOnTimeout(t *testing.T) {
-	for _, code := range []string{"delivery_unknown", "follow_registration_failed", ""} {
+	for _, code := range []string{"delivery_unknown", ""} {
 		t.Run(code, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixture(t, ctx, "provider-timeout")
@@ -406,39 +411,25 @@ func TestAsyncFailurePreservesProviderEvidenceOnTimeout(t *testing.T) {
 	}
 }
 
-func TestAppToolContextDestinationsBeforeProviderIO(t *testing.T) {
+func TestAppToolsUseSavedConversation(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
-		for _, destination := range []string{"omitted", "matching", "mismatching", "retired-mismatching"} {
-			t.Run(provider+"/"+destination, func(t *testing.T) {
+		for _, state := range []string{"active", "retired"} {
+			t.Run(provider+"/"+state, func(t *testing.T) {
 				ctx := t.Context()
-				f := newIntegrationToolFixtureWithOptions(t, ctx, "context-args", toolFixtureOptions{
+				f := newIntegrationToolFixtureWithOptions(t, ctx, "saved-context", toolFixtureOptions{
 					withSlackApp: provider == "slack", withDiscordApp: provider == "discord", withToolContext: true,
 				})
-				textKey, channel := "text", "C123"
+				input := `{"text":"hello"}`
 				if provider == "discord" {
-					textKey, channel = "content", "444"
+					input = `{"content":"hello"}`
 				}
-				args := map[string]any{textKey: "hello"}
-				allowed := destination == "omitted" || destination == "matching"
-				if destination != "omitted" {
-					if !allowed {
-						channel = "C999"
-						if provider == "discord" {
-							channel = "999"
-						}
-					}
-					args["channel_id"] = channel
-				}
-				if destination == "retired-mismatching" {
+				if state == "retired" {
 					_, err := f.Pool.Exec(ctx, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, f.Target.ID)
 					require.NoError(t, err)
 				}
-				input, err := json.Marshal(args)
-				require.NoError(t, err)
-				call := f.recordToolCall(t, ctx, "send", toolcatalog.AppToolName("chat", "post_message"), string(input), f.Now)
-				var requests, posts atomic.Int32
+				call := f.recordToolCall(t, ctx, "send", toolcatalog.AppToolName("chat", "post_message"), input, f.Now)
+				var posts atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					requests.Add(1)
 					if serveSlackToolIdentity(w, r) {
 						return
 					}
@@ -454,16 +445,18 @@ func TestAppToolContextDestinationsBeforeProviderIO(t *testing.T) {
 						writeToolTestJSON(w, map[string]any{"id": "222", "bot": true})
 					case "/v10/applications/@me":
 						writeToolTestJSON(w, map[string]any{"id": "111"})
-					case "/v10/channels/444":
-						writeToolTestJSON(w, map[string]any{"id": "444", "guild_id": "333", "type": 0})
-					case "/v10/channels/444/messages":
+					case "/v10/channels/555":
+						writeToolTestJSON(w, map[string]any{"id": "555", "parent_id": "444", "guild_id": "333", "type": 11})
+					case "/v10/channels/555/messages":
 						posts.Add(1)
 						var body struct {
-							Nonce string `json:"nonce"`
+							Nonce   string `json:"nonce"`
+							Content string `json:"content"`
 						}
 						assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+						assert.Equal(t, "hello", body.Content)
 						writeToolTestJSON(w, map[string]any{
-							"id": "666", "channel_id": "444", "nonce": body.Nonce,
+							"id": "666", "channel_id": "555", "nonce": body.Nonce,
 							"author": map[string]any{"id": "222", "bot": true},
 						})
 					default:
@@ -472,72 +465,84 @@ func TestAppToolContextDestinationsBeforeProviderIO(t *testing.T) {
 					}
 				}))
 				defer server.Close()
-				_, err = dispatchAsyncToolToTerminal(t, ctx,
+				_, err := dispatchAsyncToolToTerminal(t, ctx,
 					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 				require.NoError(t, err)
 				record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 				require.NoError(t, err)
-				if allowed {
-					require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome, string(record.ResultContentParts))
-					require.EqualValues(t, 1, posts.Load())
-				} else {
-					require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-					require.Contains(t, string(record.ResultContentParts), "does not match tool context")
-					require.Zero(t, requests.Load(), "mismatch fails before any provider I/O, including identity checks")
-				}
+				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome, string(record.ResultContentParts))
+				require.EqualValues(t, 1, posts.Load())
 			})
 		}
 	}
 }
 
-// A failed publication must not turn explicit follow_replies into an active subscription.
-func TestAppFollowFailedPostCreatesNoSubscription(t *testing.T) {
-	for _, provider := range []string{"slack", "discord"} {
-		t.Run(provider, func(t *testing.T) {
+func TestAppToolMissingContextBeforeProviderIO(t *testing.T) {
+	for _, test := range []struct{ provider, operation, input string }{
+		{"slack", "read", `{}`},
+		{"slack", "post_message", `{"text":"hello"}`},
+		{"discord", "read", `{}`},
+		{"discord", "post_message", `{"content":"hello"}`},
+		{"github", "read", `{}`},
+		{"github", "discussion_comment", `{"body":"Review"}`},
+		{"github", "inline_comment", `{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`},
+		{"github", "reply", `{"comment_id":31,"body":"Resolved"}`},
+	} {
+		t.Run(test.provider+"/"+test.operation, func(t *testing.T) {
 			ctx := t.Context()
-			f := newIntegrationToolFixtureWithOptions(t, ctx, "failed-follow", toolFixtureOptions{
-				withSlackApp: provider == "slack", withDiscordApp: provider == "discord",
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "missing-context", toolFixtureOptions{
+				withSlackApp: test.provider == "slack", withDiscordApp: test.provider == "discord",
+				withGitHubApp: test.provider == "github",
 			})
-			input := `{"channel_id":"C123","text":"hello","follow_replies":true}`
-			if provider == "discord" {
-				input = `{"channel_id":"444","content":"hello","thread_id":"555","follow_replies":true}`
-			}
-			call := f.recordToolCall(
-				t, ctx, "follow", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage), input, f.Now,
-			)
-			posts := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if serveSlackToolIdentity(w, r) {
-					return
-				}
-				switch r.URL.Path {
-				case "/v10/users/@me":
-					writeToolTestJSON(w, map[string]any{"id": "222", "bot": true})
-				case "/v10/applications/@me":
-					writeToolTestJSON(w, map[string]any{"id": "111"})
-				case "/v10/channels/555":
-					writeToolTestJSON(w, map[string]any{"id": "555", "parent_id": "444", "guild_id": "333", "type": 11})
-				case "/chat.postMessage":
-					posts++
-					writeToolTestJSON(w, map[string]any{"ok": false, "error": "missing_scope"})
-				case "/v10/channels/555/messages":
-					posts++
-					w.WriteHeader(http.StatusForbidden)
-					writeToolTestJSON(w, map[string]any{"code": 50013, "message": "Missing permissions"})
-				default:
-					t.Errorf("unexpected provider request %s", r.URL.Path)
-					w.WriteHeader(http.StatusBadRequest)
-				}
+			require.False(t, f.Target.IsToolContext, "ordinary input attribution does not authorize tools")
+			call := f.recordToolCall(t, ctx, "missing", toolcatalog.AppToolName("chat", test.operation), test.input, f.Now)
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.WriteHeader(http.StatusForbidden)
 			}))
 			defer server.Close()
 			_, err := dispatchAsyncToolToTerminal(t, ctx,
 				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 			require.NoError(t, err)
-			require.Equal(t, 1, posts)
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-			require.Empty(t, appToolSubscriptions(t, f))
+			body := toolResultMapFromTestParts(t, record.ResultContentParts)
+			require.Equal(t, "app_tool_failed", body["code"])
+			require.Contains(t, body["message"], `app "chat" has no assigned conversation`)
+			require.Zero(t, requests.Load(), "missing context fails before provider I/O, including identity checks")
+		})
+	}
+}
+
+func TestAppToolRejectsDestinationArgumentsBeforeProviderIO(t *testing.T) {
+	for _, test := range []struct{ provider, input string }{
+		{"slack", `{"channel_id":"C999"}`},
+		{"discord", `{"thread_id":"999"}`},
+		{"github", `{"pull_request":8}`},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "invalid-destination", toolFixtureOptions{
+				withSlackApp: test.provider == "slack", withDiscordApp: test.provider == "discord",
+				withGitHubApp: test.provider == "github", withToolContext: true,
+			})
+			call := f.recordToolCall(t, ctx, "invalid", toolcatalog.AppToolName("chat", "read"), test.input, f.Now)
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.WriteHeader(http.StatusForbidden)
+			}))
+			defer server.Close()
+			_, err := dispatchAsyncToolToTerminal(t, ctx,
+				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+			require.NoError(t, err)
+			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+			require.Contains(t, string(record.ResultContentParts), "additional properties")
+			require.Zero(t, requests.Load(), "schema validation must precede any provider I/O")
 		})
 	}
 }

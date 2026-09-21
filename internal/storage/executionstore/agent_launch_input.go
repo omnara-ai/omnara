@@ -125,10 +125,9 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	if origin := initial.Origin; origin != nil {
 		targetInput := integrationstore.EnsureConversationTargetInput{
 			ProjectID: agent.ProjectID, AgentID: agent.ID, AppID: origin.AppID,
-			Address: origin.Address, DisplayName: origin.DisplayName, Role: integrationstore.TargetAttribution,
+			Address: origin.Address, DisplayName: origin.DisplayName,
 		}
 		if admission != nil {
-			targetInput.Role = integrationstore.TargetSelected
 			targetInput.IsToolContext = true
 			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
 		}

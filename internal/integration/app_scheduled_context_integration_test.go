@@ -84,7 +84,7 @@ tools:
 			expected, err := json.Marshal(f.provider.root)
 			require.NoError(t, err)
 			require.Contains(t, blocks[1].Text, `"app":"chat"`)
-			require.Contains(t, blocks[1].Text, `"reply_address":`+string(expected))
+			require.Contains(t, blocks[1].Text, `"source_conversation":`+string(expected))
 		})
 	}
 }

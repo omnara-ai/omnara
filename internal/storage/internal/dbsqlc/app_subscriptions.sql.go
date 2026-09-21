@@ -88,7 +88,7 @@ func (q *Queries) DeleteProjectSubscriptions(ctx context.Context, arg DeleteProj
 }
 
 const getAppSubscription = `-- name: GetAppSubscription :one
-SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id, created_at
+SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, created_at
 FROM app_subscriptions
 WHERE project_id = $1 AND app_id = $2 AND id = $3
 `
@@ -111,14 +111,13 @@ func (q *Queries) GetAppSubscription(ctx context.Context, arg GetAppSubscription
 		&i.ScopeKind,
 		&i.ScopeRef,
 		&i.Events,
-		&i.ToolCallID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getAppSubscriptionForConversation = `-- name: GetAppSubscriptionForConversation :one
-SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id, created_at
+SELECT id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, created_at
 FROM app_subscriptions
 WHERE project_id = $1 AND agent_id = $2 AND app_id = $3
   AND subscription_type = $4 AND scope_kind = $5 AND scope_ref = $6
@@ -152,7 +151,6 @@ func (q *Queries) GetAppSubscriptionForConversation(ctx context.Context, arg Get
 		&i.ScopeKind,
 		&i.ScopeRef,
 		&i.Events,
-		&i.ToolCallID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -200,10 +198,10 @@ func (q *Queries) HasAppSubscription(ctx context.Context, arg HasAppSubscription
 }
 
 const insertAppSubscription = `-- name: InsertAppSubscription :one
-INSERT INTO app_subscriptions(project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id)
+INSERT INTO app_subscriptions(project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events)
 VALUES ($1, $2, $3, $4,
-        $5, $6, $7::text[], $8)
-RETURNING id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, tool_call_id, created_at
+        $5, $6, $7::text[])
+RETURNING id, project_id, agent_id, app_id, subscription_type, scope_kind, scope_ref, events, created_at
 `
 
 type InsertAppSubscriptionParams struct {
@@ -214,7 +212,6 @@ type InsertAppSubscriptionParams struct {
 	ScopeKind        string
 	ScopeRef         string
 	Events           []string
-	ToolCallID       *uuid.UUID
 }
 
 func (q *Queries) InsertAppSubscription(ctx context.Context, arg InsertAppSubscriptionParams) (AppSubscription, error) {
@@ -226,7 +223,6 @@ func (q *Queries) InsertAppSubscription(ctx context.Context, arg InsertAppSubscr
 		arg.ScopeKind,
 		arg.ScopeRef,
 		arg.Events,
-		arg.ToolCallID,
 	)
 	var i AppSubscription
 	err := row.Scan(
@@ -238,7 +234,6 @@ func (q *Queries) InsertAppSubscription(ctx context.Context, arg InsertAppSubscr
 		&i.ScopeKind,
 		&i.ScopeRef,
 		&i.Events,
-		&i.ToolCallID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -247,7 +242,7 @@ func (q *Queries) InsertAppSubscription(ctx context.Context, arg InsertAppSubscr
 const listAppSubscriptions = `-- name: ListAppSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.app_id,
        subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,
-       subscription.tool_call_id, subscription.created_at, agent.name AS agent_name
+       subscription.created_at, agent.name AS agent_name
 FROM app_subscriptions subscription
 JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
 WHERE subscription.project_id = $1 AND subscription.app_id = $2
@@ -275,7 +270,6 @@ type ListAppSubscriptionsRow struct {
 	ScopeKind        string
 	ScopeRef         string
 	Events           []string
-	ToolCallID       *uuid.UUID
 	CreatedAt        time.Time
 	AgentName        string
 }
@@ -305,7 +299,6 @@ func (q *Queries) ListAppSubscriptions(ctx context.Context, arg ListAppSubscript
 			&i.ScopeKind,
 			&i.ScopeRef,
 			&i.Events,
-			&i.ToolCallID,
 			&i.CreatedAt,
 			&i.AgentName,
 		); err != nil {
@@ -322,7 +315,7 @@ func (q *Queries) ListAppSubscriptions(ctx context.Context, arg ListAppSubscript
 const listMatchingAppSubscriptions = `-- name: ListMatchingAppSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.app_id,
        subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,
-       subscription.tool_call_id, subscription.created_at
+       subscription.created_at
 FROM jsonb_to_recordset($1::jsonb) AS scope(kind text, ref text)
 JOIN app_subscriptions subscription ON subscription.scope_kind = scope.kind AND subscription.scope_ref = scope.ref
 JOIN project_apps app ON app.project_id = subscription.project_id AND app.id = subscription.app_id
@@ -364,7 +357,6 @@ func (q *Queries) ListMatchingAppSubscriptions(ctx context.Context, arg ListMatc
 			&i.ScopeKind,
 			&i.ScopeRef,
 			&i.Events,
-			&i.ToolCallID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

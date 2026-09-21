@@ -3814,7 +3814,7 @@ func assertAgentInputText(
 		require.True(t, hidden[last])
 		var captured struct {
 			App     string              `json:"app"`
-			Address appdefinition.Scope `json:"reply_address"`
+			Address appdefinition.Scope `json:"source_conversation"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(raw), &captured))
 		var appName, kind, ref string

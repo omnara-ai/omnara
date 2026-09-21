@@ -355,7 +355,7 @@ tools:
                  -'integration_target_id'-'updated_at'
                  -'interaction_handler_key'-'interaction_handler_args' ORDER BY a.id) FROM agents a),
 				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'app_id'
-                  -'routing_role'-'selection_slot'-'is_tool_context'-'target_ref')
+                  -'selection_slot'-'is_tool_context'-'target_ref')
                   || jsonb_build_object('app_id',coalesce(to_jsonb(t)->'app_id',to_jsonb(t)->'integration_install_id'))
                   ORDER BY t.id) FROM integration_targets t),
 				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
@@ -665,13 +665,13 @@ tools:
 			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 			require.JSONEq(t, before, history())
 			var retiredContext bool
-			var retiredRole string
+			var retiredSlot sql.NullString
 			var retiredMetadata []byte
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT is_tool_context,routing_role,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
-				Scan(&retiredContext, &retiredRole, &retiredMetadata))
+				`SELECT is_tool_context,selection_slot,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
+				Scan(&retiredContext, &retiredSlot, &retiredMetadata))
 			require.False(t, retiredContext, "a target excluded from the old fixed config must not become context")
-			require.Equal(t, "attribution", retiredRole)
+			require.False(t, retiredSlot.Valid)
 			require.JSONEq(t, `{"legacy":"retained"}`, string(retiredMetadata))
 			execution := executionstore.New(pool, executionstore.Config{})
 			for i, agentID := range agents {
@@ -711,7 +711,6 @@ tools:
 				require.NoError(t, err)
 				require.True(t, found)
 				require.True(t, context.IsToolContext)
-				require.Equal(t, integrationstore.TargetAttribution, context.RoutingRole)
 				require.Empty(t, context.SelectionSlot, "legacy contexts must not suppress new mention launches")
 				if scenario != "channel" && scenario != "dm" {
 					require.Equal(t, "thread", context.ProviderRefKind)
@@ -733,7 +732,7 @@ tools:
 					require.True(t, found)
 					require.Equal(t, "dm", second.ProviderRefKind)
 					require.Equal(t, fmt.Sprintf("D%d", i+1), second.ProviderRef)
-					require.Equal(t, integrationstore.TargetAttribution, second.RoutingRole)
+					require.Empty(t, second.SelectionSlot)
 				}
 				require.Len(t, contract.AppTools, wantApps)
 				require.Contains(t, raw.Tools, "set_interaction_handler")

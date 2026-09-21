@@ -39,16 +39,14 @@ func TestAppCatalogStaticArgumentSchemas(t *testing.T) {
 				require.NotEmpty(t, tool.Description)
 				properties, ok := tool.InputSchema["properties"].(map[string]any)
 				require.True(t, ok)
-				required, _ := tool.InputSchema["required"].([]any)
 				for _, field := range destinationFields {
-					require.Contains(t, properties, field, operation)
-					require.NotContains(t, required, field, "tool destinations use runtime context when omitted")
+					require.NotContains(t, properties, field, operation)
 				}
 			}
 			read, err := json.Marshal(definition.Capabilities.Tools["read"].InputSchema)
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(read, json.RawMessage(`{}`)))
-			require.NoError(t, jsonschema.Validate(read, destination))
+			require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
 			require.NotEmpty(t, definition.Capabilities.Subscriptions)
 			for _, subscription := range definition.Capabilities.Subscriptions {
 				schema, err := json.Marshal(subscription.ConversationSchema)

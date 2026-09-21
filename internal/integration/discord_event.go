@@ -74,7 +74,7 @@ type DiscordEventFile struct {
 // current REST channel metadata. Guild identity must be present in the dispatch
 // and agree with the lookup; it is never inferred from saved app application ID.
 // Root messages require a native bot mention. Replies identify exactly one
-// thread; the router must require a selected/followed thread for ordinary replies.
+// thread; the router must require an exact thread subscription for ordinary replies.
 func NormalizeDiscordAppEvent(
 	appSetup integrationstore.ProjectAppRecord, raw []byte, channel discord.Channel,
 ) (AppEvent, bool, error) {

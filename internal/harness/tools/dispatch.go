@@ -467,9 +467,6 @@ func (e Executor) executeAsyncTool(
 	defer cancelCompletion()
 	switch result := result.(type) {
 	case completeAsync:
-		if result.follow != nil {
-			return e.completeAsyncAppPost(completionCtx, call, result.content, *result.follow)
-		}
 		if err := e.completeAsyncToolResult(
 			completionCtx,
 			call.Turn,
@@ -626,7 +623,6 @@ type asyncPhaseResult interface {
 
 type completeAsync struct {
 	content toolResultContent
-	follow  *executionstore.ConfirmedAppFollow
 }
 
 type failAsync struct {
