@@ -313,8 +313,8 @@ export function ConnectSlackForm({
                           >
                             Slack app settings
                           </a>
-                          , click Generate Token under Your App Configuration Tokens, and select a
-                          workspace. Copy only the Access Token and paste it here.
+                          , click Generate Token, and select a workspace. Copy only the Access Token
+                          and paste it here.
                         </FieldDescription>
                       </Field>
                     )}
