@@ -29,7 +29,7 @@ func TestSubagentConfigReadOnly(t *testing.T) {
 	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:         project.ProjectUUID,
 		ConfiguredModelID: base.ConfiguredModelID, CompiledDefinition: base.CompiledDefinition,
-		CompilerVersion: base.CompilerVersion, EffectiveDefinitionHash: base.EffectiveDefinitionHash,
+		EffectiveDefinitionHash: base.EffectiveDefinitionHash,
 	})
 	require.NoError(t, err)
 	for index, config := range []executionstore.AgentConfigRecord{base, derived} {

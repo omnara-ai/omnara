@@ -462,7 +462,6 @@ model:
 		OrgID:                   testIDN(500),
 		ConfiguredModelID:       testIDN(600),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 }

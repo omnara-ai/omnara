@@ -8927,7 +8927,266 @@ components:
           type: array
           items:
             type: string
-    AgentConfig:
+    CompiledAgentConfig:
+      type: object
+      additionalProperties: false
+      description: Read-only saved compiled configuration, including default tools and derived subagent overrides.
+      required: [instruction, model]
+      properties:
+        version:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        instruction:
+          type: string
+        model:
+          $ref: '#/components/schemas/CompiledAgentModel'
+        machine_sources:
+          type: array
+          x-go-type-skip-optional-pointer: true
+          items:
+            $ref: '#/components/schemas/CompiledMachineSource'
+        tools:
+          type: object
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            $ref: '#/components/schemas/CompiledTool'
+        mcp:
+          type: object
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            $ref: '#/components/schemas/CompiledMCPServer'
+        skills:
+          type: array
+          x-go-type-skip-optional-pointer: true
+          items:
+            $ref: '#/components/schemas/CompiledSkill'
+        subagents:
+          type: object
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            $ref: '#/components/schemas/CompiledSubagent'
+        max_subagents:
+          type: integer
+        max_depth:
+          type: integer
+    CompiledAgentModel:
+      type: object
+      additionalProperties: false
+      required: [configured_model_id]
+      properties:
+        configured_model_id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
+        context_window_tokens:
+          type: integer
+        default_max_output_tokens:
+          type: integer
+        cache_retention:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        reasoning:
+          $ref: '#/components/schemas/CompiledModelReasoning'
+    CompiledModelReasoning:
+      type: object
+      additionalProperties: false
+      required: [effort]
+      properties:
+        effort:
+          type: string
+    CompiledMachineSource:
+      type: object
+      additionalProperties: false
+      properties:
+        machine_id:
+          $ref: '#/components/schemas/MachineID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
+        machine_pool_id:
+          $ref: '#/components/schemas/MachinePoolID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
+        max_machines:
+          type: integer
+          x-go-type-skip-optional-pointer: true
+        initial_num_machines:
+          type: integer
+          x-go-type-skip-optional-pointer: true
+        delete_after_idle_minutes:
+          type: integer
+        cwd:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        machine_cpu:
+          type: integer
+        machine_memory_mb:
+          type: integer
+        env_overlay:
+          type: object
+          x-go-type: map[string]*string
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            type: [string, "null"]
+        secret_env_overlay:
+          type: object
+          x-go-type: map[string]*publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            oneOf:
+              - $ref: '#/components/schemas/SecretID'
+              - type: "null"
+        machine_provider_options_overlay:
+          type: object
+          x-go-type: map[string]json.RawMessage
+          x-go-type-skip-optional-pointer: true
+          additionalProperties: true
+        description:
+          type: string
+          x-go-type-skip-optional-pointer: true
+    CompiledTool:
+      type: object
+      additionalProperties: false
+      required: [enabled, permission]
+      properties:
+        enabled:
+          type: boolean
+        type:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        permission:
+          $ref: '#/components/schemas/ToolPermissionSelection'
+          x-go-type: toolpermission.Selection
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/toolpermission
+        deferred:
+          type: boolean
+          x-go-type-skip-optional-pointer: true
+        description:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        input_schema:
+          type: object
+          additionalProperties: true
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+    CompiledMCPServer:
+      type: object
+      additionalProperties: false
+      required: [url, default_enabled, permission]
+      properties:
+        url:
+          type: string
+        auth:
+          $ref: '#/components/schemas/CompiledMCPAuth'
+        default_enabled:
+          type: boolean
+        permission:
+          $ref: '#/components/schemas/ToolPermissionSelection'
+          x-go-type: toolpermission.Selection
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/toolpermission
+        deferred:
+          type: boolean
+          x-go-type-skip-optional-pointer: true
+        tools:
+          type: object
+          x-go-type-skip-optional-pointer: true
+          additionalProperties:
+            $ref: '#/components/schemas/CompiledMCPTool'
+    CompiledMCPAuth:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id]
+      properties:
+        type:
+          type: string
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+        service:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        region:
+          type: string
+          x-go-type-skip-optional-pointer: true
+    CompiledMCPTool:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        permission:
+          $ref: '#/components/schemas/ToolPermissionSelection'
+          x-go-type: toolpermission.Selection
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/toolpermission
+        deferred:
+          type: boolean
+    CompiledSkill:
+      type: object
+      additionalProperties: false
+      required: [public_id]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/SkillID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledSubagent:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+        profile_id:
+          $ref: '#/components/schemas/AgentProfileID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+          x-go-type-skip-optional-pointer: true
+        description:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        model:
+          $ref: '#/components/schemas/CompiledSubagentModel'
+        instruction_append:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        max_instances:
+          type: integer
+        archive_after_idle_minutes:
+          type: integer
+    CompiledSubagentModel:
+      type: object
+      additionalProperties: false
+      properties:
+        provider_config:
+          $ref: '#/components/schemas/ResourceName'
+          x-go-type-skip-optional-pointer: true
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          x-go-type-skip-optional-pointer: true
+        context_window_tokens:
+          type: integer
+        default_max_output_tokens:
+          type: integer
+        cache_retention:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        reasoning:
+          $ref: '#/components/schemas/CompiledModelReasoning'
+    AgentConfigSummary:
       type: object
       additionalProperties: false
       required: [id, org_id, project_id, effective_definition_hash, model, created_at]
@@ -8943,14 +9202,6 @@ components:
         source_format:
           type: string
           enum: [yaml, json]
-        compiled_definition:
-          type: object
-          additionalProperties: true
-          description: Read-only saved compiled configuration, including default tools and derived subagent overrides.
-          x-go-type: json.RawMessage
-          x-go-type-skip-optional-pointer: true
-        compiler_version:
-          type: string
         effective_definition_hash:
           type: string
         model:
@@ -8959,6 +9210,32 @@ components:
           type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    AgentConfig:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, project_id, effective_definition_hash, model, created_at, compiled_definition]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentConfigID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        source:
+          type: string
+        source_format:
+          type: string
+          enum: [yaml, json]
+        effective_definition_hash:
+          type: string
+        model:
+          $ref: '#/components/schemas/AgentConfigModel'
+        instruction_hash:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        compiled_definition:
+          $ref: '#/components/schemas/CompiledAgentConfig'
     CreateAgentProfileRequest:
       type: object
       additionalProperties: false
@@ -8984,6 +9261,30 @@ components:
       properties:
         name:
           $ref: '#/components/schemas/ResourceName'
+    AgentProfileSummary:
+      type: object
+      additionalProperties: false
+      required: [id, org_id, project_id, name, current_config_id, current_generation, current_config, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentProfileID'
+        org_id:
+          $ref: '#/components/schemas/OrganizationID'
+        project_id:
+          $ref: '#/components/schemas/ProjectID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        current_config_id:
+          $ref: '#/components/schemas/AgentConfigID'
+        current_generation:
+          type: integer
+          format: int32
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        current_config:
+          $ref: '#/components/schemas/AgentConfigSummary'
     AgentProfile:
       type: object
       additionalProperties: false
@@ -9002,12 +9303,12 @@ components:
         current_generation:
           type: integer
           format: int32
-        current_config:
-          $ref: '#/components/schemas/AgentConfig'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+        current_config:
+          $ref: '#/components/schemas/AgentConfig'
     ListAgentProfilesResponse:
       type: object
       additionalProperties: false
@@ -9016,7 +9317,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/AgentProfile'
+            $ref: '#/components/schemas/AgentProfileSummary'
         next_cursor:
           type: [string, "null"]
           description: Opaque cursor for the next page, or null when this is the last page.
@@ -12642,7 +12943,7 @@ components:
             Most recently updated agent profiles across the caller's readable
             projects, ordered by updated_at descending.
           items:
-            $ref: '#/components/schemas/AgentProfile'
+            $ref: '#/components/schemas/AgentProfileSummary'
     UsageTokenTotals:
       type: object
       additionalProperties: false

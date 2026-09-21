@@ -16,8 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-const CompilerVersion = "1"
-
 const (
 	defaultPoolMaxMachines        = 1
 	defaultPoolInitialNumMachines = 1
@@ -139,12 +137,11 @@ type MCPToolCompiled struct {
 // the only intended input to agent config writes, so persisted compiled
 // state always corresponds to a source that passed compilation.
 type Result struct {
-	Compiled        Compiled
-	CanonicalJSON   []byte
-	Hash            string
-	Source          string
-	SourceFormat    SourceFormat
-	CompilerVersion string
+	Compiled      Compiled
+	CanonicalJSON []byte
+	Hash          string
+	Source        string
+	SourceFormat  SourceFormat
 }
 
 type CompileOptions struct {
@@ -176,12 +173,11 @@ func Compile(format SourceFormat, raw []byte, opts CompileOptions) (Result, erro
 		return Result{}, err
 	}
 	return Result{
-		Compiled:        compiled,
-		CanonicalJSON:   encoded.CanonicalJSON,
-		Hash:            encoded.Hash,
-		Source:          string(raw),
-		SourceFormat:    format,
-		CompilerVersion: CompilerVersion,
+		Compiled:      compiled,
+		CanonicalJSON: encoded.CanonicalJSON,
+		Hash:          encoded.Hash,
+		Source:        string(raw),
+		SourceFormat:  format,
 	}, nil
 }
 

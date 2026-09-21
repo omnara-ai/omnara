@@ -32,7 +32,6 @@ type AgentConfig struct {
 	SourceFormat            *string
 	SourceHash              *string
 	CompiledDefinition      json.RawMessage
-	CompilerVersion         string
 	EffectiveDefinitionHash string
 	CreatedAt               time.Time
 }

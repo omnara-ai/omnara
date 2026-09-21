@@ -1,4 +1,4 @@
-import type { Agent, AgentProfile, VisibleProject } from '@omnara/sdk'
+import type { Agent, AgentProfileSummary, VisibleProject } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
@@ -17,7 +17,7 @@ export function CreateChat({
 }: {
   orgId: string
   project: VisibleProject
-  profile: AgentProfile
+  profile: AgentProfileSummary
   disabled?: boolean
 }) {
   const chat = useCreateChat(orgId, project, profile)
@@ -83,7 +83,7 @@ export function ChatOptions({
 }: {
   orgId: string
   project: VisibleProject
-  profile: AgentProfile
+  profile: AgentProfileSummary
   run?: ChatRun
 }) {
   const { data: webConfig } = useWebConfig()

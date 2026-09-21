@@ -1,5 +1,5 @@
 import { useCreateAgentConfig, useCreateAgentProfile } from '@omnara/react'
-import { type AgentProfile, cliLoginTokenHost, type VisibleProject } from '@omnara/sdk'
+import { type AgentProfileSummary, cliLoginTokenHost, type VisibleProject } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
@@ -258,7 +258,13 @@ function BrowserSteps({ orgId, project }: { orgId: string; project: VisibleProje
   )
 }
 
-function ProfileCreated({ project, profile }: { project: VisibleProject; profile: AgentProfile }) {
+function ProfileCreated({
+  project,
+  profile,
+}: {
+  project: VisibleProject
+  profile: AgentProfileSummary
+}) {
   return (
     <>
       <Link

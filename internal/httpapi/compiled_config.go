@@ -1,122 +1,135 @@
 package httpapi
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-func publicCompiledDefinition(raw json.RawMessage) (json.RawMessage, error) {
-	var root map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&root); err != nil {
-		return nil, err
+func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig, error) {
+	var compiled agentconfig.Compiled
+	if err := json.Unmarshal(raw, &compiled); err != nil {
+		return openapi.CompiledAgentConfig{}, err
 	}
-	model, ok := root["model"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("compiled config model must be an object")
+	modelID, err := publicCompiledID(publicid.KindConfiguredModel, compiled.Model.ConfiguredModelID)
+	if err != nil {
+		return openapi.CompiledAgentConfig{}, err
 	}
-	if err := publicCompiledID(model, "configured_model_id", publicid.KindConfiguredModel); err != nil {
-		return nil, err
+	response := openapi.CompiledAgentConfig{
+		Version: compiled.Version, Instruction: compiled.Instruction,
+		MaxDepth: compiled.MaxDepth, MaxSubagents: compiled.MaxSubagents,
+		Model: openapi.CompiledAgentModel{
+			ConfiguredModelId:      modelID,
+			ContextWindowTokens:    compiled.Model.ContextWindowTokens,
+			DefaultMaxOutputTokens: compiled.Model.DefaultMaxOutputTokens,
+			CacheRetention:         compiled.Model.CacheRetention,
+			Reasoning:              (*openapi.CompiledModelReasoning)(compiled.Model.Reasoning),
+		},
 	}
-	if err := publicCompiledObjects(root, "machine_sources", func(machine map[string]any) error {
-		for key, kind := range map[string]publicid.Kind{
-			"machine_id":      publicid.KindMachine,
-			"machine_pool_id": publicid.KindMachinePool,
-		} {
-			if err := publicCompiledID(machine, key, kind); err != nil {
-				return err
+	for _, machine := range compiled.MachineSources {
+		source := openapi.CompiledMachineSource{
+			MaxMachines: machine.MaxMachines, InitialNumMachines: machine.InitialNumMachines,
+			DeleteAfterIdleMinutes: machine.DeleteAfterIdleMinutes, Cwd: machine.Cwd,
+			MachineCpu: machine.MachineCPU, MachineMemoryMb: machine.MachineMemoryMB,
+			EnvOverlay: machine.EnvOverlay, MachineProviderOptionsOverlay: machine.MachineProviderOptionsOverlay,
+			Description: machine.Description,
+		}
+		if machine.MachineID != uuid.Nil {
+			source.MachineId, err = publicCompiledID(publicid.KindMachine, machine.MachineID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
 			}
 		}
-		if refs, ok := machine["secret_env_overlay"].(map[string]any); ok {
-			for key, value := range refs {
-				if value != nil {
-					if err := publicCompiledID(refs, key, publicid.KindSecret); err != nil {
-						return err
+		if machine.MachinePoolID != uuid.Nil {
+			source.MachinePoolId, err = publicCompiledID(publicid.KindMachinePool, machine.MachinePoolID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
+			}
+		}
+		if len(machine.SecretEnvOverlay) > 0 {
+			source.SecretEnvOverlay = make(map[string]*publicid.ID, len(machine.SecretEnvOverlay))
+			for key, id := range machine.SecretEnvOverlay {
+				source.SecretEnvOverlay[key] = nil
+				if id != nil {
+					encoded, err := publicCompiledID(publicid.KindSecret, *id)
+					if err != nil {
+						return openapi.CompiledAgentConfig{}, err
 					}
+					source.SecretEnvOverlay[key] = &encoded
 				}
 			}
 		}
-		return nil
-	}); err != nil {
-		return nil, err
+		response.MachineSources = append(response.MachineSources, source)
 	}
-	if err := publicCompiledObjects(root, "skills", func(skill map[string]any) error {
-		if err := publicCompiledID(skill, "id", publicid.KindSkill); err != nil {
-			return err
+	response.Tools = make(map[string]openapi.CompiledTool, len(compiled.Tools))
+	for name, tool := range compiled.Tools {
+		response.Tools[name] = openapi.CompiledTool{
+			Enabled: tool.Enabled, Type: tool.Type, Permission: tool.Permission,
+			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
 		}
-		skill["public_id"] = skill["id"]
-		delete(skill, "id")
-		return nil
-	}); err != nil {
-		return nil, err
 	}
-	if err := publicCompiledObjects(root, "subagents", func(subagent map[string]any) error {
-		return publicCompiledID(subagent, "profile_id", publicid.KindAgentProfile)
-	}); err != nil {
-		return nil, err
-	}
-	if err := publicCompiledObjects(root, "mcp", func(server map[string]any) error {
-		if auth, ok := server["auth"].(map[string]any); ok {
-			return publicCompiledID(auth, "secret_id", publicid.KindSecret)
+	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))
+	for name, server := range compiled.MCP {
+		mcp := openapi.CompiledMCPServer{
+			Url: server.URL, DefaultEnabled: server.DefaultEnabled,
+			Permission: server.Permission, Deferred: server.Deferred,
+			Tools: make(map[string]openapi.CompiledMCPTool, len(server.Tools)),
 		}
-		return nil
-	}); err != nil {
-		return nil, err
+		if server.Auth != nil {
+			secretID, err := publicCompiledID(publicid.KindSecret, server.Auth.SecretID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
+			}
+			mcp.Auth = &openapi.CompiledMCPAuth{
+				Type: server.Auth.Type, SecretId: secretID,
+				Service: server.Auth.Service, Region: server.Auth.Region,
+			}
+		}
+		for toolName, tool := range server.Tools {
+			mcp.Tools[toolName] = openapi.CompiledMCPTool{
+				Enabled: tool.Enabled, Permission: tool.Permission, Deferred: tool.Deferred,
+			}
+		}
+		response.Mcp[name] = mcp
 	}
-	return json.Marshal(root)
+	for _, skill := range compiled.Skills {
+		id, err := publicCompiledID(publicid.KindSkill, skill.ID)
+		if err != nil {
+			return openapi.CompiledAgentConfig{}, err
+		}
+		response.Skills = append(response.Skills, openapi.CompiledSkill{PublicId: id})
+	}
+	response.Subagents = make(map[string]openapi.CompiledSubagent, len(compiled.Subagents))
+	for name, subagent := range compiled.Subagents {
+		child := openapi.CompiledSubagent{
+			Type: subagent.Type, Description: subagent.Description,
+			InstructionAppend: subagent.InstructionAppend, MaxInstances: subagent.MaxInstances,
+			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
+		}
+		if subagent.ProfileID != uuid.Nil {
+			child.ProfileId, err = publicCompiledID(publicid.KindAgentProfile, subagent.ProfileID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
+			}
+		}
+		if subagent.Model != nil {
+			child.Model = &openapi.CompiledSubagentModel{
+				ProviderConfig: subagent.Model.ProviderConfig, Name: subagent.Model.Name,
+				ContextWindowTokens:    subagent.Model.ContextWindowTokens,
+				DefaultMaxOutputTokens: subagent.Model.DefaultMaxOutputTokens,
+				CacheRetention:         subagent.Model.CacheRetention,
+				Reasoning:              (*openapi.CompiledModelReasoning)(subagent.Model.Reasoning),
+			}
+		}
+		response.Subagents[name] = child
+	}
+	return response, nil
 }
 
-func publicCompiledID(object map[string]any, key string, kind publicid.Kind) error {
-	value, exists := object[key]
-	if !exists {
-		return nil
-	}
-	text, ok := value.(string)
-	if !ok {
-		return fmt.Errorf("compiled %s must be a UUID", key)
-	}
-	id, err := uuid.Parse(text)
-	if err != nil {
-		return err
-	}
+func publicCompiledID(kind publicid.Kind, id uuid.UUID) (publicid.ID, error) {
 	encoded, err := publicid.Encode(kind, id)
-	if err != nil {
-		return err
-	}
-	object[key] = encoded
-	return nil
-}
-
-func publicCompiledObjects(root map[string]any, key string, convert func(map[string]any) error) error {
-	visit := func(value any) error {
-		object, ok := value.(map[string]any)
-		if !ok {
-			return fmt.Errorf("compiled %s entries must be objects", key)
-		}
-		return convert(object)
-	}
-	switch values := root[key].(type) {
-	case nil:
-		return nil
-	case []any:
-		for _, value := range values {
-			if err := visit(value); err != nil {
-				return err
-			}
-		}
-	case map[string]any:
-		for _, value := range values {
-			if err := visit(value); err != nil {
-				return err
-			}
-		}
-	default:
-		return fmt.Errorf("invalid compiled %s", key)
-	}
-	return nil
+	return publicid.ID(encoded), err
 }

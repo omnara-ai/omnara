@@ -213,7 +213,6 @@ model:
 			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       model.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		})
 		if err != nil {
@@ -1126,7 +1125,6 @@ model:
 		Source:                  initialSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(initialCompiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: initialCompiled.Hash,
 	})
 	if err != nil {
@@ -1156,7 +1154,6 @@ machine_sources:
 		Source:                  nextSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: nextCompiled.Hash,
 	}
 	nextConfig, err := store.Execution().CreateAgentConfig(ctx, nextConfigInput)

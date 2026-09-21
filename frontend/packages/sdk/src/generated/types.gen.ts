@@ -1178,23 +1178,142 @@ export type AgentConfigModel = {
     output_modalities: Array<string>;
 };
 
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export type CompiledAgentConfig = {
+    version?: string;
+    instruction: string;
+    model: CompiledAgentModel;
+    machine_sources?: Array<CompiledMachineSource>;
+    tools?: {
+        [key: string]: CompiledTool;
+    };
+    mcp?: {
+        [key: string]: CompiledMcpServer;
+    };
+    skills?: Array<CompiledSkill>;
+    subagents?: {
+        [key: string]: CompiledSubagent;
+    };
+    max_subagents?: number;
+    max_depth?: number;
+};
+
+export type CompiledAgentModel = {
+    configured_model_id: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: string;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type CompiledModelReasoning = {
+    effort: string;
+};
+
+export type CompiledMachineSource = {
+    machine_id?: MachineId;
+    machine_pool_id?: MachinePoolId;
+    max_machines?: number;
+    initial_num_machines?: number;
+    delete_after_idle_minutes?: number;
+    cwd?: string;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    env_overlay?: {
+        [key: string]: string | null;
+    };
+    secret_env_overlay?: {
+        [key: string]: SecretId | null;
+    };
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    };
+    description?: string;
+};
+
+export type CompiledTool = {
+    enabled: boolean;
+    type?: string;
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    description?: string;
+    input_schema?: {
+        [key: string]: unknown;
+    };
+};
+
+export type CompiledMcpServer = {
+    url: string;
+    auth?: CompiledMcpAuth;
+    default_enabled: boolean;
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    tools?: {
+        [key: string]: CompiledMcpTool;
+    };
+};
+
+export type CompiledMcpAuth = {
+    type: string;
+    secret_id: SecretId;
+    service?: string;
+    region?: string;
+};
+
+export type CompiledMcpTool = {
+    enabled?: boolean;
+    permission?: ToolPermissionSelection;
+    deferred?: boolean;
+};
+
+export type CompiledSkill = {
+    public_id: SkillId;
+};
+
+export type CompiledSubagent = {
+    type: string;
+    profile_id?: AgentProfileId;
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledSubagentModel = {
+    provider_config?: ResourceName;
+    name?: ResourceName;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: string;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type AgentConfigSummary = {
+    id: AgentConfigId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    source?: string;
+    source_format?: 'yaml' | 'json';
+    effective_definition_hash: string;
+    model: AgentConfigModel;
+    instruction_hash?: string;
+    created_at: Timestamp;
+};
+
 export type AgentConfig = {
     id: AgentConfigId;
     org_id: OrganizationId;
     project_id: ProjectId;
     source?: string;
     source_format?: 'yaml' | 'json';
-    /**
-     * Read-only saved compiled configuration, including default tools and derived subagent overrides.
-     */
-    compiled_definition?: {
-        [key: string]: unknown;
-    };
-    compiler_version?: string;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
     created_at: Timestamp;
+    compiled_definition: CompiledAgentConfig;
 };
 
 export type CreateAgentProfileRequest = {
@@ -1211,6 +1330,18 @@ export type RenameAgentProfileRequest = {
     name: ResourceName;
 };
 
+export type AgentProfileSummary = {
+    id: AgentProfileId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    name: ResourceName;
+    current_config_id: AgentConfigId;
+    current_generation: number;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    current_config: AgentConfigSummary;
+};
+
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
@@ -1218,13 +1349,13 @@ export type AgentProfile = {
     name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
-    current_config: AgentConfig;
     created_at: Timestamp;
     updated_at: Timestamp;
+    current_config: AgentConfig;
 };
 
 export type ListAgentProfilesResponse = {
-    data: Array<AgentProfile>;
+    data: Array<AgentProfileSummary>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
@@ -3174,7 +3305,7 @@ export type OrgOverviewResponse = {
     /**
      * Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
      */
-    recent_agent_profiles: Array<AgentProfile>;
+    recent_agent_profiles: Array<AgentProfileSummary>;
 };
 
 /**

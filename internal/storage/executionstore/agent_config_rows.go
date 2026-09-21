@@ -16,7 +16,6 @@ func agentConfigRecordFromSQLC(row dbsqlc.AgentConfig) AgentConfigRecord {
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -32,7 +31,6 @@ func agentConfigRecordFromUpsertSQLC(row dbsqlc.UpsertAgentConfigByHashRow) Agen
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -50,7 +48,6 @@ func agentConfigSnapshotFromSQLC(
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -72,7 +69,6 @@ func agentConfigSnapshotAtWatermarkFromSQLC(
 		SourceHash:              storeutil.TextOrEmpty(row.SourceHash),
 		ConfiguredModelID:       row.ConfiguredModelID,
 		CompiledDefinition:      row.CompiledDefinition,
-		CompilerVersion:         row.CompilerVersion,
 		EffectiveDefinitionHash: row.EffectiveDefinitionHash,
 		CreatedAt:               row.CreatedAt,
 	}
@@ -131,7 +127,6 @@ func agentProfileRecordFromListForProjectSQLC(row dbsqlc.ListAgentProfilesForPro
 		SourceFormat:            storeutil.TextOrEmpty(row.ConfigSourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.ConfigSourceHash),
 		CompiledDefinition:      row.ConfigCompiledDefinition,
-		CompilerVersion:         row.ConfigCompilerVersion,
 		EffectiveDefinitionHash: row.ConfigEffectiveDefinitionHash,
 		CreatedAt:               row.ConfigCreatedAt,
 	}
@@ -161,7 +156,6 @@ func agentProfileRecordFromListRecentForProjectsSQLC(
 		SourceFormat:            storeutil.TextOrEmpty(row.ConfigSourceFormat),
 		SourceHash:              storeutil.TextOrEmpty(row.ConfigSourceHash),
 		CompiledDefinition:      row.ConfigCompiledDefinition,
-		CompilerVersion:         row.ConfigCompilerVersion,
 		EffectiveDefinitionHash: row.ConfigEffectiveDefinitionHash,
 		CreatedAt:               row.ConfigCreatedAt,
 	}

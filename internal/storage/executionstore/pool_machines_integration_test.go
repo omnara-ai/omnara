@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -110,7 +109,7 @@ tools:
 	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:         testProjectID,
 		ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: config.CompiledDefinition,
-		CompilerVersion: config.CompilerVersion, EffectiveDefinitionHash: config.EffectiveDefinitionHash,
+		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
 	})
 	if err != nil {
 		t.Fatalf("create source-less config: %v", err)
@@ -1000,7 +999,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	); err != nil {
 		t.Fatalf("validate config against the zero-cap pool: %v", err)

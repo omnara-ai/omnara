@@ -944,7 +944,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash)
 
 	if err == nil || !strings.Contains(err.Error(), "env cannot set reserved OMNARA_ key OMNARA_FUTURE_SETTING") {
@@ -1450,7 +1449,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	)
 	if err == nil || !strings.Contains(err.Error(), "cpu is below min_machine_cpu") {

@@ -47,8 +47,11 @@ it.each([undefined, 'instruction: Old generated source.'])(
       source,
       compiled_definition: {
         instruction: 'Parent instructions.\n\nChild instructions.',
-        model: { default_max_output_tokens: 128 },
-        tools: { read_agent: { enabled: true }, skill: { enabled: false } },
+        model: { configured_model_id: fakeId('mdl'), default_max_output_tokens: 128 },
+        tools: {
+          read_agent: { enabled: true, permission: { mode: 'always_allow', parameters: {} } },
+          skill: { enabled: false, permission: { mode: 'always_allow', parameters: {} } },
+        },
       },
     }
     const api = fakeApi([
@@ -118,7 +121,11 @@ it('keeps the saved compiled view separate from an unsaved form', async () => {
   const onSubmit = vi.fn((event: React.SyntheticEvent) => {
     event.preventDefault()
   })
-  const definition = { instruction: 'Saved instruction.', tools: { read_file: { enabled: true } } }
+  const definition: AgentConfig['compiled_definition'] = {
+    instruction: 'Saved instruction.',
+    model: { configured_model_id: fakeId('mdl') },
+    tools: { read_file: { enabled: true, permission: { mode: 'always_allow', parameters: {} } } },
+  }
   try {
     act(() => {
       root.render(

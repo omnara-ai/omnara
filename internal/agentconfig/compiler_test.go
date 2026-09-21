@@ -67,7 +67,7 @@ tools:
 	if first.Hash == "" || first.Hash != second.Hash {
 		t.Fatalf("expected stable hash, got %q and %q", first.Hash, second.Hash)
 	}
-	contract, err := RuntimeContractFromCompiled(json.RawMessage(first.CanonicalJSON), CompilerVersion, first.Hash)
+	contract, err := RuntimeContractFromCompiled(json.RawMessage(first.CanonicalJSON), first.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -218,7 +218,7 @@ tools:
 	if string(tool.Permission.Parameters) != "{}" {
 		t.Fatalf("run_command permission parameters = %s, want {}", tool.Permission.Parameters)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -246,7 +246,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp config: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -290,7 +290,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp config: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -336,7 +336,7 @@ mcp:
 			if err != nil {
 				t.Fatalf("compile mcp config: %v", err)
 			}
-			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+			contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 			if err != nil {
 				t.Fatalf("runtime contract: %v", err)
 			}
@@ -455,7 +455,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile mcp config with userinfo URL: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -492,7 +492,7 @@ mcp:
 	if validatedSecretID != uuid.Must(publicid.Decode(publicid.KindSecret, secretID)) || validatedKind != "generic" {
 		t.Fatalf("secret validation = %q/%q, want %q/generic", validatedSecretID, validatedKind, secretID)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -559,7 +559,7 @@ mcp:
 	if validatedKind != secrets.KindAWSCredentials {
 		t.Fatalf("validated kind = %q, want %q", validatedKind, secrets.KindAWSCredentials)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -611,7 +611,7 @@ mcp:
 	if err != nil {
 		t.Fatalf("compile local http mcp config with dev option: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -778,7 +778,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with machine sources: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -813,7 +813,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with pool machine source: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -845,7 +845,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with pool machine source config: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -870,7 +870,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with pool machine source secret_env: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -952,7 +952,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with named machine pool source: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -1015,7 +1015,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile with multiple byo machines and pools: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -1338,7 +1338,7 @@ tools:
 		schema.Properties["email"].Description == "" {
 		t.Fatalf("unexpected custom schema: %s", string(tool.InputSchema))
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -1485,7 +1485,7 @@ tools:
 		if err != nil {
 			t.Fatalf("marshal mutated %s: %v", name, err)
 		}
-		if _, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw)); err == nil {
+		if _, err := RuntimeContractFromCompiled(raw, hashJSON(raw)); err == nil {
 			t.Fatalf("expected mutated %s contract to be rejected", name)
 		}
 	}
@@ -1537,9 +1537,18 @@ tools:
 	if err != nil {
 		t.Fatalf("marshal mutated compiled: %v", err)
 	}
-	if _, err := RuntimeContractFromCompiled(raw, CompilerVersion, hashJSON(raw)); err == nil {
+	if _, err := RuntimeContractFromCompiled(raw, hashJSON(raw)); err == nil {
 		t.Fatal("expected built-in name marked custom to be rejected")
 	}
+}
+
+func TestRuntimeContractRejectsPublicMachineID(t *testing.T) {
+	machineID, err := publicid.Encode(publicid.KindMachine, uuid.New())
+	require.NoError(t, err)
+	raw := json.RawMessage(`{"instruction":"test","model":{},"machine_sources":[{"machine_id":"` + machineID + `"}]}`)
+	_, err = RuntimeContractFromCompiled(raw, hashJSON(raw))
+	require.ErrorContains(t, err, "parse compiled agent config")
+	require.ErrorContains(t, err, "invalid UUID")
 }
 
 func TestRuntimeContractRejectsDefinitionHashMismatch(t *testing.T) {
@@ -1549,7 +1558,6 @@ func TestRuntimeContractRejectsDefinitionHashMismatch(t *testing.T) {
 	}
 	if _, err := RuntimeContractFromCompiled(
 		json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion,
 		"not-the-real-hash",
 	); err == nil {
 		t.Fatal("expected definition hash mismatch")
@@ -1774,7 +1782,6 @@ tools:
 	}
 	contract, err := RuntimeContractFromCompiled(
 		explicit.CanonicalJSON,
-		CompilerVersion,
 		explicit.Hash,
 	)
 	if err != nil {
@@ -1820,7 +1827,6 @@ skills:
 	}
 	contract, err = RuntimeContractFromCompiled(
 		disabled.CanonicalJSON,
-		CompilerVersion,
 		disabled.Hash,
 	)
 	if err != nil {
@@ -1876,7 +1882,6 @@ skills:
 	}
 	contract, err := RuntimeContractFromCompiled(
 		compiled.CanonicalJSON,
-		CompilerVersion,
 		compiled.Hash,
 	)
 	if err != nil {
@@ -1935,7 +1940,7 @@ tools:
 	if result.Compiled.Model.ConfiguredModelID != publicidTestID(90) {
 		t.Fatalf("compiled configured model = %q", result.Compiled.Model.ConfiguredModelID)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -2002,7 +2007,7 @@ skills:
 	if !reflect.DeepEqual(resolved, []string{skillID}) {
 		t.Fatalf("resolver calls = %v, want [%s]", resolved, skillID)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -2085,7 +2090,7 @@ tools:
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(compiled.CanonicalJSON, compiled.Hash)
 	if err != nil {
 		t.Fatal(err)
 	}

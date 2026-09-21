@@ -58,7 +58,7 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 				t.Fatal(err)
 			}
 			{
-				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 				if err != nil {
 					t.Fatal(err)
 				}

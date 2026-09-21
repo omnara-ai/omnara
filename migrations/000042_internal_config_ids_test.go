@@ -50,10 +50,8 @@ func TestInternalCompiledIDs(t *testing.T) {
 	hash, err := explicitDefaultToolsConfigHash(converted)
 	require.NoError(t, err)
 	require.Equal(t, current.Hash, hash)
-	_, err = agentconfig.RuntimeContractFromCompiled(converted, agentconfig.CompilerVersion, hash)
+	_, err = agentconfig.RuntimeContractFromCompiled(converted, hash)
 	require.NoError(t, err)
-	_, err = agentconfig.RuntimeContractFromCompiled(raw, "", hash)
-	require.ErrorContains(t, err, "not supported")
 }
 
 func TestInternalCompiledIDsPreservesUnknownFields(t *testing.T) {

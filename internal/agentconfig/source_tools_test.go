@@ -38,7 +38,7 @@ func TestRuntimeDoesNotAddSourceDefaultTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			sum := sha256.Sum256(canonicalizeJSON(raw))
-			contract, err := RuntimeContractFromCompiled(raw, CompilerVersion, hex.EncodeToString(sum[:]))
+			contract, err := RuntimeContractFromCompiled(raw, hex.EncodeToString(sum[:]))
 			if err != nil || len(contract.Tools) != test.want {
 				t.Fatalf("runtime tools: %+v, %v", contract.Tools, err)
 			}

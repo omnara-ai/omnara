@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,13 @@ func TestSecretIDMapBoundary(t *testing.T) {
 	var output map[string]*string
 	require.NoError(t, publicSecretIDs(internal, &output))
 	require.Equal(t, input, output)
+	plainInput := map[string]openapi.SecretID{"TOKEN": public}
+	internal, err = secretIDsFromPointer(&plainInput)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"TOKEN":"`+id.String()+`"}`, string(internal))
+	var plainOutput map[string]openapi.SecretID
+	require.NoError(t, publicSecretIDs(internal, &plainOutput))
+	require.Equal(t, plainInput, plainOutput)
 	for _, invalid := range []string{id.String(), "invalid", "sec_aaaaaaaaaaaaaaaaaaaaaaaaaa"} {
 		_, err := secretIDsFromPointer(&map[string]string{"TOKEN": invalid})
 		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)

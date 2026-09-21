@@ -59,7 +59,6 @@ type CreateAgentConfigInput struct {
 	SourceHash              string
 	ConfiguredModelID       uuid.UUID
 	CompiledDefinition      json.RawMessage
-	CompilerVersion         string
 	EffectiveDefinitionHash string
 }
 
@@ -72,7 +71,6 @@ type AgentConfigRecord struct {
 	SourceHash              string          `json:"source_hash,omitempty"`
 	ConfiguredModelID       uuid.UUID       `json:"configured_model_id"`
 	CompiledDefinition      json.RawMessage `json:"compiled_definition"`
-	CompilerVersion         string          `json:"compiler_version"`
 	EffectiveDefinitionHash string          `json:"effective_definition_hash"`
 	CreatedAt               time.Time       `json:"created_at"`
 	Created                 bool            `json:"-"`
@@ -221,7 +219,6 @@ func insertAgentConfigTx(
 			SourceFormat:            storeutil.TextFromEmpty(input.SourceFormat),
 			SourceHash:              storeutil.TextFromEmpty(input.SourceHash),
 			CompiledDefinition:      input.CompiledDefinition,
-			CompilerVersion:         input.CompilerVersion,
 			EffectiveDefinitionHash: input.EffectiveDefinitionHash,
 		},
 	)
@@ -293,7 +290,6 @@ func lockAndValidateAgentConfigModelContractTx(
 ) error {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		input.CompiledDefinition,
-		input.CompilerVersion,
 		input.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -331,7 +327,6 @@ func sameAgentConfigAuthority(record AgentConfigRecord, input CreateAgentConfigI
 		record.SourceHash == input.SourceHash &&
 		record.ConfiguredModelID == input.ConfiguredModelID &&
 		sameJSON(record.CompiledDefinition, input.CompiledDefinition) &&
-		record.CompilerVersion == input.CompilerVersion &&
 		record.EffectiveDefinitionHash == input.EffectiveDefinitionHash
 }
 
@@ -372,7 +367,7 @@ func (s *Store) ValidateAgentConfigMachineSources(
 	ctx context.Context,
 	projectID uuid.UUID,
 	compiledDefinition json.RawMessage,
-	compilerVersion, definitionHash string,
+	definitionHash string,
 ) error {
 	if projectID == uuid.Nil {
 		return errors.New("project id is required")
@@ -381,7 +376,7 @@ func (s *Store) ValidateAgentConfigMachineSources(
 	if err != nil {
 		return err
 	}
-	contract, err := agentconfig.RuntimeContractFromCompiled(compiledDefinition, compilerVersion, definitionHash)
+	contract, err := agentconfig.RuntimeContractFromCompiled(compiledDefinition, definitionHash)
 	if err != nil {
 		return err
 	}

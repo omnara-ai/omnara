@@ -44,8 +44,8 @@ func TestSubagentConfigChangesAreRejected(t *testing.T) {
 	for _, source := range []string{subagentParentYAML, ""} {
 		config := executionstore.CreateAgentConfigInput{
 			ProjectID: testProjectID, Source: source,
-			ConfiguredModelID:  parseConfiguredModelID(t, compiled),
-			CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
+			CompiledDefinition:      compiled.CanonicalJSON,
 			EffectiveDefinitionHash: compiled.Hash,
 		}
 		child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil,
@@ -271,7 +271,6 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 		Source:                  derivedYAML,
 		ConfiguredModelID:       compiled.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	child, err := spawnSubagentForTest(

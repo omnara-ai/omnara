@@ -77,7 +77,7 @@ max_subagents: 5
 	if result.Compiled.MaxSubagents == nil || *result.Compiled.MaxSubagents != 5 {
 		t.Fatalf("max_subagents = %v", result.Compiled.MaxSubagents)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -302,7 +302,7 @@ tools:
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestSubagentDefaultsRespectModelToolSupport(t *testing.T) {
 	}
 	result, err := Compile(SourceFormatYAML, []byte(source), opts)
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	require.NoError(t, err)
 	require.Empty(t, contract.Tools)
 	require.False(t, contract.RequiresModelToolSupport())
@@ -352,7 +352,7 @@ max_depth: 3
 	if result.Compiled.MaxDepth == nil || *result.Compiled.MaxDepth != 3 {
 		t.Fatalf("max_depth = %v", result.Compiled.MaxDepth)
 	}
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	if err != nil {
 		t.Fatalf("runtime contract: %v", err)
 	}

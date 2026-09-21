@@ -104,7 +104,7 @@ func TestDefaultMachineTools(t *testing.T) {
 				if err != nil {
 					t.Fatalf("compile: %v", err)
 				}
-				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 				if err != nil {
 					t.Fatalf("runtime contract: %v", err)
 				}
@@ -146,7 +146,7 @@ func TestDefaultRetrievalTools(t *testing.T) {
 			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.source)), CompileOptions{})
 			require.NoError(t, err)
 			require.Equal(t, validAgentSource(test.source), result.Source)
-			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 			require.NoError(t, err)
 			var names []string
 			for _, tool := range contract.Tools {
@@ -165,7 +165,7 @@ func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
 	delete(result.Compiled.Tools, "search_files")
 	encoded, err := EncodeCompiled(result.Compiled)
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 	require.NoError(t, err)
 	require.Len(t, contract.Tools, 1)
 	require.Equal(t, "web_fetch", contract.Tools[0].Name)

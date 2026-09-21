@@ -11,7 +11,6 @@ export function AgentCompiledConfig({
   definition: AgentConfig['compiled_definition']
   collapsible?: boolean
 }) {
-  if (definition === undefined) return null
   const json = JSON.stringify(definition, null, 2)
   const content = (
     <CodeBlock

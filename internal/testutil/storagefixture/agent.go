@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/stretchr/testify/require"
@@ -27,7 +26,6 @@ func SeedAgentConfig(
 		Source:                  sourceYAML,
 		ConfiguredModelID:       compiled.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	require.NoError(t, err, "create agent config for project %s", projectID)

@@ -2071,11 +2071,11 @@ FROM configured_model
 
 	exec("insert cleanup agent config", `
 INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-    compiled_definition, compiler_version, effective_definition_hash, created_at)
+    compiled_definition, effective_definition_hash, created_at)
 VALUES ($1, $2, $3, $4,
     'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash',
     '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
-    ::jsonb, 'test', 'manager-cleanup-effective-hash', $5)
+    ::jsonb, 'manager-cleanup-effective-hash', $5)
 `, configID, orgID, projectID, configuredModelID, now)
 
 	exec("insert cleanup agent", `

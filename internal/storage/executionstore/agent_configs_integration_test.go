@@ -25,7 +25,7 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 	compiled := mustCompileAgentYAMLResolved(t, ctx, store, source)
 	input := executionstore.CreateAgentConfigInput{
 		ProjectID: testProjectID, ConfiguredModelID: parseConfiguredModelID(t, compiled),
-		CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+		CompiledDefinition:      compiled.CanonicalJSON,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	first, err := store.Execution().CreateAgentConfig(ctx, input)
@@ -90,7 +90,6 @@ func TestCreateAgentConfigRejectsUnresolvedModelContract(t *testing.T) {
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err == nil {
@@ -127,7 +126,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if !errors.Is(err, storeerr.ErrNotFound) {
@@ -155,7 +153,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
@@ -218,7 +215,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}); err != nil {
 		t.Fatalf("create agent config with project modality restrictions: %v", err)

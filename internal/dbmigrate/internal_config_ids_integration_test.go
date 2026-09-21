@@ -103,7 +103,7 @@ compiled_definition, effective_definition_hash, compiler_version)
 			require.NoError(t, db.QueryRowContext(ctx, snapshot).Scan(&before))
 			var migration *goose.Migration
 			for _, candidate := range schemamigrations.GoMigrations() {
-				if candidate.Version == 40 {
+				if candidate.Version == 42 {
 					migration = candidate
 				}
 			}
@@ -125,9 +125,9 @@ compiled_definition, effective_definition_hash, compiler_version)
 					require.NoError(t, db.QueryRowContext(ctx, `
 SELECT compiled_definition, effective_definition_hash, compiler_version
 FROM agent_configs WHERE id=$1`, id).Scan(&compiled, &effectiveHash, &version))
-					require.Equal(t, agentconfig.CompilerVersion, version)
+					require.Equal(t, "1", version)
 					require.Equal(t, hash(compiled), effectiveHash)
-					contract, err := agentconfig.RuntimeContractFromCompiled(compiled, version, effectiveHash)
+					contract, err := agentconfig.RuntimeContractFromCompiled(compiled, effectiveHash)
 					require.NoError(t, err)
 					require.Equal(t, skillID, contract.Skills[0].ID)
 				}

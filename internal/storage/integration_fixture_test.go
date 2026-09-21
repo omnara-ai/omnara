@@ -483,7 +483,6 @@ func changeInputFromRecord(record executionstore.AgentConfigRecord) executionsto
 		Source:                  record.Source,
 		ConfiguredModelID:       record.ConfiguredModelID,
 		CompiledDefinition:      record.CompiledDefinition,
-		CompilerVersion:         record.CompilerVersion,
 		EffectiveDefinitionHash: record.EffectiveDefinitionHash,
 	}
 }

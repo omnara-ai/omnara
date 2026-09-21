@@ -6,11 +6,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func secretIDsFromPointer[T any](value *T) (json.RawMessage, error) {
+func secretIDsFromPointer[T openapi.SecretID | *openapi.SecretID](value *map[string]T) (json.RawMessage, error) {
 	raw, err := rawJSONFromPointer(value)
 	if err != nil {
 		return nil, err
@@ -22,7 +23,7 @@ func secretIDsFromPointer[T any](value *T) (json.RawMessage, error) {
 	return decoded, nil
 }
 
-func publicSecretIDs(raw json.RawMessage, dest any) error {
+func publicSecretIDs[T openapi.SecretID | *openapi.SecretID](raw json.RawMessage, dest *map[string]T) error {
 	encoded, err := publicid.EncodeMapJSON(publicid.KindSecret, raw)
 	if err != nil {
 		return err

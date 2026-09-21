@@ -447,7 +447,6 @@ tools:
 		config: executionstore.AgentConfigRecord{
 			ID:                      testIDN(941),
 			CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: result.Hash,
 		},
 		integrationTargets: []integrationstore.IntegrationTargetSummary{{
@@ -858,7 +857,6 @@ skills:
 				config: executionstore.AgentConfigRecord{
 					ID:                      testIDN(935),
 					CompiledDefinition:      compiled.CanonicalJSON,
-					CompilerVersion:         agentconfig.CompilerVersion,
 					EffectiveDefinitionHash: compiled.Hash,
 				},
 				skills: map[string]skillstore.SkillRecord{
@@ -1025,7 +1023,6 @@ skills:
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		compiled.CanonicalJSON,
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	)
 	if err != nil {
@@ -1281,7 +1278,6 @@ model:
 	return executionstore.AgentConfigRecord{
 		ID:                      testIDN(500),
 		CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: result.Hash,
 	}
 }
@@ -1305,7 +1301,6 @@ tools:
 	return executionstore.AgentConfigRecord{
 		ID:                      testIDN(501),
 		CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: result.Hash,
 	}
 }
@@ -1335,7 +1330,6 @@ mcp:
 	return executionstore.AgentConfigRecord{
 		ID:                      testIDN(980),
 		CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: result.Hash,
 	}
 }

@@ -66,7 +66,7 @@ func (r *ToolCallReader) RuntimeContract(
 		return agentconfig.RuntimeContract{}, AgentConfigRecord{}, err
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
-		config.CompiledDefinition, config.CompilerVersion, config.EffectiveDefinitionHash,
+		config.CompiledDefinition, config.EffectiveDefinitionHash,
 	)
 	if err != nil {
 		return agentconfig.RuntimeContract{}, AgentConfigRecord{}, err

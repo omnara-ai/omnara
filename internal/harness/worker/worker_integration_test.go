@@ -1893,7 +1893,6 @@ func createWorkerAgentFromSource(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseWorkerConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

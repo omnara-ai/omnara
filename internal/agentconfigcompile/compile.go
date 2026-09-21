@@ -20,7 +20,6 @@ type Body struct {
 	SourceFormat       string
 	ConfiguredModelID  uuid.UUID
 	CompiledDefinition json.RawMessage
-	CompilerVersion    string
 	DefinitionHash     string
 }
 
@@ -31,7 +30,6 @@ func (body Body) CreateInput(projectID uuid.UUID) executionstore.CreateAgentConf
 		SourceFormat:            body.SourceFormat,
 		ConfiguredModelID:       body.ConfiguredModelID,
 		CompiledDefinition:      body.CompiledDefinition,
-		CompilerVersion:         body.CompilerVersion,
 		EffectiveDefinitionHash: body.DefinitionHash,
 	}
 }
@@ -252,7 +250,6 @@ func DeriveSubagentConfig(
 	return Body{
 		ConfiguredModelID:  child.Model.ConfiguredModelID,
 		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
-		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     encoded.Hash,
 	}, nil
 }
@@ -294,7 +291,6 @@ func Compile(
 		ctx,
 		projectID,
 		json.RawMessage(result.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		result.Hash,
 	); err != nil {
 		return Body{}, err
@@ -304,7 +300,6 @@ func Compile(
 		SourceFormat:       string(result.SourceFormat),
 		ConfiguredModelID:  result.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition: json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     result.Hash,
 	}, nil
 }
