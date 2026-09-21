@@ -1,9 +1,8 @@
 import { useConfigureProjectApp, useCreateSecret } from '@omnara/react'
 import type { AppType, ProjectApp } from '@omnara/sdk'
-import { type ReactNode, type SyntheticEvent, useEffect, useId, useRef, useState } from 'react'
+import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 
-import { ChevronRightIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -12,6 +11,7 @@ import { projectAppFormError } from './projectAppFormState'
 import { ProjectAppNameField } from './ProjectAppNameField'
 import { ProjectAppPortalSetup } from './ProjectAppPortalSetup'
 import { ProjectAppSetupCredentials } from './ProjectAppSetupCredentials'
+import { ProjectAppSetupGroup } from './ProjectAppSetupGroup'
 import { submitProjectAppSetup } from './projectAppSetupSubmission'
 import { useProjectAppDraft } from './useProjectAppDraft'
 
@@ -47,8 +47,6 @@ export function ProjectAppSetup({
   const [busy, setBusy] = useState(false)
   // Mirrors the typed provider ID so the portal URL is only offered once it is real.
   const [tenant, setTenant] = useState(existing?.provider_tenant_id ?? '')
-  const shards = Number(app?.provider_config.shard_count ?? 1)
-  const [moreOpen] = useState(shards !== 1)
   async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting.current) return
@@ -82,7 +80,7 @@ export function ProjectAppSetup({
   const reconnect = Boolean(providerTenant)
   return (
     <form onSubmit={(event) => void submit(event)} autoComplete="off">
-      <FieldGroup className="gap-8">
+      <FieldGroup className="gap-8 text-sm">
         <div className="flex flex-col gap-2">
           <h2 className="font-medium">
             {reconnect ? 'Reconnect' : 'Connect'} {provider}
@@ -110,14 +108,14 @@ export function ProjectAppSetup({
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-8">
           {!existing && (
-            <SetupGroup
+            <ProjectAppSetupGroup
               title="Name in Omnara"
               hint="A permanent name for this app in your project."
             >
               <ProjectAppNameField name={name} onChange={setName} saved={app} />
-            </SetupGroup>
+            </ProjectAppSetupGroup>
           )}
-          <SetupGroup
+          <ProjectAppSetupGroup
             title={github ? 'App identity' : 'Bot identity'}
             hint={
               github
@@ -160,8 +158,16 @@ export function ProjectAppSetup({
                 />
               </Field>
             </div>
-          </SetupGroup>
-          <SetupGroup
+            <Field>
+              <FieldLabel htmlFor="provider-display">Bot display name (optional)</FieldLabel>
+              <Input
+                id="provider-display"
+                name="displayName"
+                defaultValue={app?.provider_agent_display_name}
+              />
+            </Field>
+          </ProjectAppSetupGroup>
+          <ProjectAppSetupGroup
             title="Credentials"
             hint={
               github
@@ -200,8 +206,8 @@ export function ProjectAppSetup({
                 </FieldDescription>
               </Field>
             )}
-          </SetupGroup>
-          <SetupGroup
+          </ProjectAppSetupGroup>
+          <ProjectAppSetupGroup
             title={`Then, in ${provider}`}
             hint={
               github
@@ -213,47 +219,7 @@ export function ProjectAppSetup({
               appType={github ? 'github_pr' : 'discord_thread'}
               providerId={providerTenant || tenant}
             />
-          </SetupGroup>
-          <details
-            className="group border-t pt-6"
-            open={moreOpen || undefined}
-            onInvalid={(event) => {
-              // A closed disclosure cannot focus its invalid field, so the browser would stay silent.
-              event.currentTarget.open = true
-            }}
-          >
-            <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 [&::-webkit-details-marker]:hidden">
-              <ChevronRightIcon className="size-4 shrink-0 transition-transform group-open:rotate-90" />
-              More options
-            </summary>
-            <div className="grid gap-4 pt-5 sm:grid-cols-2 lg:pl-[15rem]">
-              <Field>
-                <FieldLabel htmlFor="provider-display">Bot display name (optional)</FieldLabel>
-                <Input
-                  id="provider-display"
-                  name="displayName"
-                  defaultValue={app?.provider_agent_display_name}
-                />
-              </Field>
-              {!github && (
-                <Field>
-                  <FieldLabel htmlFor="discord-shards">Gateway shards</FieldLabel>
-                  <Input
-                    id="discord-shards"
-                    name="shards"
-                    type="number"
-                    min={1}
-                    max={4096}
-                    defaultValue={shards}
-                    required
-                  />
-                  <FieldDescription>
-                    Keep 1 unless Discord requires more shards for this bot.
-                  </FieldDescription>
-                </Field>
-              )}
-            </div>
-          </details>
+          </ProjectAppSetupGroup>
         </fieldset>
         {error && (
           <p role="alert" className="text-destructive text-sm">
@@ -272,33 +238,5 @@ export function ProjectAppSetup({
         </div>
       </FieldGroup>
     </form>
-  )
-}
-
-/** One task in the form: what it is and where to find it beside the fields that answer it. */
-function SetupGroup({
-  title,
-  hint,
-  children,
-}: {
-  title: string
-  hint: string
-  children: ReactNode
-}) {
-  const id = useId()
-  return (
-    <div
-      role="group"
-      aria-labelledby={id}
-      className="grid gap-4 border-t pt-6 first:border-t-0 first:pt-0 lg:grid-cols-[13rem_1fr] lg:gap-8"
-    >
-      <div className="flex flex-col gap-1.5">
-        <h3 id={id} className="font-medium">
-          {title}
-        </h3>
-        <p className="text-muted-foreground">{hint}</p>
-      </div>
-      <div className="flex min-w-0 flex-col gap-5">{children}</div>
-    </div>
   )
 }

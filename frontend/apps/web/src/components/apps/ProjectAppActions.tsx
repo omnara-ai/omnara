@@ -1,87 +1,117 @@
-import { useDeleteProjectApp, useDisconnectProjectApp } from '@omnara/react'
 import type { ProjectApp } from '@omnara/sdk'
 import { useState } from 'react'
 
+import { MoreHorizontalIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { errorMessage } from '@/lib/submit-status'
 
+import type { useProjectAppActions } from './useProjectAppActions'
+
 export function ProjectAppActions({
-  orgId,
-  projectId,
+  actions,
   app,
   onConnect,
-  onRemoved,
 }: {
-  orgId: string
-  projectId: string
+  actions: ReturnType<typeof useProjectAppActions>
   app: ProjectApp
   onConnect?: () => void
+}) {
+  const { disconnect, busy } = actions
+  const [error, setError] = useState('')
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" disabled={busy} aria-label="App actions">
+            <MoreHorizontalIcon />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {onConnect && (
+            <DropdownMenuItem disabled={busy} onSelect={onConnect}>
+              Reconnect account
+            </DropdownMenuItem>
+          )}
+          {app.state === 'active' && (
+            <DropdownMenuItem
+              disabled={busy}
+              onSelect={() => {
+                setError('')
+                if (
+                  !window.confirm(
+                    `Disconnect ${app.name}? Provider access and conversation forwarding will pause. Subscriptions, agents and history are kept.`,
+                  )
+                )
+                  return
+                disconnect.mutate(app.id, {
+                  onError: (cause) => {
+                    setError(errorMessage(cause, 'Could not disconnect app.'))
+                  },
+                })
+              }}
+            >
+              Disconnect app
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {error && (
+        <p role="alert" className="text-destructive max-w-xs text-sm">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+export function RemoveProjectAppButton({
+  actions,
+  app,
+  onRemoved,
+}: {
+  actions: ReturnType<typeof useProjectAppActions>
+  app: ProjectApp
   onRemoved: () => void
 }) {
-  const disconnect = useDisconnectProjectApp(orgId, projectId)
-  const remove = useDeleteProjectApp(orgId, projectId)
+  const { remove, busy } = actions
   const [error, setError] = useState('')
-  const busy = disconnect.isPending || remove.isPending
   return (
-    <section aria-label="App actions" className="flex flex-col gap-3 border-t pt-6">
-      <div className="flex flex-wrap items-center gap-3">
-        {onConnect && (
-          <Button variant="outline" disabled={busy} onClick={onConnect}>
-            Reconnect account
-          </Button>
-        )}
-        {app.state === 'active' && (
-          <Button
-            variant="ghost"
-            disabled={busy}
-            loading={disconnect.isPending}
-            onClick={() => {
-              setError('')
-              if (
-                !window.confirm(
-                  `Disconnect ${app.name}? Provider access and conversation forwarding will pause. Subscriptions, agents and history are kept.`,
-                )
-              )
-                return
-              disconnect.mutate(app.id, {
-                onError: (cause) => {
-                  setError(errorMessage(cause, 'Could not disconnect app.'))
-                },
-              })
-            }}
-          >
-            Disconnect app
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          className="text-destructive hover:text-destructive sm:ml-auto"
-          disabled={busy}
-          loading={remove.isPending}
-          onClick={() => {
-            if (
-              !window.confirm(
-                `Remove app ${app.name}? This deletes its schedules and subscriptions and revokes its tools and launcher. Existing agents and history are kept.`,
-              )
+    <div className="flex flex-col items-start gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground hover:text-destructive h-auto self-start p-0 font-normal hover:bg-transparent"
+        disabled={busy}
+        loading={remove.isPending}
+        onClick={() => {
+          if (
+            !window.confirm(
+              `Remove app ${app.name}? This deletes its schedules and subscriptions and revokes its tools and launcher. Existing agents and history are kept.`,
             )
-              return
-            setError('')
-            remove.mutate(app.id, {
-              onSuccess: onRemoved,
-              onError: (cause) => {
-                setError(errorMessage(cause, 'Could not remove app.'))
-              },
-            })
-          }}
-        >
-          Remove app
-        </Button>
-      </div>
+          )
+            return
+          setError('')
+          remove.mutate(app.id, {
+            onSuccess: onRemoved,
+            onError: (cause) => {
+              setError(errorMessage(cause, 'Could not remove app.'))
+            },
+          })
+        }}
+      >
+        Remove app
+      </Button>
       {error && (
         <p role="alert" className="text-destructive text-sm">
           {error}
         </p>
       )}
-    </section>
+    </div>
   )
 }

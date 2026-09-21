@@ -4,14 +4,15 @@ import { fakeId, projectApp } from '@/test/fixtures'
 
 import { submitProjectAppSetup } from './projectAppSetupSubmission'
 
-it.each(['tenant', 'account', 'discord-key', 'shards'] as const)(
+it.each(['tenant', 'account', 'discord-key'] as const)(
   'rejects invalid %s before saving credentials',
   async (invalid) => {
     const form = new FormData()
     form.set('tenant', '111')
     form.set('account', '222')
     form.set('publicKey', 'ab'.repeat(32))
-    form.set('shards', '1')
+    form.set('secretName', 'discord-credentials')
+    form.set('botToken', 'test-token')
     form.set(invalid === 'discord-key' ? 'publicKey' : invalid, 'invalid')
     type Actions = Parameters<typeof submitProjectAppSetup>[1]
     const actions: Actions = {

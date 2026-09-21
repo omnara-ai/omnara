@@ -2,9 +2,19 @@ import type { ProjectApp } from '@omnara/sdk'
 
 import { appTypeLabel } from './appDefinitions'
 import { AppIcon } from './AppIcon'
+import { ProjectAppActions } from './ProjectAppActions'
+import type { useProjectAppActions } from './useProjectAppActions'
 
 /** Identity and account state live here, so the page body is only what people configure. */
-export function ProjectAppHeader({ app }: { app: ProjectApp }) {
+export function ProjectAppHeader({
+  actions,
+  app,
+  onReconnect,
+}: {
+  actions?: ReturnType<typeof useProjectAppActions>
+  app: ProjectApp
+  onReconnect?: () => void
+}) {
   const status =
     app.state === 'active'
       ? app.provider_agent_display_name
@@ -24,6 +34,9 @@ export function ProjectAppHeader({ app }: { app: ProjectApp }) {
           </p>
         </div>
       </div>
+      {actions && (onReconnect !== undefined || app.state === 'active') && (
+        <ProjectAppActions actions={actions} app={app} onConnect={onReconnect} />
+      )}
     </header>
   )
 }

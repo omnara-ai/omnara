@@ -15,9 +15,10 @@ import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, waitForUI } from '@/test/secret-editor'
 
 import { AppCatalog } from './AppCatalog'
-import { ProjectAppActions } from './ProjectAppActions'
+import { RemoveProjectAppButton } from './ProjectAppActions'
 import { ProjectAppAdvanced } from './ProjectAppAdvanced'
 import { ProjectAppsList } from './ProjectAppsList'
+import { useProjectAppActions } from './useProjectAppActions'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj')
@@ -60,10 +61,26 @@ function render(api: ReturnType<typeof fakeApi>, content: ReactNode) {
   return renderProjectApp(root, api, content)
 }
 
+function RemoveApp({ onRemoved }: { onRemoved: () => void }) {
+  const actions = useProjectAppActions(orgId, projectId)
+  return <RemoveProjectAppButton app={savedApp} actions={actions} onRemoved={onRemoved} />
+}
+
 async function selectAction(name: string) {
-  await act(async () => {
-    button(name).click()
-    await Promise.resolve()
+  act(() => {
+    button('App actions').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    )
+  })
+  await waitForUI(() => {
+    expect(document.querySelector('[role="menuitem"]')).not.toBeNull()
+  })
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (element) => element.textContent.trim() === name,
+  )
+  if (!item) throw new Error(`Missing app action: ${name}`)
+  act(() => {
+    item.click()
   })
 }
 
@@ -257,7 +274,9 @@ it.each([true, false])(
     })
     expect(api.requestsTo('POST', `${projectPath}/apps/${app.id}/disconnect`)).toHaveLength(2)
     confirm.mockReturnValue(false)
-    await selectAction('Remove app')
+    act(() => {
+      button('Remove app').click()
+    })
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('This deletes its schedules'))
     expect(api.requestsTo('DELETE', `${projectPath}/apps/${app.id}`)).toHaveLength(0)
   },
@@ -400,6 +419,74 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
   expect(button('Reconnect account')).toBeDefined()
 })
 
+it('waits for disconnect to settle before removal and keeps the app cache deleted', async () => {
+  const detailPath = `${projectPath}/apps/${savedApp.id}`
+  let release!: (response: Response) => void
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  const api = fakeApi([
+    { method: 'GET', path: detailPath, respond: () => Response.json(savedApp) },
+    {
+      method: 'GET',
+      path: `${detailPath}/subscriptions`,
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    },
+    { method: 'POST', path: `${detailPath}/disconnect`, respond: () => pending },
+    { method: 'DELETE', path: detailPath, respond: () => new Response(null, { status: 204 }) },
+  ])
+  const { cache, client, rerender } = render(
+    api,
+    <ProjectAppDetail orgId={orgId} projectId={projectId} appId={savedApp.id} canManage />,
+  )
+  const queryKey = getProjectAppQueryKey({
+    path: { orgID: orgId, projectID: projectId, appID: savedApp.id },
+    client,
+  })
+  await waitForUI(() => {
+    expect(button('Remove app').disabled).toBe(false)
+  })
+  vi.stubGlobal('confirm', () => true)
+  await selectAction('Disconnect app')
+  await waitForUI(() => {
+    expect(api.requestsTo('POST', `${detailPath}/disconnect`)).toHaveLength(1)
+    expect(button('Remove app').disabled).toBe(true)
+    expect(button('App actions').disabled).toBe(true)
+  })
+  await act(async () => {
+    button('Remove app').click()
+    await Promise.resolve()
+  })
+  expect(api.requestsTo('DELETE', detailPath)).toHaveLength(0)
+  await act(async () => {
+    release(
+      Response.json({
+        ...savedApp,
+        state: 'disconnected',
+        setup_revision: savedApp.setup_revision + 1,
+      }),
+    )
+    await pending
+  })
+  await waitForUI(() => {
+    expect(button('Remove app').disabled).toBe(false)
+    expect(cache.getQueryData(queryKey)).toMatchObject({ state: 'disconnected' })
+  })
+  const removed = vi.fn(() => {
+    rerender(null)
+  })
+  rerender(<RemoveApp onRemoved={removed} />)
+  act(() => {
+    button('Remove app').click()
+  })
+  await waitForUI(() => {
+    expect(removed).toHaveBeenCalledOnce()
+    expect(api.requestsTo('DELETE', detailPath)).toHaveLength(1)
+    expect(cache.isMutating()).toBe(0)
+    expect(cache.getQueryState(queryKey)).toBeUndefined()
+  })
+})
+
 it('removes deleted app details and does not restore them from a delayed read', async () => {
   let deleted = false
   let release!: (response: Response) => void
@@ -446,17 +533,16 @@ it('removes deleted app details and does not restore them from a delayed read', 
     expect(reads).toBe(2)
   })
   rerender(
-    <ProjectAppActions
-      orgId={orgId}
-      projectId={projectId}
-      app={savedApp}
+    <RemoveApp
       onRemoved={() => {
         rerender(null)
       }}
     />,
   )
   vi.stubGlobal('confirm', () => true)
-  await selectAction('Remove app')
+  act(() => {
+    button('Remove app').click()
+  })
   const queryKey = getProjectAppQueryKey({
     path: { orgID: orgId, projectID: projectId, appID: savedApp.id },
     client,

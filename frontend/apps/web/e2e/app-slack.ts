@@ -35,7 +35,7 @@ export async function exerciseSlackAppSetup(
       response.request().method() === 'POST',
   )
   const created = appCreation(page)
-  await page.getByRole('button', { name: 'Create and connect Slack', exact: true }).click()
+  await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
   const creation = await created
   expect(creation.status()).toBe(201)
   const app = schemas.zProjectApp.parse(await creation.json())

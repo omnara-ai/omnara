@@ -200,16 +200,6 @@ export async function connectAppWithCredentialRetry(
   } else {
     await page.getByLabel('Bot token', { exact: true }).fill('local-discord-token')
     await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
-    const more = page.locator('summary').filter({ hasText: 'More options' })
-    const shards = page.getByLabel('Gateway shards', { exact: true })
-    await more.click()
-    await shards.fill('0')
-    await more.click()
-    await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
-    await expect(shards).toBeVisible()
-    expect(credentialCreates).toBe(0)
-    await shards.fill('4')
-    await more.click()
   }
   await page.route(
     '**/apps/*/setup',
@@ -257,7 +247,7 @@ export async function connectAppWithCredentialRetry(
   })
   const attempt = schemas.zConfigureProjectAppRequest.parse(failed.request().postDataJSON())
   if (appType === 'discord_thread')
-    expect(attempt.provider_config).toMatchObject({ shard_count: 4, public_key: 'ab'.repeat(32) })
+    expect(attempt.provider_config).toMatchObject({ shard_count: 1, public_key: 'ab'.repeat(32) })
   expect(attempt.credential_secret_id).toBe(app.credential_secret_id)
   expect(credentialCreates).toBe(1)
   page.off('request', trackCredential)

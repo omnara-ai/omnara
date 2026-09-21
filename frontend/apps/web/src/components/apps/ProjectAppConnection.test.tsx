@@ -243,7 +243,7 @@ async function beginSlackAuthorization({ setupRevision = 1, callbackError = fals
   })
   await enter('App configuration token', 'fake-configuration-token')
   act(() => {
-    button('Continue').click()
+    button('Connect app').click()
   })
   await waitForUI(() => {
     expect(document.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()

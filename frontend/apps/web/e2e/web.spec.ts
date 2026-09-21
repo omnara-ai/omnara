@@ -744,7 +744,8 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
       settings: {},
     })
     await page.goto(`/projects/${projectID}/apps/${app.id}`)
-    await page.getByRole('button', { name: 'Reconnect account', exact: true }).click()
+    await page.getByRole('button', { name: 'App actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Reconnect account', exact: true }).click()
     const connection = page.getByRole('region', { name: 'Connection', exact: true })
     await expect(connection).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -755,7 +756,8 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith(`/apps/${app.id}/disconnect`),
     )
-    await page.getByRole('button', { name: 'Disconnect app', exact: true }).click()
+    await page.getByRole('button', { name: 'App actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Disconnect app', exact: true }).click()
     const offline = schemas.zProjectApp.parse(await (await disconnected).json())
     expect(offline.state).toBe('disconnected')
     expect(offline.setup_revision).toBeGreaterThan(app.setup_revision)

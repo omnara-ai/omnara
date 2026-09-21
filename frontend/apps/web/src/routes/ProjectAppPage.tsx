@@ -4,13 +4,14 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useCallback, useState } from 'react'
 
 import { appCatalog } from '@/components/apps/appDefinitions'
-import { ProjectAppActions } from '@/components/apps/ProjectAppActions'
+import { RemoveProjectAppButton } from '@/components/apps/ProjectAppActions'
 import { ProjectAppAdvanced } from '@/components/apps/ProjectAppAdvanced'
 import { ProjectAppConnection } from '@/components/apps/ProjectAppConnection'
 import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
 import { ProjectAppHeader } from '@/components/apps/ProjectAppHeader'
 import { ProjectAppLaunch } from '@/components/apps/ProjectAppLaunch'
 import { ProjectAppSchedules } from '@/components/apps/ProjectAppSchedules'
+import { useProjectAppActions } from '@/components/apps/useProjectAppActions'
 import {
   type SlackOAuthOutcome,
   useSlackOAuthOutcome,
@@ -105,6 +106,7 @@ function ProjectAppSettings({
   onOAuthCleared: () => void
 }) {
   const navigate = useNavigate()
+  const actions = useProjectAppActions(orgId, projectId)
   const appType = app.app_type
   const chat = appType === 'slack_thread' || appType === 'discord_thread'
   const canSetUp = canManage && appCatalog.some((definition) => definition.appType === appType)
@@ -129,7 +131,17 @@ function ProjectAppSettings({
   return (
     <div className="flex w-full max-w-2xl flex-col gap-10">
       <div className="flex flex-col gap-4">
-        <ProjectAppHeader app={app} />
+        <ProjectAppHeader
+          actions={canManage ? actions : undefined}
+          app={app}
+          onReconnect={
+            canSetUp && app.state === 'active' && !connecting
+              ? () => {
+                  setConnecting(true)
+                }
+              : undefined
+          }
+        />
         {refreshFailed && (
           <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
             Could not refresh this app. Your current edits are kept.
@@ -215,17 +227,9 @@ function ProjectAppSettings({
       />
       {!draft && <ProjectAppAdvanced app={app} />}
       {canManage && (
-        <ProjectAppActions
-          orgId={orgId}
-          projectId={projectId}
+        <RemoveProjectAppButton
+          actions={actions}
           app={app}
-          onConnect={
-            canSetUp && app.state === 'active' && !connecting
-              ? () => {
-                  setConnecting(true)
-                }
-              : undefined
-          }
           onRemoved={() =>
             void navigate({ to: '/projects/$projectId/apps', params: { projectId } })
           }
