@@ -400,10 +400,10 @@ func runCoreMaintenanceTick(
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
 	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
-	choices, choicesErr := store.Integrations().CleanupAppProfileChoices(
+	appStates, statesErr := store.Integrations().CleanupAppStates(
 		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
 	)
-	choicesOutcome := completedMaintenanceOutcome(ctx, choicesErr)
+	statesOutcome := completedMaintenanceOutcome(ctx, statesErr)
 	// Retention runs last, with independent soft budgets and hard deadlines
 	// so a stalled cleanup remains bounded.
 	completedInbox, completedInboxBudgetExhausted, completedInboxErr := drainIntegrationInboxCleanup(
@@ -429,7 +429,7 @@ func runCoreMaintenanceTick(
 	worked := reapedRuntimeLocks > 0 ||
 		expiredDaemonRuntimes > 0 ||
 		expiredProcessTools > 0 ||
-		authCleanupDeleted || completedInbox > 0 || deletedInbox > 0 || choices > 0
+		authCleanupDeleted || completedInbox > 0 || deletedInbox > 0 || appStates > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		reapedRuntimeLocks,
@@ -442,13 +442,13 @@ func runCoreMaintenanceTick(
 			authCleanupOutcome.err,
 			completedInboxOutcome.err,
 			deletedInboxOutcome.err,
-			choicesOutcome.err,
+			statesOutcome.err,
 		),
 	)
-	if choicesOutcome.err != nil {
-		log.Error("cleanup app profile choices", "error", choicesOutcome.err)
-	} else if !choicesOutcome.interrupted && choices > 0 {
-		log.Info("cleaned app profile choices", "count", choices)
+	if statesOutcome.err != nil {
+		log.Error("cleanup app states", "error", statesOutcome.err)
+	} else if !statesOutcome.interrupted && appStates > 0 {
+		log.Info("cleaned app states", "count", appStates)
 	}
 	if completedInboxOutcome.err != nil {
 		log.Error("cleanup completed integration inbox", "count", completedInbox, "error", completedInboxOutcome.err)

@@ -33,7 +33,7 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 				return work.Fail(f.ctx, "operator recovery required")
 			})
 			failed := f.read(t, decided.ID)
-			f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '8 days' WHERE id=$1`, choice.ID)
+			f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE id=$1`, choice.ID)
 			choice = f.readChoice(t, choice.ID)
 			input := f.input
 			input.Address.Ref = "C123:456.789"
@@ -56,11 +56,11 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 			tx, err := f.pool.Begin(f.ctx)
 			require.NoError(t, err)
 			defer func() { _ = tx.Rollback(f.ctx) }()
-			_, err = tx.Exec(f.ctx, `SELECT id FROM app_profile_choices WHERE id=$1 FOR UPDATE`, choice.ID)
+			_, err = tx.Exec(f.ctx, `SELECT id FROM app_states WHERE id=$1 FOR UPDATE`, choice.ID)
 			require.NoError(t, err)
 			ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 			defer cancel()
-			count, err := f.store.CleanupAppProfileChoices(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+			count, err := f.store.CleanupAppStates(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 			require.NoError(t, err)
 			if deleted {
 				require.EqualValues(t, 1, count, "deleted scopes remove fresh payloads without waiting seven days")
@@ -72,7 +72,7 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 			}
 			require.Equal(t, choice, f.readChoice(t, choice.ID), "busy choices are deferred")
 			require.NoError(t, tx.Rollback(f.ctx))
-			count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+			count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 			require.NoError(t, err)
 			if deleted {
 				require.EqualValues(t, 1, count, "failed work cannot retain payloads for deleted scopes")
@@ -83,7 +83,7 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 				require.Equal(t, choice, f.readChoice(t, choice.ID), "live or disconnected failed work stays recoverable")
 			}
 			require.Equal(t, failed, f.read(t, failed.ID), "chooser cleanup leaves inbox recovery data untouched")
-			count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+			count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 			require.NoError(t, err)
 			require.Zero(t, count)
 		})
@@ -94,26 +94,31 @@ func TestAppProfileChoiceCleanupSharesBatchAcrossExpiryAndDeletedScopes(t *testi
 	t.Parallel()
 	f := newProfileChoiceFixture(t)
 	expired := f.menu(t)
-	f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '8 days' WHERE id=$1`, expired.ID)
+	f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE id=$1`, expired.ID)
 	input := f.input
+	input.SourceKey = "another-expired"
+	another, _, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), input)
+	require.NoError(t, err)
+	f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE id=$1`, another.ID)
 	input.SourceKey = "recent"
 	recent, _, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), input)
 	require.NoError(t, err)
 	deleted := f.addApp(t, "deleted", f.app.Settings).ID
 	require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, deleted))
-	// One deleted row overlaps the expiry path; another is still recent.
-	f.exec(t, `INSERT INTO app_profile_choices
- (project_id,app_id,owner_receipt_id,address_kind,address_ref,source_key,event,payload,options,expires_at)
- SELECT project_id,$1,owner_receipt_id,address_kind,address_ref,source_key,event,payload,options,expires_at
- FROM app_profile_choices WHERE app_id=$2`, deleted, f.appID)
+	// One deleted row overlaps expiry; two expired rows still have live owners.
+	// After deleting the first row, expiry must receive only the remaining slot.
+	f.exec(t, `INSERT INTO app_states
+ (project_id,app_id,kind,key,scope_kind,scope_ref,data,expires_at)
+ SELECT project_id,$1,kind,key,scope_kind,scope_ref,data,expires_at
+ FROM app_states WHERE id=$2`, deleted, expired.ID)
 	for _, want := range []int64{2, 1, 0} {
-		count, err := f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 2)
+		count, err := f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 2)
 		require.NoError(t, err)
 		require.Equal(t, want, count, "both paths share one limit over distinct rows")
 	}
 	require.Equal(t, recent, f.readChoice(t, recent.ID), "live recent data is outside both cleanup paths")
 	var count int
 	require.NoError(t, f.pool.QueryRow(f.ctx,
-		`SELECT count(*) FROM app_profile_choices WHERE project_id=$1`, f.project).Scan(&count))
+		`SELECT count(*) FROM app_states WHERE project_id=$1`, f.project).Scan(&count))
 	require.Equal(t, 1, count)
 }

@@ -236,7 +236,7 @@ func SelectChatAppProfile(
 		result, err := store.ChooseAppProfile(ctx, integrationstore.ChooseAppProfileInput{
 			ProjectID: appSetup.ProjectID, AppID: appSetup.ID, ID: id,
 			Key: key, ActorID: actorID, MessageChannelID: channelID, MessageID: messageID,
-			SourceChoiceUpdatedAt: choice.UpdatedAt, SourceSetupRevision: appSetup.SetupRevision, Events: events,
+			SourceChoiceRevision: choice.Revision, SourceSetupRevision: appSetup.SetupRevision, Events: events,
 		})
 		if !errors.Is(err, storeerr.ErrConflict) {
 			return result, err

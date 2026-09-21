@@ -79,13 +79,22 @@ menu for several. GitHub's `EverySlotAppLauncher` explicitly selects configured
 slots for mention or PR-open triggers. Exact existing continuations suppress new
 profile selection within that app; another saved app's work does not suppress it.
 
-Profile menus use `app_profile_choices`, retaining the original normalized event,
+Profile menus use `app_states` records of kind `profile_choice`, retaining the original normalized event,
 verified payload and offered profile identities before any config derivation or
 agent creation. Signed selection resolves that captured app owner, verifies its
 own credentials/message/destination and live setup revision, then atomically
 records the winner and queues an ordinary app-local receipt. Owner lookup by
 choice or interaction ID is bounded routing metadata, never authentication.
 Callbacks are not ordinary webhook fanout.
+
+State identity, optional conversation scope and deadline have ordinary indexed
+columns; the mutation revision is unindexed. Workflow status stays in JSON. The
+chooser finds records by source identity or conversation scope, filtering its
+own JSON fields before limiting results. This assumes small records and retained
+histories per conversation. Its codec validates publication/selection pairs and
+stores exact provider bytes losslessly. Expired records remain readable for
+replay and recovery. Updates use integer revisions, and selection/source changes
+also check the database-clock deadline at mutation time.
 
 Selected receipts carry trusted normalized `events`, skip expansion and policy,
 and enter normal freeze/admission directed to the chosen app/profile. A late click

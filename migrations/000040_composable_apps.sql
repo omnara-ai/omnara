@@ -333,44 +333,31 @@ CREATE INDEX integration_inbox_selection_idx ON integration_inbox USING gin
     ((jsonb_path_query_array(plan, '$.*.selection')) jsonb_path_ops)
     WHERE plan IS NOT NULL AND state IN ('pending', 'processing', 'failed');
 
--- Pre-launch menus belong to apps, never to agent execution. Source identity
--- survives menu expiry so a replay cannot revive the original request.
-CREATE TABLE app_profile_choices (
+-- App-owned workflow data has common identity and lookup fields. The owning
+-- Go workflow validates its document and composes transitions with inbox writes.
+-- A deadline is not a deletion instruction: recoverable work may outlive it.
+CREATE TABLE app_states (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
     app_id uuid NOT NULL,
-    -- Publication belongs to the creating receipt and reuses its lease/recovery.
-    -- Provenance only: receipt retention must not delete or constrain a choice.
-    owner_receipt_id uuid NOT NULL,
-    address_kind text NOT NULL CHECK (octet_length(address_kind) BETWEEN 1 AND 128),
-    address_ref text NOT NULL CHECK (octet_length(address_ref) BETWEEN 1 AND 2048),
-    source_key text NOT NULL CHECK (octet_length(source_key) BETWEEN 1 AND 512),
-    event jsonb NOT NULL CHECK (jsonb_typeof(event) = 'object' AND octet_length(event::text) <= 262144),
-    payload bytea NOT NULL CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
-    options jsonb NOT NULL CHECK (jsonb_typeof(options) = 'array'
-        AND jsonb_array_length(options) BETWEEN 1 AND 16 AND octet_length(options::text) <= 16384),
-    selected_key text CHECK (octet_length(selected_key) BETWEEN 1 AND 64),
-    selected_by text CHECK (octet_length(selected_by) BETWEEN 1 AND 2048),
-    message_channel_id text CHECK (octet_length(message_channel_id) BETWEEN 1 AND 2048),
-    message_id text CHECK (octet_length(message_id) BETWEEN 1 AND 2048),
-    expires_at timestamptz NOT NULL DEFAULT (statement_timestamp() + interval '1 hour'),
+    kind text NOT NULL CHECK (octet_length(kind) BETWEEN 1 AND 128),
+    key text NOT NULL CHECK (octet_length(key) BETWEEN 1 AND 512),
+    scope_kind text CHECK (octet_length(scope_kind) BETWEEN 1 AND 128),
+    scope_ref text CHECK (octet_length(scope_ref) BETWEEN 1 AND 2048),
+    data jsonb NOT NULL CHECK (jsonb_typeof(data) = 'object' AND octet_length(data::text) <= 2097152),
+    revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
+    expires_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT statement_timestamp(),
-    CHECK ((selected_key IS NULL) = (selected_by IS NULL)),
-    CHECK ((message_channel_id IS NULL) = (message_id IS NULL)),
-    CHECK (selected_key IS NULL OR message_id IS NOT NULL),
+    CHECK ((scope_kind IS NULL) = (scope_ref IS NULL)),
     FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
-    UNIQUE (project_id, app_id, source_key)
+    UNIQUE (project_id, app_id, kind, key)
 );
-CREATE INDEX app_profile_choices_pending_idx
-    ON app_profile_choices(project_id, app_id, address_kind, address_ref, expires_at, id)
-    WHERE selected_key IS NULL;
--- Conversation-scoped probes bridge selection to the first frozen inbox plan.
--- The joined inbox identity determines whether this retained choice is unsettled.
-CREATE INDEX app_profile_choices_selected_conversation_idx
-    ON app_profile_choices(project_id, app_id, address_kind, address_ref, id)
-    WHERE selected_key IS NOT NULL;
-CREATE INDEX app_profile_choices_expiry_idx ON app_profile_choices(expires_at, id);
+CREATE INDEX app_states_scope_idx
+    ON app_states(project_id, app_id, kind, scope_kind, scope_ref, expires_at, id)
+    WHERE scope_kind IS NOT NULL;
+CREATE INDEX app_states_expiry_idx ON app_states(kind, expires_at, id)
+    WHERE expires_at IS NOT NULL;
 
 -- App limits follow the existing organization override mechanism.
 ALTER TABLE org_resource_limit_overrides

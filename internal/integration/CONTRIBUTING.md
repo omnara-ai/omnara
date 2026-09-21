@@ -85,6 +85,44 @@ validation belongs with saved-app settings and the reviewed definition. Keep
 provider I/O outside router and database transactions. The code registry supplies
 the public catalog and config schemas; do not create per-capability catalog rows.
 
+## App-owned state
+
+Use `app_states` for small independent workflow records. Each belongs to a
+project/app and has an immutable `kind` plus `key`; optional scope columns group
+related records, such as requests in one conversation. There is no required
+agent: a launcher may need state before an agent exists. Avoid one growing
+document for an entire app. The 2 MiB document ceiling is a supported maximum,
+not a working-size target. Keep subscriptions and transport leases in their
+existing stores.
+
+Look up records by indexed identity or scope. Workflow SQL can filter its own
+JSON fields within that scope, before applying a limit. This assumes small
+retained histories per scope, including expired or failed records. A JSON
+predicate can fetch the whole document, and replacements rewrite it; assess
+these costs when a workflow needs large records or searches across many scopes.
+Do not add shared indexes on app-specific JSON fields or fetch a limited page
+and infer that no eligible work exists from Go filtering.
+
+Define and validate the document in the owning Go workflow. The profile chooser's
+codec and semantic methods in `internal/storage/integrationstore/app_profile_choices*`
+are an example. Compose the shared queries from `app_states.sql` within that
+store's transaction, after the appropriate lifecycle and conversation gates.
+Keep generated query types inside the store. Replacements use an expected
+revision; a decision requiring a live deadline must check it at the SQL write.
+Do not perform provider I/O while holding the transaction.
+
+The chooser rejects unknown document fields because typed replacements would
+otherwise discard them silently. Keep retained documents readable when changing
+their schema, and coordinate readers and writers with the cluster release or an
+explicit data migration. A revision is a mutation counter, not a schema version.
+
+A deadline is not an automatic deletion policy. Reads retain expired data;
+workflow-specific retention must preserve recovery. `CleanupAppStates` first
+reclaims records for deleted owners, then spends its remaining deletion budget
+on chooser expiry. The chooser's expiry query and inbox recovery guard stay in
+`app_profile_choices.sql`; generic deleted-owner cleanup lives in `app_states.sql`.
+Add another workflow's retention policy only when its actual lifecycle requires it.
+
 ## Add a provider
 
 | Responsibility | Location |
@@ -94,7 +132,7 @@ the public catalog and config schemas; do not create per-capability catalog rows
 | Verified receipt expansion into ordinary agent input | `internal/integration/<provider>_event.go` |
 | Tool schemas and qualified execution | `internal/toolcatalog`, `internal/harness/tools` |
 | App setup, verified intake and worker registration | `internal/httpapi`, `cmd/worker` |
-| App identity, subscriptions, choices, inbox and runtime leases | `internal/storage/integrationstore` |
+| App identity, subscriptions, app state, inbox and runtime leases | `internal/storage/integrationstore` |
 | Atomic agent launch/input admission and interaction resolution | `internal/storage/executionstore` |
 
 Register a new app type in `internal/appdefinition`, add its PostgreSQL

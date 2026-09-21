@@ -108,24 +108,19 @@ type AgentRuntimeLock struct {
 	CancelRequestedAt *time.Time
 }
 
-type AppProfileChoice struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AppID            uuid.UUID
-	OwnerReceiptID   uuid.UUID
-	AddressKind      string
-	AddressRef       string
-	SourceKey        string
-	Event            json.RawMessage
-	Payload          []byte
-	Options          json.RawMessage
-	SelectedKey      *string
-	SelectedBy       *string
-	MessageChannelID *string
-	MessageID        *string
-	ExpiresAt        time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+type AppState struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	Kind      string
+	Key       string
+	ScopeKind *string
+	ScopeRef  *string
+	Data      json.RawMessage
+	Revision  int64
+	ExpiresAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type AppSubscription struct {

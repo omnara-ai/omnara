@@ -8,15 +8,14 @@ package dbsqlc
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/google/uuid"
 )
 
-const cleanupAppProfileChoices = `-- name: CleanupAppProfileChoices :execrows
-WITH expired AS MATERIALIZED (
-    SELECT choice.id FROM app_profile_choices choice
-    WHERE choice.expires_at < statement_timestamp() - $1::bigint * interval '1 millisecond'
+const cleanupExpiredAppProfileChoices = `-- name: CleanupExpiredAppProfileChoices :execrows
+WITH candidates AS (
+    SELECT choice.id FROM app_states choice
+    WHERE choice.kind = 'profile_choice' AND choice.expires_at < statement_timestamp() - $1::bigint * interval '1 millisecond'
       AND NOT EXISTS (
           SELECT 1 FROM integration_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
@@ -26,95 +25,54 @@ WITH expired AS MATERIALIZED (
     ORDER BY choice.expires_at, choice.id
     LIMIT $2
     FOR UPDATE SKIP LOCKED
-), deleted_apps AS MATERIALIZED (
-    SELECT app.project_id, app.id
-    FROM project_apps app
-    JOIN projects project ON project.id = app.project_id
-    JOIN orgs org ON org.id = project.org_id
-    WHERE app.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
-), deleted AS MATERIALIZED (
-    SELECT obsolete.id
-    FROM deleted_apps app
-    CROSS JOIN LATERAL (
-        SELECT choice.id FROM app_profile_choices choice
-        WHERE choice.project_id = app.project_id AND choice.app_id = app.id
-        ORDER BY choice.source_key
-        LIMIT $2
-        FOR UPDATE SKIP LOCKED
-    ) obsolete
-    LIMIT $2
-), candidates AS (
-    SELECT id FROM expired UNION SELECT id FROM deleted
-    LIMIT $2
 )
-DELETE FROM app_profile_choices choice USING candidates WHERE choice.id = candidates.id
+DELETE FROM app_states choice USING candidates WHERE choice.id = candidates.id
 `
 
-type CleanupAppProfileChoicesParams struct {
+type CleanupExpiredAppProfileChoicesParams struct {
 	RetentionMilliseconds int64
 	RowLimit              int32
 }
 
-// Retain live source bookkeeping beyond expiry, including work awaiting recovery.
-// Deleted app/project/org scopes no longer need payloads or replay facts;
-// disconnected live apps still retain failed work for operator recovery.
-// Bound each indexed path separately so empty sweeps do not scan recent history.
-func (q *Queries) CleanupAppProfileChoices(ctx context.Context, arg CleanupAppProfileChoicesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cleanupAppProfileChoices, arg.RetentionMilliseconds, arg.RowLimit)
+// Expired menus may still own accepted work awaiting recovery. Their retention
+// is chooser policy, not a generic deadline-to-deletion rule for app state.
+func (q *Queries) CleanupExpiredAppProfileChoices(ctx context.Context, arg CleanupExpiredAppProfileChoicesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cleanupExpiredAppProfileChoices, arg.RetentionMilliseconds, arg.RowLimit)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const expireAppProfileChoice = `-- name: ExpireAppProfileChoice :exec
-UPDATE app_profile_choices
-SET expires_at = LEAST(expires_at, statement_timestamp()), updated_at = statement_timestamp()
-WHERE project_id = $1 AND app_id = $2 AND id = $3
-  AND selected_key IS NULL AND expires_at > statement_timestamp()
-`
-
-type ExpireAppProfileChoiceParams struct {
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	ID        uuid.UUID
-}
-
-// Unusable menus release the pending conversation without erasing replay facts.
-// Accepted selections and their durable handoff never expire through this path.
-func (q *Queries) ExpireAppProfileChoice(ctx context.Context, arg ExpireAppProfileChoiceParams) error {
-	_, err := q.db.Exec(ctx, expireAppProfileChoice, arg.ProjectID, arg.AppID, arg.ID)
-	return err
-}
-
 const findPendingAppProfileChoice = `-- name: FindPendingAppProfileChoice :one
 WITH candidates AS (
     (SELECT choice.id, 0 AS priority
-     FROM app_profile_choices choice
+     FROM app_states choice
      JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
        AND inbox.receipt_key = 'choice:' || choice.id::text
-     WHERE choice.project_id = $1 AND choice.app_id = $2
-       AND choice.address_kind = $3
-       AND choice.address_ref = $4 AND choice.selected_key IS NOT NULL
+     WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.app_id = $2
+       AND choice.scope_kind = $3::text
+       AND choice.scope_ref = $4::text AND COALESCE(choice.data->>'selected_key', '') <> ''
        AND (inbox.state IN ('pending', 'processing') OR (inbox.state = 'failed' AND inbox.plan IS NOT NULL))
      LIMIT 1)
     UNION ALL
     (SELECT choice.id, 1 AS priority
-     FROM app_profile_choices choice
-     WHERE choice.project_id = $1 AND choice.app_id = $2
-       AND choice.address_kind = $3
-       AND choice.address_ref = $4
-       AND choice.selected_key IS NULL AND choice.expires_at > statement_timestamp()
-       AND (choice.message_id IS NOT NULL OR EXISTS (
+     FROM app_states choice
+     WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.app_id = $2
+       AND choice.scope_kind = $3::text
+       AND choice.scope_ref = $4::text
+       AND COALESCE(choice.data->>'selected_key', '') = '' AND choice.expires_at > statement_timestamp()
+       AND (choice.data->>'message_id' <> '' OR EXISTS (
            SELECT 1 FROM integration_inbox owner
-           WHERE owner.id = choice.owner_receipt_id AND owner.project_id = choice.project_id
+           WHERE owner.id = CASE WHEN choice.kind = 'profile_choice'
+                                THEN (choice.data->>'owner_receipt_id')::uuid END AND owner.project_id = choice.project_id
              AND owner.app_id = choice.app_id AND owner.state IN ('pending', 'processing')
        ))
      ORDER BY choice.expires_at, choice.id
      LIMIT 1)
 )
-SELECT choice.id, choice.project_id, choice.app_id, choice.owner_receipt_id, choice.address_kind, choice.address_ref, choice.source_key, choice.event, choice.payload, choice.options, choice.selected_key, choice.selected_by, choice.message_channel_id, choice.message_id, choice.expires_at, choice.created_at, choice.updated_at
-FROM candidates JOIN app_profile_choices choice ON choice.id = candidates.id
+SELECT choice.id, choice.project_id, choice.app_id, choice.kind, choice.key, choice.scope_kind, choice.scope_ref, choice.data, choice.revision, choice.expires_at, choice.created_at, choice.updated_at
+FROM candidates JOIN app_states choice ON choice.id = candidates.id
 ORDER BY candidates.priority
 LIMIT 1
 `
@@ -126,33 +84,28 @@ type FindPendingAppProfileChoiceParams struct {
 	AddressRef  string
 }
 
-// A selected request owns the menu until its decided work settles, even after
-// expiry. Failed frozen work retains its reservation; failed unplanned work does
-// not. Unpublished menus wait only while their owner can still publish them;
-// abandoned sources remain exact-replay barriers. Both branches yield at most one ID.
-func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendingAppProfileChoiceParams) (AppProfileChoice, error) {
+// Accepted work owns the conversation while pending/processing, or failed with
+// a frozen plan. Failed unplanned work releases it. An unpublished menu remains
+// eligible only while its original receipt can publish; published menus outlive
+// that receipt. Every eligibility predicate runs before its branch's LIMIT.
+func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendingAppProfileChoiceParams) (AppState, error) {
 	row := q.db.QueryRow(ctx, findPendingAppProfileChoice,
 		arg.ProjectID,
 		arg.AppID,
 		arg.AddressKind,
 		arg.AddressRef,
 	)
-	var i AppProfileChoice
+	var i AppState
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
 		&i.AppID,
-		&i.OwnerReceiptID,
-		&i.AddressKind,
-		&i.AddressRef,
-		&i.SourceKey,
-		&i.Event,
-		&i.Payload,
-		&i.Options,
-		&i.SelectedKey,
-		&i.SelectedBy,
-		&i.MessageChannelID,
-		&i.MessageID,
+		&i.Kind,
+		&i.Key,
+		&i.ScopeKind,
+		&i.ScopeRef,
+		&i.Data,
+		&i.Revision,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -162,12 +115,12 @@ func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendi
 
 const findUnplannedAppProfileChoiceReservation = `-- name: FindUnplannedAppProfileChoiceReservation :one
 SELECT inbox.id, inbox.state
-FROM app_profile_choices choice
+FROM app_states choice
 JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
   AND inbox.receipt_key = 'choice:' || choice.id::text
-WHERE choice.project_id = $1 AND choice.app_id = $2
-  AND choice.address_kind = $3 AND choice.address_ref = $4
-  AND choice.selected_key IS NOT NULL AND inbox.id <> $5
+WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.app_id = $2
+  AND choice.scope_kind = $3::text AND choice.scope_ref = $4::text
+  AND COALESCE(choice.data->>'selected_key', '') <> '' AND inbox.id <> $5
   AND inbox.plan IS NULL AND inbox.state IN ('pending', 'processing')
 LIMIT 1
 `
@@ -185,10 +138,8 @@ type FindUnplannedAppProfileChoiceReservationRow struct {
 	State string
 }
 
-// Read without locking another receipt: the caller already holds its own inbox
-// lease then the conversation gate. Every receipt, including a plain reply,
-// belongs to one app; another app's chooser cannot reserve its conversation.
-// Failed unplanned work has no frozen launch reservation and permits a new request.
+// Bridge the accepted-choice interval before its first frozen inbox plan.
+// Failed unplanned work is recoverable but does not hold ordinary replies.
 func (q *Queries) FindUnplannedAppProfileChoiceReservation(ctx context.Context, arg FindUnplannedAppProfileChoiceReservationParams) (FindUnplannedAppProfileChoiceReservationRow, error) {
 	row := q.db.QueryRow(ctx, findUnplannedAppProfileChoiceReservation,
 		arg.ProjectID,
@@ -199,43 +150,6 @@ func (q *Queries) FindUnplannedAppProfileChoiceReservation(ctx context.Context, 
 	)
 	var i FindUnplannedAppProfileChoiceReservationRow
 	err := row.Scan(&i.ID, &i.State)
-	return i, err
-}
-
-const getAppProfileChoice = `-- name: GetAppProfileChoice :one
-SELECT id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
-FROM app_profile_choices
-WHERE project_id = $1 AND app_id = $2 AND id = $3
-`
-
-type GetAppProfileChoiceParams struct {
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) GetAppProfileChoice(ctx context.Context, arg GetAppProfileChoiceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, getAppProfileChoice, arg.ProjectID, arg.AppID, arg.ID)
-	var i AppProfileChoice
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AppID,
-		&i.OwnerReceiptID,
-		&i.AddressKind,
-		&i.AddressRef,
-		&i.SourceKey,
-		&i.Event,
-		&i.Payload,
-		&i.Options,
-		&i.SelectedKey,
-		&i.SelectedBy,
-		&i.MessageChannelID,
-		&i.MessageID,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
 	return i, err
 }
 
@@ -251,8 +165,9 @@ type GetAppProfileChoiceAppForShareParams struct {
 	ID        uuid.UUID
 }
 
-// Callers hold the active project/app gates and conversation lock. The
-// shared app row fences edits without taking a profile lock in reverse order.
+// Chooser policy stays explicit: accepted work can reserve a conversation
+// beyond menu expiry. The generic state table does not interpret inbox state.
+// JSON fields used below are part of the chooser codec, never shared indexes.
 func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetAppProfileChoiceAppForShareParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, getAppProfileChoiceAppForShare, arg.ProjectID, arg.ID)
 	var i ProjectApp
@@ -281,115 +196,6 @@ func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetApp
 	return i, err
 }
 
-const getAppProfileChoiceAppID = `-- name: GetAppProfileChoiceAppID :one
-SELECT app_id FROM app_profile_choices WHERE id = $1
-`
-
-type GetAppProfileChoiceAppIDParams struct {
-	ID uuid.UUID
-}
-
-// Private callback routing only; provider verification and choice authorization follow.
-func (q *Queries) GetAppProfileChoiceAppID(ctx context.Context, arg GetAppProfileChoiceAppIDParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAppProfileChoiceAppID, arg.ID)
-	var app_id uuid.UUID
-	err := row.Scan(&app_id)
-	return app_id, err
-}
-
-const getAppProfileChoiceBySource = `-- name: GetAppProfileChoiceBySource :one
-SELECT id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
-FROM app_profile_choices
-WHERE project_id = $1 AND app_id = $2
-  AND source_key = $3
-`
-
-type GetAppProfileChoiceBySourceParams struct {
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	SourceKey string
-}
-
-// Source lookup precedes pending lookup: expired or selected sources never revive.
-func (q *Queries) GetAppProfileChoiceBySource(ctx context.Context, arg GetAppProfileChoiceBySourceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, getAppProfileChoiceBySource, arg.ProjectID, arg.AppID, arg.SourceKey)
-	var i AppProfileChoice
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AppID,
-		&i.OwnerReceiptID,
-		&i.AddressKind,
-		&i.AddressRef,
-		&i.SourceKey,
-		&i.Event,
-		&i.Payload,
-		&i.Options,
-		&i.SelectedKey,
-		&i.SelectedBy,
-		&i.MessageChannelID,
-		&i.MessageID,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const insertAppProfileChoice = `-- name: InsertAppProfileChoice :one
-INSERT INTO app_profile_choices(project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options)
-VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, $9)
-RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
-`
-
-type InsertAppProfileChoiceParams struct {
-	ProjectID      uuid.UUID
-	AppID          uuid.UUID
-	OwnerReceiptID uuid.UUID
-	AddressKind    string
-	AddressRef     string
-	SourceKey      string
-	Event          json.RawMessage
-	Payload        []byte
-	Options        json.RawMessage
-}
-
-func (q *Queries) InsertAppProfileChoice(ctx context.Context, arg InsertAppProfileChoiceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, insertAppProfileChoice,
-		arg.ProjectID,
-		arg.AppID,
-		arg.OwnerReceiptID,
-		arg.AddressKind,
-		arg.AddressRef,
-		arg.SourceKey,
-		arg.Event,
-		arg.Payload,
-		arg.Options,
-	)
-	var i AppProfileChoice
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AppID,
-		&i.OwnerReceiptID,
-		&i.AddressKind,
-		&i.AddressRef,
-		&i.SourceKey,
-		&i.Event,
-		&i.Payload,
-		&i.Options,
-		&i.SelectedKey,
-		&i.SelectedBy,
-		&i.MessageChannelID,
-		&i.MessageID,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const insertAppProfileChoiceInboxReceipt = `-- name: InsertAppProfileChoiceInboxReceipt :one
 INSERT INTO integration_inbox(project_id, app_id, receipt_key, payload, events)
 VALUES ($1, $2, $3, $4, $5)
@@ -405,8 +211,6 @@ type InsertAppProfileChoiceInboxReceiptParams struct {
 	Events     *json.RawMessage
 }
 
-// This is the sole trusted normalized-event handoff. Ordinary verified receipts
-// use InsertIntegrationInboxReceipt, which cannot populate events.
 func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg InsertAppProfileChoiceInboxReceiptParams) (IntegrationInbox, error) {
 	row := q.db.QueryRow(ctx, insertAppProfileChoiceInboxReceipt,
 		arg.ProjectID,
@@ -435,136 +239,6 @@ func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg In
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CompletedAt,
-	)
-	return i, err
-}
-
-const recordAppProfileChoiceMessage = `-- name: RecordAppProfileChoiceMessage :execrows
-UPDATE app_profile_choices
-SET message_channel_id = $1, message_id = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND app_id = $4 AND id = $5
-  AND message_id IS NULL
-`
-
-type RecordAppProfileChoiceMessageParams struct {
-	MessageChannelID *string
-	MessageID        *string
-	ProjectID        uuid.UUID
-	AppID            uuid.UUID
-	ID               uuid.UUID
-}
-
-func (q *Queries) RecordAppProfileChoiceMessage(ctx context.Context, arg RecordAppProfileChoiceMessageParams) (int64, error) {
-	result, err := q.db.Exec(ctx, recordAppProfileChoiceMessage,
-		arg.MessageChannelID,
-		arg.MessageID,
-		arg.ProjectID,
-		arg.AppID,
-		arg.ID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const selectAppProfileChoice = `-- name: SelectAppProfileChoice :one
-UPDATE app_profile_choices
-SET selected_key = $1, selected_by = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND app_id = $4 AND id = $5
-  AND selected_key IS NULL AND expires_at > statement_timestamp()
-  AND updated_at = $6
-RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
-`
-
-type SelectAppProfileChoiceParams struct {
-	SelectedKey       *string
-	SelectedBy        *string
-	ProjectID         uuid.UUID
-	AppID             uuid.UUID
-	ID                uuid.UUID
-	ExpectedUpdatedAt time.Time
-}
-
-// The separate post-lock timestamp check fences expiry and the caller's source revision.
-func (q *Queries) SelectAppProfileChoice(ctx context.Context, arg SelectAppProfileChoiceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, selectAppProfileChoice,
-		arg.SelectedKey,
-		arg.SelectedBy,
-		arg.ProjectID,
-		arg.AppID,
-		arg.ID,
-		arg.ExpectedUpdatedAt,
-	)
-	var i AppProfileChoice
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AppID,
-		&i.OwnerReceiptID,
-		&i.AddressKind,
-		&i.AddressRef,
-		&i.SourceKey,
-		&i.Event,
-		&i.Payload,
-		&i.Options,
-		&i.SelectedKey,
-		&i.SelectedBy,
-		&i.MessageChannelID,
-		&i.MessageID,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const updateAppProfileChoiceSource = `-- name: UpdateAppProfileChoiceSource :one
-UPDATE app_profile_choices
-SET event = $1, payload = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND app_id = $4 AND id = $5
-  AND source_key = $6 AND selected_key IS NULL AND expires_at > statement_timestamp()
-RETURNING id, project_id, app_id, owner_receipt_id, address_kind, address_ref, source_key, event, payload, options, selected_key, selected_by, message_channel_id, message_id, expires_at, created_at, updated_at
-`
-
-type UpdateAppProfileChoiceSourceParams struct {
-	Event     json.RawMessage
-	Payload   []byte
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	ID        uuid.UUID
-	SourceKey string
-}
-
-// Source and verified body change together, and only for a fenced attachment sibling.
-func (q *Queries) UpdateAppProfileChoiceSource(ctx context.Context, arg UpdateAppProfileChoiceSourceParams) (AppProfileChoice, error) {
-	row := q.db.QueryRow(ctx, updateAppProfileChoiceSource,
-		arg.Event,
-		arg.Payload,
-		arg.ProjectID,
-		arg.AppID,
-		arg.ID,
-		arg.SourceKey,
-	)
-	var i AppProfileChoice
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.AppID,
-		&i.OwnerReceiptID,
-		&i.AddressKind,
-		&i.AddressRef,
-		&i.SourceKey,
-		&i.Event,
-		&i.Payload,
-		&i.Options,
-		&i.SelectedKey,
-		&i.SelectedBy,
-		&i.MessageChannelID,
-		&i.MessageID,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 	)
 	return i, err
 }

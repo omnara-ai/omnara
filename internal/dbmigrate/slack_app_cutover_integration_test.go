@@ -478,7 +478,7 @@ tools:
 							t,
 							db.QueryRowContext(
 								ctx,
-								`SELECT jsonb_agg(id::text ORDER BY id) FROM integration_targets WHERE agent_id=$1 AND integration_install_id=$2`,
+								`SELECT jsonb_agg(id::text ORDER BY id) FROM integration_targets WHERE agent_id=$1 AND integration_install_id=$2 AND deleted_at IS NULL`,
 								agentID,
 								appID,
 							).Scan(

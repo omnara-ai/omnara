@@ -43,7 +43,7 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 				decided = f.claim(t)
 			}
 			// Menu expiry cannot release an already accepted request in this gap.
-			f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '1 second' WHERE id=$1`, choice.ID)
+			f.exec(t, `UPDATE app_states SET expires_at=now()-interval '1 second' WHERE id=$1`, choice.ID)
 			nextInput := f.input
 			nextInput.SourceKey = "new-mention"
 			reused, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), nextInput)
@@ -370,7 +370,7 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	require.Equal(t, choice, unchanged, "unknown key does not authorize menu dismissal")
 	require.Equal(t, choice, f.readChoice(t, choice.ID))
 	staleRevision := click
-	staleRevision.SourceChoiceUpdatedAt = choice.CreatedAt
+	staleRevision.SourceChoiceRevision = choice.Revision - 1
 	_, err = f.store.ChooseAppProfile(f.ctx, staleRevision)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	require.Equal(t, choice, f.readChoice(t, choice.ID))
@@ -379,7 +379,7 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	expired := f.readChoice(t, choice.ID)
 	require.Equal(t, expired, retired, "caller can distinguish retired menus from invalid selections")
 	require.True(t, expired.ExpiresAt.Before(choice.ExpiresAt))
-	require.True(t, expired.UpdatedAt.After(choice.UpdatedAt))
+	require.Greater(t, expired.Revision, choice.Revision)
 	require.Empty(t, expired.SelectedKey)
 
 	// This is a committed rejection, not a rolled-back update. Same-source

@@ -17,7 +17,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -124,7 +126,7 @@ func (f profileChoiceFixture) chooseInput(
 	return integrationstore.ChooseAppProfileInput{
 		ProjectID: f.project, AppID: f.appID, ID: record.ID, Key: key, ActorID: "U456",
 		MessageChannelID: record.MessageChannelID, MessageID: record.MessageID,
-		SourceChoiceUpdatedAt: record.UpdatedAt, SourceSetupRevision: app.SetupRevision, Events: events,
+		SourceChoiceRevision: record.Revision, SourceSetupRevision: app.SetupRevision, Events: events,
 	}
 }
 
@@ -179,7 +181,10 @@ func TestAppProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 	require.Equal(t, 1, createdCount)
 	require.Contains(t, []uuid.UUID{f.source.ID, secondSource.ID}, owner)
 	pending := f.readChoice(t, id)
-	require.InDelta(t, time.Hour.Seconds(), pending.ExpiresAt.Sub(pending.CreatedAt).Seconds(), 0.001)
+	var lifetime float64
+	require.NoError(t, f.pool.QueryRow(f.ctx,
+		`SELECT extract(epoch FROM expires_at-created_at)::float8 FROM app_states WHERE id=$1`, pending.ID).Scan(&lifetime))
+	require.InDelta(t, time.Hour.Seconds(), lifetime, 0.001)
 	var agents, inputs int
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT
     (SELECT count(*) FROM agents WHERE project_id=$1),
@@ -283,12 +288,12 @@ func TestAppProfileChoiceSiblingSourceAndRevision(t *testing.T) {
 	require.Equal(t, original.Options, merged.Options)
 	require.Equal(t, sibling.Payload, merged.Payload)
 	require.JSONEq(t, string(sibling.Event), string(merged.Event))
-	require.True(t, merged.UpdatedAt.After(original.UpdatedAt))
+	require.Greater(t, merged.Revision, original.Revision)
 	_, err = f.store.ChooseAppProfile(f.ctx, stale)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	duplicate, _, err := f.store.EnsureAppProfileChoice(f.ctx, files.Lease(), sibling)
 	require.NoError(t, err)
-	require.Equal(t, merged.UpdatedAt, duplicate.UpdatedAt, "identical file replay preserves source revision")
+	require.Equal(t, merged.Revision, duplicate.Revision, "identical file replay preserves source revision")
 	textReplay, _, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.NoError(t, err)
 	require.Equal(t, merged, textReplay, "text sibling cannot remove attachments")
@@ -383,7 +388,7 @@ func TestAppProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			case "unoffered":
 				input.Key = "never-offered"
 			case "expired":
-				f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '1 second' WHERE id=$1`, record.ID)
+				f.exec(t, `UPDATE app_states SET expires_at=now()-interval '1 second' WHERE id=$1`, record.ID)
 			case "disconnected-app":
 				f.exec(t, `UPDATE project_apps SET state='disconnected',setup_revision=setup_revision+1 WHERE id=$1`, f.app.ID)
 				want = storeerr.ErrUnauthorized
@@ -418,7 +423,7 @@ func TestAppProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			switch scenario {
 			case "remapped-slot", "removed-profile":
 				require.True(t, stored.ExpiresAt.Before(record.ExpiresAt), "stale setup retires the unusable menu")
-				require.False(t, stored.ExpiresAt.After(stored.UpdatedAt))
+				require.Greater(t, stored.Revision, record.Revision)
 				require.Equal(t, stored, returned, "caller receives the committed expiry for safe dismissal")
 			case "unoffered":
 				require.Equal(t, record, returned, "unknown keys cannot retire a valid menu")
@@ -437,7 +442,7 @@ func TestAppProfileChoiceExpiryAndCleanup(t *testing.T) {
 	t.Parallel()
 	f := newProfileChoiceFixture(t)
 	expired := f.menu(t)
-	f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '1 second' WHERE id=$1`, expired.ID)
+	f.exec(t, `UPDATE app_states SET expires_at=now()-interval '1 second' WHERE id=$1`, expired.ID)
 	replay, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.NoError(t, err)
 	require.False(t, created)
@@ -454,28 +459,28 @@ func TestAppProfileChoiceExpiryAndCleanup(t *testing.T) {
 	fresh = f.readChoice(t, fresh.ID)
 	_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "support"))
 	require.NoError(t, err)
-	_, err = f.store.CleanupAppProfileChoices(f.ctx, time.Hour, 100)
+	_, err = f.store.CleanupAppStates(f.ctx, time.Hour, 100)
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	count, err := f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
+	count, err := f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.Zero(t, count, "expired source identities survive at least seven days")
-	f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '8 days' WHERE project_id=$1`, f.project)
-	count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
+	f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE project_id=$1`, f.project)
+	count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count, "selected pending work keeps its source bookkeeping")
 	selectedReceipt := f.decidedReceipt(t, fresh.ID)
 	f.exec(t, `UPDATE integration_inbox SET state='processing',claim_token=$2,
         claim_expires_at=now()+interval '1 minute' WHERE id=$1`, selectedReceipt.ID, uuid.New())
-	count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
+	count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.Zero(t, count, "in-flight decided work keeps its source bookkeeping")
 	f.exec(t, `UPDATE integration_inbox SET state='failed',claim_token=NULL,claim_expires_at=NULL WHERE id=$1`,
 		selectedReceipt.ID)
-	count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
+	count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.Zero(t, count, "failed decided work remains recoverable")
 	f.exec(t, `UPDATE integration_inbox SET state='completed',completed_at=now() WHERE id=$1`, selectedReceipt.ID)
-	count, err = f.store.CleanupAppProfileChoices(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
+	count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
 	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.app.ID, fresh.SourceKey)
@@ -507,7 +512,7 @@ func TestAppProfileChoiceMessageFirstWinsAndLeaseFencing(t *testing.T) {
 	require.NotEmpty(t, bound.MessageID)
 	require.NoError(t, f.store.RecordAppProfileChoiceMessage(f.ctx, f.project, f.appID, record.ID,
 		bound.MessageChannelID, bound.MessageID))
-	require.Equal(t, bound.UpdatedAt, f.readChoice(t, record.ID).UpdatedAt)
+	require.Equal(t, bound.Revision, f.readChoice(t, record.ID).Revision)
 	_, err = f.store.GetAppProfileChoice(f.ctx, uuid.New(), f.appID, record.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, uuid.New(), f.input.SourceKey)
@@ -597,7 +602,7 @@ func TestAppProfileChoiceCleanupSkipsLocksAndBoundsBatch(t *testing.T) {
 		record, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), input)
 		require.NoError(t, err)
 		require.True(t, created)
-		f.exec(t, `UPDATE app_profile_choices SET expires_at=now()-interval '8 days' WHERE id=$1`, record.ID)
+		f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE id=$1`, record.ID)
 		if i == 0 {
 			first = record.ID
 		}
@@ -605,21 +610,21 @@ func TestAppProfileChoiceCleanupSkipsLocksAndBoundsBatch(t *testing.T) {
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
-	_, err = tx.Exec(f.ctx, `SELECT id FROM app_profile_choices WHERE id=$1 FOR UPDATE`, first)
+	_, err = tx.Exec(f.ctx, `SELECT id FROM app_states WHERE id=$1 FOR UPDATE`, first)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
 	defer cancel()
 	for range 2 {
-		count, err := f.store.CleanupAppProfileChoices(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+		count, err := f.store.CleanupAppStates(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, count, "cleanup respects the requested batch size")
 		require.Equal(t, first, f.readChoice(t, first).ID, "cleanup skips a busy retained choice")
 	}
-	count, err := f.store.CleanupAppProfileChoices(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+	count, err := f.store.CleanupAppStates(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 	require.NoError(t, err)
 	require.Zero(t, count)
 	require.NoError(t, tx.Rollback(f.ctx))
-	count, err = f.store.CleanupAppProfileChoices(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+	count, err = f.store.CleanupAppStates(ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
 	_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, first)
@@ -686,4 +691,48 @@ func TestAppProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) {
 	receipt := f.decidedReceipt(t, chosen.ID)
 	require.NotEqual(t, chosen.OwnerReceiptID, receipt.ID, "decided work never acquires publication ownership")
 	require.Equal(t, files.Payload, receipt.Payload)
+}
+
+func TestAppProfileChoiceExpiresWhileWaitingForConversation(t *testing.T) {
+	t.Parallel()
+	f := newProfileChoiceFixture(t)
+	choice := f.menu(t)
+	input := f.chooseInput(t, choice, "support")
+	ctx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	defer cancel()
+	blocker, err := f.pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = blocker.Rollback(f.ctx) }()
+	require.NoError(t, lifecyclelock.EnterActiveProject(ctx, blocker, f.org, f.project))
+	require.NoError(t, dbsqlc.New(blocker).LockProjectAppLifecycleShared(ctx,
+		dbsqlc.LockProjectAppLifecycleSharedParams{AppID: f.appID}))
+	require.NoError(t, integrationstore.LockConversationTx(ctx, blocker, f.project, f.appID, choice.Address))
+	var blockerPID int32
+	require.NoError(t, blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID))
+	finished := make(chan error, 1)
+	go func() {
+		_, err := f.store.ChooseAppProfile(ctx, input)
+		finished <- err
+	}()
+	started := integrationdb.WaitForLockWaitBlockedBy(t, ctx, f.pool, "-- name: LockAppConversation ", blockerPID)
+	// Expire only after the selection has begun and is demonstrably blocked.
+	// Keep revision unchanged so rejection must come from the write-time deadline.
+	var deadline time.Time
+	require.NoError(t, blocker.QueryRow(ctx,
+		`UPDATE app_states SET expires_at=clock_timestamp() WHERE id=$1 RETURNING expires_at`, choice.ID).Scan(&deadline))
+	require.True(t, deadline.After(started), "transaction-start time would still consider this menu live")
+	require.NoError(t, blocker.Commit(ctx))
+	select {
+	case err := <-finished:
+		require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	case <-ctx.Done():
+		t.Fatal("selection did not finish after releasing its conversation lock")
+	}
+	choice.ExpiresAt = deadline
+	require.Equal(t, choice, f.readChoice(t, choice.ID), "rejected selection preserves the document and revision")
+	var queued int
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_inbox WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
+		f.project, f.appID, "choice:"+choice.ID.String()).Scan(&queued))
+	require.Zero(t, queued, "an expired selection cannot queue an agent launch")
 }
