@@ -1,4 +1,3 @@
-import { useOmnaraClient } from '@omnara/react'
 import type { ProjectApp } from '@omnara/sdk'
 
 import { Button } from '@/components/ui/button'
@@ -21,8 +20,6 @@ export function ProjectAppConnection({
   onConnected: (app: ProjectApp) => void
   onCancel?: () => void
 }) {
-  const client = useOmnaraClient()
-  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
   const reconnect = Boolean(app.provider_tenant_id)
   if (app.app_type === 'slack_thread')
     return (
@@ -54,14 +51,6 @@ export function ProjectAppConnection({
         onSaved={onConnected}
         onCancel={onCancel}
       />
-      {app.app_type === 'github_pr' && !reconnect && (
-        <p className="text-muted-foreground">
-          After connecting, point your GitHub App’s webhook at{' '}
-          <code className="break-all">{apiOrigin}/api/integrations/github/APP_ID/events</code>,
-          using your GitHub App ID, and subscribe it to pull requests, issue comments, and pull
-          request review comments.
-        </p>
-      )}
     </section>
   )
 }

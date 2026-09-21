@@ -9,12 +9,18 @@ export function AppCredentialFields({ appType }: { appType: AppType }) {
     return (
       <>
         <Field>
-          <FieldLabel htmlFor="private-key">RSA private key (PEM)</FieldLabel>
-          <Textarea id="private-key" name="privateKey" required spellCheck={false} />
-        </Field>
-        <Field>
           <FieldLabel htmlFor="webhook-secret">Webhook secret</FieldLabel>
           <Input id="webhook-secret" name="webhookSecret" type="password" required />
+        </Field>
+        <Field className="sm:col-span-2">
+          <FieldLabel htmlFor="private-key">RSA private key (PEM)</FieldLabel>
+          <Textarea
+            id="private-key"
+            name="privateKey"
+            className="font-mono"
+            required
+            spellCheck={false}
+          />
         </Field>
       </>
     )

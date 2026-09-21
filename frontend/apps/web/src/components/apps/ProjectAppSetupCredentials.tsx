@@ -3,7 +3,7 @@ import type { ProjectApp } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { CheckboxField, Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
@@ -35,26 +35,26 @@ export function ProjectAppSetupCredentials({
   return (
     <>
       {savedSecret ? (
-        <div className="flex flex-col gap-2 text-sm">
+        <div className="flex flex-col items-start gap-2 text-sm">
           <p>Credentials saved. Retry reuses the saved secret.</p>
-          <Button type="button" variant="outline" onClick={onChooseCredentials}>
+          <Button type="button" variant="outline" size="sm" onClick={onChooseCredentials}>
             Choose different credentials
           </Button>
         </div>
       ) : (
         <>
-          <label className="flex gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={newCredential}
-              onChange={(event) => {
-                onNewCredentialChange(event.target.checked)
-              }}
-            />
-            Create a new credential
-          </label>
+          <CheckboxField
+            className="items-start"
+            inputClassName="mt-0.5"
+            label="Create a new credential"
+            description="Uncheck to use a saved project credential."
+            checked={newCredential}
+            onChange={(event) => {
+              onNewCredentialChange(event.target.checked)
+            }}
+          />
           {newCredential ? (
-            <>
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="credential-name">Credential name</FieldLabel>
                 <Input
@@ -65,7 +65,7 @@ export function ProjectAppSetupCredentials({
                 />
               </Field>
               <AppCredentialFields appType={app.app_type} />
-            </>
+            </div>
           ) : (
             <Field>
               <FieldLabel htmlFor="saved-secret">Saved credential</FieldLabel>
@@ -78,7 +78,7 @@ export function ProjectAppSetupCredentials({
                 onChange={(event) => {
                   setSelectedSecret(event.target.value)
                 }}
-                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                className="control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm"
               >
                 <option value="">Choose a credential</option>
                 {app.credential_secret_id &&
@@ -103,6 +103,8 @@ export function ProjectAppSetupCredentials({
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
+                  className="self-start"
                   disabled={secretsQuery.isFetchingNextPage}
                   onClick={() => void secretsQuery.fetchNextPage()}
                 >

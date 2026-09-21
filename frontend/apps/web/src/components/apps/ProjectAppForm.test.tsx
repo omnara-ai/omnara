@@ -208,8 +208,40 @@ it.each(['github_pr', 'discord_thread'] as const)(
       provider_tenant_id: '111',
       provider_account_ref: '222',
     })
+    if (appType === 'discord_thread')
+      expect(
+        api.requestsTo('POST', path + '/apps/' + app.id + '/setup').at(-1)?.body,
+      ).toMatchObject({
+        provider_config: { shard_count: 4, public_key: 'ab'.repeat(32) },
+      })
   },
 )
+
+it('keeps the displayed account and endpoint aligned when another tab connects the app', async () => {
+  const app = projectApp({ app_type: 'discord_thread' })
+  const props = { orgId, projectId, onSaved: vi.fn() }
+  const { rerender } = render(fakeApi([]), <ProjectAppSetup {...props} app={app} />)
+  const value = (id: string) => container.querySelector<HTMLInputElement>(`#${id}`)?.value
+  expect(value('provider-endpoint')).toBe('')
+  expect(button('Copy').disabled).toBe(true)
+  await enter('Discord Application ID', '111')
+  await enter('Bot User ID', '222')
+  expect(value('provider-endpoint')).toBe(
+    'https://omnara.test/api/integrations/discord/111/interactions',
+  )
+  expect(button('Copy').disabled).toBe(false)
+  rerender(
+    <ProjectAppSetup
+      {...props}
+      app={{ ...app, state: 'active', provider_tenant_id: '333', provider_account_ref: '444' }}
+    />,
+  )
+  expect(value('provider-tenant')).toBe('333')
+  expect(value('provider-account')).toBe('444')
+  expect(value('provider-endpoint')).toBe(
+    'https://omnara.test/api/integrations/discord/333/interactions',
+  )
+})
 
 it('blocks a stale edit until explicitly reloaded', async () => {
   const app = projectApp({ app_type: 'github_pr' })
