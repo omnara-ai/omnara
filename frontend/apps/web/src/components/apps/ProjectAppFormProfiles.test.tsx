@@ -449,9 +449,6 @@ it.each(['saved channel', 'new launcher'] as const)(
       })
     }
     if (scenario === 'new launcher') {
-      act(() => {
-        container.querySelector<HTMLInputElement>('input[name="launcher"]')?.click()
-      })
       await chooseProfile('Support')
       expect(container.textContent).toContain('Workspace: T123')
       selectScope('channel')

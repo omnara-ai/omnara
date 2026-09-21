@@ -12,7 +12,7 @@ import { fakeId, projectApp } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, waitForUI } from '@/test/secret-editor'
 
-import { ConnectSlackDialog } from './ConnectSlackDialog'
+import { ConnectSlackForm } from './ConnectSlackForm'
 import { ProjectAppForm } from './ProjectAppForm'
 import { ProjectAppSetup } from './ProjectAppSetup'
 
@@ -211,13 +211,12 @@ it.each(['github_pr', 'discord_thread'] as const)(
   },
 )
 
-it('keeps app names read-only and blocks a stale edit until explicitly reloaded', async () => {
+it('blocks a stale edit until explicitly reloaded', async () => {
   const app = projectApp({ app_type: 'github_pr' })
   const next = { ...app, updated_at: '2026-09-20T00:00:00Z' }
   const api = fakeApi([])
   const props = { orgId, projectId, appType: 'github_pr' as const, onSaved: vi.fn() }
   const { rerender } = render(api, <ProjectAppForm {...props} app={app} />)
-  expect(container.querySelector<HTMLInputElement>('#app-name')?.readOnly).toBe(true)
   rerender(<ProjectAppForm {...props} app={next} />)
   expect(container.textContent).toContain('App changed. Reload settings')
   await submit()
@@ -280,16 +279,7 @@ it('posts Slack OAuth credentials to the named app and keeps setup failures acti
       respond: () => jsonResponse({ code: 'conflict', error: 'Try authorization again' }, 409),
     },
   ])
-  render(
-    api,
-    <ConnectSlackDialog
-      open
-      app={app}
-      orgId={orgId}
-      projectId={projectId}
-      onOpenChange={vi.fn()}
-    />,
-  )
+  render(api, <ConnectSlackForm app={app} orgId={orgId} projectId={projectId} />)
   await enter('Client ID', 'client')
   await enter('Client secret', 'secret')
   await enter('Signing secret', 'signature')
@@ -337,18 +327,10 @@ it('completes OAuth only for the exact app flow, not a previous active flow', as
         }),
     },
   ])
-  const onOpenChange = vi.fn(),
-    onConnected = vi.fn()
+  const onConnected = vi.fn()
   const { client } = render(
     api,
-    <ConnectSlackDialog
-      open
-      app={app}
-      orgId={orgId}
-      projectId={projectId}
-      onOpenChange={onOpenChange}
-      onConnected={onConnected}
-    />,
+    <ConnectSlackForm app={app} orgId={orgId} projectId={projectId} onConnected={onConnected} />,
   )
   await enter('Client ID', 'client')
   await enter('Client secret', 'secret')
@@ -378,7 +360,6 @@ it('completes OAuth only for the exact app flow, not a previous active flow', as
   await waitForUI(() => {
     expect(onConnected).toHaveBeenCalledOnce()
   })
-  expect(onOpenChange).toHaveBeenCalledWith(false)
 })
 
 it('keeps the reconnect credential selected when its fallback option is replaced by fetched secrets', async () => {

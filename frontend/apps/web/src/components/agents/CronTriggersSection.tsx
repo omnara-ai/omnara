@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
+import { cn } from '@/lib/utils'
 
 const nextFireFormatter = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
@@ -51,22 +52,33 @@ function appRunLabel(trigger: CronTrigger) {
   }
 }
 
-export function CronTriggersList({
-  orgId,
-  projectId,
-  canManage,
-  filters,
-  emptyMessage,
-  emptyState,
-}: {
+interface CronTriggersListProps {
   orgId: string
   projectId: string
   canManage: boolean
-  filters: CronTriggerListFilters
   emptyMessage: string
   emptyState?: ReactNode
-}) {
-  const query = useCronTriggers(orgId, projectId, { filters })
+  /** Borderless rows for pages that lay sections out flat. */
+  plain?: boolean
+}
+
+export function CronTriggersList({
+  filters,
+  ...props
+}: CronTriggersListProps & { filters: CronTriggerListFilters }) {
+  const query = useCronTriggers(props.orgId, props.projectId, { filters })
+  return <CronTriggersListContent {...props} query={query} />
+}
+
+export function CronTriggersListContent({
+  orgId,
+  projectId,
+  canManage,
+  emptyMessage,
+  emptyState,
+  plain = false,
+  query,
+}: CronTriggersListProps & { query: ReturnType<typeof useCronTriggers> }) {
   const triggers = useInfiniteQueryItems(query)
   const updateTrigger = useUpdateCronTrigger(orgId, projectId)
   const deleteTrigger = useDeleteCronTrigger(orgId, projectId)
@@ -75,9 +87,17 @@ export function CronTriggersList({
   return (
     <div className="flex flex-col gap-2">
       {triggers.length > 0 ? (
-        <ul className="bg-background flex flex-col divide-y rounded-md border">
+        <ul
+          className={cn(
+            'flex flex-col divide-y',
+            plain ? 'border-y' : 'bg-background rounded-md border',
+          )}
+        >
           {triggers.map((trigger) => (
-            <li key={trigger.id} className="flex items-center justify-between gap-3 px-3 py-2">
+            <li
+              key={trigger.id}
+              className={cn('flex items-center justify-between gap-3 py-2', !plain && 'px-3')}
+            >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <div className="flex min-w-0 items-center gap-2 text-sm">
                   <Tooltip>
@@ -210,11 +230,14 @@ export function CronTriggersList({
           </Button>
         </div>
       ) : (
-        (emptyState ?? (
+        (emptyState ??
+        (plain ? (
+          <p className="text-muted-foreground text-sm">{emptyMessage}</p>
+        ) : (
           <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
             {emptyMessage}
           </div>
-        ))
+        )))
       )}
       {query.hasNextPage && (
         <Button

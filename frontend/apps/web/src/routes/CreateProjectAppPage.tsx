@@ -46,7 +46,7 @@ export function CreateProjectAppPage() {
             <header className="flex flex-col gap-2">
               <h1 className="type-title">Add app</h1>
               <p className="text-muted-foreground text-sm">
-                Choose an app, name it, then connect your account.
+                Choose an app to connect to your agents.
               </p>
             </header>
             <AppCatalog orgId={activeOrg.id} projectId={projectId} />
@@ -79,7 +79,7 @@ function AppSetup({
   if (!query.data.data.some((app) => app.app_type === appType))
     return <p role="alert">This app is unavailable.</p>
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
+    <div className="flex w-full max-w-2xl flex-col gap-8">
       <header className="flex flex-col gap-2">
         <Link
           className="text-muted-foreground text-sm hover:underline"
@@ -101,6 +101,7 @@ function AppSetup({
         onSaved={(app) =>
           void navigate({
             to: '/projects/$projectId/apps/$appId',
+            replace: true,
             params: { projectId, appId: app.id },
           })
         }

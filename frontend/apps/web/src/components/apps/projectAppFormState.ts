@@ -68,8 +68,13 @@ export function projectAppFormRequest(
     app_type: app?.app_type ?? appType,
     settings: {},
   }
-  if (!values.launcher) return request
-  if (!app) throw new Error('Create and connect this app before choosing launch settings.')
+  if (!app || (appType === 'github_pr' && !values.launcher)) return request
+  const retainedSlots =
+    app.settings.launcher?.slots.filter(
+      (slot) => Boolean(slot.agent_id) || !slot.agent_profile_id,
+    ) ?? []
+  if (appType !== 'github_pr' && values.profileIds.length === 0 && retainedSlots.length === 0)
+    return request
   const initial = projectAppFormValues(appType, app)
   const existing = app.settings.launcher
   const scopeRef = values.scopeRef.trim()

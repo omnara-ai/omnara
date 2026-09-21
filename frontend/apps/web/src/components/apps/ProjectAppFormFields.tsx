@@ -26,43 +26,53 @@ interface LauncherFieldsProps {
 }
 
 export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
-  const { values, onChange, appType, app } = props
+  const { values, onChange, appType } = props
   return (
     <Field>
-      <label className="flex gap-2 text-sm font-medium">
-        <input
-          type="checkbox"
-          name="launcher"
-          checked={values.launcher}
-          onChange={(event) => {
-            onChange({ launcher: event.target.checked })
-          }}
-        />
-        Launch agents from {appType === 'github_pr' ? 'GitHub events' : 'mentions'}
-      </label>
-      <FieldDescription>
-        {values.launcher
-          ? 'Choose when to launch and which profiles to use. Changes apply to future launches.'
-          : appType === 'github_pr'
-            ? 'This event launcher is off.'
-            : 'Mention launches are off. Schedules are managed separately.'}
-        {app?.settings.launcher &&
-          !values.launcher &&
-          ' Saving removes this launcher and all of its launch slots.'}
-      </FieldDescription>
-      {values.launcher && (
+      {appType === 'github_pr' ? (
+        <>
+          <label className="flex gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              name="launcher"
+              checked={values.launcher}
+              onChange={(event) => {
+                onChange({ launcher: event.target.checked })
+              }}
+            />
+            Launch agents from GitHub events
+          </label>
+          <FieldDescription>
+            Choose when to launch and which profile to use. Changes apply to future launches.
+            {props.app?.settings.launcher &&
+              !values.launcher &&
+              ' Saving removes this launcher and all of its launch slots.'}
+          </FieldDescription>
+        </>
+      ) : (
+        <FieldDescription>
+          Mentions start an agent using the profiles below. Leave the selection empty to use only
+          schedules. Existing conversations continue unchanged.
+          {props.app?.settings.launcher &&
+            props.slotCount === 0 &&
+            ' Saving removes the mention launcher and its channel selection.'}
+        </FieldDescription>
+      )}
+      {(appType !== 'github_pr' || values.launcher) && (
         <>
           {appType === 'github_pr' && (
             <GitHubLaunchTrigger value={values.trigger} onChange={onChange} />
           )}
-          <ProjectAppLauncherScopeFields
-            appType={appType}
-            app={app}
-            values={values}
-            onChange={onChange}
-            workspaceId={props.workspaceId}
-          />
           <ProjectAppLaunchProfiles {...props} />
+          {(values.profileIds.length > 0 || props.slotCount !== 0) && (
+            <ProjectAppLauncherScopeFields
+              appType={appType}
+              app={props.app}
+              values={values}
+              onChange={onChange}
+              workspaceId={props.workspaceId}
+            />
+          )}
         </>
       )}
     </Field>

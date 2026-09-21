@@ -1,22 +1,29 @@
+import { useCronTriggers } from '@omnara/react'
 import type { ProjectApp } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
-import { CronTriggersList } from '@/components/agents/CronTriggersSection'
+import { CronTriggersListContent } from '@/components/agents/CronTriggersSection'
 import { Button } from '@/components/ui/button'
+import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
 export function ProjectAppSchedules({
   orgId,
   projectId,
   app,
   canManage,
+  hideWhenEmpty = false,
 }: {
   orgId: string
   projectId: string
   app: ProjectApp
   canManage: boolean
+  hideWhenEmpty?: boolean
 }) {
   const [creating, setCreating] = useState(false)
+  const query = useCronTriggers(orgId, projectId, { filters: { app_id: app.id } })
+  const schedules = useInfiniteQueryItems(query)
+  if (hideWhenEmpty && !schedules.length && !query.isError) return null
   return (
     <section aria-label="Schedules" className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -35,20 +42,21 @@ export function ProjectAppSchedules({
         )}
       </div>
       <p className="text-muted-foreground text-sm">
-        Launch a fresh agent in a new channel thread on each run. Schedules work independently of
-        mention launches; you can use either or both.
+        Start a fresh agent in a new channel thread on each run. Schedules work independently of
+        mentions.
       </p>
       {app.state !== 'active' && (
         <p className="text-muted-foreground text-sm">
           Connect this app before creating schedules or running scheduled agents.
         </p>
       )}
-      <CronTriggersList
+      <CronTriggersListContent
         orgId={orgId}
         projectId={projectId}
         canManage={canManage}
-        filters={{ app_id: app.id }}
+        query={query}
         emptyMessage="No schedules yet."
+        plain
       />
       {canManage && app.state === 'active' && creating && (
         <CreateCronTriggerDialog

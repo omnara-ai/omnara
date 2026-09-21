@@ -11,7 +11,21 @@ export async function exerciseDiscordAppSchedule(
   apiProjectPath: string,
 ) {
   expect(app.provider_config).toEqual({ public_key: 'ab'.repeat(32), shard_count: 4 })
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const mentions = page.getByRole('region', { name: 'Mentions', exact: true })
+  await expect(
+    mentions.getByRole('combobox', { name: 'Offered profiles', exact: true }),
+  ).toBeVisible()
+  await expect(mentions).toContainText('0/16 selected')
+  const savedSettings = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith(`/apps/${app.id}`),
+  )
+  await mentions.getByRole('button', { name: 'Save changes', exact: true }).click()
+  const saved = await savedSettings
+  expect(saved.status()).toBe(200)
+  expect(schemas.zProjectApp.parse(await saved.json()).settings.launcher).toBeUndefined()
+  await expect(mentions.getByRole('button', { name: 'Choose profiles', exact: true })).toBeVisible()
   const name = `${app.name} schedule`
   const schedules = page.getByRole('region', { name: 'Schedules', exact: true })
   await schedules.getByRole('button', { name: 'Add schedule', exact: true }).click()
@@ -104,5 +118,5 @@ export async function exerciseDiscordAppSchedule(
   await expect(schedules.getByText('No schedules yet.', { exact: true })).toBeVisible()
   // Schedules can be managed before enabling mention launches.
   expect((await readApp(page, apiProjectPath, app.id)).settings.launcher).toBeUndefined()
-  await page.getByRole('button', { name: 'Edit settings', exact: true }).click()
+  await mentions.getByRole('button', { name: 'Choose profiles', exact: true }).click()
 }

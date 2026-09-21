@@ -26,6 +26,8 @@ export function useProjectApp(orgID: string, projectID: string, appID: string) {
   return useQuery({
     ...getProjectAppOptions({ path: { orgID, projectID, appID }, client }),
     enabled: appID !== '',
+    // OAuth setup and settings can change in another tab, even while this read is fresh.
+    refetchOnWindowFocus: 'always',
   })
 }
 

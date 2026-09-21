@@ -55,6 +55,11 @@ Anyone in the conversation can choose. Menus expire after an hour, and follow-up
 messages sent before the choice may be missed. Edit offered profiles for future
 requests without changing existing conversations.
 
+Selecting profiles enables mention launches; there is no separate enable switch.
+Leave the selection empty to use only scheduled launches. Removing the last
+profile removes the mention launcher, without affecting schedules or existing
+conversations.
+
 A launch derives a config with read/post tools and a Slack interaction handler,
 and attaches a thread subscription before the first input. Existing explicit
 config entries are preserved. Thread

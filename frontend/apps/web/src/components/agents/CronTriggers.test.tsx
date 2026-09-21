@@ -109,6 +109,7 @@ afterEach(() => {
   cache.clear()
   container.remove()
   restore()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -466,9 +467,82 @@ it.each([
       remove.click()
     })
     await waitForUI(() => {
-      expect(container.textContent).toContain('No schedules yet.')
+      expect(container.textContent).not.toContain(saved.name)
+      if (state === 'active') expect(container.textContent).toContain('No schedules yet.')
+      else expect(container.querySelector('[aria-label="Schedules"]')).toBeNull()
     })
     expect(api.requestsTo('DELETE', cronPath + '/' + saved.id)).toHaveLength(1)
+  },
+)
+
+it.each([false, true])(
+  'keeps a draft schedule error visible without refetching until retry (hasSchedules=%s)',
+  async (hasSchedules) => {
+    vi.useFakeTimers()
+    const app = projectApp()
+    const saved = trigger()
+    let currentApp = app
+    let recovered = false
+    const api = fakeApi([
+      ...profileRoutes,
+      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(currentApp) },
+      {
+        method: 'GET',
+        path: path + '/apps/' + app.id + '/subscriptions',
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+      {
+        method: 'GET',
+        path: cronPath,
+        respond: () =>
+          recovered
+            ? Response.json({ data: hasSchedules ? [saved] : [], next_cursor: null })
+            : jsonResponse({ code: 'internal_error', error: 'Try again' }, 500),
+      },
+    ])
+    render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+    await waitForUI(() => {
+      expect(container.querySelector('[aria-label="Schedules"]')?.textContent).toContain(
+        'load schedules',
+      )
+      expect(button('Retry')).toBeDefined()
+    })
+    // Give any mount/refetch cycle time to run; the failed query must stay idle instead.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(api.requestsTo('GET', cronPath)).toHaveLength(1)
+    expect(button('Retry')).toBeDefined()
+    recovered = true
+    act(() => {
+      button('Retry').click()
+    })
+    await waitForUI(() => {
+      expect(api.requestsTo('GET', cronPath)).toHaveLength(2)
+      expect(cache.isFetching()).toBe(0)
+      if (hasSchedules) {
+        expect(container.textContent).toContain(saved.name)
+        expect(button('Add schedule').disabled).toBe(true)
+      } else {
+        expect(container.querySelector('[aria-label="Schedules"]')).toBeNull()
+      }
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(api.requestsTo('GET', cronPath)).toHaveLength(2)
+    currentApp = { ...app, state: 'active', provider_tenant_id: 'T123' }
+    await act(async () => {
+      await cache.invalidateQueries()
+    })
+    await waitForUI(() => {
+      expect(button('Add schedule').disabled).toBe(false)
+      expect(container.querySelector('[aria-label="Schedules"]')?.textContent).toContain(
+        hasSchedules ? saved.name : 'No schedules yet.',
+      )
+    })
+    expect(api.requestsTo('GET', cronPath)).toHaveLength(3)
+    expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
   },
 )
 

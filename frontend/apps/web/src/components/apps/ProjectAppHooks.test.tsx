@@ -9,7 +9,7 @@ import {
   useProjectApp,
 } from '@omnara/react'
 import { createOmnaraClient, type CronTrigger } from '@omnara/sdk'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -38,6 +38,7 @@ afterEach(() => {
     root.unmount()
   })
   cache.clear()
+  focusManager.setFocused(undefined)
   container.remove()
   restore()
 })
@@ -138,6 +139,38 @@ it('uses app setup and disconnect responses to refresh the same detail cache', a
     expect(container.querySelector('output')?.textContent).toBe('disconnected/3')
   })
   expect(api.requestsTo('GET', path + '/apps/' + app.id)).toHaveLength(1)
+})
+
+it('refreshes app details on tab focus even within the 30-second freshness window', async () => {
+  cache.setDefaultOptions({ queries: { retry: false, staleTime: 30_000 } })
+  let current = app
+  const appPath = path + '/apps/' + app.id
+  const api = fakeApi([{ method: 'GET', path: appPath, respond: () => Response.json(current) }])
+  render(api, <Setup />)
+  await waitForUI(() => {
+    expect(container.querySelector('output')?.textContent).toBe('disconnected/1')
+  })
+  act(() => {
+    focusManager.setFocused(false)
+  })
+  // Another tab completes OAuth while this tab still considers its cached read fresh.
+  current = {
+    ...app,
+    state: 'active',
+    setup_revision: 2,
+    provider_tenant_id: 'T123',
+    provider_account_ref: 'A123',
+  }
+  expect(cache.getQueryCache().getAll()[0]?.isStale()).toBe(false)
+  expect(api.requestsTo('GET', appPath)).toHaveLength(1)
+  act(() => {
+    focusManager.setFocused(true)
+  })
+  await waitForUI(() => {
+    expect(container.querySelector('output')?.textContent).toBe('active/2')
+  })
+  expect(api.requestsTo('GET', appPath)).toHaveLength(2)
+  expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
 const otherProjectID = `proj_${'b'.repeat(26)}`

@@ -1,5 +1,7 @@
+import { generateKeyPairSync } from 'node:crypto'
+
 import { type AppType, type ProjectApp, schemas, zJsonText } from '@omnara/sdk'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Page, type Request } from '@playwright/test'
 import { z } from 'zod'
 
 /** Browser-side OAuth result fixture; callback persistence is covered by Go integration tests. */
@@ -106,7 +108,7 @@ export async function createAppDraft(
     (response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/apps'),
   )
-  await page.getByRole('button', { name: 'Create app', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue to connection', exact: true }).click()
   const response = await saved
   expect(response.status()).toBe(201)
   expect(response.request().postDataJSON()).toEqual({
@@ -118,9 +120,14 @@ export async function createAppDraft(
   expect(app.state).toBe('disconnected')
   expect(app.credential_secret_id).toBeUndefined()
   await expect(page).toHaveURL(`/projects/${projectID}/apps/${app.id}`)
-  await expect(page.getByText(/Finish setup: connect an account/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Connect account', exact: true })).toBeVisible()
-  await expectAppCapabilities(page, app)
+  await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('region', {
+      name: appType === 'slack_thread' ? 'Connect Slack' : 'Connection',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   return { app, apiProjectPath: response.url().replace(/\/apps$/, '') }
 }
 
@@ -173,6 +180,89 @@ export async function fillProviderAccount(
     .fill('222')
 }
 
+export async function connectAppWithCredentialRetry(
+  page: Page,
+  draft: ProjectApp,
+  apiProjectPath: string,
+  failures: string[],
+) {
+  const appType = draft.app_type
+  if (appType === 'slack_thread') throw new Error('Slack setup requires OAuth')
+  // The saved detail is the setup checkpoint, including after a reload.
+  await page.reload()
+  await expect(page).toHaveURL(`/projects/${draft.project_id}/apps/${draft.id}`)
+  await expect(page.getByRole('region', { name: 'Connection', exact: true })).toBeVisible()
+  // Only provider verification is replaced; the draft and secret use the real API.
+  await mockVerifiedAppSetup(page, apiProjectPath, appType)
+  let credentialCreates = 0
+  const trackCredential = (request: Request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/secrets'))
+      credentialCreates++
+  }
+  page.on('request', trackCredential)
+  await fillProviderAccount(page, appType)
+  if (appType === 'github_pr') {
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    })
+    await page.getByLabel('RSA private key (PEM)').fill(privateKey)
+    await page.getByLabel('Webhook secret').fill('local-github-webhook-secret')
+  } else {
+    await page.getByLabel('Bot token', { exact: true }).fill('local-discord-token')
+    await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
+    await page.getByLabel('Gateway shards', { exact: true }).fill('4')
+  }
+  await page.route(
+    `**/apps/${draft.id}/setup`,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: { code: 'conflict', error: 'Verification failed; try again' },
+      }),
+    { times: 1 },
+  )
+  const setupResponse = () =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith(`/apps/${draft.id}/setup`),
+    )
+  const failedSetup = setupResponse()
+  await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+  const failed = await failedSetup
+  expect(failed.status()).toBe(409)
+  await expect(page.getByRole('alert')).toContainText('Verification failed; try again')
+  await expect(page.getByText('Credentials saved. Retry reuses the saved secret.')).toBeVisible()
+  await expect(page).toHaveURL(`/projects/${draft.project_id}/apps/${draft.id}`)
+  expect(failures.splice(0)).toEqual([`response: 409 ${new URL(failed.url()).pathname}`])
+  const configured = setupResponse()
+  await page.getByRole('button', { name: 'Connect app', exact: true }).click()
+  expect((await configured).status()).toBe(200)
+  await expect(page).toHaveURL(`/projects/${draft.project_id}/apps/${draft.id}`)
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Connection', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const app = await readApp(page, apiProjectPath, draft.id)
+  expect(app).toMatchObject({
+    id: draft.id,
+    name: draft.name,
+    app_type: appType,
+    provider_tenant_id: '111',
+    provider_account_ref: '222',
+    state: 'active',
+  })
+  const attempt = schemas.zConfigureProjectAppRequest.parse(failed.request().postDataJSON())
+  expect(attempt.credential_secret_id).toBe(app.credential_secret_id)
+  expect(credentialCreates).toBe(1)
+  page.off('request', trackCredential)
+  expect(JSON.stringify(app)).not.toContain(
+    appType === 'github_pr' ? 'PRIVATE KEY' : 'local-discord-token',
+  )
+  return app
+}
+
 export function expectSlackAuthorization(oauthURL: string, browserOrigin: string) {
   const oauth = new URL(oauthURL)
   expect(oauth.hostname).toBe('slack.com')
@@ -185,12 +275,26 @@ export function expectSlackAuthorization(oauthURL: string, browserOrigin: string
 }
 
 export async function expectAppCapabilities(page: Page, app: ProjectApp) {
-  const capabilities = page.getByRole('region', { name: 'Capabilities', exact: true })
+  const capabilities = page.getByRole('region', { name: 'Advanced', exact: true })
+  const disclosure = capabilities.getByRole('button', { name: 'Advanced', exact: true })
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  await disclosure.click()
   await expect(capabilities.getByText(`app__${app.name}__read`, { exact: true })).toBeVisible()
   const subscription = app.app_type === 'github_pr' ? 'pull_request' : 'thread_messages'
   await expect(capabilities.getByText(subscription, { exact: true })).toBeVisible()
   if (app.app_type !== 'github_pr')
-    await expect(capabilities.getByText(app.name, { exact: true })).toBeVisible()
+    await expect(
+      capabilities.getByText(/Listed under/).getByText(app.name, { exact: true }),
+    ).toBeVisible()
+  // Opening Advanced starts the monospace font load; finish it before navigating away.
+  const readTool = capabilities.getByText(`app__${app.name}__read`, { exact: true })
+  expect(
+    await readTool.evaluate(async (element) => {
+      const font = getComputedStyle(element).font
+      await document.fonts.ready
+      return document.fonts.check(font, element.textContent)
+    }),
+  ).toBe(true)
 }
 
 export async function expectInteractionToolMenu(page: Page) {

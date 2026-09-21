@@ -84,6 +84,7 @@ export async function exerciseAppConversations(
   const second = zJsonText.pipe(schemas.zAppSubscription).parse(attached.body)
   await page.goto(`/projects/${app.project_id}/apps/${app.id}`)
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
+  await expect(section).toBeVisible()
   await expect(section.getByRole('listitem')).toHaveCount(2)
   const agentLinks = section.getByRole('link', { name: agent.name, exact: true })
   await expect(agentLinks).toHaveCount(2)
@@ -141,6 +142,7 @@ export async function stopDisconnectedConversation(
   apiProjectPath: string,
 ) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
+  await expect(section).toBeVisible()
   await expect(section).toContainText('Forwarding is paused')
   await auditConversationLayout(page, app.app_type, 'disconnected')
   await stopConversation(page, app, subscription, apiProjectPath)

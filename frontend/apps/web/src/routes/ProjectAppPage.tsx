@@ -1,17 +1,20 @@
 import { useProjectApp } from '@omnara/react'
 import { ApiError, type ProjectApp } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { appCatalog } from '@/components/apps/appDefinitions'
-import { ConnectSlackDialog } from '@/components/apps/ConnectSlackDialog'
+import { ProjectAppAdvanced } from '@/components/apps/ProjectAppAdvanced'
+import { ProjectAppConnection } from '@/components/apps/ProjectAppConnection'
 import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
-import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
 import { ProjectAppHeader } from '@/components/apps/ProjectAppHeader'
+import { ProjectAppLaunch } from '@/components/apps/ProjectAppLaunch'
 import { ProjectAppSchedules } from '@/components/apps/ProjectAppSchedules'
-import { ProjectAppSetup } from '@/components/apps/ProjectAppSetup'
-import { ProjectAppSummary } from '@/components/apps/ProjectAppSummary'
-import { SlackOAuthOutcomeDialog } from '@/components/apps/SlackOAuthOutcomeDialog'
+import {
+  type SlackOAuthOutcome,
+  useSlackOAuthOutcome,
+} from '@/components/apps/useSlackOAuthOutcome'
+import { CircleCheck } from '@/components/icons'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -20,7 +23,7 @@ export function ProjectAppPage() {
   const { projectId = '', appId = '' } = useParams({ strict: false })
   return (
     <ProjectPageFrame
-      title="App settings"
+      title="App"
       breadcrumbs={[
         { id: 'apps', label: 'Apps', to: '/projects/$projectId/apps', params: { projectId } },
       ]}
@@ -49,6 +52,7 @@ export function ProjectAppDetail({
   appId: string
   canManage: boolean
 }) {
+  const { outcome: oauth, clear: clearOAuth } = useSlackOAuthOutcome(appId)
   const query = useProjectApp(orgId, projectId, appId)
   if (query.isPending) return <Spinner className="size-4" />
   const unavailable =
@@ -57,6 +61,7 @@ export function ProjectAppDetail({
     return (
       <div role="alert" className="flex flex-col gap-3">
         <p>Could not load this app. It may have been removed, or you may not have access.</p>
+        {oauth?.kind === 'error' && <p>{oauth.description}</p>}
         <Button className="self-start" variant="outline" onClick={() => void query.refetch()}>
           Retry
         </Button>
@@ -70,6 +75,8 @@ export function ProjectAppDetail({
       orgId={orgId}
       projectId={projectId}
       app={query.data}
+      oauth={oauth}
+      onOAuthCleared={clearOAuth}
       canManage={canManage}
       refreshFailed={query.isError}
       onRefresh={() => void query.refetch()}
@@ -84,6 +91,8 @@ function ProjectAppSettings({
   canManage,
   refreshFailed,
   onRefresh,
+  oauth,
+  onOAuthCleared,
 }: {
   orgId: string
   projectId: string
@@ -91,99 +100,150 @@ function ProjectAppSettings({
   canManage: boolean
   refreshFailed: boolean
   onRefresh: () => void
+  oauth: SlackOAuthOutcome | null
+  onOAuthCleared: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [connecting, setConnecting] = useState(false)
   const navigate = useNavigate()
   const appType = app.app_type
-  const supported = appCatalog.some((definition) => definition.appType === appType)
-  const viewing = !editing && !connecting
+  const chat = appType === 'slack_thread' || appType === 'discord_thread'
+  const canSetUp = canManage && appCatalog.some((definition) => definition.appType === appType)
+  // A never-connected app is still in setup: connecting it is the whole page.
+  const draft = app.state === 'disconnected' && !app.provider_tenant_id
+  const [connecting, setConnecting] = useState(canSetUp && draft)
+  const [connected, setConnected] = useState(oauth?.kind === 'success')
+  const [editing, setEditing] = useState(
+    canSetUp && oauth?.kind === 'success' && !app.settings.launcher,
+  )
+  // Keep setup mounted until its own authorization flow finishes, even if another flow
+  // activates the app first. The Slack form also refreshes the apps list before completing.
+  const finishConnection = useCallback(
+    (savedApp: ProjectApp) => {
+      setConnecting(false)
+      setConnected(true)
+      if (canSetUp && !savedApp.settings.launcher) setEditing(true)
+      onOAuthCleared()
+    },
+    [canSetUp, onOAuthCleared],
+  )
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
-      <ProjectAppHeader
-        orgId={orgId}
-        projectId={projectId}
-        app={app}
-        canManage={canManage}
-        viewing={viewing}
-        onConnect={() => {
-          setConnecting(true)
-        }}
-        onEdit={() => {
-          setEditing(true)
-        }}
-        onRemoved={() => void navigate({ to: '/projects/$projectId/apps', params: { projectId } })}
-      />
-      {refreshFailed && (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
-          Could not refresh this app. Your current edits are kept.
-          <Button size="sm" variant="outline" onClick={onRefresh}>
-            Retry refresh
-          </Button>
-        </div>
-      )}
-      {connecting &&
-        supported &&
-        canManage &&
-        (appType === 'slack_thread' ? (
-          <ConnectSlackDialog
-            open
-            app={app}
-            orgId={orgId}
-            projectId={projectId}
-            onOpenChange={setConnecting}
-            onConnected={() => {
-              setEditing(true)
-            }}
-          />
-        ) : (
-          <ProjectAppSetup
-            orgId={orgId}
-            projectId={projectId}
-            app={app}
-            onSaved={() => {
-              setConnecting(false)
-              setEditing(true)
-            }}
-            onCancel={() => {
-              setConnecting(false)
-            }}
-          />
-        ))}
-      {editing && supported && canManage ? (
-        <>
-          <p className="text-muted-foreground text-sm">
-            Changes apply to future launches and configurations. Existing agents keep their current
-            capabilities.
-          </p>
-          <ProjectAppForm
-            orgId={orgId}
-            projectId={projectId}
-            appType={appType}
-            app={app}
-            onSaved={() => {
-              setEditing(false)
-            }}
-            onCancel={() => {
-              setEditing(false)
-            }}
-          />
-        </>
-      ) : (
-        !connecting && <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />
-      )}
-      {viewing && (
-        <ProjectAppConversations
+    <div className="flex w-full max-w-2xl flex-col gap-10">
+      <div className="flex flex-col gap-4">
+        <ProjectAppHeader
           orgId={orgId}
           projectId={projectId}
           app={app}
           canManage={canManage}
+          onReconnect={
+            canSetUp && app.state === 'active' && !connecting
+              ? () => {
+                  setConnecting(true)
+                }
+              : undefined
+          }
+          onRemoved={() =>
+            void navigate({ to: '/projects/$projectId/apps', params: { projectId } })
+          }
+        />
+        {refreshFailed && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+            Could not refresh this app. Your current edits are kept.
+            <Button size="sm" variant="outline" onClick={onRefresh}>
+              Retry refresh
+            </Button>
+          </div>
+        )}
+        {oauth?.kind === 'error' && (
+          <p role="alert" className="text-destructive text-sm">
+            Slack setup didn’t finish. {oauth.description}
+          </p>
+        )}
+        {connected && app.state === 'active' && (
+          <ConnectedNotice app={app} chooseNext={canSetUp && !app.settings.launcher} />
+        )}
+        {draft && !canSetUp && (
+          <p className="text-muted-foreground text-sm">
+            Setup isn’t finished. Ask a project administrator to connect this app.
+          </p>
+        )}
+        {!draft && app.state === 'disconnected' && (
+          <div className="flex flex-col items-start gap-3 text-sm">
+            <p className="text-muted-foreground">
+              This app is disconnected. {chat ? 'Mentions, schedules' : 'Launches'} and conversation
+              forwarding are paused; settings, agents and history are kept.
+            </p>
+            {canSetUp && !connecting && (
+              <Button
+                onClick={() => {
+                  setConnecting(true)
+                }}
+              >
+                Reconnect account
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      {canSetUp && connecting && (
+        <ProjectAppConnection
+          orgId={orgId}
+          projectId={projectId}
+          app={app}
+          onConnected={finishConnection}
+          onCancel={
+            draft
+              ? undefined
+              : () => {
+                  setConnecting(false)
+                }
+          }
         />
       )}
-      {viewing && (appType === 'slack_thread' || appType === 'discord_thread') && (
-        <ProjectAppSchedules orgId={orgId} projectId={projectId} app={app} canManage={canManage} />
+      {!draft && (
+        <ProjectAppLaunch
+          orgId={orgId}
+          projectId={projectId}
+          app={app}
+          canEdit={canSetUp}
+          editing={editing}
+          onEditingChange={(next) => {
+            setEditing(next)
+            if (!next) setConnected(false)
+          }}
+        />
       )}
-      <SlackOAuthOutcomeDialog />
+      {chat && (
+        <ProjectAppSchedules
+          orgId={orgId}
+          projectId={projectId}
+          app={app}
+          canManage={canManage}
+          hideWhenEmpty={draft}
+        />
+      )}
+      <ProjectAppConversations
+        orgId={orgId}
+        projectId={projectId}
+        app={app}
+        canManage={canManage}
+        hideWhenEmpty={draft}
+      />
+      {!draft && <ProjectAppAdvanced app={app} />}
     </div>
+  )
+}
+
+function ConnectedNotice({ app, chooseNext }: { app: ProjectApp; chooseNext: boolean }) {
+  const chat = app.app_type !== 'github_pr'
+  return (
+    <p role="status" className="flex items-start gap-2 text-sm">
+      <CircleCheck className="text-primary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <span>
+        Account connected.
+        {chooseNext &&
+          (chat
+            ? ' Choose which agents people can start by mentioning the bot, or add a schedule instead.'
+            : ' Configure when agents start for pull requests. Your GitHub App’s webhook URL is under Advanced.')}
+      </span>
+    </p>
   )
 }

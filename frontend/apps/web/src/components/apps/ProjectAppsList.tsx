@@ -6,10 +6,19 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
+import { AppCatalog } from './AppCatalog'
 import { appTypeLabel } from './appDefinitions'
 import { AppIcon } from './AppIcon'
 
-export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId: string }) {
+export function ProjectAppsList({
+  orgId,
+  projectId,
+  canManage = false,
+}: {
+  orgId: string
+  projectId: string
+  canManage?: boolean
+}) {
   const query = useProjectApps(orgId, projectId)
   const apps = useInfiniteQueryItems(query)
   if (query.isPending) return <Spinner className="size-4" />
@@ -24,9 +33,11 @@ export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId
     )
   return (
     <div className="flex flex-col gap-3">
-      {apps.length === 0 ? (
+      {apps.length === 0 && canManage ? (
+        <AppCatalog orgId={orgId} projectId={projectId} />
+      ) : apps.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
-          No apps yet. Add an app to connect this project to Slack, Discord, or GitHub.
+          No apps yet. Ask a project administrator to add one.
         </p>
       ) : (
         <ul className="divide-y rounded-lg border">

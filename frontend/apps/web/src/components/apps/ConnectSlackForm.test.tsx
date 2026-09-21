@@ -10,10 +10,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, projectApp } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, enter, waitForUI } from '@/test/secret-editor'
+import { enter, waitForUI } from '@/test/secret-editor'
 
-import { ConnectSlackDialog } from './ConnectSlackDialog'
-import { SlackOAuthOutcomeDialog } from './SlackOAuthOutcomeDialog'
+import { ConnectSlackForm } from './ConnectSlackForm'
 
 let root: Root, container: HTMLDivElement, cache: QueryClient, restore: () => void
 beforeEach(() => {
@@ -78,19 +77,16 @@ it.each(['changed', 'deleted'] as const)(
       },
     ])
     const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-    const onConnected = vi.fn(),
-      onOpenChange = vi.fn()
+    const onConnected = vi.fn()
     act(() => {
       root.render(
         <OmnaraClientProvider client={client}>
           <QueryClientProvider client={cache}>
-            <ConnectSlackDialog
-              open
+            <ConnectSlackForm
               app={app}
               orgId={orgId}
               projectId={projectId}
               onConnected={onConnected}
-              onOpenChange={onOpenChange}
             />
           </QueryClientProvider>
         </OmnaraClientProvider>,
@@ -114,7 +110,7 @@ it.each(['changed', 'deleted'] as const)(
     })
     expect(document.body.textContent).not.toContain('Authorize in Slack')
     expect(onConnected).not.toHaveBeenCalled()
-    expect(onOpenChange).not.toHaveBeenCalled()
+
     const reads = api.requestsTo('GET', path).length
     expect(reads).toBeGreaterThan(0)
     await act(async () => {
@@ -178,19 +174,16 @@ it.each(['complete', 'invalidate'] as const)(
       }),
       cached,
     )
-    const onConnected = vi.fn(),
-      onOpenChange = vi.fn()
+    const onConnected = vi.fn()
     act(() => {
       root.render(
         <OmnaraClientProvider client={client}>
           <QueryClientProvider client={cache}>
-            <ConnectSlackDialog
-              open
+            <ConnectSlackForm
               app={cached}
               orgId={orgId}
               projectId={projectId}
               onConnected={onConnected}
-              onOpenChange={onOpenChange}
             />
           </QueryClientProvider>
         </OmnaraClientProvider>,
@@ -232,7 +225,6 @@ it.each(['complete', 'invalidate'] as const)(
       expect(reads).toBe(2)
       if (outcome === 'complete') {
         expect(onConnected).toHaveBeenCalledOnce()
-        expect(onOpenChange).toHaveBeenCalledWith(false)
       } else {
         expect(document.querySelector('[role="alert"]')?.textContent).toContain(
           'setup changed while authorization was open',
@@ -244,34 +236,5 @@ it.each(['complete', 'invalidate'] as const)(
       await vi.advanceTimersByTimeAsync(10_000)
     })
     expect(reads).toBe(2)
-  },
-)
-
-it.each([
-  ['app_setup_changed', 'Refresh the app and start setup again.'],
-  ['app_deleted', 'Choose or create an app before starting setup again.'],
-  ['flow_consumed', 'Refresh the app to see its current setup.'],
-])(
-  'shows the %s callback outcome and clears only OAuth query parameters',
-  async (code, message) => {
-    window.history.replaceState(
-      null,
-      '',
-      `/projects/example/apps?draft=keep&integration_oauth_error=${code}&app_id=app_old#settings`,
-    )
-    act(() => {
-      root.render(<SlackOAuthOutcomeDialog />)
-    })
-    await waitForUI(() => {
-      expect(document.body.textContent).toContain(message)
-    })
-    expect(document.body.textContent).toContain('Slack app setup failed')
-    act(() => {
-      button('Got it').click()
-    })
-    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
-      '/projects/example/apps?draft=keep#settings',
-    )
-    expect(document.body.textContent).not.toContain(message)
   },
 )

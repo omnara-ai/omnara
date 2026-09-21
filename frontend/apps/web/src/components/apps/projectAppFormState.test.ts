@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { fakeId, projectApp } from '@/test/fixtures'
 
 import { projectAppFormRequest, projectAppFormValues } from './projectAppFormState'
-import { slackOAuthErrorDescription } from './SlackOAuthOutcomeDialogState'
+import { slackOAuthErrorDescription } from './slackOAuthErrors'
 
 const profileId = fakeId('aprf'),
   second = `aprf_${'b'.repeat(26)}`
@@ -85,26 +85,26 @@ describe('app metadata form', () => {
         advanced,
       ).settings.launcher?.slots,
     ).toEqual([advanced.settings.launcher.slots[2]])
-    expect(() =>
+    expect(
       projectAppFormRequest(
         'slack_thread',
         { ...projectAppFormValues('slack_thread', app), profileIds: [] },
         app,
-      ),
-    ).toThrow(/profile/)
+      ).settings,
+    ).toEqual({})
   })
   it('adds or removes only the launcher', () => {
     const draft = { ...app, settings: {} }
     const request = projectAppFormRequest(
       'slack_thread',
-      { ...projectAppFormValues('slack_thread', draft), launcher: true, profileIds: [profileId] },
+      { ...projectAppFormValues('slack_thread', draft), profileIds: [profileId] },
       draft,
     )
     expect(request.settings).toEqual(app.settings)
     expect(
       projectAppFormRequest(
         'slack_thread',
-        { ...projectAppFormValues('slack_thread', app), launcher: false },
+        { ...projectAppFormValues('slack_thread', app), profileIds: [] },
         app,
       ).settings,
     ).toEqual({})

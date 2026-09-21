@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
-import { type AppIcon, fileSizeLabel, noAppIcon, validateAppIcon } from './ConnectSlackDialogState'
+import { type AppIcon, fileSizeLabel, noAppIcon, validateAppIcon } from './ConnectSlackFormState'
 
 export function SlackAppIconField({
   value,

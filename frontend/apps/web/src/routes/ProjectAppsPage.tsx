@@ -1,7 +1,6 @@
 import { Link } from '@tanstack/react-router'
 
 import { ProjectAppsList } from '@/components/apps/ProjectAppsList'
-import { SlackOAuthOutcomeDialog } from '@/components/apps/SlackOAuthOutcomeDialog'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 
@@ -25,8 +24,11 @@ export function ProjectAppsPage() {
               </Button>
             )}
           </header>
-          <ProjectAppsList orgId={activeOrg.id} projectId={projectId} />
-          <SlackOAuthOutcomeDialog />
+          <ProjectAppsList
+            orgId={activeOrg.id}
+            projectId={projectId}
+            canManage={project?.access.can_manage ?? false}
+          />
         </>
       )}
     </ProjectPageFrame>

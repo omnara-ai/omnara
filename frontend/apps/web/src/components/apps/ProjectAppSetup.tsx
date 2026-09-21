@@ -23,7 +23,7 @@ export function ProjectAppSetup({
   projectId: string
   app: ProjectApp
   onSaved: (app: ProjectApp) => void
-  onCancel: () => void
+  onCancel?: () => void
 }) {
   const setup = useConfigureProjectApp(orgId, projectId)
   const createSecret = useCreateSecret(orgId)
@@ -159,9 +159,11 @@ export function ProjectAppSetup({
           </p>
         )}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
+          {onCancel && (
+            <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
           <Button type="submit" loading={busy} disabled={busy}>
             {app.provider_tenant_id ? 'Reconnect app' : 'Connect app'}
           </Button>

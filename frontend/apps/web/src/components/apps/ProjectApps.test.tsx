@@ -1,15 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import { OmnaraClientProvider } from '@omnara/react'
-import { createOmnaraClient } from '@omnara/sdk'
 import { getProjectAppQueryKey } from '@omnara/sdk/tanstack'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import {
-  createMemoryHistory,
-  createRootRoute,
-  createRouter,
-  RouterContextProvider,
-} from '@tanstack/react-router'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -18,13 +9,14 @@ import { z } from 'zod'
 import { ProjectAppDetail } from '@/routes/ProjectAppPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { appDefinition, fakeId, projectApp } from '@/test/fixtures'
+import { renderProjectApp } from '@/test/project-app-render'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, waitForUI } from '@/test/secret-editor'
 
 import { AppCatalog } from './AppCatalog'
 import { ProjectAppActions } from './ProjectAppActions'
+import { ProjectAppAdvanced } from './ProjectAppAdvanced'
 import { ProjectAppsList } from './ProjectAppsList'
-import { ProjectAppSummary } from './ProjectAppSummary'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj')
@@ -58,29 +50,31 @@ afterEach(() => {
   })
   container.remove()
   restore()
+  window.history.replaceState(null, '', '/')
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 function render(api: ReturnType<typeof fakeApi>, content: ReactNode) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-  const cache = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+  return renderProjectApp(root, api, content)
+}
+
+async function selectAction(name: string) {
+  act(() => {
+    button('App actions').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    )
   })
-  const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() })
-  function rerender(content: ReactNode) {
-    act(() => {
-      root.render(
-        <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={cache}>
-            <RouterContextProvider router={router}>{content}</RouterContextProvider>
-          </QueryClientProvider>
-        </OmnaraClientProvider>,
-      )
-    })
-  }
-  rerender(content)
-  return { cache, client, rerender }
+  await waitForUI(() => {
+    expect(document.querySelector('[role="menuitem"]')).not.toBeNull()
+  })
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (element) => element.textContent.trim() === name,
+  )
+  if (!item) throw new Error(`Missing app action: ${name}`)
+  act(() => {
+    item.click()
+  })
 }
 
 it('links every catalog entry by its exact app type', async () => {
@@ -157,6 +151,44 @@ it('lists apps without a profile, retries a failed page and retains previously l
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
+it.each([true, false, undefined])(
+  'offers the catalog for an empty project only to managers (canManage=%s)',
+  async (canManage) => {
+    const definitions = [
+      appDefinition('slack_thread'),
+      appDefinition('discord_thread'),
+      appDefinition('github_pr'),
+    ]
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: `${projectPath}/apps`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+      {
+        method: 'GET',
+        path: `${projectPath}/app-definitions`,
+        respond: () => Response.json({ data: definitions }),
+      },
+    ])
+    render(api, <ProjectAppsList orgId={orgId} projectId={projectId} canManage={canManage} />)
+    if (canManage) {
+      await waitForUI(() => {
+        expect(container.querySelectorAll('a')).toHaveLength(definitions.length)
+      })
+      expect([...container.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toEqual(
+        definitions.map((definition) => `/projects/${projectId}/apps/new/${definition.app_type}`),
+      )
+    } else {
+      await waitForUI(() => {
+        expect(container.textContent).toContain('Ask a project administrator to add one.')
+      })
+      expect(container.querySelectorAll('a')).toHaveLength(0)
+      expect(api.requestsTo('GET', `${projectPath}/app-definitions`)).toHaveLength(0)
+    }
+  },
+)
+
 it.each([true, false])(
   'respects management access in app details (canManage=%s)',
   async (canManage) => {
@@ -197,73 +229,47 @@ it.each([true, false])(
     await waitForUI(() => {
       expect(container.querySelector('h1')?.textContent).toBe(app.name)
     })
+    expect(container.querySelector('[aria-label="Pull requests"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Conversations"]')).not.toBeNull()
     if (!canManage) {
-      expect(container.querySelectorAll('button')).toHaveLength(0)
+      expect(container.querySelector('[aria-label="App actions"]')).toBeNull()
+      expect(container.querySelector('form')).toBeNull()
+      expect(() => button('Edit')).toThrow('Missing button')
       expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
       return
     }
-    vi.stubGlobal('confirm', () => true)
+    await selectAction('Reconnect account')
+    const tenant = container.querySelector<HTMLInputElement>('#provider-tenant')
+    expect(tenant?.value).toBe(savedApp.provider_tenant_id)
+    expect(tenant?.readOnly).toBe(true)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
     act(() => {
-      button('Disconnect app').click()
+      button('Cancel').click()
     })
+    expect(container.querySelector('form')).toBeNull()
+    expect(button('Edit')).toBeDefined()
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    await selectAction('Disconnect app')
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining('Subscriptions, agents and history are kept.'),
+    )
+    expect(api.requestsTo('POST', `${projectPath}/apps/${app.id}/disconnect`)).toHaveLength(0)
+    confirm.mockReturnValue(true)
+    await selectAction('Disconnect app')
     await waitForUI(() => {
       expect(document.body.textContent).toContain('Try again shortly')
     })
-    expect(button('Disconnect app')).toBeDefined()
-    act(() => {
-      button('Disconnect app').click()
-    })
+    expect(button('App actions')).toBeDefined()
+    await selectAction('Disconnect app')
     await waitForUI(() => {
       expect(button('Reconnect account')).toBeDefined()
     })
-    expect(container.textContent).not.toContain('Finish setup:')
     expect(api.requestsTo('POST', `${projectPath}/apps/${app.id}/disconnect`)).toHaveLength(2)
-    const confirm = vi.fn(() => false)
-    vi.stubGlobal('confirm', confirm)
-    act(() => {
-      button('Remove app').click()
-    })
+    confirm.mockReturnValue(false)
+    await selectAction('Remove app')
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('This deletes its schedules'))
     expect(api.requestsTo('DELETE', `${projectPath}/apps/${app.id}`)).toHaveLength(0)
-  },
-)
-
-it.each([true, false])(
-  'explains the next step for a fresh draft (canManage=%s)',
-  async (canManage) => {
-    const app = projectApp()
-    render(
-      fakeApi([
-        {
-          method: 'GET',
-          path: `${projectPath}/apps/${app.id}/subscriptions`,
-          respond: () => Response.json({ data: [], next_cursor: null }),
-        },
-        {
-          method: 'GET',
-          path: `${projectPath}/apps/${app.id}`,
-          respond: () => jsonResponse(z.json().parse(app)),
-        },
-        {
-          method: 'GET',
-          path: `${projectPath}/cron-triggers`,
-          respond: () => Response.json({ data: [], next_cursor: null }),
-        },
-      ]),
-      <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage={canManage} />,
-    )
-    await waitForUI(() => {
-      expect(container.textContent).toContain(
-        canManage
-          ? 'Finish setup: connect an account'
-          : 'Ask a project administrator to connect this app.',
-      )
-    })
-    await waitForUI(() => {
-      expect(container.textContent).toContain('No schedules yet.')
-    })
-    if (canManage) expect(button('Connect account')).toBeDefined()
-    else expect(container.querySelectorAll('button')).toHaveLength(0)
   },
 )
 
@@ -271,15 +277,18 @@ it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
   'shows usable %s capability keys from the app',
   (appType) => {
     const app = projectApp({ app_type: appType, name: 'customer-support' })
-    render(fakeApi([]), <ProjectAppSummary orgId={orgId} projectId={projectId} app={app} />)
-    const section = container.querySelector('[aria-label="Capabilities"]')
+    render(fakeApi([]), <ProjectAppAdvanced app={app} />)
+    expect(button('Advanced').getAttribute('aria-expanded')).toBe('false')
+    act(() => {
+      button('Advanced').click()
+    })
+    const section = container.querySelector('[aria-label="Advanced"]')
     const keys = [...(section?.querySelectorAll('code') ?? [])].map((code) => code.textContent)
     expect(keys).toContain('app__customer-support__read')
     expect(section?.textContent).toContain('Subscription types')
     expect(keys).toContain(appType === 'github_pr' ? 'pull_request' : 'thread_messages')
     if (appType === 'github_pr') {
       expect(keys).not.toContain('interaction_handlers')
-      expect(keys).not.toContain('customer-support')
     } else {
       expect(keys).toContain('interaction_handlers')
       expect(keys).toContain('customer-support')
@@ -309,12 +318,13 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
     <ProjectAppDetail orgId={orgId} projectId={projectId} appId={savedApp.id} canManage />,
   )
   await waitForUI(() => {
-    expect(button('Edit settings')).toBeDefined()
+    expect(button('Edit')).toBeDefined()
   })
   act(() => {
-    button('Edit settings').click()
+    button('Edit').click()
   })
   await enter('Repository ID', '999')
+  const draft = container.querySelector('form')
   unavailable = true
   await act(async () => {
     await cache.invalidateQueries()
@@ -325,6 +335,7 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
     )
   })
   expect(container.querySelector<HTMLInputElement>('#launcher-scope')?.value).toBe('999')
+  expect(container.querySelector('form')).toBe(draft)
   unavailable = false
   act(() => {
     button('Retry refresh').click()
@@ -372,7 +383,7 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
     <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />,
   )
   await waitForUI(() => {
-    expect(button('Disconnect app')).toBeDefined()
+    expect(button('App actions')).toBeDefined()
   })
   vi.stubGlobal('confirm', () => true)
   delay = true
@@ -383,9 +394,7 @@ it('does not let a delayed GET overwrite a successful app update', async () => {
   await waitForUI(() => {
     expect(api.requestsTo('GET', `${projectPath}/apps/${app.id}`)).toHaveLength(2)
   })
-  act(() => {
-    button('Disconnect app').click()
-  })
+  await selectAction('Disconnect app')
   await waitForUI(() => {
     expect(button('Reconnect account')).toBeDefined()
   })
@@ -437,7 +446,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
   )
   const { cache, client, rerender } = render(api, detail)
   await waitForUI(() => {
-    expect(button('Remove app')).toBeDefined()
+    expect(button('App actions')).toBeDefined()
   })
   let refresh!: Promise<void>
   act(() => {
@@ -457,9 +466,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
     />,
   )
   vi.stubGlobal('confirm', () => true)
-  act(() => {
-    button('Remove app').click()
-  })
+  await selectAction('Remove app')
   const queryKey = getProjectAppQueryKey({
     path: { orgID: orgId, projectID: projectId, appID: savedApp.id },
     client,
@@ -478,7 +485,7 @@ it('removes deleted app details and does not restore them from a delayed read', 
     expect(container.textContent).toContain('Could not load this app.')
   })
   expect(reads).toBe(3)
-  expect(container.textContent).not.toContain('Edit settings')
+  expect(container.querySelector('[aria-label="Pull requests"]')).toBeNull()
   expect(container.textContent).not.toContain('Remove app')
 })
 
@@ -506,7 +513,7 @@ it.each([401, 403, 404])(
       <ProjectAppDetail orgId={orgId} projectId={projectId} appId={savedApp.id} canManage />,
     )
     await waitForUI(() => {
-      expect(button('Edit settings')).toBeDefined()
+      expect(button('Edit')).toBeDefined()
     })
     unavailable = true
     await act(async () => {
@@ -515,6 +522,6 @@ it.each([401, 403, 404])(
     await waitForUI(() => {
       expect(container.textContent).toContain('Could not load this app.')
     })
-    expect(container.textContent).not.toContain('Edit settings')
+    expect(container.querySelector('[aria-label="Pull requests"]')).toBeNull()
   },
 )

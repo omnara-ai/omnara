@@ -97,26 +97,26 @@ function ProjectAppFormEditor({
           </div>
         )}
         <fieldset disabled={busy || stale} className="flex flex-col gap-6">
-          <Field>
-            <FieldLabel htmlFor="app-name">App name</FieldLabel>
-            <Input
-              id="app-name"
-              name="name"
-              required
-              readOnly={Boolean(app)}
-              maxLength={32}
-              pattern="[A-Za-z][A-Za-z0-9-]{0,31}"
-              value={values.name}
-              onChange={(event) => {
-                change({ name: event.target.value })
-              }}
-            />
-            <FieldDescription>
-              {app
-                ? 'This name is permanent and identifies the app in agent configurations.'
-                : 'Start with a letter; use up to 32 letters, numbers or hyphens. You’ll connect your account next. This name cannot be changed.'}
-            </FieldDescription>
-          </Field>
+          {!app && (
+            <Field>
+              <FieldLabel htmlFor="app-name">App name</FieldLabel>
+              <Input
+                id="app-name"
+                name="name"
+                required
+                maxLength={32}
+                pattern="[A-Za-z][A-Za-z0-9-]{0,31}"
+                value={values.name}
+                onChange={(event) => {
+                  change({ name: event.target.value })
+                }}
+              />
+              <FieldDescription>
+                Start with a letter; use up to 32 letters, numbers or hyphens. This name cannot be
+                changed.
+              </FieldDescription>
+            </Field>
+          )}
           {app && (
             <ProjectAppLauncherFields
               orgId={orgId}
@@ -150,7 +150,7 @@ function ProjectAppFormEditor({
             loading={busy}
             disabled={busy || stale || Boolean(validation.error)}
           >
-            {app ? 'Save changes' : 'Create app'}
+            {app ? 'Save changes' : 'Continue to connection'}
           </Button>
         </div>
       </FieldGroup>

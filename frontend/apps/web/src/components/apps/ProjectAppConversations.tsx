@@ -15,26 +15,27 @@ export function ProjectAppConversations({
   projectId,
   app,
   canManage,
+  hideWhenEmpty = false,
 }: {
   orgId: string
   projectId: string
   app: ProjectApp
   canManage: boolean
+  hideWhenEmpty?: boolean
 }) {
   const query = useAppSubscriptions(orgId, projectId, app.id)
   const subscriptions = useInfiniteQueryItems(query)
   const remove = useDeleteAppSubscription(orgId, projectId, app.id)
+  if (hideWhenEmpty && !subscriptions.length && !query.isError) return null
   return (
     <section aria-label="Conversations" className="flex flex-col gap-3 text-sm">
       <h2 className="font-medium">Conversations</h2>
       <p className="text-muted-foreground">
-        Forward incoming events to these agents. Stopping forwarding keeps the agent, its tools and
-        history. A stopped selected thread will not launch a replacement agent on the next mention.
-        Reattach through the subscriptions API to resume forwarding.
+        Conversations connected to an agent. New activity in each one is sent to its agent.
       </p>
       {app.state !== 'active' && (
         <p className="text-muted-foreground">
-          Forwarding is paused while this app is disconnected. Existing subscriptions are kept.
+          Forwarding is paused while this app is disconnected. These connections are kept.
         </p>
       )}
       {query.isPending && (
@@ -65,14 +66,14 @@ export function ProjectAppConversations({
         </p>
       )}
       {subscriptions.length > 0 ? (
-        <ul className="divide-y rounded-md border">
+        <ul className="divide-y border-y">
           {subscriptions.map((subscription) => {
             const conversation = appConversation(app, subscription)
             const agentName = subscription.agent_name || subscription.agent_id
             return (
               <li
                 key={subscription.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-3 py-3"
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
               >
                 <div className="flex min-w-0 flex-col gap-1 break-words">
                   {conversation.href ? (
@@ -87,18 +88,15 @@ export function ProjectAppConversations({
                   ) : (
                     <p>{conversation.label}</p>
                   )}
-                  <p>
-                    Forwarding to{' '}
+                  <p className="text-muted-foreground">
                     <Link
-                      className="underline underline-offset-2"
+                      className="text-foreground underline underline-offset-2"
                       to="/projects/$projectId/agents/$agentId/events"
                       params={{ projectId, agentId: subscription.agent_id }}
                     >
                       {agentName}
-                    </Link>
-                  </p>
-                  <p className="text-muted-foreground text-xs">
-                    {subscription.type} · {subscription.events.join(', ')} · Added{' '}
+                    </Link>{' '}
+                    · Added{' '}
                     <time dateTime={subscription.created_at}>
                       {formatDateTime(subscription.created_at)}
                     </time>
@@ -113,7 +111,7 @@ export function ProjectAppConversations({
                     onClick={() => {
                       if (
                         !window.confirm(
-                          `Stop forwarding ${conversation.label} to ${agentName}? The agent, sending tools and history are kept. Reattach through the subscriptions API to resume.`,
+                          `Stop forwarding ${conversation.label} to ${agentName}? New activity there will no longer reach this agent, and a stopped selected thread will not launch a replacement agent on the next mention. The agent, its sending tools and history are kept. Forwarding can only be resumed by reattaching through the subscriptions API.`,
                         )
                       )
                         return
@@ -132,9 +130,8 @@ export function ProjectAppConversations({
       ) : (
         !query.isPending &&
         !query.isError && (
-          <p className="text-muted-foreground rounded-md border border-dashed p-4">
-            No conversations yet. Launch an agent from this app or attach a conversation through the
-            subscriptions API.
+          <p className="text-muted-foreground">
+            No conversations yet. They appear here when this app starts an agent.
           </p>
         )
       )}
