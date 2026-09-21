@@ -521,7 +521,6 @@ test('edits a profile with the Builder', async ({ page }) => {
   await page.getByRole('link', { name: 'Project apps', exact: true }).click()
   await expect(page).toHaveURL(`/projects/${projectID}/apps`)
   await expect(page.getByRole('heading', { name: 'Apps', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Add app', exact: true })).toBeVisible()
   expect(failures).toEqual([])
 })
 

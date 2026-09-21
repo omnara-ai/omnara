@@ -128,12 +128,15 @@ it('lists apps without a profile, retries a failed page and retains previously l
       },
     },
   ])
-  render(api, <ProjectAppsList orgId={orgId} projectId={projectId} />)
+  render(api, <ProjectAppsList orgId={orgId} projectId={projectId} canManage />)
   await waitForUI(() => {
     expect(document.body.textContent).toContain(savedApp.name)
   })
-  expect(container.querySelector('a')?.getAttribute('href')).toBe(
-    `/projects/${projectId}/apps/${savedApp.id}`,
+  expect(
+    container.querySelector(`a[href="/projects/${projectId}/apps/${savedApp.id}"]`),
+  ).not.toBeNull()
+  expect(container.querySelector(`a[href="/projects/${projectId}/apps/new"]`)?.textContent).toBe(
+    'Add app',
   )
   act(() => {
     button('Load more apps').click()
@@ -154,7 +157,7 @@ it('lists apps without a profile, retries a failed page and retains previously l
     expect(document.body.textContent).toContain(secondApp.name)
   })
   expect(document.body.textContent).toContain(savedApp.name)
-  expect(container.querySelectorAll('a')).toHaveLength(2)
+  expect(container.querySelectorAll('a')).toHaveLength(3)
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
