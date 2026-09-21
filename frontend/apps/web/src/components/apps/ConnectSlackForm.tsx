@@ -13,7 +13,7 @@ import {
 import { listProjectAppsQueryKey } from '@omnara/sdk/tanstack'
 import { useForm } from '@tanstack/react-form'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -44,6 +44,7 @@ interface SlackConnectionProps {
   app?: ProjectApp
   onConnected?: (app: ProjectApp) => void
   onCancel?: () => void
+  footerAction?: ReactNode
 }
 
 export function ConnectSlackForm({
@@ -52,6 +53,7 @@ export function ConnectSlackForm({
   app: existing,
   onConnected,
   onCancel,
+  footerAction,
 }: SlackConnectionProps) {
   const { app, name, setName, ensureApp } = useProjectAppDraft(
     orgId,
@@ -152,6 +154,7 @@ export function ConnectSlackForm({
             setPending(undefined)
           }}
           onCancel={onCancel}
+          footerAction={footerAction}
         />
       ) : (
         <form
@@ -341,19 +344,23 @@ export function ConnectSlackForm({
                 {error || failure}
               </p>
             )}
-            <div className="flex justify-end gap-2">
-              <form.Subscribe
-                selector={(state) =>
-                  [
-                    existingApp
-                      ? existingCredentialsValid(state.values)
-                      : slackConnectionFormValid(state.values),
-                    state.isSubmitting,
-                  ] as const
-                }
-              >
-                {([valid, isSubmitting]) => (
-                  <>
+            <form.Subscribe
+              selector={(state) =>
+                [
+                  existingApp
+                    ? existingCredentialsValid(state.values)
+                    : slackConnectionFormValid(state.values),
+                  state.isSubmitting,
+                ] as const
+              }
+            >
+              {([valid, isSubmitting]) => (
+                <fieldset
+                  disabled={isSubmitting}
+                  className="flex items-center justify-between gap-4"
+                >
+                  {footerAction}
+                  <div className="ml-auto flex shrink-0 gap-2">
                     {onCancel && (
                       <Button
                         type="button"
@@ -371,10 +378,10 @@ export function ConnectSlackForm({
                           ? 'Reconnect app'
                           : 'Connect app'}
                     </Button>
-                  </>
-                )}
-              </form.Subscribe>
-            </div>
+                  </div>
+                </fieldset>
+              )}
+            </form.Subscribe>
           </FieldGroup>
         </form>
       )}
@@ -400,12 +407,14 @@ function SlackAuthorizationPending({
   onRetry,
   onRestart,
   onCancel,
+  footerAction,
 }: {
   pending: IntegrationOAuthSetup
   isError: boolean
   onRetry: () => void
   onRestart: () => void
   onCancel?: () => void
+  footerAction?: ReactNode
 }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -429,15 +438,18 @@ function SlackAuthorizationPending({
       <p className="text-muted-foreground">
         Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
       </p>
-      <div className="flex justify-end gap-2">
-        {onCancel && (
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
+      <div className="flex items-center justify-between gap-4">
+        {footerAction}
+        <div className="ml-auto flex shrink-0 gap-2">
+          {onCancel && (
+            <Button variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button variant="outline" onClick={onRestart}>
+            Start again
           </Button>
-        )}
-        <Button variant="outline" onClick={onRestart}>
-          Start again
-        </Button>
+        </div>
       </div>
     </div>
   )

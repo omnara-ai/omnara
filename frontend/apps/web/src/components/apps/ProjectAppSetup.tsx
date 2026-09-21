@@ -1,6 +1,6 @@
 import { useConfigureProjectApp, useCreateSecret } from '@omnara/react'
 import type { AppType, ProjectApp } from '@omnara/sdk'
-import { type SyntheticEvent, useEffect, useRef, useState } from 'react'
+import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,7 @@ export function ProjectAppSetup({
   appType,
   onSaved,
   onCancel,
+  footerAction,
 }: {
   orgId: string
   projectId: string
@@ -29,6 +30,7 @@ export function ProjectAppSetup({
   appType: Exclude<AppType, 'slack_thread'>
   onSaved: (app: ProjectApp) => void
   onCancel?: () => void
+  footerAction?: ReactNode
 }) {
   const { app, name, setName, ensureApp } = useProjectAppDraft(orgId, projectId, appType, existing)
   const setup = useConfigureProjectApp(orgId, projectId)
@@ -226,16 +228,19 @@ export function ProjectAppSetup({
             {error}
           </p>
         )}
-        <div className="flex justify-end gap-2">
-          {onCancel && (
-            <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
-              Cancel
+        <fieldset disabled={busy} className="flex items-center justify-between gap-4">
+          {footerAction}
+          <div className="ml-auto flex shrink-0 gap-2">
+            {onCancel && (
+              <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+            <Button type="submit" loading={busy} disabled={busy}>
+              {!existing ? 'Create and connect' : reconnect ? 'Reconnect app' : 'Connect app'}
             </Button>
-          )}
-          <Button type="submit" loading={busy} disabled={busy}>
-            {!existing ? 'Create and connect' : reconnect ? 'Reconnect app' : 'Connect app'}
-          </Button>
-        </div>
+          </div>
+        </fieldset>
       </FieldGroup>
     </form>
   )

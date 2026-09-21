@@ -128,6 +128,14 @@ function ProjectAppSettings({
     },
     [canSetUp, onOAuthCleared],
   )
+  const showConnection = canSetUp && connecting
+  const removeAction = canManage ? (
+    <RemoveProjectAppButton
+      actions={actions}
+      app={app}
+      onRemoved={() => void navigate({ to: '/projects/$projectId/apps', params: { projectId } })}
+    />
+  ) : null
   return (
     <div className="flex w-full max-w-2xl flex-col gap-10">
       <div className="flex flex-col gap-4">
@@ -181,8 +189,10 @@ function ProjectAppSettings({
           </div>
         )}
       </div>
-      {canSetUp && connecting && (
+      {showConnection && (
         <ProjectAppConnection
+          footerAction={removeAction}
+          disabled={actions.busy}
           orgId={orgId}
           projectId={projectId}
           app={app}
@@ -226,15 +236,7 @@ function ProjectAppSettings({
         hideWhenEmpty={draft}
       />
       {!draft && <ProjectAppAdvanced app={app} />}
-      {canManage && (
-        <RemoveProjectAppButton
-          actions={actions}
-          app={app}
-          onRemoved={() =>
-            void navigate({ to: '/projects/$projectId/apps', params: { projectId } })
-          }
-        />
-      )}
+      {!showConnection && removeAction}
     </div>
   )
 }

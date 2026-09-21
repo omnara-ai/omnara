@@ -84,6 +84,7 @@ export function RemoveProjectAppButton({
   return (
     <div className="flex flex-col items-start gap-2">
       <Button
+        type="button"
         variant="ghost"
         size="sm"
         className="text-muted-foreground hover:text-destructive h-auto self-start p-0 font-normal hover:bg-transparent"
