@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 import { appCatalog } from './appDefinitions'
+import { AppIcon } from './AppIcon'
 
 export function AppCatalog({ orgId, projectId }: { orgId: string; projectId: string }) {
   const query = useAppDefinitions(orgId, projectId)
@@ -28,7 +29,10 @@ export function AppCatalog({ orgId, projectId }: { orgId: string; projectId: str
             className="hover:bg-muted/40 focus-visible:ring-ring flex flex-col gap-3 rounded-lg border p-5 transition-colors focus-visible:outline-none focus-visible:ring-2"
           >
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-medium">{label?.name ?? definition.app_type}</h2>
+              <div className="flex items-center gap-3">
+                <AppIcon appType={definition.app_type} />
+                <h2 className="font-medium">{label?.name ?? definition.app_type}</h2>
+              </div>
               <ArrowRight className="text-muted-foreground size-4" aria-hidden="true" />
             </div>
             <p className="text-muted-foreground text-sm leading-relaxed">{label?.description}</p>

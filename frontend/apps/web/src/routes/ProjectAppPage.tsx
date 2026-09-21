@@ -17,9 +17,14 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 export function ProjectAppPage() {
-  const { appId = '' } = useParams({ strict: false })
+  const { projectId = '', appId = '' } = useParams({ strict: false })
   return (
-    <ProjectPageFrame title="App settings">
+    <ProjectPageFrame
+      title="App settings"
+      breadcrumbs={[
+        { id: 'apps', label: 'Apps', to: '/projects/$projectId/apps', params: { projectId } },
+      ]}
+    >
       {({ activeOrg, projectId, project }) => (
         <ProjectAppDetail
           key={`${projectId}:${appId}`}

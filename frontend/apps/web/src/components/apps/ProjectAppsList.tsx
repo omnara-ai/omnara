@@ -7,6 +7,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
 import { appTypeLabel } from './appDefinitions'
+import { AppIcon } from './AppIcon'
 
 export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId: string }) {
   const query = useProjectApps(orgId, projectId)
@@ -36,15 +37,18 @@ export function ProjectAppsList({ orgId, projectId }: { orgId: string; projectId
                 params={{ projectId, appId: app.id }}
                 className="hover:bg-muted/40 flex flex-wrap items-center justify-between gap-3 px-4 py-4"
               >
-                <div className="flex min-w-0 flex-col gap-1">
-                  <span className="truncate font-medium">{app.name}</span>
-                  <span className="text-muted-foreground text-sm">
-                    {app.settings.launcher
-                      ? app.settings.launcher.trigger === 'pull_request_opened'
-                        ? 'Starts agents when a pull request opens'
-                        : 'Starts agents when the bot is mentioned'
-                      : 'No event launcher'}
-                  </span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <AppIcon appType={app.app_type} />
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="truncate font-medium">{app.name}</span>
+                    <span className="text-muted-foreground text-sm">
+                      {app.settings.launcher
+                        ? app.settings.launcher.trigger === 'pull_request_opened'
+                          ? 'Starts agents when a pull request opens'
+                          : 'Starts agents when the bot is mentioned'
+                        : 'No event launcher'}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{appTypeLabel(app.app_type)}</Badge>

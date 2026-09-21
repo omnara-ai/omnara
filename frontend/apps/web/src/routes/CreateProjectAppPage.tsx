@@ -4,16 +4,32 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 
 import { AppCatalog } from '@/components/apps/AppCatalog'
 import { appCatalog } from '@/components/apps/appDefinitions'
+import { AppIcon } from '@/components/apps/AppIcon'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 export function CreateProjectAppPage() {
-  const { appType } = useParams({ strict: false })
+  const { projectId = '', appType } = useParams({ strict: false })
   const selected = appCatalog.find((app) => app.appType === appType)
   return (
-    <ProjectPageFrame title={selected ? `Add ${selected.name}` : 'Add app'}>
+    <ProjectPageFrame
+      title={selected ? selected.name : 'Add app'}
+      breadcrumbs={[
+        { id: 'apps', label: 'Apps', to: '/projects/$projectId/apps', params: { projectId } },
+        ...(selected
+          ? [
+              {
+                id: 'catalog',
+                label: 'Add app',
+                to: '/projects/$projectId/apps/new' as const,
+                params: { projectId },
+              },
+            ]
+          : []),
+      ]}
+    >
       {({ activeOrg, projectId, project }) => {
         if (!project?.access.can_manage)
           return <p role="alert">You don’t have permission to manage apps in this project.</p>
@@ -72,7 +88,10 @@ function AppSetup({
         >
           Choose another app
         </Link>
-        <h1 className="type-title">Add {selected?.name}</h1>
+        <div className="flex items-center gap-3">
+          <AppIcon appType={appType} className="size-7" />
+          <h1 className="type-title">Add {selected?.name}</h1>
+        </div>
         <p className="text-muted-foreground text-sm">{selected?.description}</p>
       </header>
       <ProjectAppForm

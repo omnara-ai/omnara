@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 import { appCatalog, appTypeLabel } from './appDefinitions'
+import { AppIcon } from './AppIcon'
 import { ProjectAppActions } from './ProjectAppActions'
 
 export function ProjectAppHeader({
@@ -37,6 +38,7 @@ export function ProjectAppHeader({
         Back to apps
       </Link>
       <div className="flex flex-wrap items-center gap-3">
+        <AppIcon appType={app.app_type} className="size-7" />
         <h1 className="type-title">{app.name}</h1>
         <Badge variant="outline">{appTypeLabel(app.app_type)}</Badge>
         <Badge variant={app.state === 'active' ? 'outline' : 'secondary'}>
