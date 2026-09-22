@@ -21,7 +21,7 @@ var Tools = []Tool{
 	{Name: "agents_list", Title: "List agents", OperationID: "listAgents"},
 	{Name: "agents_get", Title: "Get agent", OperationID: "getAgent"},
 	{Name: "agents_launch", Title: "Launch agent", OperationID: "createAgent"},
-	{Name: "agents_update", Title: "Update agent config", OperationID: "updateAgentConfig"},
+	{Name: "agents_update", Title: "Update agent config", OperationID: "updateAgentConfig", Destructive: true},
 
 	{Name: "configs_get", Title: "Get agent config", OperationID: "getAgentConfig"},
 	{Name: "configs_create", Title: "Create agent config", OperationID: "createAgentConfig"},
@@ -78,7 +78,7 @@ var Tools = []Tool{
 	{Name: "profiles_list", Title: "List agent profiles", OperationID: "listAgentProfiles"},
 	{Name: "profiles_get", Title: "Get agent profile", OperationID: "getAgentProfile"},
 	{Name: "profiles_create", Title: "Create agent profile", OperationID: "createAgentProfile"},
-	{Name: "profiles_update", Title: "Update agent profile", OperationID: "updateAgentProfile"},
+	{Name: "profiles_update", Title: "Update agent profile", OperationID: "updateAgentProfile", Destructive: true},
 	{Name: "profiles_rename", Title: "Rename agent profile", OperationID: "renameAgentProfile"},
 	{Name: "profiles_delete", Title: "Delete agent profile", OperationID: "deleteAgentProfile"},
 

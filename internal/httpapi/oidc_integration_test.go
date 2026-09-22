@@ -153,7 +153,24 @@ func TestOIDCAuthorizationAndUserInfo(t *testing.T) {
 	refreshForm.Set("refresh_token", jsonString(t, tokens, "refresh_token"))
 	refreshForm.Set("scope", "openid email")
 	response = performRequest(handler, newOAuthFormRequest(http.MethodPost, tokenEndpoint, refreshForm))
-	if response.Code != 400 || decodeJSONBody(t, response)["error"] != "invalid_scope" {
-		t.Fatalf("refresh escalated scope: %d %s", response.Code, response.Body.String())
+	if response.Code != 200 {
+		t.Fatalf("rewiden refresh: %d %s", response.Code, response.Body.String())
+	}
+	tokens = decodeJSONBody(t, response)
+	info = userInfo(jsonString(t, tokens, "access_token"))
+	if tokens["scope"] != "openid email" || decodeJSONBody(t, info)["email"] != "oidc@example.com" {
+		t.Fatalf("rewidened userinfo: %v %s", tokens["scope"], info.Body.String())
+	}
+	refreshForm.Set("refresh_token", jsonString(t, tokens, "refresh_token"))
+	refreshForm.Set("scope", "openid")
+	response = performRequest(handler, newOAuthFormRequest(http.MethodPost, tokenEndpoint, refreshForm))
+	if response.Code != 200 {
+		t.Fatalf("second narrow refresh: %d %s", response.Code, response.Body.String())
+	}
+	refreshForm.Set("refresh_token", jsonString(t, decodeJSONBody(t, response), "refresh_token"))
+	refreshForm.Del("scope")
+	response = performRequest(handler, newOAuthFormRequest(http.MethodPost, tokenEndpoint, refreshForm))
+	if response.Code != 200 || decodeJSONBody(t, response)["scope"] != "openid email" {
+		t.Fatalf("refresh without scope did not restore the granted scope: %d %s", response.Code, response.Body.String())
 	}
 }

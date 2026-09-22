@@ -144,7 +144,7 @@ func NewHandler(server *mcp.Server) http.Handler {
 
 func annotationsFor(tool Tool, method string) *mcp.ToolAnnotations {
 	readOnly := method == http.MethodGet
-	destructive := !readOnly && (tool.Destructive || method == http.MethodDelete)
+	destructive := !readOnly && (tool.Destructive || method != http.MethodPost)
 	return &mcp.ToolAnnotations{
 		Title:           tool.Title,
 		ReadOnlyHint:    readOnly,

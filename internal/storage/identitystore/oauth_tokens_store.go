@@ -204,7 +204,7 @@ func (s *Store) RefreshOAuthAccessToken(
 	if err := lockActiveOAuthUserTx(ctx, qtx, observedUserID); err != nil {
 		return OAuthTokenSetRecord{}, err
 	}
-	if !oauthScopeWithinGrant(input.Scope, observed.Scope) {
+	if !oauthScopeWithinGrant(input.Scope, observed.GrantedScope) {
 		return OAuthTokenSetRecord{}, storeerr.ErrOAuthScopeExceedsGrant
 	}
 	rotated, err := qtx.RotateOAuthAccessToken(ctx, dbsqlc.RotateOAuthAccessTokenParams{

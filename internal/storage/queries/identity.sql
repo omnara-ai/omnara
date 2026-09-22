@@ -1379,12 +1379,13 @@ USING candidates
 WHERE oauth_authorization_codes.id = candidates.id;
 
 -- name: CreateOAuthAccessToken :one
-INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, granted_scope, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
 VALUES (
   sqlc.arg(user_id),
   sqlc.arg(client_id),
   sqlc.arg(client_name),
   sqlc.arg(resource),
+  sqlc.arg(scope),
   sqlc.arg(scope),
   sqlc.arg(token_hash),
   sqlc.arg(refresh_token_hash),
@@ -1395,7 +1396,7 @@ VALUES (
 RETURNING id;
 
 -- name: GetOAuthAccessTokenGrantByRefreshToken :one
-SELECT token.user_id, token.scope
+SELECT token.user_id, token.granted_scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
@@ -1427,7 +1428,7 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET scope = CASE WHEN sqlc.arg(scope)::text = '' THEN token.scope ELSE sqlc.arg(scope)::text END,
+  SET scope = CASE WHEN sqlc.arg(scope)::text = '' THEN token.granted_scope ELSE sqlc.arg(scope)::text END,
       token_hash = sqlc.arg(token_hash),
       refresh_token_hash = sqlc.arg(refresh_token_hash),
       expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),

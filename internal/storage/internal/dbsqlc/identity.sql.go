@@ -707,12 +707,13 @@ func (q *Queries) CreateBrowserSession(ctx context.Context, arg CreateBrowserSes
 }
 
 const createOAuthAccessToken = `-- name: CreateOAuthAccessToken :one
-INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, granted_scope, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
 VALUES (
   $1,
   $2,
   $3,
   $4,
+  $5,
   $5,
   $6,
   $7,
@@ -2519,7 +2520,7 @@ func (q *Queries) GetInstallationID(ctx context.Context) (uuid.UUID, error) {
 }
 
 const getOAuthAccessTokenGrantByRefreshToken = `-- name: GetOAuthAccessTokenGrantByRefreshToken :one
-SELECT token.user_id, token.scope
+SELECT token.user_id, token.granted_scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = $1::text
@@ -2532,14 +2533,14 @@ type GetOAuthAccessTokenGrantByRefreshTokenParams struct {
 }
 
 type GetOAuthAccessTokenGrantByRefreshTokenRow struct {
-	UserID uuid.UUID
-	Scope  string
+	UserID       uuid.UUID
+	GrantedScope string
 }
 
 func (q *Queries) GetOAuthAccessTokenGrantByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenGrantByRefreshTokenParams) (GetOAuthAccessTokenGrantByRefreshTokenRow, error) {
 	row := q.db.QueryRow(ctx, getOAuthAccessTokenGrantByRefreshToken, arg.PresentedRefreshTokenHash)
 	var i GetOAuthAccessTokenGrantByRefreshTokenRow
-	err := row.Scan(&i.UserID, &i.Scope)
+	err := row.Scan(&i.UserID, &i.GrantedScope)
 	return i, err
 }
 
@@ -4663,7 +4664,7 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET scope = CASE WHEN $4::text = '' THEN token.scope ELSE $4::text END,
+  SET scope = CASE WHEN $4::text = '' THEN token.granted_scope ELSE $4::text END,
       token_hash = $5,
       refresh_token_hash = $6,
       expires_at = transaction_timestamp() + ($7::bigint * interval '1 second'),
