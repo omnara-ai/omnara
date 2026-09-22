@@ -28,7 +28,11 @@ type GitHubAppIdentity struct {
 // is deliberately not needed: GitHub signs the body, not X-GitHub-Event or the
 // delivery ID. Signed object shapes/actions establish kind and semantic identity.
 // Do not feed unverified HTTP bodies to this adapter.
-type GitHubAppInboxProvider struct{}
+type GitHubAppInboxProvider struct {
+	config  github.Config
+	secrets GitHubInboxSecrets
+	apps    GitHubInboxApps
+}
 
 func (GitHubAppInboxProvider) Expand(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, payload []byte,

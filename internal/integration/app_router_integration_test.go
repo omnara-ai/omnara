@@ -396,7 +396,7 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 							if ownerState == integrationstore.IntegrationInboxPending {
 								return work.Retry(ctx, time.Hour, "media preparation retry")
 							}
-							return work.Fail(ctx, "launch needs operator recovery")
+							return work.Fail(ctx, "launch failed permanently")
 						},
 					),
 				)
@@ -426,8 +426,11 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 				mention := capture("replacement-mention")
 				mentioned := event
 				mentioned.Event.Mentioned = true
-				_, err = freezeTestAppEvents(ctx, router, mention.Lease(), []AppEvent{mentioned})
-				require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
+				fresh, err := freezeTestAppEvents(ctx, router, mention.Lease(), []AppEvent{mentioned})
+				require.NoError(t, err)
+				require.Len(t, fresh, 1)
+				_, err = router.Admit(ctx, mention.Lease())
+				require.NoError(t, err)
 			} else {
 				_, err = freezeTestAppEvents(ctx, router, follow.Lease(), []AppEvent{event})
 				var reservation *integrationstore.AppSelectionReservationError
@@ -451,7 +454,9 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 			_, err = router.Admit(ctx, other.Lease())
 			require.NoError(t, err)
 			if ownerState == integrationstore.IntegrationInboxFailed {
-				require.NoError(t, inbox.RetryFailedIntegrationInbox(ctx, ids.ProjectID, owner.ID))
+				_, err = router.Admit(ctx, owner.Lease())
+				require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
+				return
 			}
 			if ownerState == integrationstore.IntegrationInboxPending {
 				_, err := pool.Exec(ctx, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, owner.ID)
@@ -462,9 +467,6 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 			}
 			_, err = router.Admit(ctx, owner.Lease())
 			require.NoError(t, err)
-			if ownerState == integrationstore.IntegrationInboxFailed {
-				follow = capture("follow-after-recovery")
-			}
 			continued, err := freezeTestAppEvents(ctx, router, follow.Lease(), []AppEvent{event})
 			require.NoError(t, err)
 			require.Len(t, continued, 1)

@@ -334,6 +334,19 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 			err = errors.Join(err, fmt.Errorf("schedule inbox retry: %w", retryErr))
 		}
 	}
+	if outcome == "failed" {
+		if finalizer, ok := w.consumer.(interface {
+			FinalizeFailure(context.Context, uuid.UUID, uuid.UUID) error
+		}); ok {
+			// A confirmed terminal commit owns this one best-effort notification and
+			// cleanup pass. Losing the lease or failing to record failure owns neither.
+			finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 40*time.Second)
+			if finalErr := finalizer.FinalizeFailure(finalCtx, receipt.ProjectID, receipt.ID); finalErr != nil {
+				w.options.Log.WarnContext(ctx, "finalize failed app inbox", "receipt_id", receipt.ID, "error", finalErr)
+			}
+			finalCancel()
+		}
+	}
 	w.options.Log.WarnContext(
 		ctx,
 		"app inbox admission failed",

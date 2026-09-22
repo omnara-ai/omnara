@@ -4,7 +4,6 @@ package integrationstore_test
 
 import (
 	"encoding/json"
-	"errors"
 	"sync"
 	"testing"
 
@@ -106,28 +105,17 @@ func TestAppSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
 		},
 	)
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
-	// Partial success and permanent failure both retain the whole selection.
+	// Terminal failure releases the unfinished selection for a new launch.
 	f.mutate(t, receipts[winner], func(lease *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := lease.CommitSlot(f.ctx, "a", json.RawMessage(`{"admitted":true}`)); err != nil {
-			return err
-		}
 		return lease.Fail(f.ctx, "profile b unavailable")
 	})
-	err = store.WithIntegrationInboxLease(
-		f.ctx,
-		receipts[1-winner].Lease(),
+	f.mutate(t, receipts[1-winner], func(lease *integrationstore.IntegrationInboxLeaseTx) error {
+		return lease.FreezePlan(f.ctx, blockedPlan)
+	})
+	require.JSONEq(t, string(blockedPlan), string(f.read(t, receipts[1-winner].ID).Plan))
+	err = store.WithIntegrationInboxLease(f.ctx, receipts[winner].Lease(),
 		func(lease *integrationstore.IntegrationInboxLeaseTx) error {
-			return lease.FreezePlan(f.ctx, blockedPlan)
-		},
-	)
-	require.True(
-		t,
-		errors.Is(err, integrationstore.ErrAppSelectionReserved),
-		"failed partial plan must remain reserved: %v",
-		err,
-	)
-	var owner *integrationstore.AppSelectionReservationError
-	require.ErrorAs(t, err, &owner)
-	require.Equal(t, receipts[winner].ID, owner.ReceiptID)
-	require.Equal(t, integrationstore.IntegrationInboxFailed, owner.State)
+			return lease.CommitSlot(f.ctx, "a", json.RawMessage(`{"admitted":true}`))
+		})
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 }

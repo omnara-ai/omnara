@@ -105,7 +105,6 @@ const (
 	CronTriggerLastRunProcessing CronTriggerLastRunState = "processing"
 	CronTriggerLastRunCompleted  CronTriggerLastRunState = "completed"
 	CronTriggerLastRunFailed     CronTriggerLastRunState = "failed"
-	CronTriggerLastRunDiscarded  CronTriggerLastRunState = "discarded"
 )
 
 type CronTriggerFailureReport struct {

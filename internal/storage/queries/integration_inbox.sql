@@ -17,23 +17,11 @@ SELECT id, project_id, app_id, receipt_key, payload, source, events, plan, progr
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
--- name: ListIntegrationInboxReceipts :many
-SELECT id, project_id, app_id, receipt_key, state, attempt_count,
-       available_at, claim_expires_at, last_error, created_at, updated_at, completed_at
-FROM integration_inbox
-WHERE project_id = sqlc.arg(project_id)
-  AND (sqlc.narg(app_id)::uuid IS NULL OR app_id = sqlc.narg(app_id)::uuid)
-  AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text)
-  AND (NOT sqlc.arg(cursor_set)::boolean
-       OR (created_at, id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid))
-ORDER BY created_at DESC, id DESC
-LIMIT sqlc.arg(row_limit);
-
 -- name: OldestReadyIntegrationInboxLag :one
 -- One probe of the pending-ready index, including inactive scopes that recovery
 -- must drain. No scope joins, counts, payload reads, or created_at history scan.
--- Valid transitions never leave pending attempts at 8: retry/expiry fails them
--- and operator retry resets to 0. Avoid a residual filter beyond the index.
+-- Valid transitions never leave pending attempts at 8: retry/expiry fails them.
+-- Avoid a residual filter beyond the index.
 SELECT EXTRACT(EPOCH FROM statement_timestamp() - available_at)::double precision AS lag_seconds
 FROM integration_inbox
 WHERE state = 'pending' AND available_at <= statement_timestamp()
@@ -118,6 +106,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 -- name: RetryIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
 SET state = CASE WHEN attempt_count >= 8 THEN 'failed' ELSE 'pending' END,
+    completed_at = CASE WHEN attempt_count >= 8 THEN statement_timestamp() ELSE NULL END,
     claim_token = NULL, claim_expires_at = NULL,
     available_at = statement_timestamp() + sqlc.arg(delay_milliseconds)::bigint * interval '1 millisecond',
     last_error = sqlc.arg(last_error), updated_at = statement_timestamp()
@@ -128,24 +117,11 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 -- name: FailIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
 SET state = 'failed', claim_token = NULL, claim_expires_at = NULL,
+    completed_at = statement_timestamp(),
     last_error = sqlc.arg(last_error), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
-
--- Explicit operator recovery grants a fresh bounded attempt budget; it preserves
--- both frozen selections and completed slots, so it cannot relaunch recipients.
--- name: RetryFailedIntegrationInboxReceipt :execrows
-UPDATE integration_inbox
-SET state = 'pending', attempt_count = 0, available_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND state = 'failed';
-
--- Preserve deduplication and diagnosis while releasing an uncommitted selection.
--- The semantic store verifies retained targets and progress under lifecycle gates.
--- name: DiscardFailedIntegrationInboxReceipt :execrows
-UPDATE integration_inbox
-SET state = 'discarded', completed_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND state = 'failed';
 
 -- The expired frontier uses the lease-expiry partial index. Scope checks occur
 -- only after the bounded SKIP LOCKED selection; healthy pending work is untouched.
@@ -168,6 +144,7 @@ WITH candidates AS MATERIALIZED (
 )
 UPDATE integration_inbox inbox
 SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN 'failed' ELSE 'pending' END,
+    completed_at = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN statement_timestamp() ELSE NULL END,
     claim_token = NULL, claim_expires_at = NULL, available_at = statement_timestamp(),
     last_error = CASE WHEN NOT scoped.active THEN 'integration scope inactive'
                       WHEN inbox.attempt_count >= 8 THEN 'inbox attempt budget exhausted'
@@ -204,15 +181,16 @@ WITH inactive_apps AS MATERIALIZED (
 )
 UPDATE integration_inbox inbox
 SET state = 'failed', claim_token = NULL, claim_expires_at = NULL,
+    completed_at = statement_timestamp(),
     last_error = 'integration scope inactive', updated_at = statement_timestamp()
 FROM candidates WHERE inbox.id = candidates.id;
 
--- Completed or discarded receipt identity is retained only for the configured retention
+-- Completed or failed receipt identity is retained only for the configured retention
 -- window. After deletion a sufficiently late provider replay can be accepted.
 -- name: CleanupTerminalIntegrationInboxReceipts :execrows
 WITH candidates AS (
   SELECT finished.id FROM integration_inbox finished
-  WHERE finished.state IN ('completed', 'discarded')
+  WHERE finished.state IN ('completed', 'failed')
     AND finished.completed_at < statement_timestamp() - sqlc.arg(retention_milliseconds)::bigint * interval '1 millisecond'
   ORDER BY finished.completed_at, finished.id LIMIT sqlc.arg(row_limit)
   FOR UPDATE SKIP LOCKED
@@ -220,7 +198,7 @@ WITH candidates AS (
 DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates.id;
 
 -- Soft-deleted scopes no longer need raw payloads, including failed receipts.
--- Disconnected live apps retain failed selection facts for operator recovery.
+-- Disconnected live apps retain terminal receipts for the normal retention window.
 -- Resolve deleted scopes first, then use the unique receipt identity index.
 -- An empty cleanup poll does not inspect retained history in live apps.
 -- name: CleanupDeletedIntegrationInboxReceipts :execrows

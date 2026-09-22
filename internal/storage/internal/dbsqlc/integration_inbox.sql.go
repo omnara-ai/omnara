@@ -8,7 +8,6 @@ package dbsqlc
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -96,7 +95,7 @@ type CleanupDeletedIntegrationInboxReceiptsParams struct {
 }
 
 // Soft-deleted scopes no longer need raw payloads, including failed receipts.
-// Disconnected live apps retain failed selection facts for operator recovery.
+// Disconnected live apps retain terminal receipts for the normal retention window.
 // Resolve deleted scopes first, then use the unique receipt identity index.
 // An empty cleanup poll does not inspect retained history in live apps.
 func (q *Queries) CleanupDeletedIntegrationInboxReceipts(ctx context.Context, arg CleanupDeletedIntegrationInboxReceiptsParams) (int64, error) {
@@ -110,7 +109,7 @@ func (q *Queries) CleanupDeletedIntegrationInboxReceipts(ctx context.Context, ar
 const cleanupTerminalIntegrationInboxReceipts = `-- name: CleanupTerminalIntegrationInboxReceipts :execrows
 WITH candidates AS (
   SELECT finished.id FROM integration_inbox finished
-  WHERE finished.state IN ('completed', 'discarded')
+  WHERE finished.state IN ('completed', 'failed')
     AND finished.completed_at < statement_timestamp() - $1::bigint * interval '1 millisecond'
   ORDER BY finished.completed_at, finished.id LIMIT $2
   FOR UPDATE SKIP LOCKED
@@ -123,7 +122,7 @@ type CleanupTerminalIntegrationInboxReceiptsParams struct {
 	RowLimit              int32
 }
 
-// Completed or discarded receipt identity is retained only for the configured retention
+// Completed or failed receipt identity is retained only for the configured retention
 // window. After deletion a sufficiently late provider replay can be accepted.
 func (q *Queries) CleanupTerminalIntegrationInboxReceipts(ctx context.Context, arg CleanupTerminalIntegrationInboxReceiptsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupTerminalIntegrationInboxReceipts, arg.RetentionMilliseconds, arg.RowLimit)
@@ -157,27 +156,6 @@ func (q *Queries) CompleteIntegrationInboxReceipt(ctx context.Context, arg Compl
 	return result.RowsAffected(), nil
 }
 
-const discardFailedIntegrationInboxReceipt = `-- name: DiscardFailedIntegrationInboxReceipt :execrows
-UPDATE integration_inbox
-SET state = 'discarded', completed_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = $1 AND id = $2 AND state = 'failed'
-`
-
-type DiscardFailedIntegrationInboxReceiptParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-// Preserve deduplication and diagnosis while releasing an uncommitted selection.
-// The semantic store verifies retained targets and progress under lifecycle gates.
-func (q *Queries) DiscardFailedIntegrationInboxReceipt(ctx context.Context, arg DiscardFailedIntegrationInboxReceiptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, discardFailedIntegrationInboxReceipt, arg.ProjectID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const failInactiveIntegrationInboxReceipts = `-- name: FailInactiveIntegrationInboxReceipts :execrows
 WITH inactive_apps AS MATERIALIZED (
   SELECT app.project_id, array_agg(app.id) AS app_ids
@@ -202,6 +180,7 @@ WITH inactive_apps AS MATERIALIZED (
 )
 UPDATE integration_inbox inbox
 SET state = 'failed', claim_token = NULL, claim_expires_at = NULL,
+    completed_at = statement_timestamp(),
     last_error = 'integration scope inactive', updated_at = statement_timestamp()
 FROM candidates WHERE inbox.id = candidates.id
 `
@@ -226,6 +205,7 @@ func (q *Queries) FailInactiveIntegrationInboxReceipts(ctx context.Context, arg 
 const failIntegrationInboxReceipt = `-- name: FailIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
 SET state = 'failed', claim_token = NULL, claim_expires_at = NULL,
+    completed_at = statement_timestamp(),
     last_error = $1, updated_at = statement_timestamp()
 WHERE project_id = $2 AND id = $3
   AND state = 'processing' AND claim_token = $4::uuid
@@ -450,85 +430,6 @@ func (q *Queries) InsertScheduledAppEventReceipt(ctx context.Context, arg Insert
 	return i, err
 }
 
-const listIntegrationInboxReceipts = `-- name: ListIntegrationInboxReceipts :many
-SELECT id, project_id, app_id, receipt_key, state, attempt_count,
-       available_at, claim_expires_at, last_error, created_at, updated_at, completed_at
-FROM integration_inbox
-WHERE project_id = $1
-  AND ($2::uuid IS NULL OR app_id = $2::uuid)
-  AND ($3::text = '' OR state = $3::text)
-  AND (NOT $4::boolean
-       OR (created_at, id) < ($5::timestamptz, $6::uuid))
-ORDER BY created_at DESC, id DESC
-LIMIT $7
-`
-
-type ListIntegrationInboxReceiptsParams struct {
-	ProjectID       uuid.UUID
-	AppID           *uuid.UUID
-	State           string
-	CursorSet       bool
-	CursorCreatedAt time.Time
-	CursorID        uuid.UUID
-	RowLimit        int32
-}
-
-type ListIntegrationInboxReceiptsRow struct {
-	ID             uuid.UUID
-	ProjectID      uuid.UUID
-	AppID          uuid.UUID
-	ReceiptKey     string
-	State          string
-	AttemptCount   int32
-	AvailableAt    time.Time
-	ClaimExpiresAt *time.Time
-	LastError      *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
-}
-
-func (q *Queries) ListIntegrationInboxReceipts(ctx context.Context, arg ListIntegrationInboxReceiptsParams) ([]ListIntegrationInboxReceiptsRow, error) {
-	rows, err := q.db.Query(ctx, listIntegrationInboxReceipts,
-		arg.ProjectID,
-		arg.AppID,
-		arg.State,
-		arg.CursorSet,
-		arg.CursorCreatedAt,
-		arg.CursorID,
-		arg.RowLimit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListIntegrationInboxReceiptsRow{}
-	for rows.Next() {
-		var i ListIntegrationInboxReceiptsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.AppID,
-			&i.ReceiptKey,
-			&i.State,
-			&i.AttemptCount,
-			&i.AvailableAt,
-			&i.ClaimExpiresAt,
-			&i.LastError,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.CompletedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listReadyIntegrationInboxApps = `-- name: ListReadyIntegrationInboxApps :many
 WITH frontier AS MATERIALIZED (
   SELECT inbox.project_id, inbox.app_id
@@ -607,8 +508,8 @@ LIMIT 1
 
 // One probe of the pending-ready index, including inactive scopes that recovery
 // must drain. No scope joins, counts, payload reads, or created_at history scan.
-// Valid transitions never leave pending attempts at 8: retry/expiry fails them
-// and operator retry resets to 0. Avoid a residual filter beyond the index.
+// Valid transitions never leave pending attempts at 8: retry/expiry fails them.
+// Avoid a residual filter beyond the index.
 func (q *Queries) OldestReadyIntegrationInboxLag(ctx context.Context) (float64, error) {
 	row := q.db.QueryRow(ctx, oldestReadyIntegrationInboxLag)
 	var lag_seconds float64
@@ -674,6 +575,7 @@ WITH candidates AS MATERIALIZED (
 )
 UPDATE integration_inbox inbox
 SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN 'failed' ELSE 'pending' END,
+    completed_at = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN statement_timestamp() ELSE NULL END,
     claim_token = NULL, claim_expires_at = NULL, available_at = statement_timestamp(),
     last_error = CASE WHEN NOT scoped.active THEN 'integration scope inactive'
                       WHEN inbox.attempt_count >= 8 THEN 'inbox attempt budget exhausted'
@@ -696,30 +598,10 @@ func (q *Queries) RecoverExpiredIntegrationInboxReceipts(ctx context.Context, ar
 	return result.RowsAffected(), nil
 }
 
-const retryFailedIntegrationInboxReceipt = `-- name: RetryFailedIntegrationInboxReceipt :execrows
-UPDATE integration_inbox
-SET state = 'pending', attempt_count = 0, available_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = $1 AND id = $2 AND state = 'failed'
-`
-
-type RetryFailedIntegrationInboxReceiptParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-// Explicit operator recovery grants a fresh bounded attempt budget; it preserves
-// both frozen selections and completed slots, so it cannot relaunch recipients.
-func (q *Queries) RetryFailedIntegrationInboxReceipt(ctx context.Context, arg RetryFailedIntegrationInboxReceiptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, retryFailedIntegrationInboxReceipt, arg.ProjectID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const retryIntegrationInboxReceipt = `-- name: RetryIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
 SET state = CASE WHEN attempt_count >= 8 THEN 'failed' ELSE 'pending' END,
+    completed_at = CASE WHEN attempt_count >= 8 THEN statement_timestamp() ELSE NULL END,
     claim_token = NULL, claim_expires_at = NULL,
     available_at = statement_timestamp() + $1::bigint * interval '1 millisecond',
     last_error = $2, updated_at = statement_timestamp()

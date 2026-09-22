@@ -53,15 +53,6 @@ func completedMaintenanceOutcome(ctx context.Context, err error) maintenanceOutc
 }
 
 func main() {
-	if len(os.Args) > 1 {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		if err := runInboxCLI(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		return
-	}
 	logger := slog.New(logpkg.NewJSONHandler(os.Stdout, nil))
 
 	cfg, err := config.Load()

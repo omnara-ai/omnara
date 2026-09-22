@@ -50,6 +50,12 @@ func (p *choiceTestProvider) DismissProfileChoice(_ context.Context, _ integrati
 	return nil
 }
 
+func (p *choiceTestProvider) NotifyInboxFailure(_ context.Context, _ integrationstore.ProjectAppRecord,
+	_ integrationstore.IntegrationInboxRecord, _ string) error {
+	p.notices = append(p.notices, "Request failed")
+	return nil
+}
+
 type choiceJourney struct {
 	t        *testing.T
 	pool     *pgxpool.Pool
@@ -107,7 +113,6 @@ func (f *choiceJourney) restart() {
 	workflow := NewAppLaunchWorkflow(router, map[appdefinition.Type]AppLauncher{
 		appdefinition.SlackThread: launcher.Decide,
 	})
-	workflow.OnUnavailable = launcher.NotifyUnavailable
 	f.consumer = NewAppInboxConsumer(router, f.store.Integrations(), &appConsumerUploads{}, providers, nil, workflow)
 }
 
@@ -588,7 +593,7 @@ func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 	require.Equal(t, f.profiles[0].ID, results[0].Launch.Agent.AgentProfileID)
 }
 
-func TestChatProfileChoiceRetryCannotUseAnotherProfilesSettledAgent(t *testing.T) {
+func TestChatProfileChoiceFailedSourceCannotLaunchAgain(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 2)
 	ctx := t.Context()
@@ -617,11 +622,115 @@ func TestChatProfileChoiceRetryCannotUseAnotherProfilesSettledAgent(t *testing.T
 	require.Len(t, results, 1)
 	require.Equal(t, f.profiles[0].ID, results[0].Launch.Agent.AgentProfileID)
 	changeProfile(f.profiles[1].ID) // Original intent once again matches the saved slot, but not its agent.
-	require.NoError(t, f.store.Integrations().RetryFailedIntegrationInbox(ctx, f.ids.ProjectID, original.ID))
-	_, err = f.consumer.Consume(ctx, f.claim().Lease())
-	require.ErrorIs(t, err, ErrAppLaunchUnavailable)
+	_, err = f.consumer.Consume(ctx, original.Lease())
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
+	// Repeating the selection button never queues another attempt.
+	f.choose(f.provider.menus[0], "heavy")
+	_, found, err := f.store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: f.ids.ProjectID, AppID: f.app.ID, LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.False(t, found)
 	var inputs int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`,
 		results[0].Launch.Agent.ID).Scan(&inputs))
 	require.Equal(t, 1, inputs, "the old request cannot be delivered to the replacement profile's agent")
+}
+
+func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
+	t.Parallel()
+	for _, frozen := range []bool{false, true} {
+		t.Run(fmt.Sprintf("frozen=%t", frozen), func(t *testing.T) {
+			t.Parallel()
+			f := newChoiceJourney(t, 2)
+			ctx := t.Context()
+			inbox := f.store.Integrations()
+			f.event.Sibling = &executionstore.InboxMessageSibling{Key: "files-callback"}
+			require.Empty(t, f.receive("mention", f.event))
+			choice := f.provider.menus[0]
+			f.choose(choice, "heavy")
+			selected := f.claim()
+			if frozen {
+				var events []AppEvent
+				require.NoError(t, json.Unmarshal(selected.Events, &events))
+				_, err := NewAppRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), events)
+				require.NoError(t, err)
+			}
+			sibling := f.event
+			sibling.SemanticKey = f.event.Sibling.Key
+			sibling.Sibling = &executionstore.InboxMessageSibling{Key: f.event.SemanticKey}
+			f.provider.events = []AppEvent{sibling}
+			_, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+				ProjectID: f.ids.ProjectID, AppID: f.app.ID, ReceiptKey: "late-callback", Payload: []byte(`{}`),
+			})
+			require.NoError(t, err)
+			late := f.claim()
+			_, err = f.consumer.Consume(ctx, late.Lease())
+			require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
+			waiting, err := inbox.GetIntegrationInbox(ctx, f.ids.ProjectID, late.ID)
+			require.NoError(t, err)
+			require.Empty(t, waiting.Plan, "the sibling cannot acquire independent launch authority")
+			require.NoError(t, inbox.WithIntegrationInboxLease(ctx, selected.Lease(),
+				func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					return work.Fail(ctx, "launch permanently failed")
+				}))
+			results, err := f.consumer.Consume(ctx, late.Lease())
+			require.NoError(t, err)
+			require.Empty(t, results)
+			var agents int
+			require.NoError(t, f.pool.QueryRow(ctx,
+				`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
+			require.Zero(t, agents)
+			require.Len(t, f.provider.menus, 1)
+			f.choose(choice, "heavy") // Repeated buttons cannot resurrect the failed handoff.
+			next := f.event
+			next.SemanticKey, next.Sibling = "fresh-mention", nil
+			require.Empty(t, f.receive("fresh-mention", next))
+			require.Len(t, f.provider.menus, 2)
+			f.choose(f.provider.menus[1], "light")
+			results, err = f.consumer.Consume(ctx, f.claim().Lease())
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			require.True(t, results[0].Launch.Created)
+		})
+	}
+}
+
+func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
+	t.Parallel()
+	f := newChoiceJourney(t, 2)
+	ctx := t.Context()
+	inbox := f.store.Integrations()
+	f.event.Sibling = &executionstore.InboxMessageSibling{Key: "files-callback"}
+	require.Empty(t, f.receive("mention", f.event))
+	f.choose(f.provider.menus[0], "heavy")
+	selected := f.claim()
+	var events []AppEvent
+	require.NoError(t, json.Unmarshal(selected.Events, &events))
+	plan, err := NewAppRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), events)
+	require.NoError(t, err)
+	require.Len(t, plan, 1)
+	var agentID uuid.UUID
+	for key := range plan {
+		result, err := f.store.Execution().AdmitInboxLaunchSlot(ctx, selected.Lease(), key)
+		require.NoError(t, err)
+		agentID = result.Agent.ID
+	}
+	// Admission committed, but completing the receipt never succeeded.
+	require.NoError(t, inbox.WithIntegrationInboxLease(ctx, selected.Lease(),
+		func(work *integrationstore.IntegrationInboxLeaseTx) error {
+			return work.Fail(ctx, "completion bookkeeping exhausted retries")
+		}))
+	removeTestAgentSubscriptions(t, f.store, f.app, agentID)
+	sibling := f.event
+	sibling.SemanticKey = f.event.Sibling.Key
+	sibling.Sibling = &executionstore.InboxMessageSibling{Key: f.event.SemanticKey}
+	results := f.receive("late-callback", sibling)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Input)
+	require.Equal(t, agentID, results[0].Input.AgentInput.AgentID)
+	var agents int
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
+	require.Equal(t, 1, agents)
 }

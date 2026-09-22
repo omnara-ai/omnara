@@ -168,6 +168,8 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 		`UPDATE integration_inbox SET progress=jsonb_build_object('x',repeat('x',262145)) WHERE id=$1`,
 		`UPDATE integration_inbox SET last_error=repeat('x',4097) WHERE id=$1`,
 		`UPDATE integration_inbox SET attempt_count=9 WHERE id=$1`,
+		`UPDATE integration_inbox SET state='failed' WHERE id=$1`,
+		`UPDATE integration_inbox SET completed_at=now() WHERE id=$1`,
 	} {
 		_, err := f.pool.Exec(f.ctx, sql, first.ID)
 		require.Error(t, err, sql)
@@ -260,12 +262,7 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, ok)
-	require.NoError(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, r.ID))
-	retried := f.claim(t)
-	require.Equal(t, 1, retried.AttemptCount)
-	require.NotEqual(t, r.ClaimToken, retried.ClaimToken)
-	require.JSONEq(t, string(original.Plan), string(retried.Plan))
-	require.JSONEq(t, string(original.Progress), string(retried.Progress))
+	require.NotNil(t, final.CompletedAt)
 }
 
 func TestInboxFrozenSlotsPreparationAndAtomicProgress(t *testing.T) {
@@ -328,21 +325,29 @@ func TestInboxFrozenSlotsPreparationAndAtomicProgress(t *testing.T) {
 	require.NoError(t, tx.Commit(f.ctx))
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
 	require.Equal(t, "admitted", display)
-	// A partial recipient success survives explicit failure and operator recovery.
-	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.Fail(f.ctx, "second slot failed") })
-	require.NoError(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, r.ID))
+	// A partial recipient success survives automatic retries and terminal failure.
+	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
+		return w.Retry(f.ctx, time.Second, "second slot temporarily unavailable")
+	})
+	f.exec(t, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, r.ID)
 	r = f.claim(t)
 	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.CommitSlot(f.ctx, "one", json.RawMessage(`{"input_id":"second"}`))
+		return w.CommitSlot(f.ctx, "one", json.RawMessage(`{"input_id":"replacement"}`))
 	})
 	require.ErrorIs(t, err, storeerr.ErrConflict)
-	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := w.CommitSlot(f.ctx, "two", json.RawMessage(`{"input_id":"second"}`)); err != nil {
-			return err
-		}
-		return w.Complete(f.ctx)
+	original := f.read(t, r.ID)
+	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.Fail(f.ctx, "second slot failed") })
+	failed := f.read(t, r.ID)
+	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
+	require.NotNil(t, failed.CompletedAt)
+	require.Equal(t, original.Plan, failed.Plan)
+	require.Equal(t, original.Progress, failed.Progress)
+	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
+		return w.CommitSlot(f.ctx, "two", json.RawMessage(`{"input_id":"late"}`))
 	})
-	require.Equal(t, integrationstore.IntegrationInboxCompleted, f.read(t, r.ID).State)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
+	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
+	require.Equal(t, "admitted", display)
 }
 
 func TestInboxLeaseRevalidatedAfterLockWaitAndInsideTransaction(t *testing.T) {
@@ -392,6 +397,7 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 	})
 	read := f.read(t, r.ID)
 	require.Equal(t, integrationstore.IntegrationInboxPending, read.State)
+	require.Nil(t, read.CompletedAt)
 	require.LessOrEqual(t, len(read.LastError), 4096)
 	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
 	require.NoError(t, err)
@@ -407,6 +413,7 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 		return w.Retry(f.ctx, time.Second, "last failure")
 	})
 	require.Equal(t, integrationstore.IntegrationInboxFailed, f.read(t, r.ID).State)
+	require.NotNil(t, f.read(t, r.ID).CompletedAt)
 	for i := range 3 {
 		f.accept(t, fmt.Sprintf("done-%d", i))
 		claimed := f.claim(t)
@@ -417,23 +424,6 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 			return w.Complete(f.ctx)
 		})
 	}
-	page, err := f.store.ListIntegrationInbox(f.ctx, integrationstore.ListIntegrationInboxInput{
-		ProjectID: f.project, Limit: 2,
-	})
-	require.NoError(t, err)
-	require.True(t, page.HasMore)
-	require.Len(t, page.Receipts, 2)
-	next, err := f.store.ListIntegrationInbox(f.ctx, integrationstore.ListIntegrationInboxInput{
-		ProjectID: f.project, Limit: 2, After: page.Next,
-	})
-	require.NoError(t, err)
-	require.False(t, next.HasMore)
-	require.Len(t, next.Receipts, 2)
-	seen := map[uuid.UUID]bool{}
-	for _, v := range append(page.Receipts, next.Receipts...) {
-		require.False(t, seen[v.ID])
-		seen[v.ID] = true
-	}
 	f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '1 day' WHERE state='completed'`)
 	n, err := f.store.CleanupTerminalIntegrationInbox(f.ctx, time.Hour, 2)
 	require.NoError(t, err)
@@ -442,6 +432,7 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, f.read(t, r.ID).State)
+	require.NotNil(t, f.read(t, r.ID).CompletedAt)
 }
 
 func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T) {
@@ -479,6 +470,7 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, f.read(t, pending.ID).State)
+	require.NotNil(t, f.read(t, pending.ID).CompletedAt)
 	// Inactive polling only visits the pending frontier. Processing receipts are
 	// already fenced from use and become failed through bounded expiry recovery.
 	require.Equal(t, integrationstore.IntegrationInboxProcessing, f.read(t, r.ID).State)
@@ -490,7 +482,7 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, f.read(t, r.ID).State)
-	require.ErrorIs(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, pending.ID), storeerr.ErrUnauthorized)
+	require.NotNil(t, f.read(t, r.ID).CompletedAt)
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.Zero(t, n)

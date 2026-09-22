@@ -24,9 +24,7 @@ func TestScheduledDispatchUsesAppTypeWithoutThreadInputsOrProvider(t *testing.T)
 	payload, err := json.Marshal(event)
 	require.NoError(t, err)
 	receipt := integrationstore.IntegrationInboxRecord{
-		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
-			ID: uuid.New(), ProjectID: uuid.New(), AppID: uuid.New(),
-		},
+		ID: uuid.New(), ProjectID: uuid.New(), AppID: uuid.New(),
 		Source: integrationstore.IntegrationInboxSourceScheduled, Payload: payload, ClaimToken: uuid.New(),
 	}
 	const refreshType appdefinition.Type = "refresh"

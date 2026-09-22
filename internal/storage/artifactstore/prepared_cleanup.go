@@ -13,10 +13,10 @@ import (
 )
 
 // DeleteUnreferencedPreparedArtifact is a best-effort cleanup for a frozen key
-// whose owning inbox receipt has committed discard. The caller must establish
-// that terminal state first: a failed admission or expired lease is insufficient.
-// Discard fences future admission at these server-generated IDs, so the reference
-// check and blob deletion need no transaction spanning external I/O. A stale
+// whose owning inbox receipt has committed terminal failure. The caller must
+// establish that state first: an admission error or expired lease is insufficient.
+// Terminal failure fences admission at these server-generated IDs, so reference
+// checks and blob deletion need no transaction spanning external I/O. A stale
 // uploader can recreate unused bytes afterward; this is not garbage collection.
 func (s *Store) DeleteUnreferencedPreparedArtifact(
 	ctx context.Context,

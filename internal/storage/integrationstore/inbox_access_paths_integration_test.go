@@ -89,7 +89,7 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
        CASE WHEN n<=8000 THEN 'C123:123.456' ELSE 'C123:'||n||'.456' END)))) END,
  CASE WHEN n>24000 AND n<=28000 THEN uuidv7() ELSE NULL END,
  CASE WHEN n>24000 AND n<=28000 THEN now()+interval '1 minute' ELSE NULL END,
- CASE WHEN n<=8000 THEN now() ELSE NULL END
+ CASE WHEN n<=16000 OR n>28000 THEN now() ELSE NULL END
  FROM generate_series(1,32000) n`, f.project, f.appID, app.String())
 	f.exec(t, "ANALYZE integration_inbox")
 	identity := map[string]any{
@@ -101,7 +101,6 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 	own := uuid.New()
 	parameters := map[string]any{
 		"project_id": f.project, "app_id": f.appID, "receipt_id": own, "selection": selection,
-		"include_failed": true,
 	}
 	assertLookup := func(t *testing.T, wantID uuid.UUID, wantState string, maxInspected float64) {
 		t.Helper()
@@ -157,21 +156,19 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 			own, match := uuid.New(), uuid.New()
 			parameters["receipt_id"], parameters["selection"] = own, selection
 			f.exec(t, `INSERT INTO integration_inbox
- (id,project_id,app_id,receipt_key,payload,plan,state,claim_token,claim_expires_at)
+ (id,project_id,app_id,receipt_key,payload,plan,state,claim_token,claim_expires_at,completed_at)
  SELECT id,$1,$2,'matching:'||id,'x'::bytea,
    jsonb_build_object('a',jsonb_build_object('selection',$5::jsonb||'{"slot":"a"}'::jsonb),
                       'b',jsonb_build_object('selection',$5::jsonb||'{"slot":"b"}'::jsonb)), $6::text,
    CASE WHEN $6::text='processing' THEN uuidv7() ELSE NULL END,
-   CASE WHEN $6::text='processing' THEN now()+interval '1 minute' ELSE NULL END
+   CASE WHEN $6::text='processing' THEN now()+interval '1 minute' ELSE NULL END,
+   CASE WHEN $6::text='failed' THEN now() ELSE NULL END
  FROM unnest(ARRAY[$3::uuid,$4::uuid]) id`, f.project, f.appID, own, match, selection, state)
-			assertLookup(t, match, state, 2)
-			parameters["include_failed"] = false
 			if state == "failed" {
-				assertLookup(t, uuid.Nil, "", 2)
+				assertLookup(t, uuid.Nil, "", 0)
 			} else {
 				assertLookup(t, match, state, 2)
 			}
-			parameters["include_failed"] = true
 		})
 	}
 }
@@ -220,7 +217,7 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
  SELECT $1,CASE WHEN n>24000 THEN $4::uuid WHEN n>16000 THEN $3::uuid ELSE $2::uuid END,'bulk:'||n,'x'::bytea,
  CASE WHEN n<=8000 OR n>24000 THEN 'pending' WHEN n<=16000 THEN 'completed' ELSE 'failed' END,
  CASE WHEN n<=8000 THEN now()+interval '1 day' ELSE now() END,
- CASE WHEN n>8000 AND n<=16000 THEN now() ELSE NULL END
+ CASE WHEN n>8000 AND n<=24000 THEN now() ELSE NULL END
  FROM generate_series(1,32000) n`,
 		f.project,
 		f.appID,
@@ -293,8 +290,9 @@ func TestInboxInactiveRecoveryBatchesAppsAcrossProjects(t *testing.T) {
  VALUES($1,$2,$3,$4,$5,'batch-team',($1::uuid)::text,'app-'||$7::text,'slack_thread',
  (SELECT credential_secret_id FROM project_apps WHERE id=$6),now(),now())`,
 				id, f.org, project, f.user, state, f.appID, strconv.Itoa(app))
-			f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,state)
- SELECT $1,$2,'batch-history:'||n,'x'::bytea,$3 FROM generate_series(1,4000) n`, project, id, inboxState)
+			f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,state,completed_at)
+ SELECT $1,$2,'batch-history:'||n,'x'::bytea,$3,
+ CASE WHEN $3::text='failed' THEN now() ELSE NULL END FROM generate_series(1,4000) n`, project, id, inboxState)
 		}
 	}
 	f.exec(t, "ANALYZE project_apps")

@@ -113,11 +113,9 @@ func appPlannerFixture(
 		},
 	}
 	integrations.receipt = integrationstore.IntegrationInboxRecord{
-		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
-			ID:        uuid.New(),
-			ProjectID: project,
-			AppID:     integrations.appSetup.ID,
-		},
+		ID:        uuid.New(),
+		ProjectID: project,
+		AppID:     integrations.appSetup.ID,
 	}
 	app := integrations.appSetup
 	app.Settings = integrationstore.ProjectAppSettings{

@@ -17,7 +17,7 @@ import (
 )
 
 // A settled selection asks the planner to re-read subscriptions. A reserved one
-// belongs to another immutable plan; failed owners need explicit recovery.
+// belongs to another pending or processing immutable plan.
 var (
 	ErrAppSelectionReserved = errors.New("app conversation reserved by another receipt")
 	ErrAppSelectionSettled  = errors.New("app conversation already selected; replan")
@@ -49,10 +49,9 @@ type appSelectionIdentity struct {
 }
 
 // CheckNoUnsettledAppSelection protects a zero-recipient event from being
-// discarded while another receipt is still preparing the conversation's first
+// dropped while another receipt is still preparing the conversation's first
 // agent. Launches and ordinary follow-ups use the receipt's owning app.
-// Failed reservations do not delay plain follow-ups;
-// they still block replacement launches until explicit operator recovery.
+// Terminal receipts release their unfinished reservations.
 // A chosen chat menu has accepted work before its plan exists. This app-storage
 // bridge also checks that handoff so post-selection replies cannot freeze empty;
 // unchosen menus never reserve agent execution or hold these gates for a human.
@@ -75,11 +74,10 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledAppSelection(ctx context.Conte
 		return err
 	}
 	owners, err := w.q.FindInboxSelectionReservations(ctx, dbsqlc.FindInboxSelectionReservationsParams{
-		ProjectID:     w.record.ProjectID,
-		AppID:         w.record.AppID,
-		ReceiptID:     w.record.ID,
-		Selection:     selection,
-		IncludeFailed: false,
+		ProjectID: w.record.ProjectID,
+		AppID:     w.record.AppID,
+		ReceiptID: w.record.ID,
+		Selection: selection,
 	})
 	if err != nil {
 		return err
@@ -127,8 +125,8 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	// the previous planner's committed reservation at READ COMMITTED.
 	for identity := range identities {
 		// Undecided ingress waits for accepted choices. Decided receipts instead
-		// compete for the frozen plan below, so an operator retry cannot make two
-		// accepted, unplanned choices reserve against each other indefinitely.
+		// compete for the frozen plan below without reserving against other
+		// accepted, unplanned choices.
 		if len(w.record.Events) == 0 {
 			if err := w.checkUnplannedAppProfileChoice(ctx, identity.Address); err != nil {
 				return err
@@ -139,11 +137,10 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 			return err
 		}
 		owners, err := w.q.FindInboxSelectionReservations(ctx, dbsqlc.FindInboxSelectionReservationsParams{
-			ProjectID:     w.record.ProjectID,
-			AppID:         identity.AppID,
-			ReceiptID:     w.record.ID,
-			Selection:     selection,
-			IncludeFailed: true,
+			ProjectID: w.record.ProjectID,
+			AppID:     identity.AppID,
+			ReceiptID: w.record.ID,
+			Selection: selection,
 		})
 		if err != nil {
 			return err

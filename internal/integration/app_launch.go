@@ -27,9 +27,6 @@ type AppLaunchContext struct {
 type AppLaunchWorkflow struct {
 	router    *AppRouter
 	launchers map[appdefinition.Type]AppLauncher
-	// OnUnavailable lets an app update its presentation after a setup edit
-	// invalidates a decided launch. Failure to notify never changes admission.
-	OnUnavailable func(context.Context, integrationstore.ProjectAppRecord, []AppEvent) error
 }
 
 func NewAppLaunchWorkflow(router *AppRouter, launchers map[appdefinition.Type]AppLauncher) *AppLaunchWorkflow {

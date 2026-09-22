@@ -173,17 +173,6 @@ type AppSlotAdmission struct {
 	Input  *executionstore.InboxInputResult
 }
 
-// AppSlotAdmissionError retains the failed recipient for provider feedback without
-// confusing input rejection with launch failure or hiding independent successes.
-type AppSlotAdmissionError struct {
-	Slot   string
-	Launch bool
-	Err    error
-}
-
-func (e *AppSlotAdmissionError) Error() string { return fmt.Sprintf("slot %s: %v", e.Slot, e.Err) }
-func (e *AppSlotAdmissionError) Unwrap() error { return e.Err }
-
 // Admit attempts each frozen recipient independently, preserving successful
 // progress when another slot fails. Empty plans complete only after a successful
 // Freeze; a reservation conflict never becomes a silently completed empty plan.
@@ -226,7 +215,7 @@ func (r *AppRouter) Admit(
 			result.Input = &value
 		}
 		if err != nil {
-			failures = append(failures, &AppSlotAdmissionError{Slot: key, Launch: plan[key].Launch != nil, Err: err})
+			failures = append(failures, fmt.Errorf("slot %s: %w", key, err))
 			continue
 		}
 		results = append(results, result)

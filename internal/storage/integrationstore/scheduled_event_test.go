@@ -36,8 +36,8 @@ func TestScheduledPlanKeepsAppAndConversationAuthority(t *testing.T) {
 			payload, err := json.Marshal(launch)
 			require.NoError(t, err)
 			receipt := integrationstore.IntegrationInboxRecord{
-				IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{AppID: uuid.New()},
-				Source:                  integrationstore.IntegrationInboxSourceScheduled, Payload: payload,
+				AppID:  uuid.New(),
+				Source: integrationstore.IntegrationInboxSourceScheduled, Payload: payload,
 			}
 			root := appdefinition.Scope{Discord: &appdefinition.DiscordScope{
 				GuildID: "100", ChannelID: "300", ThreadID: "500",

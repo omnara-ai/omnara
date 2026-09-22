@@ -81,7 +81,7 @@ func (l *ChatAppLauncher) decideProfiles(
 	// A delayed callback for the initiating message must recover its own chosen
 	// recipient, even if another setup has since launched into the conversation.
 	if exists && choice.SelectedKey != "" {
-		return choiceIntent(choice), nil
+		return l.selectedChoiceIntent(ctx, choice)
 	}
 	if !exists && len(profiles) <= 1 {
 		return profiles, nil
@@ -132,7 +132,7 @@ func (l *ChatAppLauncher) decideProfiles(
 	}
 	if choice.SelectedKey != "" {
 		if choice.SourceKey == sourceKey {
-			return choiceIntent(choice), nil
+			return l.selectedChoiceIntent(ctx, choice)
 		}
 		return nil, nil
 	}
@@ -174,6 +174,41 @@ func (l *ChatAppLauncher) decideProfiles(
 	return nil, nil
 }
 
+// A second provider callback for the same source may carry attachments. It can
+// continue a committed choice, but must never independently launch that choice:
+// the original handoff could fail between this lookup and Freeze.
+func (l *ChatAppLauncher) selectedChoiceIntent(
+	ctx context.Context, choice integrationstore.AppProfileChoiceRecord,
+) ([]AppLaunchIntent, error) {
+	receipt, found, err := l.store.GetAppProfileChoiceInbox(ctx, choice.ProjectID, choice.AppID, choice.ID)
+	if err != nil || !found {
+		return nil, err
+	}
+	if len(receipt.Plan) != 0 {
+		plan, err := decodeAppInboxPlan(receipt.Plan)
+		if err != nil {
+			return nil, err
+		}
+		var progress map[string]map[string]json.RawMessage
+		if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
+			return nil, err
+		}
+		for key := range plan {
+			if _, committed := progress[key]["committed"]; committed {
+				// A choice handoff contains exactly one selected profile. Its retained
+				// target, including a retirement tombstone, prevents a replacement
+				// launch when Freeze rechecks the intent.
+				return choiceIntent(choice), nil
+			}
+		}
+	}
+	if receipt.State == integrationstore.IntegrationInboxPending ||
+		receipt.State == integrationstore.IntegrationInboxProcessing {
+		return nil, &integrationstore.AppSelectionReservationError{ReceiptID: receipt.ID, State: receipt.State}
+	}
+	return nil, nil
+}
+
 func choiceIntent(choice integrationstore.AppProfileChoiceRecord) []AppLaunchIntent {
 	for _, option := range choice.Options {
 		if option.Key == choice.SelectedKey {
@@ -181,31 +216,6 @@ func choiceIntent(choice integrationstore.AppProfileChoiceRecord) []AppLaunchInt
 		}
 	}
 	return nil
-}
-
-func (l *ChatAppLauncher) NotifyUnavailable(
-	ctx context.Context, appSetup integrationstore.ProjectAppRecord, events []AppEvent,
-) error {
-	provider, ok := l.providers[appSetup.Provider].(AppProfileChoiceProvider)
-	if !ok {
-		return nil
-	}
-	var failures []error
-	for _, event := range events {
-		for _, intent := range event.Launches {
-			choice, found, err := l.store.GetAppProfileChoiceBySource(ctx, appSetup.ProjectID,
-				intent.AppID, appChoiceSourceKey(event))
-			if err != nil {
-				failures = append(failures, err)
-				continue
-			}
-			if found && choice.MessageID != "" {
-				failures = append(failures, provider.DismissProfileChoice(ctx, appSetup, choice,
-					"The app setup changed before this request could start. Mention the bot again to choose a profile."))
-			}
-		}
-	}
-	return errors.Join(failures...)
 }
 
 // SelectChatAppProfile performs no provider I/O or agent launch. A successful

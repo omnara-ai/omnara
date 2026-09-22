@@ -53,8 +53,8 @@ budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget
 exhaustion retries after one second; drained queues return to 30-second polling.
 The lag query has its own one-second deadline and runs at most once per 30 seconds.
 
-Inbox retention runs last in each core maintenance tick. Completed/discarded
-receipts remain for seven days after completion, measured by the database clock.
+Inbox retention runs last in each core maintenance tick. Completed/failed
+receipts remain for seven days after completion or failure, measured by the database clock.
 Terminal and deleted-scope cleanup each drain 100-row transactions with a 250 ms
 soft budget checked between batches. The current batch may finish beyond that
 budget without cancellation. Each cleanup pass has a five-second hard deadline,
@@ -63,8 +63,8 @@ timeouts are logged as errors. Each batch is atomic, but cancellation can race
 commit, so a failed call may have an uncertain result. Logged counts include only
 confirmed deletions; the next tick safely continues from remaining rows.
 Normal soft-budget exhaustion is logged as
-`budget_exhausted=true`. Failed receipts in live or disconnected scopes
-remain available for operator recovery. See the
+`budget_exhausted=true`. Failed receipts are terminal, release unfinished launch
+reservations, and remain for seven days for diagnostics. See the
 [inbox operations contract](https://github.com/omnara-ai/omnara/blob/main/internal/storage/integrationstore/inbox_retention.md).
 
 ## Database and Redis

@@ -47,8 +47,6 @@ function appRunLabel(trigger: CronTrigger) {
       return 'Last run: app action completed'
     case 'failed':
       return `Last run: ${trigger.last_run.failure_message ?? 'failed'}`
-    case 'discarded':
-      return 'Last run: discarded'
   }
 }
 

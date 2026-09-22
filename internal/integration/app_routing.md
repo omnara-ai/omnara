@@ -100,22 +100,22 @@ siblings update retained source and payload together; frozen file digests still
 must match on admission. A selected exact sibling can reach its settled recipient
 without granting a subscription to future messages.
 
-Menus expire after an hour; accepted selections remain retryable after expiry.
+Menus expire after an hour; accepted selections use the inbox retry budget even after menu expiry.
 Pending choices and accepted unfinished launches reserve that app/conversation.
 Only the creating receipt publishes a menu; siblings may enrich its source.
 An uncertain send may repeat a menu, but only a confirmed recorded menu can
 choose, and one choice admits at most one profile. There is no exactly-once menu
 send guarantee. Unusable unselected choices expire while preserving their source
 replay barrier. Live-app choice bookkeeping is retained for at least seven days
-after expiry and while selected work remains unfinished/failed. Disconnect keeps
-recovery data; deleted apps/projects/organizations may release it earlier.
+after expiry and while its selected receipt remains stored, including the seven-day
+terminal retention window. Disconnect keeps those diagnostics; deleted
+apps/projects/organizations may release them earlier.
 
 Routing uses subscriptions present at planning time, with no retrospective backfill
 of messages processed before a human selection. Before freezing zero-recipient
 work, storage checks pending/processing reservations for that app/address so a
-follow-up can wait for initial launch admission. Failed reservations do not hold
-plain zero-recipient follow-ups indefinitely, but still prevent replacement
-launches until explicit recovery. Already admitted recipients can receive while
+follow-up can wait for initial launch admission. Failed reservations release unfinished launches, allowing a fresh trigger.
+Committed selections and their retirement markers still prevent replacement. Already admitted recipients can receive while
 other slots remain unsettled.
 
 `Freeze(ctx, lease, events)` reads routing under app, receipt and sorted
@@ -133,7 +133,8 @@ preserve model, machine, skill, subagent and tool policy identities. Derived
 configs are persisted only during successful admission. Editing launcher settings
 does not rewrite frozen membership; live project/app/credential, profile and
 ordinary launch limits still govern unfinished work. Disconnect revokes new
-provider work while keeping the frozen plan available for recovery after reconnect.
+provider work. Unfinished receipts become terminal failures; reconnecting does not
+requeue them. Their frozen plans remain available for diagnosis until retention expires.
 
 Hosted launchers supply tools and an optional handler. Admission designates the
 selected target as immutable sending context. Each launch separately freezes one
@@ -210,11 +211,11 @@ that store query.
 
 Failures preserve the plan and committed slots. Retry uses a five-second
 exponential delay capped at five minutes; attempt eight becomes a diagnosable
-failed receipt. Explicit retry retains identities/progress. Successful launches
+failed receipt. Failure is terminal and releases unfinished launch reservations. Successful launches
 start the existing independently recoverable machine provisioning workflow even
-when another slot fails. Maintenance removes completed/discarded receipts after
-seven days, with bounded terminal/deleted-app batches. Failed work on live or
-disconnected apps remains recoverable. See
+when another slot fails. Maintenance removes completed/failed receipts after
+seven days, with bounded terminal/deleted-app batches. Committed selections remain
+authoritative; a fresh trigger can replace only an unfinished launch. See
 [inbox retention](../storage/integrationstore/inbox_retention.md).
 
 Discord's persistent runtime separately retains app/shard leases, durable RESUME
@@ -249,9 +250,8 @@ Slack prefiltering can complete an empty plan under reservation/conversation gat
 before enrichment/downloads. Otherwise bounded files are inspected before freeze,
 with explicit omission summaries. Planned object keys accept only bytes matching
 the frozen digest, including late uploads after lease loss. A best-effort receipt
-reaction occurs only for newly created input. Capacity/admission launch failures
-use one durable `ClaimLaunchFailureNotice` attempt shared by all receipt slots;
-a crash can lose the notice, but retries cannot spam the conversation.
+reaction occurs only for newly created input. Terminal failures trigger one best-effort provider notice after the failed
+transition commits, only if work remains unadmitted. A crash can lose that notice.
 
 Fanout failure logs identify `app_id`, `project_id`, provider, `setup_revision`,
 `stage` (credential verification or intake), retryability and error type. They omit
@@ -265,9 +265,8 @@ the same provider identity. Disconnect the affected app if it cannot be repaired
 immediately; independent apps remain active. Do not turn an unclassified decrypt
 failure into success to silence retries. After repair, redeliver failed webhooks
 as the provider requires (GitHub needs explicit redelivery). Already accepted
-sibling receipts dedupe. Disconnect preserves inbox recovery data; reconnect
-restores access so failed durable work can be retried through the existing inbox
-operator workflow.
+sibling receipts dedupe. Disconnect preserves retained inbox diagnostics; reconnect
+restores access for new requests, not replay of terminally failed work.
 
 Worker logs identify receipt, app, project, attempt and durable retry/failure
 outcome, including old receipt age. They never include provider payloads or
@@ -303,8 +302,7 @@ so a deterministic planning error cannot post another heading on every inbox ret
 If a commit acknowledgement is lost, a visible saved plan is reused. Failures after
 that commit resume from the saved thread. A crash, lease loss or database outage
 before either the plan or terminal outcome is persisted may leave a stray heading
-and permit a replacement on recovery. Explicit operator retry of a failed receipt
-without a plan can also publish again. Atomic admission still creates at most one
+and permit a replacement on recovery. Atomic admission still creates at most one
 agent per occurrence. This bounded delivery limitation is deliberate.
 
 The frozen selection reserves the conversation before Discord EnsureThread runs.

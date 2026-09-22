@@ -6,12 +6,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
 // These limits match integration_inbox's durable bounds. Every claim consumes
-// an attempt, including a worker crash before planning. Only explicit operator
-// retry grants a new budget; it never clears the frozen plan or progress.
+// an attempt, including a worker crash before planning. Failed receipts are
+// terminal; their original identity, frozen plan and progress remain retained.
 const (
 	IntegrationInboxMaxPayloadBytes    = 1024 * 1024
 	IntegrationInboxMaxPlanBytes       = 256 * 1024
@@ -40,7 +39,6 @@ const (
 	IntegrationInboxProcessing IntegrationInboxState = "processing"
 	IntegrationInboxCompleted  IntegrationInboxState = "completed"
 	IntegrationInboxFailed     IntegrationInboxState = "failed"
-	IntegrationInboxDiscarded  IntegrationInboxState = "discarded"
 )
 
 // VerifiedIntegrationReceipt is admitted only after provider authentication and
@@ -54,7 +52,7 @@ type VerifiedIntegrationReceipt struct {
 	Payload    []byte
 }
 
-type IntegrationInboxSummary struct {
+type IntegrationInboxRecord struct {
 	ID             uuid.UUID
 	ProjectID      uuid.UUID
 	AppID          uuid.UUID
@@ -67,12 +65,8 @@ type IntegrationInboxSummary struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	CompletedAt    *time.Time
-}
-
-type IntegrationInboxRecord struct {
-	IntegrationInboxSummary
-	Source  IntegrationInboxSource
-	Payload []byte
+	Source         IntegrationInboxSource
+	Payload        []byte
 	// Events is an optional array normalized and decided by trusted app code.
 	// Raw provider receipts leave this nil and preserve Payload unchanged.
 	Events json.RawMessage
@@ -100,20 +94,6 @@ type ClaimIntegrationInboxInput struct {
 	ProjectID     uuid.UUID
 	AppID         uuid.UUID
 	LeaseDuration time.Duration
-}
-
-type ListIntegrationInboxInput struct {
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	State     IntegrationInboxState
-	After     listing.KeysetCursor
-	Limit     int
-}
-
-type ListIntegrationInboxResult struct {
-	Receipts []IntegrationInboxSummary
-	HasMore  bool
-	Next     listing.KeysetCursor
 }
 
 type IntegrationInboxApp struct {

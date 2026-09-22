@@ -193,6 +193,11 @@ func newCapturedHTTPFixtureWithDismiss(
 		"instruction":          "Help with the request.",
 		"model":                map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
 		"interaction_handlers": map[string]any{"support": map[string]any{}},
+		// Declaring a handler does not grant the tools used to select it.
+		"tools": map[string]any{
+			toolcatalog.ToolNameListInteractionHandlers: map[string]any{},
+			toolcatalog.ToolNameSetInteractionHandler:   map[string]any{},
+		},
 	}
 	agentConfig := createPublicHTTPAgentConfig(
 		t,

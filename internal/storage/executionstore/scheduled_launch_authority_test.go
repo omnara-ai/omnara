@@ -41,10 +41,10 @@ func scheduledAuthorityFixture(t *testing.T) (
 	require.NoError(t, err)
 	root := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
 	receipt := integrationstore.IntegrationInboxRecord{
-		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
-			ID: uuid.New(), ProjectID: app.ProjectID, AppID: app.ID,
-			ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.Occurrence.DueAt.Format(time.RFC3339),
-		},
+
+		ID: uuid.New(), ProjectID: app.ProjectID, AppID: app.ID,
+		ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.Occurrence.DueAt.Format(time.RFC3339),
+
 		Source: integrationstore.IntegrationInboxSourceScheduled, Payload: payload,
 	}
 	tenant, err := publicid.Encode(publicid.KindOrganization, app.OrgID)

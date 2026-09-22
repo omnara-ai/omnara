@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,11 +44,13 @@ func TestResolveAgentConfigTools(t *testing.T) {
 		t.Fatal(diff)
 	}
 	tools := testutil.RequireType[[]any](t, preview["tools"])
-	if len(tools) != 20 {
-		t.Fatalf("expected 11 pool tools, 5 subagent tools, 2 retrieval tools, and 2 interaction tools, got %v", tools)
+	if len(tools) != 18 {
+		t.Fatalf("expected 11 pool tools, 5 subagent tools, and 2 retrieval tools, got %v", tools)
 	}
 	for _, item := range tools {
 		tool := testutil.RequireType[map[string]any](t, item)
+		require.NotEqual(t, toolcatalog.ToolNameListInteractionHandlers, tool["name"], "interaction tools are explicit")
+		require.NotEqual(t, toolcatalog.ToolNameSetInteractionHandler, tool["name"], "interaction tools are explicit")
 		if tool["name"] == "run_command" {
 			permission := testutil.RequireType[map[string]any](t, tool["permission"])
 			if tool["enabled"] != false || permission["mode"] != "always_ask" {
@@ -57,15 +60,16 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	}
 	empty := map[string]any{"source": `{"instruction":"","model":{}}`, "source_format": "json"}
 	response := request(empty, project.AdminToken, http.StatusOK)
-	if len(testutil.RequireType[[]any](t, response["tools"])) != 2 {
-		t.Fatalf("unexpected contextual tools: %v", response)
-	}
+	require.Empty(t, testutil.RequireType[[]any](t, response["tools"]), "ordinary configs grant no interaction tools")
 	mcp := request(map[string]any{
 		"source": `{"mcp":{"docs":{"url":"https://example.com/mcp","default_enabled":false}}}`, "source_format": "json",
 	}, project.AdminToken, http.StatusOK)
-	if len(testutil.RequireType[[]any](t, mcp["tools"])) != 4 {
-		t.Fatalf("MCP-only config missing retrieval tools: %v", mcp)
+	var mcpToolNames []string
+	for _, item := range testutil.RequireType[[]any](t, mcp["tools"]) {
+		tool := testutil.RequireType[map[string]any](t, item)
+		mcpToolNames = append(mcpToolNames, testutil.RequireType[string](t, tool["name"]))
 	}
+	require.ElementsMatch(t, []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles}, mcpToolNames)
 	for _, body := range []map[string]any{
 		{}, {"source": "{}"}, {"source_format": "json"},
 		{"source": "tools: {run_command: {enabled: nope}}", "source_format": "yaml"},

@@ -461,7 +461,6 @@ it.each([
   ['processing', 'Last run: processing'],
   ['completed', 'Last run: app action completed'],
   ['failed', 'Last run: Could not prepare the thread'],
-  ['discarded', 'Last run: discarded'],
 ] as const)(
   'shows %s app action state independently of firing failure reports',
   async (state, label) => {

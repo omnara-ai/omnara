@@ -87,7 +87,7 @@ func TestInboxSelectionRequiresReceiptApp(t *testing.T) {
 		t.Fatalf("duplicate selection slot accepted: %v", err)
 	}
 	_, _, err = ensureAppProfileChoiceTx(t.Context(), nil,
-		IntegrationInboxRecord{IntegrationInboxSummary: IntegrationInboxSummary{AppID: appID}},
+		IntegrationInboxRecord{AppID: appID},
 		EnsureAppProfileChoiceInput{AppID: uuid.New()})
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("another app's chooser accepted: %v", err)

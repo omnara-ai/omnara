@@ -56,7 +56,7 @@ disconnecting one saved app does not change the URL or revoke independent apps.
 At least one credential-bearing saved app must exist for fallback verification;
 the resolver cannot discover App IDs inside unreferenced encrypted secrets.
 
-`cmd/worker` registers `integration.GitHubAppInboxProvider{}` under `"github"` in
+`cmd/worker` registers `integration.NewGitHubAppInboxProvider` with the project secret and app resolvers under `"github"` in
 the consumer's provider map. It implements the existing `Expand`/`DownloadFile` interface, with
 no planned file downloads. `NormalizeGitHubAppEvent(app, raw)` is pure and
 accepts only trusted, previously verified inbox payloads. It derives event kinds

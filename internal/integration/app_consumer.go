@@ -155,10 +155,6 @@ func (c *AppInboxConsumer) Consume(
 			}
 		}
 		if _, err = c.router.Freeze(ctx, lease, expansion.Events); err != nil {
-			if len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable) &&
-				c.launchers != nil && c.launchers.OnUnavailable != nil {
-				err = errors.Join(err, c.launchers.OnUnavailable(ctx, appSetup, expansion.Events))
-			}
 			return nil, err
 		}
 		// Re-read durable preparation and the actual winning plan, never retain
@@ -250,9 +246,6 @@ func (c *AppInboxConsumer) Consume(
 	results, err := c.router.Admit(ctx, lease)
 	if err != nil {
 		failures = append(failures, err)
-	}
-	if slackProvider, ok := adapter.(*SlackAppInboxProvider); ok {
-		c.notifySlackLaunchFailure(ctx, lease, appSetup, receipt.Payload, slackProvider, err)
 	}
 	created := slices.ContainsFunc(results, func(result AppSlotAdmission) bool {
 		return (result.Launch != nil && result.Launch.Created) || (result.Input != nil && result.Input.Created)

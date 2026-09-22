@@ -20,7 +20,6 @@ WITH candidates AS (
           SELECT 1 FROM integration_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
             AND inbox.receipt_key = 'choice:' || choice.id::text
-            AND inbox.state IN ('pending', 'processing', 'failed')
       )
     ORDER BY choice.expires_at, choice.id
     LIMIT $2
@@ -34,8 +33,9 @@ type CleanupExpiredAppProfileChoicesParams struct {
 	RowLimit              int32
 }
 
-// Expired menus may still own accepted work awaiting recovery. Their retention
-// is chooser policy, not a generic deadline-to-deletion rule for app state.
+// Retain expired menus while their linked receipt exists in any state, including
+// recently terminal work. Receipt cleanup ends this source replay barrier; menu
+// expiry alone must not shorten the receipt retention window.
 func (q *Queries) CleanupExpiredAppProfileChoices(ctx context.Context, arg CleanupExpiredAppProfileChoicesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupExpiredAppProfileChoices, arg.RetentionMilliseconds, arg.RowLimit)
 	if err != nil {
@@ -53,7 +53,7 @@ WITH candidates AS (
      WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.app_id = $2
        AND choice.scope_kind = $3::text
        AND choice.scope_ref = $4::text AND COALESCE(choice.data->>'selected_key', '') <> ''
-       AND (inbox.state IN ('pending', 'processing') OR (inbox.state = 'failed' AND inbox.plan IS NOT NULL))
+       AND inbox.state IN ('pending', 'processing')
      LIMIT 1)
     UNION ALL
     (SELECT choice.id, 1 AS priority
@@ -84,8 +84,8 @@ type FindPendingAppProfileChoiceParams struct {
 	AddressRef  string
 }
 
-// Accepted work owns the conversation while pending/processing, or failed with
-// a frozen plan. Failed unplanned work releases it. An unpublished menu remains
+// Accepted work owns the conversation only while pending/processing. Terminal
+// work releases it, including frozen plans. An unpublished menu remains
 // eligible only while its original receipt can publish; published menus outlive
 // that receipt. Every eligibility predicate runs before its branch's LIMIT.
 func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendingAppProfileChoiceParams) (AppState, error) {
@@ -139,7 +139,7 @@ type FindUnplannedAppProfileChoiceReservationRow struct {
 }
 
 // Bridge the accepted-choice interval before its first frozen inbox plan.
-// Failed unplanned work is recoverable but does not hold ordinary replies.
+// Terminal work never holds ordinary replies.
 func (q *Queries) FindUnplannedAppProfileChoiceReservation(ctx context.Context, arg FindUnplannedAppProfileChoiceReservationParams) (FindUnplannedAppProfileChoiceReservationRow, error) {
 	row := q.db.QueryRow(ctx, findUnplannedAppProfileChoiceReservation,
 		arg.ProjectID,

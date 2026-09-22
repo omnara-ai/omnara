@@ -189,7 +189,10 @@ func TestCronTriggerAppHTTP(t *testing.T) {
 	triggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, id)
 	_, err = pool.Exec(
 		ctx,
-		`WITH receipt AS (INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,last_error) VALUES ($1,$2,'diagnostic',convert_to('{}','UTF8'),'scheduled','failed','private provider error') RETURNING id) UPDATE cron_triggers SET last_app_receipt_id=(SELECT id FROM receipt) WHERE id=$3`,
+		`WITH receipt AS (
+ INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,last_error,completed_at)
+ VALUES ($1,$2,'diagnostic',convert_to('{}','UTF8'),'scheduled','failed','private provider error',now()) RETURNING id
+) UPDATE cron_triggers SET last_app_receipt_id=(SELECT id FROM receipt) WHERE id=$3`,
 		project.ProjectUUID,
 		app.ID,
 		triggerUUID,

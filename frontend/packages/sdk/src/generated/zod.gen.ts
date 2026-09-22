@@ -952,8 +952,7 @@ export const zCronTriggerLastRunState = z.enum([
     'queued',
     'processing',
     'completed',
-    'failed',
-    'discarded'
+    'failed'
 ]);
 
 export const zCronTriggerLastRun = z.object({

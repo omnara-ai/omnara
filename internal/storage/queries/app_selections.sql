@@ -9,8 +9,7 @@ WITH matches AS MATERIALIZED (
   FROM integration_inbox
   WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
     AND id <> sqlc.arg(receipt_id) AND plan IS NOT NULL
-    AND state IN ('pending', 'processing', 'failed')
-    AND (sqlc.arg(include_failed)::boolean OR state <> 'failed')
+    AND state IN ('pending', 'processing')
     AND jsonb_path_query_array(plan, '$.*.selection') @> jsonb_build_array(sqlc.arg(selection)::jsonb)
 )
 SELECT id, state FROM matches

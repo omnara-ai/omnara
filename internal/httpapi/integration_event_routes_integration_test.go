@@ -2906,7 +2906,7 @@ func TestSlackEventsLaunchesWithoutExplicitIntegrationSendTool(
 	}
 }
 
-func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
+func TestSlackEventsPostsMessageOnlyAfterTerminalAgentLaunchFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -2936,7 +2936,22 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 					http.Error(w, "test handler failed", http.StatusInternalServerError)
 					return
 				}
-				postedMessages <- payload
+				var state string
+				var attempts int
+				var completed bool
+				if err := pool.QueryRow(ctx, `
+SELECT state,attempt_count,completed_at IS NOT NULL
+FROM integration_inbox ORDER BY created_at DESC LIMIT 1
+`).Scan(&state, &attempts, &completed); err != nil {
+					t.Errorf("read receipt during failure notice: %v", err)
+				} else if state != "failed" || attempts != integrationstore.IntegrationInboxMaxAttempts || !completed {
+					t.Errorf("notice preceded terminal commit: state=%s attempts=%d completed=%v", state, attempts, completed)
+				}
+				select {
+				case postedMessages <- payload:
+				default:
+					t.Error("unexpected duplicate failure notice")
+				}
 				writeJSON(w, http.StatusOK, map[string]any{
 					"ok":      true,
 					"channel": "C123",
@@ -3064,99 +3079,86 @@ func TestSlackEventsPostsMessageForKnownAgentLaunchFailures(t *testing.T) {
 			http.StatusOK,
 			unitSlackSignedHeaders(body, "signing-secret"),
 		)
-		_, consumeErr := slackJourneyWorker(fixture.Project, fixture.Slack).RunOnce(ctx)
-		require.True(
-			t,
-			errors.Is(consumeErr, storeerr.ErrStateTransitionConflict) ||
-				errors.Is(consumeErr, storeerr.ErrManagedWorkAdmissionDenied),
-			"%v",
-			consumeErr,
-		)
-		if response["ok"] != "received" {
-			t.Fatalf("response=%v want received", response)
+		require.Equal(t, "received", response["ok"])
+		worker := slackJourneyWorker(fixture.Project, fixture.Slack)
+		var frozenPlan, frozenProgress json.RawMessage
+		for attempt := 1; attempt <= integrationstore.IntegrationInboxMaxAttempts; attempt++ {
+			if attempt > 1 {
+				// Advance only this fixture's retry time; claims still increment the
+				// real attempt budget and exercise the production terminal callback.
+				_, err := pool.Exec(ctx,
+					`UPDATE integration_inbox SET available_at=now() WHERE project_id=$1 AND receipt_key=$2`,
+					fixture.Project.ProjectUUID, "slack:"+eventID)
+				require.NoError(t, err)
+			}
+			worked, consumeErr := worker.RunOnce(ctx)
+			require.True(t, worked, "attempt %d", attempt)
+			require.True(t,
+				errors.Is(consumeErr, storeerr.ErrStateTransitionConflict) ||
+					errors.Is(consumeErr, storeerr.ErrManagedWorkAdmissionDenied),
+				"attempt %d: %v", attempt, consumeErr)
+			var plan, progress json.RawMessage
+			var state, lastError string
+			var attempts int
+			var completed, retryScheduled bool
+			require.NoError(t, pool.QueryRow(ctx, `
+SELECT plan,progress,state,last_error,attempt_count,completed_at IS NOT NULL,available_at > updated_at
+FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
+`, fixture.Project.ProjectUUID, "slack:"+eventID).Scan(
+				&plan, &progress, &state, &lastError, &attempts, &completed, &retryScheduled))
+			require.Equal(t, attempt, attempts)
+			require.NotEmpty(t, lastError)
+			require.NotEqual(t, "{}", string(plan))
+			require.NotContains(t, string(progress), "committed")
+			if attempt == 1 {
+				frozenPlan, frozenProgress = plan, progress
+			} else {
+				require.JSONEq(t, string(frozenPlan), string(plan), "retries retain the frozen plan")
+				require.JSONEq(t, string(frozenProgress), string(progress), "failure notices do not write slot progress")
+			}
+			if attempt < integrationstore.IntegrationInboxMaxAttempts {
+				require.Equal(t, "pending", state)
+				require.False(t, completed)
+				require.True(t, retryScheduled, "retry keeps the existing backoff")
+				select {
+				case message := <-postedMessages:
+					t.Fatalf("failure notice before terminal attempt %d: %v", attempt, message)
+				default:
+				}
+			} else {
+				require.Equal(t, "failed", state)
+				require.True(t, completed, "terminal failure starts receipt retention")
+			}
 		}
 		select {
 		case message := <-postedMessages:
-			if message["channel"] != "C123" || message["thread_ts"] != threadTS ||
-				message["text"] != slack.AgentRequestFailureMessage {
-				t.Fatalf("slack launch failure message=%v", message)
-			}
-			if _, ok := message["metadata"]; ok {
-				t.Fatalf("slack launch failure message contains agent metadata: %v", message)
-			}
-		case <-time.After(3 * time.Second):
-			t.Fatal("timed out waiting for Slack launch failure message")
+			require.Equal(t, "C123", message["channel"])
+			require.Equal(t, threadTS, message["thread_ts"])
+			require.Equal(t, "I couldn't deliver this request to the agent. Please send your message again.", message["text"])
+			require.NotContains(t, message, "metadata", "failure notice must not claim an accepted agent message")
+		default:
+			t.Fatal("terminal worker attempt did not post a failure notice")
 		}
-		providerRef := "C123:" + threadTS
-		if _, err := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
-			ctx,
-			fixture.Project.ProjectUUID,
-			fixture.Install.ID,
-			providerRef,
-		); !storeerr.IsNotFound(err) {
-			t.Fatalf("launch failure integration target err=%v want not found", err)
-		}
-		var agentCount int
-		if err := pool.QueryRow(
-			ctx,
-			`SELECT count(*) FROM agents WHERE project_id = $1`,
-			fixture.Project.ProjectUUID,
-		).Scan(&agentCount); err != nil {
-			t.Fatalf("count failed launch agents: %v", err)
-		}
-		if agentCount != 0 {
-			t.Fatalf("failed launch agent count=%d want 0", agentCount)
-		}
-		var plan, progress json.RawMessage
-		var state, lastError string
-		require.NoError(
-			t,
-			pool.QueryRow(
-				ctx,
-				`SELECT plan,progress,state,last_error FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2`,
-				fixture.Project.ProjectUUID,
-				"slack:"+eventID,
-			).Scan(
-				&plan,
-				&progress,
-				&state,
-				&lastError,
-			),
-		)
-		require.Equal(t, "pending", state)
-		require.NotEmpty(t, lastError)
-		require.NotEqual(t, "{}", string(plan))
-		require.Contains(t, string(progress), "launch_failure_notice")
-		require.NotContains(t, string(progress), "committed")
-		_, err = pool.Exec(
-			ctx,
-			`UPDATE integration_inbox SET available_at=now() WHERE project_id=$1 AND receipt_key=$2`,
-			fixture.Project.ProjectUUID,
-			"slack:"+eventID,
-		)
-		require.NoError(t, err)
-		worked, retryErr := slackJourneyWorker(fixture.Project, fixture.Slack).RunOnce(ctx)
-		require.True(t, worked)
-		require.Error(t, retryErr)
+		// Retained terminal receipts still deduplicate provider redelivery and
+		// cannot be claimed again, even though their retry timestamp is due.
+		requestJSONWithHeaders(t, fixture.Handler, http.MethodPost, integrationEventsPath,
+			body, "", http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
+		worked, retryErr := worker.RunOnce(ctx)
+		require.NoError(t, retryErr)
+		require.False(t, worked, "failed receipts must not be requeued")
 		select {
 		case message := <-postedMessages:
-			t.Fatalf("repeated failure notice: %v", message)
+			t.Fatalf("repeated terminal failure notice: %v", message)
 		default:
 		}
-		var retained json.RawMessage
-		require.NoError(
-			t,
-			pool.QueryRow(
-				ctx,
-				`SELECT plan FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2`,
-				fixture.Project.ProjectUUID,
-				"slack:"+eventID,
-			).Scan(
-				&retained,
-			),
-		)
-		require.JSONEq(t, string(plan), string(retained))
-
+		providerRef := "C123:" + threadTS
+		_, targetErr := slackJourneyTarget(t, pool, fixture.Project.Store.Integrations(),
+			ctx, fixture.Project.ProjectUUID, fixture.Install.ID, providerRef)
+		require.ErrorIs(t, targetErr, storeerr.ErrNotFound)
+		var agentCount int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM agents WHERE project_id = $1`, fixture.Project.ProjectUUID).Scan(&agentCount))
+		require.Zero(t, agentCount, "failed admission must not create agents")
 	}
 
 	assertLaunchFailure("Ev-launch-capacity-failure", "111.444")
@@ -4317,7 +4319,6 @@ func slackJourneyWorker(project publicHTTPProject, config slack.OAuthConfig) *in
 	launchers := integration.NewAppLaunchWorkflow(router, map[appdefinition.Type]integration.AppLauncher{
 		appdefinition.SlackThread: chatLauncher.Decide,
 	})
-	launchers.OnUnavailable = chatLauncher.NotifyUnavailable
 	consumer := integration.NewAppInboxConsumer(
 		router,
 		project.Store.Integrations(),

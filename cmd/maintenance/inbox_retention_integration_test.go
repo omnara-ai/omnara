@@ -9,10 +9,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
@@ -41,9 +45,9 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Message: "Accepted user input survives",
 	})
 	require.NoError(t, err)
-	live := createMaintenanceInboxApp(t, store, ids, "live", appdefinition.GitHubPR).ID
-	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected", appdefinition.GitHubPR).ID
-	deleted := createMaintenanceInboxApp(t, store, ids, "deleted", appdefinition.GitHubPR).ID
+	live := createMaintenanceInboxApp(t, store, ids, "live").ID
+	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected").ID
+	deleted := createMaintenanceInboxApp(t, store, ids, "deleted").ID
 	applied, err := store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
 		ProjectID: ids.ProjectID, AppID: disconnected,
 	})
@@ -56,16 +60,17 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
  FROM generate_series(1,102) n`, ids.ProjectID, live)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
- (project_id,app_id,receipt_key,payload,state)
- SELECT $1,$2,'deleted:'||n,'obsolete raw callback'::bytea,'failed' FROM generate_series(1,102) n`,
+ (project_id,app_id,receipt_key,payload,state,completed_at)
+ SELECT $1,$2,'deleted:'||n,'obsolete raw callback'::bytea,'failed',statement_timestamp()
+ FROM generate_series(1,102) n`,
 		ids.ProjectID, deleted)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at,plan,progress)
  VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}','{}'),
-        ($1,$2,'failed','failed callback'::bytea,'failed',NULL,'{"slot":{"identity":"frozen"}}',
+        ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"slot":{"identity":"frozen"}}',
          '{"slot":{"prepared":{"digest":"frozen"}}}'),
-        ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',NULL,'{}','{}'),
+        ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',statement_timestamp(),'{}','{}'),
         ($1,$2,'pending','pending callback'::bytea,'pending',NULL,NULL,'{}')`, ids.ProjectID, live, disconnected)
 	require.NoError(t, err)
 	type retainedReceipt struct {
@@ -143,7 +148,7 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
 	store := newMaintenanceInboxStore(t, pool, ids)
-	app := createMaintenanceInboxApp(t, store, ids, "retention-timeout", appdefinition.GitHubPR).ID
+	app := createMaintenanceInboxApp(t, store, ids, "retention-timeout").ID
 	_, err := pool.Exec(ctx, `INSERT INTO integration_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'
@@ -183,4 +188,49 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 		require.True(t, time.Now().Before(until), "later ticks must retry and drain the timed-out batch")
 	}
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
+}
+
+// Maintenance fixtures use ordinary credential/setup methods so active-app
+// checks exercise the same state that ingress and recovery see in production.
+func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixture.ProjectIDs) *storage.Store {
+	t.Helper()
+	wrapper, err := secrets.NewLocalKeyWrapper("maintenance-test", map[string][]byte{
+		"maintenance-test": []byte("0123456789abcdef0123456789abcdef"),
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO org_memberships(org_id,user_id,role,created_at)
+        VALUES($1,$2,'owner',now())`, ids.OrgID, ids.ProviderAdminUserID)
+	require.NoError(t, err)
+	return storage.NewStore(pool, storage.WithSecretKeyWrapper(wrapper))
+}
+
+func createMaintenanceInboxApp(
+	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, name string,
+) integrationstore.ProjectAppRecord {
+	t.Helper()
+	ctx := t.Context()
+	input := integrationstore.ConfigureProjectAppInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, InstalledByUserID: ids.ProviderAdminUserID,
+	}
+	input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "github", "123", "456"
+	input.CredentialAppID = 123
+	material := secrets.GitHubAppCredentialsMaterial{
+		AppID: "123", PrivateKey: "fixture-key-verified-by-caller", WebhookSecret: "fixture-webhook",
+	}
+	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID: ids.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: ids.ProjectID,
+		Name: name + "-credentials", Actor: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Material: material,
+	})
+	require.NoError(t, err)
+	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, AppType: appdefinition.GitHubPR,
+	})
+	require.NoError(t, err)
+	input.AppID, input.ExpectedSetupRevision = app.ID, app.SetupRevision
+	input.CredentialSecretID, input.CredentialVersionID = credential.ID, version.ID
+	app, err = store.Integrations().ConfigureProjectApp(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, integrationstore.ProjectAppStateActive, app.State)
+	require.Equal(t, credential.ID, app.CredentialSecretID)
+	return app
 }

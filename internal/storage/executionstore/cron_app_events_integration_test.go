@@ -360,20 +360,21 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 		})
 	require.NoError(t, err)
 	require.Empty(t, page.Triggers)
-	for _, state := range []string{"processing", "completed", "failed", "discarded"} {
+	for _, state := range []string{"processing", "completed", "failed"} {
 		_, err := f.store.pool.Exec(
 			f.ctx,
-			`UPDATE integration_inbox SET state=$2, claim_token=CASE WHEN $2='processing' THEN uuidv7() ELSE NULL END, claim_expires_at=CASE WHEN $2='processing' THEN now()+interval '1 minute' ELSE NULL END, completed_at=CASE WHEN $2 IN ('completed','discarded') THEN now() ELSE NULL END, last_error='private provider error' WHERE id=$1`,
+			`UPDATE integration_inbox SET state=$2,
+  claim_token=CASE WHEN $2='processing' THEN uuidv7() ELSE NULL END,
+  claim_expires_at=CASE WHEN $2='processing' THEN now()+interval '1 minute' ELSE NULL END,
+  completed_at=CASE WHEN $2 IN ('completed','failed') THEN now() ELSE NULL END,
+  last_error='private provider error' WHERE id=$1`,
 			receipt,
 			state,
 		)
 		require.NoError(t, err)
 		current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, record.ID)
 		require.NoError(t, err)
-		want := map[string]string{
-			"processing": "processing", "completed": "completed", "failed": "failed", "discarded": "discarded",
-		}[state]
-		require.Equal(t, want, string(current.LastRun.State))
+		require.Equal(t, state, string(current.LastRun.State))
 		if state == "failed" {
 			require.Equal(t, "Scheduled app action failed.", *current.LastRun.FailureMessage)
 		} else {
@@ -383,7 +384,8 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 	// A surviving older failure must never replace expired exact diagnostics.
 	_, err = f.store.pool.Exec(
 		f.ctx,
-		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state) VALUES ($1,$2,'older',convert_to('{}','UTF8'),'scheduled','failed')`,
+		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,completed_at)
+  VALUES ($1,$2,'older',convert_to('{}','UTF8'),'scheduled','failed',now())`,
 		testProjectID,
 		f.app.ID,
 	)

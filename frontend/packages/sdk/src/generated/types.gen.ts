@@ -1361,7 +1361,7 @@ export type UpdateCronTriggerRequest = {
 /**
  * State of the latest accepted scheduled app action. Completed means the app handled the occurrence; it does not indicate completion of any agent task that action started.
  */
-export type CronTriggerLastRunState = 'queued' | 'processing' | 'completed' | 'failed' | 'discarded';
+export type CronTriggerLastRunState = 'queued' | 'processing' | 'completed' | 'failed';
 
 export type CronTriggerLastRun = {
     state: CronTriggerLastRunState;

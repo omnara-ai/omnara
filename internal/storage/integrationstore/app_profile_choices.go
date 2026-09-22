@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -182,6 +183,27 @@ func (s *Store) GetAppProfileChoiceBySource(
 		return AppProfileChoiceRecord{}, false, err
 	}
 	return row, true, nil
+}
+
+// GetAppProfileChoiceInbox reads the retained receipt for an accepted choice.
+// Missing includes choices not yet accepted and receipts whose retention ended.
+// This read never creates or requeues work.
+func (s *Store) GetAppProfileChoiceInbox(
+	ctx context.Context, projectID, appID, choiceID uuid.UUID,
+) (IntegrationInboxRecord, bool, error) {
+	if projectID == uuid.Nil || appID == uuid.Nil || choiceID == uuid.Nil {
+		return IntegrationInboxRecord{}, false, inboxInvalid("project, app and choice are required")
+	}
+	row, err := s.q.GetIntegrationInboxReceiptByKey(ctx, dbsqlc.GetIntegrationInboxReceiptByKeyParams{
+		ProjectID: projectID, AppID: appID, ReceiptKey: "choice:" + choiceID.String(),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IntegrationInboxRecord{}, false, nil
+	}
+	if err != nil {
+		return IntegrationInboxRecord{}, false, fmt.Errorf("get app profile choice inbox: %w", err)
+	}
+	return inboxRecord(row), true, nil
 }
 
 // RecordAppProfileChoiceMessage binds the first confirmed provider message. A

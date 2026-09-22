@@ -58,6 +58,15 @@ func appProviderFixture(
 	return pool, store, ids, appSetup
 }
 
+type appWorkerFailureConsumer struct {
+	appWorkerConsumerFunc
+	finalize func(context.Context, uuid.UUID, uuid.UUID) error
+}
+
+func (c appWorkerFailureConsumer) FinalizeFailure(ctx context.Context, project, receipt uuid.UUID) error {
+	return c.finalize(ctx, project, receipt)
+}
+
 func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	pool, store, ids, appSetup := appWorkerFixture(t)
 	inbox := store.Integrations()
@@ -94,7 +103,16 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 			return nil, errors.Join(err, transient)
 		},
 	)
-	worker := NewAppInboxWorker(inbox, consumer, AppInboxWorkerOptions{})
+	finalizations := 0
+	worker := NewAppInboxWorker(inbox, appWorkerFailureConsumer{appWorkerConsumerFunc: consumer,
+		finalize: func(ctx context.Context, project, id uuid.UUID) error {
+			stored, err := inbox.GetIntegrationInbox(ctx, project, id)
+			require.NoError(t, err)
+			require.Equal(t, integrationstore.IntegrationInboxFailed, stored.State)
+			finalizations++
+			return errors.New("notification unavailable")
+		},
+	}, AppInboxWorkerOptions{})
 	worked, err := worker.RunOnce(ctx)
 	require.True(t, worked)
 	require.ErrorIs(t, err, transient)
@@ -103,6 +121,7 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.Equal(t, integrationstore.IntegrationInboxPending, first.State)
 	require.Contains(t, first.LastError, transient.Error())
 	require.Contains(t, string(first.Progress), "committed-a")
+	require.Zero(t, finalizations, "no failure notice during retry")
 	// Fast-forward the durable attempt budget, preserving exactly the frozen work.
 	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=7,available_at=now() WHERE id=$1`, receipt.ID)
 	require.NoError(t, err)
@@ -116,37 +135,32 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.JSONEq(t, string(first.Plan), string(failed.Plan))
 	require.JSONEq(t, string(first.Progress), string(failed.Progress))
 	require.Contains(t, failed.LastError, transient.Error())
-	// Explicit operator recovery grants a budget; it does not rebuild identities.
-	require.NoError(t, inbox.RetryFailedIntegrationInbox(ctx, ids.ProjectID, receipt.ID))
-	worker.consumer = appWorkerConsumerFunc(
-		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
-			return nil, inbox.WithIntegrationInboxLease(
-				ctx,
-				lease,
-				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					require.JSONEq(t, string(first.Plan), string(work.Receipt().Plan))
-					if err := work.PrepareSlot(ctx, "b", json.RawMessage(`{}`)); err != nil {
-						return err
-					}
-					if err := work.CommitSlot(ctx, "b", json.RawMessage(`{"input":"committed-b"}`)); err != nil {
-						return err
-					}
-					return work.Complete(ctx)
-				},
-			)
-		},
-	)
-	worked, err = worker.RunOnce(ctx)
-	require.True(t, worked)
+	require.Equal(t, 1, finalizations)
+	require.NotNil(t, failed.CompletedAt)
+	// Exhaustion is terminal. A provider retry reuses the failed receipt; a new
+	// message is independent and gets its own budget.
+	duplicate, created, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: ids.ProjectID, AppID: appSetup, ReceiptKey: "partial", Payload: []byte(`{}`),
+	})
 	require.NoError(t, err)
-	completed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
-	require.NoError(t, err)
-	require.Equal(t, integrationstore.IntegrationInboxCompleted, completed.State)
-	require.Contains(t, string(completed.Progress), "committed-a")
-	require.Contains(t, string(completed.Progress), "committed-b")
+	require.False(t, created)
+	require.Equal(t, receipt.ID, duplicate.ID)
 	worked, err = worker.RunOnce(ctx)
 	require.False(t, worked)
 	require.NoError(t, err)
+	fresh, created, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: ids.ProjectID, AppID: appSetup, ReceiptKey: "fresh", Payload: []byte(`{}`),
+	})
+	require.NoError(t, err)
+	require.True(t, created)
+	require.NotEqual(t, receipt.ID, fresh.ID)
+	worked, err = worker.RunOnce(ctx)
+	require.True(t, worked)
+	require.ErrorIs(t, err, transient)
+	fresh, err = inbox.GetIntegrationInbox(ctx, ids.ProjectID, fresh.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, fresh.AttemptCount)
+	require.Equal(t, integrationstore.IntegrationInboxPending, fresh.State)
 }
 
 func TestAppInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T) {

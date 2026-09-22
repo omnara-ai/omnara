@@ -9683,8 +9683,8 @@ components:
           type: boolean
     CronTriggerLastRunState:
       type: string
-      enum: [queued, processing, completed, failed, discarded]
-      x-enum-varnames: [CronTriggerLastRunStateQueued, CronTriggerLastRunStateProcessing, CronTriggerLastRunStateCompleted, CronTriggerLastRunStateFailed, CronTriggerLastRunStateDiscarded]
+      enum: [queued, processing, completed, failed]
+      x-enum-varnames: [CronTriggerLastRunStateQueued, CronTriggerLastRunStateProcessing, CronTriggerLastRunStateCompleted, CronTriggerLastRunStateFailed]
       description: >-
         State of the latest accepted scheduled app action. Completed means the app handled
         the occurrence; it does not indicate completion of any agent task that action started.

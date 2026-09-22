@@ -18,9 +18,8 @@ WITH matches AS MATERIALIZED (
   FROM integration_inbox
   WHERE project_id = $1 AND app_id = $2
     AND id <> $3 AND plan IS NOT NULL
-    AND state IN ('pending', 'processing', 'failed')
-    AND ($4::boolean OR state <> 'failed')
-    AND jsonb_path_query_array(plan, '$.*.selection') @> jsonb_build_array($5::jsonb)
+    AND state IN ('pending', 'processing')
+    AND jsonb_path_query_array(plan, '$.*.selection') @> jsonb_build_array($4::jsonb)
 )
 SELECT id, state FROM matches
 ORDER BY id
@@ -28,11 +27,10 @@ LIMIT 2
 `
 
 type FindInboxSelectionReservationsParams struct {
-	ProjectID     uuid.UUID
-	AppID         uuid.UUID
-	ReceiptID     uuid.UUID
-	IncludeFailed bool
-	Selection     json.RawMessage
+	ProjectID uuid.UUID
+	AppID     uuid.UUID
+	ReceiptID uuid.UUID
+	Selection json.RawMessage
 }
 
 type FindInboxSelectionReservationsRow struct {
@@ -50,7 +48,6 @@ func (q *Queries) FindInboxSelectionReservations(ctx context.Context, arg FindIn
 		arg.ProjectID,
 		arg.AppID,
 		arg.ReceiptID,
-		arg.IncludeFailed,
 		arg.Selection,
 	)
 	if err != nil {

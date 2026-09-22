@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T) {
+func TestAppProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *testing.T) {
 	t.Parallel()
 	for _, scope := range []string{"active", "disconnected", "app", "project", "organization"} {
 		t.Run(scope, func(t *testing.T) {
@@ -30,7 +30,7 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 				if err := work.PrepareSlot(f.ctx, "chosen", json.RawMessage(`{"digest":"frozen"}`)); err != nil {
 					return err
 				}
-				return work.Fail(f.ctx, "operator recovery required")
+				return work.Fail(f.ctx, "launch failed")
 			})
 			failed := f.read(t, decided.ID)
 			f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE id=$1`, choice.ID)
@@ -80,12 +80,24 @@ func TestAppProfileChoiceCleanupDeletedScopesPreservesLiveRecovery(t *testing.T)
 				require.ErrorIs(t, err, storeerr.ErrNotFound)
 			} else {
 				require.Zero(t, count)
-				require.Equal(t, choice, f.readChoice(t, choice.ID), "live or disconnected failed work stays recoverable")
+				require.Equal(t, choice, f.readChoice(t, choice.ID), "retained failures keep their source barrier")
 			}
-			require.Equal(t, failed, f.read(t, failed.ID), "chooser cleanup leaves inbox recovery data untouched")
+			require.Equal(t, failed, f.read(t, failed.ID), "chooser cleanup leaves the retained terminal receipt intact")
 			count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
 			require.NoError(t, err)
 			require.Zero(t, count)
+			if !deleted {
+				f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '8 days' WHERE id=$1`, failed.ID)
+				count, err = f.store.CleanupTerminalIntegrationInbox(f.ctx, 7*24*time.Hour, 1)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, count)
+				count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+				require.NoError(t, err)
+				require.EqualValues(t, 1, count, "receipt cleanup releases the old choice's source barrier")
+				_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, choice.ID)
+				require.ErrorIs(t, err, storeerr.ErrNotFound)
+				require.Equal(t, recent, f.readChoice(t, recent.ID))
+			}
 		})
 	}
 }

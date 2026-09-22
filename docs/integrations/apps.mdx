@@ -249,8 +249,7 @@ the schema for `settings`; cron does not interpret those fields:
 }
 ```
 
-The schedule shows whether the latest run is queued, processing, completed, failed,
-or discarded, alongside its last update time. **Completed** means the app handled
+The schedule shows whether the latest run is queued, processing, completed or failed, alongside its last update time. **Completed** means the app handled
 that scheduled occurrence. For the thread apps, that means the agent started;
 it does not mean the agent finished its task or posted a report. Run details expire with
 inbox retention. A disconnected app skips an occurrence with a visible failure;
@@ -267,8 +266,7 @@ An opening message can remain if the later agent launch fails. Once the thread's
 launch plan is saved, retries reuse that thread. A reported uncertain send or a
 failure saving the plan after publication fails the run. If a crash, lost lease,
 or database outage prevents saving either the plan or the failure, recovery may
-post another opening and leave the earlier heading unused. Explicit operator retry
-of a failed run without a saved plan can also post a replacement. Each occurrence
+post another opening and leave the earlier heading unused. Each occurrence
 still admits at most one agent. Questions and approvals remain available in the
 dashboard if provider delivery fails.
 
@@ -308,6 +306,6 @@ callbacks. Captured interaction responses contain complete destination `args`.
 See [interactions](/events/interactions) for answering through the API.
 
 For an existing Slack deployment, use the coordinated
-[maintenance cutover](/self-hosting/composable-apps-cutover). Self-hosted operators
-can inspect, retry or discard failed inbound receipts with the
-[recovery commands](/self-hosting/composable-apps-cutover#recover-failed-app-events).
+[maintenance cutover](/self-hosting/composable-apps-cutover). Inbound events retry automatically with a bounded budget. Terminal failures
+release unfinished launches, preserve accepted work, and remain for seven days
+for diagnostics. See [failed app events](/self-hosting/composable-apps-cutover#failed-app-events).

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAppRouterDiscardMixedPlanPreservesAdmittedSubscriptionInput(t *testing.T) {
+func TestAppRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *testing.T) {
 	t.Parallel()
 	pool, store, ids, appSetup := appWorkerFixture(t)
 	ctx := t.Context()
@@ -96,13 +96,6 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedSubscriptionInput(t *testing.
 			return work.Fail(ctx, "profile disappeared after freeze")
 		}),
 	)
-	failed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, first.ID)
-	require.NoError(t, err)
-	require.NoError(t, inbox.DiscardFailedIntegrationInbox(ctx, ids.ProjectID, first.ID))
-	discarded, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, first.ID)
-	require.NoError(t, err)
-	require.Equal(t, failed.Plan, discarded.Plan)
-	require.Equal(t, failed.Progress, discarded.Progress)
 	replacement := createProfile("replacement")
 	setup.Settings.Launcher.Slots[0].AgentProfileID = &replacement.ID
 	_, err = inbox.UpdateProjectApp(ctx, app.ID, setup)
@@ -137,7 +130,7 @@ func TestAppRouterDiscardMixedPlanPreservesAdmittedSubscriptionInput(t *testing.
 		pool.QueryRow(ctx, `SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_idempotency_key=$2`,
 			existing.Agent.ID, event.SemanticKey).Scan(&count),
 	)
-	require.Equal(t, 1, count, "discard and fresh selection must not duplicate the committed subscription input")
+	require.Equal(t, 1, count, "terminal failure and fresh selection must not duplicate the committed subscription input")
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE id=$1`, abandonedAgent).Scan(&count))
-	require.Zero(t, count, "discarded planned identity must remain unlaunched")
+	require.Zero(t, count, "failed planned identity must remain unlaunched")
 }

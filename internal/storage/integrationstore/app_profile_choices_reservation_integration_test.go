@@ -137,26 +137,22 @@ func TestAppProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 		})
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
 	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		return work.Fail(f.ctx, "frozen plan needs recovery")
+		return work.Fail(f.ctx, "frozen plan failed")
 	})
 	newInput := f.input
 	newInput.SourceKey = "later-mention"
 	reused, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), newInput)
 	require.NoError(t, err)
-	require.False(t, created, "failed frozen work must not create a second menu")
-	require.Equal(t, choice.ID, reused.ID)
-	// Failed frozen work retains its original policy: ordinary follow-ups need
-	// not wait, but a replacement launch must not replace the reservation.
+	require.True(t, created, "terminal work releases the conversation for a new menu")
+	require.NotEqual(t, choice.ID, reused.ID)
+	// Both ordinary follow-ups and replacement launches are released.
 	f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		return work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address)
+		if err := work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address); err != nil {
+			return err
+		}
+		return work.FreezePlan(f.ctx, plan)
 	})
-	err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
-		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) })
-	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
-	var reservation *integrationstore.AppSelectionReservationError
-	require.ErrorAs(t, err, &reservation)
-	require.Equal(t, decided.ID, reservation.ReceiptID)
-	require.Equal(t, integrationstore.IntegrationInboxFailed, reservation.State)
+	require.Equal(t, integrationstore.IntegrationInboxFailed, f.read(t, decided.ID).State)
 }
 
 func TestAppProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
@@ -189,73 +185,16 @@ func TestAppProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	f.mutate(t, newDecided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		return work.FreezePlan(f.ctx, newPlan)
 	})
-	// Explicit retry competes with the newer frozen request through the normal
-	// same-app reservation; it cannot overwrite the newer accepted selection.
-	require.NoError(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, decided.ID))
-	retried := f.claim(t)
-	require.Equal(t, decided.ID, retried.ID)
-	err = f.store.WithIntegrationInboxLease(f.ctx, retried.Lease(),
+	// The stale selected worker cannot revive the failed request.
+	err = f.store.WithIntegrationInboxLease(f.ctx, decided.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			return work.FreezePlan(f.ctx, f.selectionPlan(t, f.app.ID, "support"))
 		})
-	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 	retained, found, err := f.store.GetAppProfileChoiceBySource(f.ctx, f.project, f.app.ID, choice.SourceKey)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "support", retained.SelectedKey)
-}
-
-func TestAppProfileChoiceRetriedUnplannedReceiptsCompeteToFreeze(t *testing.T) {
-	t.Parallel()
-	for _, winner := range []string{"retried", "newer"} {
-		t.Run(winner, func(t *testing.T) {
-			t.Parallel()
-			f := newProfileChoiceFixture(t)
-			choice := f.menu(t)
-			late := f.receipt(t, "new-mention", f.input.Payload)
-			_, err := f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, choice, "support"))
-			require.NoError(t, err)
-			old := f.claim(t)
-			f.mutate(t, old, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-				return work.Fail(f.ctx, "expected profile unavailable before planning")
-			})
-			input := f.input
-			input.SourceKey = "new-mention"
-			fresh, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), input)
-			require.NoError(t, err)
-			require.True(t, created)
-			require.NoError(t, f.store.RecordAppProfileChoiceMessage(
-				f.ctx, f.project, f.appID, fresh.ID, "C123", "new-menu"))
-			fresh = f.readChoice(t, fresh.ID)
-			_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, fresh, "review"))
-			require.NoError(t, err)
-			newer := f.claim(t)
-			// Retry A while B is accepted but has not frozen: neither may permanently
-			// reserve against the other before either can acquire the frozen plan.
-			require.NoError(t, f.store.RetryFailedIntegrationInbox(f.ctx, f.project, old.ID))
-			retried := f.claim(t)
-			require.Equal(t, old.ID, retried.ID)
-			first, second := retried, newer
-			firstSlot, secondSlot := "support", "review"
-			if winner == "newer" {
-				first, second = newer, retried
-				firstSlot, secondSlot = secondSlot, firstSlot
-			}
-			plan := f.selectionPlan(t, f.app.ID, firstSlot)
-			f.mutate(t, first, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-				return work.FreezePlan(f.ctx, plan)
-			})
-			err = f.store.WithIntegrationInboxLease(f.ctx, second.Lease(),
-				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					return work.FreezePlan(f.ctx, f.selectionPlan(t, f.app.ID, secondSlot))
-				})
-			var reservation *integrationstore.AppSelectionReservationError
-			require.ErrorAs(t, err, &reservation)
-			require.Equal(t, first.ID, reservation.ReceiptID)
-			require.JSONEq(t, string(plan), string(f.read(t, first.ID).Plan))
-			require.Nil(t, f.read(t, second.ID).Plan)
-		})
-	}
 }
 
 func TestAppProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing.T) {
@@ -405,7 +344,7 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 
 func TestAppProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"pending", "processing", "failed", "completed", "discarded", "deleted"} {
+	for _, state := range []string{"pending", "processing", "failed", "completed", "deleted"} {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -419,13 +358,10 @@ func TestAppProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.T) {
 				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					return work.Retry(f.ctx, time.Hour, "retry menu publication")
 				})
-			case "failed", "discarded":
+			case "failed":
 				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					return work.Fail(f.ctx, "menu publication exhausted")
 				})
-				if state == "discarded" {
-					require.NoError(t, f.store.DiscardFailedIntegrationInbox(f.ctx, f.project, f.source.ID))
-				}
 			case "completed", "deleted":
 				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
@@ -502,4 +438,71 @@ func TestAppProfileChoiceExplicitExpiryPreservesAcceptedWork(t *testing.T) {
 	require.NoError(t, f.store.ExpireAppProfileChoice(f.ctx, f.project, f.appID, selected.ID))
 	require.Equal(t, selected, f.readChoice(t, selected.ID))
 	require.Equal(t, receipt, f.decidedReceipt(t, selected.ID), "expiration cannot change accepted work")
+}
+
+func TestAppProfileChoiceInboxRetentionProtectsOldSource(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"pending", "processing", "completed", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			f := newProfileChoiceFixture(t)
+			choice := f.menu(t)
+			_, found, err := f.store.GetAppProfileChoiceInbox(f.ctx, f.project, f.appID, choice.ID)
+			require.NoError(t, err)
+			require.False(t, found, "an unselected menu has no accepted receipt")
+			_, err = f.store.ChooseAppProfile(f.ctx, f.chooseInput(t, choice, "support"))
+			require.NoError(t, err)
+			receipt := f.decidedReceipt(t, choice.ID)
+			if state != "pending" {
+				receipt = f.claim(t)
+			}
+			if state == "completed" || state == "failed" {
+				f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					if state == "failed" {
+						return work.Fail(f.ctx, "failed before planning")
+					}
+					if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+						return err
+					}
+					return work.Complete(f.ctx)
+				})
+			}
+			receipt = f.read(t, receipt.ID)
+			got, found, err := f.store.GetAppProfileChoiceInbox(f.ctx, f.project, f.appID, choice.ID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, receipt, got)
+			for _, scope := range [][2]uuid.UUID{{uuid.New(), f.appID}, {f.project, uuid.New()}} {
+				_, found, err = f.store.GetAppProfileChoiceInbox(f.ctx, scope[0], scope[1], choice.ID)
+				require.NoError(t, err)
+				require.False(t, found)
+			}
+			// An old menu whose receipt just failed/completed retains its source
+			// barrier for the receipt's full terminal retention window.
+			f.exec(t, `UPDATE app_states SET expires_at=now()-interval '30 days' WHERE id=$1`, choice.ID)
+			for range 2 {
+				count, err := f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+				require.NoError(t, err)
+				require.Zero(t, count)
+				count, err = f.store.CleanupTerminalIntegrationInbox(f.ctx, 7*24*time.Hour, 1)
+				require.NoError(t, err)
+				require.Zero(t, count)
+			}
+			if state == "pending" || state == "processing" {
+				return
+			}
+			f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '8 days' WHERE id=$1`, receipt.ID)
+			count, err := f.store.CleanupTerminalIntegrationInbox(f.ctx, 7*24*time.Hour, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, count)
+			_, found, err = f.store.GetAppProfileChoiceInbox(f.ctx, f.project, f.appID, choice.ID)
+			require.NoError(t, err)
+			require.False(t, found)
+			count, err = f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, count)
+			_, err = f.store.GetAppProfileChoice(f.ctx, f.project, f.appID, choice.ID)
+			require.ErrorIs(t, err, storeerr.ErrNotFound)
+		})
+	}
 }

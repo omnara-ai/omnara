@@ -21,6 +21,7 @@ import (
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
 	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -272,7 +273,7 @@ func main() {
 	appProviders := map[string]integration.AppInboxProvider{
 		"slack":   slackProvider,
 		"discord": discordProvider,
-		"github":  integration.GitHubAppInboxProvider{},
+		"github":  integration.NewGitHubAppInboxProvider(github.Config{HTTPClient: integrationHTTPClient}, store.Secrets(), store.Integrations()),
 	}
 	chatLauncher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), appProviders)
 	appLaunchers := integration.NewAppLaunchWorkflow(appRouter, map[appdefinition.Type]integration.AppLauncher{
@@ -280,7 +281,6 @@ func main() {
 		appdefinition.DiscordThread: chatLauncher.Decide,
 		appdefinition.GitHubPR:      integration.EverySlotAppLauncher,
 	})
-	appLaunchers.OnUnavailable = chatLauncher.NotifyUnavailable
 	appConsumer := integration.NewAppInboxConsumer(
 		appRouter,
 		store.Integrations(),

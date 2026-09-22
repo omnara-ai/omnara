@@ -20,19 +20,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type discardedAppBlobs struct {
+type failedAppBlobs struct {
 	content map[string][]byte
 	deleted []string
 	failKey string
 	failure error
 }
 
-func (b *discardedAppBlobs) PutBlob(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
+func (b *failedAppBlobs) PutBlob(_ context.Context, key string, content []byte) (blobstore.Metadata, error) {
 	b.content[key] = append([]byte(nil), content...)
 	return blobstore.Metadata{Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content))}, nil
 }
 
-func (b *discardedAppBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstore.Metadata, error) {
+func (b *failedAppBlobs) GetBlob(_ context.Context, key string) ([]byte, blobstore.Metadata, error) {
 	content, found := b.content[key]
 	if !found {
 		return nil, blobstore.Metadata{}, blobstore.ErrNotFound
@@ -42,7 +42,7 @@ func (b *discardedAppBlobs) GetBlob(_ context.Context, key string) ([]byte, blob
 	}, nil
 }
 
-func (b *discardedAppBlobs) DeleteBlob(_ context.Context, key string) error {
+func (b *failedAppBlobs) DeleteBlob(_ context.Context, key string) error {
 	b.deleted = append(b.deleted, key)
 	if key == b.failKey {
 		return b.failure
@@ -54,7 +54,7 @@ func (b *discardedAppBlobs) DeleteBlob(_ context.Context, key string) error {
 	return nil
 }
 
-func discardedAppFile(id uuid.UUID, content []byte) AppPlannedFile {
+func failedAppFile(id uuid.UUID, content []byte) AppPlannedFile {
 	return AppPlannedFile{
 		ArtifactID: id, ProviderFileID: "provider-file-" + id.String(),
 		Expected: &artifactstore.PreparedArtifact{
@@ -63,23 +63,23 @@ func discardedAppFile(id uuid.UUID, content []byte) AppPlannedFile {
 	}
 }
 
-type discardedArtifactCleanupSpy struct {
+type failedArtifactCleanupSpy struct {
 	*artifactstore.Store
 	attempted []uuid.UUID
 }
 
-func (s *discardedArtifactCleanupSpy) DeleteUnreferencedPreparedArtifact(
+func (s *failedArtifactCleanupSpy) DeleteUnreferencedPreparedArtifact(
 	ctx context.Context, projectID, agentID, artifactID uuid.UUID,
 ) error {
 	s.attempted = append(s.attempted, artifactID)
 	return s.Store.DeleteUnreferencedPreparedArtifact(ctx, projectID, agentID, artifactID)
 }
 
-func TestDiscardedAppInboxArtifactCleanup(t *testing.T) {
+func TestFailedAppInboxArtifactCleanup(t *testing.T) {
 	ctx := t.Context()
 	pool, store, ids, appID := appWorkerFixture(t)
 	inbox := store.Integrations()
-	blobs := &discardedAppBlobs{content: make(map[string][]byte)}
+	blobs := &failedAppBlobs{content: make(map[string][]byte)}
 	artifacts := artifactstore.New(pool, blobs)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
@@ -103,12 +103,12 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	plannedAgent := uuid.New()
 	content := []byte("pinned upload")
 	files := []AppPlannedFile{
-		discardedAppFile(
+		failedAppFile(
 			uuid.New(),
 			content,
 		),
-		discardedAppFile(uuid.New(), content),
-		discardedAppFile(uuid.New(), content),
+		failedAppFile(uuid.New(), content),
+		failedAppFile(uuid.New(), content),
 	}
 	for _, file := range files[:2] {
 		require.NoError(t, artifacts.UploadPreparedArtifact(ctx, plannedAgent, *file.Expected, content))
@@ -126,7 +126,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	raw, err := json.Marshal(plan)
 	require.NoError(t, err)
 	receipt, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "discard-files", Payload: []byte(`{}`),
+		ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "failure-files", Payload: []byte(`{}`),
 	})
 	require.NoError(t, err)
 	claimed, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
@@ -141,38 +141,23 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			}
 			return work.Fail(ctx, "fixture failed before preparation")
 		}))
-	require.ErrorIs(t, CleanupDiscardedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID),
-		storeerr.ErrStateTransitionConflict)
-	require.Empty(t, blobs.deleted)
-	// Explicit receipt retry must preserve these same bytes, too.
-	require.NoError(t, inbox.RetryFailedIntegrationInbox(ctx, ids.ProjectID, receipt.ID))
-	require.ErrorIs(t, CleanupDiscardedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID),
-		storeerr.ErrStateTransitionConflict)
-	claimed, found, err = inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-		ProjectID: ids.ProjectID, AppID: appID, LeaseDuration: time.Minute,
-	})
-	require.NoError(t, err)
-	require.True(t, found)
-	require.NoError(t, inbox.WithIntegrationInboxLease(ctx, claimed.Lease(),
-		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Fail(ctx, "still failed") }))
-	require.NoError(t, inbox.DiscardFailedIntegrationInbox(ctx, ids.ProjectID, receipt.ID))
-	// Blob deletion errors do not undo discard or stop cleanup of other files.
+	// Blob deletion errors do not undo terminal failure or stop cleanup of other files.
 	blobs.failure = errors.New("temporary object-store failure")
 	blobs.failKey = "artifacts/" + plannedAgent.String() + "/" + files[0].ArtifactID.String()
 	require.ErrorIs(
 		t,
-		CleanupDiscardedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID),
+		CleanupFailedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID),
 		blobs.failure,
 	)
 	retained, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.IntegrationInboxDiscarded, retained.State)
+	require.Equal(t, integrationstore.IntegrationInboxFailed, retained.State)
 	require.JSONEq(t, `{}`, string(retained.Progress))
 	require.JSONEq(t, string(raw), string(retained.Plan))
 	require.Len(t, blobs.content, 2, "only durable history and the failed deletion remain")
 	blobs.failKey = ""
 	for range 2 {
-		require.NoError(t, CleanupDiscardedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID))
+		require.NoError(t, CleanupFailedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID))
 	}
 	require.Len(t, blobs.content, 1)
 	require.NotContains(t, blobs.deleted, "artifacts/"+agentID.String()+"/"+durable.ID.String())
@@ -194,11 +179,11 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	require.Len(t, blobs.deleted, before, "failed database reads must never authorize deletion")
 }
 
-func TestDiscardedAppInboxCleanupProtectsCommittedSlots(t *testing.T) {
+func TestFailedAppInboxCleanupProtectsCommittedSlots(t *testing.T) {
 	ctx := t.Context()
 	pool, store, ids, appID := appWorkerFixture(t)
 	inbox := store.Integrations()
-	blobs := &discardedAppBlobs{content: make(map[string][]byte)}
+	blobs := &failedAppBlobs{content: make(map[string][]byte)}
 	artifacts := artifactstore.New(pool, blobs)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
@@ -217,7 +202,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 		ProjectID: ids.ProjectID, AgentID: agentID, ContentType: "text/plain", Content: []byte("committed input file"),
 	})
 	require.NoError(t, err)
-	file := discardedAppFile(durable.ID, []byte("committed input file"))
+	file := failedAppFile(durable.ID, []byte("committed input file"))
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		ProjectID: ids.ProjectID, Name: "failed launch", CurrentConfigID: base.ID,
 	})
@@ -235,7 +220,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 		},
 	})
 	require.NoError(t, err)
-	unused := discardedAppFile(uuid.New(), []byte("unused launch bytes"))
+	unused := failedAppFile(uuid.New(), []byte("unused launch bytes"))
 	plannedAgent := uuid.New()
 	require.NoError(
 		t,
@@ -276,15 +261,8 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			}
 			return work.Fail(ctx, "retained partial admission")
 		}))
-	require.ErrorIs(t, CleanupDiscardedAppInboxArtifacts(ctx, inbox, artifacts, ids.ProjectID, receipt.ID),
-		storeerr.ErrStateTransitionConflict)
-	require.Empty(t, blobs.deleted)
-	require.Len(t, blobs.content, 2, "partial failed receipts retain every planned upload")
-	// S1 allows this mixed receipt to be discarded: its committed input must
-	// survive while the uncommitted launch, which created no target, is abandoned.
-	require.NoError(t, inbox.DiscardFailedIntegrationInbox(ctx, ids.ProjectID, receipt.ID))
-	cleaner := &discardedArtifactCleanupSpy{Store: artifacts}
-	require.NoError(t, CleanupDiscardedAppInboxArtifacts(ctx, inbox, cleaner, ids.ProjectID, receipt.ID))
+	cleaner := &failedArtifactCleanupSpy{Store: artifacts}
+	require.NoError(t, CleanupFailedAppInboxArtifacts(ctx, inbox, cleaner, ids.ProjectID, receipt.ID))
 	require.Equal(
 		t,
 		[]uuid.UUID{unused.ArtifactID},

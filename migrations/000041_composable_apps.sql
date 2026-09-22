@@ -296,7 +296,7 @@ CREATE TABLE integration_inbox (
     plan jsonb CHECK (jsonb_typeof(plan) = 'object' AND octet_length(plan::text) <= 262144),
     progress jsonb NOT NULL DEFAULT '{}'::jsonb
         CHECK (jsonb_typeof(progress) = 'object' AND octet_length(progress::text) <= 262144),
-    state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'processing', 'completed', 'failed', 'discarded')),
+    state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 8),
     available_at timestamptz NOT NULL DEFAULT now(),
     claim_token uuid,
@@ -307,7 +307,7 @@ CREATE TABLE integration_inbox (
     completed_at timestamptz,
     CHECK ((state = 'processing') = (claim_token IS NOT NULL AND claim_expires_at IS NOT NULL)),
     CHECK ((claim_token IS NULL) = (claim_expires_at IS NULL)),
-    CHECK ((state IN ('completed', 'discarded')) = (completed_at IS NOT NULL)),
+    CHECK ((state IN ('completed', 'failed')) = (completed_at IS NOT NULL)),
     FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
     UNIQUE (project_id, app_id, receipt_key)
 );
@@ -317,17 +317,15 @@ CREATE INDEX integration_inbox_ready_idx ON integration_inbox(available_at, id)
 CREATE INDEX integration_inbox_expired_idx ON integration_inbox(claim_expires_at, id)
     WHERE state = 'processing';
 CREATE INDEX integration_inbox_terminal_idx ON integration_inbox(completed_at, id)
-    WHERE state IN ('completed', 'discarded');
+    WHERE state IN ('completed', 'failed');
 CREATE INDEX integration_inbox_app_ready_idx
     ON integration_inbox(project_id, app_id, available_at, id) WHERE state = 'pending';
-CREATE INDEX integration_inbox_project_created_idx
-    ON integration_inbox(project_id, created_at DESC, id DESC);
 -- The first frozen plan reserves all launch slots for an app/conversation while
--- initial files are prepared outside a transaction. Failed plans retain this
--- evidence until explicit recovery; successful targets then retain membership.
+-- initial files are prepared outside a transaction. Only pending/processing
+-- plans reserve; committed targets retain membership after terminal failure.
 CREATE INDEX integration_inbox_selection_idx ON integration_inbox USING gin
     ((jsonb_path_query_array(plan, '$.*.selection')) jsonb_path_ops)
-    WHERE plan IS NOT NULL AND state IN ('pending', 'processing', 'failed');
+    WHERE plan IS NOT NULL AND state IN ('pending', 'processing');
 
 -- App-owned workflow data has common identity and lookup fields. The owning
 -- Go workflow validates its document and composes transitions with inbox writes.

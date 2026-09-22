@@ -92,14 +92,12 @@ func (s *appWorkerTestStore) ClaimIntegrationInbox(
 		return integrationstore.IntegrationInboxRecord{}, false, nil
 	}
 	return integrationstore.IntegrationInboxRecord{
-		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
-			ID:           uuid.New(),
-			ProjectID:    input.ProjectID,
-			AppID:        input.AppID,
-			CreatedAt:    time.Now().Add(-2 * time.Minute),
-			AttemptCount: 1,
-		},
-		ClaimToken: uuid.New(),
+		ID:           uuid.New(),
+		ProjectID:    input.ProjectID,
+		AppID:        input.AppID,
+		CreatedAt:    time.Now().Add(-2 * time.Minute),
+		AttemptCount: 1,
+		ClaimToken:   uuid.New(),
 	}, true, nil
 }
 

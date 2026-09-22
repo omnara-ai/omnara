@@ -256,52 +256,26 @@ actually persisted by the new service.
    pending receipt age. Explain the old-thread reset and resend requirement to
    users. A startup or smoke failure keeps maintenance active.
 
-## Recover failed app events
+## Failed app events
 
-Use the matching release's `maintenance` binary with `OMNARA_DATABASE_URL` set
-to the intended deployment database. These operator commands do not start the
-maintenance loops or require Redis. Replace the project public ID and use the
-receipt UUID returned by `list`:
+Accepted events retry automatically up to eight attempts with exponential delay.
+A terminal failure releases unfinished launch reservations; users can send a new
+mention or message. Already committed agents and inputs remain intact. Failed
+receipts are never requeued and remain for seven days for diagnostics and receipt
+deduplication, then maintenance removes them.
 
-```sh
-maintenance inbox list --project proj_... --state failed --limit 50
-maintenance inbox show --project proj_... --receipt RECEIPT_UUID
-maintenance inbox retry --project proj_... --receipt RECEIPT_UUID
-maintenance inbox discard --project proj_... --receipt RECEIPT_UUID --reason "operator explanation"
-```
+The worker makes a best-effort failure notice for unfinished human requests when
+provider access still works. Empty or fully admitted plans do not produce an
+error message. Scheduled failures remain visible in the schedule's latest run;
+a known opening thread can also receive a notice. Crash recovery can miss notices
+and unused-upload cleanup without blocking new work. Inspect `app inbox admission
+failed` logs using the receipt, app and project IDs. See the
+[inbox operations contract](https://github.com/omnara-ai/omnara/blob/main/internal/storage/integrationstore/inbox_retention.md).
 
-A removed subscription is rechecked before input admission, including for already
-prepared events. Revoked input follows the existing bounded retries and retained
-failure behavior; deletion does not erase inbox receipts.
-
-Inspect the failure before choosing retry or discard. Output contains metadata,
-frozen identities and progress flags, without provider payloads or credentials.
-Retry requires a failed receipt and an active app. It grants another
-bounded attempt budget while preserving the original recipients, planned IDs,
-prepared files and committed inputs; admission still checks current authority.
-
-Discard releases a failed launch reservation only when no launch slot committed
-and no selection target remains, including retired targets. Committed inputs to
-existing agents do not block discard and retain their deduplication. A partially
-launched selection must be retried. Discard works on disconnected live apps.
-The original receipt, plan and diagnostics remain stored; a new event can select
-fresh launch membership. Completed and discarded receipts become eligible for
-cleanup seven days after completion or discard. Transport deduplication lasts
-until deletion; failed receipts remain available under active or disconnected apps.
-
-After discard commits, prepared-file cleanup uses the existing blob settings
-only when `OMNARA_BLOB_S3_BUCKET` is configured. Missing configuration or deletion
-failure produces a warning when cleanup is needed; discard remains successful.
-Repeat `discard` on the retained discarded receipt to retry cleanup without
-changing its plan or retention timestamp. Committed inputs and durable artifact
-references are protected. See the detailed
-[operator recovery runbook](https://github.com/omnara-ai/omnara/blob/main/internal/storage/integrationstore/inbox_retention.md#operator-recovery)
-for pagination, deadlines and cleanup limits.
-
-These commands recover receipts already stored by Omnara. If a GitHub webhook
-failed before intake persisted it, first restore intake and then manually
-redeliver the failed delivery from GitHub. GitHub does not automatically retry
-it, and Omnara has no GitHub redelivery scheduler. See
+If a GitHub webhook failed before intake persisted it, restore intake and manually
+redeliver it from GitHub. GitHub does not automatically retry these deliveries.
+Redelivery of an already accepted failed receipt does not reset its budget; send
+a fresh comment/mention instead. See
 [GitHub delivery recovery](/integrations/github#configure-incoming-pr-work).
 
 ### Shared-webhook setup failures
@@ -320,9 +294,8 @@ disconnect it until repaired so independent healthy apps can continue. Do not
 acknowledge unknown failures merely because another app succeeded.
 
 After repair, redeliver events that failed before intake persisted them; GitHub
-requires manual redelivery. Disconnect preserves existing inbox recovery data.
-Reconnect before using the failed-receipt retry commands above for work already
-stored by Omnara.
+requires manual redelivery. Disconnect preserves retained inbox diagnostics. Reconnect before sending fresh
+requests; previously failed work remains terminal.
 
 ## Failure and restore
 

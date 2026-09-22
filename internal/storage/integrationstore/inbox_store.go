@@ -14,7 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
-	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -128,8 +127,8 @@ func (s *Store) ListReadyIntegrationInboxApps(
 	return result, nil
 }
 
-// GetIntegrationInbox is an operator diagnostic read. Worker decisions use
-// LockIntegrationInboxLeaseTx and its fenced snapshot instead.
+// GetIntegrationInbox reads retained receipt state. Mutations require
+// LockIntegrationInboxLeaseTx and its fenced snapshot.
 func (s *Store) GetIntegrationInbox(
 	ctx context.Context, projectID, receiptID uuid.UUID,
 ) (IntegrationInboxRecord, error) {
@@ -146,55 +145,6 @@ func (s *Store) GetIntegrationInbox(
 		return IntegrationInboxRecord{}, fmt.Errorf("get inbox receipt: %w", err)
 	}
 	return inboxRecord(row), nil
-}
-
-// ListIntegrationInbox returns bounded metadata pages, not batches of raw bodies.
-// Authorization to the project is the caller's responsibility, as for other
-// capability-store operator reads. Cursor order is stable newest-first.
-func (s *Store) ListIntegrationInbox(
-	ctx context.Context, input ListIntegrationInboxInput,
-) (ListIntegrationInboxResult, error) {
-	if input.ProjectID == uuid.Nil {
-		return ListIntegrationInboxResult{}, inboxInvalid("project is required")
-	}
-	if err := validateInboxBatch(input.Limit); err != nil {
-		return ListIntegrationInboxResult{}, err
-	}
-	switch input.State {
-	case "", IntegrationInboxPending, IntegrationInboxProcessing, IntegrationInboxCompleted, IntegrationInboxFailed:
-	case IntegrationInboxDiscarded:
-	default:
-		return ListIntegrationInboxResult{}, inboxInvalid("invalid inbox state")
-	}
-	if input.After.Set && (input.After.CreatedAt.IsZero() || input.After.ID == uuid.Nil) {
-		return ListIntegrationInboxResult{}, inboxInvalid("invalid inbox cursor")
-	}
-	rows, err := s.q.ListIntegrationInboxReceipts(ctx, dbsqlc.ListIntegrationInboxReceiptsParams{
-		ProjectID: input.ProjectID, AppID: storeutil.IDFromNil(input.AppID), State: string(input.State),
-		CursorSet: input.After.Set, CursorCreatedAt: input.After.CreatedAt,
-		CursorID: input.After.ID, RowLimit: int32(input.Limit + 1),
-	})
-	if err != nil {
-		return ListIntegrationInboxResult{}, fmt.Errorf("list inbox: %w", err)
-	}
-	result := ListIntegrationInboxResult{Receipts: make([]IntegrationInboxSummary, 0, input.Limit)}
-	if len(rows) > input.Limit {
-		result.HasMore = true
-		rows = rows[:input.Limit]
-	}
-	for _, row := range rows {
-		result.Receipts = append(result.Receipts, IntegrationInboxSummary{
-			ID: row.ID, ProjectID: row.ProjectID, AppID: row.AppID, ReceiptKey: row.ReceiptKey,
-			State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
-			ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
-			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
-		})
-	}
-	if result.HasMore {
-		last := rows[len(rows)-1]
-		result.Next = listing.KeysetCursor{Set: true, CreatedAt: last.CreatedAt, ID: last.ID}
-	}
-	return result, nil
 }
 
 // OldestReadyIntegrationInboxLag samples the oldest due pending receipt, including
@@ -236,7 +186,7 @@ func (s *Store) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, 
 
 // CleanupTerminalIntegrationInbox bounds the replay-deduplication window as well
 // as payload retention. The database owns the cutoff clock. This deletes only
-// completed receipts, never agent history or failed plans needed for recovery.
+// completed/failed receipts, never committed agent history or other product state.
 func (s *Store) CleanupTerminalIntegrationInbox(
 	ctx context.Context, retention time.Duration, limit int,
 ) (int64, error) {
@@ -244,13 +194,13 @@ func (s *Store) CleanupTerminalIntegrationInbox(
 		return 0, err
 	}
 	if retention < time.Second {
-		return 0, inboxInvalid("completed retention must be at least one second")
+		return 0, inboxInvalid("terminal retention must be at least one second")
 	}
 	count, err := s.q.CleanupTerminalIntegrationInboxReceipts(ctx, dbsqlc.CleanupTerminalIntegrationInboxReceiptsParams{
 		RetentionMilliseconds: retention.Milliseconds(), RowLimit: int32(limit),
 	})
 	if err != nil {
-		return 0, fmt.Errorf("clean completed inbox: %w", err)
+		return 0, fmt.Errorf("clean terminal inbox: %w", err)
 	}
 	return count, nil
 }
@@ -306,12 +256,10 @@ func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
 		plan = *row.Plan
 	}
 	return IntegrationInboxRecord{
-		IntegrationInboxSummary: IntegrationInboxSummary{
-			ID: row.ID, ProjectID: row.ProjectID, AppID: row.AppID, ReceiptKey: row.ReceiptKey,
-			State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
-			ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
-			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
-		},
+		ID: row.ID, ProjectID: row.ProjectID, AppID: row.AppID, ReceiptKey: row.ReceiptKey,
+		State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
+		ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
 		Source:     IntegrationInboxSource(row.Source),
 		Payload:    row.Payload,
 		Events:     events,

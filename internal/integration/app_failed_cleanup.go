@@ -13,27 +13,23 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type DiscardedAppInboxReader interface {
+type FailedAppInboxReader interface {
 	GetIntegrationInbox(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationInboxRecord, error)
 }
 
-type DiscardedAppArtifactCleaner interface {
+type FailedAppArtifactCleaner interface {
 	DeleteUnreferencedPreparedArtifact(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 }
 
-// CleanupDiscardedAppInboxArtifacts runs only AFTER successful discard commit.
-// It re-reads terminal state and takes candidate IDs from the frozen plan, not
-// preparation progress: an upload may have finished before Prepare was recorded.
-// Committed slot keys are always preserved. Failed/partial receipts retain their
-// blobs until explicit discard. Missing objects are harmless and errors can be retried
-// while the receipt is retained. The caller must report errors as warnings after
-// successful discard, never as a rollback of that discard. No receipt is mutated.
-// The pass is bounded to 30 seconds; it cannot guarantee reclamation after a
-// crash, missing blob configuration, later stale upload, or receipt retention.
-func CleanupDiscardedAppInboxArtifacts(
+// CleanupFailedAppInboxArtifacts runs after terminal failure has committed.
+// It takes candidate IDs from the frozen plan: an upload may have finished before
+// Prepare was recorded. Committed slots and durable artifact references survive.
+// Cleanup is bounded and best effort; failures never undo the terminal state.
+// A crash, a stale upload finishing later, or receipt expiry can leave unused blobs.
+func CleanupFailedAppInboxArtifacts(
 	ctx context.Context,
-	inbox DiscardedAppInboxReader,
-	artifacts DiscardedAppArtifactCleaner,
+	inbox FailedAppInboxReader,
+	artifacts FailedAppArtifactCleaner,
 	projectID, receiptID uuid.UUID,
 ) error {
 	if projectID == uuid.Nil || receiptID == uuid.Nil || inbox == nil || artifacts == nil {
@@ -46,12 +42,12 @@ func CleanupDiscardedAppInboxArtifacts(
 		return err
 	}
 	if receipt.ID != receiptID || receipt.ProjectID != projectID ||
-		receipt.State != integrationstore.IntegrationInboxDiscarded {
+		receipt.State != integrationstore.IntegrationInboxFailed {
 		return storeerr.ErrStateTransitionConflict
 	}
 	var progress map[string]map[string]json.RawMessage
 	if err := json.Unmarshal(receipt.Progress, &progress); err != nil || progress == nil {
-		return errors.New("discarded receipt has invalid progress")
+		return errors.New("failed receipt has invalid progress")
 	}
 	if len(receipt.Plan) == 0 {
 		return nil // No frozen plan means no prepared uploads.
@@ -66,7 +62,7 @@ func CleanupDiscardedAppInboxArtifacts(
 		_, committed := progress[key]["committed"]
 		for _, id := range slot.ArtifactIDs {
 			if id == uuid.Nil {
-				return fmt.Errorf("discarded slot %s has an invalid artifact ID", key)
+				return fmt.Errorf("failed slot %s has an invalid artifact ID", key)
 			}
 			if committed {
 				protected[[2]uuid.UUID{slot.AgentID, id}] = true
@@ -88,7 +84,7 @@ func CleanupDiscardedAppInboxArtifacts(
 				return errors.Join(append(failures, err)...)
 			}
 			if err := artifacts.DeleteUnreferencedPreparedArtifact(ctx, projectID, slot.AgentID, id); err != nil {
-				failures = append(failures, fmt.Errorf("clean discarded slot %s: %w", key, err))
+				failures = append(failures, fmt.Errorf("clean failed slot %s: %w", key, err))
 			}
 		}
 	}

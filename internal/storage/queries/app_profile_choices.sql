@@ -7,8 +7,8 @@ FROM project_apps
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR SHARE;
 
--- Accepted work owns the conversation while pending/processing, or failed with
--- a frozen plan. Failed unplanned work releases it. An unpublished menu remains
+-- Accepted work owns the conversation only while pending/processing. Terminal
+-- work releases it, including frozen plans. An unpublished menu remains
 -- eligible only while its original receipt can publish; published menus outlive
 -- that receipt. Every eligibility predicate runs before its branch's LIMIT.
 -- name: FindPendingAppProfileChoice :one
@@ -20,7 +20,7 @@ WITH candidates AS (
      WHERE choice.kind = 'profile_choice' AND choice.project_id = sqlc.arg(project_id) AND choice.app_id = sqlc.arg(app_id)
        AND choice.scope_kind = sqlc.arg(address_kind)::text
        AND choice.scope_ref = sqlc.arg(address_ref)::text AND COALESCE(choice.data->>'selected_key', '') <> ''
-       AND (inbox.state IN ('pending', 'processing') OR (inbox.state = 'failed' AND inbox.plan IS NOT NULL))
+       AND inbox.state IN ('pending', 'processing')
      LIMIT 1)
     UNION ALL
     (SELECT choice.id, 1 AS priority
@@ -44,7 +44,7 @@ ORDER BY candidates.priority
 LIMIT 1;
 
 -- Bridge the accepted-choice interval before its first frozen inbox plan.
--- Failed unplanned work is recoverable but does not hold ordinary replies.
+-- Terminal work never holds ordinary replies.
 -- name: FindUnplannedAppProfileChoiceReservation :one
 SELECT inbox.id, inbox.state
 FROM app_states choice
@@ -62,8 +62,9 @@ VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
 RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
--- Expired menus may still own accepted work awaiting recovery. Their retention
--- is chooser policy, not a generic deadline-to-deletion rule for app state.
+-- Retain expired menus while their linked receipt exists in any state, including
+-- recently terminal work. Receipt cleanup ends this source replay barrier; menu
+-- expiry alone must not shorten the receipt retention window.
 -- name: CleanupExpiredAppProfileChoices :execrows
 WITH candidates AS (
     SELECT choice.id FROM app_states choice
@@ -72,7 +73,6 @@ WITH candidates AS (
           SELECT 1 FROM integration_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
             AND inbox.receipt_key = 'choice:' || choice.id::text
-            AND inbox.state IN ('pending', 'processing', 'failed')
       )
     ORDER BY choice.expires_at, choice.id
     LIMIT sqlc.arg(row_limit)
