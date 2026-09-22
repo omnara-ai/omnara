@@ -144,13 +144,13 @@ func (s strictOpenAPIServer) ListMemoryStores(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	out := openapi.MemoryStoreList{Data: []openapi.MemoryStore{}, HasMore: page.HasMore}
-	out.NextCursor, err = encodeResourceListNextCursor(
+	next, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "memory_stores", listScope, publicid.KindMemoryStore, nil,
 	)
 	if err != nil {
 		return nil, err
 	}
+	out := openapi.MemoryStoreList{Data: []openapi.MemoryStore{}, NextCursor: nullableFromPtr(next)}
 	for _, r := range page.Records {
 		item, e := memoryStoreResponse(r)
 		if e != nil {

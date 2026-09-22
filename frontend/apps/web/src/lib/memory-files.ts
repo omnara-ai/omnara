@@ -1,4 +1,10 @@
+import { ApiError } from '@omnara/sdk'
+
 import { decodeUTF8Text } from '@/lib/file-text'
+
+export function fileContentConflict(error: Error | null): ApiError | undefined {
+  return error instanceof ApiError && error.code === 'file_content_conflict' ? error : undefined
+}
 
 export function memoryPreview(bytes: Uint8Array) {
   const starts = (...prefix: number[]) => prefix.every((value, index) => bytes[index] === value)
@@ -8,7 +14,13 @@ export function memoryPreview(bytes: Uint8Array) {
   const signature = new TextDecoder().decode(bytes.subarray(0, 12))
   if (signature.startsWith('GIF87a') || signature.startsWith('GIF89a'))
     return { text: null, type: 'image/gif' }
-  if (signature.startsWith('RIFF') && signature.slice(8) === 'WEBP')
+  if (
+    starts(0x52, 0x49, 0x46, 0x46) &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  )
     return { text: null, type: 'image/webp' }
   if (signature.startsWith('%PDF-')) return { text: null, type: 'application/pdf' }
   return { text: decodeUTF8Text(bytes), type: null }

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
@@ -27,6 +28,7 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 			r.Header.Get("Accept") != "application/octet-stream" {
 			t.Errorf("unexpected download headers: %+v", r.Header)
 		}
+		w.Header().Set("X-Omnara-File-Digest", blobstore.ContentDigest([]byte("artifact bytes")))
 		_, _ = io.WriteString(w, "artifact bytes")
 	}))
 	defer server.Close()
@@ -66,12 +68,10 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 			if err := os.Chmod(test.full, 0o640); err != nil {
 				t.Fatalf("chmod destination: %v", err)
 			}
-			err := runFileTransfer(context.Background(), fileTransferRequest{
-				direction:      "download",
-				toolCallID:     toolCallID,
-				encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(test.path)),
-				endpointSuffix: "/file",
-			}, io.Discard)
+			err := runFileTransfer(context.Background(),
+				"download",
+				toolCallID,
+				base64.RawURLEncoding.EncodeToString([]byte(test.path)), io.Discard)
 			if err != nil {
 				t.Fatalf("download artifact: %v", err)
 			}
@@ -96,18 +96,18 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
 	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	content := strings.Repeat("x", daemonprotocol.MaxFileDownloadBytes)
+	digest := blobstore.ContentDigest([]byte(content))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Omnara-File-Digest", digest)
 		_, _ = io.WriteString(w, content)
 	}))
 	defer server.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 	destination := filepath.Join(t.TempDir(), "large-artifact.txt")
-	err := runFileTransfer(context.Background(), fileTransferRequest{
-		direction:      "download",
-		toolCallID:     toolCallID,
-		encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(destination)),
-		endpointSuffix: "/file",
-	}, io.Discard)
+	err := runFileTransfer(context.Background(),
+		"download",
+		toolCallID,
+		base64.RawURLEncoding.EncodeToString([]byte(destination)), io.Discard)
 	if err != nil {
 		t.Fatalf("download at size limit: %v", err)
 	}
@@ -156,6 +156,7 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 		{
 			name: "truncated response",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-Omnara-File-Digest", blobstore.ContentDigest([]byte("short")))
 				w.Header().Set("Content-Length", "100")
 				_, _ = io.WriteString(w, "short")
 			},
@@ -164,7 +165,9 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 		{
 			name: "oversized response",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = io.WriteString(w, strings.Repeat("x", daemonprotocol.MaxFileDownloadBytes+1))
+				content := strings.Repeat("x", daemonprotocol.MaxFileDownloadBytes+1)
+				w.Header().Set("X-Omnara-File-Digest", blobstore.ContentDigest([]byte(content)))
+				_, _ = io.WriteString(w, content)
 			},
 			want: "exceeds the size limit",
 		},
@@ -174,12 +177,10 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 			server := httptest.NewServer(test.handler)
 			defer server.Close()
 			setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
-			err := runFileTransfer(context.Background(), fileTransferRequest{
-				direction:      "download",
-				toolCallID:     toolCallID,
-				encodedPath:    encodedPath,
-				endpointSuffix: "/file",
-			}, io.Discard)
+			err := runFileTransfer(context.Background(),
+				"download",
+				toolCallID,
+				encodedPath, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -208,12 +209,10 @@ func TestFileTransferDownloadDoesNotCreateParentDirectory(t *testing.T) {
 	defer server.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 	destination := filepath.Join(t.TempDir(), "missing", "artifact.bin")
-	err := runFileTransfer(context.Background(), fileTransferRequest{
-		direction:      "download",
-		toolCallID:     toolCallID,
-		encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(destination)),
-		endpointSuffix: "/file",
-	}, io.Discard)
+	err := runFileTransfer(context.Background(),
+		"download",
+		toolCallID,
+		base64.RawURLEncoding.EncodeToString([]byte(destination)), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "create temporary file") {
 		t.Fatalf("error = %v", err)
 	}

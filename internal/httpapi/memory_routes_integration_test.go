@@ -262,13 +262,16 @@ func TestMemoryStorePagination(t *testing.T) {
 	}
 	first := requestJSONWithHeaders(t, handler, http.MethodGet, path+"?limit=1", "", "", http.StatusOK, headers)
 	cursor, ok := first["next_cursor"].(string)
-	if !ok || cursor == "" || first["has_more"] != true {
+	if !ok || cursor == "" {
 		t.Fatalf("missing continuation: %+v", first)
 	}
 	second := requestJSONWithHeaders(
 		t, handler, http.MethodGet, path+"?limit=1&cursor="+cursor, "", "", http.StatusOK, headers,
 	)
 	for i, page := range []map[string]any{first, second} {
+		if _, ok := page["has_more"]; ok {
+			t.Fatalf("unexpected has_more field: %+v", page)
+		}
 		data, ok := page["data"].([]any)
 		if !ok || len(data) != 1 {
 			t.Fatalf("invalid page: %+v", page)
@@ -278,7 +281,7 @@ func TestMemoryStorePagination(t *testing.T) {
 			t.Fatalf("unexpected store: %+v", data[0])
 		}
 	}
-	if second["has_more"] != false || second["next_cursor"] != nil {
+	if next, ok := second["next_cursor"]; !ok || next != nil {
 		t.Fatalf("unexpected continuation: %+v", second)
 	}
 	other := bootstrapPublicHTTPProject(t, handler, "memory-pagination-other")

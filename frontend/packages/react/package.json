@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@omnara/sdk": "workspace:*",
-    "p-limit": "^7.3.2",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

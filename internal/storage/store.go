@@ -20,7 +20,6 @@ import (
 )
 
 type Store struct {
-	memoryFS        *memorystore.Filesystem
 	pool            *pgxpool.Pool
 	blobs           blobstore.Store
 	identity        *identitystore.Store
@@ -88,15 +87,14 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 		opt(&config)
 	}
 	store := &Store{
-		memoryFS: config.memoryFS,
-		pool:     pool,
-		blobs:    config.blobs,
+		pool:  pool,
+		blobs: config.blobs,
 	}
 	store.identity = identitystore.New(pool, config.secretKeyWrapper, config.blobs)
 	store.models = modelstore.New(pool)
 	store.secrets = secretstore.New(pool, config.secretKeyWrapper, store.identity)
 	store.skills = skillstore.New(pool, config.blobs, store.identity)
-	store.memories = memorystore.New(pool, config.memoryFS, store.identity)
+	store.memories = memorystore.New(pool, config.memoryFS)
 	store.artifacts = artifactstore.New(pool, config.blobs)
 	store.integrations = integrationstore.New(pool, executionstore.IntegrationInstallAccess{})
 	store.execution = executionstore.New(pool, executionstore.Config{

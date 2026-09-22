@@ -146,7 +146,9 @@ func FromError(err error) ResponseError {
 	var fileConflict *storeerr.FileContentConflictError
 	if errors.As(err, &fileConflict) {
 		responseErr = FromCode(openapi.ErrorCodeFileContentConflict, err.Error())
-		responseErr.CurrentDigest = &fileConflict.CurrentDigest
+		if fileConflict.CurrentDigest != "" {
+			responseErr.CurrentDigest = &fileConflict.CurrentDigest
+		}
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		responseErr = FromCode(openapi.ErrorCodeNotFound, err.Error())
 	} else {

@@ -30,6 +30,7 @@ const searchEventBytes = 2 * 1024 * 1024
 const searchStoreBatchSize = 32
 
 var errSearchResultLimit = errors.New("search result limit reached")
+var searchGlobEscaper = strings.NewReplacer("[", "\\[", "]", "\\]", "{", "\\{", "}", "\\}", " ", "\\ ")
 
 type searchFilesRequest struct {
 	Path       string   `json:"path"`
@@ -166,8 +167,8 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 			closeStores()
 			return err
 		}
-		err = call.Executor.Store.VisitMemorySearchStores(ctx, call.Turn.ProjectID, call.Turn.AgentID,
-			input.Path, func(store storage.MemorySearchStore) error {
+		err = call.Executor.Store.Memories().VisitSearchStores(ctx, call.Turn.ProjectID, call.Turn.AgentID,
+			input.Path, func(store memorystore.SearchStore) error {
 				root, err := store.Root.Open(".")
 				if err != nil {
 					return err
@@ -404,7 +405,7 @@ func memorySearchGlobs(pattern, store string) []string {
 					part = strings.ReplaceAll(part, "**", "*")
 				}
 			}
-			parts[j] = strings.NewReplacer("[", "\\[", "]", "\\]", "{", "\\{", "}", "\\}", " ", "\\ ").Replace(part)
+			parts[j] = searchGlobEscaper.Replace(part)
 		}
 		patterns[i] = "/" + strings.Join(parts, "/")
 	}
@@ -433,15 +434,12 @@ func (s *searchStream) consume(data []byte) error {
 		if err != nil || !ok {
 			return err
 		}
-		if p.used+len(path)+64 > toolcatalog.FilePageBytes {
+		if p.result.MatchCount >= p.input.Limit || p.used+len(path)+64 > toolcatalog.FilePageBytes {
 			return errSearchResultLimit
 		}
 		p.result.Files = append(p.result.Files, searchFileResult{Path: path, Count: count})
 		p.result.MatchCount++
 		p.used += len(path) + 64
-		if p.result.MatchCount >= p.input.Limit {
-			return errSearchResultLimit
-		}
 		return nil
 	}
 	var event searchEvent
@@ -474,6 +472,9 @@ func (s *searchStream) consume(data []byte) error {
 	if d.LineNumber < *p.input.OffsetLine {
 		return nil
 	}
+	if event.Type == "match" && p.result.MatchCount >= p.input.Limit {
+		return errSearchResultLimit
+	}
 	text := d.Lines.Text
 	if d.Lines.Bytes != nil {
 		text = string(d.Lines.Bytes)
@@ -495,9 +496,6 @@ func (s *searchStream) consume(data []byte) error {
 	p.used += size
 	if line.IsMatch {
 		p.result.MatchCount++
-		if p.result.MatchCount >= p.input.Limit {
-			return errSearchResultLimit
-		}
 	}
 	return nil
 }

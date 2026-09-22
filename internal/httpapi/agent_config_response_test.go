@@ -41,6 +41,7 @@ func TestPublicCompiledDefinition(t *testing.T) {
 			"public":{"url":"https://example.org","default_enabled":true,"permission":{"mode":"always_allow","parameters":{}}}},
 		"event_webhook":{"url":"https://example.com/events","events":["model_output"],"signing_secret_id":"UUID"},
 		"skills":[{"id":"UUID"}],
+		"memory_stores":[{"id":"UUID","access":"read_write"}],
 		"subagents":{"self":{"type":"self","description":"self","instruction_append":"more","max_instances":2,"archive_after_idle_minutes":0,"model":{"reasoning":{"effort":"low"}}},
 			"profile":{"type":"profile","profile_id":"UUID","description":"worker","instruction_append":"more","max_instances":3,"archive_after_idle_minutes":0,
 			"model":{"configured_model_id":"UUID","context_window_tokens":64000,"default_max_output_tokens":2000,"cache_retention":"short","reasoning":{"effort":"low"}}}}
@@ -58,6 +59,7 @@ func TestPublicCompiledDefinition(t *testing.T) {
 		`"TOKEN":"`+id.String()+`"`, `"TOKEN":"`+public(publicid.KindSecret)+`"`,
 		`"secret_id":"`+id.String()+`"`, `"secret_id":"`+public(publicid.KindSecret)+`"`,
 		`"signing_secret_id":"`+id.String()+`"`, `"signing_secret_id":"`+public(publicid.KindSecret)+`"`,
+		`"memory_stores":[{"id":"`+id.String()+`"`, `"memory_stores":[{"id":"`+public(publicid.KindMemoryStore)+`"`,
 		`"id":"`+id.String()+`"`, `"id":"`+public(publicid.KindSkill)+`"`,
 		`"profile_id":"`+id.String()+`"`, `"profile_id":"`+public(publicid.KindAgentProfile)+`"`,
 	).Replace(source)
@@ -88,6 +90,7 @@ func TestCompiledConfigEnums(t *testing.T) {
 		{"CompiledAgentModel", "cache_retention", []any{"none", "short", "long"}},
 		{"CompiledSubagentModel", "cache_retention", []any{"none", "short", "long"}},
 		{"CompiledTool", "type", []any{"built_in", "custom"}},
+		{"CompiledMemoryStore", "access", []any{"read_only", "read_write"}},
 	} {
 		t.Run(test.schema+"/"+test.field, func(t *testing.T) {
 			t.Parallel()

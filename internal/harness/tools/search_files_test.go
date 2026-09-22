@@ -13,9 +13,16 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/omnara-ai/omnara/internal/fileexec"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
+
+func TestSearchStoreBatchSize(t *testing.T) {
+	if searchStoreBatchSize != fileexec.MaxStoreRoots {
+		t.Fatalf("search batch size %d does not match file-exec root limit %d", searchStoreBatchSize, fileexec.MaxStoreRoots)
+	}
+}
 
 func searchRequestForTest(t *testing.T, args []string, limit int) searchFilesRequest {
 	t.Helper()
@@ -88,7 +95,10 @@ func TestSearchFilesContextAndLimits(t *testing.T) {
 	}{
 		{"context", []string{"-C", "2", "-e", "TARGET"}, 20, 1, []int{1, 2, 3, 4, 5, 6}, 3, false},
 		{"limit", []string{"-C", "2", "-e", "TARGET"}, 1, 1, []int{1, 2}, 1, true},
+		{"context before next match", []string{"-C", "2", "-e", "TARGET"}, 2, 1, []int{1, 2, 3, 4}, 2, true},
+		{"exact limit", []string{"-C", "2", "-e", "TARGET"}, 3, 1, []int{1, 2, 3, 4, 5, 6}, 3, false},
 		{"offset", []string{"-C", "2", "-e", "TARGET"}, 20, 3, []int{3, 4, 5, 6}, 2, false},
+		{"offset exact limit", []string{"-C", "2", "-e", "TARGET"}, 2, 3, []int{3, 4, 5, 6}, 2, false},
 		{"after", []string{"-A", "1", "-e", "TARGET"}, 20, 1, []int{2, 3, 4, 5, 6}, 3, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -108,6 +118,39 @@ func TestSearchFilesContextAndLimits(t *testing.T) {
 			}
 			if !slices.Equal(lines, test.lines) || output.result.MatchCount != test.matches {
 				t.Fatalf("incorrect results: %+v", output.result)
+			}
+		})
+	}
+}
+
+func TestSearchFilesLimitAcrossSources(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"content", []string{"-C", "2", "-e", "TARGET"}},
+		{"files", []string{"-l", "-e", "TARGET"}},
+		{"counts", []string{"-c", "-e", "TARGET"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := searchRequestForTest(t, test.args, 1)
+			output := &searchOutput{input: input}
+			if err := output.search(t.Context(), searchSource{
+				path: input.Path, content: []byte("before\nTARGET\nafter1\nafter2\n"),
+			}); err != nil {
+				t.Fatalf("exact limit: %v", err)
+			}
+			if output.result.MatchCount != 1 || input.mode == "" && len(output.result.Lines) != 4 {
+				t.Fatalf("missing match or context: %+v", output.result)
+			}
+			before := output.result
+			if err := output.search(t.Context(), searchSource{
+				path: "/memory/team/other.txt", content: []byte("TARGET\n"),
+			}); !errors.Is(err, errSearchResultLimit) {
+				t.Fatalf("next match: %v", err)
+			}
+			if !reflect.DeepEqual(before, output.result) {
+				t.Fatalf("next match changed results: before=%+v after=%+v", before, output.result)
 			}
 		})
 	}

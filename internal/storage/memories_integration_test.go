@@ -25,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
@@ -35,7 +36,7 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newMemoryIntegrationStore(t, ctx, pool)
+	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Admin", "admin")
 	scope := memorystore.Scope{
 		OrgID:     testOrgID,
@@ -158,14 +159,10 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newMemoryIntegrationStore(t, ctx, pool)
+	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Listing Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
 	resource, err := store.Memories().Create(ctx, scope, "engineering", "Shared notes", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publicID, err := publicid.Encode(publicid.KindMemoryStore, resource.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +172,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
-		ResolveMemoryStoreName: func(string) (string, error) { return publicID, nil },
+		ResolveMemoryStoreName: func(string) (uuid.UUID, error) { return resource.ID, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +185,6 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			SourceFormat:            "yaml",
 			ConfiguredModelID:       configuredModel.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		})
 	if err != nil {
@@ -303,7 +299,7 @@ func TestMemoryQuotasAndProjectDeletion(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newMemoryIntegrationStore(t, ctx, pool)
+	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Quota Admin", "admin")
 	scope := memorystore.Scope{
 		OrgID: testOrgID, ProjectID: testProjectID,
@@ -365,14 +361,10 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newMemoryIntegrationStore(t, ctx, pool)
+	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Access Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
 	resource, err := store.Memories().Create(ctx, scope, "engineering", "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publicID, err := publicid.Encode(publicid.KindMemoryStore, resource.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +375,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 			ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 				return resolvedTestModelSelection(configuredModel), nil
 			},
-			ResolveMemoryStoreName: func(string) (string, error) { return publicID, nil },
+			ResolveMemoryStoreName: func(string) (uuid.UUID, error) { return resource.ID, nil },
 		})
 		if err != nil {
 			return executionstore.AgentConfigRecord{}, err
@@ -391,8 +383,8 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 		return store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 			ProjectID: testProjectID,
 			Source:    source, SourceFormat: "yaml", ConfiguredModelID: configuredModel.ID,
-			CompiledDefinition: json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:    agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+			EffectiveDefinitionHash: compiled.Hash,
 		})
 	}
 	if _, err := createConfig("read_write"); err != nil {
@@ -439,10 +431,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	}
 	override := agentconfig.SubagentCompiled{Type: agentconfig.SubagentTypeSelf, InstructionAppend: "Extra instruction"}
 	depth := agentconfig.SubagentDepth{Depth: 1}
-	child, err := agentconfig.SubagentCompiledFrom(base, override, depth, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	child := agentconfig.SubagentCompiledFrom(base, override, depth)
 	encoded, err := agentconfig.EncodeCompiled(child)
 	if err != nil {
 		t.Fatal(err)
@@ -450,8 +439,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	derived := executionstore.CreateAgentConfigInput{
 		ProjectID:          testProjectID,
 		ConfiguredModelID:  configuredModel.ID,
-		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON), CompilerVersion: agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: encoded.Hash,
+		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON), EffectiveDefinitionHash: encoded.Hash,
 	}
 	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: derived, AgentID: agent.ID, ExpectedCurrentConfigID: config.ID,
@@ -471,7 +459,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newMemoryIntegrationStore(t, ctx, pool)
+	store, files := newMemoryIntegrationStore(t, ctx, pool)
 	listStore := store
 	admin := createSecretTestUser(t, ctx, store, "File Listing Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
@@ -492,8 +480,8 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
-		ResolveMemoryStoreName: func(name string) (string, error) {
-			return publicid.Encode(publicid.KindMemoryStore, stores[name].ID)
+		ResolveMemoryStoreName: func(name string) (uuid.UUID, error) {
+			return stores[name].ID, nil
 		},
 	})
 	if err != nil {
@@ -502,8 +490,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 	config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID: testProjectID,
 		Source:    source, SourceFormat: "yaml", ConfiguredModelID: configuredModel.ID,
-		CompiledDefinition: json.RawMessage(compiled.CanonicalJSON), CompilerVersion: agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: compiled.Hash,
+		CompiledDefinition: json.RawMessage(compiled.CanonicalJSON), EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -519,7 +506,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 			"weird[1]%_文.md", "folder.md/child.txt", "prefix/\U0001f600.md"},
 		"a-b": {"next.md"}, "z": {"last.md", "last.txt"}, "unattached": {"hidden.md"},
 	}
-	all := []FileEntry{{Path: "/artifacts", Type: "directory"}, {Path: "/memory", Type: "directory"}}
+	all := []listing.FileEntry{{Path: "/artifacts", Type: "directory"}, {Path: "/memory", Type: "directory"}}
 	for _, name := range []string{"a", "a-b", "z", "unattached"} {
 		for _, path := range fixtures[name] {
 			if _, err := store.Memories().Write(ctx, memorystore.WriteInput{
@@ -532,7 +519,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 			continue
 		}
 		if name == "a" {
-			root, err := store.memoryFS.OpenStore(memoryFilesystemRef(t, scope, stores[name]))
+			root, err := files.OpenStore(memoryFilesystemRef(t, scope, stores[name]))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -543,7 +530,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 			}
 		}
 		root := "/memory/" + name
-		all = append(all, FileEntry{Path: root, Type: "directory"})
+		all = append(all, listing.FileEntry{Path: root, Type: "directory"})
 		children := make(map[string]string)
 		if name == "a" {
 			children["empty"] = "directory"
@@ -561,10 +548,10 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 		}
 		slices.Sort(paths)
 		for _, path := range paths {
-			all = append(all, FileEntry{Path: root + "/" + path, Type: children[path]})
+			all = append(all, listing.FileEntry{Path: root + "/" + path, Type: children[path]})
 		}
 	}
-	lock, err := store.memoryFS.Lock(ctx, memoryFilesystemRef(t, scope, stores["a"]))
+	lock, err := files.Lock(ctx, memoryFilesystemRef(t, scope, stores["a"]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +665,7 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 			if compileErr != nil {
 				t.Fatal(compileErr)
 			}
-			var want []FileEntry
+			var want []listing.FileEntry
 			for _, entry := range all {
 				if matcher.MatchString(entry.Path) {
 					want = append(want, entry)
@@ -689,8 +676,8 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 				t.Fatal("unexpected truncation")
 			}
 			got := result.Entries
-			slices.SortFunc(got, func(a, b FileEntry) int { return strings.Compare(a.Path, b.Path) })
-			slices.SortFunc(want, func(a, b FileEntry) int { return strings.Compare(a.Path, b.Path) })
+			slices.SortFunc(got, func(a, b listing.FileEntry) int { return strings.Compare(a.Path, b.Path) })
+			slices.SortFunc(want, func(a, b listing.FileEntry) int { return strings.Compare(a.Path, b.Path) })
 			if listErr != nil {
 				t.Fatal(listErr)
 			}
@@ -840,14 +827,16 @@ func TestFilePatternSQLMatchesGo(t *testing.T) {
 	}
 }
 
-func newMemoryIntegrationStore(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *Store {
+func newMemoryIntegrationStore(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+) (*Store, *memorystore.Filesystem) {
 	t.Helper()
 	files, err := memorystore.OpenFilesystem(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = files.Close() })
-	return newIntegrationStore(pool, WithMemoryFilesystem(files), WithBlobStore(integrationblob.MustOpen(t, ctx)))
+	return newIntegrationStore(pool, WithMemoryFilesystem(files), WithBlobStore(integrationblob.MustOpen(t, ctx))), files
 }
 
 func collectFileListing(
@@ -856,7 +845,7 @@ func collectFileListing(
 	agentID uuid.UUID,
 	pattern string,
 	limit int,
-) ([]FileEntry, error) {
+) ([]listing.FileEntry, error) {
 	result, err := store.ListFiles(ctx, testProjectID, agentID, pattern, limit)
 	if err == nil && result.Truncated {
 		err = errors.New("unexpected truncation")
@@ -900,8 +889,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 					ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 						return resolvedTestModelSelection(model), nil
 					},
-					ResolveMemoryStoreName: func(string) (string, error) {
-						return publicid.Encode(publicid.KindMemoryStore, resource.ID)
+					ResolveMemoryStoreName: func(string) (uuid.UUID, error) {
+						return resource.ID, nil
 					},
 				})
 				if err != nil {
@@ -909,8 +898,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 				}
 				config, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 					ProjectID: testProjectID, Source: source, SourceFormat: "yaml", ConfiguredModelID: model.ID,
-					CompiledDefinition: json.RawMessage(compiled.CanonicalJSON),
-					CompilerVersion:    agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+					CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
+					EffectiveDefinitionHash: compiled.Hash,
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -939,7 +928,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			org := mustPublicID(t, publicid.KindOrganization, scope.OrgID)
 			project := mustPublicID(t, publicid.KindProject, scope.ProjectID)
 			contentPath := filepath.Join(dir, org, project, resource.Name)
-			staging := filepath.Join(dir, ".staging", org, project, resource.ID.String())
+			staging := filepath.Join(dir, ".staging", org, project, resource.Name)
 			for {
 				entries, err := os.ReadDir(staging)
 				if err != nil {
@@ -958,23 +947,19 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			}
 			deleted := make(chan error, 1)
 			switch operation {
-			case "read_only", "store_delete":
-				waiting, stop := context.WithTimeout(ctx, 60*time.Millisecond)
+			case "read_only":
 				readOnly := true
-				if operation == "read_only" {
-					_, err = store.Memories().Update(waiting, scope, resource.ID, nil, &readOnly)
-				} else {
-					err = store.Memories().Delete(waiting, scope, resource.ID)
+				if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &readOnly); err != nil {
+					t.Fatal(err)
 				}
+			case "store_delete":
+				waiting, stop := context.WithTimeout(ctx, 60*time.Millisecond)
+				err = store.Memories().Delete(waiting, scope, resource.ID)
 				stop()
 				if !errors.Is(err, context.DeadlineExceeded) {
 					t.Fatalf("management bypassed filesystem lock: %v", err)
 				}
-				if operation == "read_only" {
-					_, err = pool.Exec(ctx, `UPDATE memory_stores SET read_only=true WHERE id=$1`, resource.ID)
-				} else {
-					_, err = pool.Exec(ctx, `UPDATE memory_stores SET deleted_at=statement_timestamp() WHERE id=$1`, resource.ID)
-				}
+				_, err = pool.Exec(ctx, `UPDATE memory_stores SET deleted_at=statement_timestamp() WHERE id=$1`, resource.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1036,14 +1021,10 @@ func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store := newMemoryIntegrationStore(t, ctx, pool)
+	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Profile Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
 	resource, err := store.Memories().Create(ctx, scope, "engineering", "Shared notes", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publicID, err := publicid.Encode(publicid.KindMemoryStore, resource.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1053,7 +1034,7 @@ func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedTestModelSelection(configuredModel), nil
 		},
-		ResolveMemoryStoreName: func(string) (string, error) { return publicID, nil },
+		ResolveMemoryStoreName: func(string) (uuid.UUID, error) { return resource.ID, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1066,7 +1047,6 @@ func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
 			SourceFormat:            "yaml",
 			ConfiguredModelID:       configuredModel.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		})
 	if err != nil {

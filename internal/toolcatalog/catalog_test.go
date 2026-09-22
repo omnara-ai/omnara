@@ -13,7 +13,7 @@ func TestFileToolPathSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, toolName := range []string{ToolNameUploadFile, ToolNameDownloadFile} {
+	for _, toolName := range []string{ToolNameUploadFile, ToolNameDownloadFile, ToolNameWriteFile} {
 		t.Run(toolName, func(t *testing.T) {
 			entry, ok := catalog.Lookup(toolName)
 			if !ok {
@@ -31,12 +31,16 @@ func TestFileToolPathSchemas(t *testing.T) {
 				"/memory/team/nested/note.md", "/memory/team", "/memory/team/",
 			} {
 				input := map[string]string{"path": path}
-				wantValid := path == ArtifactVFSRoot
-				if toolName == ToolNameUploadFile {
+				wantValid := false
+				switch toolName {
+				case ToolNameUploadFile:
 					input["source"] = "file.txt"
-				} else {
+					wantValid = path == ArtifactVFSRoot
+				case ToolNameDownloadFile:
 					input["destination"] = "file.txt"
 					wantValid = path == artifactPath
+				case ToolNameWriteFile:
+					input["content"] = ""
 				}
 				wantValid = wantValid || path == "/memory/team/nested/note.md"
 				raw, err := json.Marshal(input)

@@ -1,6 +1,7 @@
 import { type MemoryScope, useMemoryFiles, useMemoryStore } from '@omnara/react'
 import { ApiError } from '@omnara/sdk'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import pLimit, { type LimitFunction } from 'p-limit'
 import { type ReactNode, useState } from 'react'
 
 import {
@@ -143,7 +144,7 @@ function StoreBrowser({ scope, canManage }: { scope: MemoryScope; canManage: boo
                 void navigate({
                   to: '/projects/$projectId/memory/$storeId',
                   params: { projectId: scope.projectID, storeId: scope.memoryStoreID },
-                  search: {},
+                  search: { folder: folder || undefined },
                   ignoreBlocker: true,
                 })
               }
@@ -192,6 +193,7 @@ function DirectoryBrowser({
   selected: string
   onSelect: (path?: string, folder?: string) => void
 }) {
+  const [limitDirectoryRequests] = useState(() => pLimit(4))
   const [expansion, setExpansion] = useState<{ all?: boolean; paths: Map<string, boolean> }>({
     paths: new Map(),
   })
@@ -208,6 +210,7 @@ function DirectoryBrowser({
       className="bg-muted/20 max-h-[35vh] overflow-y-auto border-b md:max-h-[75vh] md:border-b-0 md:border-r"
     >
       <DirectoryEntries
+        limitDirectoryRequests={limitDirectoryRequests}
         folderToggle={
           <Button
             size="icon"
@@ -243,6 +246,7 @@ function DirectoryBrowser({
 }
 
 function DirectoryEntries({
+  limitDirectoryRequests,
   folderToggle,
   scope,
   folder,
@@ -251,6 +255,7 @@ function DirectoryEntries({
   isExpanded,
   onToggle,
 }: {
+  limitDirectoryRequests: LimitFunction
   scope: MemoryScope
   folder: string
   selected: string
@@ -259,7 +264,7 @@ function DirectoryEntries({
   onToggle: (path: string) => void
   folderToggle?: ReactNode
 }) {
-  const query = useMemoryFiles(scope, folder)
+  const query = useMemoryFiles(scope, folder, limitDirectoryRequests)
   const files = useInfiniteQueryItems(query)
   if (folder && query.error instanceof ApiError && query.error.status === 404) return null
   return (
@@ -306,7 +311,7 @@ function DirectoryEntries({
                   <MemoryFileIcon path={file.path} />
                 )}
                 <span className="min-w-0 flex-1 truncate">{file.path.split('/').at(-1)}</span>
-                {file.type === 'file' && file.size_bytes != null && (
+                {file.type === 'file' && (
                   <span className="text-muted-foreground shrink-0 text-xs">
                     {attachmentSize(file.size_bytes)}
                   </span>
@@ -315,6 +320,7 @@ function DirectoryEntries({
               {file.type === 'directory' && isExpanded(file.path) && (
                 <div className="pl-4">
                   <DirectoryEntries
+                    limitDirectoryRequests={limitDirectoryRequests}
                     scope={scope}
                     folder={file.path}
                     selected={selected}

@@ -235,7 +235,7 @@ func TestMemoryTransferProcessInput(t *testing.T) {
 			direction, toolCallID, localPath, "/memory/team/file.md", fileTransferProcessTimeoutSeconds,
 		)
 		want := `"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer ` + direction +
-			" " + toolCallID + " " + encodedPath + " --require-digest"
+			" " + toolCallID + " " + encodedPath
 		if input.Command != want || input.TimeoutSeconds != fileTransferProcessTimeoutSeconds {
 			t.Fatalf("%s process input = %+v, want command %q", direction, input, want)
 		}
