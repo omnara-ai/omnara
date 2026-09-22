@@ -11268,7 +11268,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [daytona]
+                  enum: [arker, daytona]
                 max_total_cpu:
                   type: integer
                   format: int32
