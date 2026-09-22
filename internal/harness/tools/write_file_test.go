@@ -2,12 +2,22 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
+
+func TestEditFileTextMissingExecutable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, err := editFileText(t.Context(), nil, "")
+	if !errors.Is(err, exec.ErrNotFound) || !strings.Contains(err.Error(), "start script execution:") {
+		t.Fatalf("missing executable: %v", err)
+	}
+}
 
 func TestWriteFileInput(t *testing.T) {
 	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameWriteFile)

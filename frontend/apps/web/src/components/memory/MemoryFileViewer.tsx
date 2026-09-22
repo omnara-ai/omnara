@@ -191,8 +191,8 @@ function FileContent({
         <TextPreview
           scope={scope}
           path={path}
-          draft={content.text}
-          setDraft={updateDraft}
+          value={content.text}
+          onChange={updateDraft}
           canWrite={canWrite}
           pending={pending}
         />
@@ -206,20 +206,20 @@ function FileContent({
 function TextPreview({
   scope,
   path,
-  draft,
-  setDraft,
+  value,
+  onChange,
   canWrite,
   pending,
 }: {
   scope: MemoryScope
   path: string
-  draft: string
-  setDraft: (value: string) => void
+  value: string
+  onChange: (value: string) => void
   canWrite: boolean
   pending: boolean
 }) {
   const markdown = path.toLowerCase().endsWith('.md')
-  const canPreviewMarkdown = draft.length <= MAX_MARKDOWN_PREVIEW_CHARS
+  const canPreviewMarkdown = value.length <= MAX_MARKDOWN_PREVIEW_CHARS
   const editor = (
     <CatchBoundary
       getResetKey={() => path}
@@ -231,8 +231,8 @@ function TextPreview({
         <TextFileEditor
           id={`memory-${scope.memoryStoreID}-${path}`}
           filename={path}
-          value={draft}
-          onChange={setDraft}
+          value={value}
+          onChange={onChange}
           readOnly={!canWrite || pending}
           className="h-[min(65vh,48rem)]"
         />
@@ -254,7 +254,7 @@ function TextPreview({
             disallowedElements={['img']}
             className="min-h-64 overflow-auto text-sm"
           >
-            {draft}
+            {value}
           </Streamdown>
         ) : (
           <p className="text-muted-foreground text-sm">

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,11 +135,19 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		authHeaders(project.AdminToken),
 	)
 	store := integrationStoreForHandler(t, handler)
-	makeFixture := func(name, tool string) daemonProcessFixture {
+	makeFixture := func(name, tool string, expectedDigest *string) daemonProcessFixture {
 		fixture := createDaemonProcessFixtureWithToolInputBuilder(
 			t, ctx, pool, store, project, time.Now(), name, tool, nil, func(uuid.UUID) json.RawMessage {
 				if tool == "upload_file" {
-					return json.RawMessage(`{"path":"/memory/engineering/empty.md","source":"note.md"}`)
+					input, err := json.Marshal(struct {
+						Path           string  `json:"path"`
+						Source         string  `json:"source"`
+						ExpectedDigest *string `json:"expected_digest,omitempty"`
+					}{Path: "/memory/engineering/empty.md", Source: "note.md", ExpectedDigest: expectedDigest})
+					if err != nil {
+						t.Fatal(err)
+					}
+					return input
 				}
 				return json.RawMessage(`{"path":"/memory/engineering/empty.md","destination":"note.md"}`)
 			})
@@ -187,8 +196,8 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		}
 		return fixture
 	}
-	upload := makeFixture("memory-upload", "upload_file")
-	call := func(f daemonProcessFixture, method string, status int) map[string]any {
+	upload := makeFixture("memory-upload", "upload_file", nil)
+	call := func(f daemonProcessFixture, method string, content []byte, status int) map[string]any {
 		id, err := publicid.Encode(publicid.KindToolCall, f.ToolCallUUID)
 		if err != nil {
 			t.Fatal(err)
@@ -217,7 +226,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		}
 		return body
 	}
-	uploaded := call(upload, http.MethodPost, http.StatusCreated)
+	uploaded := call(upload, http.MethodPost, content, http.StatusCreated)
 	if uploaded["path"] != "/memory/engineering/empty.md" {
 		t.Fatalf("incorrect upload path: %v", uploaded)
 	}
@@ -225,26 +234,34 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		t.Fatalf("incorrect upload digest: %v", uploaded)
 	}
 	if len(content) == daemonprotocol.MaxFileTransferBytes {
-		content = append(content, 0)
-		call(upload, http.MethodPost, http.StatusRequestEntityTooLarge)
-		content = content[:daemonprotocol.MaxFileTransferBytes]
+		call(upload, http.MethodPost, append(content, 0), http.StatusRequestEntityTooLarge)
 	}
-	replay := call(upload, http.MethodPost, http.StatusCreated)
+	replay := call(upload, http.MethodPost, content, http.StatusCreated)
 	if replay["path"] != uploaded["path"] || replay["digest"] != uploaded["digest"] {
 		t.Fatal("upload replay changed the path or digest")
 	}
-	call(upload, http.MethodGet, http.StatusNotFound)
-	download := makeFixture("memory-download", "download_file")
-	read := call(download, http.MethodGet, http.StatusOK)
+	call(upload, http.MethodGet, nil, http.StatusNotFound)
+	download := makeFixture("memory-download", "download_file", nil)
+	read := call(download, http.MethodGet, content, http.StatusOK)
 	if read["digest"] != uploaded["digest"] {
 		t.Fatalf("download content or digest mismatch")
 	}
-	call(download, http.MethodPost, http.StatusNotFound)
+	call(download, http.MethodPost, content, http.StatusNotFound)
+	replacementContent := []byte("updated content")
+	call(upload, http.MethodPost, replacementContent, http.StatusConflict)
+	digest := uploaded["digest"].(string)
+	replacement := makeFixture("memory-replacement", "upload_file", &digest)
+	replaced := call(replacement, http.MethodPost, replacementContent, http.StatusCreated)
+	if replaced["digest"] != fmt.Sprintf("sha256:%x", sha256.Sum256(replacementContent)) {
+		t.Fatalf("incorrect replacement digest: %v", replaced)
+	}
+	staleContent := []byte("stale replacement")
+	call(replacement, http.MethodPost, staleContent, http.StatusConflict)
 	if _, err := pool.Exec(ctx, `ALTER TABLE memory_stores RENAME TO unavailable_memory_stores`); err != nil {
 		t.Fatal(err)
 	}
-	call(upload, http.MethodPost, http.StatusInternalServerError)
-	call(download, http.MethodGet, http.StatusInternalServerError)
+	call(upload, http.MethodPost, staleContent, http.StatusInternalServerError)
+	call(download, http.MethodGet, nil, http.StatusInternalServerError)
 }
 
 func TestMemoryStorePagination(t *testing.T) {
@@ -289,9 +306,11 @@ func TestMemoryStorePagination(t *testing.T) {
 		t, handler, http.MethodGet, other.ProjectPath+"/memory-stores?cursor="+cursor,
 		"", "", http.StatusBadRequest, authHeaders(other.AdminToken),
 	)
-	requestJSONWithHeaders(
-		t, handler, http.MethodGet, path+"?cursor=invalid", "", "", http.StatusBadRequest, headers,
-	)
+	for _, invalidCursor := range []string{"invalid", strings.Repeat("x", 1025)} {
+		requestJSONWithHeaders(
+			t, handler, http.MethodGet, path+"?cursor="+invalidCursor, "", "", http.StatusBadRequest, headers,
+		)
+	}
 }
 
 func memoryFileOption(t *testing.T) storage.Option {

@@ -241,46 +241,12 @@ type searchOutput struct {
 	used   int
 }
 
-func (p *searchOutput) search(ctx context.Context, source searchSource) error {
+func (output *searchOutput) search(ctx context.Context, source searchSource) error {
 	commandCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	args := []string{"--no-config", "--no-mmap", "--threads", "1", "--color", "never",
-		"--engine", "default", "--regex-size-limit", "10M", "--dfa-size-limit", "10M", "--encoding", "none"}
-	args = append(args, p.input.Args...)
-	if p.input.mode == "" {
-		args = append(args, "--json")
-	} else {
-		args = append(args, "--with-filename")
-	}
-	command := exec.CommandContext(commandCtx, "rg")
-	if len(source.stores) == 0 {
-		command.Stdin = bytes.NewReader(source.content)
-		command.Args = append(command.Args, append(args, "--", "-")...)
-	} else {
-		args = append(args, "--hidden", "--no-ignore",
-			"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
-		var operands []string
-		var roots []*os.File
-		for i, store := range source.stores {
-			fd := strconv.Itoa(i + 3)
-			operand := fd + "/"
-			if !strings.ContainsAny(p.input.Path, "*?") {
-				_, name, _ := memorystore.ParsePath(p.input.Path)
-				operand += name
-			} else {
-				for _, glob := range memorySearchGlobs(p.input.Path, store.name) {
-					args = append(args, "--glob", "/"+fd+glob)
-				}
-			}
-			operands = append(operands, operand)
-			roots = append(roots, store.root)
-		}
-		args = append(append(args, "--"), operands...)
-		var err error
-		command, err = newFileExecCommand(commandCtx, "rg", roots, args...)
-		if err != nil {
-			return err
-		}
+	command, err := newSearchCommand(commandCtx, output.input, source)
+	if err != nil {
+		return err
 	}
 	command.WaitDelay = time.Second
 	command.Env = []string{"LANG=C.UTF-8"}
@@ -293,35 +259,9 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start ripgrep: %w", err)
 	}
-	reader := bufio.NewReaderSize(stdout, searchInitialBufferBytes)
-	stream := searchStream{output: p, source: source}
-	skipping := false
-	for {
-		data, readErr := reader.ReadSlice('\n')
-		if errors.Is(readErr, bufio.ErrBufferFull) {
-			if reader.Size() < searchEventBytes {
-				reader = bufio.NewReaderSize(io.MultiReader(bytes.NewReader(data), stdout), searchEventBytes)
-				continue
-			}
-			skipping = true
-			p.result.Truncated = true
-			p.result.IncompleteReason = "oversized search events were skipped; results are incomplete"
-			continue
-		}
-		if !skipping && len(data) > 0 {
-			if err = stream.consume(bytes.TrimSuffix(data, []byte{'\n'})); err != nil {
-				break
-			}
-		}
-		skipping = false
-		if readErr != nil {
-			if !errors.Is(readErr, io.EOF) {
-				err = readErr
-			}
-			break
-		}
-	}
-	if err != nil {
+	stream := searchStream{output: output, source: source}
+	readErr := stream.read(stdout)
+	if readErr != nil {
 		cancel()
 		_ = stdout.Close()
 	}
@@ -329,14 +269,50 @@ func (p *searchOutput) search(ctx context.Context, source searchSource) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if err != nil {
-		return err
+	if readErr != nil {
+		return readErr
 	}
 	var exit *exec.ExitError
 	if waitErr != nil && !(errors.As(waitErr, &exit) && exit.ExitCode() == 1 && len(stderr.data) == 0) {
 		return fmt.Errorf("ripgrep: %s (%w)", string(stderr.data), waitErr)
 	}
 	return nil
+}
+
+func newSearchCommand(ctx context.Context, input searchFilesRequest, source searchSource) (*exec.Cmd, error) {
+	args := []string{"--no-config", "--no-mmap", "--threads", "1", "--color", "never",
+		"--engine", "default", "--regex-size-limit", "10M", "--dfa-size-limit", "10M", "--encoding", "none"}
+	args = append(args, input.Args...)
+	if input.mode == "" {
+		args = append(args, "--json")
+	} else {
+		args = append(args, "--with-filename")
+	}
+	if len(source.stores) == 0 {
+		command := exec.CommandContext(ctx, "rg", append(args, "--", "-")...)
+		command.Stdin = bytes.NewReader(source.content)
+		return command, nil
+	}
+	args = append(args, "--hidden", "--no-ignore",
+		"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
+	var operands []string
+	var roots []*os.File
+	for i, store := range source.stores {
+		fd := strconv.Itoa(i + 3)
+		operand := fd + "/"
+		if !strings.ContainsAny(input.Path, "*?") {
+			_, name, _ := memorystore.ParsePath(input.Path)
+			operand += name
+		} else {
+			for _, glob := range memorySearchGlobs(input.Path, store.name) {
+				args = append(args, "--glob", "/"+fd+glob)
+			}
+		}
+		operands = append(operands, operand)
+		roots = append(roots, store.root)
+	}
+	args = append(append(args, "--"), operands...)
+	return newFileExecCommand(ctx, "rg", roots, args...)
 }
 
 type searchEvent struct {
@@ -359,6 +335,36 @@ type searchEvent struct {
 type searchStream struct {
 	output *searchOutput
 	source searchSource
+}
+
+func (s *searchStream) read(stdout io.Reader) error {
+	reader := bufio.NewReaderSize(stdout, searchInitialBufferBytes)
+	skipping := false
+	for {
+		data, readErr := reader.ReadSlice('\n')
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			if reader.Size() < searchEventBytes {
+				reader = bufio.NewReaderSize(io.MultiReader(bytes.NewReader(data), stdout), searchEventBytes)
+				continue
+			}
+			skipping = true
+			s.output.result.Truncated = true
+			s.output.result.IncompleteReason = "oversized search events were skipped; results are incomplete"
+			continue
+		}
+		if !skipping && len(data) > 0 {
+			if err := s.consume(bytes.TrimSuffix(data, []byte{'\n'})); err != nil {
+				return err
+			}
+		}
+		skipping = false
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return readErr
+		}
+	}
 }
 
 func (s *searchStream) resolvePath(name string) (string, bool, error) {
@@ -413,11 +419,11 @@ func memorySearchGlobs(pattern, store string) []string {
 }
 
 func (s *searchStream) consume(data []byte) error {
-	p := s.output
-	if p.input.mode != "" {
+	output := s.output
+	if output.input.mode != "" {
 		name := string(data)
 		var count *uint64
-		if p.input.mode == "-c" {
+		if output.input.mode == "-c" {
 			var value string
 			var ok bool
 			index := strings.LastIndexByte(name, ':')
@@ -434,12 +440,12 @@ func (s *searchStream) consume(data []byte) error {
 		if err != nil || !ok {
 			return err
 		}
-		if p.result.MatchCount >= p.input.Limit || p.used+len(path)+64 > toolcatalog.FilePageBytes {
+		if output.result.MatchCount >= output.input.Limit || output.used+len(path)+64 > toolcatalog.FilePageBytes {
 			return errSearchResultLimit
 		}
-		p.result.Files = append(p.result.Files, searchFileResult{Path: path, Count: count})
-		p.result.MatchCount++
-		p.used += len(path) + 64
+		output.result.Files = append(output.result.Files, searchFileResult{Path: path, Count: count})
+		output.result.MatchCount++
+		output.used += len(path) + 64
 		return nil
 	}
 	var event searchEvent
@@ -458,9 +464,9 @@ func (s *searchStream) consume(data []byte) error {
 	}
 	if event.Type == "end" {
 		if event.Data.BinaryOffset != nil {
-			p.result.Truncated = true
-			if p.result.IncompleteReason == "" {
-				p.result.IncompleteReason = "binary data detected; results may be incomplete"
+			output.result.Truncated = true
+			if output.result.IncompleteReason == "" {
+				output.result.IncompleteReason = "binary data detected; results may be incomplete"
 			}
 		}
 		return nil
@@ -468,34 +474,34 @@ func (s *searchStream) consume(data []byte) error {
 	if event.Type != "match" && event.Type != "context" {
 		return errors.New("unexpected ripgrep event")
 	}
-	d := event.Data
-	if d.LineNumber < *p.input.OffsetLine {
+	eventData := event.Data
+	if eventData.LineNumber < *output.input.OffsetLine {
 		return nil
 	}
-	if event.Type == "match" && p.result.MatchCount >= p.input.Limit {
+	if event.Type == "match" && output.result.MatchCount >= output.input.Limit {
 		return errSearchResultLimit
 	}
-	text := d.Lines.Text
-	if d.Lines.Bytes != nil {
-		text = string(d.Lines.Bytes)
+	text := eventData.Lines.Text
+	if eventData.Lines.Bytes != nil {
+		text = string(eventData.Lines.Bytes)
 	}
 	text = strings.TrimSuffix(text, "\n")
 	var matchStart, matchEnd int
-	if len(d.Submatches) > 0 {
-		matchStart, matchEnd = d.Submatches[0].Start, d.Submatches[0].End
+	if len(eventData.Submatches) > 0 {
+		matchStart, matchEnd = eventData.Submatches[0].Start, eventData.Submatches[0].End
 	}
-	line := searchLine{Path: path, LineNumber: d.LineNumber,
-		EndLine: d.LineNumber + strings.Count(text, "\n"),
+	line := searchLine{Path: path, LineNumber: eventData.LineNumber,
+		EndLine: eventData.LineNumber + strings.Count(text, "\n"),
 		Text:    searchSnippet(text, matchStart, matchEnd),
 		IsMatch: event.Type == "match"}
 	size := len(line.Path) + len(line.Text) + 64
-	if p.used+size > toolcatalog.FilePageBytes {
+	if output.used+size > toolcatalog.FilePageBytes {
 		return errSearchResultLimit
 	}
-	p.result.Lines = append(p.result.Lines, line)
-	p.used += size
+	output.result.Lines = append(output.result.Lines, line)
+	output.used += size
 	if line.IsMatch {
-		p.result.MatchCount++
+		output.result.MatchCount++
 	}
 	return nil
 }

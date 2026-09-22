@@ -63,7 +63,7 @@ function StoreBrowser({ scope, canManage }: { scope: MemoryScope; canManage: boo
   const folder =
     search.folder ?? (selected.includes('/') ? selected.slice(0, selected.lastIndexOf('/')) : '')
   const [dialog, setDialog] = useState<'settings' | 'file' | null>(null)
-  function select(path?: string, directory = folder) {
+  function select(path: string, directory: string) {
     void navigate({
       to: '/projects/$projectId/memory/$storeId',
       params: { projectId: scope.projectID, storeId: scope.memoryStoreID },
@@ -191,7 +191,7 @@ function DirectoryBrowser({
   scope: MemoryScope
   folder: string
   selected: string
-  onSelect: (path?: string, folder?: string) => void
+  onSelect: (path: string, folder: string) => void
 }) {
   const [limitDirectoryRequests] = useState(() => pLimit(4))
   const [expansion, setExpansion] = useState<{ all?: boolean; paths: Map<string, boolean> }>({
@@ -259,7 +259,7 @@ function DirectoryEntries({
   scope: MemoryScope
   folder: string
   selected: string
-  onSelect: (path?: string, folder?: string) => void
+  onSelect: (path: string, folder: string) => void
   isExpanded: (path: string) => boolean
   onToggle: (path: string) => void
   folderToggle?: ReactNode
@@ -279,7 +279,10 @@ function DirectoryEntries({
         {query.isPending && <p className="text-muted-foreground p-3 text-sm">Loading files…</p>}
         {query.isError && (
           <p role="alert" className="text-destructive p-3 text-sm">
-            {errorMessage(query.error, 'Could not list files')}
+            {errorMessage(query.error, 'Could not list files')}{' '}
+            <button className="underline" onClick={() => void query.refetch()}>
+              Retry
+            </button>
           </p>
         )}
         {query.isSuccess && files.length === 0 && (

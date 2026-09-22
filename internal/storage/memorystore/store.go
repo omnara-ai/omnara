@@ -265,16 +265,11 @@ func (s *Store) Update(
 	return record(r), nil
 }
 
-type Attachment struct {
-	StoreID uuid.UUID
-	Access  agentconfig.MemoryStoreAccess
-}
-
-func (s *Store) LoadAgentAttachments(ctx context.Context, projectID, agentID uuid.UUID) ([]Attachment, error) {
+func (s *Store) LoadAgentAttachments(ctx context.Context, projectID, agentID uuid.UUID) ([]agentconfig.MemoryStoreCompiled, error) {
 	return loadAgentAttachments(ctx, s.q, projectID, agentID)
 }
 
-func loadAgentAttachments(ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID) ([]Attachment, error) {
+func loadAgentAttachments(ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID) ([]agentconfig.MemoryStoreCompiled, error) {
 	raw, err := q.GetAgentMemoryConfig(ctx, dbsqlc.GetAgentMemoryConfigParams{ProjectID: projectID, AgentID: agentID})
 	if err != nil {
 		return nil, mapped(err)
@@ -283,11 +278,7 @@ func loadAgentAttachments(ctx context.Context, q *dbsqlc.Queries, projectID, age
 	if err := json.Unmarshal(raw, &stores); err != nil {
 		return nil, fmt.Errorf("load memory attachments: %w", err)
 	}
-	attachments := make([]Attachment, 0, len(stores))
-	for _, store := range stores {
-		attachments = append(attachments, Attachment{StoreID: store.ID, Access: store.Access})
-	}
-	return attachments, nil
+	return stores, nil
 }
 
 func (s *Store) authorizeAttachment(
@@ -305,7 +296,7 @@ func (s *Store) authorizeAttachment(
 		return fmt.Errorf("authorize memory file: %w", err)
 	}
 	for _, attached := range attachments {
-		if attached.StoreID == storeID && (!write || attached.Access == agentconfig.MemoryStoreAccessReadWrite) {
+		if attached.ID == storeID && (!write || attached.Access == agentconfig.MemoryStoreAccessReadWrite) {
 			return nil
 		}
 	}
@@ -359,7 +350,7 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 		return fmt.Errorf("delete memory store: %w", err)
 	}
 	if err := s.files.RemoveStore(ref); err != nil {
-		logent.MemoryCleanupFailed(ctx, "delete_store", scope.OrgID, scope.ProjectID, id, err)
+		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteStore, scope.OrgID, scope.ProjectID, id, err)
 	}
 	return nil
 }

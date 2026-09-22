@@ -24,10 +24,9 @@ const memoryListingTraversalLimit = 10000
 var errFileListFull = errors.New("file listing is full")
 
 func (s *Store) ListFiles(
-	ctx context.Context, projectID uuid.UUID, attachments []Attachment, pattern string, matcher *regexp.Regexp, limit int,
+	ctx context.Context, projectID uuid.UUID, attachments []agentconfig.MemoryStoreCompiled, pattern string, matcher *regexp.Regexp, limit int,
 ) (listing.FileListResult, error) {
 	entries := make([]listing.FileEntry, 0, limit+1)
-	add := func(entry listing.FileEntry) { entries = append(entries, entry) }
 	truncated := false
 	parts := strings.Split(pattern[1:], "/")
 	recursive := slices.Contains(parts, "**")
@@ -48,17 +47,21 @@ func (s *Store) ListFiles(
 			if row.ReadOnly {
 				mode = agentconfig.MemoryStoreAccessReadOnly
 			}
-			add(listing.FileEntry{Path: root, Type: "directory", Description: row.Description, Access: string(mode)})
+			entries = append(entries, listing.FileEntry{Path: root, Type: listing.FileTypeDirectory, Description: row.Description, Access: string(mode)})
 		}
 		if len(entries) > limit {
 			break
+		}
+		filePattern := memoryFilePattern(pattern, row.Name)
+		if filePattern == "" {
+			continue
 		}
 		visit := func(name string, item fs.DirEntry) error {
 			full := root + "/" + name
 			if !matcher.MatchString(full) {
 				return nil
 			}
-			entry := listing.FileEntry{Path: full, Type: "directory"}
+			entry := listing.FileEntry{Path: full, Type: listing.FileTypeDirectory}
 			if !item.IsDir() {
 				info, err := item.Info()
 				if errors.Is(err, fs.ErrNotExist) {
@@ -68,25 +71,23 @@ func (s *Store) ListFiles(
 					return err
 				}
 				size := info.Size()
-				entry.Type, entry.SizeBytes = "file", &size
+				entry.Type, entry.SizeBytes = listing.FileTypeFile, &size
 			}
-			add(entry)
+			entries = append(entries, entry)
 			if len(entries) > limit {
 				return errFileListFull
 			}
 			return nil
 		}
-		if filePattern := memoryFilePattern(pattern, row.Name); filePattern != "" {
-			queryErr = s.withStoreRoot(ctx, projectID, row, func(root *os.Root) error {
-				return globFiles(ctx, root, filePattern, &remaining, visit)
-			})
-		}
-		if errors.Is(queryErr, errFileListFull) || errors.Is(queryErr, errFileTraversalLimit) {
+		err := s.withStoreRoot(ctx, projectID, row, func(root *os.Root) error {
+			return globFiles(ctx, root, filePattern, &remaining, visit)
+		})
+		if errors.Is(err, errFileListFull) || errors.Is(err, errFileTraversalLimit) {
 			truncated = true
 			break
 		}
-		if queryErr != nil {
-			return listing.FileListResult{}, fmt.Errorf("list memory files: %w", queryErr)
+		if err != nil {
+			return listing.FileListResult{}, fmt.Errorf("list memory files: %w", err)
 		}
 	}
 	if len(entries) > limit {
@@ -123,13 +124,13 @@ func (s *Store) withStoreRoot(
 }
 
 func (s *Store) listAttachedStores(
-	ctx context.Context, projectID uuid.UUID, attachments []Attachment, pattern, rootPattern string, limit *int32,
+	ctx context.Context, projectID uuid.UUID, attachments []agentconfig.MemoryStoreCompiled, pattern, rootPattern string, limit *int32,
 ) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]agentconfig.MemoryStoreAccess, error) {
 	ids := make([]uuid.UUID, 0, len(attachments))
 	access := make(map[uuid.UUID]agentconfig.MemoryStoreAccess, len(attachments))
 	for _, attached := range attachments {
-		ids = append(ids, attached.StoreID)
-		access[attached.StoreID] = attached.Access
+		ids = append(ids, attached.ID)
+		access[attached.ID] = attached.Access
 	}
 	prefix := pattern
 	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
