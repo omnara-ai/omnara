@@ -351,6 +351,78 @@ tools:
 	}
 }
 
+func TestLaunchAgentRevalidatesProfileModelGrant(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	now := time.Date(2026, 6, 16, 10, 5, 0, 0, time.UTC)
+	user := mustCreateProjectDeveloperUser(
+		t,
+		ctx,
+		store,
+		"launch-model-grant@example.com",
+		"Launch Model Grant",
+	)
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(
+		t,
+		ctx,
+		store,
+		"launch-model-grant",
+		"Launch Model Grant",
+		`
+instruction: Revalidate the model grant before launch.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+tools: {}
+`,
+		now,
+	)
+	launch := func(idempotencyKey string) (executionstore.LaunchAgentResult, error) {
+		return store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+			ProjectID:      testProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  profile.CurrentConfigID,
+			LaunchedBy:     userPrincipal(user.ID),
+			IdempotencyKey: idempotencyKey,
+		})
+	}
+	launched, err := launch("idem-launch-model-grant")
+	if err != nil {
+		t.Fatalf("launch agent before model grant revoke: %v", err)
+	}
+	grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+		ctx,
+		testOrgID,
+		testProjectID,
+		launched.AgentConfig.ConfiguredModelID,
+	)
+	if err != nil {
+		t.Fatalf("load active model grant: %v", err)
+	}
+	if _, err := store.Models().DeleteProjectModelGrant(
+		ctx,
+		testOrgID,
+		testProjectID,
+		grant.ID,
+	); err != nil {
+		t.Fatalf("revoke model grant: %v", err)
+	}
+
+	replayed, err := launch("idem-launch-model-grant")
+	if err != nil {
+		t.Fatalf("replay launch after model grant revoke: %v", err)
+	}
+	requireCurrentAgentLaunchReplay(t, replayed, launched.Agent)
+
+	_, err = launch("idem-launch-model-grant-after-revoke")
+	if !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("fresh launch after model grant revoke error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
