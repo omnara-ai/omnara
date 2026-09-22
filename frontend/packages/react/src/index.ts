@@ -128,7 +128,6 @@ export {
 export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
-  MAX_MEMORY_FILE_BYTES,
   type MemoryScope,
   useCreateMemoryStore,
   useDeleteMemoryFile,

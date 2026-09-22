@@ -634,6 +634,8 @@ func writeFileTool() (Entry, error) {
 		map[string]any{
 			"path": map[string]any{
 				"type":        "string",
+				"minLength":   1,
+				"pattern":     "^/memory/[^/]+/.+$",
 				"description": "Exact /memory/<store>/<file> destination. Requires write access.",
 			},
 			"content": map[string]any{

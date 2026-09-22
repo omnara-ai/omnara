@@ -393,7 +393,7 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND runtime.daemon_token_id = sqlc.arg(daemon_token_id)
   AND process.id = sqlc.arg(id);
 
--- name: GetDaemonArtifactProcessScope :one
+-- name: GetDaemonFileProcessScope :one
 SELECT process.project_id,
        process.agent_id,
        tool_call.input AS tool_input,

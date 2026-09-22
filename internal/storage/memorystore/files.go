@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
@@ -89,7 +90,7 @@ func (s *Store) authorizeFile(
 	if write && scope.AgentID != uuid.Nil && store.ReadOnly {
 		return memoryops.StoreRef{}, fmt.Errorf("memory store is read-only: %w", storeerr.ErrConflict)
 	}
-	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, id, store.Name)
+	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, store.Name)
 }
 
 func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error) {
@@ -108,11 +109,19 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	if err != nil {
 		return WriteResult{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return WriteResult{}, err
+	}
 	staged, err := s.files.Stage(ref, input.Content)
 	if err != nil {
 		return WriteResult{}, fmt.Errorf("stage memory file: %w", err)
 	}
-	defer s.files.Discard(staged)
+	defer func() {
+		if err := s.files.Discard(staged); err != nil {
+			logent.MemoryCleanupFailed(ctx, "discard_staged_file", input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err)
+		}
+	}()
+	result := WriteResult{Path: Root + "/" + ref.Name + "/" + input.Path, Digest: blobstore.ContentDigest(input.Content)}
 	lock, err := s.files.Lock(ctx, ref)
 	if err != nil {
 		return WriteResult{}, err
@@ -127,6 +136,11 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		return WriteResult{}, err
 	}
 	q := s.q.WithTx(tx)
+	if _, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
+		ProjectID: input.Scope.ProjectID, ID: input.StoreID,
+	}); err != nil {
+		return WriteResult{}, mapped(err)
+	}
 	if _, err := s.authorizeFile(ctx, q, input.Scope, input.StoreID, true); err != nil {
 		return WriteResult{}, err
 	}
@@ -134,19 +148,19 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return WriteResult{}, err
 	}
-	var current []byte
+	var currentDigest string
+	exists := false
 	if root != nil {
 		defer func() { _ = root.Close() }()
-		current, err = memoryops.Read(root, input.Path)
+		currentDigest, err = memoryops.Digest(root, input.Path)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return WriteResult{}, err
 		}
+		exists = err == nil
 	}
-	result := WriteResult{Path: Root + "/" + ref.Name + "/" + input.Path, Digest: blobstore.ContentDigest(input.Content)}
-	if err == nil {
-		currentDigest := blobstore.ContentDigest(current)
+	if exists {
 		if currentDigest == result.Digest {
-			return result, s.files.Sync(ref, input.Path)
+			return result, s.files.Sync(ref, root, input.Path)
 		}
 		if input.ExpectedDigest == nil {
 			return WriteResult{}, fmt.Errorf(
@@ -162,7 +176,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		}
 	} else {
 		if input.ExpectedDigest != nil {
-			return WriteResult{}, fmt.Errorf("memory file does not exist: %w", storeerr.ErrConflict)
+			return WriteResult{}, fmt.Errorf("memory file does not exist: %w", &storeerr.FileContentConflictError{})
 		}
 		limits, err := resourceguard.ResolveLimits(ctx, q, input.Scope.OrgID)
 		if err != nil {
@@ -222,7 +236,13 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, scope.OrgID, scope.ProjectID); err != nil {
 		return err
 	}
-	if _, err := s.authorizeFile(ctx, s.q.WithTx(tx), scope, storeID, true); err != nil {
+	q := s.q.WithTx(tx)
+	if _, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
+		ProjectID: scope.ProjectID, ID: storeID,
+	}); err != nil {
+		return mapped(err)
+	}
+	if _, err := s.authorizeFile(ctx, q, scope, storeID, true); err != nil {
 		return err
 	}
 	root, err := s.files.OpenStore(ref)
@@ -233,14 +253,14 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	content, err := memoryops.Read(root, path)
+	currentDigest, err := memoryops.Digest(root, path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return storeerr.ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if currentDigest := blobstore.ContentDigest(content); currentDigest != expectedDigest {
+	if currentDigest != expectedDigest {
 		return fmt.Errorf(
 			"memory changed; reload it and retry: %w",
 			&storeerr.FileContentConflictError{CurrentDigest: currentDigest},

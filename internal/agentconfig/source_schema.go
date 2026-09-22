@@ -47,9 +47,16 @@ type AgentConfigSource struct {
 	MemoryStores   []MemoryStoreSource                  `json:"memory_stores,omitempty"`
 }
 
+type MemoryStoreAccess string
+
+const (
+	MemoryStoreAccessReadOnly  MemoryStoreAccess = "read_only"
+	MemoryStoreAccessReadWrite MemoryStoreAccess = "read_write"
+)
+
 type MemoryStoreSource struct {
-	Name   string `json:"name"`
-	Access string `json:"access"`
+	Name   string            `json:"name"`
+	Access MemoryStoreAccess `json:"access"`
 }
 
 type AgentConfigModelSource struct {
@@ -365,7 +372,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.MaxLength(64),
 				kjsonschema.Pattern(`^[a-z0-9]+(-[a-z0-9]+)*$`),
 			)),
-			kjsonschema.Prop("access", kjsonschema.Enum("read_only", "read_write")),
+			kjsonschema.Prop("access", kjsonschema.Enum(MemoryStoreAccessReadOnly, MemoryStoreAccessReadWrite)),
 			kjsonschema.Required("name", "access"),
 			kjsonschema.AdditionalProps(false),
 		)))),

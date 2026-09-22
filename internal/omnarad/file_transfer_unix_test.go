@@ -20,12 +20,10 @@ func TestFileTransferUploadRejectsFIFOWithoutBlocking(t *testing.T) {
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatalf("create fifo: %v", err)
 	}
-	err := runFileTransfer(context.Background(), fileTransferRequest{
-		direction:      "upload",
-		toolCallID:     fileTransferTestPublicID(t, publicid.KindToolCall),
-		encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(path)),
-		endpointSuffix: "/file",
-	}, io.Discard)
+	err := runFileTransfer(context.Background(),
+		"upload",
+		fileTransferTestPublicID(t, publicid.KindToolCall),
+		base64.RawURLEncoding.EncodeToString([]byte(path)), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("fifo error = %v", err)
 	}

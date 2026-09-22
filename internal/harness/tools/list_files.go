@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/omnara-ai/omnara/internal/storage"
 )
@@ -17,9 +16,6 @@ func validateListFiles(raw json.RawMessage) error {
 	var input listFilesRequest
 	if err := decodeSingleStrictJSON(raw, &input, "list_files request"); err != nil {
 		return err
-	}
-	if input.Limit < 0 || input.Limit > 100 {
-		return errors.New("limit must be between 1 and 100")
 	}
 	_, err := storage.CompileFilePattern(input.Pattern)
 	return err

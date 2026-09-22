@@ -1,4 +1,4 @@
-package main
+package fileexec
 
 import (
 	"errors"
@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	maxStoreRoots          = 32
 	scriptMemoryLimitBytes = 128 * 1024 * 1024
 	procFDDir              = "/proc/self/fd"
 	allowedSyscalls        = "read close lseek pread64 readv fstat fstatat newfstatat stat lstat statx statfs fstatfs " +
@@ -27,12 +26,12 @@ const (
 		"exit exit_group execve sched_yield poll ppoll restart_syscall getcwd"
 )
 
-func run(args []string) error {
+func Run(args []string) error {
 	if len(args) < 3 || !filepath.IsAbs(args[1]) {
 		return errors.New("invalid file-exec arguments")
 	}
 	rootCount, err := strconv.Atoi(args[0])
-	if err != nil || rootCount < 0 || rootCount > maxStoreRoots {
+	if err != nil || rootCount < 0 || rootCount > MaxStoreRoots {
 		return errors.New("invalid file-exec root count")
 	}
 	args = args[1:]

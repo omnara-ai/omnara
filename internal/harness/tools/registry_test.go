@@ -164,6 +164,19 @@ func TestProcessToolImplementationValidatorBindings(t *testing.T) {
 	}
 }
 
+func TestListFilesImplementationValidatorBinding(t *testing.T) {
+	for _, limit := range []int{-1, 0, 1, 100, 101} {
+		input := json.RawMessage(fmt.Sprintf(`{"pattern":"/memory/*","limit":%d}`, limit))
+		err := validateRegisteredToolInput("list_files", input)
+		if valid := limit >= 1 && limit <= 100; (err == nil) != valid {
+			t.Fatalf("limit %d: %v", limit, err)
+		}
+	}
+	if err := validateRegisteredToolInput("list_files", json.RawMessage(`{"pattern":"/memory/*"}`)); err != nil {
+		t.Fatalf("omitted limit rejected: %v", err)
+	}
+}
+
 func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	if err := validateRegisteredToolInput(
 		"ask_question",

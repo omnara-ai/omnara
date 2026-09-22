@@ -15,9 +15,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -64,7 +62,7 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID: scope.ProjectID, Source: source, SourceFormat: "yaml",
 		ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
-		CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -166,8 +164,8 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		}
 	}
 	var lastStorePath string
-	if err := fixture.Store.VisitMemorySearchStores(ctx, scope.ProjectID, agent.ID,
-		fmt.Sprintf("/memory/batch-%02d/n.txt", searchStoreBatchSize), func(store storage.MemorySearchStore) error {
+	if err := fixture.Store.Memories().VisitSearchStores(ctx, scope.ProjectID, agent.ID,
+		fmt.Sprintf("/memory/batch-%02d/n.txt", searchStoreBatchSize), func(store memorystore.SearchStore) error {
 			lastStorePath = store.Root.Name()
 			return nil
 		}); err != nil {
@@ -198,9 +196,9 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		t.Fatal("exact search bypassed attachment")
 	}
 	var physicalPath string
-	err = fixture.Store.VisitMemorySearchStores(
+	err = fixture.Store.Memories().VisitSearchStores(
 		ctx, scope.ProjectID, agent.ID, "/memory/engineering/a.md",
-		func(store storage.MemorySearchStore) error {
+		func(store memorystore.SearchStore) error {
 			physicalPath = filepath.Join(store.Root.Name(), "a.md")
 			return nil
 		},

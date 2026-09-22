@@ -97,6 +97,9 @@ importers:
       monaco-yaml:
         specifier: ^5.5.1
         version: 5.5.1(monaco-editor@0.52.2)
+      p-limit:
+        specifier: ^7.3.2
+        version: 7.3.2
       radix-ui:
         specifier: ^1.6.1
         version: 1.6.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.3.0-canary-eb8feb71-20260814(react@19.3.0-canary-eb8feb71-20260814))(react@19.3.0-canary-eb8feb71-20260814)
@@ -228,9 +231,6 @@ importers:
       '@omnara/sdk':
         specifier: workspace:*
         version: link:../sdk
-      p-limit:
-        specifier: ^7.3.2
-        version: 7.3.2
       zod:
         specifier: ^4.4.3
         version: 4.4.3

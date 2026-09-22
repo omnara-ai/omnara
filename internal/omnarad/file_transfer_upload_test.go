@@ -85,12 +85,10 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			wantName.Store(filepath.Base(test.path))
 			var stdout bytes.Buffer
-			err := runFileTransfer(context.Background(), fileTransferRequest{
-				direction:      "upload",
-				toolCallID:     toolCallID,
-				encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(test.path)),
-				endpointSuffix: "/file",
-			}, &stdout)
+			err := runFileTransfer(context.Background(),
+				"upload",
+				toolCallID,
+				base64.RawURLEncoding.EncodeToString([]byte(test.path)), &stdout)
 			if err != nil {
 				t.Fatalf("upload artifact: %v", err)
 			}
@@ -115,17 +113,6 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 		path func(*testing.T) string
 		want string
 	}{
-		{
-			name: "empty",
-			path: func(t *testing.T) string {
-				path := filepath.Join(t.TempDir(), "empty")
-				if err := os.WriteFile(path, nil, 0600); err != nil {
-					t.Fatal(err)
-				}
-				return path
-			},
-			want: "artifact file cannot be empty",
-		},
 		{
 			name: "oversized",
 			path: func(t *testing.T) string {
@@ -155,12 +142,10 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := test.path(t)
-			err := runFileTransfer(context.Background(), fileTransferRequest{
-				direction:      "upload",
-				toolCallID:     toolCallID,
-				encodedPath:    base64.RawURLEncoding.EncodeToString([]byte(path)),
-				endpointSuffix: "/file",
-			}, io.Discard)
+			err := runFileTransfer(context.Background(),
+				"upload",
+				toolCallID,
+				base64.RawURLEncoding.EncodeToString([]byte(path)), io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -186,10 +171,8 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 	}))
 	defer redirect.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "redirect-home"), redirect.URL, "")
-	transfer := fileTransferRequest{
-		direction: "upload", toolCallID: toolCallID, encodedPath: encodedPath, endpointSuffix: "/file",
-	}
-	err := runFileTransfer(context.Background(), transfer, io.Discard)
+	direction := "upload"
+	err := runFileTransfer(context.Background(), direction, toolCallID, encodedPath, io.Discard)
 	if err == nil {
 		t.Fatal("redirected upload succeeded")
 	}
@@ -202,7 +185,7 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 	}))
 	defer largeResponse.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "large-response-home"), largeResponse.URL, "")
-	err = runFileTransfer(context.Background(), transfer, io.Discard)
+	err = runFileTransfer(context.Background(), direction, toolCallID, encodedPath, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "response is too large") {
 		t.Fatalf("oversized response error = %v", err)
 	}

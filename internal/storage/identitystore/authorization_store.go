@@ -13,6 +13,10 @@ import (
 )
 
 func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInput) (bool, error) {
+	return AuthorizeProject(ctx, s.q, input)
+}
+
+func AuthorizeProject(ctx context.Context, q *dbsqlc.Queries, input AuthorizeProjectInput) (bool, error) {
 	if input.Principal.Type == "" || input.Principal.ID == uuid.Nil {
 		return false, storeerr.ErrUnauthorized
 	}
@@ -35,7 +39,7 @@ func (s *Store) AuthorizeProject(ctx context.Context, input AuthorizeProjectInpu
 	if userID == nil && orgAPIKeyID == nil {
 		return false, nil
 	}
-	roles, err := s.q.ListProjectAuthorizationRolesForPrincipal(
+	roles, err := q.ListProjectAuthorizationRolesForPrincipal(
 		ctx,
 		dbsqlc.ListProjectAuthorizationRolesForPrincipalParams{
 			OrgID:       input.OrgID,

@@ -54,7 +54,7 @@ export type Error = {
      */
     error: string;
     /**
-     * Current file digest for a file_content_conflict. A replacement must be confirmed before retrying with this digest.
+     * Current file digest for a file_content_conflict; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
      */
     current_digest?: string;
     /**
@@ -828,14 +828,25 @@ export type UpdateMemoryStore = {
 
 export type MemoryStoreList = {
     data: Array<MemoryStore>;
-    has_more: boolean;
-    next_cursor?: string;
+    next_cursor: string | null;
 };
 
-export type MemoryFile = {
+export type MemoryFile = ({
+    type: 'file';
+} & MemoryRegularFile) | ({
+    type: 'directory';
+} & MemoryDirectory);
+
+export type MemoryRegularFile = {
     path: string;
-    type: 'file' | 'directory';
-    size_bytes?: number;
+    type: 'file';
+    size_bytes: number;
+    modified_at: Timestamp;
+};
+
+export type MemoryDirectory = {
+    path: string;
+    type: 'directory';
     modified_at: Timestamp;
 };
 
@@ -1246,6 +1257,7 @@ export type CompiledAgentConfig = {
     };
     event_webhook?: CompiledEventWebhook;
     skills?: Array<CompiledSkill>;
+    memory_stores?: Array<CompiledMemoryStore>;
     subagents?: {
         [key: string]: CompiledSubagent;
     };
@@ -1347,6 +1359,11 @@ export type CompiledMcpTool = {
 
 export type CompiledSkill = {
     id: SkillId;
+};
+
+export type CompiledMemoryStore = {
+    id: MemoryStoreId;
+    access: 'read_only' | 'read_write';
 };
 
 export type CompiledSubagent = ({

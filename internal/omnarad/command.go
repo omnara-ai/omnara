@@ -46,10 +46,9 @@ type daemonCommand struct {
 		LockFD        int    `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_process_runner,hidden"`
 	FileTransfer *struct {
-		RequireDigest bool   `arg:"--require-digest"`
-		Direction     string `arg:"positional,required"`
-		ToolCallID    string `arg:"positional,required"`
-		EncodedPath   string `arg:"positional,required"`
+		Direction   string `arg:"positional,required"`
+		ToolCallID  string `arg:"positional,required"`
+		EncodedPath string `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_file_transfer,hidden"`
 	UploadArtifact *struct {
 		ToolCallID  string `arg:"positional,required"`
@@ -237,13 +236,9 @@ func Run(
 		}
 		return 0
 	case command.FileTransfer != nil:
-		if err := runFileTransfer(ctx, fileTransferRequest{
-			direction:      command.FileTransfer.Direction,
-			toolCallID:     command.FileTransfer.ToolCallID,
-			encodedPath:    command.FileTransfer.EncodedPath,
-			endpointSuffix: "/file",
-			requireDigest:  command.FileTransfer.RequireDigest,
-		}, stdout); err != nil {
+		if err := runFileTransfer(
+			ctx, command.FileTransfer.Direction, command.FileTransfer.ToolCallID, command.FileTransfer.EncodedPath, stdout,
+		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1
 		}

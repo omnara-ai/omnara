@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
-	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -24,19 +24,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type Access interface {
-	AuthorizeProject(context.Context, identitystore.AuthorizeProjectInput) (bool, error)
-}
-
 type Store struct {
-	pool   *pgxpool.Pool
-	q      *dbsqlc.Queries
-	files  *Filesystem
-	access Access
+	pool  *pgxpool.Pool
+	q     *dbsqlc.Queries
+	files *Filesystem
 }
 
-func New(pool *pgxpool.Pool, files *Filesystem, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), files: files, access: access}
+func New(pool *pgxpool.Pool, files *Filesystem) *Store {
+	return &Store{pool: pool, q: dbsqlc.New(pool), files: files}
 }
 
 type Scope struct {
@@ -73,7 +68,7 @@ func mapped(err error) error {
 	return err
 }
 
-func (s *Store) authorize(ctx context.Context, scope Scope, manage bool) error {
+func authorize(ctx context.Context, q *dbsqlc.Queries, scope Scope, manage bool) error {
 	if scope.AgentID != uuid.Nil {
 		return storeerr.ErrUnauthorized
 	}
@@ -81,8 +76,8 @@ func (s *Store) authorize(ctx context.Context, scope Scope, manage bool) error {
 	if manage {
 		action = identitystore.ProjectActionManage
 	}
-	allowed, err := s.access.AuthorizeProject(
-		ctx,
+	allowed, err := identitystore.AuthorizeProject(
+		ctx, q,
 		identitystore.AuthorizeProjectInput{
 			Principal: scope.Principal,
 			OrgID:     scope.OrgID,
@@ -99,7 +94,7 @@ func (s *Store) authorize(ctx context.Context, scope Scope, manage bool) error {
 }
 
 func (s *Store) Create(ctx context.Context, scope Scope, name, description string, readOnly bool) (Record, error) {
-	if err := s.authorize(ctx, scope, true); err != nil {
+	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", err)
 	}
 	if err := skills.ValidateName(name); err != nil {
@@ -112,7 +107,7 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 	if err != nil {
 		return Record{}, fmt.Errorf("generate memory store id: %w", err)
 	}
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, id, name)
+	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, name)
 	if err != nil {
 		return Record{}, err
 	}
@@ -164,7 +159,7 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 }
 
 func (s *Store) Get(ctx context.Context, scope Scope, id uuid.UUID) (Record, error) {
-	if err := s.authorize(ctx, scope, false); err != nil {
+	if err := authorize(ctx, s.q, scope, false); err != nil {
 		return Record{}, err
 	}
 	r, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
@@ -176,6 +171,9 @@ func (s *Store) Get(ctx context.Context, scope Scope, id uuid.UUID) (Record, err
 
 func (s *Store) Resolve(ctx context.Context, projectID uuid.UUID, name string) (Record, error) {
 	r, err := s.q.GetMemoryStoreByName(ctx, dbsqlc.GetMemoryStoreByNameParams{ProjectID: projectID, Name: name})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Record{}, storeerr.ErrNotFound
+	}
 	if err != nil {
 		return Record{}, fmt.Errorf("get memory store: %w", mapped(err))
 	}
@@ -189,7 +187,7 @@ type ListResult struct {
 }
 
 func (s *Store) List(ctx context.Context, scope Scope, options listing.Options, limit int) (ListResult, error) {
-	if err := s.authorize(ctx, scope, false); err != nil {
+	if err := authorize(ctx, s.q, scope, false); err != nil {
 		return ListResult{}, fmt.Errorf("list memory stores: %w", err)
 	}
 	if options.After.Key != "" {
@@ -227,22 +225,9 @@ func (s *Store) Update(
 	description *string,
 	readOnly *bool,
 ) (Record, error) {
-	if err := s.authorize(ctx, scope, true); err != nil {
+	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return Record{}, fmt.Errorf("update memory store: %w", err)
 	}
-	row, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
-	if err != nil {
-		return Record{}, mapped(err)
-	}
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, id, row.Name)
-	if err != nil {
-		return Record{}, err
-	}
-	lock, err := s.files.Lock(ctx, ref)
-	if err != nil {
-		return Record{}, err
-	}
-	defer func() { _ = lock.Close() }()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Record{}, fmt.Errorf("update memory store: %w", err)
@@ -280,6 +265,31 @@ func (s *Store) Update(
 	return record(r), nil
 }
 
+type Attachment struct {
+	StoreID uuid.UUID
+	Access  agentconfig.MemoryStoreAccess
+}
+
+func (s *Store) LoadAgentAttachments(ctx context.Context, projectID, agentID uuid.UUID) ([]Attachment, error) {
+	return loadAgentAttachments(ctx, s.q, projectID, agentID)
+}
+
+func loadAgentAttachments(ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID) ([]Attachment, error) {
+	raw, err := q.GetAgentMemoryConfig(ctx, dbsqlc.GetAgentMemoryConfigParams{ProjectID: projectID, AgentID: agentID})
+	if err != nil {
+		return nil, mapped(err)
+	}
+	var stores []agentconfig.MemoryStoreCompiled
+	if err := json.Unmarshal(raw, &stores); err != nil {
+		return nil, fmt.Errorf("load memory attachments: %w", err)
+	}
+	attachments := make([]Attachment, 0, len(stores))
+	for _, store := range stores {
+		attachments = append(attachments, Attachment{StoreID: store.ID, Access: store.Access})
+	}
+	return attachments, nil
+}
+
 func (s *Store) authorizeAttachment(
 	ctx context.Context,
 	q *dbsqlc.Queries,
@@ -288,44 +298,29 @@ func (s *Store) authorizeAttachment(
 	write bool,
 ) error {
 	if scope.AgentID == uuid.Nil {
-		return s.authorize(ctx, scope, write)
+		return authorize(ctx, q, scope, write)
 	}
-	raw, err := q.GetAgentMemoryConfig(ctx, dbsqlc.GetAgentMemoryConfigParams{
-		ProjectID: scope.ProjectID,
-		AgentID:   scope.AgentID,
-	})
+	attachments, err := loadAgentAttachments(ctx, q, scope.ProjectID, scope.AgentID)
 	if err != nil {
-		return fmt.Errorf("authorize memory file: %w", mapped(err))
-	}
-	var stores []agentconfig.MemoryStoreCompiled
-	if err = json.Unmarshal(raw, &stores); err != nil {
 		return fmt.Errorf("authorize memory file: %w", err)
 	}
-	allowed := false
-	for _, a := range stores {
-		id, err := publicid.Decode(publicid.KindMemoryStore, a.PublicID)
-		if err != nil {
-			return fmt.Errorf("authorize memory file: %w", err)
+	for _, attached := range attachments {
+		if attached.StoreID == storeID && (!write || attached.Access == agentconfig.MemoryStoreAccessReadWrite) {
+			return nil
 		}
-		if id == storeID && (!write || a.Access == "read_write") {
-			allowed = true
-		}
-	}
-	if allowed {
-		return nil
 	}
 	return storeerr.ErrNotFound
 }
 
 func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
-	if err := s.authorize(ctx, scope, true); err != nil {
+	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
 	}
 	row, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
 	if err != nil {
 		return mapped(err)
 	}
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, id, row.Name)
+	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, row.Name)
 	if err != nil {
 		return err
 	}
@@ -347,13 +342,9 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("delete memory store: %w", mapped(err))
 	}
-	publicID, err := publicid.Encode(publicid.KindMemoryStore, id)
-	if err != nil {
-		return fmt.Errorf("delete memory store: %w", err)
-	}
 	used, err := q.MemoryStoreHasActiveReferences(ctx, dbsqlc.MemoryStoreHasActiveReferencesParams{
 		ProjectID: scope.ProjectID,
-		PublicID:  publicID,
+		ID:        id,
 	})
 	if err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
@@ -367,6 +358,8 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
 	}
-	_ = s.files.RemoveStore(ref)
+	if err := s.files.RemoveStore(ref); err != nil {
+		logent.MemoryCleanupFailed(ctx, "delete_store", scope.OrgID, scope.ProjectID, id, err)
+	}
 	return nil
 }

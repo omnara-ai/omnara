@@ -33,6 +33,7 @@
     "lucide-react": "^0.460.0",
     "monaco-editor": "^0.52.2",
     "monaco-yaml": "^5.5.1",
+    "p-limit": "^7.3.2",
     "radix-ui": "^1.6.1",
     "react": "19.3.0-canary-eb8feb71-20260814",
     "react-day-picker": "^10.0.1",

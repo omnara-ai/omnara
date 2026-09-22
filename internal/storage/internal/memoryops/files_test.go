@@ -13,9 +13,60 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/blobstore"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func TestFileDigest(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	large := make([]byte, daemonprotocol.MaxFileTransferBytes+1)
+	for _, test := range []struct {
+		name    string
+		content []byte
+	}{
+		{"empty", nil},
+		{"binary", []byte{0, 255, 1, 2}},
+		{"limit", large[:daemonprotocol.MaxFileTransferBytes]},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, test.name), test.content, 0600); err != nil {
+				t.Fatal(err)
+			}
+			digest, err := Digest(root, test.name)
+			if err != nil || digest != blobstore.ContentDigest(test.content) {
+				t.Fatalf("digest: %q, %v", digest, err)
+			}
+		})
+	}
+	if err := os.WriteFile(filepath.Join(dir, "oversized"), large, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Symlink("binary", "link"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"missing", ".", "link", "binary/child", "oversized"} {
+		t.Run(name, func(t *testing.T) {
+			_, readErr := Read(root, name)
+			digest, err := Digest(root, name)
+			if err == nil || readErr == nil || digest != "" {
+				t.Fatalf("digest: %q, %v; read error: %v", digest, err, readErr)
+			}
+			if err.Error() != readErr.Error() {
+				t.Fatalf("digest error %q differs from read error %q", err, readErr)
+			}
+			if name == "missing" && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("missing file: %v", err)
+			}
+		})
+	}
+}
 
 func TestFilePublication(t *testing.T) {
 	files, err := OpenFilesystem(t.TempDir())
@@ -23,7 +74,7 @@ func TestFilePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = files.Close() }()
-	ref := testStoreRef(t, uuid.New(), "engineering")
+	ref := testStoreRef(t, "engineering")
 	var root *os.Root
 	write := func(name string, content []byte) error {
 		t.Helper()
@@ -31,7 +82,7 @@ func TestFilePublication(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer files.Discard(staged)
+		defer func() { _ = files.Discard(staged) }()
 		lock, err := files.Lock(t.Context(), ref)
 		if err != nil {
 			return err
@@ -61,6 +112,9 @@ func TestFilePublication(t *testing.T) {
 		if err := write(name, []byte("x")); err == nil {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+	if _, err := Read(root, "nested/file.bin/child"); !errors.Is(err, storeerr.ErrConflict) {
+		t.Fatalf("read through regular file: %v", err)
 	}
 	if err := write("nested/file.bin", nil); err != nil {
 		t.Fatal(err)
@@ -98,7 +152,7 @@ func TestFilePublication(t *testing.T) {
 }
 
 func TestSharedLock(t *testing.T) {
-	ref := testStoreRef(t, uuid.New(), "shared")
+	ref := testStoreRef(t, "shared")
 	if dir := os.Getenv("OMNARA_TEST_MEMORY_LOCK_DIR"); dir != "" {
 		files, err := OpenFilesystem(dir)
 		if err != nil {
@@ -179,10 +233,7 @@ func TestSharedLock(t *testing.T) {
 	}
 	ctx, cancel = context.WithTimeout(t.Context(), 60*time.Millisecond)
 	defer cancel()
-	replacement := testStoreRef(t, uuid.New(), "shared")
-	if ref.staging == replacement.staging {
-		t.Fatal("store incarnations share staging")
-	}
+	replacement := testStoreRef(t, "shared")
 	if _, err := files.Lock(ctx, replacement); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("replacement bypassed existing lock: %v", err)
 	}
@@ -197,7 +248,7 @@ func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = files.Close() }()
-	ref := testStoreRef(t, uuid.New(), "engineering")
+	ref := testStoreRef(t, "engineering")
 	lock, err := files.Lock(t.Context(), ref)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +266,9 @@ func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files.Discard(staged)
+	if err := files.Discard(staged); err != nil {
+		t.Fatal(err)
+	}
 	err = files.Publish(t.Context(), ref, nil, "file", staged)
 	if err == nil {
 		t.Fatalf("expected rename failure: %v", err)
@@ -231,12 +284,66 @@ func TestFailedPublicationLeavesCurrentFile(t *testing.T) {
 	}
 }
 
-func testStoreRef(t *testing.T, id uuid.UUID, name string) StoreRef {
+func TestPublicationUsesOpenedStore(t *testing.T) {
+	files, err := OpenFilesystem(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	ref := testStoreRef(t, "engineering")
+	other := testStoreRef(t, "private")
+	name := "nested/note.md"
+	for _, store := range []StoreRef{ref, other} {
+		staged, err := files.Stage(store, []byte("original"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := files.Publish(t.Context(), store, nil, name, staged); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := files.OpenStore(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := files.root.Rename(ref.path, ref.path+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.root.Symlink(other.Name, ref.path); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := files.Stage(ref, []byte("replacement"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Publish(t.Context(), ref, root, name, staged); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := Read(root, name); err != nil || string(body) != "replacement" {
+		t.Fatalf("opened store was not updated: %q %v", body, err)
+	}
+	otherRoot, err := files.OpenStore(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = otherRoot.Close() }()
+	if body, err := Read(otherRoot, name); err != nil || string(body) != "original" {
+		t.Fatalf("publication changed another store: %q %v", body, err)
+	}
+	if err := otherRoot.Remove(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Sync(ref, root, name); err != nil {
+		t.Fatalf("sync did not use the opened store: %v", err)
+	}
+}
+
+func testStoreRef(t *testing.T, name string) StoreRef {
 	t.Helper()
 	ref, err := NewStoreRef(
 		uuid.MustParse("00000000-0000-0000-0000-000000000001"),
 		uuid.MustParse("00000000-0000-0000-0000-000000000002"),
-		id,
 		name,
 	)
 	if err != nil {
@@ -264,7 +371,7 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 		{orgID, uuid.New(), "engineering"},
 		{uuid.New(), projectID, "engineering"},
 	} {
-		ref, err := NewStoreRef(scope.org, scope.project, uuid.New(), scope.name)
+		ref, err := NewStoreRef(scope.org, scope.project, scope.name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +396,7 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 		}
 		physical := filepath.Join(dir, org, project, scope.name, "nested", "note.md")
 		paths[physical] = body
-		entries, err := os.ReadDir(filepath.Join(dir, ref.staging))
+		entries, err := os.ReadDir(filepath.Join(dir, ".staging", org, project, scope.name))
 		if err != nil || len(entries) != 0 {
 			t.Fatalf("published upload still staged: %v %v", entries, err)
 		}
@@ -309,7 +416,7 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 	}
 
 	for _, name := range []string{"../other", "a/b", ".invalid", ""} {
-		if _, err := NewStoreRef(orgID, projectID, uuid.New(), name); err == nil {
+		if _, err := NewStoreRef(orgID, projectID, name); err == nil {
 			t.Fatalf("accepted store name %q", name)
 		}
 	}
@@ -324,11 +431,18 @@ func TestRemoveScopeIsolation(t *testing.T) {
 	org, otherOrg, project, otherProject := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	var refs []StoreRef
 	for _, scope := range []struct{ org, project uuid.UUID }{{org, project}, {org, otherProject}, {otherOrg, project}} {
-		ref, err := NewStoreRef(scope.org, scope.project, uuid.New(), "notes")
+		ref, err := NewStoreRef(scope.org, scope.project, "notes")
 		if err != nil {
 			t.Fatal(err)
 		}
 		refs = append(refs, ref)
+		lock, err := files.Lock(t.Context(), ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := lock.Close(); err != nil {
+			t.Fatal(err)
+		}
 		upload, err := files.Stage(ref, []byte("content"))
 		if err != nil {
 			t.Fatal(err)
@@ -348,7 +462,7 @@ func TestRemoveScopeIsolation(t *testing.T) {
 			t.Fatalf("cleanup retry: %v", err)
 		}
 		for i, ref := range refs {
-			for _, name := range []string{ref.path, ref.staging} {
+			for _, name := range []string{ref.path, ref.staging, ".locks/" + ref.path} {
 				_, err := files.root.Stat(name)
 				if i <= step {
 					if !errors.Is(err, os.ErrNotExist) {
@@ -385,7 +499,7 @@ func TestNFSMissingPaths(t *testing.T) {
 			}
 			defer func() { _ = b.Close() }()
 			orgID, projectID := uuid.New(), uuid.New()
-			ref, err := NewStoreRef(orgID, projectID, uuid.New(), "notes")
+			ref, err := NewStoreRef(orgID, projectID, "notes")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -413,7 +527,7 @@ func TestNFSMissingPaths(t *testing.T) {
 				if stageErr != nil {
 					t.Fatal(stageErr)
 				}
-				defer b.Discard(stagedB)
+				defer func() { _ = b.Discard(stagedB) }()
 				lockB, lockErr := b.Lock(t.Context(), ref)
 				if lockErr != nil {
 					t.Fatal(lockErr)
@@ -430,7 +544,7 @@ func TestNFSMissingPaths(t *testing.T) {
 				}
 				return
 			case "replacement-cleanup":
-				replacement, refErr := NewStoreRef(orgID, projectID, uuid.New(), "notes")
+				replacement, refErr := NewStoreRef(orgID, projectID, "notes")
 				if refErr != nil {
 					t.Fatal(refErr)
 				}
@@ -453,5 +567,78 @@ func TestNFSMissingPaths(t *testing.T) {
 				t.Fatalf("cleanup left old contents on server: %v", err)
 			}
 		})
+	}
+}
+
+func TestDiscardStagedFile(t *testing.T) {
+	files, err := OpenFilesystem(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	ref := testStoreRef(t, "notes")
+	staged, err := files.Stage(ref, []byte("pending"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Discard(ref.staging); err == nil {
+		t.Fatal("discard nonempty directory succeeded")
+	}
+	if err := files.RemoveStore(ref); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := files.Stage(testStoreRef(t, "notes"), []byte("replacement"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := files.Discard(staged); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := files.root.Stat(staged); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("staged file remains: %v", err)
+	}
+	content, err := files.root.ReadFile(replacement)
+	if err != nil || string(content) != "replacement" {
+		t.Fatalf("late discard affected replacement upload: %q %v", content, err)
+	}
+	if err := files.Discard(replacement); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := files.root.Stat(replacement); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("replacement staged file remains: %v", err)
+	}
+}
+
+func TestRemoveStoreContinuesAfterFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires filesystem permission enforcement")
+	}
+	files, err := OpenFilesystem(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.Close() }()
+	ref := testStoreRef(t, "notes")
+	staged, err := files.Stage(ref, []byte("published"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Publish(t.Context(), ref, nil, "note.txt", staged); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := files.Stage(ref, []byte("pending")); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.root.Chmod(ref.path, 0500); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = files.root.Chmod(ref.path, 0700) }()
+	if err := files.RemoveStore(ref); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("expected content cleanup permission error, got %v", err)
+	}
+	if _, err := files.root.Stat(ref.staging); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("staging cleanup skipped after content cleanup failed: %v", err)
 	}
 }

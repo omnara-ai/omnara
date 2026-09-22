@@ -31,7 +31,7 @@ export function TextFileEditor({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const modelRef = useRef<Monaco.editor.ITextModel | null>(null)
   const emitChange = useEffectEvent(onChange)
-  const initialValueRef = useRef(value)
+  const valueRef = useRef(value)
   const initialReadOnlyRef = useRef(readOnly)
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export function TextFileEditor({
     const model =
       monaco.editor.getModel(modelUri) ??
       monaco.editor.createModel(
-        initialValueRef.current,
+        valueRef.current,
         filename.toLowerCase().endsWith('.md') ? 'markdown' : 'plaintext',
         modelUri,
       )
@@ -74,7 +74,10 @@ export function TextFileEditor({
     })
 
     const subscription = model.onDidChangeContent((event) => {
-      if (!event.isFlush) emitChange(model.getValue(undefined, true))
+      if (!event.isFlush) {
+        valueRef.current = model.getValue(undefined, true)
+        emitChange(valueRef.current)
+      }
     })
 
     return () => {
@@ -89,7 +92,8 @@ export function TextFileEditor({
 
   useEffect(() => {
     const model = modelRef.current
-    if (model && value !== model.getValue(undefined, true)) {
+    if (model && value !== valueRef.current) {
+      valueRef.current = value
       model.setValue(value)
     }
   }, [value])

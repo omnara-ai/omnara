@@ -52,3 +52,18 @@ func TimestampKey(value time.Time) string {
 func ParseTimestampKey(value string) (time.Time, error) {
 	return time.ParseInLocation(timestampLayout, value, time.UTC)
 }
+
+type FileEntry struct {
+	Path        string `json:"path"`
+	Type        string `json:"type"`
+	Filename    string `json:"filename,omitempty"`
+	Description string `json:"description,omitempty"`
+	Access      string `json:"access,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	SizeBytes   *int64 `json:"size_bytes,omitempty"`
+}
+
+type FileListResult struct {
+	Entries   []FileEntry `json:"entries"`
+	Truncated bool        `json:"truncated"`
+}

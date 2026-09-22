@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -248,6 +249,35 @@ func isUploadArtifactToolCall(call ToolCallRecord) bool {
 		Path string `json:"path"`
 	}
 	return json.Unmarshal(call.Input, &input) == nil && input.Path == toolcatalog.ArtifactVFSRoot
+}
+
+func uploadMemoryToolResult(input, result json.RawMessage) (ToolResultOutcome, json.RawMessage, error) {
+	var request struct {
+		Path string `json:"path"`
+	}
+	var observed struct {
+		Output    string `json:"output"`
+		Truncated bool   `json:"truncated"`
+	}
+	var uploaded struct {
+		Path   string `json:"path"`
+		Digest string `json:"digest"`
+	}
+	if json.Unmarshal(input, &request) == nil &&
+		json.Unmarshal(result, &observed) == nil && !observed.Truncated &&
+		json.Unmarshal([]byte(observed.Output), &uploaded) == nil &&
+		uploaded.Path != "" && uploaded.Path == request.Path &&
+		daemonprotocol.ValidateFileDigest(uploaded.Digest) == nil {
+		metadata, err := marshalJSON(uploaded)
+		return ToolResultOutcomeSucceeded, metadata, err
+	}
+	var failure map[string]any
+	if err := json.Unmarshal(result, &failure); err != nil {
+		return "", nil, fmt.Errorf("decode upload command result: %w", err)
+	}
+	failure["error"] = "upload completed without valid file metadata"
+	metadata, err := marshalJSON(failure)
+	return ToolResultOutcomeFailed, metadata, err
 }
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {

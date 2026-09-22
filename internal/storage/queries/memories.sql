@@ -59,7 +59,7 @@ SELECT EXISTS (
     WHERE a.project_id = sqlc.arg(project_id)
       AND a.state = 'active'
       AND c.compiled_definition->'memory_stores' @>
-          jsonb_build_array(jsonb_build_object('public_id', sqlc.arg(public_id)::text))
+          jsonb_build_array(jsonb_build_object('id', sqlc.arg(id)::uuid))
 );
 
 -- name: DeleteMemoryStore :exec
@@ -77,7 +77,7 @@ WHERE a.project_id = sqlc.arg(project_id)
   AND a.id = sqlc.arg(agent_id)
   AND a.state = 'active';
 
--- name: LockMemoryStoreForConfig :one
+-- name: LockMemoryStoreShared :one
 SELECT id
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
@@ -85,10 +85,10 @@ WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
 FOR SHARE;
 
--- name: DeleteProjectMemoryStores :exec
+-- name: DeleteMemoryStoresForProjects :exec
 UPDATE memory_stores
 SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = sqlc.arg(project_id)
+WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND deleted_at IS NULL;
 
 -- name: ListAttachedMemoryStores :many

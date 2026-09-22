@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  ReadStream,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { registerGroup } from './factory.ts'
 import { commandGroups } from './manifest.ts'
+import { loadMemoryUpload } from './memory-files.ts'
 
 const orgID = `org_${'a'.repeat(26)}`
 const projectID = `proj_${'a'.repeat(26)}`
@@ -109,7 +118,7 @@ describe('memory store commands', () => {
   it('lists stores with pagination and explicit scope overrides', async () => {
     const otherOrg = `org_${'b'.repeat(26)}`
     const otherProject = `proj_${'b'.repeat(26)}`
-    const command = cli(() => Response.json({ data: [store], has_more: false }))
+    const command = cli(() => Response.json({ data: [store], next_cursor: null }))
     await command.run(
       'list',
       '--org',
@@ -136,6 +145,45 @@ describe('memory store commands', () => {
 })
 
 describe('memory file commands', () => {
+  it.each([10 * 1024 * 1024, 10 * 1024 * 1024 + 1])(
+    'enforces the upload limit for a %i-byte file',
+    async (size) => {
+      const file = join(dir, 'input.bin')
+      writeFileSync(file, Buffer.alloc(size, 255))
+      const command = cli(() => Response.json({ path: '/memory/engineering/input.bin', digest }))
+      await command.run('files', 'upload', storeID, '--path', 'input.bin', '--file', file)
+      if (size === 10 * 1024 * 1024) {
+        expect(Buffer.from(await command.request.arrayBuffer()).equals(readFileSync(file))).toBe(
+          true,
+        )
+        expect(console.error).not.toHaveBeenCalled()
+      } else {
+        expect(command.requests).toHaveLength(0)
+        expect(process.exitCode).toBe(1)
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining('10 MiB upload limit'))
+      }
+    },
+  )
+
+  it('bounds the read when a file grows after the size check', async () => {
+    const file = join(dir, 'growing.bin')
+    writeFileSync(file, '')
+    let bytesRead = 0
+    const read = vi.spyOn(ReadStream.prototype, '_read').mockImplementationOnce(function (
+      this: ReadStream,
+      size,
+    ) {
+      read.mockRestore()
+      truncateSync(file, 20 * 1024 * 1024)
+      this.once('end', () => {
+        bytesRead = this.bytesRead
+      })
+      this._read(size)
+    })
+    await expect(loadMemoryUpload(file)).rejects.toThrow('10 MiB upload limit')
+    expect(bytesRead).toBe(10 * 1024 * 1024 + 1)
+  })
+
   it('lists a directory with its cursor', async () => {
     const command = cli(() => Response.json({ data: [], next_cursor: 'next-page' }))
     await command.run(
@@ -159,6 +207,21 @@ describe('memory file commands', () => {
       cursor: 'previous',
     })
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('--cursor next-page'))
+  })
+
+  it('lists file sizes including zero and omits directory sizes', async () => {
+    const response = {
+      data: [
+        { path: 'empty.txt', type: 'file', size_bytes: 0, modified_at: store.updated_at },
+        { path: 'notes.txt', type: 'file', size_bytes: 7, modified_at: store.updated_at },
+        { path: 'nested', type: 'directory', modified_at: store.updated_at },
+      ],
+      next_cursor: null,
+    }
+    const command = cli(() => Response.json(response))
+    await command.run('files', 'list', storeID, '--json')
+    expect(console.log).toHaveBeenCalledWith(JSON.stringify(response, null, 2))
+    expect(console.error).not.toHaveBeenCalled()
   })
 
   it.each([Buffer.from([0, 255, 128, 10]), Buffer.alloc(0)])(

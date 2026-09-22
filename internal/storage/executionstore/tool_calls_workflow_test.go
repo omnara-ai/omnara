@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -178,6 +179,55 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 		body["next_action"] == "stop" ||
 		body["output"] != "ready" {
 		t.Fatalf("started process result = %s", result)
+	}
+}
+
+func TestUploadMemoryToolResult(t *testing.T) {
+	const path = "/memory/team/notes.md"
+	digest := "sha256:" + strings.Repeat("a", 64)
+	metadata := `{"path":"` + path + `","digest":"` + digest + `"}`
+	for _, test := range []struct {
+		name      string
+		output    string
+		truncated bool
+		wantOK    bool
+	}{
+		{name: "metadata", output: metadata + "\n", wantOK: true},
+		{name: "missing output"},
+		{name: "invalid JSON", output: "upload failed"},
+		{name: "missing digest", output: `{"path":"` + path + `"}`},
+		{name: "invalid digest", output: `{"path":"` + path + `","digest":"invalid"}`},
+		{name: "wrong path", output: strings.Replace(metadata, "notes.md", "other.md", 1)},
+		{name: "truncated output", output: metadata, truncated: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observed := map[string]any{
+				"process_id": "prc_test", "output": test.output, "truncated": test.truncated,
+				"cursor": 0, "next_cursor": len(test.output), "state": "exited", "done": true,
+			}
+			result, err := json.Marshal(observed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			outcome, got, err := uploadMemoryToolResult(json.RawMessage(`{"path":"`+path+`"}`), result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.wantOK {
+				if outcome != ToolResultOutcomeSucceeded || string(got) != metadata {
+					t.Fatalf("result = %s %s, want success %s", outcome, got, metadata)
+				}
+				return
+			}
+			observed["error"] = "upload completed without valid file metadata"
+			want, err := json.Marshal(observed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome != ToolResultOutcomeFailed || string(got) != string(want) {
+				t.Fatalf("result = %s %s, want failure %s", outcome, got, want)
+			}
+		})
 	}
 }
 

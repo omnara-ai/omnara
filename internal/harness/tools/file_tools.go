@@ -256,7 +256,7 @@ func fileTransferProcessInput(
 	switch {
 	case strings.HasPrefix(remotePath, memorystore.Root+"/"):
 		command = fmt.Sprintf(
-			`"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer %s %s %s --require-digest`,
+			`"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer %s %s %s`,
 			direction, toolCallID, encodedPath,
 		)
 	case direction == "upload":

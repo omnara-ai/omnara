@@ -1,4 +1,4 @@
-import { type ListMemoryStoresData, sdk } from '@omnara/sdk'
+import { type ListMemoryStoresData, MAX_MEMORY_FILE_BYTES, sdk } from '@omnara/sdk'
 import {
   downloadMemoryFileQueryKey,
   getMemoryStoreOptions,
@@ -16,17 +16,15 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import pLimit from 'p-limit'
+import * as z from 'zod'
 
 import { useOmnaraClient } from '../omnara-client'
 import { type PaginatedListOptions, paginatedListOptions } from './list-options'
 import { cursorPaginated } from './pagination'
-import { generatedQueryKey, removeQueryWhenInactive } from './query-keys'
+import { removeQueryWhenInactive } from './query-keys'
 import { useScopedMutation } from './scoped-mutation'
 
-export const MAX_MEMORY_FILE_BYTES = 10 * 1024 * 1024
-
-const limitDirectoryRequests = pLimit(4)
+const memoryFileDigest = z.object({ digest: z.string() })
 
 export interface MemoryScope {
   orgID: string
@@ -54,7 +52,11 @@ export function useMemoryStore(scope: MemoryScope) {
   return useQuery(getMemoryStoreOptions({ path: scope, client }))
 }
 
-export function useMemoryFiles(scope: MemoryScope, path: string) {
+export function useMemoryFiles(
+  scope: MemoryScope,
+  path: string,
+  limitDirectoryRequests?: <T>(fn: () => T | Promise<T>) => Promise<T>,
+) {
   const client = useOmnaraClient()
   const { queryFn, ...options } = cursorPaginated(
     listMemoryFilesInfiniteOptions({ path: scope, query: { path, limit: 50 }, client }),
@@ -62,7 +64,7 @@ export function useMemoryFiles(scope: MemoryScope, path: string) {
   return useInfiniteQuery({
     ...options,
     queryFn:
-      queryFn && queryFn !== skipToken
+      limitDirectoryRequests && queryFn && queryFn !== skipToken
         ? (context) => {
             const { signal } = context
             return limitDirectoryRequests(() => {
@@ -113,13 +115,16 @@ export function useMemoryFile(scope: MemoryScope, path: string) {
       if (!digest) throw new Error('The file response is missing content or its digest')
       return { bytes: new Uint8Array(await response.arrayBuffer()), digest }
     },
-    enabled: path !== '',
-    staleTime: 0,
+    structuralSharing: (previous, next) => {
+      const previousDigest = memoryFileDigest.safeParse(previous).data?.digest
+      const nextDigest = memoryFileDigest.safeParse(next).data?.digest
+      return previousDigest !== undefined && previousDigest === nextDigest ? previous : next
+    },
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
     gcTime: 0,
   })
 }
-
-const memoryOperations = new Set(['getMemoryStore', 'listMemoryFiles', 'downloadMemoryFile'])
 
 export function useCreateMemoryStore(orgID: string, projectID: string) {
   const client = useOmnaraClient()
@@ -158,18 +163,7 @@ export function useDeleteMemoryStore(scope: MemoryScope) {
   return useMutation({
     mutationFn: () => sdk.deleteMemoryStore({ path: scope, client }),
     onSuccess: async () => {
-      const queries = queryClient.getQueryCache().findAll({
-        predicate: (query) => {
-          const entry = generatedQueryKey(query)
-          return (
-            entry?.path?.orgID === scope.orgID &&
-            entry.path.projectID === scope.projectID &&
-            entry.path.memoryStoreID === scope.memoryStoreID &&
-            memoryOperations.has(entry._id)
-          )
-        },
-      })
-      for (const query of queries) removeQueryWhenInactive(queryClient, query.queryKey)
+      removeQueryWhenInactive(queryClient, getMemoryStoreQueryKey({ path: scope, client }))
       await queryClient.invalidateQueries({
         queryKey: listMemoryStoresQueryKey({
           path: { orgID: scope.orgID, projectID: scope.projectID },
@@ -208,7 +202,7 @@ export function useWriteMemoryFile(scope: MemoryScope) {
       const bytes = new Uint8Array(await content.arrayBuffer())
       await queryClient.cancelQueries({ queryKey })
       queryClient.setQueryData([...queryKey, 'content'], { bytes, digest: data.digest })
-      await invalidateParentDirectories(queryClient, client, scope, path)
+      void invalidateParentDirectories(queryClient, client, scope, path)
     },
   })
 }
@@ -221,10 +215,10 @@ export function useDeleteMemoryFile(scope: MemoryScope) {
       sdk.deleteMemoryFile({ path: scope, query: { path, expected_digest: digest }, client }),
     onSuccess: async (_data, { path }) => {
       await invalidateParentDirectories(queryClient, client, scope, path)
-      for (const query of queryClient.getQueryCache().findAll({
-        queryKey: downloadMemoryFileQueryKey({ path: scope, query: { path }, client }),
-      }))
-        removeQueryWhenInactive(queryClient, query.queryKey)
+      removeQueryWhenInactive(queryClient, [
+        ...downloadMemoryFileQueryKey({ path: scope, query: { path }, client }),
+        'content',
+      ])
     },
   })
 }

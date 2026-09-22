@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -464,7 +465,9 @@ func (s *Service) deleteProjectOnce(
 	if err := deleteProjectRelationshipsTx(ctx, q, orgID, projectID); err != nil {
 		return nil, err
 	}
-	if err := q.DeleteProjectMemoryStores(ctx, dbsqlc.DeleteProjectMemoryStoresParams{ProjectID: projectID}); err != nil {
+	if err := q.DeleteMemoryStoresForProjects(ctx, dbsqlc.DeleteMemoryStoresForProjectsParams{
+		ProjectIds: []uuid.UUID{projectID},
+	}); err != nil {
 		return nil, fmt.Errorf("delete project memory stores: %w", err)
 	}
 	skillArchives, err := deleteProjectOwnedContentTx(ctx, q, orgID, projectID)
@@ -488,7 +491,9 @@ func (s *Service) deleteProjectOnce(
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
-	_ = s.memoryFS.RemoveScope(orgID, &projectID)
+	if err := s.memoryFS.RemoveScope(orgID, &projectID); err != nil {
+		logent.MemoryCleanupFailed(ctx, "delete_project", orgID, projectID, uuid.Nil, err)
+	}
 	return machines, nil
 }
 
@@ -603,10 +608,8 @@ func (s *Service) deleteOrganizationOnce(
 	if err := q.DeleteOrganizationModelProviderConfigs(ctx, dbsqlc.DeleteOrganizationModelProviderConfigsParams{OrgID: orgID}); err != nil {
 		return nil, fmt.Errorf("delete organization model provider configs: %w", err)
 	}
-	for _, projectID := range orgProjectIDs {
-		if err := q.DeleteProjectMemoryStores(ctx, dbsqlc.DeleteProjectMemoryStoresParams{ProjectID: projectID}); err != nil {
-			return nil, fmt.Errorf("delete organization memory stores: %w", err)
-		}
+	if err := q.DeleteMemoryStoresForProjects(ctx, dbsqlc.DeleteMemoryStoresForProjectsParams{ProjectIds: orgProjectIDs}); err != nil {
+		return nil, fmt.Errorf("delete organization memory stores: %w", err)
 	}
 	skillArchives, err := skillops.ListArchiveRefs(ctx, q, orgID, nil)
 	if err != nil {
@@ -660,6 +663,8 @@ func (s *Service) deleteOrganizationOnce(
 		return nil, err
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
-	_ = s.memoryFS.RemoveScope(orgID, nil)
+	if err := s.memoryFS.RemoveScope(orgID, nil); err != nil {
+		logent.MemoryCleanupFailed(ctx, "delete_organization", orgID, uuid.Nil, uuid.Nil, err)
+	}
 	return machines, nil
 }

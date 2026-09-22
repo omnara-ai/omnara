@@ -23,6 +23,7 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
 	content := []byte("artifact bytes")
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
+	responseDigest := digest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer token-a" {
 			t.Error("missing machine token")
@@ -42,7 +43,7 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 				t.Errorf("unexpected legacy download URL: %s", r.URL)
 			}
 			w.Header().Set("ETag", `W/"`+digest+`"`)
-			w.Header().Set("X-Omnara-File-Digest", digest)
+			w.Header().Set("X-Omnara-File-Digest", responseDigest)
 			_, _ = w.Write(content)
 		default:
 			t.Errorf("unexpected method %s", r.Method)
@@ -78,6 +79,20 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 	got, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(got, content) || stdout.String() != `{"digest":"`+digest+`"}`+"\n" {
 		t.Fatalf("legacy download content=%q output=%q: %v", got, &stdout, err)
+	}
+	responseDigest = ""
+	stdout.Reset()
+	if err := runDownloadArtifactCommand(context.Background(), toolID, artifactID, encoded, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, content) || stdout.Len() != 0 {
+		t.Fatalf("legacy download without digest: content=%q output=%q error=%v", got, &stdout, err)
+	}
+	responseDigest = digest
+	content = []byte("tampered")
+	if err := runDownloadArtifactCommand(context.Background(), toolID, artifactID, encoded, &stdout); err == nil {
+		t.Fatal("legacy download accepted mismatched digest")
 	}
 	if err := runDownloadArtifactCommand(context.Background(), toolID, "invalid", encoded, &stdout); err == nil {
 		t.Fatal("legacy download accepted invalid artifact ID")

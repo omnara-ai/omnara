@@ -230,9 +230,15 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	call.Call.Input = json.RawMessage(`{"path":"/memory/private/secret.txt"}`)
-	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) {
-		t.Fatalf("unattached store read: %v", err)
+	for _, name := range []string{"private", "unknown"} {
+		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt"}`)
+		if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+			t.Fatalf("%s store read: %v", name, err)
+		}
+		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt","content":"replacement"}`)
+		if _, err := runWriteFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+			t.Fatalf("%s store write: %v", name, err)
+		}
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested/0.txt"}`)
 	call.Turn.ProjectID = uuid.New()

@@ -52,8 +52,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 	} {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)
-			opts.ResolveMemoryStoreName = func(_ string) (string, error) {
-				return testMachineSourcePublicID(t, publicid.KindMemoryStore, "preview-memory"), nil
+			opts.ResolveMemoryStoreName = func(_ string) (uuid.UUID, error) {
+				return uuid.NewSHA1(uuid.NameSpaceOID, []byte("preview-memory")), nil
 			}
 			opts.ResolveSkillID = func(id string) (SkillResolution, error) {
 				return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil

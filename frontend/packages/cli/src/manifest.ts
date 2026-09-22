@@ -700,11 +700,7 @@ export const commandGroups: CommandGroup[] = [
         verb: 'list',
         summary: 'List memory stores',
         fn: sdk.listMemoryStores,
-        format: (response) =>
-          formatTable(['id', 'name', 'description', 'read_only', 'created_at', 'updated_at'])({
-            ...response,
-            next_cursor: response.next_cursor ?? null,
-          }),
+        format: formatTable(['id', 'name', 'description', 'read_only', 'created_at', 'updated_at']),
         path: schemas.zListMemoryStoresPath,
         query: schemas.zListMemoryStoresQuery,
       }),
@@ -749,7 +745,14 @@ export const commandGroups: CommandGroup[] = [
             verb: 'list',
             summary: 'List files and directories in a memory store',
             fn: sdk.listMemoryFiles,
-            format: formatTable(['path', 'type', 'size_bytes', 'modified_at']),
+            format: (response) =>
+              formatTable(['path', 'type', 'size_bytes', 'modified_at'])({
+                ...response,
+                data: response.data.map((entry) => ({
+                  ...entry,
+                  size_bytes: entry.type === 'file' ? entry.size_bytes : undefined,
+                })),
+              }),
             path: schemas.zListMemoryFilesPath,
             query: schemas.zListMemoryFilesQuery,
           }),

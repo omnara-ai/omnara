@@ -7,7 +7,6 @@ const generatedQueryKeyEntry = z.object({
     .object({
       orgID: z.string().optional(),
       projectID: z.string().optional(),
-      memoryStoreID: z.string().optional(),
     })
     .optional(),
 })

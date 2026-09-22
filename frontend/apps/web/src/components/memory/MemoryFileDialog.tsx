@@ -1,5 +1,5 @@
-import { MAX_MEMORY_FILE_BYTES, type MemoryScope, useWriteMemoryFile } from '@omnara/react'
-import { ApiError } from '@omnara/sdk'
+import { type MemoryScope, useWriteMemoryFile } from '@omnara/react'
+import { MAX_MEMORY_FILE_BYTES } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import { FilePicker } from '@/components/ui/file-picker'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { fileContentConflict } from '@/lib/memory-files'
 
 export function MemoryFileDialog({
   scope,
@@ -35,10 +36,7 @@ export function MemoryFileDialog({
   const [file, setFile] = useState<File>()
   const [text, setText] = useState('')
   const write = useWriteMemoryFile(scope)
-  const currentDigest =
-    write.error instanceof ApiError && write.error.code === 'file_content_conflict'
-      ? write.error.currentDigest
-      : undefined
+  const currentDigest = fileContentConflict(write.error)?.currentDigest
   const size = upload ? (file?.size ?? 0) : 0
   const valid = path !== '' && (!upload || file !== undefined) && size <= MAX_MEMORY_FILE_BYTES
   function save(expectedDigest?: string) {

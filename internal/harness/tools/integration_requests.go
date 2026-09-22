@@ -7,9 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 var integrationTargetRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*-[a-z2-9]{4}$`)
@@ -38,13 +36,7 @@ func resolveIntegrationMessageRequest(raw json.RawMessage) (integrationMessageRe
 			}
 			continue
 		}
-		artifactID, ok := strings.CutPrefix(filePath, toolcatalog.ArtifactVFSRoot+"/")
-		if !ok {
-			return integrationMessageRequest{}, errors.New(
-				"attachment path must be /artifacts/<artifact_id> or /memory/<store>/<file>",
-			)
-		}
-		if _, err := publicid.Decode(publicid.KindArtifact, artifactID); err != nil {
+		if _, err := resolveArtifactPath(filePath); err != nil {
 			return integrationMessageRequest{}, fmt.Errorf("invalid artifact attachment path: %w", err)
 		}
 	}

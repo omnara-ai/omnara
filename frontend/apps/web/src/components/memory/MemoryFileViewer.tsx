@@ -4,7 +4,6 @@ import {
   useMemoryFile,
   useWriteMemoryFile,
 } from '@omnara/react'
-import { ApiError } from '@omnara/sdk'
 import { CatchBoundary } from '@tanstack/react-router'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Streamdown } from 'streamdown'
@@ -14,7 +13,7 @@ import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
 import { attachmentSize } from '@/lib/agent-attachments'
-import { downloadMemoryBlob, memoryPreview } from '@/lib/memory-files'
+import { downloadMemoryBlob, fileContentConflict, memoryPreview } from '@/lib/memory-files'
 import { errorMessage } from '@/lib/submit-status'
 
 const MAX_MARKDOWN_PREVIEW_CHARS = 256 * 1024
@@ -85,11 +84,15 @@ function FileContent({
   onDeleted: () => void
   onRefresh: () => void
 }) {
-  const [baseline, setBaseline] = useState({ text: preview.text, digest: preview.digest })
-  const [draft, setDraft] = useState(preview.text ?? '')
+  const [draft, setDraft] = useState<{
+    text: string
+    originalText: string | null
+    digest: string
+  } | null>(null)
+  const content = draft ?? preview
   const write = useWriteMemoryFile(scope)
   const remove = useDeleteMemoryFile(scope)
-  const dirty = baseline.text !== null && draft !== baseline.text
+  const dirty = draft !== null
   useUnsavedChangesWarning(
     dirty,
     ({ current, next }) =>
@@ -98,25 +101,34 @@ function FileContent({
         ('path' in next.search ? next.search.path : undefined),
   )
   const pending = write.isPending || remove.isPending
-  const changed = !write.isPending && baseline.digest !== preview.digest
+  const changed = !write.isPending && content.digest !== preview.digest
   const error = write.error ?? remove.error
-  const currentDigest =
-    write.error instanceof ApiError && write.error.code === 'file_content_conflict'
-      ? write.error.currentDigest
-      : undefined
+  const conflict = fileContentConflict(write.error)
+  const currentDigest = conflict?.currentDigest
+  function updateDraft(text: string) {
+    const originalText = draft?.originalText ?? preview.text
+    setDraft(text === originalText ? null : { text, originalText, digest: content.digest })
+  }
   function save() {
+    if (!draft) return
+    remove.reset()
     write.mutate(
-      { path, content: new Blob([draft]), expectedDigest: currentDigest ?? baseline.digest },
       {
-        onSuccess: (result) => {
-          setBaseline({ text: draft, digest: result.digest })
+        path,
+        content: new Blob([draft.text]),
+        expectedDigest: conflict ? currentDigest : draft.digest,
+      },
+      {
+        onSuccess: () => {
+          setDraft(null)
         },
       },
     )
   }
   function deleteFile() {
     if (!window.confirm(`Delete ${path}?${dirty ? ' Unsaved edits will be lost.' : ''}`)) return
-    remove.mutate({ path, digest: baseline.digest }, { onSuccess: onDeleted })
+    write.reset()
+    remove.mutate({ path, digest: preview.digest }, { onSuccess: onDeleted })
   }
 
   return (
@@ -130,9 +142,13 @@ function FileContent({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {canWrite && baseline.text !== null && (
+          {canWrite && content.text !== null && (
             <Button size="sm" loading={write.isPending} disabled={!dirty || pending} onClick={save}>
-              {currentDigest ? 'Replace current contents' : 'Save changes'}
+              {conflict
+                ? currentDigest
+                  ? 'Replace current contents'
+                  : 'Recreate file'
+                : 'Save changes'}
             </Button>
           )}
           <Button
@@ -160,30 +176,28 @@ function FileContent({
       </div>
       <FileNotices
         changed={changed}
-        currentDigest={currentDigest}
         error={error}
         pending={pending}
         onRefresh={onRefresh}
         onLoadLatest={() => {
           if (!dirty || window.confirm('Discard your edits and reload the latest file?')) {
-            setBaseline({ text: preview.text, digest: preview.digest })
-            setDraft(preview.text ?? '')
+            setDraft(null)
             write.reset()
             remove.reset()
           }
         }}
       />
-      {baseline.text !== null ? (
+      {content.text !== null ? (
         <TextPreview
           scope={scope}
           path={path}
-          draft={draft}
-          setDraft={setDraft}
+          draft={content.text}
+          setDraft={updateDraft}
           canWrite={canWrite}
           pending={pending}
         />
       ) : (
-        <BinaryPreview bytes={preview.bytes} type={preview.type} path={path} />
+        <BinaryPreview key={preview.digest} bytes={preview.bytes} type={preview.type} path={path} />
       )}
     </div>
   )
@@ -235,7 +249,11 @@ function TextPreview({
       <TabsContent value="source">{editor}</TabsContent>
       <TabsContent value="preview">
         {canPreviewMarkdown ? (
-          <Streamdown mode="static" className="min-h-64 overflow-auto text-sm">
+          <Streamdown
+            mode="static"
+            disallowedElements={['img']}
+            className="min-h-64 overflow-auto text-sm"
+          >
             {draft}
           </Streamdown>
         ) : (
@@ -252,19 +270,18 @@ function TextPreview({
 
 function FileNotices({
   changed,
-  currentDigest,
   error,
   pending,
   onRefresh,
   onLoadLatest,
 }: {
   changed: boolean
-  currentDigest: string | undefined
   error: Error | null
   pending: boolean
   onRefresh: () => void
   onLoadLatest: () => void
 }) {
+  const currentDigest = fileContentConflict(error)?.currentDigest
   return (
     <>
       {changed && (
@@ -300,6 +317,7 @@ function BinaryPreview({
   type: string | null
   path: string
 }) {
+  const [previewFailed, setPreviewFailed] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
   const image = useRef<HTMLImageElement>(null)
   useEffect(() => {
@@ -310,7 +328,7 @@ function BinaryPreview({
       if (next) URL.revokeObjectURL(next)
     }
   }, [bytes, type])
-  if (!type)
+  if (!type || previewFailed)
     return (
       <Empty className="min-h-64 border">
         <EmptyDescription>
@@ -325,6 +343,9 @@ function BinaryPreview({
       ref={image}
       alt={path}
       className="max-h-[65vh] max-w-full self-center rounded-md object-contain"
+      onError={() => {
+        setPreviewFailed(true)
+      }}
     />
   )
 }

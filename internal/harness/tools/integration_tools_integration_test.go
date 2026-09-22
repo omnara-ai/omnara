@@ -2287,12 +2287,12 @@ func compileToolsAgentYAMLResolved(
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedToolsAgentConfigModel(configuredModel), nil
 		},
-		ResolveMemoryStoreName: func(name string) (string, error) {
+		ResolveMemoryStoreName: func(name string) (uuid.UUID, error) {
 			resource, err := store.Memories().Resolve(ctx, toolsTestProjectID, name)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMemoryStore, resource.ID)
+			return resource.ID, nil
 		},
 		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
 			machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, toolsTestProjectID, machineName)

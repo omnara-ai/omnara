@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func (s *Store) MarkProcessStarted(
@@ -332,7 +333,15 @@ func (s *Store) CompleteDaemonProcess(
 					return DaemonProcessReportApplication{}, err
 				}
 			}
-			contentParts, err = ToolResultContentParts(result)
+			contentResult := result
+			if outcome == ToolResultOutcomeSucceeded && toolCall.Type == toolcatalog.ToolTypeBuiltIn &&
+				toolCall.Name == toolcatalog.ToolNameUploadFile {
+				outcome, contentResult, err = uploadMemoryToolResult(toolCall.Input, result)
+				if err != nil {
+					return DaemonProcessReportApplication{}, err
+				}
+			}
+			contentParts, err = ToolResultContentParts(contentResult)
 			if err != nil {
 				return DaemonProcessReportApplication{}, err
 			}
@@ -484,7 +493,7 @@ func shouldCompleteLinkedToolCallOnProcessStartTx(
 	if err != nil {
 		return false, fmt.Errorf("load linked tool call: %w", err)
 	}
-	return !isUploadArtifactToolCall(toolCall), nil
+	return toolCall.Type != toolcatalog.ToolTypeBuiltIn || toolCall.Name != toolcatalog.ToolNameUploadFile, nil
 }
 
 func daemonProcessForReportTx(

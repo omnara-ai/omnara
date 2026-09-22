@@ -579,7 +579,7 @@ func TestDaemonFileProcessScopeRejectsWrongMachine(t *testing.T) {
 	); err != nil || !found {
 		t.Fatalf("accept upload process: found=%t err=%v", found, err)
 	}
-	_, found, err := store.Execution().GetDaemonArtifactProcessScope(
+	_, found, err := store.Execution().GetDaemonFileProcessScope(
 		ctx,
 		fixture.OrgUUID,
 		uuid.UUID{1},

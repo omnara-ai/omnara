@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 var (
@@ -246,11 +245,7 @@ func (e Executor) loadIntegrationFile(ctx context.Context, turn Turn, filePath s
 		_, content, err := e.readMemoryFile(ctx, turn, filePath)
 		return path.Base(filePath), content, err
 	}
-	artifactPublicID, ok := strings.CutPrefix(filePath, toolcatalog.ArtifactVFSRoot+"/")
-	if !ok {
-		return "", nil, errors.New("attachment path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
-	}
-	artifactID, err := publicid.Decode(publicid.KindArtifact, artifactPublicID)
+	artifactID, err := resolveArtifactPath(filePath)
 	if err != nil {
 		return "", nil, err
 	}

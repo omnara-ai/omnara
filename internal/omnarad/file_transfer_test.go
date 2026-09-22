@@ -22,9 +22,9 @@ import (
 func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	toolID := fileTransferTestPublicID(t, publicid.KindToolCall)
 	memoryPath := "/memory/team/nested/file.bin"
-	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("file")))
-	responseDigest := digest
 	want := []byte{0xff, 0x00, 0x80, 0x42}
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(want))
+	responseDigest := digest
 	content := append([]byte(nil), want...)
 	fail := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +61,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(path))
 	var output bytes.Buffer
 	var stderr bytes.Buffer
-	args := []string{"__omnara_file_transfer", "download", toolID, encoded, "--require-digest"}
+	args := []string{"__omnara_file_transfer", "download", toolID, encoded}
 	if code := Run(context.Background(), args, nil, &output, &stderr, discardLogger()); code != 0 {
 		t.Fatalf("download exited %d: %s", code, stderr.String())
 	}
@@ -72,12 +72,9 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	if !bytes.Contains(output.Bytes(), []byte(digest)) {
 		t.Fatal("digest token missing")
 	}
-	transfer := fileTransferRequest{
-		direction: "download", toolCallID: toolID, encodedPath: encoded,
-		endpointSuffix: "/file", requireDigest: true,
-	}
+	direction := "download"
 	fail = true
-	if err = runFileTransfer(context.Background(), transfer, &output); err == nil {
+	if err = runFileTransfer(context.Background(), direction, toolID, encoded, &output); err == nil {
 		t.Fatal("failed download succeeded")
 	}
 	got, err = os.ReadFile(path)
@@ -85,23 +82,29 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 		t.Fatal("failed download changed destination")
 	}
 	fail = false
-	for _, invalid := range []string{"", "invalid"} {
+	content = []byte("incorrect response content")
+	for _, invalid := range []string{"", "invalid", digest} {
 		responseDigest = invalid
-		if err = runFileTransfer(context.Background(), transfer, &output); err == nil {
-			t.Fatal("download with invalid digest succeeded")
+		output.Reset()
+		if err = runFileTransfer(context.Background(), direction, toolID, encoded, &output); err == nil || output.Len() != 0 {
+			t.Fatalf("invalid download: error=%v output=%q", err, output.String())
 		}
 		got, err = os.ReadFile(path)
 		if err != nil || !bytes.Equal(got, want) {
 			t.Fatal("invalid digest changed destination")
 		}
+		entries, err := os.ReadDir(filepath.Dir(path))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("failed download left temporary files: %v %v", entries, err)
+		}
 	}
 	responseDigest = digest
-	transfer.direction = "upload"
+	direction = "upload"
 	output.Reset()
 	if err = os.WriteFile(path, want, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = runFileTransfer(context.Background(), transfer, &output); err != nil {
+	if err = runFileTransfer(context.Background(), direction, toolID, encoded, &output); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(content, want) {
@@ -117,13 +120,13 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	if err = os.WriteFile(path, make([]byte, daemonprotocol.MaxFileTransferBytes+1), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = runFileTransfer(context.Background(), transfer, &output); err == nil {
+	if err = runFileTransfer(context.Background(), direction, toolID, encoded, &output); err == nil {
 		t.Fatal("oversized upload succeeded")
 	}
 	if err = os.WriteFile(path, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = runFileTransfer(context.Background(), transfer, &output); err != nil {
+	if err = runFileTransfer(context.Background(), direction, toolID, encoded, &output); err != nil {
 		t.Fatal(err)
 	}
 	if len(content) != 0 {
@@ -190,9 +193,10 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 	} {
 		uploadResult = invalid
 		var output bytes.Buffer
-		err := runFileTransfer(context.Background(), fileTransferRequest{
-			direction: "upload", toolCallID: toolID, encodedPath: encoded, endpointSuffix: "/file",
-		}, &output)
+		err := runFileTransfer(context.Background(),
+			"upload",
+			toolID,
+			encoded, &output)
 		if err == nil || output.Len() != 0 {
 			t.Fatalf("invalid upload response accepted: %+v, output=%s, err=%v", invalid, output.Bytes(), err)
 		}

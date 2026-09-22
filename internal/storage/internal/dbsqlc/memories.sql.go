@@ -84,19 +84,19 @@ func (q *Queries) DeleteMemoryStore(ctx context.Context, arg DeleteMemoryStorePa
 	return err
 }
 
-const deleteProjectMemoryStores = `-- name: DeleteProjectMemoryStores :exec
+const deleteMemoryStoresForProjects = `-- name: DeleteMemoryStoresForProjects :exec
 UPDATE memory_stores
 SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
-WHERE project_id = $1
+WHERE project_id = ANY($1::uuid[])
   AND deleted_at IS NULL
 `
 
-type DeleteProjectMemoryStoresParams struct {
-	ProjectID uuid.UUID
+type DeleteMemoryStoresForProjectsParams struct {
+	ProjectIds []uuid.UUID
 }
 
-func (q *Queries) DeleteProjectMemoryStores(ctx context.Context, arg DeleteProjectMemoryStoresParams) error {
-	_, err := q.db.Exec(ctx, deleteProjectMemoryStores, arg.ProjectID)
+func (q *Queries) DeleteMemoryStoresForProjects(ctx context.Context, arg DeleteMemoryStoresForProjectsParams) error {
+	_, err := q.db.Exec(ctx, deleteMemoryStoresForProjects, arg.ProjectIds)
 	return err
 }
 
@@ -326,7 +326,7 @@ func (q *Queries) LockMemoryStore(ctx context.Context, arg LockMemoryStoreParams
 	return i, err
 }
 
-const lockMemoryStoreForConfig = `-- name: LockMemoryStoreForConfig :one
+const lockMemoryStoreShared = `-- name: LockMemoryStoreShared :one
 SELECT id
 FROM memory_stores
 WHERE project_id = $1
@@ -335,13 +335,13 @@ WHERE project_id = $1
 FOR SHARE
 `
 
-type LockMemoryStoreForConfigParams struct {
+type LockMemoryStoreSharedParams struct {
 	ProjectID uuid.UUID
 	ID        uuid.UUID
 }
 
-func (q *Queries) LockMemoryStoreForConfig(ctx context.Context, arg LockMemoryStoreForConfigParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, lockMemoryStoreForConfig, arg.ProjectID, arg.ID)
+func (q *Queries) LockMemoryStoreShared(ctx context.Context, arg LockMemoryStoreSharedParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockMemoryStoreShared, arg.ProjectID, arg.ID)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -355,17 +355,17 @@ SELECT EXISTS (
     WHERE a.project_id = $1
       AND a.state = 'active'
       AND c.compiled_definition->'memory_stores' @>
-          jsonb_build_array(jsonb_build_object('public_id', $2::text))
+          jsonb_build_array(jsonb_build_object('id', $2::uuid))
 )
 `
 
 type MemoryStoreHasActiveReferencesParams struct {
 	ProjectID uuid.UUID
-	PublicID  string
+	ID        uuid.UUID
 }
 
 func (q *Queries) MemoryStoreHasActiveReferences(ctx context.Context, arg MemoryStoreHasActiveReferencesParams) (bool, error) {
-	row := q.db.QueryRow(ctx, memoryStoreHasActiveReferences, arg.ProjectID, arg.PublicID)
+	row := q.db.QueryRow(ctx, memoryStoreHasActiveReferences, arg.ProjectID, arg.ID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

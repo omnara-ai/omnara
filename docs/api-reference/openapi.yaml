@@ -7715,7 +7715,7 @@ components:
         current_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
-          description: Current file digest for a file_content_conflict. A replacement must be confirmed before retrying with this digest.
+          description: Current file digest for a file_content_conflict; absent if the file no longer exists. A replacement must be confirmed before retrying with this digest.
         issues:
           type: array
           description: >-
@@ -8908,19 +8908,40 @@ components:
     MemoryStoreList:
       type: object
       additionalProperties: false
-      required:
-        - data
-        - has_more
+      required: [data, next_cursor]
       properties:
         data:
           type: array
           items:
             $ref: "#/components/schemas/MemoryStore"
-        has_more:
-          type: boolean
         next_cursor:
-          type: string
+          type: [string, "null"]
     MemoryFile:
+      oneOf:
+        - $ref: '#/components/schemas/MemoryRegularFile'
+        - $ref: '#/components/schemas/MemoryDirectory'
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/MemoryRegularFile'
+          directory: '#/components/schemas/MemoryDirectory'
+    MemoryRegularFile:
+      type: object
+      additionalProperties: false
+      required: [path, type, size_bytes, modified_at]
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file]
+          x-enum-varnames: [MemoryRegularFileTypeFile]
+        size_bytes:
+          type: integer
+          format: int64
+        modified_at:
+          $ref: '#/components/schemas/Timestamp'
+    MemoryDirectory:
       type: object
       additionalProperties: false
       required: [path, type, modified_at]
@@ -8929,10 +8950,8 @@ components:
           type: string
         type:
           type: string
-          enum: [file, directory]
-        size_bytes:
-          type: integer
-          format: int64
+          enum: [directory]
+          x-enum-varnames: [MemoryDirectoryTypeDirectory]
         modified_at:
           $ref: '#/components/schemas/Timestamp'
     MemoryFileList:
@@ -9622,6 +9641,11 @@ components:
           x-go-type-skip-optional-pointer: true
           items:
             $ref: '#/components/schemas/CompiledSkill'
+        memory_stores:
+          type: array
+          x-go-type-skip-optional-pointer: true
+          items:
+            $ref: '#/components/schemas/CompiledMemoryStore'
         subagents:
           type: object
           x-go-type-skip-optional-pointer: true
@@ -9867,6 +9891,19 @@ components:
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledMemoryStore:
+      type: object
+      additionalProperties: false
+      required: [id, access]
+      properties:
+        id:
+          $ref: '#/components/schemas/MemoryStoreID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+        access:
+          type: string
+          enum: [read_only, read_write]
     CompiledSubagent:
       oneOf:
         - $ref: '#/components/schemas/CompiledSelfSubagent'

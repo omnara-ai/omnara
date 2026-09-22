@@ -619,16 +619,26 @@ export const zUpdateMemoryStore = z.object({
 
 export const zMemoryStoreList = z.object({
     data: z.array(zMemoryStore),
-    has_more: z.boolean(),
-    next_cursor: z.string().optional()
+    next_cursor: z.string().nullable()
 });
 
-export const zMemoryFile = z.object({
+export const zMemoryRegularFile = z.object({
     path: z.string(),
-    type: z.enum(['file', 'directory']),
-    size_bytes: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }).optional(),
+    type: z.enum(['file']),
+    size_bytes: z.coerce.bigint().min(BigInt('-9223372036854775808'), { error: 'Invalid value: Expected int64 to be >= -9223372036854775808' }).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     modified_at: zTimestamp
 });
+
+export const zMemoryDirectory = z.object({
+    path: z.string(),
+    type: z.enum(['directory']),
+    modified_at: zTimestamp
+});
+
+export const zMemoryFile = z.discriminatedUnion('type', [
+    zMemoryRegularFile.extend({ type: z.literal('file') }),
+    zMemoryDirectory.extend({ type: z.literal('directory') })
+]);
 
 export const zMemoryFileList = z.object({
     data: z.array(zMemoryFile),
@@ -1006,6 +1016,11 @@ export const zCompiledSkill = z.object({
     id: zSkillId
 });
 
+export const zCompiledMemoryStore = z.object({
+    id: zMemoryStoreId,
+    access: z.enum(['read_only', 'read_write'])
+});
+
 export const zCompiledSubagentModel = z.object({
     configured_model_id: zConfiguredModelId.optional(),
     context_window_tokens: z.int().optional(),
@@ -1050,6 +1065,7 @@ export const zCompiledAgentConfig = z.object({
     mcp: z.record(z.string(), zCompiledMcpServer).optional(),
     event_webhook: zCompiledEventWebhook.optional(),
     skills: z.array(zCompiledSkill).optional(),
+    memory_stores: z.array(zCompiledMemoryStore).optional(),
     subagents: z.record(z.string(), zCompiledSubagent).optional(),
     max_subagents: z.int().optional(),
     max_depth: z.int().optional()

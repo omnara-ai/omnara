@@ -29,23 +29,23 @@ func (s strictOpenAPIServer) daemonTransferScope(
 	ctx context.Context,
 	toolID string,
 	toolName string,
-) (executionstore.DaemonArtifactProcessScope, error) {
+) (executionstore.DaemonFileProcessScope, error) {
 	scope, err := machineDaemonScopeFromContext(ctx)
 	if err != nil {
-		return executionstore.DaemonArtifactProcessScope{}, *err
+		return executionstore.DaemonFileProcessScope{}, *err
 	}
 	id, ok := parseOpenAPIPublicID(publicid.KindToolCall, toolID)
 	if !ok {
-		return executionstore.DaemonArtifactProcessScope{}, storeerr.ErrNotFound
+		return executionstore.DaemonFileProcessScope{}, storeerr.ErrNotFound
 	}
-	process, found, queryErr := s.server.store.Execution().GetDaemonArtifactProcessScope(
+	process, found, queryErr := s.server.store.Execution().GetDaemonFileProcessScope(
 		ctx, scope.OrgID, scope.MachineID, id, toolName,
 	)
 	if queryErr != nil {
-		return executionstore.DaemonArtifactProcessScope{}, fmt.Errorf("resolve file transfer: %w", queryErr)
+		return executionstore.DaemonFileProcessScope{}, fmt.Errorf("resolve file transfer: %w", queryErr)
 	}
 	if !found {
-		return executionstore.DaemonArtifactProcessScope{}, storeerr.ErrNotFound
+		return executionstore.DaemonFileProcessScope{}, storeerr.ErrNotFound
 	}
 	return process, nil
 }
@@ -58,7 +58,7 @@ type daemonMemoryTarget struct {
 
 func (s strictOpenAPIServer) daemonMemoryScope(
 	ctx context.Context,
-	process executionstore.DaemonArtifactProcessScope,
+	process executionstore.DaemonFileProcessScope,
 ) (daemonMemoryTarget, error) {
 	name, path, parseErr := memorystore.ParsePath(process.Path)
 	if parseErr != nil {
@@ -163,7 +163,7 @@ func (s strictOpenAPIServer) uploadDaemonArtifact(
 	ctx context.Context,
 	publicToolCallID, filename string,
 	body io.Reader,
-	uploadScope executionstore.DaemonArtifactProcessScope,
+	uploadScope executionstore.DaemonFileProcessScope,
 ) (artifactstore.ArtifactRecord, error) {
 	toolCallID, err := publicid.Decode(publicid.KindToolCall, publicToolCallID)
 	if err != nil {
@@ -229,7 +229,7 @@ func (s strictOpenAPIServer) uploadDaemonArtifact(
 
 func (s strictOpenAPIServer) downloadDaemonArtifact(
 	ctx context.Context,
-	downloadScope executionstore.DaemonArtifactProcessScope,
+	downloadScope executionstore.DaemonFileProcessScope,
 	artifactID uuid.UUID,
 ) (artifactContentResponse, error) {
 	content, artifact, err := s.server.store.Artifacts().GetArtifactBlob(

@@ -21,7 +21,7 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 			"skill":       {Enabled: false},
 		},
 		MemoryStores: []agentconfig.MemoryStoreCompiled{
-			{PublicID: "mst_aaaaaaaaaaaaaaaaaaaaaaaaae", Access: "read_only"},
+			{ID: uuid.New(), Access: "read_only"},
 		},
 		Subagents: map[string]agentconfig.SubagentCompiled{"worker": {Type: agentconfig.SubagentTypeSelf}},
 	}

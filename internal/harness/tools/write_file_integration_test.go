@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -40,7 +39,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID: scope.ProjectID, Source: source, SourceFormat: "yaml",
 		ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
-		CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
 		t.Fatal(err)
