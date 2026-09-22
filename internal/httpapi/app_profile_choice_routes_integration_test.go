@@ -74,7 +74,7 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	material := secrets.Material(secrets.GenericMaterial{Value: "test-bot-token"})
-	tenant, account, scopeKind, scopeRef := "100", "200", "guild", "500"
+	tenant, account, scopeKind, scopeRef := "100", "200", "", ""
 	config := json.RawMessage(projectAppHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}))
 	identity := json.RawMessage(`{}`)
 	appType := appdefinition.DiscordThread

@@ -26,7 +26,7 @@ func (s Scope) ConversationJSON() (json.RawMessage, error) {
 
 // ParseConversation reconstructs a concrete address from the indexed routing
 // key. Discord guild IDs are optional metadata and are not part of that key.
-// Parent launcher scopes (workspace, guild, repository, installation) are not
+// Parent launcher scopes (workspace, repository, installation) are not
 // conversations. Numeric GitHub references are canonicalized by Conversation.
 func ParseConversation(provider, kind, ref string) (Scope, error) {
 	kind, ref = strings.TrimSpace(kind), strings.TrimSpace(ref)

@@ -155,7 +155,7 @@ func discordInboxMessage(
 	if message.Self || message.Automated || (message.Message.Type != 0 && message.Message.Type != 19) ||
 		message.Message.GuildID == "" {
 		// This transport subscribes to guild messages, not DMs or ephemeral
-		// system messages. Missing guild facts never become a guild-wide route.
+		// system messages. Only verified guild messages can reach the launcher.
 		return discord.MessageEvent{}, false, nil
 	}
 	return message, true, nil

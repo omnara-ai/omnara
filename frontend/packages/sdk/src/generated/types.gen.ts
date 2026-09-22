@@ -3411,13 +3411,13 @@ export type AppLauncher = {
      */
     trigger: string;
     /**
-     * Launcher scope. Discord requires guild (a server); channel and thread scopes are not supported for Discord launchers.
+     * Required with scope_ref for Slack and GitHub. Omit for Discord; mentions can launch in every server where the bot is installed and permitted.
      */
-    scope_kind: string;
+    scope_kind?: string;
     /**
-     * Provider identifier for the launcher scope. For Discord, use the Server ID, not the Application ID or a Channel ID.
+     * Provider identifier for the Slack or GitHub launcher scope. Omit for Discord; server and channel launch filters are not supported.
      */
-    scope_ref: string;
+    scope_ref?: string;
     /**
      * App-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
      */

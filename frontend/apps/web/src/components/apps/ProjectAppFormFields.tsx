@@ -10,7 +10,7 @@ const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-
 const launcherScopeKinds: Record<AppType, readonly string[]> = {
   slack_thread: ['workspace', 'channel'],
   github_pr: ['repository'],
-  discord_thread: ['guild'],
+  discord_thread: [],
 }
 
 interface LauncherFieldsProps {
@@ -51,9 +51,9 @@ export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
         </>
       ) : (
         <FieldDescription>
-          Choose where mentions start agents and which profiles people can use. Leave the profiles
-          empty to use schedules only. Each schedule has its own profile and destination channel.
-          Existing conversations continue unchanged.
+          Choose which profiles people can start by mentioning the bot. Leave the profiles empty to
+          use schedules only. Each schedule has its own profile and destination channel. Existing
+          conversations continue unchanged.
           {props.app?.settings.launcher &&
             props.slotCount === 0 &&
             ' Saving removes the mention launcher.'}
@@ -114,6 +114,13 @@ function ProjectAppLauncherScopeFields({
   onChange,
   workspaceId,
 }: Pick<LauncherFieldsProps, 'appType' | 'app' | 'values' | 'onChange' | 'workspaceId'>) {
+  if (appType === 'discord_thread')
+    return (
+      <FieldDescription>
+        Mentions work in every server where this bot is installed and has access. Manage server and
+        channel access in Discord.
+      </FieldDescription>
+    )
   if (!launcherScopeKinds[appType].includes(values.scopeKind))
     return (
       <FieldDescription>
@@ -158,11 +165,7 @@ function ProjectAppLauncherScopeFields({
       ) : (
         <Field>
           <FieldLabel htmlFor="launcher-scope">
-            {appType === 'github_pr'
-              ? 'Repository ID'
-              : values.scopeKind === 'guild'
-                ? 'Server ID'
-                : 'Channel ID'}
+            {appType === 'github_pr' ? 'Repository ID' : 'Channel ID'}
           </FieldLabel>
           <Input
             id="launcher-scope"
@@ -175,9 +178,7 @@ function ProjectAppLauncherScopeFields({
           <FieldDescription>
             {appType === 'github_pr'
               ? 'Use the numeric repository ID, not owner/repository.'
-              : values.scopeKind === 'guild'
-                ? 'In Discord, enable User Settings → Advanced → Developer Mode, then right-click your server and choose Copy Server ID. Mentions work wherever the bot has access; manage channel permissions in Discord.'
-                : 'The bot must have access to this channel.'}
+              : 'The bot must have access to this channel.'}
           </FieldDescription>
         </Field>
       )}

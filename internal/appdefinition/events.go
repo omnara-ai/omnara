@@ -40,6 +40,9 @@ func (e Event) MatchesLauncher(trigger string) bool {
 	if e.Validate() != nil {
 		return false
 	}
+	if e.Scope.Discord != nil && e.Scope.Discord.GuildID == "" {
+		return false
+	}
 	switch trigger {
 	case "mention":
 		return e.Mentioned && (e.Kind == "message" || e.Kind == "discussion_comment" || e.Kind == "review_comment")
@@ -51,8 +54,8 @@ func (e Event) MatchesLauncher(trigger string) bool {
 }
 
 // RoutingAddresses derives only proven provider parents. Slack's workspace and
-// GitHub's installation come from the authenticated connection. A Discord bot
-// application spans guilds: its adapter proves guild identity from the event.
+// GitHub's installation come from the authenticated connection. Discord routes
+// subscriptions by conversation; its app-wide launcher needs no parent filter.
 func (e Event) RoutingAddresses(account string) ([]EventAddress, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err
@@ -88,11 +91,6 @@ func (e Event) RoutingAddresses(account string) ([]EventAddress, error) {
 			parent := Scope{Discord: &DiscordScope{ChannelID: e.Scope.Discord.ChannelID}}
 			k, r, _ := parent.Conversation()
 			addresses = append(addresses, EventAddress{k, r})
-		}
-		if e.Scope.Discord.GuildID != "" {
-			if err := add("guild", e.Scope.Discord.GuildID); err != nil {
-				return nil, err
-			}
 		}
 	}
 	return addresses, nil

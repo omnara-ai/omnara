@@ -16,8 +16,6 @@ export async function exerciseDiscordAppSchedule(
     mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
   ).toBeVisible()
   await expect(mentions).toContainText('0/16 selected')
-  // Mention settings are ignored when no launch profiles are selected.
-  await mentions.getByLabel('Server ID', { exact: true }).fill('unused-server')
   const savedSettings = page.waitForResponse(
     (response) =>
       response.request().method() === 'PUT' &&

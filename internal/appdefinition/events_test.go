@@ -38,7 +38,7 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 				Kind:      "message",
 				Mentioned: true,
 			},
-			[]EventAddress{{"thread", "456:789"}, {"channel", "456"}, {"guild", "123"}},
+			[]EventAddress{{"thread", "456:789"}, {"channel", "456"}},
 			"mention",
 		},
 	}
@@ -57,7 +57,9 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	event = tests[2].event
 	addresses, err := event.RoutingAddresses("different-application-account")
 	require.NoError(t, err)
-	require.Equal(t, EventAddress{"guild", "123"}, addresses[len(addresses)-1])
+	require.Equal(t, tests[2].addresses, addresses)
+	event.Scope.Discord.GuildID = ""
+	require.False(t, event.MatchesLauncher("mention"), "Discord launchers do not support DMs")
 	event = tests[1].event
 	event.Kind = "commit"
 	event.Mentioned = true

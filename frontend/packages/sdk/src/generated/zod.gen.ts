@@ -2775,8 +2775,8 @@ export const zAppLaunchSlot = z.intersection(z.unknown(), z.object({
 
 export const zAppLauncher = z.object({
     trigger: z.string(),
-    scope_kind: z.string().min(1),
-    scope_ref: z.string().min(1),
+    scope_kind: z.string().min(1).optional(),
+    scope_ref: z.string().min(1).optional(),
     slots: z.array(zAppLaunchSlot).min(1).max(16)
 });
 

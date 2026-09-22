@@ -103,21 +103,21 @@ describe('app metadata form', () => {
         provider_config: { public_key: 'ab'.repeat(32) },
       }
       const initial = projectAppFormValues(appType, draft)
-      expect(initial.scopeKind).toBe(appType === 'slack_thread' ? 'workspace' : 'guild')
+      expect(initial.scopeKind).toBe(appType === 'slack_thread' ? 'workspace' : '')
       expect(projectAppFormRequest(appType, initial, draft).settings).toEqual({})
       const request = projectAppFormRequest(
         appType,
         {
           ...initial,
-          scopeRef: appType === 'slack_thread' ? 'T123' : '333',
+          scopeRef: appType === 'slack_thread' ? 'T123' : '',
           profileIds: [profileId],
         },
         draft,
       )
       expect(request.settings.launcher).toEqual({
         ...app.settings.launcher,
-        scope_kind: initial.scopeKind,
-        scope_ref: appType === 'slack_thread' ? 'T123' : '333',
+        scope_kind: initial.scopeKind || undefined,
+        scope_ref: appType === 'slack_thread' ? 'T123' : undefined,
       })
       const saved = { ...draft, ...request }
       expect(
@@ -203,8 +203,6 @@ describe('app metadata form', () => {
       settings: {
         launcher: {
           trigger: 'mention',
-          scope_kind: 'guild',
-          scope_ref: '123',
           slots: [{ key: 'default', agent_profile_id: profileId }],
         },
       },

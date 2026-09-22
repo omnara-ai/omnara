@@ -63,9 +63,7 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 							AppType:   appdefinition.DiscordThread,
 							Settings: integrationstore.ProjectAppSettings{
 								Launcher: &integrationstore.AppLauncher{
-									Trigger:   "mention",
-									ScopeKind: "guild",
-									ScopeRef:  "100",
+									Trigger: "mention",
 									Slots: []integrationstore.AppLaunchSlot{
 										{Key: "review", AgentProfileID: &profile.ID},
 									},
@@ -219,6 +217,33 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 				rootReaction, "PUT /api/v10/channels/500/messages/501/reactions/👀/@me",
 			}, reactions(), "react to accepted thread replies, not unrelated messages")
 			require.Equal(t, 1, f.posts)
+			if scenario == "launch and reply" {
+				// The same bot/profile launches separately in another server. Replies
+				// remain bound to the agent for their own thread, not the whole app.
+				f.mu.Lock()
+				f.channels["600"] = discord.Channel{ID: "600", GuildID: "200", Type: 0, Name: "other-server"}
+				f.message.ID, f.message.ChannelID, f.message.GuildID = "700", "600", "200"
+				other := f.message
+				f.mu.Unlock()
+				accept("other-server", other)
+				worked, err = worker.RunOnce(ctx)
+				require.True(t, worked)
+				require.NoError(t, err)
+				other.ID, other.ChannelID, other.Mentions, other.Content = "701", "700", nil, "other reply"
+				accept("other-reply", other)
+				worked, err = worker.RunOnce(ctx)
+				require.True(t, worked)
+				require.NoError(t, err)
+				var agents, smallest, largest int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*), min(inputs), max(inputs)
+					FROM (SELECT agent_id, count(*) AS inputs FROM agent_inputs
+					WHERE project_id=$1 AND input_kind='content' GROUP BY agent_id) counts`, ids.ProjectID).
+					Scan(&agents, &smallest, &largest))
+				require.Equal(t, 2, agents)
+				require.Equal(t, 2, smallest)
+				require.Equal(t, 2, largest)
+				require.Equal(t, 2, f.posts)
+			}
 		})
 	}
 }

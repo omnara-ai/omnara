@@ -321,8 +321,8 @@ func TestAppRuntimeSettingsPreserveLeaseCheckpointAndBackoff(t *testing.T) {
 	updated, err := f.store.UpdateProjectApp(f.ctx, app.ID, integrationstore.SaveProjectAppInput{
 		OrgID: f.org, ProjectID: f.project, Name: app.Name, AppType: app.AppType,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
-			Trigger: "mention", ScopeKind: "guild", ScopeRef: "789",
-			Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
+			Trigger: "mention",
+			Slots:   []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
 		}},
 	})
 	require.NoError(t, err)

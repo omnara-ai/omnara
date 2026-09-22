@@ -298,11 +298,6 @@ func TestAppPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 			Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "300"},
 		},
 		{
-			AgentID: parent,
-			Type:    "thread_messages",
-			Address: integrationstore.ConversationAddress{Kind: "guild", Ref: "100"},
-		},
-		{
 			AgentID: exact,
 			Type:    "thread_messages",
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"},
@@ -315,7 +310,7 @@ func TestAppPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 	for _, slot := range plan {
 		require.Equal(t, exact, slot.AgentID)
 	}
-	requests[0].candidates.Subscriptions = requests[0].candidates.Subscriptions[:2]
+	requests[0].candidates.Subscriptions = requests[0].candidates.Subscriptions[:1]
 	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
 	plan, err = router.buildAppPlan(t.Context(), integrations.receipt, integrations.appSetup, requests)
 	require.NoError(t, err)

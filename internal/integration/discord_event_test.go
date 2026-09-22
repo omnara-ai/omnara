@@ -91,10 +91,6 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	if err != nil || !ok || replayed.SemanticKey != reply.SemanticKey || *replayed.Event.Scope.Discord != want {
 		t.Fatalf("nested event thread altered scope: %+v %v", replayed, err)
 	}
-	addresses, err := reply.Event.RoutingAddresses(appSetup.ProviderTenantID)
-	if err != nil || len(addresses) != 3 || addresses[2].Ref != "100" {
-		t.Fatalf("guild routing inferred from App ID: %+v %v", addresses, err)
-	}
 }
 
 func TestDiscordInboxIgnoresNonConversationalEvents(t *testing.T) {
@@ -274,7 +270,9 @@ func newDiscordInboxFixture(t *testing.T) (*discordInboxFixture, *DiscordAppInbo
 				result = f.message
 			case len(parts) == 5 && parts[4] == "threads" && r.Method == http.MethodPost:
 				f.posts++
-				thread := discord.Channel{ID: parts[3], GuildID: "100", ParentID: parts[1], Type: 11, Name: "conversation"}
+				thread := discord.Channel{
+					ID: parts[3], GuildID: f.channels[parts[1]].GuildID, ParentID: parts[1], Type: 11, Name: "conversation",
+				}
 				f.channels[thread.ID] = thread
 				result = thread
 			case strings.HasPrefix(r.URL.Path, "/attachments/"):

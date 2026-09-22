@@ -52,11 +52,11 @@ these independently configured apps.
 
 ## Launch from mentions
 
-Choose a server and **Profiles for mentions** in the app's settings. Discord mention
-launchers use a server scope in both the dashboard and API (`scope_kind: "guild"`).
-Mentions work throughout that server wherever the bot has permission; control
-channel access in Discord. To copy the Server ID, enable **User Settings →
-Advanced → Developer Mode**, then right-click the server and choose **Copy Server ID**.
+Choose **Profiles for mentions** in the app's settings. Mentions work in every
+server where this bot is installed and permitted; manage server and channel
+access in Discord. All of those servers use this Omnara project's profile choices.
+The API launcher contains `trigger: "mention"` and `slots`; omit `scope_kind`
+and `scope_ref`. Discord launchers do not accept server or channel filters.
 
 A mention in a parent channel creates or reuses the public thread attached to that message. A
 mention already inside a thread uses that thread. One offered profile starts

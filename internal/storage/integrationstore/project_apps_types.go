@@ -17,8 +17,8 @@ type ProjectAppSettings struct {
 
 type AppLauncher struct {
 	Trigger   string          `json:"trigger"`
-	ScopeKind string          `json:"scope_kind"`
-	ScopeRef  string          `json:"scope_ref"`
+	ScopeKind string          `json:"scope_kind,omitempty"`
+	ScopeRef  string          `json:"scope_ref,omitempty"`
 	Slots     []AppLaunchSlot `json:"slots"`
 }
 

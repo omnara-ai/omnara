@@ -151,10 +151,14 @@ func parseProjectAppRequest(
 		OrgID: orgID, ProjectID: projectID, Name: body.Name, AppType: appdefinition.Type(body.AppType),
 	}
 	if source := body.Settings.Launcher; source != nil {
+		if input.AppType == appdefinition.DiscordThread && (source.ScopeKind != nil || source.ScopeRef != nil) {
+			return input, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
+				"Discord launchers do not accept scope_kind or scope_ref; manage bot access in Discord")
+		}
 		launcher := &integrationstore.AppLauncher{
 			Trigger:   source.Trigger,
-			ScopeKind: source.ScopeKind,
-			ScopeRef:  source.ScopeRef,
+			ScopeKind: stringFromPtr(source.ScopeKind),
+			ScopeRef:  stringFromPtr(source.ScopeRef),
 		}
 		for _, sourceSlot := range source.Slots {
 			slot := integrationstore.AppLaunchSlot{Key: sourceSlot.Key}
@@ -213,8 +217,8 @@ func projectAppResponse(app integrationstore.ProjectAppRecord) (openapi.ProjectA
 	if source := app.Settings.Launcher; source != nil {
 		launcher := &openapi.AppLauncher{
 			Trigger:   source.Trigger,
-			ScopeKind: source.ScopeKind,
-			ScopeRef:  source.ScopeRef,
+			ScopeKind: ptrFromNonEmpty(source.ScopeKind),
+			ScopeRef:  ptrFromNonEmpty(source.ScopeRef),
 			Slots:     make([]openapi.AppLaunchSlot, 0, len(source.Slots)),
 		}
 		for _, sourceSlot := range source.Slots {

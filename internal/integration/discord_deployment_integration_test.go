@@ -193,8 +193,8 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		OrgID: f.appSetup.OrgID, ProjectID: f.appSetup.ProjectID, Name: f.appSetup.Name,
 		AppType: f.appSetup.AppType,
 		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
-			Trigger: "mention", ScopeKind: "guild", ScopeRef: "100",
-			Slots: []integrationstore.AppLaunchSlot{{Key: "helper", AgentProfileID: &profile.ID}},
+			Trigger: "mention",
+			Slots:   []integrationstore.AppLaunchSlot{{Key: "helper", AgentProfileID: &profile.ID}},
 		}},
 	})
 	require.NoError(t, err)

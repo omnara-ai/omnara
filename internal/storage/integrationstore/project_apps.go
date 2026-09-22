@@ -233,9 +233,6 @@ func normalizeProjectApp(input SaveProjectAppInput) (SaveProjectAppInput, error)
 	if launcher == nil {
 		return input, nil
 	}
-	if launcher.ScopeKind == "" || launcher.ScopeRef == "" {
-		return input, errors.New("launcher requires an event scope")
-	}
 	kind, ref, err := appdefinition.CanonicalLauncherScope(definition.Provider, launcher.ScopeKind, launcher.ScopeRef)
 	if err != nil {
 		return input, err

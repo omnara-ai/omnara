@@ -29,7 +29,8 @@ func CanonicalLauncherScope(provider, kind, ref string) (string, string, error) 
 		}
 		return kind, strconv.FormatInt(id, 10), nil
 	case provider == ProviderDiscord:
-		if kind != "guild" || !discordID.MatchString(ref) {
+		// Discord installation and permissions determine where mentions can launch.
+		if kind != "" || ref != "" {
 			return invalid()
 		}
 		return kind, ref, nil

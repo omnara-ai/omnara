@@ -361,7 +361,8 @@ func TestAppEventsDiscordGuildDiffersFromAppApplication(t *testing.T) {
 	}
 	requests, err := prepareAppEvents([]AppEvent{event}, appSetup)
 	require.NoError(t, err)
-	require.Contains(t, requests[0].scopes, integrationstore.ConversationAddress{Kind: "guild", Ref: "123"})
+	require.Equal(t, "123", requests[0].event.Event.Scope.Discord.GuildID)
+	require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: "456:789"}, requests[0].address)
 }
 
 func TestSlackInboxRechecksAppSetupAndGrantedCredentialAfterUnwrap(t *testing.T) {

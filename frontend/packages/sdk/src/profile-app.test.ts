@@ -58,7 +58,7 @@ describe('app metadata setup', () => {
         ...base,
         appType,
         profileIds: [first, second],
-        scopeRef: appType === 'slack_thread' ? 'T123' : '18446744073709551615',
+        scopeRef: appType === 'slack_thread' ? 'T123' : undefined,
       })
       expect(app.settings.launcher?.slots).toEqual([
         { key: 'default', agent_profile_id: first },
@@ -114,12 +114,8 @@ describe('app metadata setup', () => {
       profileAppSetup({ ...base, appType: 'slack_thread', scopeRef: 'T123', scopeKind: 'channel' }),
     ).toThrow(/channel ID/)
   })
-  it('uses a server scope for Discord mentions', () => {
-    expect(
-      profileAppSetup({ ...base, appType: 'discord_thread', scopeRef: '123' }).settings.launcher,
-    ).toEqual({
-      scope_kind: 'guild',
-      scope_ref: '123',
+  it('launches Discord mentions without a server filter', () => {
+    expect(profileAppSetup({ ...base, appType: 'discord_thread' }).settings.launcher).toEqual({
       trigger: 'mention',
       slots: [{ key: 'default', agent_profile_id: first }],
     })
@@ -148,7 +144,7 @@ describe('guided launcher scope editing', () => {
       trigger: 'mention',
     })
     expect(() =>
-      profileAppLauncherScope({ appType: 'discord_thread', scopeRef: '18446744073709551616' }),
+      profileAppLauncherScope({ appType: 'github_pr', scopeRef: '9223372036854775808' }),
     ).toThrow(/too large/)
     expect(() =>
       profileAppLauncherScope({ appType: 'slack_thread', scopeRef: 'T123', trigger: 'typo' }),

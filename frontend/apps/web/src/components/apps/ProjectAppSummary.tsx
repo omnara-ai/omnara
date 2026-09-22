@@ -25,7 +25,7 @@ export function ProjectAppSummary({
   return (
     <>
       <p className="text-muted-foreground">
-        {launchMoment(launcher)},{' '}
+        {launchMoment(launcher, app.app_type)},{' '}
         {chat && launcher.slots.length > 1 ? 'they choose one to start:' : 'Omnara starts:'}
       </p>
       <ul className="flex flex-col gap-1.5">
@@ -55,13 +55,13 @@ export function ProjectAppSummary({
   )
 }
 
-function launchMoment(launcher: AppLauncher) {
+function launchMoment(launcher: AppLauncher, appType: ProjectApp['app_type']) {
+  if (appType === 'discord_thread')
+    return 'When someone mentions the bot in any server where it has access'
   const where =
     launcher.scope_kind === 'workspace'
       ? 'anywhere it has been added in the workspace'
-      : launcher.scope_kind === 'guild'
-        ? `anywhere it has access in server ${launcher.scope_ref}`
-        : `in ${launcher.scope_kind} ${launcher.scope_ref}`
+      : `in ${launcher.scope_kind} ${launcher.scope_ref}`
   if (launcher.trigger === 'pull_request_opened') return `When a pull request opens ${where}`
   return launcher.scope_kind === 'repository'
     ? `When someone mentions the bot on a pull request ${where}`

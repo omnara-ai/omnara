@@ -100,6 +100,11 @@ func (s *Store) AppRoutingCandidatesTx(
 	q := dbsqlc.New(tx)
 	result := AppRoutingCandidates{}
 	if launcher := app.Settings.Launcher; launcher != nil {
+		// The app lookup above is the boundary. Discord permits mentions in every
+		// server where this bot is installed; subscriptions stay conversation-scoped.
+		if app.Provider == IntegrationProviderDiscord && launcher.ScopeKind == "" && launcher.ScopeRef == "" {
+			result.Launcher = &app
+		}
 		for _, scope := range unique {
 			if launcher.ScopeKind == scope.Kind && launcher.ScopeRef == scope.Ref {
 				result.Launcher = &app

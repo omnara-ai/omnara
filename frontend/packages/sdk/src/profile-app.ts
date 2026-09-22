@@ -38,7 +38,7 @@ export function profileAppSetup(input: {
   /** Defaults to true; use false to create a metadata-only draft. */
   launcher?: boolean
   scopeRef?: string
-  scopeKind?: 'workspace' | 'channel' | 'repository' | 'guild'
+  scopeKind?: 'workspace' | 'channel' | 'repository'
   trigger?: 'mention' | 'pull_request_opened'
 }): SaveProjectAppRequest {
   const { appType } = input
@@ -79,25 +79,22 @@ export function profileAppLauncherScope(input: {
   trigger?: string
 }): Pick<AppLauncher, 'scope_kind' | 'scope_ref' | 'trigger'> {
   const { appType } = input
-  const scopeKind =
-    input.scopeKind ??
-    (appType === 'slack_thread' ? 'workspace' : appType === 'github_pr' ? 'repository' : 'guild')
-  if (
-    !(
-      appType === 'slack_thread'
-        ? ['workspace', 'channel']
-        : appType === 'github_pr'
-          ? ['repository']
-          : ['guild']
-    ).includes(scopeKind)
-  ) {
-    throw new Error('The launcher scope does not belong to this app type.')
-  }
   const trigger = input.trigger ?? (appType === 'github_pr' ? 'pull_request_opened' : 'mention')
   if (
     !(appType === 'github_pr' ? ['mention', 'pull_request_opened'] : ['mention']).includes(trigger)
   ) {
     throw new Error('The launch trigger does not belong to this app type.')
+  }
+  if (appType === 'discord_thread') {
+    if (input.scopeKind || input.scopeRef)
+      throw new Error('Discord mentions work wherever the bot has access; omit launcher scope.')
+    return { trigger }
+  }
+  const scopeKind = input.scopeKind ?? (appType === 'slack_thread' ? 'workspace' : 'repository')
+  if (
+    !(appType === 'slack_thread' ? ['workspace', 'channel'] : ['repository']).includes(scopeKind)
+  ) {
+    throw new Error('The launcher scope does not belong to this app type.')
   }
   let scopeRef = input.scopeRef?.trim() ?? ''
   if (appType === 'slack_thread') {
@@ -113,8 +110,7 @@ export function profileAppLauncherScope(input: {
   } else {
     if (!/^[1-9][0-9]*$/.test(scopeRef))
       throw new Error('Enter a positive ID without leading zeros.')
-    const max = appType === 'github_pr' ? 9223372036854775807n : 18446744073709551615n
-    if (BigInt(scopeRef) > max) throw new Error('The scope ID is too large.')
+    if (BigInt(scopeRef) > 9223372036854775807n) throw new Error('The scope ID is too large.')
     scopeRef = BigInt(scopeRef).toString()
   }
   return { trigger, scope_kind: scopeKind, scope_ref: scopeRef }

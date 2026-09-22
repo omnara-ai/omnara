@@ -45,8 +45,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
       settings: {
         launcher: {
           trigger: 'mention',
-          scope_kind: appType === 'slack_thread' ? 'workspace' : 'guild',
-          scope_ref: appType === 'slack_thread' ? 'T123' : '333',
+          ...(appType === 'slack_thread' ? { scope_kind: 'workspace', scope_ref: 'T123' } : {}),
           slots: [
             { key: 'original', agent_profile_id: id('aprf') },
             { key: 'continue', agent_id: id('agt') },

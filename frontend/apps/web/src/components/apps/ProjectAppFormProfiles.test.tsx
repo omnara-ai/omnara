@@ -301,8 +301,6 @@ it.each([1, 15])(
       settings: {
         launcher: {
           trigger: 'mention',
-          scope_kind: 'guild',
-          scope_ref: '333',
           slots: [
             { key: 'original', agent_profile_id: support.id },
             ...Array.from({ length: existingCount }, (_, i) => ({
@@ -376,8 +374,6 @@ it('requires a public key for even one Discord launch profile', async () => {
     settings: {
       launcher: {
         trigger: 'mention',
-        scope_kind: 'guild',
-        scope_ref: '333',
         slots: [{ key: 'default', agent_profile_id: support.id }],
       },
     },

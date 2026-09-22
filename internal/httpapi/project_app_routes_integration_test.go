@@ -244,22 +244,38 @@ func TestProjectAppHTTPLauncherReferencesAreProjectScoped(t *testing.T) {
 	}
 }
 
-func TestProjectAppHTTPDiscordLaunchesAreServerScoped(t *testing.T) {
+func TestProjectAppHTTPDiscordLaunchesAcrossServers(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
 	project := bootstrapPublicHTTPProject(t, handler, "discord-server-launcher")
 	profile := createPublicHTTPAgent(t, handler, project, "discord", project.AdminToken)
 	launcher := map[string]any{
-		"trigger": "mention", "scope_kind": "guild", "scope_ref": "123",
-		"slots": []any{map[string]any{"key": "default", "agent_profile_id": profile["id"]}},
+		"trigger": "mention",
+		"slots":   []any{map[string]any{"key": "default", "agent_profile_id": profile["id"]}},
 	}
 	body := projectAppHTTPBody("discord", "discord_thread")
 	body["settings"] = map[string]any{"launcher": launcher}
 	app := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
 		projectAppHTTPJSON(t, body), "", http.StatusCreated, authHeaders(project.AdminToken))
 	appPath := project.ProjectPath + "/apps/" + testutil.RequireType[string](t, app["id"])
-	for _, scope := range []struct{ kind, ref string }{{"channel", "456"}, {"thread", "456:789"}} {
-		launcher["scope_kind"], launcher["scope_ref"] = scope.kind, scope.ref
+	app = requestJSONWithHeaders(t, handler, http.MethodPut, appPath,
+		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
+	savedLauncher := testutil.RequireType[map[string]any](t,
+		testutil.RequireType[map[string]any](t, app["settings"])["launcher"])
+	require.NotContains(t, savedLauncher, "scope_kind")
+	require.NotContains(t, savedLauncher, "scope_ref")
+	for _, scope := range []map[string]any{
+		{"scope_kind": "guild", "scope_ref": "123"},
+		{"scope_kind": "channel", "scope_ref": "456"},
+		{"scope_kind": "thread", "scope_ref": "456:789"},
+		{"scope_kind": "guild"}, {"scope_ref": "123"}, {"scope_kind": " "},
+		{"scope_kind": ""}, {"scope_ref": ""},
+	} {
+		delete(launcher, "scope_kind")
+		delete(launcher, "scope_ref")
+		for key, value := range scope {
+			launcher[key] = value
+		}
 		for _, request := range []struct{ method, path string }{
 			{http.MethodPost, project.ProjectPath + "/apps"}, {http.MethodPut, appPath},
 		} {
@@ -270,4 +286,11 @@ func TestProjectAppHTTPDiscordLaunchesAreServerScoped(t *testing.T) {
 	stored := requestJSONWithHeaders(t, handler, http.MethodGet, appPath,
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	require.Equal(t, app["settings"], stored["settings"])
+	delete(launcher, "scope_kind")
+	delete(launcher, "scope_ref")
+	for _, appType := range []string{"slack_thread", "github_pr"} {
+		body["app_type"] = appType
+		requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
+			projectAppHTTPJSON(t, body), "", http.StatusBadRequest, authHeaders(project.AdminToken))
+	}
 }
