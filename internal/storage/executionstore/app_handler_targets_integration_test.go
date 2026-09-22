@@ -48,7 +48,7 @@ func (f appInteractionFixture) selectionCall(t *testing.T) executionstore.Execut
 	}
 }
 
-func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
+func TestAppHandlerSelectionCreatesAndReusesTargets(t *testing.T) {
 	t.Parallel()
 	f := newAppInteractionFixture(t)
 	config, err := f.store.Execution().
@@ -68,13 +68,6 @@ func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
 			Scan(&count),
 	)
 	require.Zero(t, count, "config save and activation create no handler targets")
-	page, err := f.store.Execution().
-		ListInteractionHandlers(f.ctx, testProjectID, launch.Agent.ID, "", 1)
-	require.NoError(t, err)
-	require.Len(t, page.Handlers, 1)
-	require.Equal(t, "chat", page.Handlers[0].Handler)
-	require.Nil(t, page.Selection)
-	require.NotEmpty(t, page.NextCursor)
 	lock, err := f.store.Execution().
 		AcquireAgentRuntimeLock(f.ctx, testProjectID, launch.Agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
 	require.NoError(t, err)
@@ -96,18 +89,6 @@ func TestAppHandlersDiscoverWithoutMaterializedTargets(t *testing.T) {
 			Scan(&count),
 	)
 	require.Equal(t, 1, count, "selection creates and reuses canonical attribution")
-	next, err := f.store.Execution().
-		ListInteractionHandlers(f.ctx, testProjectID, launch.Agent.ID, page.NextCursor, 1)
-	require.NoError(t, err)
-	require.Equal(t, "other", next.Handlers[0].Handler)
-	require.Equal(
-		t,
-		"chat",
-		next.Selection.Handler,
-		"current selection is independent of pagination",
-	)
-	require.JSONEq(t, `{"channel_id":"C777","thread_ts":"111.222"}`, string(next.Selection.Args))
-	require.Equal(t, "111.222", next.Selection.Destination.Slack.ThreadTS)
 	f.disable(t)
 	replay, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
 		ProjectID:      testProjectID,
@@ -133,12 +114,6 @@ func TestAppHandlerActivationClearsRevokedSelectionAndPreservesCapture(t *testin
 	require.JSONEq(t, string(prompt.Destination), string(f.read(t, prompt.ID).Destination))
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
 	require.NoError(t, err, "revocation preserves attribution/history")
-	page, err := f.store.Execution().
-		ListInteractionHandlers(f.ctx, testProjectID, f.process.AgentID, "", 100)
-	require.NoError(t, err)
-	require.Len(t, page.Handlers, 1)
-	require.Equal(t, "other", page.Handlers[0].Handler)
-	require.Nil(t, page.Selection)
 }
 
 func TestAppHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {

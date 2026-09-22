@@ -383,8 +383,6 @@ type fakeContextStore struct {
 	messages                   []executionstore.ContextEventRecord
 	toolCalls                  []executionstore.ToolCallRecord
 	completedToolCallWatermark int64
-	interactionHandlers        agentconfig.InteractionHandlerPage
-	interactionHandlerRequests []handlerListRequest
 	appDefinitions             map[uuid.UUID]agentconfig.AppResolution
 	appDefinitionRequests      []appDefinitionRequest
 	appDefinitionsErr          error
@@ -511,24 +509,9 @@ func (s *fakeContextStore) ListCompletedToolCallsAtWatermark(
 	return out, nil
 }
 
-type handlerListRequest struct {
-	ProjectID, AgentID uuid.UUID
-	Cursor             string
-	Limit              int
-}
 type appDefinitionRequest struct {
 	ProjectID uuid.UUID
 	IDs       []uuid.UUID
-}
-
-func (s *fakeContextStore) ListInteractionHandlers(
-	_ context.Context, projectID, agentID uuid.UUID, cursor string, limit int,
-) (agentconfig.InteractionHandlerPage, error) {
-	s.interactionHandlerRequests = append(
-		s.interactionHandlerRequests,
-		handlerListRequest{projectID, agentID, cursor, limit},
-	)
-	return s.interactionHandlers, nil
 }
 
 func (s *fakeContextStore) ResolveAppDefinitions(

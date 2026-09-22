@@ -70,11 +70,6 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 	if len(bundle.Messages) > 0 && lastCheckpointEnd > 0 && bundle.Messages[0].Sequence <= lastCheckpointEnd {
 		return fmt.Errorf("transcript tail overlaps checkpoint range")
 	}
-	if routing := bundle.InteractionRouting; routing != nil && routing.Destination != nil {
-		if routing.Destination.Handler == "" || !json.Valid(routing.Destination.Args) {
-			return fmt.Errorf("interaction destination requires a handler and valid arguments")
-		}
-	}
 	seenAvailableMachinePools := map[string]bool{}
 	for _, pool := range bundle.AvailableMachinePools {
 		if pool.MachinePoolName == "" {

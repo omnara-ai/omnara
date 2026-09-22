@@ -196,9 +196,6 @@ func buildMessages(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if bundle.InteractionRouting != nil {
-		capacity++
-	}
 	messages := make([]chatMessage, 0, capacity)
 	if systemPrompt := modelcontext.ProjectedSystemPrompt(bundle); strings.TrimSpace(systemPrompt) != "" {
 		messages = append(messages, chatMessage{Role: chatRoleSystem, Content: systemPrompt})
@@ -234,12 +231,6 @@ func buildMessages(
 		messages = append(messages, chatMessage{
 			Role:    chatRoleSystem,
 			Content: modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-		})
-	}
-	if bundle.InteractionRouting != nil {
-		messages = append(messages, chatMessage{
-			Role:    chatRoleSystem,
-			Content: modelcontext.InteractionRoutingContent(bundle.InteractionRouting),
 		})
 	}
 	if len(messages) == 0 {

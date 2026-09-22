@@ -173,14 +173,6 @@ func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 			),
 		})
 	}
-	if bundle.InteractionRouting != nil {
-		blocks = append(blocks, textBlock{
-			Type: "text",
-			Text: modelcontext.InteractionRoutingContent(
-				bundle.InteractionRouting,
-			),
-		})
-	}
 	if control != nil {
 		blocks[len(blocks)-1].CacheControl = control
 	}

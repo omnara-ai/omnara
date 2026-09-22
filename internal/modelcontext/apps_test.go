@@ -10,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -113,58 +112,6 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 	}
 }
 
-func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t *testing.T) {
-	store, appID := appContextFixture(t, "interaction_handlers: {engineering: {}}\n")
-	publicAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
-	require.NoError(t, err)
-	args := json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
-	store.interactionHandlers = agentconfig.InteractionHandlerPage{
-		Selection:  &agentconfig.HandlerSelection{Handler: "engineering", AppID: publicAppID, Args: args},
-		Handlers:   []agentconfig.InteractionHandlerEntry{{Handler: "another", Description: "Another app"}},
-		NextCursor: "next",
-	}
-	bundle := buildAppContext(t, store)
-	require.Equal(t, &InteractionDestinationRef{Handler: "engineering", Args: args}, bundle.InteractionRouting.Destination)
-	content := InteractionRoutingContent(bundle.InteractionRouting)
-	require.Contains(t, content, `"handler":"engineering"`)
-	require.Contains(t, content, `"channel_id":"C123"`)
-	require.Contains(t, content, `"thread_ts":"111.222"`)
-	require.Contains(t, content, "Omnara dashboard")
-	require.NotContains(t, content, publicAppID)
-	require.NotContains(t, content, testIDN(940).String())
-	require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"), "a handler grants no send tool")
-	require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
-	require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSetInteractionHandler))
-	require.Equal(
-		t,
-		[]handlerListRequest{{ProjectID: testProjectID, AgentID: testAgentID, Limit: 1}},
-		store.interactionHandlerRequests,
-	)
-	store.interactionHandlers.Handlers = nil
-	require.Equal(t, bundle.InteractionRouting, buildAppContext(t, store).InteractionRouting,
-		"selection is returned independently even when the page is empty")
-	store.interactionHandlers.Selection = nil
-	store.interactionHandlers.Handlers = []agentconfig.InteractionHandlerEntry{{Handler: "another"}}
-	revoked := buildAppContext(t, store)
-	require.Nil(t, revoked.InteractionRouting.Destination)
-	require.Contains(t, InteractionRoutingContent(revoked.InteractionRouting), "dashboard only")
-}
-
-func TestBuildInteractionSelectionCannotRetargetPinnedApp(t *testing.T) {
-	store, _ := appContextFixture(t, "interaction_handlers: {engineering: {}}\n")
-	replacement, err := publicid.Encode(publicid.KindProjectApp, testIDN(942))
-	require.NoError(t, err)
-	for _, selection := range []*agentconfig.HandlerSelection{
-		{Handler: "engineering", AppID: replacement, Args: json.RawMessage(`{}`)},
-		{Handler: "not-configured", AppID: replacement, Args: json.RawMessage(`{}`)},
-	} {
-		store.interactionHandlers.Selection = selection
-		bundle := buildAppContext(t, store)
-		require.Nil(t, bundle.InteractionRouting.Destination)
-		require.Contains(t, InteractionRoutingContent(bundle.InteractionRouting), "dashboard only")
-	}
-}
-
 func TestBuildInteractionToolsFollowConfig(t *testing.T) {
 	for _, test := range []struct {
 		name, source string
@@ -184,10 +131,6 @@ interaction_handlers: {engineering: {}}
 			bundle := buildAppContext(t, store)
 			for _, name := range toolcatalog.InteractionHandlerToolNames() {
 				require.Equal(t, test.wantTools, HasTool(bundle.ToolSpecs, name))
-			}
-			require.Contains(t, InteractionRoutingContent(bundle.InteractionRouting), "dashboard only")
-			if test.source == "" {
-				require.Empty(t, store.interactionHandlerRequests)
 			}
 		})
 	}

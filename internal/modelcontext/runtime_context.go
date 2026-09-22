@@ -10,17 +10,6 @@ func MachinePoolContextEnabled(specs []ToolSpec) bool {
 	return HasTool(specs, toolcatalog.ToolNameCreateMachine)
 }
 
-func InteractionRoutingContent(routing *InteractionRoutingContext) string {
-	if routing == nil || routing.Destination == nil {
-		return "New questions and permission prompts will appear in the Omnara dashboard only."
-	}
-	body, err := json.Marshal(routing.Destination)
-	if err != nil {
-		return "The current interaction destination could not be serialized."
-	}
-	return "Default destination for new questions and permission prompts: " + string(body) + ". They also remain available in the Omnara dashboard. Ordinary provider messages do not change this choice. A newly accepted input with an origin may change it."
-}
-
 func AvailableMachinePoolsContent(pools []MachinePoolRef) string {
 	if len(pools) == 0 {
 		return "The `create_machine` tool is enabled, but no machine pools are currently available to this agent."

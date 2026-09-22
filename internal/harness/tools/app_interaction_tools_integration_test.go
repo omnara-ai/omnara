@@ -135,8 +135,10 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	f := newInteractionToolFixture(t, ctx, "interaction-selection", "chat", "overlap")
 	overlap, err := f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "overlap")
 	require.NoError(t, err)
-	seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, overlap,
-		integrationstore.ConversationAddress{Kind: "thread", Ref: "C999:999.1"})
+	var targets int
+	require.NoError(t, f.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, f.Agent.ID).Scan(&targets))
+	require.Zero(t, targets)
 	calls := []model.ToolCall{
 		{
 			ID:    "list-before",
@@ -170,6 +172,8 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 		require.Equal(t, key, choice["handler"])
 		require.NotNil(t, choice["input_schema"])
 	}
+	seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, overlap,
+		integrationstore.ConversationAddress{Kind: "thread", Ref: "C999:999.1"})
 	dispatchInteractionHandler(t, ctx, f, turn, calls[1])
 	selected := map[string]any{"handler": "overlap", "args": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}}
 	require.Equal(t, selected, interactionToolResult(t, ctx, f, calls[1])["selection"])
@@ -192,6 +196,7 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, selected["handler"], listed["handler"])
 	require.Equal(t, selected["args"], listed["args"])
+	require.Equal(t, map[string]any{"slack": selected["args"]}, listed["destination"])
 	publicAppID, err := publicid.Encode(publicid.KindProjectApp, overlap.ID)
 	require.NoError(t, err)
 	require.Equal(t, publicAppID, listed["app_id"])
@@ -210,8 +215,10 @@ func TestInteractionToolRejectsUnavailableChoiceWithoutMutation(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-revoked", "chat")
-	call := f.recordToolCall(t, ctx, "set-revoked", toolcatalog.ToolNameSetInteractionHandler,
-		`{"handler":"chat","args":{"channel_id":"C123","thread_ts":"111.222"}}`, f.Now)
+	call := model.ToolCall{ID: "set-revoked", Name: toolcatalog.ToolNameSetInteractionHandler,
+		Input: json.RawMessage(`{"handler":"chat","args":{"channel_id":"C123","thread_ts":"111.222"}}`)}
+	list := model.ToolCall{ID: "list-revoked", Name: toolcatalog.ToolNameListInteractionHandlers, Input: json.RawMessage(`{}`)}
+	f.recordToolCalls(t, ctx, []model.ToolCall{call, list}, f.Now)
 	activateInteractionToolHandlers(t, ctx, f)
 	result, err := (Executor{Store: f.Store}).Dispatch(
 		ctx, interactionToolTurn(f, toolpermission.ModeAlwaysAllow), call,
@@ -232,6 +239,10 @@ func TestInteractionToolRejectsUnavailableChoiceWithoutMutation(t *testing.T) {
 		record.Outcome,
 		"failed command cannot commit success",
 	)
+	dispatchInteractionHandler(t, ctx, f, interactionToolTurn(f, toolpermission.ModeAlwaysAllow), list)
+	page := interactionToolResult(t, ctx, f, list)
+	require.Equal(t, []any{}, page["handlers"])
+	require.Nil(t, page["selection"])
 }
 
 func TestInteractionToolAlwaysAskUsesOriginalAuthorizationInput(t *testing.T) {

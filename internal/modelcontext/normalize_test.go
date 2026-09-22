@@ -9,42 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func TestProjectionNormalizerValidatesInteractionRouting(t *testing.T) {
-	base := Bundle{
-		ProjectID:          testProjectID,
-		AgentID:            testAgentID,
-		TurnID:             testTurnID,
-		OpeningInputIDs:    []uuid.UUID{testInputID},
-		InputEventSequence: 1,
-	}
-	for _, test := range []struct {
-		name        string
-		destination *InteractionDestinationRef
-		valid       bool
-	}{
-		{name: "dashboard only", valid: true},
-		{name: "handler with destination", destination: &InteractionDestinationRef{
-			Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`),
-		}, valid: true},
-		{name: "opaque empty arguments", destination: &InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{}`)}, valid: true},
-		{name: "missing arguments", destination: &InteractionDestinationRef{Handler: "slack"}},
-		{name: "missing handler", destination: &InteractionDestinationRef{Args: json.RawMessage(`{}`)}},
-		{name: "malformed arguments", destination: &InteractionDestinationRef{
-			Handler: "slack", Args: json.RawMessage(`{"channel_id":`),
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			bundle := base
-			bundle.InteractionRouting = &InteractionRoutingContext{Destination: test.destination}
-			err := (ProjectionNormalizer{}).Normalize(bundle)
-			if test.valid != (err == nil) {
-				t.Fatalf("destination %+v validation: %v", test.destination, err)
-			}
-		})
-	}
-
-}
-
 func TestProjectionNormalizerAcceptsAssistantMessageRole(t *testing.T) {
 	bundle := Bundle{
 		ProjectID:          testProjectID,

@@ -162,13 +162,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
-	if hasInteractionHandler(contract) {
-		destinations, err := b.Store.ListInteractionHandlers(ctx, input.ProjectID, input.AgentID, "", 1)
-		if err != nil {
-			return Bundle{}, err
-		}
-		bundle.InteractionRouting = interactionRoutingContext(destinations, contract)
-	}
 	for _, toolCall := range toolCalls {
 		parts := toolCall.ResultContentParts
 		if len(parts) == 0 {

@@ -327,19 +327,6 @@ func TestAppInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 	f.change(t, f.handlers)
 	require.Equal(t, executionstore.InteractionSelection{}, f.selectOrigin(t, f.a.ID),
 		"ambiguous origin clears the selection")
-	page, err := f.store.Execution().
-		ListInteractionHandlers(f.ctx, testProjectID, f.process.AgentID, "", 100)
-	require.NoError(t, err)
-	var keys []string
-	for _, handler := range page.Handlers {
-		keys = append(keys, handler.Handler)
-	}
-	require.Equal(
-		t,
-		[]string{"chat", "other", "overlap"},
-		keys,
-		"handlers need no subscription, tool, or materialized target",
-	)
 	toolID := createToolCallForProcessTest(
 		t,
 		f.ctx,
@@ -367,7 +354,7 @@ func TestAppInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 			), nil
 		}
 	}
-	_, err = f.store.Execution().ExecuteToolCall(f.ctx, input, selectCommand("missing"))
+	_, err := f.store.Execution().ExecuteToolCall(f.ctx, input, selectCommand("missing"))
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	_, err = f.store.Execution().ExecuteToolCall(f.ctx, input, selectCommand("overlap"))
 	require.NoError(t, err)

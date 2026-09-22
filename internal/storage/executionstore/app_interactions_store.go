@@ -127,23 +127,6 @@ func (s *Store) ReconcileInteractionSelectionTx(
 	)
 }
 
-func (s *Store) ListInteractionHandlers(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-	cursor string,
-	limit int,
-) (agentconfig.InteractionHandlerPage, error) {
-	tx, err := s.pool.BeginTx(
-		ctx,
-		pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
-	)
-	if err != nil {
-		return agentconfig.InteractionHandlerPage{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	return listInteractionHandlers(ctx, dbsqlc.New(tx), projectID, agentID, cursor, limit)
-}
-
 func (s *Store) GetSelectedInteractionDestination(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,

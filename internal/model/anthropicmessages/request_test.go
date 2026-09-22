@@ -613,9 +613,6 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		Context: modelcontext.Bundle{
 			SystemPrompt:      "sys",
 			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
-			InteractionRouting: &modelcontext.InteractionRoutingContext{
-				Destination: &modelcontext.InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123"}`)},
-			},
 			Messages: []modelcontext.Message{
 				{
 					Sequence: 1,
@@ -659,12 +656,9 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		!strings.Contains(system, "context_checkpoint") {
 		t.Fatalf("expected only fixed checkpoint guidance in the cached system prefix: %s", system)
 	}
-	if len(systemBlocks) != 2 || systemBlocks[0].CacheControl != nil ||
-		systemBlocks[1].CacheControl == nil ||
-		!strings.Contains(systemBlocks[1].Text, "Default destination for new questions and permission prompts") ||
-		!strings.Contains(systemBlocks[1].Text, "C123") ||
-		strings.Contains(systemBlocks[1].Text, "internal-target-id") {
-		t.Fatalf("expected integration target refs without durable ids: %s", system)
+	if len(systemBlocks) != 1 || systemBlocks[0].CacheControl == nil ||
+		!strings.HasPrefix(systemBlocks[0].Text, "sys\n\n") {
+		t.Fatalf("expected a cache breakpoint on the system prefix: %s", system)
 	}
 	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 2 {
 		t.Fatalf("messages = %+v, want checkpoint/history blocks", payload.Messages)

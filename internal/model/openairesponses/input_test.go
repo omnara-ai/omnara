@@ -3,7 +3,6 @@ package openairesponses
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -13,14 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
-
-func openAITextMessage(role modelprotocol.MessageRole, text string) modelcontext.Message {
-	return modelcontext.Message{
-		Role:     role,
-		Sequence: 1,
-		Content:  json.RawMessage(`[{"type":"text","text":` + strconv.Quote(text) + `}]`),
-	}
-}
 
 func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
@@ -186,63 +177,6 @@ func TestPrepareExplainsWhenCreateMachineHasNoAvailablePools(t *testing.T) {
 	}
 	if !strings.Contains(string(prepared.Body), "no machine pools are currently available") {
 		t.Fatalf("missing empty machine-pool context: %s", prepared.Body)
-	}
-}
-
-func TestPrepareIncludesInteractionRoutingAtEndOfProviderInput(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
-		SystemPrompt: "sys",
-		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
-		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameAskQuestion}},
-		InteractionRouting: &modelcontext.InteractionRoutingContext{
-			Destination: &modelcontext.InteractionDestinationRef{Handler: "slack", Args: json.RawMessage(`{"channel_id":"C123"}`)},
-		},
-	}})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload struct {
-		Input []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode prepared payload: %v", err)
-	}
-	if len(payload.Input) != 2 {
-		t.Fatalf("expected message and integration targets, got %d: %s", len(payload.Input), prepared.Body)
-	}
-	last := payload.Input[len(payload.Input)-1]
-	var lastContent string
-	if err := json.Unmarshal(last.Content, &lastContent); err != nil {
-		t.Fatalf("system content not a string: %s", last.Content)
-	}
-	if last.Role != string(responsesRoleSystem) ||
-		!strings.Contains(lastContent, "Default destination for new questions and permission prompts") ||
-		!strings.Contains(lastContent, "C123") ||
-		!strings.Contains(lastContent, `"handler":"slack"`) {
-		t.Fatalf("expected integration targets as final provider input item, got %+v in %s", last, prepared.Body)
-	}
-	if strings.Contains(lastContent, "internal-target-id") {
-		t.Fatalf("integration target content leaked durable id: %s", lastContent)
-	}
-}
-
-func TestPrepareOmitsInteractionRoutingForAskQuestion(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
-		SystemPrompt: "sys",
-		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
-		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameAskQuestion}},
-	}})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if strings.Contains(string(prepared.Body), "Default destination for new questions and permission prompts") ||
-		strings.Contains(string(prepared.Body), "C123") {
-		t.Fatalf("integration target context leaked into ask_question request: %s", prepared.Body)
 	}
 }
 

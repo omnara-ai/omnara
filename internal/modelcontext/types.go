@@ -23,20 +23,19 @@ type BuildInput struct {
 }
 
 type Bundle struct {
-	ProjectID             uuid.UUID                  `json:"-"`
-	AgentID               uuid.UUID                  `json:"-"`
-	TurnID                uuid.UUID                  `json:"-"`
-	OpeningInputIDs       []uuid.UUID                `json:"-"`
-	InputEventSequence    int64                      `json:"-"`
-	SystemPrompt          string                     `json:"system_prompt"`
-	Messages              []Message                  `json:"messages"`
-	ToolSpecs             []ToolSpec                 `json:"tool_specs"`
-	ToolResults           []ToolResultRef            `json:"tool_results"`
-	AvailableMachinePools []MachinePoolRef           `json:"machine_pools,omitempty"`
-	InteractionRouting    *InteractionRoutingContext `json:"interaction_routing,omitempty"`
-	ContextCheckpoint     *CheckpointRef             `json:"context_checkpoint,omitempty"`
-	ResolvedMedia         map[string]ResolvedMedia   `json:"resolved_media,omitempty"`
-	RenderedMedia         []RenderedMedia            `json:"-"`
+	ProjectID             uuid.UUID                `json:"-"`
+	AgentID               uuid.UUID                `json:"-"`
+	TurnID                uuid.UUID                `json:"-"`
+	OpeningInputIDs       []uuid.UUID              `json:"-"`
+	InputEventSequence    int64                    `json:"-"`
+	SystemPrompt          string                   `json:"system_prompt"`
+	Messages              []Message                `json:"messages"`
+	ToolSpecs             []ToolSpec               `json:"tool_specs"`
+	ToolResults           []ToolResultRef          `json:"tool_results"`
+	AvailableMachinePools []MachinePoolRef         `json:"machine_pools,omitempty"`
+	ContextCheckpoint     *CheckpointRef           `json:"context_checkpoint,omitempty"`
+	ResolvedMedia         map[string]ResolvedMedia `json:"resolved_media,omitempty"`
+	RenderedMedia         []RenderedMedia          `json:"-"`
 }
 
 type MediaProjector interface {
@@ -133,14 +132,6 @@ type ToolResultRef struct {
 	Input               json.RawMessage                  `json:"input"`
 	Outcome             executionstore.ToolResultOutcome `json:"-"`
 	ContentParts        json.RawMessage                  `json:"content_parts"`
-}
-
-type InteractionRoutingContext struct {
-	Destination *InteractionDestinationRef `json:"destination"`
-}
-type InteractionDestinationRef struct {
-	Handler string          `json:"handler"`
-	Args    json.RawMessage `json:"args"`
 }
 
 type MachinePoolRef struct {

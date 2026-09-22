@@ -14,10 +14,6 @@ import (
 )
 
 type ExecutionStore interface {
-	ListInteractionHandlers(
-		ctx context.Context,
-		projectID, agentID uuid.UUID, cursor string, limit int,
-	) (agentconfig.InteractionHandlerPage, error)
 	IsOutputLimitBoundary(ctx context.Context, projectID, agentID uuid.UUID, sequence int64) (bool, error)
 	CaptureAgentConfigForModelContext(
 		ctx context.Context,

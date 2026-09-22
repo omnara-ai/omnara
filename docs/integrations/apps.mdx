@@ -281,6 +281,8 @@ Destinations can change at runtime without changing the config. The list is
 paginated and returns each handler's description and static argument schema,
 plus the current selection independently of the page. The model selects a handler
 and destination arguments, or uses `{"handler": null, "args": {}}` for dashboard only.
+The model discovers handlers and the current selection through the list tool;
+Omnara does not append this routing information to model requests.
 
 Selecting a handler requires complete destination arguments, independently of the
 app's sending context. For example:

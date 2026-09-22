@@ -38,9 +38,6 @@ func buildInput(
 	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
-	if bundle.InteractionRouting != nil {
-		capacity++
-	}
 	items := make([]any, 0, capacity)
 	clientToolSearch := modelcontext.DeferredToolsEnabled(bundle.ToolSpecs)
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil {
@@ -105,15 +102,6 @@ func buildInput(
 			map[string]any{
 				"role":    responsesRoleSystem,
 				"content": modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-			},
-		)
-	}
-	if bundle.InteractionRouting != nil {
-		items = append(
-			items,
-			map[string]any{
-				"role":    responsesRoleSystem,
-				"content": modelcontext.InteractionRoutingContent(bundle.InteractionRouting),
 			},
 		)
 	}
