@@ -241,7 +241,9 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 				}
 			}
 		}
-		compiled.EventWebhook = &EventWebhookCompiled{URL: webhookURL, SigningSecretID: secretID, Events: source.EventWebhook.Events}
+		compiled.EventWebhook = &EventWebhookCompiled{
+			URL: webhookURL, SigningSecretID: secretID, Events: source.EventWebhook.Events,
+		}
 	}
 	machines, err := compileMachineSources(source.MachineSources, opts)
 	if err != nil {

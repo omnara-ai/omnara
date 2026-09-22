@@ -9008,7 +9008,7 @@ components:
         default_max_output_tokens:
           type: integer
         cache_retention:
-          type: string
+          $ref: '#/components/schemas/ModelCacheRetention'
           x-go-type-skip-optional-pointer: true
         reasoning:
           $ref: '#/components/schemas/CompiledModelReasoning'
@@ -9083,6 +9083,8 @@ components:
           type: boolean
         type:
           type: string
+          enum: [built_in, custom]
+          x-enum-varnames: [CompiledToolTypeBuiltIn, CompiledToolTypeCustom]
           x-go-type-skip-optional-pointer: true
         permission:
           $ref: '#/components/schemas/ToolPermissionSelection'
@@ -9125,12 +9127,53 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/CompiledMCPTool'
     CompiledMCPAuth:
+      oneOf:
+        - $ref: '#/components/schemas/CompiledMCPAuthBearer'
+        - $ref: '#/components/schemas/CompiledMCPAuthOAuth'
+        - $ref: '#/components/schemas/CompiledMCPAuthSigV4'
+      discriminator:
+        propertyName: type
+        mapping:
+          bearer: '#/components/schemas/CompiledMCPAuthBearer'
+          oauth: '#/components/schemas/CompiledMCPAuthOAuth'
+          sigv4: '#/components/schemas/CompiledMCPAuthSigV4'
+    CompiledMCPAuthBearer:
       type: object
       additionalProperties: false
       required: [type, secret_id]
       properties:
         type:
           type: string
+          enum: [bearer]
+          x-enum-varnames: [CompiledMCPAuthBearerTypeBearer]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledMCPAuthOAuth:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id]
+      properties:
+        type:
+          type: string
+          enum: [oauth]
+          x-enum-varnames: [CompiledMCPAuthOAuthTypeOAuth]
+        secret_id:
+          $ref: '#/components/schemas/SecretID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledMCPAuthSigV4:
+      type: object
+      additionalProperties: false
+      required: [type, secret_id, service, region]
+      properties:
+        type:
+          type: string
+          enum: [sigv4]
+          x-enum-varnames: [CompiledMCPAuthSigV4TypeSigV4]
         secret_id:
           $ref: '#/components/schemas/SecretID'
           x-go-type: publicid.ID
@@ -9138,10 +9181,10 @@ components:
             path: github.com/omnara-ai/omnara/internal/publicid
         service:
           type: string
-          x-go-type-skip-optional-pointer: true
+          minLength: 1
         region:
           type: string
-          x-go-type-skip-optional-pointer: true
+          minLength: 1
     CompiledMCPTool:
       type: object
       additionalProperties: false
@@ -9158,26 +9201,57 @@ components:
     CompiledSkill:
       type: object
       additionalProperties: false
-      required: [public_id]
+      required: [id]
       properties:
-        public_id:
+        id:
           $ref: '#/components/schemas/SkillID'
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
     CompiledSubagent:
+      oneOf:
+        - $ref: '#/components/schemas/CompiledSelfSubagent'
+        - $ref: '#/components/schemas/CompiledProfileSubagent'
+      discriminator:
+        propertyName: type
+        mapping:
+          self: '#/components/schemas/CompiledSelfSubagent'
+          profile: '#/components/schemas/CompiledProfileSubagent'
+    CompiledSelfSubagent:
       type: object
       additionalProperties: false
       required: [type]
       properties:
         type:
           type: string
+          enum: [self]
+          x-enum-varnames: [CompiledSelfSubagentTypeSelf]
+        description:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        model:
+          $ref: '#/components/schemas/CompiledSubagentModel'
+        instruction_append:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        max_instances:
+          type: integer
+        archive_after_idle_minutes:
+          type: integer
+    CompiledProfileSubagent:
+      type: object
+      additionalProperties: false
+      required: [type, profile_id]
+      properties:
+        type:
+          type: string
+          enum: [profile]
+          x-enum-varnames: [CompiledProfileSubagentTypeProfile]
         profile_id:
           $ref: '#/components/schemas/AgentProfileID'
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
-          x-go-type-skip-optional-pointer: true
         description:
           type: string
           x-go-type-skip-optional-pointer: true
@@ -9205,7 +9279,7 @@ components:
         default_max_output_tokens:
           type: integer
         cache_retention:
-          type: string
+          $ref: '#/components/schemas/ModelCacheRetention'
           x-go-type-skip-optional-pointer: true
         reasoning:
           $ref: '#/components/schemas/CompiledModelReasoning'

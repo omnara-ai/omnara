@@ -885,7 +885,7 @@ export const zCompiledAgentModel = z.object({
     configured_model_id: zConfiguredModelId,
     context_window_tokens: z.int().optional(),
     default_max_output_tokens: z.int().optional(),
-    cache_retention: z.string().optional(),
+    cache_retention: zModelCacheRetention.optional(),
     reasoning: zCompiledModelReasoning.optional()
 });
 
@@ -906,19 +906,35 @@ export const zCompiledMachineSource = z.object({
 
 export const zCompiledTool = z.object({
     enabled: z.boolean(),
-    type: z.string().optional(),
+    type: z.enum(['built_in', 'custom']).optional(),
     permission: zToolPermissionSelection,
     deferred: z.boolean().optional(),
     description: z.string().optional(),
     input_schema: z.record(z.string(), z.unknown()).optional()
 });
 
-export const zCompiledMcpAuth = z.object({
-    type: z.string(),
-    secret_id: zSecretId,
-    service: z.string().optional(),
-    region: z.string().optional()
+export const zCompiledMcpAuthBearer = z.object({
+    type: z.enum(['bearer']),
+    secret_id: zSecretId
 });
+
+export const zCompiledMcpAuthOAuth = z.object({
+    type: z.enum(['oauth']),
+    secret_id: zSecretId
+});
+
+export const zCompiledMcpAuthSigV4 = z.object({
+    type: z.enum(['sigv4']),
+    secret_id: zSecretId,
+    service: z.string().min(1),
+    region: z.string().min(1)
+});
+
+export const zCompiledMcpAuth = z.discriminatedUnion('type', [
+    zCompiledMcpAuthBearer.extend({ type: z.literal('bearer') }),
+    zCompiledMcpAuthOAuth.extend({ type: z.literal('oauth') }),
+    zCompiledMcpAuthSigV4.extend({ type: z.literal('sigv4') })
+]);
 
 export const zCompiledMcpTool = z.object({
     enabled: z.boolean().optional(),
@@ -936,26 +952,40 @@ export const zCompiledMcpServer = z.object({
 });
 
 export const zCompiledSkill = z.object({
-    public_id: zSkillId
+    id: zSkillId
 });
 
 export const zCompiledSubagentModel = z.object({
     configured_model_id: zConfiguredModelId.optional(),
     context_window_tokens: z.int().optional(),
     default_max_output_tokens: z.int().optional(),
-    cache_retention: z.string().optional(),
+    cache_retention: zModelCacheRetention.optional(),
     reasoning: zCompiledModelReasoning.optional()
 });
 
-export const zCompiledSubagent = z.object({
-    type: z.string(),
-    profile_id: zAgentProfileId.optional(),
+export const zCompiledSelfSubagent = z.object({
+    type: z.enum(['self']),
     description: z.string().optional(),
     model: zCompiledSubagentModel.optional(),
     instruction_append: z.string().optional(),
     max_instances: z.int().optional(),
     archive_after_idle_minutes: z.int().optional()
 });
+
+export const zCompiledProfileSubagent = z.object({
+    type: z.enum(['profile']),
+    profile_id: zAgentProfileId,
+    description: z.string().optional(),
+    model: zCompiledSubagentModel.optional(),
+    instruction_append: z.string().optional(),
+    max_instances: z.int().optional(),
+    archive_after_idle_minutes: z.int().optional()
+});
+
+export const zCompiledSubagent = z.discriminatedUnion('type', [
+    zCompiledSelfSubagent.extend({ type: z.literal('self') }),
+    zCompiledProfileSubagent.extend({ type: z.literal('profile') })
+]);
 
 /**
  * Read-only saved compiled configuration, including default tools and derived subagent overrides.

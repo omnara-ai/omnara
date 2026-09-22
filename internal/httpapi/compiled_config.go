@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -25,7 +26,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			ConfiguredModelId:      modelID,
 			ContextWindowTokens:    compiled.Model.ContextWindowTokens,
 			DefaultMaxOutputTokens: compiled.Model.DefaultMaxOutputTokens,
-			CacheRetention:         compiled.Model.CacheRetention,
+			CacheRetention:         openapi.ModelCacheRetention(compiled.Model.CacheRetention),
 			Reasoning:              (*openapi.CompiledModelReasoning)(compiled.Model.Reasoning),
 		},
 	}
@@ -79,7 +80,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 	response.Tools = make(map[string]openapi.CompiledTool, len(compiled.Tools))
 	for name, tool := range compiled.Tools {
 		response.Tools[name] = openapi.CompiledTool{
-			Enabled: tool.Enabled, Type: tool.Type, Permission: tool.Permission,
+			Enabled: tool.Enabled, Type: openapi.CompiledToolType(tool.Type), Permission: tool.Permission,
 			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
 		}
 	}
@@ -95,9 +96,21 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			if err != nil {
 				return openapi.CompiledAgentConfig{}, err
 			}
-			mcp.Auth = &openapi.CompiledMCPAuth{
-				Type: server.Auth.Type, SecretId: secretID,
-				Service: server.Auth.Service, Region: server.Auth.Region,
+			mcp.Auth = &openapi.CompiledMCPAuth{}
+			switch server.Auth.Type {
+			case agentconfig.MCPAuthTypeBearer:
+				err = mcp.Auth.FromCompiledMCPAuthBearer(openapi.CompiledMCPAuthBearer{SecretId: secretID})
+			case agentconfig.MCPAuthTypeOAuth:
+				err = mcp.Auth.FromCompiledMCPAuthOAuth(openapi.CompiledMCPAuthOAuth{SecretId: secretID})
+			case agentconfig.MCPAuthTypeSigV4:
+				err = mcp.Auth.FromCompiledMCPAuthSigV4(openapi.CompiledMCPAuthSigV4{
+					SecretId: secretID, Service: server.Auth.Service, Region: server.Auth.Region,
+				})
+			default:
+				return openapi.CompiledAgentConfig{}, fmt.Errorf("unsupported compiled MCP auth type %q", server.Auth.Type)
+			}
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
 			}
 		}
 		for toolName, tool := range server.Tools {
@@ -112,36 +125,51 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		if err != nil {
 			return openapi.CompiledAgentConfig{}, err
 		}
-		response.Skills = append(response.Skills, openapi.CompiledSkill{PublicId: id})
+		response.Skills = append(response.Skills, openapi.CompiledSkill{Id: id})
 	}
 	response.Subagents = make(map[string]openapi.CompiledSubagent, len(compiled.Subagents))
 	for name, subagent := range compiled.Subagents {
-		child := openapi.CompiledSubagent{
-			Type: subagent.Type, Description: subagent.Description,
-			InstructionAppend: subagent.InstructionAppend, MaxInstances: subagent.MaxInstances,
-			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
-		}
-		if subagent.ProfileID != uuid.Nil {
-			child.ProfileId, err = publicCompiledID(publicid.KindAgentProfile, subagent.ProfileID)
-			if err != nil {
-				return openapi.CompiledAgentConfig{}, err
-			}
-		}
+		var model *openapi.CompiledSubagentModel
 		if subagent.Model != nil {
-			child.Model = &openapi.CompiledSubagentModel{
+			model = &openapi.CompiledSubagentModel{
 				ContextWindowTokens:    subagent.Model.ContextWindowTokens,
 				DefaultMaxOutputTokens: subagent.Model.DefaultMaxOutputTokens,
-				CacheRetention:         subagent.Model.CacheRetention,
+				CacheRetention:         openapi.ModelCacheRetention(subagent.Model.CacheRetention),
 				Reasoning:              (*openapi.CompiledModelReasoning)(subagent.Model.Reasoning),
 			}
 			if subagent.Model.ConfiguredModelID != uuid.Nil {
-				child.Model.ConfiguredModelId, err = publicCompiledID(
+				model.ConfiguredModelId, err = publicCompiledID(
 					publicid.KindConfiguredModel, subagent.Model.ConfiguredModelID,
 				)
 				if err != nil {
 					return openapi.CompiledAgentConfig{}, err
 				}
 			}
+		}
+		var child openapi.CompiledSubagent
+		switch subagent.Type {
+		case agentconfig.SubagentTypeSelf:
+			err = child.FromCompiledSelfSubagent(openapi.CompiledSelfSubagent{
+				Model: model, Description: subagent.Description,
+				InstructionAppend: subagent.InstructionAppend, MaxInstances: subagent.MaxInstances,
+				ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
+			})
+		case agentconfig.SubagentTypeProfile:
+			var profileID publicid.ID
+			profileID, err = publicCompiledID(publicid.KindAgentProfile, subagent.ProfileID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
+			}
+			err = child.FromCompiledProfileSubagent(openapi.CompiledProfileSubagent{
+				ProfileId: profileID, Model: model, Description: subagent.Description,
+				InstructionAppend: subagent.InstructionAppend, MaxInstances: subagent.MaxInstances,
+				ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
+			})
+		default:
+			return openapi.CompiledAgentConfig{}, fmt.Errorf("unsupported compiled subagent type %q", subagent.Type)
+		}
+		if err != nil {
+			return openapi.CompiledAgentConfig{}, err
 		}
 		response.Subagents[name] = child
 	}

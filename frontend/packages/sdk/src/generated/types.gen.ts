@@ -1211,7 +1211,7 @@ export type CompiledAgentModel = {
     configured_model_id: ConfiguredModelId;
     context_window_tokens?: number;
     default_max_output_tokens?: number;
-    cache_retention?: string;
+    cache_retention?: ModelCacheRetention;
     reasoning?: CompiledModelReasoning;
 };
 
@@ -1242,7 +1242,7 @@ export type CompiledMachineSource = {
 
 export type CompiledTool = {
     enabled: boolean;
-    type?: string;
+    type?: 'built_in' | 'custom';
     permission: ToolPermissionSelection;
     deferred?: boolean;
     description?: string;
@@ -1262,11 +1262,29 @@ export type CompiledMcpServer = {
     };
 };
 
-export type CompiledMcpAuth = {
-    type: string;
+export type CompiledMcpAuth = ({
+    type: 'bearer';
+} & CompiledMcpAuthBearer) | ({
+    type: 'oauth';
+} & CompiledMcpAuthOAuth) | ({
+    type: 'sigv4';
+} & CompiledMcpAuthSigV4);
+
+export type CompiledMcpAuthBearer = {
+    type: 'bearer';
     secret_id: SecretId;
-    service?: string;
-    region?: string;
+};
+
+export type CompiledMcpAuthOAuth = {
+    type: 'oauth';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthSigV4 = {
+    type: 'sigv4';
+    secret_id: SecretId;
+    service: string;
+    region: string;
 };
 
 export type CompiledMcpTool = {
@@ -1276,12 +1294,27 @@ export type CompiledMcpTool = {
 };
 
 export type CompiledSkill = {
-    public_id: SkillId;
+    id: SkillId;
 };
 
-export type CompiledSubagent = {
-    type: string;
-    profile_id?: AgentProfileId;
+export type CompiledSubagent = ({
+    type: 'self';
+} & CompiledSelfSubagent) | ({
+    type: 'profile';
+} & CompiledProfileSubagent);
+
+export type CompiledSelfSubagent = {
+    type: 'self';
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledProfileSubagent = {
+    type: 'profile';
+    profile_id: AgentProfileId;
     description?: string;
     model?: CompiledSubagentModel;
     instruction_append?: string;
@@ -1293,7 +1326,7 @@ export type CompiledSubagentModel = {
     configured_model_id?: ConfiguredModelId;
     context_window_tokens?: number;
     default_max_output_tokens?: number;
-    cache_retention?: string;
+    cache_retention?: ModelCacheRetention;
     reasoning?: CompiledModelReasoning;
 };
 
