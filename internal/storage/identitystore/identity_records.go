@@ -288,6 +288,8 @@ type CreateOAuthAuthorizationCodeInput struct {
 	RedirectURI      string
 	CodeChallenge    string
 	Resource         string
+	Scope            string
+	Nonce            string
 }
 
 type ExchangeOAuthAuthorizationCodeInput struct {
@@ -299,12 +301,18 @@ type ExchangeOAuthAuthorizationCodeInput struct {
 }
 
 type RefreshOAuthAccessTokenInput struct {
+	Scope        string
 	RefreshToken string
 	ClientID     string
 	Resource     string
 }
 
 type OAuthTokenSetRecord struct {
+	UserID       uuid.UUID
+	ClientID     string
+	Scope        string
+	Nonce        string
+	Email        string
 	AccessToken  string
 	RefreshToken string
 	ExpiresIn    time.Duration
@@ -312,6 +320,7 @@ type OAuthTokenSetRecord struct {
 }
 
 type OAuthAccessTokenAuthentication struct {
+	Scope     string
 	Principal PrincipalRecord
 	Resource  string
 }

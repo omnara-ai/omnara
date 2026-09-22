@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 )
 
 type Store interface {
+	OIDCSigningKey(context.Context) (*rsa.PrivateKey, error)
+	AuthenticateOAuthAccessToken(context.Context, string) (identitystore.OAuthAccessTokenAuthentication, error)
 	RevokeBrowserSession(context.Context, string) error
 	StartPasswordSignup(
 		context.Context,
@@ -135,6 +138,10 @@ func (r RouteContract) RequiresAuth() bool {
 }
 
 var authRouteContracts = []RouteContract{
+	{Method: http.MethodGet, Pattern: OIDCDiscoveryPath, Access: RouteAccessPublicAuth},
+	{Method: http.MethodGet, Pattern: OIDCJWKSPath, Access: RouteAccessPublicAuth},
+	{Method: http.MethodGet, Pattern: OIDCUserInfoPath, Access: RouteAccessPublicAuth},
+	{Method: http.MethodPost, Pattern: OIDCUserInfoPath, Access: RouteAccessPublicAuth},
 	{Method: http.MethodGet, Pattern: OAuthAuthorizationServerMetadataPath, Access: RouteAccessPublicAuth},
 	{Method: http.MethodPost, Pattern: "/api/auth/signup", Access: RouteAccessPublicSameOrigin},
 	{Method: http.MethodPost, Pattern: "/api/auth/login", Access: RouteAccessPublicSameOrigin},
@@ -196,6 +203,10 @@ func httpClientWithoutRedirects(client *http.Client) *http.Client {
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /.well-known/openid-configuration", h.authorizationServerMetadataRoute)
+	mux.HandleFunc("GET /.well-known/jwks.json", h.oidcJWKSRoute)
+	mux.HandleFunc("GET /api/auth/userinfo", h.oidcUserInfoRoute)
+	mux.HandleFunc("POST /api/auth/userinfo", h.oidcUserInfoRoute)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", h.authorizationServerMetadataRoute)
 	mux.HandleFunc("POST /api/auth/signup", h.passwordSignupRoute)
 	mux.HandleFunc("POST /api/auth/login", h.passwordLoginRoute)

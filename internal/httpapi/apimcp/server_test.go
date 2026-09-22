@@ -199,6 +199,18 @@ func TestManifestCompiles(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("%s has no description", tool.Name)
 		}
+		if tool.Title == "" || tool.Annotations == nil || tool.Annotations.Title != tool.Title {
+			t.Errorf("%s title=%q annotations=%+v, want matching titles", tool.Name, tool.Title, tool.Annotations)
+		}
+		properties := testutil.RequireType[map[string]any](t, schema["properties"])
+		for name, property := range properties {
+			decoded := testutil.RequireType[map[string]any](t, property)
+			_, typed := decoded["type"]
+			_, nullable := decoded["anyOf"]
+			if !typed && !nullable {
+				t.Errorf("%s argument %q has no type: %v", tool.Name, name, decoded)
+			}
+		}
 	}
 }
 
@@ -210,15 +222,19 @@ func TestAnnotationsDeriveFromMethod(t *testing.T) {
 		name        string
 		readOnly    bool
 		idempotent  bool
-		destructive *bool
+		destructive bool
 	}{
-		{name: "agents_list", readOnly: true, idempotent: true, destructive: new(false)},
+		{name: "agents_list", readOnly: true, idempotent: true},
 		{name: "agents_launch"},
-		{name: "secrets_update"},
-		{name: "pools_update", idempotent: true},
-		{name: "models_delete", idempotent: true, destructive: new(true)},
-		{name: "agents_cancel", destructive: new(true)},
-		{name: "agents_archive", destructive: new(true)},
+		{name: "grant_skills_add"},
+		{name: "secrets_update", destructive: true},
+		{name: "crons_update", destructive: true},
+		{name: "pools_update", idempotent: true, destructive: true},
+		{name: "agents_update", destructive: true},
+		{name: "profiles_update", destructive: true},
+		{name: "models_delete", idempotent: true, destructive: true},
+		{name: "agents_cancel", destructive: true},
+		{name: "agents_archive", destructive: true},
 	}
 	for _, tc := range cases {
 		annotations := tools[tc.name].Annotations
@@ -226,11 +242,8 @@ func TestAnnotationsDeriveFromMethod(t *testing.T) {
 			t.Errorf("%s readOnly=%v idempotent=%v, want %v/%v",
 				tc.name, annotations.ReadOnlyHint, annotations.IdempotentHint, tc.readOnly, tc.idempotent)
 		}
-		switch {
-		case tc.destructive == nil && annotations.DestructiveHint != nil:
-			t.Errorf("%s destructiveHint=%v, want unset", tc.name, *annotations.DestructiveHint)
-		case tc.destructive != nil && (annotations.DestructiveHint == nil || *annotations.DestructiveHint != *tc.destructive):
-			t.Errorf("%s destructiveHint=%v, want %v", tc.name, annotations.DestructiveHint, *tc.destructive)
+		if annotations.DestructiveHint == nil || *annotations.DestructiveHint != tc.destructive {
+			t.Errorf("%s destructiveHint=%v, want %v", tc.name, annotations.DestructiveHint, tc.destructive)
 		}
 	}
 }

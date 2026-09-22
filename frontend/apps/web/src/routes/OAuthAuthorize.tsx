@@ -106,6 +106,11 @@ export function OAuthAuthorize() {
               <Detail label="Client ID" value={state.request.clientId} />
               <Detail label="Redirects to" value={state.request.redirectHost} />
             </div>
+            {state.request.scope.split(' ').includes('email') && (
+              <p className="text-muted-foreground text-sm">
+                This application will also receive your verified email address.
+              </p>
+            )}
             {state.request.loopback && (
               <p className="text-muted-foreground text-sm">
                 This application redirects to a program running on your own computer. Only approve
