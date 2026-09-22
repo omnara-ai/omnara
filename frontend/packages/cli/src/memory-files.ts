@@ -1,6 +1,7 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { open, writeFile } from 'node:fs/promises'
+import { buffer } from 'node:stream/consumers'
 
-import { sdk } from '@omnara/sdk'
+import { MAX_MEMORY_FILE_BYTES, sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
@@ -12,7 +13,21 @@ export const zMemoryUploadBody = z.object({
 })
 
 export async function loadMemoryUpload(file: string): Promise<Blob> {
-  return new Blob([new Uint8Array(await readFile(file))])
+  const handle = await open(file, 'r')
+  try {
+    if ((await handle.stat()).size > MAX_MEMORY_FILE_BYTES) {
+      throw new CliInputError('memory file exceeds the 10 MiB upload limit')
+    }
+    const bytes = await buffer(
+      handle.createReadStream({ end: MAX_MEMORY_FILE_BYTES, autoClose: false }),
+    )
+    if (bytes.length > MAX_MEMORY_FILE_BYTES) {
+      throw new CliInputError('memory file exceeds the 10 MiB upload limit')
+    }
+    return new Blob([new Uint8Array(bytes)])
+  } finally {
+    await handle.close()
+  }
 }
 
 export const memoryDownloadOp = customOp({

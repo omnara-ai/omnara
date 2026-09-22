@@ -55,6 +55,15 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		require.NoError(t, json.Unmarshal(written.Body.Bytes(), &result))
 		require.Equal(t, "/memory/notes/"+name, result["path"])
 		require.Equal(t, blobstore.ContentDigest(body), result["digest"])
+		listed := requestJSONWithHeaders(t, handler, http.MethodGet, base+"/files?path=folder",
+			"", "", http.StatusOK, authHeaders(project.AdminToken))
+		entries, ok := listed["data"].([]any)
+		require.True(t, ok)
+		require.Len(t, entries, 1)
+		entry, ok := entries[0].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "file", entry["type"])
+		require.Equal(t, float64(len(body)), entry["size_bytes"])
 		rec := request(http.MethodGet, file(name), nil,
 			project.AdminToken, http.StatusOK)
 		require.True(t, bytes.Equal(body, rec.Body.Bytes()))
@@ -100,6 +109,19 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		)
 		request(http.MethodGet, file(name), nil,
 			project.AdminToken, http.StatusNotFound)
+		missing := request(
+			http.MethodPut, file(name)+"&expected_digest="+url.QueryEscape(digest), body,
+			project.AdminToken, http.StatusConflict,
+		)
+		var missingBody map[string]string
+		require.NoError(t, json.Unmarshal(missing.Body.Bytes(), &missingBody))
+		require.Equal(t, "file_content_conflict", missingBody["code"])
+		require.NotContains(t, missingBody, "current_digest")
+		request(http.MethodPut, file(name), body, project.AdminToken, http.StatusOK)
+		request(
+			http.MethodDelete, file(name)+"&expected_digest="+url.QueryEscape(blobstore.ContentDigest(body)), nil,
+			project.AdminToken, http.StatusNoContent,
+		)
 		empty = request(http.MethodGet, base+"/files", nil,
 			project.AdminToken, http.StatusOK)
 		require.JSONEq(t, `{"data":[],"next_cursor":null}`, empty.Body.String())
@@ -145,6 +167,16 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	)
 	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &page))
 	require.Equal(t, "b.txt", page.Data[0].Path)
+	third := requestJSONWithHeaders(t, handler, http.MethodGet, base+"/files?limit=1&cursor="+url.QueryEscape(*page.Next),
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	entries, ok := third["data"].([]any)
+	require.True(t, ok)
+	require.Len(t, entries, 1)
+	directory, ok := entries[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "directory", directory["type"])
+	require.Equal(t, "nested", directory["path"])
+	require.NotContains(t, directory, "size_bytes")
 	nested := request(http.MethodGet, base+"/files?path=nested", nil,
 		project.AdminToken, http.StatusOK)
 	require.NoError(t, json.Unmarshal(nested.Body.Bytes(), &page))

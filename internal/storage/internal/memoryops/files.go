@@ -2,6 +2,7 @@ package memoryops
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ type StoreRef struct {
 	staging string
 }
 
-func NewStoreRef(orgID, projectID, storeID uuid.UUID, name string) (StoreRef, error) {
+func NewStoreRef(orgID, projectID uuid.UUID, name string) (StoreRef, error) {
 	if err := skills.ValidateName(name); err != nil {
 		return StoreRef{}, err
 	}
@@ -40,8 +41,8 @@ func NewStoreRef(orgID, projectID, storeID uuid.UUID, name string) (StoreRef, er
 	if err != nil {
 		return StoreRef{}, err
 	}
-	parent := org + "/" + project
-	return StoreRef{Name: name, path: parent + "/" + name, staging: ".staging/" + parent + "/" + storeID.String()}, nil
+	storePath := org + "/" + project + "/" + name
+	return StoreRef{Name: name, path: storePath, staging: ".staging/" + storePath}, nil
 }
 
 func OpenFilesystem(dir string) (*Filesystem, error) {
@@ -74,7 +75,7 @@ func OpenFilesystem(dir string) (*Filesystem, error) {
 			probeErr = errors.Join(probeErr, file.Close(), root.Remove(probe))
 		}
 		if probeErr == nil {
-			probeErr = files.syncParents(name)
+			probeErr = syncParents(root, name)
 		}
 		if probeErr != nil {
 			_ = root.Close()
@@ -112,7 +113,7 @@ func CheckPath(root *os.Root, name string) error {
 			return fmt.Errorf("unsupported memory file type: %w", storeerr.ErrConflict)
 		}
 		if i < len(parts)-1 && !info.IsDir() {
-			return fmt.Errorf("memory parent is a file: %w", storeerr.ErrConflict)
+			return fmt.Errorf("memory parent is a file: %w: %w", storeerr.ErrConflict, syscall.ENOTDIR)
 		}
 	}
 	return nil
@@ -159,7 +160,7 @@ func (f *Filesystem) Lock(ctx context.Context, ref StoreRef) (*os.File, error) {
 	}
 }
 
-func Read(root *os.Root, name string) ([]byte, error) {
+func openRegularFile(root *os.Root, name string) (*os.File, error) {
 	if err := CheckPath(root, name); err != nil {
 		return nil, err
 	}
@@ -167,14 +168,23 @@ func Read(root *os.Root, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = fmt.Errorf("memory path is not a regular file: %w", storeerr.ErrConflict)
+	}
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func Read(root *os.Root, name string) ([]byte, error) {
+	file, err := openRegularFile(root, name)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("memory path is not a regular file: %w", storeerr.ErrConflict)
-	}
+	defer func() { _ = file.Close() }()
 	body, err := io.ReadAll(io.LimitReader(file, daemonprotocol.MaxFileTransferBytes+1))
 	if err != nil {
 		return nil, err
@@ -183,6 +193,23 @@ func Read(root *os.Root, name string) ([]byte, error) {
 		return nil, errors.New("memory file exceeds transfer limit")
 	}
 	return body, nil
+}
+
+func Digest(root *os.Root, name string) (string, error) {
+	file, err := openRegularFile(root, name)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	size, err := io.Copy(hash, io.LimitReader(file, daemonprotocol.MaxFileTransferBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if size > daemonprotocol.MaxFileTransferBytes {
+		return "", errors.New("memory file exceeds transfer limit")
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
 }
 
 func (f *Filesystem) Stage(ref StoreRef, content []byte) (string, error) {
@@ -207,13 +234,18 @@ func (f *Filesystem) Stage(ref StoreRef, content []byte) (string, error) {
 	}
 	err = errors.Join(err, file.Close())
 	if err != nil {
-		_ = f.root.Remove(name)
-		return "", err
+		return "", errors.Join(err, f.Discard(name))
 	}
 	return name, nil
 }
 
-func (f *Filesystem) Discard(staged string) { _ = f.root.Remove(staged) }
+func (f *Filesystem) Discard(staged string) error {
+	err := f.root.Remove(staged)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
 
 func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, name, staged string) error {
 	if err := ctx.Err(); err != nil {
@@ -239,15 +271,24 @@ func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, n
 	if err := CheckPath(f.root, ref.staging); err != nil {
 		return err
 	}
-	if err := f.root.Rename(staged, ref.path+"/"+name); err != nil {
+	source, err := f.root.Open(ref.staging)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = source.Close() }()
+	destination, err := root.Open(path.Dir(name))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = destination.Close() }()
+	if err := renameFile(source, path.Base(staged), destination, path.Base(name)); err != nil {
 		return fmt.Errorf("publish memory file: %w", err)
 	}
-	return f.syncParents(path.Dir(ref.path + "/" + name))
+	return f.syncStoreParents(ref, root, path.Dir(name))
 }
 
-func (f *Filesystem) Sync(ref StoreRef, name string) error {
-	name = ref.path + "/" + name
-	file, err := f.root.Open(name)
+func (f *Filesystem) Sync(ref StoreRef, root *os.Root, name string) error {
+	file, err := root.Open(name)
 	if err != nil {
 		return err
 	}
@@ -255,12 +296,19 @@ func (f *Filesystem) Sync(ref StoreRef, name string) error {
 	if err != nil {
 		return err
 	}
-	return f.syncParents(path.Dir(name))
+	return f.syncStoreParents(ref, root, path.Dir(name))
 }
 
-func (f *Filesystem) syncParents(name string) error {
+func (f *Filesystem) syncStoreParents(ref StoreRef, root *os.Root, name string) error {
+	if err := syncParents(root, name); err != nil {
+		return err
+	}
+	return syncParents(f.root, path.Dir(ref.path))
+}
+
+func syncParents(root *os.Root, name string) error {
 	for {
-		dir, err := f.root.Open(name)
+		dir, err := root.Open(name)
 		if err != nil {
 			return err
 		}
@@ -294,7 +342,7 @@ func (f *Filesystem) RemoveScope(orgID uuid.UUID, projectID *uuid.UUID) error {
 		}
 		scope += "/" + project
 	}
-	return f.remove(scope, ".staging/"+scope)
+	return f.remove(scope, ".staging/"+scope, ".locks/"+scope)
 }
 
 func (f *Filesystem) remove(paths ...string) error {
@@ -303,20 +351,21 @@ func (f *Filesystem) remove(paths ...string) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	var cleanupErr error
 	for _, name := range paths {
-		if _, err := root.Lstat(name); errors.Is(err, fs.ErrNotExist) {
+		if _, err := root.Lstat(name); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
 			continue
-		} else if err != nil {
-			return err
 		}
-		if err := root.RemoveAll(name); err != nil {
-			return err
+		err := root.RemoveAll(name)
+		if err == nil {
+			err = syncParents(f.root, path.Dir(name))
 		}
-		if err := f.syncParents(path.Dir(name)); err != nil {
-			return err
-		}
+		cleanupErr = errors.Join(cleanupErr, err)
 	}
-	return nil
+	return cleanupErr
 }
 
 func (f *Filesystem) RemoveFile(ref StoreRef, root *os.Root, name string) error {
@@ -333,5 +382,5 @@ func (f *Filesystem) RemoveFile(ref StoreRef, root *os.Root, name string) error 
 		}
 		dir = path.Dir(dir)
 	}
-	return f.syncParents(path.Join(ref.path, dir))
+	return f.syncStoreParents(ref, root, dir)
 }

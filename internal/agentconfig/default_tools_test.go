@@ -206,13 +206,13 @@ func TestDefaultMemoryTools(t *testing.T) {
 			t.Run(attachment.name+"/"+test.name, func(t *testing.T) {
 				source := validAgentSource("memory_stores: " + attachment.stores + "\n" + test.tools)
 				result, err := Compile(SourceFormatYAML, []byte(source), CompileOptions{
-					ResolveMemoryStoreName: func(name string) (string, error) {
-						return testMachineSourcePublicID(t, publicid.KindMemoryStore, name), nil
+					ResolveMemoryStoreName: func(name string) (uuid.UUID, error) {
+						return uuid.NewSHA1(uuid.NameSpaceOID, []byte(name)), nil
 					},
 				})
 				require.NoError(t, err)
 				require.Equal(t, source, result.Source)
-				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 				require.NoError(t, err)
 				var names []string
 				for _, tool := range contract.Tools {

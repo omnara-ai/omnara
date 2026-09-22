@@ -1,4 +1,4 @@
-package main
+package fileexec
 
 import (
 	"fmt"
@@ -37,7 +37,7 @@ func TestFileExecConfinement(t *testing.T) {
 	launcher := os.Getenv("OMNARA_TEST_FILE_EXEC")
 	if launcher == "" {
 		launcher = filepath.Join(t.TempDir(), "omnara-file-exec")
-		build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, ".")
+		build := exec.CommandContext(t.Context(), "go", "build", "-o", launcher, "../../cmd/file-exec")
 		if output, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("build file launcher: %s, %v", output, err)
 		}

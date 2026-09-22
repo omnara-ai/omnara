@@ -1,4 +1,4 @@
-package storage
+package memorystore
 
 import (
 	"errors"
@@ -19,7 +19,9 @@ func TestGlobFilesystem(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
-	names := []string{".hidden.md", "root.md", "dir/deep/note.md", "dir/a.txt", "[x]{y}.md", "noise/a", "noise/b"}
+	names := []string{
+		".hidden.md", "root.md", "dir/deep/note.md", "dir/a.txt", "[x]{y}.md", "noise/a", "noise/b", "noise/a.txt/note.txt",
+	}
 	for _, name := range names {
 		full := filepath.Join(base, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(full), 0700); err != nil {
@@ -40,6 +42,11 @@ func TestGlobFilesystem(t *testing.T) {
 		{"dir/deep/note.md", []string{"dir/deep/note.md"}},
 		{`\[x\]\{y\}.md`, []string{"[x]{y}.md"}},
 		{"missing/**", nil},
+		{"root.md/*", nil},
+		{"root.md/**", nil},
+		{"dir/a.txt/x", nil},
+		{"dir/a.txt/*", nil},
+		{"*/a.txt/*", []string{"noise/a.txt/note.txt"}},
 	} {
 		t.Run(test.pattern, func(t *testing.T) {
 			remaining := 100
@@ -97,7 +104,7 @@ func TestGlobFilesystem(t *testing.T) {
 	}
 }
 
-func TestMemoryGlobProjection(t *testing.T) {
+func TestMemoryGlobProjectionCandidates(t *testing.T) {
 	base := t.TempDir()
 	root, err := os.OpenRoot(base)
 	if err != nil {
@@ -118,23 +125,12 @@ func TestMemoryGlobProjection(t *testing.T) {
 		"/memory/team/**/team/**/*.md", "/memory/team/**/team/**/team/**/*.md",
 	} {
 		t.Run(pattern, func(t *testing.T) {
-			matcher, err := CompileFilePattern(pattern)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var want []string
-			for _, name := range []string{"root.md", "team/inner.md", "team/team/deep.md"} {
-				if matcher.MatchString("/memory/team/" + name) {
-					want = append(want, name)
-				}
-			}
+			want := []string{"root.md", "team", "team/inner.md", "team/team", "team/team/deep.md"}
 			remaining := 20
 			var got []string
 			walkPattern := memoryFilePattern(pattern, "team")
 			err = globFiles(t.Context(), root, walkPattern, &remaining, func(name string, _ fs.DirEntry) error {
-				if matcher.MatchString("/memory/team/" + name) {
-					got = append(got, name)
-				}
+				got = append(got, name)
 				return nil
 			})
 			if err != nil {

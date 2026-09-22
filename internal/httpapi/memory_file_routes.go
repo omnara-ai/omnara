@@ -56,11 +56,18 @@ func (s strictOpenAPIServer) ListMemoryFiles(
 	}
 	out := openapi.MemoryFileList{Data: []openapi.MemoryFile{}, NextCursor: nullableFromPtr(next)}
 	for _, entry := range page.Entries {
-		item := openapi.MemoryFile{Path: entry.Path, Type: openapi.File, ModifiedAt: entry.ModifiedAt}
+		var item openapi.MemoryFile
 		if entry.Directory {
-			item.Type = openapi.Directory
+			err = item.FromMemoryDirectory(openapi.MemoryDirectory{
+				Path: entry.Path, ModifiedAt: entry.ModifiedAt,
+			})
 		} else {
-			item.SizeBytes = &entry.Size
+			err = item.FromMemoryRegularFile(openapi.MemoryRegularFile{
+				Path: entry.Path, ModifiedAt: entry.ModifiedAt, SizeBytes: entry.Size,
+			})
+		}
+		if err != nil {
+			return nil, err
 		}
 		out.Data = append(out.Data, item)
 	}
@@ -161,7 +168,7 @@ func readMemoryContent(reader io.Reader) ([]byte, error) {
 		return nil, apierror.FromCode(openapi.ErrorCodeRequestTooLarge, "memory content exceeds the size limit")
 	}
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "cannot read memory content")
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "cannot read memory content").WithCause(err)
 	}
 	return body, nil
 }

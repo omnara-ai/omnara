@@ -660,18 +660,17 @@ func validateMemoryStoresTx(
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return fmt.Errorf("validate memory stores: %w", err)
 	}
-	sort.Slice(config.Stores, func(i, j int) bool { return config.Stores[i].PublicID < config.Stores[j].PublicID })
+	sort.Slice(config.Stores, func(i, j int) bool { return config.Stores[i].ID.String() < config.Stores[j].ID.String() })
 	for _, store := range config.Stores {
-		if store.Access != "read_only" && store.Access != "read_write" {
+		if store.Access != agentconfig.MemoryStoreAccessReadOnly && store.Access != agentconfig.MemoryStoreAccessReadWrite {
 			return storeerr.InvalidRequest(errors.New("invalid memory store access"))
 		}
-		id, err := publicid.Decode(publicid.KindMemoryStore, store.PublicID)
-		if err != nil {
-			return storeerr.InvalidRequest(err)
+		if store.ID == uuid.Nil {
+			return storeerr.InvalidRequest(errors.New("invalid memory store id"))
 		}
-		_, err = q.LockMemoryStoreForConfig(ctx, dbsqlc.LockMemoryStoreForConfigParams{
+		_, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
 			ProjectID: projectID,
-			ID:        id,
+			ID:        store.ID,
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/omnara-ai/omnara/internal/fileexec"
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := fileexec.Run(os.Args[1:]); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
