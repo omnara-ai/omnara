@@ -89,7 +89,7 @@ func ResolveInteractionForm(
 			}
 			textOption = index
 		} else {
-			if input.Type != 3 || option.AllowsText {
+			if input.Type != 3 {
 				return invalid()
 			}
 			resolution.Answers = []interactionform.Answer{{OptionIndices: []int{index}}}

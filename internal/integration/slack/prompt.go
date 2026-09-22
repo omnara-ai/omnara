@@ -217,7 +217,7 @@ func InteractionFormPromptBlocks(
 				"type":     "input",
 				"block_id": questionBlockID(index) + "_text",
 				"optional": true,
-				"label":    map[string]any{"type": "plain_text", "text": "Text for your selected option (optional)"},
+				"label":    map[string]any{"type": "plain_text", "text": "Text for your selected option"},
 				"element": map[string]any{
 					"type":       "plain_text_input",
 					"action_id":  PromptAnswerAction,

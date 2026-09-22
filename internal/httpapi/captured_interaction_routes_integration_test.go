@@ -46,6 +46,7 @@ type capturedHTTPFixture struct {
 	key            ed25519.PrivateKey
 	client         *http.Client
 	dismissed      chan struct{}
+	prompts        <-chan map[string]any
 }
 
 type capturedHTTPFixtureOptions struct {
@@ -83,6 +84,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		opts = options[0]
 	}
 	dismissed := make(chan struct{}, 8)
+	prompts := make(chan map[string]any, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if opts.providerOverride != nil && opts.providerOverride(w, r) {
 			return
@@ -93,6 +95,12 @@ func newCapturedHTTPFixtureWithDismiss(
 				"ok": true, "team_id": "T123", "user_id": "U_BOT", "bot_id": "B123",
 			})
 		case "/api/chat.postMessage":
+			var payload map[string]any
+			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			prompts <- payload
 			writeJSON(w, 200, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 		case "/api/chat.update":
 			if dismiss != nil {
@@ -113,6 +121,9 @@ func newCapturedHTTPFixtureWithDismiss(
 			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
+			}
+			if r.Method == http.MethodPost {
+				prompts <- payload
 			}
 			writeJSON(
 				w,
@@ -287,7 +298,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	}
 	return capturedHTTPFixture{
 		handler: handler, project: project, pool: pool, app: app,
-		record: record, key: key, client: client, dismissed: dismissed,
+		record: record, key: key, client: client, dismissed: dismissed, prompts: prompts,
 	}
 }
 
@@ -402,14 +413,32 @@ func (f capturedHTTPFixture) slackRequest(
 func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 	t.Parallel()
 	for _, provider := range []string{"slack", "discord"} {
-		for _, kind := range []string{"question", "permission"} {
-			t.Run(provider+"/"+kind, func(t *testing.T) {
+		for _, choice := range []struct {
+			kind, name string
+			index      int
+		}{
+			{"question", "yes", 0},
+			{"permission", "allow", toolpermission.AllowOptionIndex},
+			{"permission", "deny", toolpermission.DenyOptionIndex},
+		} {
+			t.Run(provider+"/"+choice.kind+"/"+choice.name, func(t *testing.T) {
 				t.Parallel()
-				f := newCapturedHTTPFixture(t, provider, kind)
+				f := newCapturedHTTPFixture(t, provider, choice.kind)
+				if choice.kind == "permission" {
+					assertCapturedPermissionPrompt(t, f)
+				}
+				action := fmt.Sprintf("c%d", choice.index)
+				slackChoice := func(payload map[string]any) {
+					payload["state"] = map[string]any{"values": map[string]any{
+						"omnara_question_0": map[string]any{"omnara_answer": map[string]any{
+							"type": "radio_buttons", "selected_option": map[string]string{"value": fmt.Sprint(choice.index)},
+						}},
+					}}
+				}
 				if provider == "slack" {
-					require.Equal(t, "ignored", f.slackRequest(t, true)["ok"])
+					require.Equal(t, "ignored", f.slackRequest(t, true, slackChoice)["ok"])
 				} else {
-					require.Equal(t, float64(4), f.discordRequest(t, "c0", false, true)["type"])
+					require.Equal(t, float64(4), f.discordRequest(t, action, false, true)["type"])
 				}
 				current, found, err := f.project.Store.Execution().
 					GetAgentInteraction(t.Context(), f.project.ProjectUUID, f.record.AgentID, f.record.ID)
@@ -424,9 +453,9 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				)
 				require.NoError(t, err)
 				if provider == "slack" {
-					require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
+					require.Equal(t, "resolved", f.slackRequest(t, false, slackChoice)["ok"])
 				} else {
-					require.Equal(t, float64(6), f.discordRequest(t, "c0", false, false)["type"])
+					require.Equal(t, float64(6), f.discordRequest(t, action, false, false)["type"])
 				}
 				current, found, err = f.project.Store.Execution().
 					GetAgentInteraction(t.Context(), f.project.ProjectUUID, f.record.AgentID, f.record.ID)
@@ -434,10 +463,16 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.True(t, found)
 				require.Equal(t, executionstore.AgentInteractionStateResolved, current.State)
 				require.NotEqual(t, uuid.Nil, current.ResolvedByInputID)
+				require.Equal(t, f.record.Request, current.Request)
+				form, err := current.Form()
+				require.NoError(t, err)
+				resolution, err := interactionform.ParseResolution(form, current.Resolution)
+				require.NoError(t, err)
+				require.Equal(t, []interactionform.Answer{{OptionIndices: []int{choice.index}}}, resolution.Answers)
 				if provider == "slack" {
-					require.Equal(t, "already_resolved", f.slackRequest(t, false)["ok"])
+					require.Equal(t, "already_resolved", f.slackRequest(t, false, slackChoice)["ok"])
 				} else {
-					require.Equal(t, float64(4), f.discordRequest(t, "c0", false, false)["type"])
+					require.Equal(t, float64(4), f.discordRequest(t, action, false, false)["type"])
 				}
 				select {
 				case <-f.dismissed:
@@ -446,6 +481,46 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func assertCapturedPermissionPrompt(t *testing.T, f capturedHTTPFixture) {
+	t.Helper()
+	form, err := f.record.Form()
+	require.NoError(t, err)
+	require.True(t, form.Questions[0].Options[toolpermission.DenyOptionIndex].AllowsText)
+	require.Len(t, f.prompts, 1)
+	prompt := <-f.prompts
+	if f.app.Provider == "slack" {
+		blocks := testutil.RequireType[[]any](t, prompt["blocks"])
+		require.Len(t, blocks, 3, "heading, choices and Submit; no permission textbox")
+		choices := testutil.RequireType[map[string]any](t, blocks[1])
+		element := testutil.RequireType[map[string]any](t, choices["element"])
+		require.Equal(t, "radio_buttons", element["type"])
+		require.JSONEq(t, `[
+			{"text":{"type":"plain_text","text":"Allow"},"value":"0"},
+			{"text":{"type":"plain_text","text":"Deny"},"value":"1"}
+		]`, projectAppHTTPJSON(t, element["options"]))
+		actions := testutil.RequireType[map[string]any](t, blocks[2])
+		buttons := testutil.RequireType[[]any](t, actions["elements"])
+		require.Len(t, buttons, 1)
+		submit := testutil.RequireType[map[string]any](t, buttons[0])
+		require.Equal(t, "button", submit["type"])
+		require.Equal(t, "Submit", testutil.RequireType[map[string]any](t, submit["text"])["text"])
+		return
+	}
+	var rows []discord.ActionRow
+	require.NoError(t, json.Unmarshal([]byte(projectAppHTTPJSON(t, prompt["components"])), &rows))
+	require.Len(t, rows, 1)
+	require.Len(t, rows[0].Components, 2)
+	require.NotContains(t, prompt["content"], "optional text")
+	for i, label := range []string{"Allow", "Deny"} {
+		button := rows[0].Components[i]
+		require.Equal(t, label, button.Label)
+		id, err := discord.DecodeCustomID(button.CustomID)
+		require.NoError(t, err)
+		require.Equal(t, fmt.Sprintf("c%d", i), id.Action)
+		require.Equal(t, testPublicID(t, publicid.KindAgentInteraction, f.record.ID), id.InteractionID)
 	}
 }
 
@@ -693,8 +768,10 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				}
 				resolved := requestJSONWithHeaders(t, f.handler, http.MethodPost, path+"/"+
 					testPublicID(t, publicid.KindAgentInteraction, f.record.ID)+"/resolve",
-					`{"answers":[{"option_indices":[0]}]}`, "", http.StatusOK, headers)
+					`{"answers":[{"option_indices":[1],"text":"Please wait"}]}`, "", http.StatusOK, headers)
 				require.Equal(t, "resolved", resolved["state"])
+				require.JSONEq(t, `{"answers":[{"option_indices":[1],"text":"Please wait"}]}`,
+					projectAppHTTPJSON(t, resolved["resolution"]))
 				require.Equal(t, captured, resolved["destination"])
 				require.Equal(t, receipt, resolved["presentation_receipt"])
 				require.Equal(t, resolved, read(apiHeaders))

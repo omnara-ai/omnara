@@ -45,7 +45,7 @@ func TestResolveInteractionFormSupportsMultipleSelections(t *testing.T) {
 			Multiple: true,
 			Options: []interactionform.Option{
 				{Label: "API"},
-				{Label: "Worker"},
+				{Label: "Worker", AllowsText: true},
 			},
 		}},
 	}
@@ -56,13 +56,17 @@ func TestResolveInteractionFormSupportsMultipleSelections(t *testing.T) {
 					SelectedOptions: []actionStateOption{{Value: "1"}, {Value: "0"}},
 				},
 			},
+			questionBlockID(0) + "_text": {
+				PromptAnswerAction: {Value: " explanation "},
+			},
 		},
 	})
 	if result.InvalidReason != "" ||
 		len(result.Resolution.Answers) != 1 ||
 		len(result.Resolution.Answers[0].OptionIndices) != 2 ||
 		result.Resolution.Answers[0].OptionIndices[0] != 0 ||
-		result.Resolution.Answers[0].OptionIndices[1] != 1 {
+		result.Resolution.Answers[0].OptionIndices[1] != 1 ||
+		result.Resolution.Answers[0].Text != "explanation" {
 		t.Fatalf("ResolveInteractionForm() = %+v", result)
 	}
 }

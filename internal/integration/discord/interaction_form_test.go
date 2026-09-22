@@ -29,6 +29,13 @@ func TestInteractionFormChoicesModalAndText(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 6, response.Type)
 	require.Equal(t, []int{0}, answer.Answers[0].OptionIndices)
+	response, answer, err = ResolveInteractionForm(
+		form,
+		Interaction{Type: 3, Data: InteractionData{CustomID: formCustomID(id, "c1")}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 6, response.Type)
+	require.Equal(t, []interactionform.Answer{{OptionIndices: []int{1}}}, answer.Answers)
 	button := rows[0].Components[1].CustomID
 	modal, answer, err := ResolveInteractionForm(form, Interaction{Type: 3, Data: InteractionData{CustomID: button}})
 	require.NoError(t, err)

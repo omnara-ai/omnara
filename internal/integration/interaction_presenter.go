@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -190,12 +191,29 @@ func (p InteractionPresenter) discordClient(
 	return client, nil
 }
 
+// Permission prompts in chat offer choices only. Keep the stored form intact so
+// dashboard/API responses can still include a denial reason; questions keep text.
+func interactionPromptForm(record executionstore.AgentInteractionRecord) (interactionform.Form, error) {
+	form, err := record.Form()
+	if err != nil {
+		return interactionform.Form{}, err
+	}
+	if record.InteractionKind == executionstore.AgentInteractionKindPermission {
+		for i := range form.Questions {
+			for j := range form.Questions[i].Options {
+				form.Questions[i].Options[j].AllowsText = false
+			}
+		}
+	}
+	return form, nil
+}
+
 // SlackInteractionPromptPayload renders a captured form and destination. It is
 // pure; the presenter separately checks live authority before every request.
 func SlackInteractionPromptPayload(
 	destination executionstore.InteractionDestination, agentID uuid.UUID, record executionstore.AgentInteractionRecord,
 ) (json.RawMessage, error) {
-	form, err := record.Form()
+	form, err := interactionPromptForm(record)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +280,7 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 		return err
 	}
 	check := func(ctx context.Context) error { return p.recheck(ctx, access, checkAuthority) }
-	form, err := record.Form()
+	form, err := interactionPromptForm(record)
 	if err != nil {
 		return err
 	}

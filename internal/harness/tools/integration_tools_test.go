@@ -330,16 +330,16 @@ func TestIntegrationInteractionPromptPayloadUsesPlainTextAndSharedAction(t *test
 	if decoded.Channel != "C123" || decoded.ThreadTS != "111.222" {
 		t.Fatalf("unexpected destination: %+v", decoded)
 	}
-	if len(decoded.Blocks) != 4 || decoded.Blocks[0].Text.Type != "plain_text" ||
+	if len(decoded.Blocks) != 3 || decoded.Blocks[0].Text.Type != "plain_text" ||
 		!strings.Contains(decoded.Blocks[0].Text.Text, "echo <@U123>") {
 		t.Fatalf("unexpected prompt text block: %+v", decoded.Blocks)
 	}
-	if len(decoded.Blocks[3].Elements) != 1 ||
-		decoded.Blocks[3].Elements[0].ActionID != slack.PromptAction {
-		t.Fatalf("unexpected prompt actions: %+v", decoded.Blocks[3].Elements)
+	if len(decoded.Blocks[2].Elements) != 1 ||
+		decoded.Blocks[2].Elements[0].ActionID != slack.PromptAction {
+		t.Fatalf("unexpected prompt actions: %+v", decoded.Blocks[2].Elements)
 	}
 	var value slack.PromptActionValue
-	if err := json.Unmarshal([]byte(decoded.Blocks[3].Elements[0].Value), &value); err != nil {
+	if err := json.Unmarshal([]byte(decoded.Blocks[2].Elements[0].Value), &value); err != nil {
 		t.Fatalf("decode prompt action value: %v", err)
 	}
 	if value.InteractionID == "" || value.AgentID == "" ||

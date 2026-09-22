@@ -280,4 +280,11 @@ func TestInteractionFormPromptBlocksAllowsOptionsWithOptionalText(t *testing.T) 
 	if len(blocks) != 4 {
 		t.Fatalf("interaction form blocks = %d, want interactive question", len(blocks))
 	}
+	text := blocks[2]
+	label, labelOK := text["label"].(map[string]any)
+	element, elementOK := text["element"].(map[string]any)
+	if !labelOK || !elementOK || text["optional"] != true ||
+		label["text"] != "Text for your selected option" || element["type"] != "plain_text_input" {
+		t.Fatalf("optional question text block = %#v", text)
+	}
 }
