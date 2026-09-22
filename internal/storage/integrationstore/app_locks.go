@@ -22,7 +22,7 @@ func LockAppsTx(
 func lockProjectAppsTx(
 	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, referenced, required []uuid.UUID,
 ) error {
-	ids := make(map[uuid.UUID]bool, len(referenced)+len(required))
+	ids := make(map[uuid.UUID]bool)
 	for _, id := range referenced {
 		if id != uuid.Nil {
 			ids[id] = false

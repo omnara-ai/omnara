@@ -72,9 +72,14 @@ function select(id: string, value: string) {
   })
 }
 
-it.each(['app creation', 'registration'] as const)(
-  'does not continue GitHub registration after unmount during %s',
-  async (step) => {
+it.each([
+  { step: 'app creation', status: 201 },
+  { step: 'app creation', status: 500 },
+  { step: 'registration', status: 201 },
+  { step: 'registration', status: 500 },
+])(
+  'does not continue GitHub registration after unmount during $step (status=$status)',
+  async ({ step, status }) => {
     let release!: (response: Response) => void
     const pending = new Promise<Response>((resolve) => {
       release = resolve
@@ -117,7 +122,11 @@ it.each(['app creation', 'registration'] as const)(
     rerender(<p>Another page</p>)
     window.history.replaceState(null, '', '/after-leaving')
     act(() => {
-      release(Response.json(step === 'app creation' ? app : setup, { status: 201 }))
+      release(
+        status === 201
+          ? Response.json(step === 'app creation' ? app : setup, { status })
+          : jsonResponse({ code: 'unavailable', error: 'Try again' }, status),
+      )
     })
     await waitForUI(() => {
       expect(cache.isMutating()).toBe(0)
@@ -131,6 +140,39 @@ it.each(['app creation', 'registration'] as const)(
     expect(window.location.pathname).toBe('/after-leaving')
   },
 )
+
+it('reports a mismatched registration app and releases the busy state without posting', async () => {
+  const api = fakeApi([
+    ...reads,
+    {
+      method: 'POST',
+      path: appPath + '/github-setup',
+      respond: () =>
+        Response.json(
+          {
+            app_id: `app_${'b'.repeat(26)}`,
+            setup_revision: 1,
+            registration_url: 'https://github.com/settings/apps/new?state=sealed',
+            manifest: { name: 'reviewer', public: false },
+            expires_at: '2026-09-22T01:00:00Z',
+          },
+          { status: 201 },
+        ),
+    },
+  ])
+  const post = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => undefined)
+  renderProjectApp(
+    root,
+    api,
+    <ConnectGitHubForm orgId={orgId} projectId={projectId} app={app} onConnected={vi.fn()} />,
+  )
+  click('Continue to GitHub')
+  await waitForUI(() => {
+    expect(container.textContent).toContain('Could not start GitHub registration.')
+    expect(button('Continue to GitHub').disabled).toBe(false)
+  })
+  expect(post).not.toHaveBeenCalled()
+})
 
 it('does not run the connection callback after unmount while configure is pending', async () => {
   window.history.replaceState(null, '', `/?credentials_secret_ref=${secretId}`)

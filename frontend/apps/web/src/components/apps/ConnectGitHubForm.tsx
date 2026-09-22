@@ -75,86 +75,93 @@ export function ConnectGitHubForm({
     if (busy) return
     setBusy(true)
     setError('')
-    try {
-      const draft = await ensureApp()
-      if (!isMounted()) return
-      const request: CreateGitHubSetupRequest & { appID: string } = {
-        appID: draft.id,
-        expected_setup_revision: draft.setup_revision,
-      }
-      if (organizationOwned) request.organization = organization.trim()
-      const setup = await start.mutateAsync(request)
-      if (!isMounted()) return
-      if (setup.app_id !== draft.id)
-        throw new Error('Registration returned a different app. Please try again.')
-      const form = document.createElement('form')
-      form.method = 'POST'
-      form.action = setup.registration_url
-      const manifest = document.createElement('input')
-      manifest.type = 'hidden'
-      manifest.name = 'manifest'
-      manifest.value = JSON.stringify(setup.manifest)
-      form.append(manifest)
-      document.body.append(form)
-      form.submit()
-      form.remove()
-    } catch (cause) {
-      if (isMounted()) setError(errorMessage(cause, 'Could not start GitHub registration.'))
-    } finally {
-      if (isMounted()) setBusy(false)
-    }
+    await ensureApp()
+      .then(async (draft) => {
+        if (!isMounted()) return
+        const request: CreateGitHubSetupRequest & { appID: string } = {
+          appID: draft.id,
+          expected_setup_revision: draft.setup_revision,
+        }
+        if (organizationOwned) request.organization = organization.trim()
+        const setup = await start.mutateAsync(request)
+        if (!isMounted()) return
+        if (setup.app_id !== draft.id)
+          throw new Error('Registration returned a different app. Please try again.')
+        const form = document.createElement('form')
+        form.method = 'POST'
+        form.action = setup.registration_url
+        const manifest = document.createElement('input')
+        manifest.type = 'hidden'
+        manifest.name = 'manifest'
+        manifest.value = JSON.stringify(setup.manifest)
+        form.append(manifest)
+        document.body.append(form)
+        form.submit()
+        form.remove()
+      })
+      .catch((cause: unknown) => {
+        if (isMounted()) setError(errorMessage(cause, 'Could not start GitHub registration.'))
+      })
+      .finally(() => {
+        if (isMounted()) setBusy(false)
+      })
   }
 
   async function inspectInstallations(nextPage = 1) {
     if (busy || !secretId) return
     setBusy(true)
     setError('')
-    try {
-      const draft = await ensureApp()
-      if (!isMounted()) return
-      const data = await inspect.mutateAsync({
-        appID: draft.id,
-        credentials_secret_ref: secretId,
-        page: nextPage,
+    await ensureApp()
+      .then(async (draft) => {
+        if (!isMounted()) return
+        const data = await inspect.mutateAsync({
+          appID: draft.id,
+          credentials_secret_ref: secretId,
+          page: nextPage,
+        })
+        if (!isMounted()) return
+        setInspected(data)
+        setPage(nextPage)
+        setInstallationId(
+          data.installations.some((installation) => installation.id === installationId)
+            ? installationId
+            : '',
+        )
       })
-      if (!isMounted()) return
-      setInspected(data)
-      setPage(nextPage)
-      setInstallationId(
-        data.installations.some((installation) => installation.id === installationId)
-          ? installationId
-          : '',
-      )
-    } catch (cause) {
-      if (!isMounted()) return
-      setInspected(undefined)
-      setInstallationId('')
-      setError(errorMessage(cause, 'Could not check GitHub installations.'))
-    } finally {
-      if (isMounted()) setBusy(false)
-    }
+      .catch((cause: unknown) => {
+        if (!isMounted()) return
+        setInspected(undefined)
+        setInstallationId('')
+        setError(errorMessage(cause, 'Could not check GitHub installations.'))
+      })
+      .finally(() => {
+        if (isMounted()) setBusy(false)
+      })
   }
 
   async function connect() {
     if (busy || !selected || !inspected) return
     setBusy(true)
     setError('')
-    try {
-      const draft = await ensureApp()
-      if (!isMounted()) return
-      const saved = await configure.mutateAsync({
-        appID: draft.id,
-        expected_setup_revision: draft.setup_revision,
-        provider_tenant_id: inspected.provider_app_id,
-        provider_account_ref: selected.id,
-        credential_secret_id: secretId,
+    await ensureApp()
+      .then(async (draft) => {
+        if (!isMounted()) return
+        const saved = await configure.mutateAsync({
+          appID: draft.id,
+          expected_setup_revision: draft.setup_revision,
+          provider_tenant_id: inspected.provider_app_id,
+          provider_account_ref: selected.id,
+          credential_secret_id: secretId,
+        })
+        if (isMounted()) onConnected(saved)
       })
-      if (isMounted()) onConnected(saved)
-    } catch (cause) {
-      if (isMounted()) setError(errorMessage(cause, 'Could not connect this GitHub installation.'))
-    } finally {
-      if (isMounted()) setBusy(false)
-    }
+      .catch((cause: unknown) => {
+        if (isMounted())
+          setError(errorMessage(cause, 'Could not connect this GitHub installation.'))
+      })
+      .finally(() => {
+        if (isMounted()) setBusy(false)
+      })
   }
 
   if (manual)

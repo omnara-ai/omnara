@@ -80,24 +80,26 @@ export function ProjectAppSetupForm({
     setBusy(true)
     setError('')
     const form = new FormData(event.currentTarget)
-    try {
-      const draft = await ensureApp()
-      const saved = await submitProjectAppSetup(
-        { form, projectId, app: draft, savedSecret, newCredential },
-        {
-          createSecret: createSecret.mutateAsync,
-          configureApp: setup.mutateAsync,
-          onSecretSaved: setSavedSecret,
-        },
-      )
-      if (mounted.current) onSaved(saved)
-    } catch (cause) {
-      if (mounted.current)
-        setError(cause instanceof Error ? projectAppFormError(cause) : 'Could not connect app.')
-    } finally {
-      submitting.current = false
-      setBusy(false)
-    }
+    await ensureApp()
+      .then(async (draft) => {
+        const saved = await submitProjectAppSetup(
+          { form, projectId, app: draft, savedSecret, newCredential },
+          {
+            createSecret: createSecret.mutateAsync,
+            configureApp: setup.mutateAsync,
+            onSecretSaved: setSavedSecret,
+          },
+        )
+        if (mounted.current) onSaved(saved)
+      })
+      .catch((cause: unknown) => {
+        if (mounted.current)
+          setError(cause instanceof Error ? projectAppFormError(cause) : 'Could not connect app.')
+      })
+      .finally(() => {
+        submitting.current = false
+        setBusy(false)
+      })
   }
   const github = appType === 'github_pr'
   const provider = github ? 'GitHub' : 'Discord'
