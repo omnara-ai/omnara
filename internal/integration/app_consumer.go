@@ -247,10 +247,18 @@ func (c *AppInboxConsumer) Consume(
 	}
 	if slackProvider, ok := adapter.(*SlackAppInboxProvider); ok {
 		c.notifySlackLaunchFailure(ctx, lease, appSetup, receipt.Payload, slackProvider, err)
-		if feedbackErr := slackProvider.acknowledge(ctx, appSetup, receipt.Payload, results); feedbackErr != nil {
+	}
+	created := slices.ContainsFunc(results, func(result AppSlotAdmission) bool {
+		return (result.Launch != nil && result.Launch.Created) || (result.Input != nil && result.Input.Created)
+	})
+	// Presentation follows committed admission and must never retry accepted input.
+	if acknowledger, ok := adapter.(interface {
+		acknowledge(context.Context, integrationstore.ProjectAppRecord, []byte) error
+	}); ok && created {
+		if feedbackErr := acknowledger.acknowledge(ctx, appSetup, receipt.Payload); feedbackErr != nil {
 			slog.WarnContext(
 				ctx,
-				"Slack input acknowledgement failed",
+				"App input acknowledgement failed",
 				"receipt_id",
 				lease.ReceiptID,
 				"app_id",

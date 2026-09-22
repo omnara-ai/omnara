@@ -254,6 +254,10 @@ func newDiscordInboxFixture(t *testing.T) (*discordInboxFixture, *DiscordAppInbo
 		default:
 			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v10/"), "/")
 			switch {
+			case len(parts) == 7 && parts[0] == "channels" && parts[2] == "messages" &&
+				parts[4] == "reactions" && parts[5] == "👀" && parts[6] == "@me" && r.Method == http.MethodPut:
+				w.WriteHeader(http.StatusNoContent)
+				return
 			case len(parts) == 2 && parts[0] == "channels":
 				channel, ok := f.channels[parts[1]]
 				if !ok {

@@ -81,14 +81,14 @@ export function profileAppLauncherScope(input: {
   const { appType } = input
   const scopeKind =
     input.scopeKind ??
-    (appType === 'slack_thread' ? 'workspace' : appType === 'github_pr' ? 'repository' : 'channel')
+    (appType === 'slack_thread' ? 'workspace' : appType === 'github_pr' ? 'repository' : 'guild')
   if (
     !(
       appType === 'slack_thread'
         ? ['workspace', 'channel']
         : appType === 'github_pr'
           ? ['repository']
-          : ['guild', 'channel']
+          : ['guild']
     ).includes(scopeKind)
   ) {
     throw new Error('The launcher scope does not belong to this app type.')

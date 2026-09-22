@@ -104,8 +104,8 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 	return nil
 }
 
-// retrySend is only set for create-message with a stable enforced nonce. All
-// attempts share a 15s operation, well inside Discord's few-minute dedup window.
+// retrySend permits retries for idempotent reactions and create-message with a
+// stable enforced nonce. Attempts share a 15s operation, within the nonce window.
 func (c *Client) do(ctx context.Context, method, target, contentType string, body []byte,
 	auth, retrySend bool, limit int64,
 ) ([]byte, error) {
@@ -131,7 +131,7 @@ func (c *Client) do(ctx context.Context, method, target, contentType string, bod
 		}
 		if c.beforeRequest != nil {
 			if err := c.beforeRequest(ctx); err != nil {
-				// A previous nonce-protected attempt may already have sent. Preserve
+				// A previous retryable mutation may already have succeeded. Preserve
 				// that delivery uncertainty without exposing trusted authority errors.
 				if uncertain {
 					return nil, &APIError{Code: DeliveryUnknown}

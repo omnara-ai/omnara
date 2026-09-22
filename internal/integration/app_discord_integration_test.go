@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 )
 
 func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T) {
-	for _, scenario := range []string{"launch and reply", "no launcher", "revoked before preparation"} {
+	for _, scenario := range []string{"launch and reply", "reaction denied", "no launcher", "revoked before preparation"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			pool, store, ids, appID := appProviderFixture(t, "discord", "11", "22")
@@ -103,7 +104,29 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			// agent exists. Revoke between expansion and preparation via the second
 			// identity request; the next pre-request authority check must stop the POST.
 			identityReads := 0
+			reactions := func() []string {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				paths := []string{}
+				for _, request := range f.requests {
+					if strings.Contains(request, "/reactions/") {
+						paths = append(paths, request)
+					}
+				}
+				return paths
+			}
 			f.override = func(w http.ResponseWriter, r *http.Request) bool {
+				if strings.Contains(r.URL.Path, "/reactions/") {
+					var count int
+					assert.NoError(t, pool.QueryRow(ctx,
+						`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content'`, ids.ProjectID,
+					).Scan(&count))
+					assert.Equal(t, 1, count, "acknowledgement must follow committed input")
+					if scenario == "reaction denied" {
+						w.WriteHeader(http.StatusForbidden)
+						return true
+					}
+				}
 				if r.URL.Path == "/api/v10/users/@me" {
 					identityReads++
 					if scenario == "revoked before preparation" && identityReads == 2 {
@@ -137,14 +160,18 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			if scenario == "revoked before preparation" {
 				require.Error(t, err)
 				require.Zero(t, f.posts)
+				require.Empty(t, reactions())
 				return
 			}
 			require.NoError(t, err)
 			if scenario == "no launcher" {
 				require.Zero(t, f.posts)
+				require.Empty(t, reactions())
 				return
 			}
 			require.Equal(t, 1, f.posts)
+			rootReaction := "PUT /api/v10/channels/300/messages/500/reactions/👀/@me"
+			require.Equal(t, []string{rootReaction}, reactions())
 			latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 			require.NoError(t, err)
 			require.Equal(t, integrationstore.IntegrationInboxCompleted, latest.State)
@@ -159,6 +186,7 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			require.NoError(t, err)
 			require.Len(t, results, 1)
 			require.False(t, results[0].Launch.Created)
+			require.Equal(t, []string{rootReaction}, reactions(), "replay must not repeat feedback")
 			require.Equal(t, 1, f.posts)
 			// Exact selected thread delivers human steering. A sibling thread has no
 			// subscription and must not launch or create input even under the same parent.
@@ -187,6 +215,9 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 					),
 			)
 			require.Equal(t, 2, count)
+			require.Equal(t, []string{
+				rootReaction, "PUT /api/v10/channels/500/messages/501/reactions/👀/@me",
+			}, reactions(), "react to accepted thread replies, not unrelated messages")
 			require.Equal(t, 1, f.posts)
 		})
 	}

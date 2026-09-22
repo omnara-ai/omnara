@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -431,6 +432,24 @@ func (p *DiscordAppInboxProvider) DownloadFile(
 		return AppInboxFile{}, err
 	}
 	return file, nil
+}
+
+// Use the original message channel: a root mention lives in the parent channel,
+// while a follow-up lives inside the thread. Admission has already committed.
+func (p *DiscordAppInboxProvider) acknowledge(
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
+) error {
+	message, ok, err := discordInboxMessage(appSetup, raw)
+	if err != nil || !ok {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	client, _, err := p.requestAccess(ctx, appSetup, nil)
+	if err != nil {
+		return err
+	}
+	return client.AddReaction(ctx, message.Message.ChannelID, message.Message.ID, "👀")
 }
 
 // PrepareConversation runs only after the consumer freezes a nonempty plan and

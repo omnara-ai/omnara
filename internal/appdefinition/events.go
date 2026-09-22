@@ -85,9 +85,9 @@ func (e Event) RoutingAddresses(account string) ([]EventAddress, error) {
 		}
 	case e.Scope.Discord != nil:
 		if e.Scope.Discord.ThreadID != "" {
-			if err := add("channel", e.Scope.Discord.ChannelID); err != nil {
-				return nil, err
-			}
+			parent := Scope{Discord: &DiscordScope{ChannelID: e.Scope.Discord.ChannelID}}
+			k, r, _ := parent.Conversation()
+			addresses = append(addresses, EventAddress{k, r})
 		}
 		if e.Scope.Discord.GuildID != "" {
 			if err := add("guild", e.Scope.Discord.GuildID); err != nil {

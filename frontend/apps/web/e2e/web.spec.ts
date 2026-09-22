@@ -638,9 +638,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
       await expect(launch.getByRole('checkbox')).toHaveCount(0)
       await expect(launch.getByLabel('Server ID', { exact: true })).toBeVisible()
       await expect(launch.getByLabel('Channel ID', { exact: true })).toHaveCount(0)
-      await expect(launch.getByLabel('Respond to mentions in', { exact: true })).toHaveValue(
-        'guild',
-      )
+      await expect(launch.getByLabel('Respond to mentions in', { exact: true })).toHaveCount(0)
     }
     await page
       .getByPlaceholder(

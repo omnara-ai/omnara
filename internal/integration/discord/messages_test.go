@@ -14,6 +14,47 @@ import (
 	"testing"
 )
 
+func TestAddReactionEncodesEmojiAndRetriesSafely(t *testing.T) {
+	for _, status := range []int{
+		http.StatusNoContent, http.StatusServiceUnavailable, http.StatusForbidden, http.StatusTooManyRequests,
+	} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			var attempts atomic.Int32
+			client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				attempt := attempts.Add(1)
+				if r.Method != http.MethodPut ||
+					r.URL.EscapedPath() != "/api/v10/channels/444/messages/666/reactions/%F0%9F%91%80/@me" ||
+					r.Header.Get("Authorization") != "Bot test-token" {
+					t.Errorf("incorrect reaction request: %s %s", r.Method, r.URL.EscapedPath())
+				}
+				if status == http.StatusServiceUnavailable && attempt > 1 {
+					w.WriteHeader(http.StatusNoContent)
+				} else {
+					w.WriteHeader(status)
+				}
+			})
+			err := client.AddReaction(t.Context(), "444", "666", "👀")
+			wantAttempts := int32(1)
+			switch status {
+			case http.StatusServiceUnavailable:
+				wantAttempts = 2
+				fallthrough
+			case http.StatusNoContent:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case http.StatusForbidden:
+				requireAPIError(t, err, PermanentFailure)
+			case http.StatusTooManyRequests:
+				requireAPIError(t, err, RateLimited)
+			}
+			if attempts.Load() != wantAttempts {
+				t.Fatalf("reaction attempts = %d, want %d", attempts.Load(), wantAttempts)
+			}
+		})
+	}
+}
+
 func TestEnsureThreadCreatesReusesAndReconciles(t *testing.T) {
 	for _, mode := range []string{"existing", "create", "uncertain", "concurrent"} {
 		t.Run(mode, func(t *testing.T) {

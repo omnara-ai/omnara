@@ -15,7 +15,7 @@ Create an application and bot in the [Discord Developer Portal](https://discord.
 Record the Application ID, bot token and public key. Omnara retrieves the bot User ID
 and display name automatically from the token. Enable Message Content Intent. Omnara receives guild messages through Gateway; this
 app does not support DMs. Install the bot in your server with permission to read
-history, send messages, create public threads and send in threads. Grant Attach
+history, send messages, add reactions, create public threads and send in threads. Grant Attach
 Files if agents will upload files.
 
 In the dashboard, **Add bot to server** opens Discord with these permissions
@@ -52,11 +52,11 @@ these independently configured apps.
 
 ## Launch from mentions
 
-Choose a server and **Profiles for mentions** in the app's settings. By default,
-mentions work throughout that server wherever the bot has permission; control
+Choose a server and **Profiles for mentions** in the app's settings. Discord mention
+launchers use a server scope in both the dashboard and API (`scope_kind: "guild"`).
+Mentions work throughout that server wherever the bot has permission; control
 channel access in Discord. To copy the Server ID, enable **User Settings →
 Advanced → Developer Mode**, then right-click the server and choose **Copy Server ID**.
-You can optionally restrict launches to one channel in Omnara.
 
 A mention in a parent channel creates or reuses the public thread attached to that message. A
 mention already inside a thread uses that thread. One offered profile starts
@@ -68,6 +68,9 @@ The launcher derives the agent's tools and interaction handler for the thread,
 preserving existing explicit entries in the profile config, and attaches a thread
 subscription. Human messages
 steer the agent and cancel open interactions. Bot and webhook messages are ignored.
+The bot adds an eyes reaction after a message is accepted for an agent. Enable
+**Add Reactions** on the bot's role if you installed it before this permission was
+included in setup. A failed reaction does not prevent the agent from receiving the message.
 Edit the offered profiles to change future launches; existing agents keep their configs.
 Selecting profiles enables mention launches without a separate enable switch.
 An empty selection leaves schedules and existing conversations available.

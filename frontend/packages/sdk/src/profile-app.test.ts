@@ -114,16 +114,23 @@ describe('app metadata setup', () => {
       profileAppSetup({ ...base, appType: 'slack_thread', scopeRef: 'T123', scopeKind: 'channel' }),
     ).toThrow(/channel ID/)
   })
-  it.each(['guild', 'channel'] as const)('supports Discord %s mention scope', (scopeKind) => {
+  it('uses a server scope for Discord mentions', () => {
     expect(
-      profileAppSetup({ ...base, appType: 'discord_thread', scopeKind, scopeRef: '123' }).settings
-        .launcher,
+      profileAppSetup({ ...base, appType: 'discord_thread', scopeRef: '123' }).settings.launcher,
     ).toEqual({
-      scope_kind: scopeKind,
+      scope_kind: 'guild',
       scope_ref: '123',
       trigger: 'mention',
       slots: [{ key: 'default', agent_profile_id: first }],
     })
+    expect(() =>
+      profileAppSetup({
+        ...base,
+        appType: 'discord_thread',
+        scopeKind: 'channel',
+        scopeRef: '123',
+      }),
+    ).toThrow(/scope/)
   })
 })
 

@@ -243,3 +243,31 @@ func TestProjectAppHTTPLauncherReferencesAreProjectScoped(t *testing.T) {
 			projectAppHTTPJSON(t, body), "", tc.status, authHeaders(project.AdminToken))
 	}
 }
+
+func TestProjectAppHTTPDiscordLaunchesAreServerScoped(t *testing.T) {
+	t.Parallel()
+	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
+	project := bootstrapPublicHTTPProject(t, handler, "discord-server-launcher")
+	profile := createPublicHTTPAgent(t, handler, project, "discord", project.AdminToken)
+	launcher := map[string]any{
+		"trigger": "mention", "scope_kind": "guild", "scope_ref": "123",
+		"slots": []any{map[string]any{"key": "default", "agent_profile_id": profile["id"]}},
+	}
+	body := projectAppHTTPBody("discord", "discord_thread")
+	body["settings"] = map[string]any{"launcher": launcher}
+	app := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
+		projectAppHTTPJSON(t, body), "", http.StatusCreated, authHeaders(project.AdminToken))
+	appPath := project.ProjectPath + "/apps/" + testutil.RequireType[string](t, app["id"])
+	for _, scope := range []struct{ kind, ref string }{{"channel", "456"}, {"thread", "456:789"}} {
+		launcher["scope_kind"], launcher["scope_ref"] = scope.kind, scope.ref
+		for _, request := range []struct{ method, path string }{
+			{http.MethodPost, project.ProjectPath + "/apps"}, {http.MethodPut, appPath},
+		} {
+			requestJSONWithHeaders(t, handler, request.method, request.path,
+				projectAppHTTPJSON(t, body), "", http.StatusBadRequest, authHeaders(project.AdminToken))
+		}
+	}
+	stored := requestJSONWithHeaders(t, handler, http.MethodGet, appPath,
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	require.Equal(t, app["settings"], stored["settings"])
+}

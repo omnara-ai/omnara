@@ -3410,7 +3410,13 @@ export type AppLauncher = {
      * Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
      */
     trigger: string;
+    /**
+     * Launcher scope. Discord requires guild (a server); channel and thread scopes are not supported for Discord launchers.
+     */
     scope_kind: string;
+    /**
+     * Provider identifier for the launcher scope. For Discord, use the Server ID, not the Application ID or a Channel ID.
+     */
     scope_ref: string;
     /**
      * App-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.

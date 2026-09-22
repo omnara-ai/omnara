@@ -16,8 +16,6 @@ func TestCanonicalLauncherScope(t *testing.T) {
 		{ProviderGitHub, "repository", "00123", "123"},
 		{ProviderGitHub, "pull_request", "00123#0012", "123#12"},
 		{ProviderDiscord, "guild", "123456", "123456"},
-		{ProviderDiscord, "channel", "123456", "123456"},
-		{ProviderDiscord, "thread", "123456:789012", "123456:789012"},
 	} {
 		t.Run(test.provider+"/"+test.kind, func(t *testing.T) {
 			kind, ref, err := CanonicalLauncherScope(test.provider, test.kind, test.ref)
@@ -48,6 +46,8 @@ func TestCanonicalLauncherScope(t *testing.T) {
 		{ProviderGitHub, "pull_request", "123#12#13"},
 		{ProviderGitHub, "pull_request", "owner/repo#12"},
 		{ProviderDiscord, "guild", "00123"},
+		{ProviderDiscord, "channel", "123456"},
+		{ProviderDiscord, "thread", "123456:789012"},
 		{ProviderDiscord, "thread", "123:"},
 		{ProviderDiscord, "workspace", "123"},
 		{"unknown", "channel", "C123"},

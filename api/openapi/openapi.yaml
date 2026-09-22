@@ -13346,9 +13346,11 @@ components:
         scope_kind:
           type: string
           minLength: 1
+          description: Launcher scope. Discord requires guild (a server); channel and thread scopes are not supported for Discord launchers.
         scope_ref:
           type: string
           minLength: 1
+          description: Provider identifier for the launcher scope. For Discord, use the Server ID, not the Application ID or a Channel ID.
         slots:
           type: array
           description: App-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.

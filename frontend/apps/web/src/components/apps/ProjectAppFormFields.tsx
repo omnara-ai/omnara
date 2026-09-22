@@ -10,7 +10,7 @@ const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-
 const launcherScopeKinds: Record<AppType, readonly string[]> = {
   slack_thread: ['workspace', 'channel'],
   github_pr: ['repository'],
-  discord_thread: ['guild', 'channel'],
+  discord_thread: ['guild'],
 }
 
 interface LauncherFieldsProps {
@@ -124,7 +124,7 @@ function ProjectAppLauncherScopeFields({
   const launcher = app?.settings.launcher
   return (
     <>
-      {appType !== 'github_pr' && (
+      {appType === 'slack_thread' && (
         <Field>
           <FieldLabel htmlFor="app-launch-scope">Respond to mentions in</FieldLabel>
           <select
@@ -145,11 +145,7 @@ function ProjectAppLauncherScopeFields({
               })
             }}
           >
-            {appType === 'slack_thread' ? (
-              <option value="workspace">Connected workspace</option>
-            ) : (
-              <option value="guild">Entire server</option>
-            )}
+            <option value="workspace">Connected workspace</option>
             <option value="channel">One channel</option>
           </select>
         </Field>

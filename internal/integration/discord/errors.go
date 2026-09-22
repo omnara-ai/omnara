@@ -23,7 +23,7 @@ const (
 )
 
 // APIError excludes provider text, URLs, credentials and transport error strings.
-// A final DeliveryUnknown must not start a new send after the nonce window.
+// For message sends, DeliveryUnknown must not start a new send after the nonce window.
 type APIError struct {
 	Code         ErrorCode
 	StatusCode   int

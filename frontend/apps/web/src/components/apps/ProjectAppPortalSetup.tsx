@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
-// View Channels, Send Messages, Attach Files, Read Message History,
+// Add Reactions, View Channels, Send Messages, Attach Files, Read Message History,
 // Create Public Threads and Send Messages in Threads. No administrator access.
-const discordBotPermissions = '309237746688'
+const discordBotPermissions = '309237746752'
 
 /** The URL a provider portal needs. It stays empty until the typed provider ID can complete it. */
 export function ProjectAppPortalSetup({
@@ -82,7 +82,7 @@ export function ProjectAppPortalSetup({
           <div className="flex flex-col items-start gap-2 pt-3">
             <p className="text-muted-foreground text-sm">
               Under Installation, make sure Guild Install is enabled. Then add the bot to your
-              server below. Already installed? You can skip this.
+              server below. Already installed? Make sure its role also allows Add Reactions.
             </p>
             {url && (
               <Button asChild variant="outline">
@@ -97,7 +97,7 @@ export function ProjectAppPortalSetup({
             )}
             <p className="text-muted-foreground text-xs">
               Choose a server you manage. Discord will ask for access to read messages, reply in
-              threads and attach files.
+              threads, react to messages and attach files.
             </p>
           </div>
         )}

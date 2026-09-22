@@ -92,6 +92,20 @@ func messageInChannel(message Message, channel Channel) bool {
 		(message.GuildID == "" || message.GuildID == channel.GuildID)
 }
 
+// AddReaction sets the bot's own reaction. Repeating this PUT is safe, including
+// after an uncertain response. Discord returns an empty 204 on success.
+func (c *Client) AddReaction(ctx context.Context, channelID, messageID, emoji string) error {
+	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
+	defer cancel()
+	if !validID(channelID) || !validID(messageID) || emoji == "" || !utf8.ValidString(emoji) {
+		return errors.New("invalid discord reaction destination or emoji")
+	}
+	_, err := c.do(ctx, http.MethodPut,
+		c.base+"/channels/"+channelID+"/messages/"+messageID+"/reactions/"+url.PathEscape(emoji)+"/@me",
+		"", nil, true, true, ResponseMaxBytes)
+	return err
+}
+
 type PageOptions struct {
 	Before string
 	Limit  int

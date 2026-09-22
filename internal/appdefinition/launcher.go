@@ -28,8 +28,8 @@ func CanonicalLauncherScope(provider, kind, ref string) (string, string, error) 
 			return invalid()
 		}
 		return kind, strconv.FormatInt(id, 10), nil
-	case provider == ProviderDiscord && kind == "guild":
-		if !discordID.MatchString(ref) {
+	case provider == ProviderDiscord:
+		if kind != "guild" || !discordID.MatchString(ref) {
 			return invalid()
 		}
 		return kind, ref, nil

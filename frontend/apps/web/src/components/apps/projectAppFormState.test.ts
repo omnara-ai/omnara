@@ -203,7 +203,7 @@ describe('app metadata form', () => {
       settings: {
         launcher: {
           trigger: 'mention',
-          scope_kind: 'channel',
+          scope_kind: 'guild',
           scope_ref: '123',
           slots: [{ key: 'default', agent_profile_id: profileId }],
         },

@@ -472,16 +472,7 @@ func (p *SlackAppInboxProvider) acknowledge(
 	ctx context.Context,
 	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
-	results []AppSlotAdmission,
 ) error {
-	created := false
-	for _, result := range results {
-		created = created || (result.Launch != nil && result.Launch.Created) ||
-			(result.Input != nil && result.Input.Created)
-	}
-	if !created {
-		return nil
-	}
 	envelope, _, ok, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil || !ok {
 		return err
