@@ -13516,11 +13516,12 @@ components:
     ConfigureProjectAppRequest:
       type: object
       additionalProperties: false
-      required: [expected_setup_revision, provider_tenant_id, provider_account_ref, credential_secret_id]
+      required: [expected_setup_revision, provider_tenant_id, credential_secret_id]
       description: >-
         Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID;
-        the secret is github_app_credentials. Discord tenant/account are the Application ID and bot User ID;
-        its generic secret contains the bot token. Reconnect preserves the original verified provider identity.
+        the secret is github_app_credentials. Discord tenant is the Application ID;
+        its generic secret contains the bot token, from which the bot User ID is discovered automatically.
+        Reconnect preserves the original verified provider identity.
         A concurrent setup change rejects this request. Credential payloads are never returned.
       properties:
         expected_setup_revision:
@@ -13535,8 +13536,10 @@ components:
           type: string
           minLength: 1
           maxLength: 512
+          description: Required GitHub Installation ID. Optional for Discord; an explicitly supplied bot User ID must match the token.
         provider_agent_display_name:
           $ref: '#/components/schemas/AppProviderDisplayName'
+          description: Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
         provider_config:

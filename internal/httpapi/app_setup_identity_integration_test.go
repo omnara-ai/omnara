@@ -152,6 +152,7 @@ func TestAppSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 			if provider == "discord" {
 				f.body["provider_agent_display_name"] = "Updated active label"
 				f.update(t, http.StatusOK)
+				require.Equal(t, "Updated active label", f.current(t).ProviderAgentDisplayName)
 				require.Equal(t, f.steps, calls)
 			}
 			f.disconnect(t)

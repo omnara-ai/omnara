@@ -116,7 +116,7 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 		ExpectedSetupRevision:    body.ExpectedSetupRevision,
 		Provider:                 current.Provider,
 		ProviderTenantID:         strings.TrimSpace(body.ProviderTenantId),
-		ProviderAccountRef:       strings.TrimSpace(body.ProviderAccountRef),
+		ProviderAccountRef:       strings.TrimSpace(stringValue(body.ProviderAccountRef)),
 		ProviderAgentDisplayName: stringValue(body.ProviderAgentDisplayName),
 		ProviderIdentity:         current.ProviderIdentity,
 		ProviderMetadata:         current.ProviderMetadata,
@@ -236,6 +236,12 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 		}
 	}
 	if input.Provider == integrationstore.IntegrationProviderDiscord {
+		if body.ProviderAgentDisplayName == nil {
+			input.ProviderAgentDisplayName = current.ProviderAgentDisplayName
+		}
+		if input.ProviderAccountRef == "" {
+			input.ProviderAccountRef = current.ProviderAccountRef
+		}
 		if current.ProviderTenantID != "" &&
 			(current.ProviderTenantID != input.ProviderTenantID || current.ProviderAccountRef != input.ProviderAccountRef) {
 			return input, storeerr.InvalidRequest(
@@ -250,10 +256,6 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 			BotUserID:     input.ProviderAccountRef,
 			BotToken:      credential.Payload[secrets.KeyValue],
 		}
-		_, parseErr := discord.NewClient(config)
-		if parseErr != nil {
-			return input, storeerr.InvalidRequest(parseErr)
-		}
 		var observed discord.Identity
 		_ = json.Unmarshal(current.ProviderIdentity, &observed)
 		if !appCredentialAlreadyVerified(current, input) ||
@@ -262,6 +264,10 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 			identity, identityErr := discord.DiscoverIdentity(ctx, config)
 			if identityErr != nil {
 				return input, identityErr
+			}
+			input.ProviderAccountRef = identity.BotUserID
+			if body.ProviderAgentDisplayName == nil {
+				input.ProviderAgentDisplayName = identity.DisplayName
 			}
 			if err := setVerifiedAppIdentity(&input, current, identity); err != nil {
 				return input, err

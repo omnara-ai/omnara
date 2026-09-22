@@ -30,7 +30,7 @@ func discordSetupTestConfig(t *testing.T) discord.Config {
 			if r.Header.Get("Authorization") == "Bot other-customer-token" {
 				fmt.Fprint(w, `{"id":"999","bot":true}`)
 			} else {
-				fmt.Fprint(w, `{"id":"222","bot":true}`)
+				fmt.Fprint(w, `{"id":"222","bot":true,"username":"helper","global_name":"Helper"}`)
 			}
 		case "/api/v10/applications/@me":
 			fmt.Fprint(w, `{"id":"111"}`)
@@ -49,6 +49,7 @@ func TestDiscordHTTPCredentialReplacementCannotChangeIdentity(t *testing.T) {
 	foreignSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "foreign-token",
 		map[string]any{"kind": "generic", "value": "other-customer-token"})
 	f.body["credential_secret_id"] = foreignSecret
+	delete(f.body, "provider_account_ref")
 	f.update(t, http.StatusBadRequest)
 	current := f.current(t)
 	require.Equal(t, f.app.CredentialSecretID, current.CredentialSecretID)
@@ -61,6 +62,25 @@ func TestDiscordHTTPCredentialReplacementCannotChangeIdentity(t *testing.T) {
 		http.StatusBadRequest,
 	) // Even verified replacement IDs cannot change this app's account.
 	require.Equal(t, "222", f.current(t).ProviderAccountRef)
+}
+
+func TestDiscordHTTPSetupDiscoversBotIdentity(t *testing.T) {
+	t.Parallel()
+	handler := newIntegrationServer(openIntegrationDB(t, t.Context()),
+		WithDiscordClientConfig(discordSetupTestConfig(t)))
+	project := bootstrapPublicHTTPProject(t, handler, "discord-discover-bot")
+	secretID := createAppSetupHTTPSecret(t, handler, project, "discord-credentials",
+		map[string]any{"kind": "generic", "value": "private-discord-token"})
+	body := map[string]any{
+		"expected_setup_revision": 1,
+		"provider_tenant_id":      "111",
+		"credential_secret_id":    secretID,
+	}
+	app := configureDiscordHTTPApp(t, handler, project, body)
+	require.Equal(t, "111", app.ProviderTenantID)
+	require.Equal(t, "222", app.ProviderAccountRef)
+	require.Equal(t, "Helper", app.ProviderAgentDisplayName)
+	require.Equal(t, integrationstore.ProjectAppStateActive, app.State)
 }
 
 func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
@@ -103,6 +123,9 @@ func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 			secretID := createAppSetupHTTPSecret(t, handler, project, "discord-credentials",
 				map[string]any{"kind": "generic", "value": "private-discord-token"})
 			body := appSetupHTTPBody("111", "222")
+			if tc.name != "wrong bot" {
+				delete(body, "provider_account_ref")
+			}
 			body["credential_secret_id"] = secretID
 			app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
@@ -134,10 +157,12 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 				calls++
 				return nil
 			})
+			delete(f.body, "provider_account_ref")
 			config := map[string]any{"public_key": strings.Repeat("ab", 32)}
 			f.body["provider_config"] = config
 			f.update(t, http.StatusOK)
 			before := f.current(t)
+			require.Equal(t, "Helper", before.ProviderAgentDisplayName)
 			require.JSONEq(t, projectAppHTTPJSON(t, config), string(before.ProviderConfig))
 			require.Equal(t, f.steps, calls, "saving settings reuses the verified credential")
 
@@ -155,6 +180,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 			}
 			f.update(t, http.StatusOK)
 			after := f.current(t)
+			require.Equal(t, "Helper", after.ProviderAgentDisplayName)
 			require.Equal(t, before.SetupRevision+1, after.SetupRevision)
 			require.JSONEq(t, wantConfig, string(after.ProviderConfig))
 			require.Equal(t, 2*f.steps, calls, "rotated token must be verified with the provider")

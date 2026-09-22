@@ -8,6 +8,7 @@ import { appCatalog } from '@/components/apps/appDefinitions'
 import { AppIcon } from '@/components/apps/AppIcon'
 import { ConnectSlackForm } from '@/components/apps/ConnectSlackForm'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
+import { ProjectAppPortalSetup } from '@/components/apps/ProjectAppPortalSetup'
 import { ProjectAppSetup } from '@/components/apps/ProjectAppSetup'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
@@ -123,6 +124,12 @@ export function ProjectAppCreateSetup({
             Account connected. Choose which agents this app can start. Connection details remain
             available on the app page.
           </p>
+          {savedApp.app_type === 'discord_thread' && (
+            <ProjectAppPortalSetup
+              appType="discord_thread"
+              providerId={savedApp.provider_tenant_id}
+            />
+          )}
           <ProjectAppForm
             orgId={orgId}
             projectId={projectId}

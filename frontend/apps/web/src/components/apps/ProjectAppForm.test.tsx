@@ -92,9 +92,8 @@ it.each(['App name already exists', 'project apps limit of 64 reached'])(
       />,
     )
     await enter('Discord Application ID', '111')
-    await enter('Bot User ID', '222')
     await enter('Bot token', 'token')
-    await enter('Interaction public key', 'ab'.repeat(32))
+    await enter('Public key', 'ab'.repeat(32))
     await enter('App name', 'with space')
     await submit()
     expect(container.textContent).toContain('1–32')
@@ -117,7 +116,6 @@ it.each(['App name already exists', 'project apps limit of 64 reached'])(
       settings: {},
     })
     expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.value).toBe('111')
-    expect(container.querySelector<HTMLInputElement>('#provider-account')?.value).toBe('222')
     expect(container.querySelector<HTMLInputElement>('#bot-token')?.value).toBe('token')
     expect(container.querySelector<HTMLInputElement>('#app-name')?.readOnly).toBe(true)
     expect(
@@ -168,7 +166,13 @@ it.each([
           const setup = schemas.zConfigureProjectAppRequest.parse(body)
           return ++attempts === 1
             ? jsonResponse({ code: 'conflict', error: 'Verification failed; try again' }, 409)
-            : Response.json({ ...app, ...setup, state: 'active', setup_revision: 2 })
+            : Response.json({
+                ...app,
+                ...setup,
+                provider_account_ref: '222',
+                state: 'active',
+                setup_revision: 2,
+              })
         },
       },
       { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
@@ -186,13 +190,13 @@ it.each([
       />,
     )
     await enter(appType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', '111')
-    await enter(appType === 'github_pr' ? 'Installation ID' : 'Bot User ID', '222')
+    if (appType === 'github_pr') await enter('Installation ID', '222')
     if (appType === 'github_pr') {
       await enter('RSA private key (PEM)', 'test-key')
       await enter('Webhook secret', 'signature')
     } else {
       await enter('Bot token', 'token')
-      await enter('Interaction public key', 'ab'.repeat(32))
+      await enter('Public key', 'ab'.repeat(32))
     }
     await submit()
     await waitForUI(() => {
@@ -210,18 +214,25 @@ it.each([
       expected_setup_revision: 1,
       credential_secret_id: fakeId('sec'),
       provider_tenant_id: '111',
-      provider_account_ref: '222',
     })
-    if (appType === 'discord_thread')
+    if (appType === 'discord_thread') {
+      expect(
+        api.requestsTo('POST', path + '/apps/' + app.id + '/setup').at(-1)?.body,
+      ).not.toHaveProperty('provider_account_ref')
       expect(
         api.requestsTo('POST', path + '/apps/' + app.id + '/setup').at(-1)?.body,
       ).toMatchObject({
         provider_config: { public_key: 'ab'.repeat(32) },
       })
+    } else {
+      expect(
+        api.requestsTo('POST', path + '/apps/' + app.id + '/setup').at(-1)?.body,
+      ).toHaveProperty('provider_account_ref', '222')
+    }
   },
 )
 
-it('keeps the displayed account and endpoint aligned when another tab connects the app', async () => {
+it('keeps the displayed application and endpoint aligned when another tab connects the app', async () => {
   const app = projectApp({ app_type: 'discord_thread' })
   const props = { orgId, projectId, appType: 'discord_thread' as const, onSaved: vi.fn() }
   const { rerender } = render(fakeApi([]), <ProjectAppSetup {...props} app={app} />)
@@ -229,11 +240,20 @@ it('keeps the displayed account and endpoint aligned when another tab connects t
   expect(value('provider-endpoint')).toBe('')
   expect(button('Copy').disabled).toBe(true)
   await enter('Discord Application ID', '111')
-  await enter('Bot User ID', '222')
   expect(value('provider-endpoint')).toBe(
     'https://omnara.test/api/integrations/discord/111/interactions',
   )
   expect(button('Copy').disabled).toBe(false)
+  const invite = () => {
+    const link = container.querySelector<HTMLAnchorElement>('a[href*="oauth2/authorize"]')
+    if (!link) throw new Error('Missing Discord invitation link')
+    return new URL(link.href)
+  }
+  expect(invite().searchParams.get('client_id')).toBe('111')
+  expect(invite().searchParams.get('scope')).toBe('bot')
+  expect(BigInt(invite().searchParams.get('permissions') ?? '')).toBe(
+    [10n, 11n, 15n, 16n, 35n, 38n].reduce((mask, bit) => mask | (1n << bit), 0n),
+  )
   rerender(
     <ProjectAppSetup
       {...props}
@@ -241,7 +261,7 @@ it('keeps the displayed account and endpoint aligned when another tab connects t
     />,
   )
   expect(value('provider-tenant')).toBe('333')
-  expect(value('provider-account')).toBe('444')
+  expect(invite().searchParams.get('client_id')).toBe('333')
   expect(value('provider-endpoint')).toBe(
     'https://omnara.test/api/integrations/discord/333/interactions',
   )

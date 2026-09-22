@@ -2823,12 +2823,12 @@ export const zSaveProjectAppRequest = z.object({
 export const zProjectAppState = z.enum(['active', 'disconnected']);
 
 /**
- * Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant/account are the Application ID and bot User ID; its generic secret contains the bot token. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ * Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
  */
 export const zConfigureProjectAppRequest = z.object({
     expected_setup_revision: z.int().gte(1),
     provider_tenant_id: z.string().min(1).max(512),
-    provider_account_ref: z.string().min(1).max(512),
+    provider_account_ref: z.string().min(1).max(512).optional(),
     provider_agent_display_name: zAppProviderDisplayName.optional(),
     credential_secret_id: zSecretId,
     provider_config: zAppProviderConfig.optional()

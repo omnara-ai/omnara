@@ -265,7 +265,9 @@ func webE2EVerifiedAppSetupFixture(
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&body) != nil ||
 			(app.Provider != "github" && app.Provider != "discord") ||
-			body.ProviderTenantId != "111" || body.ProviderAccountRef != "222" {
+			body.ProviderTenantId != "111" ||
+			(app.Provider == "github" && (body.ProviderAccountRef == nil || *body.ProviderAccountRef != "222")) ||
+			(app.Provider == "discord" && body.ProviderAccountRef != nil) {
 			http.Error(w, "invalid provider browser fixture request", http.StatusBadRequest)
 			return
 		}
@@ -391,6 +393,7 @@ func TestWebE2EVerifiedAppSetupFixture(t *testing.T) {
 			"provider_tenant_id": "111", "provider_account_ref": "222",
 		}
 		if provider == "discord" {
+			delete(setup, "provider_account_ref")
 			setup["provider_config"] = map[string]any{
 				"public_key": strings.Repeat("ab", 32),
 			}

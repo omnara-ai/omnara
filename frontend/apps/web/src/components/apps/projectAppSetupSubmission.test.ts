@@ -4,38 +4,41 @@ import { fakeId, projectApp } from '@/test/fixtures'
 
 import { submitProjectAppSetup } from './projectAppSetupSubmission'
 
-it.each(['tenant', 'account', 'discord-key'] as const)(
-  'rejects invalid %s before saving credentials',
-  async (invalid) => {
-    const form = new FormData()
-    form.set('tenant', '111')
-    form.set('account', '222')
-    form.set('publicKey', 'ab'.repeat(32))
-    form.set('secretName', 'discord-credentials')
-    form.set('botToken', 'test-token')
-    form.set(invalid === 'discord-key' ? 'publicKey' : invalid, 'invalid')
-    type Actions = Parameters<typeof submitProjectAppSetup>[1]
-    const actions: Actions = {
-      createSecret: vi.fn<Actions['createSecret']>(),
-      configureApp: vi.fn<Actions['configureApp']>(),
-      onSecretSaved: vi.fn(),
-    }
-    await expect(
-      submitProjectAppSetup(
-        {
-          form,
-          app: projectApp({ app_type: 'discord_thread' }),
-          projectId: fakeId('proj'),
-          savedSecret: '',
-          newCredential: true,
-        },
-        actions,
-      ),
-    ).rejects.toThrow()
-    expect(actions.createSecret).not.toHaveBeenCalled()
-    expect(actions.configureApp).not.toHaveBeenCalled()
-  },
-)
+it.each([
+  ['discord_thread', 'tenant'],
+  ['github_pr', 'account'],
+  ['discord_thread', 'discord-key'],
+] as const)('rejects invalid %s %s before saving credentials', async (appType, invalid) => {
+  const form = new FormData()
+  form.set('tenant', '111')
+  form.set('account', '222')
+  form.set('publicKey', 'ab'.repeat(32))
+  form.set('secretName', 'discord-credentials')
+  form.set('botToken', 'test-token')
+  form.set('privateKey', 'test-private-key')
+  form.set('webhookSecret', 'test-webhook-secret')
+  form.set(invalid === 'discord-key' ? 'publicKey' : invalid, 'invalid')
+  type Actions = Parameters<typeof submitProjectAppSetup>[1]
+  const actions: Actions = {
+    createSecret: vi.fn<Actions['createSecret']>(),
+    configureApp: vi.fn<Actions['configureApp']>(),
+    onSecretSaved: vi.fn(),
+  }
+  await expect(
+    submitProjectAppSetup(
+      {
+        form,
+        app: projectApp({ app_type: appType }),
+        projectId: fakeId('proj'),
+        savedSecret: '',
+        newCredential: true,
+      },
+      actions,
+    ),
+  ).rejects.toThrow()
+  expect(actions.createSecret).not.toHaveBeenCalled()
+  expect(actions.configureApp).not.toHaveBeenCalled()
+})
 
 it('pins the app ID, revision and original provider identity on reconnect', async () => {
   const app = projectApp({

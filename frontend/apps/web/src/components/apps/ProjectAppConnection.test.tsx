@@ -94,13 +94,13 @@ it.each(['discord_thread', 'github_pr'] as const)(
       expect(container.querySelector('#provider-tenant')).not.toBeNull()
     })
     await enter(appType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', '111')
-    await enter(appType === 'github_pr' ? 'Installation ID' : 'Bot User ID', '222')
+    if (appType === 'github_pr') await enter('Installation ID', '222')
     if (appType === 'github_pr') {
       await enter('RSA private key (PEM)', 'test-key')
       await enter('Webhook secret', 'signature')
     } else {
       await enter('Bot token', 'token')
-      await enter('Interaction public key', 'ab'.repeat(32))
+      await enter('Public key', 'ab'.repeat(32))
     }
     act(() => {
       button('Connect app').click()

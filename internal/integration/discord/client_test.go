@@ -288,10 +288,11 @@ func TestClientConfigAndIdentity(t *testing.T) {
 }
 
 func TestDiscoverIdentityFromCustomerBotToken(t *testing.T) {
+	globalName := "Helper"
 	_, server := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v10/users/@me":
-			fmt.Fprint(w, `{"id":"222","bot":true}`)
+			fmt.Fprintf(w, `{"id":"222","bot":true,"username":"helper","global_name":%q}`, globalName)
 		case "/api/v10/applications/@me":
 			fmt.Fprint(w, `{"id":"111"}`)
 		default:
@@ -301,10 +302,18 @@ func TestDiscoverIdentityFromCustomerBotToken(t *testing.T) {
 	config := Config{Credentials: Credentials{BotToken: "test-token"},
 		HTTPClient: server.Client(), APIURL: server.URL + "/api/v10"}
 	identity, err := DiscoverIdentity(t.Context(), config)
-	if err != nil || identity.ApplicationID != "111" || identity.BotUserID != "222" {
+	if err != nil || identity.ApplicationID != "111" || identity.BotUserID != "222" || identity.DisplayName != "Helper" {
+		t.Fatalf("identity=%+v, error=%v", identity, err)
+	}
+	globalName = ""
+	identity, err = DiscoverIdentity(t.Context(), config)
+	if err != nil || identity.DisplayName != "helper" {
 		t.Fatalf("identity=%+v, error=%v", identity, err)
 	}
 	config.Credentials.ApplicationID = "333"
 	_, err = DiscoverIdentity(t.Context(), config)
 	requireAPIError(t, err, ScopeMismatch)
+	config.Credentials.BotToken = "invalid token"
+	_, err = DiscoverIdentity(t.Context(), config)
+	requireAPIError(t, err, PermanentFailure)
 }

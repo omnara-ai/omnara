@@ -25,6 +25,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGitHubHTTPSetupRequiresInstallationID(t *testing.T) {
+	t.Parallel()
+	f := newAppSetupIdentityFixture(t, "github", nil)
+	delete(f.body, "provider_account_ref")
+	f.update(t, http.StatusBadRequest)
+	require.Equal(t, f.app, f.current(t))
+}
+
 func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

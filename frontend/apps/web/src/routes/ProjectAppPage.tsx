@@ -10,6 +10,7 @@ import { ProjectAppConnection } from '@/components/apps/ProjectAppConnection'
 import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
 import { ProjectAppHeader } from '@/components/apps/ProjectAppHeader'
 import { ProjectAppLaunch } from '@/components/apps/ProjectAppLaunch'
+import { ProjectAppPortalSetup } from '@/components/apps/ProjectAppPortalSetup'
 import { ProjectAppSchedules } from '@/components/apps/ProjectAppSchedules'
 import { useProjectAppActions } from '@/components/apps/useProjectAppActions'
 import {
@@ -206,6 +207,12 @@ function ProjectAppSettings({
           }
         />
       )}
+      {connected &&
+        app.state === 'active' &&
+        app.app_type === 'discord_thread' &&
+        !showConnection && (
+          <ProjectAppPortalSetup appType="discord_thread" providerId={app.provider_tenant_id} />
+        )}
       {!draft && (
         <ProjectAppLaunch
           orgId={orgId}

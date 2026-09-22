@@ -4,7 +4,7 @@ import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 import { projectAppFormError } from './projectAppFormState'
@@ -94,7 +94,7 @@ export function ProjectAppSetup({
               'Copy these values from your GitHub App’s settings. Next, you’ll choose the agent to launch for pull requests.'
             ) : (
               <>
-                Copy these values from your application in the{' '}
+                Open your application in the{' '}
                 <a
                   href="https://discord.com/developers/applications"
                   target="_blank"
@@ -103,7 +103,7 @@ export function ProjectAppSetup({
                 >
                   Discord Developer Portal
                 </a>
-                . Next, you’ll choose which agents people can start.
+                . Connect it below, then choose the agent profiles it can launch.
               </>
             )}
           </p>
@@ -118,11 +118,11 @@ export function ProjectAppSetup({
             </ProjectAppSetupGroup>
           )}
           <ProjectAppSetupGroup
-            title={github ? 'App identity' : 'Bot identity'}
+            title={github ? 'App identity' : '1. Application details'}
             hint={
               github
                 ? 'The App ID is on the app’s settings page. The Installation ID is a different number, at the end of its installation URL.'
-                : 'Find the Application ID under General Information. Copy the User ID from the bot’s profile in Discord.'
+                : 'Copy both values from General Information.'
             }
           >
             <div className="grid gap-4 sm:grid-cols-2">
@@ -144,37 +144,53 @@ export function ProjectAppSetup({
                   }}
                 />
               </Field>
+              {github && (
+                <Field>
+                  <FieldLabel htmlFor="provider-account">Installation ID</FieldLabel>
+                  <Input
+                    key={app?.provider_account_ref ?? ''}
+                    id="provider-account"
+                    name="account"
+                    inputMode="numeric"
+                    defaultValue={app?.provider_account_ref}
+                    readOnly={Boolean(app?.provider_account_ref)}
+                    required
+                    pattern="[1-9][0-9]*"
+                  />
+                </Field>
+              )}
+              {!github && (
+                <Field>
+                  <FieldLabel htmlFor="discord-public-key">Public key</FieldLabel>
+                  <Input
+                    id="discord-public-key"
+                    name="publicKey"
+                    className="font-mono"
+                    spellCheck={false}
+                    defaultValue={z.string().catch('').parse(app?.provider_config.public_key)}
+                    pattern="[a-fA-F0-9]{64}"
+                    required
+                  />
+                </Field>
+              )}
+            </div>
+            {github && (
               <Field>
-                <FieldLabel htmlFor="provider-account">
-                  {github ? 'Installation ID' : 'Bot User ID'}
-                </FieldLabel>
+                <FieldLabel htmlFor="provider-display">Bot display name (optional)</FieldLabel>
                 <Input
-                  key={app?.provider_account_ref ?? ''}
-                  id="provider-account"
-                  name="account"
-                  inputMode="numeric"
-                  defaultValue={app?.provider_account_ref}
-                  readOnly={Boolean(app?.provider_account_ref)}
-                  required
-                  pattern="[1-9][0-9]*"
+                  id="provider-display"
+                  name="displayName"
+                  defaultValue={app?.provider_agent_display_name}
                 />
               </Field>
-            </div>
-            <Field>
-              <FieldLabel htmlFor="provider-display">Bot display name (optional)</FieldLabel>
-              <Input
-                id="provider-display"
-                name="displayName"
-                defaultValue={app?.provider_agent_display_name}
-              />
-            </Field>
+            )}
           </ProjectAppSetupGroup>
           <ProjectAppSetupGroup
-            title="Credentials"
+            title={github ? 'Credentials' : '2. Bot token'}
             hint={
               github
                 ? 'The private key lets Omnara act as the app. The webhook secret verifies what GitHub sends.'
-                : 'Use the token from the Bot page and the public key from General Information.'
+                : 'On the Bot page, copy your token (or use Reset Token to create one). Enable Message Content Intent so agents can read replies.'
             }
           >
             <ProjectAppSetupCredentials
@@ -191,30 +207,13 @@ export function ProjectAppSetup({
                 setNewCredential(false)
               }}
             />
-            {!github && (
-              <Field>
-                <FieldLabel htmlFor="discord-public-key">Interaction public key</FieldLabel>
-                <Input
-                  id="discord-public-key"
-                  name="publicKey"
-                  className="font-mono"
-                  spellCheck={false}
-                  defaultValue={z.string().catch('').parse(app?.provider_config.public_key)}
-                  pattern="[a-fA-F0-9]{64}"
-                  required
-                />
-                <FieldDescription>
-                  Lets Omnara verify profile choices and answers to agent questions.
-                </FieldDescription>
-              </Field>
-            )}
           </ProjectAppSetupGroup>
           <ProjectAppSetupGroup
-            title={`Then, in ${provider}`}
+            title={github ? 'Then, in GitHub' : '3. Finish in Discord'}
             hint={
               github
                 ? 'Connect here first, then finish setup in your GitHub App’s settings.'
-                : 'Connect here first, then save this URL in the Discord Developer Portal.'
+                : 'Connect here first. These instructions stay available after connecting.'
             }
           >
             <ProjectAppPortalSetup

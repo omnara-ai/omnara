@@ -12,11 +12,15 @@ conversations with app-owned subscriptions; see [Apps](/integrations/apps).
 ## Connect your bot
 
 Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
-Record the Application ID, separate bot User ID, bot token and public key. Enable
-Message Content Intent. Omnara receives guild messages through Gateway; this
+Record the Application ID, bot token and public key. Omnara retrieves the bot User ID
+and display name automatically from the token. Enable Message Content Intent. Omnara receives guild messages through Gateway; this
 app does not support DMs. Install the bot in your server with permission to read
 history, send messages, create public threads and send in threads. Grant Attach
 Files if agents will upload files.
+
+In the dashboard, **Add bot to server** opens Discord with these permissions
+already selected. After connecting, save the displayed Interactions Endpoint URL
+in your application's General Information page.
 
 Save the token as a project-available [generic secret](/organization/secrets),
 with `material: {"kind":"generic","value":"your-bot-token"}`. Configure the
@@ -26,15 +30,15 @@ saved app through `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
 {
   "expected_setup_revision": 1,
   "provider_tenant_id": "111111111111111111",
-  "provider_account_ref": "222222222222222222",
   "credential_secret_id": "sec_aeaqcaibaeaqcaibaeaqcaibae",
   "provider_config": {"public_key": "YOUR_64_CHARACTER_HEX_PUBLIC_KEY"}
 }
 ```
 
 Use the app's current `setup_revision`. `provider_tenant_id` is the Application
-ID and `provider_account_ref` is the bot User ID; neither is the guild ID. Setup
-verifies those identities with Discord. Omnara manages one Gateway connection
+ID; neither it nor the bot User ID is the guild ID. Setup discovers and saves the
+bot User ID as `provider_account_ref`. If supplied explicitly, it must match the
+token. Reconnecting cannot change the saved application or bot. Omnara manages one Gateway connection
 per app. This supports bots in fewer than
 [2,500 servers](https://docs.discord.com/developers/events/gateway#sharding); larger bots
 require sharding, which is not currently supported. Omit `provider_config` during

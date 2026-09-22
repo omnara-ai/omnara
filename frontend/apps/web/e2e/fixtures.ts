@@ -170,9 +170,7 @@ export async function fillProviderAccount(
       exact: true,
     })
     .fill('111')
-  await page
-    .getByLabel(appType === 'github_pr' ? 'Installation ID' : 'Bot User ID', { exact: true })
-    .fill('222')
+  if (appType === 'github_pr') await page.getByLabel('Installation ID', { exact: true }).fill('222')
 }
 
 export async function connectAppWithCredentialRetry(
@@ -202,7 +200,7 @@ export async function connectAppWithCredentialRetry(
     await page.getByLabel('Webhook secret').fill('local-github-webhook-secret')
   } else {
     await page.getByLabel('Bot token', { exact: true }).fill('local-discord-token')
-    await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
+    await page.getByLabel('Public key', { exact: true }).fill('ab'.repeat(32))
   }
   await page.route(
     '**/apps/*/setup',

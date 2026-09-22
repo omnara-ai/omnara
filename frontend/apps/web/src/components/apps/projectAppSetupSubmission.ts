@@ -31,10 +31,11 @@ export async function submitProjectAppSetup(
   if (app.app_type === 'slack_thread')
     throw new Error('Use Slack authorization to connect this app.')
   const tenant = app.provider_tenant_id || value('tenant')
-  const account = app.provider_account_ref || value('account')
+  const account =
+    app.app_type === 'github_pr' ? app.provider_account_ref || value('account') : undefined
   const identity = z.string().regex(/^[1-9][0-9]*$/, 'Enter a positive numeric provider ID.')
   identity.parse(tenant)
-  identity.parse(account)
+  if (app.app_type === 'github_pr') identity.parse(account)
   const providerConfig: ConfigureProjectAppRequest['provider_config'] = {}
   if (app.app_type === 'discord_thread') {
     // The normal Discord launcher includes an interaction handler. A public key
@@ -68,7 +69,7 @@ export async function submitProjectAppSetup(
     expected_setup_revision: app.setup_revision,
     provider_tenant_id: tenant,
     provider_account_ref: account,
-    provider_agent_display_name: value('displayName'),
+    provider_agent_display_name: app.app_type === 'github_pr' ? value('displayName') : undefined,
     credential_secret_id: secretId,
     provider_config: providerConfig,
   })

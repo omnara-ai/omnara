@@ -68,7 +68,7 @@ omnara apps configure --help
 ```
 
 GitHub uses its numeric App ID and Installation ID; the credential's App ID must
-match. Discord uses its Application ID and bot User ID. Configure Discord's
+match. Discord uses its Application ID and discovers the bot User ID from its token. Configure Discord's
 interaction public key with `--provider-config '{"public_key":"YOUR_64_HEX_PUBLIC_KEY"}'`
 before using a launcher or interaction handler. Discord launchers include a handler by default. Set its
 Interactions Endpoint URL to

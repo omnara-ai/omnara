@@ -612,7 +612,17 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
 
     const secretID = schemas.zSecretId.parse(app.credential_secret_id)
     if (appType === 'discord_thread') {
+      await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveValue(
+        new RegExp(`/api/integrations/discord/${app.provider_tenant_id}/interactions$`),
+      )
+      await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
       await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
+      const advanced = page.getByRole('region', { name: 'Advanced', exact: true })
+      await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
+      await expect(advanced).toContainText(
+        `/api/integrations/discord/${app.provider_tenant_id}/interactions`,
+      )
+      await advanced.getByRole('button', { name: 'Advanced', exact: true }).click()
       await launch.getByRole('button', { name: 'Choose profiles', exact: true }).click()
       await exerciseDiscordAppSchedule(page, app, profileId, profileName, apiProjectPath)
     }
@@ -728,7 +738,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
     await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
     if (appType === 'discord_thread')
-      await page.getByLabel('Interaction public key', { exact: true }).fill('ab'.repeat(32))
+      await page.getByLabel('Public key', { exact: true }).fill('ab'.repeat(32))
     const secondCreation = appCreation(page)
     await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
     const secondary = schemas.zProjectApp.parse(await (await secondCreation).json())
@@ -776,6 +786,12 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     await connection.getByRole('button', { name: 'Reconnect app', exact: true }).click()
     expect((await reconfigured).status()).toBe(200)
     await expect(connection).toHaveCount(0)
+    if (appType === 'discord_thread') {
+      await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveValue(
+        new RegExp(`/api/integrations/discord/${app.provider_tenant_id}/interactions$`),
+      )
+      await expect(page.getByRole('link', { name: 'Add bot to server', exact: true })).toBeVisible()
+    }
     await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()
     const reconnected = await readApp(page, apiProjectPath, app.id)
     expect(reconnected).toMatchObject({

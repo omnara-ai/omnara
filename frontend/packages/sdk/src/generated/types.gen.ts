@@ -3496,12 +3496,18 @@ export type ProjectAppName = string;
 export type ProjectAppState = 'active' | 'disconnected';
 
 /**
- * Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant/account are the Application ID and bot User ID; its generic secret contains the bot token. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ * Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
  */
 export type ConfigureProjectAppRequest = {
     expected_setup_revision: number;
     provider_tenant_id: string;
-    provider_account_ref: string;
+    /**
+     * Required GitHub Installation ID. Optional for Discord; an explicitly supplied bot User ID must match the token.
+     */
+    provider_account_ref?: string;
+    /**
+     * Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
+     */
     provider_agent_display_name?: AppProviderDisplayName;
     credential_secret_id: SecretId;
     /**

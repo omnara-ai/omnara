@@ -297,6 +297,8 @@ func (c *Client) EnsureThread(ctx context.Context, scope Scope, messageID, name 
 type Identity struct {
 	ApplicationID string `json:"application_id"`
 	BotUserID     string `json:"bot_user_id"`
+	// DisplayName is mutable presentation, not part of the saved identity.
+	DisplayName string `json:"-"`
 }
 
 // DiscoverIdentity resolves customer bot credentials during connection setup.
@@ -305,9 +307,13 @@ type Identity struct {
 func DiscoverIdentity(ctx context.Context, config Config) (Identity, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
+	if (config.Credentials.ApplicationID != "" && !validID(config.Credentials.ApplicationID)) ||
+		(config.Credentials.BotUserID != "" && !validID(config.Credentials.BotUserID)) {
+		return Identity{}, &APIError{Code: ScopeMismatch}
+	}
 	client, err := newClient(config)
 	if err != nil {
-		return Identity{}, err
+		return Identity{}, &APIError{Code: PermanentFailure, cause: err}
 	}
 	identity, err := client.identity(ctx)
 	if err != nil {
@@ -348,5 +354,9 @@ func (c *Client) identity(ctx context.Context) (Identity, error) {
 	if !validID(bot.ID) || !bot.Bot || !validID(app.ID) {
 		return Identity{}, invalidResponse(false)
 	}
-	return Identity{ApplicationID: app.ID, BotUserID: bot.ID}, nil
+	name := bot.GlobalName
+	if name == "" {
+		name = bot.Username
+	}
+	return Identity{ApplicationID: app.ID, BotUserID: bot.ID, DisplayName: name}, nil
 }

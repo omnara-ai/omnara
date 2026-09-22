@@ -7,6 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
+// View Channels, Send Messages, Attach Files, Read Message History,
+// Create Public Threads and Send Messages in Threads. No administrator access.
+const discordBotPermissions = '309237746688'
+
 /** The URL a provider portal needs. It stays empty until the typed provider ID can complete it. */
 export function ProjectAppPortalSetup({
   appType,
@@ -68,8 +72,31 @@ export function ProjectAppPortalSetup({
       <FieldDescription>
         {github
           ? 'In your GitHub App’s settings, set this as the webhook URL with the webhook secret above, and subscribe to pull requests, issue comments, and pull request review comments.'
-          : 'In the Developer Portal, paste this into General Information → Interactions Endpoint URL and save.'}
+          : 'After connecting here, paste this into General Information → Interactions Endpoint URL and save. This enables profile choices and answers to agent questions.'}
       </FieldDescription>
+      {!github && (
+        <div className="flex flex-col items-start gap-2 pt-3">
+          <p className="text-muted-foreground text-sm">
+            Under Installation, make sure Guild Install is enabled. Then add the bot to your server
+            below. Already installed? You can skip this.
+          </p>
+          {url && (
+            <Button asChild variant="outline">
+              <a
+                href={`https://discord.com/oauth2/authorize?client_id=${providerId}&scope=bot&permissions=${discordBotPermissions}&integration_type=0`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Add bot to server
+              </a>
+            </Button>
+          )}
+          <p className="text-muted-foreground text-xs">
+            Choose a server you manage. Discord will ask for access to read messages, reply in
+            threads and attach files.
+          </p>
+        </div>
+      )}
     </Field>
   )
 }
