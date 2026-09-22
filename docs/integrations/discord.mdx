@@ -130,7 +130,10 @@ Require successful [signed PING verification](https://docs.discord.com/developer
 before offering profile menus or external approvals.
 
 Select `interaction_handlers: {support: {}}` in an agent config to expose the
-handler. The model chooses it with `set_interaction_handler`, supplying a complete
+handler. For manual configs, also select `list_interaction_handlers` and
+`set_interaction_handler` under `tools` to let the model choose a destination.
+The Discord launcher adds the handler and both tools automatically, preserving explicit settings.
+The model chooses it with `set_interaction_handler`, supplying a complete
 `channel_id` and optional `thread_id` and `guild_id` in `args`. Sending context does
 not restrict this selection. Incoming provider input automatically selects the
 full origin address, including on launch. Questions remain answerable in the dashboard if Discord

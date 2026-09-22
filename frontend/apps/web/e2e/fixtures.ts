@@ -294,15 +294,14 @@ export async function expectAppCapabilities(page: Page, app: ProjectApp) {
 }
 
 export async function expectInteractionToolMenu(page: Page) {
-  await page.getByRole('button', { name: 'Add tools' }).click()
-  await expect(page.getByRole('menuitem', { name: 'ask_question', exact: true })).toBeVisible()
-  for (const name of ['list_interaction_handlers', 'set_interaction_handler'])
-    await expect(page.getByRole('menuitem', { name, exact: true })).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Other tools', exact: true }).click()
-  for (const name of ['list_interaction_handlers', 'set_interaction_handler'])
-    await expect(page.getByLabel(`${name} permission`, { exact: true })).toContainText(
-      'Always allow',
-    )
-  await page.getByRole('button', { name: 'Other tools', exact: true }).click()
+  for (const name of ['list_interaction_handlers', 'set_interaction_handler']) {
+    await page.getByRole('button', { name: 'Add tools', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: 'ask_question', exact: true })).toBeVisible()
+    await page.getByRole('menuitem', { name, exact: true }).click()
+    const permission = page.getByRole('combobox', { name: `${name} permission`, exact: true })
+    await expect(permission).toContainText('Always allow')
+    await permission.click()
+    await page.getByRole('option', { name: 'Always ask', exact: true }).click()
+    await expect(permission).toContainText('Always ask')
+  }
 }

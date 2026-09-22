@@ -247,7 +247,9 @@ manage them independently from the app's
 
 ### `list_interaction_handlers` / `set_interaction_handler`
 
-These are compiled defaults for tool-capable configs, unless explicitly disabled.
+Slack and Discord launchers add these tools with their interaction handler,
+preserving explicit tool settings. GitHub does not add them. Other configs can
+select them explicitly under `tools`; they are not global defaults.
 `list_interaction_handlers` accepts `cursor` and `limit`, returning handler keys,
 descriptions and effective argument schemas. Its current selection is included
 independently of pagination. No configured handlers means an empty list.

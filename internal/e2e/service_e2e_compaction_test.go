@@ -429,8 +429,6 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 	defer openai.Close()
 
 	env.startAPI(t, ctx)
-	// Keep the tool schemas fixed so the small context window measures the
-	// history/tool-group boundary independently of optional routing tools.
 	project := env.bootstrapProjectViaAPIWithSourceAndModelOptions(
 		t,
 		ctx,
@@ -441,8 +439,6 @@ model:
   name: service-e2e-local
 tools:
   run_command: {}
-  list_interaction_handlers: {enabled: false}
-  set_interaction_handler: {enabled: false}
 `,
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {

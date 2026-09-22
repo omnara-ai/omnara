@@ -204,6 +204,8 @@ tools:
 			assert.Contains(t, mustJSONString(body["input"]), "Prepare the update for "+dates[i]+".")
 			assert.NotContains(t, mustJSONString(body["input"]), replies[0], "new occurrence has fresh history")
 			assert.True(t, requestContainsTool(body, "ask_question"))
+			assert.True(t, requestContainsTool(body, "list_interaction_handlers"))
+			assert.True(t, requestContainsTool(body, "set_interaction_handler"))
 			writeOpenAIFunctionCall(w, fail, fmt.Sprintf("resp_question_%d", i),
 				fmt.Sprintf("call_question_%d", i), "ask_question", map[string]any{
 					"questions": []any{map[string]any{"prompt": question,

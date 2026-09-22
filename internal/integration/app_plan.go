@@ -537,6 +537,9 @@ func deriveAppLaunch(
 	}
 	if definition.InteractionHandler != nil {
 		additions.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{app.Name: {}}
+		for _, name := range toolcatalog.InteractionHandlerToolNames() {
+			additions.Tools[name] = agentconfig.AgentConfigToolSource{}
+		}
 	}
 	derived, err := DeriveAppProfileConfig(base, additions, agentconfig.CompileOptions{
 		ResolveAppName: func(name string) (agentconfig.AppResolution, error) {

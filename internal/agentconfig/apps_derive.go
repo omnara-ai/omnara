@@ -33,11 +33,21 @@ func CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOpti
 	if len(source.Tools) > 0 {
 		compiled.Tools = map[string]ToolCompiled{}
 	}
+	catalog, err := toolcatalog.Default()
+	if err != nil {
+		return Compiled{}, err
+	}
 	for _, key := range slices.Sorted(maps.Keys(source.Tools)) {
-		if !toolcatalog.UsesAppToolNamespace(key) {
-			return Compiled{}, fmt.Errorf("composition only accepts app tools: %q", key)
+		sourceTool := source.Tools[key]
+		var tool ToolCompiled
+		switch {
+		case toolcatalog.UsesAppToolNamespace(key):
+			tool, err = compileAppTool(key, sourceTool, opts)
+		case toolcatalog.IsInteractionHandlerTool(key):
+			tool, err = compileBuiltInTool(key, sourceTool, sourceTool.Enabled == nil || *sourceTool.Enabled, catalog)
+		default:
+			return Compiled{}, fmt.Errorf("composition only accepts app tools and interaction helpers: %q", key)
 		}
-		tool, err := compileAppTool(key, source.Tools[key], opts)
 		if err != nil {
 			return Compiled{}, err
 		}

@@ -22,17 +22,9 @@ type ResolvedTool struct {
 func compileTools(
 	source AgentConfigSource,
 	opts CompileOptions,
-	interactionDefaults bool,
 ) (map[string]ToolCompiled, error) {
 	tools := maps.Clone(source.Tools)
 	defaults := missingDefaultToolNames(source)
-	if interactionDefaults {
-		for _, name := range toolcatalog.InteractionHandlerToolNames() {
-			if _, exists := tools[name]; !exists {
-				defaults = append(defaults, name)
-			}
-		}
-	}
 	if tools == nil {
 		tools = map[string]AgentConfigToolSource{}
 	}
@@ -121,7 +113,7 @@ func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOpt
 		return nil, err
 	}
 	opts = cacheAppResolver(opts)
-	tools, err := compileTools(source, opts, true)
+	tools, err := compileTools(source, opts)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
 	}

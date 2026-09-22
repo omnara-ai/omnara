@@ -9786,7 +9786,7 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/ConfigToolSource'
-          description: Additional app tool entries (app__<app-name>__<operation>) for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+          description: Additional app tool entries (app__<app-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
         subscriptions:
           type: array
           maxItems: 100

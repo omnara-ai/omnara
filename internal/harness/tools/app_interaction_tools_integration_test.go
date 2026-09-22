@@ -30,6 +30,12 @@ func activateInteractionToolHandlers(
 		[]byte(f.AgentConfig.Source),
 	)
 	require.NoError(t, err)
+	if source.Tools == nil {
+		source.Tools = map[string]agentconfig.AgentConfigToolSource{}
+	}
+	for _, name := range toolcatalog.InteractionHandlerToolNames() {
+		source.Tools[name] = agentconfig.AgentConfigToolSource{}
+	}
 	source.InteractionHandlers = map[string]agentconfig.AgentConfigAppCapabilitySource{}
 	for _, key := range keys {
 		if key != f.Install.Name {

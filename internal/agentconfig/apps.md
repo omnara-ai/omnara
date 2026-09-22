@@ -10,6 +10,8 @@ credentials. Public IDs use `publicid.KindProjectApp`.
 tools:
   app__engineering__post_message:
     permission: {mode: always_ask}
+  list_interaction_handlers: {}
+  set_interaction_handler: {}
 interaction_handlers:
   engineering: {}
 ```
@@ -91,25 +93,29 @@ CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOptions) 
 DeriveWithAppCapabilities(base Compiled, additions AppCapabilitiesSource, opts CompileOptions) (Compiled, error)
 ```
 
-The first compiles capabilities alone, without defaults or model/machine/skill
-resolution. Derivation removes all existing keys before validating/resolving
+The first compiles app tools, the two interaction helper built-ins, and handlers
+without defaults or model/machine/skill resolution. Derivation removes all
+existing keys before validating/resolving
 additions. Existing disabled tools, permissions and handlers win completely; even
 malformed or unavailable redundant additions are ignored.
 Base model/machine/skill identities remain pinned. Launcher admission separately
 registers concrete subscription attachments independently of config derivation.
 
-`SubagentCompiledFrom` removes all app tools and handlers. Ordinary
+`SubagentCompiledFrom` removes all app tools, interaction helpers, and handlers. Ordinary
 custom tools, MCP and built-ins remain independent. Runtime subscriptions are
 never inherited. This does not prohibit explicitly attaching subscriptions to an
 existing subagent through the ordinary management contract.
 
 ## Interaction helpers
 
-New compilations for tool-capable models include `list_interaction_handlers` and
-`set_interaction_handler` regardless of configured handlers. Explicit enabled,
-permission and deferred overrides win. Models explicitly lacking tool support
-receive neither optional default; explicit enabled tools still require support.
-Stored configs are never given these defaults during decoding.
+Slack and Discord launchers add `list_interaction_handlers` and
+`set_interaction_handler` alongside their app's handler. GitHub does not add them.
+Existing enabled, permission and deferred settings win in all launchers. Manual
+configs can select either built-in explicitly; declaring a handler alone adds no
+tools. Compilation and runtime decoding never inject these helpers globally.
+Enabled tools still require a model that supports tools. Stored configs retain
+their tools unchanged. Handler destinations remain runtime arguments and state;
+adding or selecting a destination does not require changing the config.
 
 The setter takes `{handler, args}`; `handler: null` with empty args means dashboard
 only. The harness validates the outer tool contract; executionstore checks the

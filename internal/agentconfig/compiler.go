@@ -235,7 +235,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		compiled.MachineSources = machines
 	}
 	opts = cacheAppResolver(opts)
-	compiled.Tools, err = compileTools(source, opts, compiledModel.supportsTools == nil || *compiledModel.supportsTools)
+	compiled.Tools, err = compileTools(source, opts)
 	if err != nil {
 		return Compiled{}, err
 	}

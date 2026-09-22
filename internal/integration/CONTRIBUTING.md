@@ -27,6 +27,8 @@ Agent source attaches capabilities independently. For an app named `support`:
 tools:
   app__support__read: {}
   app__support__post_message: {}
+  list_interaction_handlers: {}
+  set_interaction_handler: {}
 interaction_handlers:
   support: {}
 ```

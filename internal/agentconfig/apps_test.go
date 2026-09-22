@@ -137,6 +137,8 @@ func TestCompositionPreservesExistingEntriesAndSubagentsStripApps(t *testing.T) 
 	base := compileAppTest(t, `tools:
   app__engineering-team__post_message: {enabled: false, permission: {mode: always_deny}}
   ordinary__custom: {type: custom, description: Custom, input_schema: {type: object}}
+  list_interaction_handlers: {}
+  set_interaction_handler: {}
 interaction_handlers:
   engineering-team: {}
 mcp:
@@ -170,7 +172,9 @@ subagents: {worker: {type: self}}`, opts).Compiled
 	}
 	require.Contains(t, child.Tools, "ordinary__custom")
 	require.Contains(t, child.MCP, "docs")
-	require.Contains(t, child.Tools, toolcatalog.ToolNameListInteractionHandlers)
+	for _, name := range toolcatalog.InteractionHandlerToolNames() {
+		require.NotContains(t, child.Tools, name)
+	}
 }
 
 func TestPendingAppToolIdentityAndPermission(t *testing.T) {
@@ -202,15 +206,14 @@ func TestPendingAppToolIdentityAndPermission(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestInteractionDefaultsAreCompileTimeAndRespectModelAndOverrides(t *testing.T) {
+func TestInteractionToolsAreExplicitAndRespectModelAndOverrides(t *testing.T) {
 	for _, supports := range []bool{true, false} {
 		opts := CompileOptions{ResolveModelSelection: func(string, string) (ResolvedModelSelection, error) {
 			return ResolvedModelSelection{SupportsTools: &supports}, nil
 		}}
 		result := compileAppTest(t, "", opts)
 		for _, name := range toolcatalog.InteractionHandlerToolNames() {
-			_, ok := result.Compiled.Tools[name]
-			require.Equal(t, supports, ok)
+			require.NotContains(t, result.Compiled.Tools, name)
 		}
 		disabled := compileAppTest(
 			t,
@@ -281,6 +284,22 @@ func TestCompositionDoesNotResolveExistingOrNonAppMetadata(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, base, derived)
 	require.Equal(t, "invalid", source.Tools["app__engineering-team__read"].Type, "input maps must not be mutated")
+}
+
+func TestCompositionAcceptsInteractionHelpersWithoutOtherBuiltIns(t *testing.T) {
+	opts, _ := appTestOptions(t)
+	for _, name := range append(toolcatalog.InteractionHandlerToolNames(), toolcatalog.ToolNameWebSearch) {
+		compiled, err := CompileAppCapabilitiesSource(AppCapabilitiesSource{
+			Tools: map[string]AgentConfigToolSource{name: {}},
+		}, opts)
+		if toolcatalog.IsInteractionHandlerTool(name) {
+			require.NoError(t, err)
+			require.Len(t, compiled.Tools, 1)
+			require.True(t, compiled.Tools[name].Enabled)
+		} else {
+			require.ErrorContains(t, err, "composition only accepts app tools and interaction helpers")
+		}
+	}
 }
 
 func TestReferencedAppIDsExcludeDisabledToolsOnly(t *testing.T) {

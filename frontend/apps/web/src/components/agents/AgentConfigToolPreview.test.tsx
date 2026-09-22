@@ -59,6 +59,12 @@ const catalog: ToolCatalog = {
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
     },
+    ...['list_interaction_handlers', 'set_interaction_handler'].map((name) => ({
+      name,
+      description: name,
+      implicit: false,
+      ...alwaysAllowProfile,
+    })),
   ],
   custom_tool_permissions: alwaysAllowProfile,
   mcp_tool_permissions: {
@@ -78,7 +84,6 @@ const includedCatalog: ToolCatalog = {
     'create_machine',
     'delete_machine',
     'skill',
-    'set_interaction_handler',
     'read_file',
     'search_files',
     ...subagentToolNames,

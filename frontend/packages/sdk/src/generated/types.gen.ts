@@ -1423,7 +1423,7 @@ export type CreateAgentRequest = {
      */
     message?: string;
     /**
-     * Additional app tool entries (app__<app-name>__<operation>) for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+     * Additional app tool entries (app__<app-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
      */
     tools?: {
         [key: string]: ConfigToolSource;

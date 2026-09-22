@@ -115,6 +115,9 @@ Subscriptions use the `message` event by default. Attaching a subscription does
 not assign or change the conversation used by this app's tools.
 
 Add `interaction_handlers: {engineering: {}}` to offer Slack questions and approvals.
+For manual configs, also select `list_interaction_handlers` and
+`set_interaction_handler` under `tools` to let the model choose a destination.
+The Slack launcher adds the handler and both tools automatically, preserving explicit settings.
 The model selects it with `set_interaction_handler` and complete `channel_id` plus
 optional `thread_ts` arguments, independently of sending context. Incoming provider
 messages select the handler with their full origin address automatically, including

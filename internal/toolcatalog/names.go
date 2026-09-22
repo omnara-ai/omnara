@@ -74,9 +74,6 @@ func IsSubagentToolName(name string) bool {
 }
 
 func implicit(name string) bool {
-	if IsInteractionHandlerTool(name) {
-		return true
-	}
 	return UsesAppToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
 		slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill ||

@@ -115,7 +115,7 @@ func SubagentCompiledFrom(
 	child.InteractionHandlers = nil
 	child.MCP = maps.Clone(base.MCP)
 	for name, tool := range child.Tools {
-		if tool.AppID != "" || toolcatalog.UsesAppToolNamespace(name) {
+		if tool.AppID != "" || toolcatalog.UsesAppToolNamespace(name) || toolcatalog.IsInteractionHandlerTool(name) {
 			delete(child.Tools, name)
 		}
 	}

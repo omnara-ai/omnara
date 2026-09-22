@@ -24,8 +24,8 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 			t.Fatalf("returned an already configured tool: %s", name)
 		}
 	}
-	compiled, err := compileTools(source, CompileOptions{}, true)
-	if err != nil || len(compiled) != 15 || compiled["run_command"].Enabled {
+	compiled, err := compileTools(source, CompileOptions{})
+	if err != nil || len(compiled) != 13 || compiled["run_command"].Enabled {
 		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
 	if len(source.Tools) != 1 || *source.Tools["run_command"].Enabled {
@@ -108,8 +108,8 @@ func TestToolPreviewDrafts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 15 {
-		t.Fatalf("got %d entries, want 15", len(entries))
+	if len(entries) != 13 {
+		t.Fatalf("got %d entries, want 13", len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Name == "run_command" && (entry.Enabled || entry.Permission.Mode != toolpermission.ModeAlwaysAsk) {
@@ -120,7 +120,7 @@ func TestToolPreviewDrafts(t *testing.T) {
 		`{}`, `{"instruction":"", "model":{}, "mcp":{}}`,
 	} {
 		tools, err := ToolsFromSource(SourceFormatJSON, []byte(raw))
-		if err != nil || len(tools) != 2 {
+		if err != nil || len(tools) != 0 {
 			t.Fatalf("empty draft: %+v, %v", tools, err)
 		}
 	}

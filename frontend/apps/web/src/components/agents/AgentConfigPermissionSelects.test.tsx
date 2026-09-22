@@ -78,7 +78,7 @@ const activeOrg = currentUserOrg({ id: 'org-test', name: 'Test org' })
 
 const includedCatalog: ToolCatalog = {
   ...catalog,
-  built_in_tools: ['run_command', 'skill', 'set_interaction_handler'].map((name) => ({
+  built_in_tools: ['run_command', 'skill', 'list_agents'].map((name) => ({
     name,
     description: name,
     implicit: true,
@@ -340,7 +340,7 @@ function click(selector: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'set_interaction_handler'])(
+it.each(['run_command', 'skill', 'list_agents'])(
   'displays the catalog default for configured %s without changing its source',
   async (name) => {
     const onToolsChange = vi.fn()
@@ -455,7 +455,45 @@ async function selectIncludedPermission(name: string, label: string) {
   })
 }
 
-it.each(['run_command', 'skill', 'set_interaction_handler'])(
+it('adds interaction helpers and edits their permissions as ordinary tools', async () => {
+  const helpers = ['list_interaction_handlers', 'set_interaction_handler']
+  const manualCatalog: ToolCatalog = {
+    ...catalog,
+    built_in_tools: [
+      ...catalog.built_in_tools,
+      ...helpers.map((name) => ({
+        name,
+        description: name,
+        implicit: false,
+        ...alwaysAllowProfile,
+      })),
+    ],
+  }
+  await renderAndFlush(<IncludedToolsHarness catalog={manualCatalog} source={includedSource} />)
+  for (const name of helpers) {
+    await act(async () => {
+      container
+        .querySelector('[aria-label="Add tools"]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const option = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === name,
+    )
+    if (!option) throw new Error(`Missing ${name} in Add tools`)
+    act(() => {
+      option.click()
+    })
+    await selectIncludedPermission(name, 'Always ask')
+  }
+  expect(parse(container.querySelector('output')?.textContent ?? '')).toHaveProperty('tools', {
+    web_search: { permission: { mode: 'always_ask' } },
+    list_interaction_handlers: { type: 'built_in', permission: { mode: 'always_ask' } },
+    set_interaction_handler: { type: 'built_in', permission: { mode: 'always_ask' } },
+  })
+})
+
+it.each(['run_command', 'skill', 'list_agents'])(
   'disables and re-enables %s without changing other tools',
   async (name) => {
     await renderAndFlush(<IncludedToolsHarness source={`${includedSource}  ${name}: {}\n`} />)
@@ -522,7 +560,7 @@ it('reopens disabled tools and preserves their permission until a new one is cho
 it.each([
   ['run_command', 'Run shell commands on an attached machine.'],
   ['skill', 'skill'],
-  ['set_interaction_handler', 'set_interaction_handler'],
+  ['list_agents', 'list_agents'],
 ])(
   'shows the frontend description or catalog fallback for %s on hover and keyboard focus',
   async (name, description) => {
@@ -658,7 +696,7 @@ it('groups configured machine, skill, and interaction tools in one dropdown insi
       tools={[
         { name: 'run_command', permission: null },
         { name: 'skill', permission: null },
-        { name: 'set_interaction_handler', permission: null },
+        { name: 'list_agents', permission: null },
         { name: 'web_search', permission: null },
       ]}
       onToolsChange={onToolsChange}
@@ -669,12 +707,12 @@ it('groups configured machine, skill, and interaction tools in one dropdown insi
     'Other tools',
   )
   expect(container.textContent).toContain('web_search')
-  for (const name of ['run_command', 'skill', 'set_interaction_handler']) {
+  for (const name of ['run_command', 'skill', 'list_agents']) {
     expect(container.textContent).not.toContain(name)
     expect(container.querySelector(`[aria-label="Remove ${name}"]`)).toBeNull()
   }
   click('[data-slot="collapsible-trigger"]')
-  for (const name of ['run_command', 'skill', 'set_interaction_handler']) {
+  for (const name of ['run_command', 'skill', 'list_agents']) {
     const control = container.querySelector(`[aria-label="${name} permission"]`)
     expect(control).not.toBeNull()
     expect(control?.closest('[data-slot="collapsible-content"]')).not.toBeNull()

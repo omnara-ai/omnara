@@ -94,6 +94,8 @@ model:
 tools:
   ask_question: {}
   app__reviews__read: {}
+  list_interaction_handlers: {}
+  set_interaction_handler: {}
 interaction_handlers:
   engineering: {}
 ```
@@ -272,8 +274,12 @@ dashboard if provider delivery fails.
 
 ## Route questions and approvals
 
-Tool-capable configs include `list_interaction_handlers` and
-`set_interaction_handler` by default, unless explicitly disabled. The list is
+Slack and Discord launchers add `list_interaction_handlers` and
+`set_interaction_handler` along with their app's handler. GitHub does not add them;
+all launchers preserve tools and handlers already configured in the profile,
+including explicit tool permissions and disabled entries. Manual configs can add
+these built-ins under `tools`. Ordinary configs receive neither automatically.
+Destinations can change at runtime without changing the config. The list is
 paginated and returns each handler's description and static argument schema,
 plus the current selection independently of the page. The model selects a handler
 and destination arguments, or uses `{"handler": null, "args": {}}` for dashboard only.

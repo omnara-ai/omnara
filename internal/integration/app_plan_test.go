@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
@@ -560,6 +561,14 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			} else {
 				require.Empty(t, compiled.InteractionHandlers)
 			}
+			for _, name := range toolcatalog.InteractionHandlerToolNames() {
+				tool, exists := compiled.Tools[name]
+				require.Equal(t, definition.InteractionHandler != nil, exists)
+				if exists {
+					require.True(t, tool.Enabled)
+					require.Equal(t, toolpermission.ModeAlwaysAllow, tool.Permission.Mode)
+				}
+			}
 			content, err := appdefinition.AppendInputContext(app.Name, test.scope, json.RawMessage(`[{"type":"text","text":"hello"}]`))
 			require.NoError(t, err)
 			var blocks []struct {
@@ -571,6 +580,52 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			require.Equal(t, "true", blocks[1].Metadata["omnara_hidden"])
 			require.Contains(t, blocks[1].Text, `"app":"receiver"`)
 			require.Contains(t, blocks[1].Text, test.address)
+		})
+	}
+}
+
+func TestAppLaunchPreservesInteractionToolOverrides(t *testing.T) {
+	_, execution, _, app, event := appPlannerFixture(t)
+	base := execution.profile.CurrentConfig
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+	appID, err := publicid.Encode(publicid.KindProjectApp, app.ID)
+	require.NoError(t, err)
+	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: appID}}
+	compiled.Tools[toolcatalog.ToolNameListInteractionHandlers] = agentconfig.ToolCompiled{
+		Enabled: true, Deferred: true, Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
+	}
+	compiled.Tools[toolcatalog.ToolNameSetInteractionHandler] = agentconfig.ToolCompiled{
+		Enabled: false, Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysDeny),
+	}
+	encoded, err := agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+	for _, appType := range []appdefinition.Type{
+		appdefinition.SlackThread, appdefinition.DiscordThread, appdefinition.GitHubPR,
+	} {
+		t.Run(string(appType), func(t *testing.T) {
+			app := app
+			var scope appdefinition.Scope
+			app.AppType = appType
+			switch appType {
+			case appdefinition.SlackThread:
+				scope = event.Event.Scope
+			case appdefinition.DiscordThread:
+				app.ID, app.Name, app.Provider = uuid.New(), "discord", appdefinition.ProviderDiscord
+				scope = appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}}
+			case appdefinition.GitHubPR:
+				app.ID, app.Name, app.Provider = uuid.New(), "github", appdefinition.ProviderGitHub
+				scope = appdefinition.Scope{GitHub: &appdefinition.GitHubScope{RepositoryID: 123, PullRequest: 42}}
+			}
+			derived, _, err := deriveAppLaunch(base, app, scope)
+			require.NoError(t, err)
+			var actual agentconfig.Compiled
+			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
+			for _, name := range toolcatalog.InteractionHandlerToolNames() {
+				require.Equal(t, compiled.Tools[name], actual.Tools[name])
+			}
+			require.Equal(t, compiled.InteractionHandlers["chat"], actual.InteractionHandlers["chat"])
 		})
 	}
 }

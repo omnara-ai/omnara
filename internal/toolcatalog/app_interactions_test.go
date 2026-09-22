@@ -27,5 +27,8 @@ func TestInteractionHandlerToolSchemas(t *testing.T) {
 	}
 	for _, name := range InteractionHandlerToolNames() {
 		require.True(t, IsInteractionHandlerTool(name))
+		entry, found := catalog.Lookup(name)
+		require.True(t, found)
+		require.False(t, entry.Implicit, "interaction helpers are manually selectable built-ins")
 	}
 }

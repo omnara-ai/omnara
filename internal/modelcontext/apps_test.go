@@ -109,7 +109,7 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 			bundle := buildAppContext(t, store)
 			require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"))
 			require.True(t, HasTool(bundle.ToolSpecs, "web_search"), "unrelated capabilities remain usable")
-			require.True(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
+			require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
 			require.Equal(t, original, store.config.CompiledDefinition)
 			require.Equal(t, hash, store.config.EffectiveDefinitionHash)
 			require.Equal(t, []string{appID}, store.appDefinitionRequests[len(store.appDefinitionRequests)-1].IDs)
@@ -132,12 +132,11 @@ func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t 
 	require.Contains(t, content, `"channel_id":"C123"`)
 	require.Contains(t, content, `"thread_ts":"111.222"`)
 	require.Contains(t, content, "Omnara dashboard")
-	require.Contains(t, content, "set_interaction_handler")
 	require.NotContains(t, content, appID)
 	require.NotContains(t, content, testIDN(940).String())
 	require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"), "a handler grants no send tool")
-	require.True(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
-	require.True(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSetInteractionHandler))
+	require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
+	require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameSetInteractionHandler))
 	require.Equal(
 		t,
 		[]handlerListRequest{{ProjectID: testProjectID, AgentID: testAgentID, Limit: 1}},
@@ -170,22 +169,28 @@ func TestBuildInteractionSelectionCannotRetargetPinnedApp(t *testing.T) {
 	}
 }
 
-func TestBuildInteractionDefaultsWithoutHandlersAndDashboardContext(t *testing.T) {
-	for _, source := range []string{
-		"", "tools: {app__engineering__read: {}}\n", "interaction_handlers: {engineering: {}}\n",
+func TestBuildInteractionToolsFollowConfig(t *testing.T) {
+	for _, test := range []struct {
+		name, source string
+		wantTools    bool
+	}{
+		{name: "plain config"},
+		{name: "app tool only", source: "tools: {app__engineering__read: {}}\n"},
+		{name: "handler only", source: "interaction_handlers: {engineering: {}}\n"},
+		{name: "explicit tools", source: `tools:
+  list_interaction_handlers: {}
+  set_interaction_handler: {}
+interaction_handlers: {engineering: {}}
+`, wantTools: true},
 	} {
-		t.Run(source, func(t *testing.T) {
-			store, _ := appContextFixture(t, source)
+		t.Run(test.name, func(t *testing.T) {
+			store, _ := appContextFixture(t, test.source)
 			bundle := buildAppContext(t, store)
 			for _, name := range toolcatalog.InteractionHandlerToolNames() {
-				require.True(t, HasTool(bundle.ToolSpecs, name))
+				require.Equal(t, test.wantTools, HasTool(bundle.ToolSpecs, name))
 			}
-			content := InteractionRoutingContent(bundle.InteractionRouting)
-			require.Contains(t, content, "dashboard only")
-			require.Contains(t, content, "list_interaction_handlers")
-			require.Contains(t, content, "set_interaction_handler")
-			require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"))
-			if source == "" {
+			require.Contains(t, InteractionRoutingContent(bundle.InteractionRouting), "dashboard only")
+			if test.source == "" {
 				require.Empty(t, store.interactionHandlerRequests)
 			}
 		})
