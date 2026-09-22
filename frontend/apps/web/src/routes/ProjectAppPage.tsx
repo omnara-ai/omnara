@@ -164,7 +164,7 @@ function ProjectAppSettings({
             Slack setup didn’t finish. {oauth.description}
           </p>
         )}
-        {connected && app.state === 'active' && (
+        {connected && app.state === 'active' && !showConnection && (
           <ConnectedNotice app={app} chooseNext={canSetUp && !app.settings.launcher} />
         )}
         {draft && !canSetUp && (
@@ -255,6 +255,7 @@ function ConnectedNotice({ app, chooseNext }: { app: ProjectApp; chooseNext: boo
       <CircleCheck className="text-primary mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>
         Account connected.
+        {app.app_type === 'discord_thread' && ' Discord setup steps are below if you need them.'}
         {chooseNext &&
           (chat
             ? ' Choose which agents people can start by mentioning the bot, or add a schedule instead.'

@@ -93,6 +93,8 @@ it.each(['discord_thread', 'github_pr'] as const)(
     await waitForUI(() => {
       expect(container.querySelector('#provider-tenant')).not.toBeNull()
     })
+    if (appType === 'discord_thread')
+      expect(container.querySelector('#provider-endpoint')).toBeNull()
     await enter(appType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', '111')
     if (appType === 'github_pr') await enter('Installation ID', '222')
     if (appType === 'github_pr') {
@@ -112,7 +114,20 @@ it.each(['discord_thread', 'github_pr'] as const)(
     expect(container.querySelector('#provider-tenant')).toBeNull()
     expect(container.textContent).toContain('Account connected.')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
-    if (appType === 'discord_thread') expect(button('Add schedule').disabled).toBe(false)
+    if (appType === 'discord_thread') {
+      expect(button('Add schedule').disabled).toBe(false)
+      expect(container.querySelector<HTMLInputElement>('#provider-endpoint')?.value).toBe(
+        'https://omnara.test/api/integrations/discord/111/interactions',
+      )
+      const link = container.querySelector<HTMLAnchorElement>('a[href*="oauth2/authorize"]')
+      if (!link) throw new Error('Missing Discord invitation link')
+      const invite = new URL(link.href)
+      expect(invite.searchParams.get('client_id')).toBe('111')
+      expect(invite.searchParams.get('scope')).toBe('bot')
+      expect(BigInt(invite.searchParams.get('permissions') ?? '')).toBe(
+        [10n, 11n, 15n, 16n, 35n, 38n].reduce((mask, bit) => mask | (1n << bit), 0n),
+      )
+    }
     act(() => {
       button('Cancel').click()
     })

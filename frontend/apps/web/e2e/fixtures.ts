@@ -201,6 +201,7 @@ export async function connectAppWithCredentialRetry(
   } else {
     await page.getByLabel('Bot token', { exact: true }).fill('local-discord-token')
     await page.getByLabel('Public key', { exact: true }).fill('ab'.repeat(32))
+    await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveCount(0)
   }
   await page.route(
     '**/apps/*/setup',

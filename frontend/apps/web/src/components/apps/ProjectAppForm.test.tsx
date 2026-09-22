@@ -232,28 +232,16 @@ it.each([
   },
 )
 
-it('keeps the displayed application and endpoint aligned when another tab connects the app', async () => {
-  const app = projectApp({ app_type: 'discord_thread' })
-  const props = { orgId, projectId, appType: 'discord_thread' as const, onSaved: vi.fn() }
+it('keeps the displayed GitHub application and endpoint aligned when another tab connects the app', async () => {
+  const app = projectApp({ app_type: 'github_pr' })
+  const props = { orgId, projectId, appType: 'github_pr' as const, onSaved: vi.fn() }
   const { rerender } = render(fakeApi([]), <ProjectAppSetup {...props} app={app} />)
   const value = (id: string) => container.querySelector<HTMLInputElement>(`#${id}`)?.value
   expect(value('provider-endpoint')).toBe('')
   expect(button('Copy').disabled).toBe(true)
-  await enter('Discord Application ID', '111')
-  expect(value('provider-endpoint')).toBe(
-    'https://omnara.test/api/integrations/discord/111/interactions',
-  )
+  await enter('GitHub App ID', '111')
+  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/111/events')
   expect(button('Copy').disabled).toBe(false)
-  const invite = () => {
-    const link = container.querySelector<HTMLAnchorElement>('a[href*="oauth2/authorize"]')
-    if (!link) throw new Error('Missing Discord invitation link')
-    return new URL(link.href)
-  }
-  expect(invite().searchParams.get('client_id')).toBe('111')
-  expect(invite().searchParams.get('scope')).toBe('bot')
-  expect(BigInt(invite().searchParams.get('permissions') ?? '')).toBe(
-    [10n, 11n, 15n, 16n, 35n, 38n].reduce((mask, bit) => mask | (1n << bit), 0n),
-  )
   rerender(
     <ProjectAppSetup
       {...props}
@@ -261,10 +249,7 @@ it('keeps the displayed application and endpoint aligned when another tab connec
     />,
   )
   expect(value('provider-tenant')).toBe('333')
-  expect(invite().searchParams.get('client_id')).toBe('333')
-  expect(value('provider-endpoint')).toBe(
-    'https://omnara.test/api/integrations/discord/333/interactions',
-  )
+  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/333/events')
 })
 
 it('blocks a stale edit until explicitly reloaded', async () => {

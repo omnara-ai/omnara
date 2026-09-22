@@ -103,7 +103,8 @@ export function ProjectAppSetup({
                 >
                   Discord Developer Portal
                 </a>
-                . Connect it below, then choose the agent profiles it can launch.
+                . Enter the details below and connect. You’ll then get the steps to finish setup in
+                Discord.
               </>
             )}
           </p>
@@ -208,19 +209,14 @@ export function ProjectAppSetup({
               }}
             />
           </ProjectAppSetupGroup>
-          <ProjectAppSetupGroup
-            title={github ? 'Then, in GitHub' : '3. Finish in Discord'}
-            hint={
-              github
-                ? 'Connect here first, then finish setup in your GitHub App’s settings.'
-                : 'Connect here first. These instructions stay available after connecting.'
-            }
-          >
-            <ProjectAppPortalSetup
-              appType={github ? 'github_pr' : 'discord_thread'}
-              providerId={providerTenant || tenant}
-            />
-          </ProjectAppSetupGroup>
+          {github && (
+            <ProjectAppSetupGroup
+              title="Then, in GitHub"
+              hint="Connect here first, then finish setup in your GitHub App’s settings."
+            >
+              <ProjectAppPortalSetup appType="github_pr" providerId={providerTenant || tenant} />
+            </ProjectAppSetupGroup>
+          )}
         </fieldset>
         {error && (
           <p role="alert" className="text-destructive text-sm">
