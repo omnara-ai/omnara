@@ -5,7 +5,7 @@ import {
   useDeleteAgentProfile,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
@@ -84,23 +84,16 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
               canManage={canManage}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Button asChild size="sm" variant="outline">
-              <Link to="/projects/$projectId/apps" params={{ projectId }}>
-                Project apps
-              </Link>
+          {canOperate && (
+            <Button
+              size="sm"
+              disabled={launchPending}
+              loading={launchPending}
+              onClick={() => void launch()}
+            >
+              Launch
             </Button>
-            {canOperate && (
-              <Button
-                size="sm"
-                disabled={launchPending}
-                loading={launchPending}
-                onClick={() => void launch()}
-              >
-                Launch
-              </Button>
-            )}
-          </div>
+          )}
         </div>
         <PillTabs
           value={tab}

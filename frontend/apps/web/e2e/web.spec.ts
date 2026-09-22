@@ -518,9 +518,6 @@ test('edits a profile with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'YAML' }).click()
   await expect(page.locator('.monaco-editor')).toContainText('Updated instruction.')
 
-  await page.getByRole('link', { name: 'Project apps', exact: true }).click()
-  await expect(page).toHaveURL(`/projects/${projectID}/apps`)
-  await expect(page.getByRole('heading', { name: 'Apps', exact: true })).toBeVisible()
   expect(failures).toEqual([])
 })
 
