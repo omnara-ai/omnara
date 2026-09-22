@@ -150,7 +150,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err := lockAppConversationsTx(ctx, tx, lease.ProjectID, origins...); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduledLaunch
+	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduled
 	if scheduled {
 		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, locked.AppID)
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -23,13 +24,14 @@ type scheduledTestProvider struct {
 	appConsumerProvider
 	posts, ensures int
 	root           appdefinition.Scope
+	publish        func(context.Context) error
 	ensure         func(context.Context) error
 }
 
 func (p *scheduledTestProvider) PublishScheduledRoot(
 	ctx context.Context,
 	_ integrationstore.ProjectAppRecord,
-	_ integrationstore.ScheduledAppLaunch,
+	_ appdefinition.ScheduledThreadLaunch,
 	_ uuid.UUID,
 	check func(context.Context) error,
 ) (appdefinition.Scope, error) {
@@ -37,6 +39,11 @@ func (p *scheduledTestProvider) PublishScheduledRoot(
 		return appdefinition.Scope{}, err
 	}
 	p.posts++
+	if p.publish != nil {
+		if err := p.publish(ctx); err != nil {
+			return appdefinition.Scope{}, err
+		}
+	}
 	return p.root, nil
 }
 func (p *scheduledTestProvider) EnsureScheduledThread(
@@ -66,6 +73,7 @@ type scheduledJourney struct {
 	profile  executionstore.AgentProfileRecord
 	provider *scheduledTestProvider
 	consumer *AppInboxConsumer
+	handler  *ThreadAppScheduledHandler
 }
 
 func newScheduledJourney(t *testing.T) *scheduledJourney {
@@ -76,11 +84,11 @@ func newScheduledJourney(t *testing.T) *scheduledJourney {
 func newScheduledProviderJourney(t *testing.T, providerName string) *scheduledJourney {
 	t.Helper()
 	tenant, account := "T123", "A123"
-	destination := json.RawMessage(`{"channel_id":"C123"}`)
+	channel := "C123"
 	root := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
 	if providerName == appdefinition.ProviderDiscord {
 		tenant, account = "100", "22"
-		destination = json.RawMessage(`{"channel_id":"300"}`)
+		channel = "300"
 		root = appdefinition.Scope{Discord: &appdefinition.DiscordScope{
 			GuildID: "100", ChannelID: "300", ThreadID: "500",
 		}}
@@ -92,32 +100,38 @@ func newScheduledProviderJourney(t *testing.T, providerName string) *scheduledJo
 		ProjectID: ids.ProjectID, Name: "daily", CurrentConfigID: base.ID,
 	})
 	require.NoError(t, err)
+	profileID, err := publicid.Encode(publicid.KindAgentProfile, profile.ID)
+	require.NoError(t, err)
+	settings, err := json.Marshal(appdefinition.ThreadScheduleSettings{
+		AgentProfileID: profileID, ChannelID: channel,
+		OpeningMessageTemplate: "Daily update {{.trigger.local_date}}",
+		MessageTemplate:        "Review today and post your findings.",
+	})
+	require.NoError(t, err)
 	trigger, err := store.Execution().CreateCronTrigger(t.Context(), executionstore.CreateCronTriggerInput{
-		ProjectID:       ids.ProjectID,
-		Name:            "Daily update",
-		CronExpression:  "0 9 * * *",
-		Timezone:        "America/Los_Angeles",
-		Enabled:         true,
-		MessageTemplate: "Review today and post your findings.",
+		ProjectID:      ids.ProjectID,
+		Name:           "Daily update",
+		CronExpression: "0 9 * * *",
+		Timezone:       "America/Los_Angeles",
+		Enabled:        true,
 		Target: executionstore.CronTriggerTarget{
-			Kind: executionstore.CronTriggerTargetAppLaunch, ID: appID,
-			AppLaunch: &executionstore.CronAppLaunchTarget{
-				ProfileID:              profile.ID,
-				Destination:            destination,
-				OpeningMessageTemplate: "Daily update {{.trigger.local_date}}",
-			},
+			Kind: executionstore.CronTriggerTargetApp, ID: appID, Settings: settings,
 		},
 	})
 	require.NoError(t, err)
 	provider := &scheduledTestProvider{root: root}
 	router := NewAppRouter(store.Execution(), store.Integrations())
+	handler := NewThreadAppScheduledHandler(router, store.Integrations(), provider)
 	consumer := NewAppInboxConsumer(
-		router, store.Integrations(), nil, map[string]AppInboxProvider{providerName: provider},
+		router, store.Integrations(), nil, nil,
 		nil, testAppLaunchWorkflow(router),
+		WithAppScheduledHandlers(map[appdefinition.Type]AppScheduledHandler{
+			appdefinition.Type(appdefinition.AppTypesForProvider(providerName)[0]): handler.Handle,
+		}),
 	)
 	return &scheduledJourney{
 		t: t, pool: pool, store: store, ids: ids, appID: appID,
-		trigger: trigger, profile: profile, provider: provider, consumer: consumer,
+		trigger: trigger, profile: profile, provider: provider, consumer: consumer, handler: handler,
 	}
 }
 
@@ -134,7 +148,7 @@ func (f *scheduledJourney) fire() integrationstore.IntegrationInboxRecord {
 	require.NoError(f.t, err)
 	require.Len(f.t, claims.Claimed, 1)
 	f.firings++
-	queued, err := f.store.Execution().CreateCronTriggerAppLaunch(f.t.Context(), claims.Claimed[0])
+	queued, err := f.store.Execution().CreateCronTriggerAppEvent(f.t.Context(), claims.Claimed[0])
 	require.NoError(f.t, err)
 	require.True(f.t, queued)
 	return f.claim()
@@ -155,7 +169,7 @@ func (f *scheduledJourney) claim() integrationstore.IntegrationInboxRecord {
 func TestScheduledLaunchHasConversationContextWithoutMentionLauncher(t *testing.T) {
 	f := newScheduledJourney(t)
 	receipt := f.fire()
-	require.Equal(t, integrationstore.IntegrationInboxSourceScheduledLaunch, receipt.Source)
+	require.Equal(t, integrationstore.IntegrationInboxSourceScheduled, receipt.Source)
 	var count int
 	require.NoError(t, f.pool.QueryRow(
 		t.Context(), "SELECT count(*) FROM agents WHERE project_id=$1", f.ids.ProjectID,

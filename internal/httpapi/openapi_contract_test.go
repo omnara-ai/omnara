@@ -301,12 +301,14 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 
 	browserOnlyMutations := map[string]bool{
-		"post /personal-access-tokens":                               true,
-		"post /orgs/{orgID}/api-keys":                                true,
-		"patch /orgs/{orgID}/api-keys/{keyID}":                       true,
-		"post /orgs/{orgID}/api-keys/{keyID}/revoke":                 true,
-		"put /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":    true,
-		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
+		"post /orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup":               true,
+		"post /orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup/installations": true,
+		"post /personal-access-tokens":                                                    true,
+		"post /orgs/{orgID}/api-keys":                                                     true,
+		"patch /orgs/{orgID}/api-keys/{keyID}":                                            true,
+		"post /orgs/{orgID}/api-keys/{keyID}/revoke":                                      true,
+		"put /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":                         true,
+		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":                      true,
 	}
 	machineOnlyMutations := map[string]bool{
 		"post /daemon/bootstrap":                        true,
@@ -384,6 +386,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"AgentInteraction.tool_name":                   "",
 		"CreateMachinePoolRequestBase.provider_config": "",
 		"CreateSlackSetupRequest.app_name":             "",
+		"CreateGitHubSetupRequest.app_name":            "",
+		"GitHubInstallations.name":                     "",
 		"CurrentUserIdentity.display_name":             "",
 		"DiscoveredProviderModel.display_name":         "",
 		"ExternalActorParams.display_name":             "",

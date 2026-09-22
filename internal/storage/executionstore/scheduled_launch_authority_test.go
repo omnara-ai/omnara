@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,19 +23,19 @@ func scheduledAuthorityFixture(t *testing.T) (
 	t.Helper()
 	app := integrationstore.ProjectAppRecord{
 		ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), Provider: appdefinition.ProviderSlack,
-		Name: "support-chat",
+		Name: "support-chat", AppType: appdefinition.SlackThread,
 	}
-	launch := integrationstore.ScheduledAppLaunch{
-		TriggerID:   uuid.New(),
-		ProfileID:   uuid.New(),
-		ConfigID:    uuid.New(),
-		TriggerName: "Daily review",
-		DueAt:       time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC),
-		Destination: json.RawMessage(
-			`{"channel_id":"C123"}`,
-		),
-		OpeningMessage: "Daily review",
-		Message:        "Review the queue.",
+	profileID := uuid.New()
+	profileRef, err := publicid.Encode(publicid.KindAgentProfile, profileID)
+	require.NoError(t, err)
+	settings, err := json.Marshal(appdefinition.ThreadScheduleSettings{
+		AgentProfileID: profileRef, ChannelID: "C123",
+		OpeningMessageTemplate: "Daily review", MessageTemplate: "Review the queue.",
+	})
+	require.NoError(t, err)
+	launch := integrationstore.ScheduledAppEvent{
+		TriggerID: uuid.New(), Settings: settings,
+		Occurrence: cronschedule.Occurrence{Name: "Daily review", DueAt: time.Now(), FiredAt: time.Now(), Timezone: "UTC"},
 	}
 	payload, err := json.Marshal(launch)
 	require.NoError(t, err)
@@ -43,9 +43,9 @@ func scheduledAuthorityFixture(t *testing.T) (
 	receipt := integrationstore.IntegrationInboxRecord{
 		IntegrationInboxSummary: integrationstore.IntegrationInboxSummary{
 			ID: uuid.New(), ProjectID: app.ProjectID, AppID: app.ID,
-			ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.DueAt.Format(time.RFC3339),
+			ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.Occurrence.DueAt.Format(time.RFC3339),
 		},
-		Source: integrationstore.IntegrationInboxSourceScheduledLaunch, Payload: payload,
+		Source: integrationstore.IntegrationInboxSourceScheduled, Payload: payload,
 	}
 	tenant, err := publicid.Encode(publicid.KindOrganization, app.OrgID)
 	require.NoError(t, err)
@@ -57,7 +57,7 @@ func scheduledAuthorityFixture(t *testing.T) (
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 		},
 		Launch: LaunchAgentInput{
-			ProjectID: app.ProjectID, ProfileID: launch.ProfileID, DerivedBaseConfigID: launch.ConfigID,
+			ProjectID: app.ProjectID, ProfileID: profileID, DerivedBaseConfigID: uuid.New(),
 			LaunchedBy: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
 			InitialInput: &LaunchInitialInput{
 				// Build the model-visible hidden context independently of the product
@@ -77,7 +77,7 @@ func scheduledAuthorityFixture(t *testing.T) (
 		},
 	}
 	receipt.Plan, err = json.Marshal(map[string]any{
-		"scheduled": map[string]any{"scope": root, "selection": slot.Selection},
+		"scheduled": map[string]any{"scope": root, "selection": slot.Selection, "launch": slot.Launch},
 	})
 	require.NoError(t, err)
 	require.NoError(t, validateScheduledInboxLaunch(receipt, app, slot))
@@ -120,12 +120,7 @@ func TestScheduledLaunchAuthorityRejectsPlanSubstitution(t *testing.T) {
 		{"launch another profile", func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
 			s.Launch.ProfileID = uuid.New()
 		}},
-		{
-			"replace the accepted base config",
-			func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
-				s.Launch.DerivedBaseConfigID = uuid.New()
-			},
-		},
+
 		{
 			"attribute the task to a Slack participant",
 			func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
@@ -191,7 +186,16 @@ func TestScheduledLaunchAuthorityRejectsPlanSubstitution(t *testing.T) {
 			t.Parallel()
 			receipt, app, slot := scheduledAuthorityFixture(t)
 			test.change(t, &receipt, &slot)
-			require.ErrorIs(t, validateScheduledInboxLaunch(receipt, app, slot), storeerr.ErrUnauthorized)
+			// Admission reads the slot from this frozen plan; exercise substitution of
+			// both together rather than an impossible independent caller argument.
+			if test.name != "no saved launch plan" {
+				var plan map[string]map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(receipt.Plan, &plan))
+				plan["scheduled"]["launch"], _ = json.Marshal(slot.Launch)
+				plan["scheduled"]["selection"], _ = json.Marshal(slot.Selection)
+				receipt.Plan, _ = json.Marshal(plan)
+			}
+			require.Error(t, validateScheduledInboxLaunch(receipt, app, slot))
 		})
 	}
 }

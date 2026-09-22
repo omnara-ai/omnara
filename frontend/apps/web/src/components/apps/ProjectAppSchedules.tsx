@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersListContent } from '@/components/agents/CronTriggersSection'
+import { appScheduleDefaults } from '@/components/apps/app-schedule-schema'
 import { Button } from '@/components/ui/button'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
@@ -21,8 +22,13 @@ export function ProjectAppSchedules({
   hideWhenEmpty?: boolean
 }) {
   const [creating, setCreating] = useState(false)
-  const query = useCronTriggers(orgId, projectId, { filters: { app_id: app.id } })
+  const schedule = app.capabilities.schedule
+  const query = useCronTriggers(orgId, projectId, {
+    filters: { app_id: app.id },
+    enabled: Boolean(schedule),
+  })
   const schedules = useInfiniteQueryItems(query)
+  if (!schedule) return null
   if (hideWhenEmpty && !schedules.length && !query.isError) return null
   return (
     <section aria-label="Schedules" className="flex flex-col gap-3">
@@ -42,12 +48,11 @@ export function ProjectAppSchedules({
         )}
       </div>
       <p className="text-muted-foreground text-sm">
-        Start a fresh agent in a new channel thread on each run. Schedules work independently of
-        mentions.
+        {schedule.description ?? 'Run this app’s scheduled action at chosen times.'}
       </p>
       {app.state !== 'active' && (
         <p className="text-muted-foreground text-sm">
-          Connect this app before creating schedules or running scheduled agents.
+          Connect this app before creating schedules or running scheduled actions.
         </p>
       )}
       <CronTriggersListContent
@@ -66,11 +71,9 @@ export function ProjectAppSchedules({
           projectId={projectId}
           targetLabel={app.name}
           target={{
-            type: 'app_launch',
+            type: 'app',
             app_id: app.id,
-            agent_profile_id: '',
-            destination: { channel_id: '' },
-            opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
+            settings: appScheduleDefaults(schedule.input_schema),
           }}
         />
       )}

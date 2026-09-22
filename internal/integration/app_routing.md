@@ -275,18 +275,24 @@ credentials.
 
 ## Scheduled thread launches
 
-Cron is the only schedule owner. An app-launch firing locks project/app, profile
-and cron in that order, rechecks its claim/lease, enabled state and due time, then
-atomically snapshots the profile config and rendered task/opening into the app
-inbox, records last_app_receipt_id and completes the firing. A stale occurrence
+Cron is the only schedule owner. An app-target firing locks project/app and cron
+in that order, rechecks its claim/lease, enabled state and due time, then atomically
+copies the app's settings and occurrence timing into the app inbox, records
+last_app_receipt_id and completes the firing. App definitions validate settings;
+cron does not resolve their resource references or prepare provider actions. A stale occurrence
 releases only its own claim and preserves a concurrent edit's next fire time.
-Scheduled jobs are explicitly source=scheduled_launch; verified provider intake
+Scheduled jobs are explicitly source=scheduled; verified provider intake
 cannot populate that discriminator. Mention settings authorize no part of this
 handoff. The diagnostic last_app_receipt_id is an expiring reference, not authority;
 reads must check project, app and source, and never choose an older retained run.
 
-The worker posts the opening outside transactions, then saves its concrete thread
-in FreezeScheduledLaunch's immutable plan. There is no separate publication-attempt
+Worker dispatch is registered by app type. The Slack/Discord thread implementation
+renders the opening and task from the saved occurrence, checks that the profile
+belongs to the project, posts the opening outside transactions, and saves the
+concrete thread in FreezeScheduledLaunch's immutable plan. It resolves the profile's
+current config while building that plan; retries use the saved configuration.
+App-owned pure validation checks the profile, parent channel and task against the
+accepted settings; storage retains selection, project and receipt authority. There is no separate publication-attempt
 record or message-history reconciliation. Definite non-delivery can retry within
 the existing inbox budget. Slack timeouts, server errors and missing acknowledgments
 fail the run; Discord retains its bounded same-nonce send retries and treats a final

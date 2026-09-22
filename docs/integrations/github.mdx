@@ -11,9 +11,37 @@ or [Discord](/integrations/discord) interaction handler; GitHub has no interacti
 
 ## Connect your GitHub App
 
+Open **Apps** in your project and choose **GitHub PR review**. Choose whether
+the GitHub App belongs to your personal account or an organization, then select
+**Continue to GitHub**. Omnara supplies the webhook, event subscriptions and
+required permissions. The registration belongs to you.
+
+After registration, Omnara saves the credentials in your project. Check its
+installations, select **Install in GitHub** if needed, and choose repository
+access on GitHub. Back in Omnara, refresh the installations, select the verified
+account, and choose **Connect app**. If organization approval is pending, you can
+return later using the saved credential. Nothing launches until you choose an
+agent profile and save the app's launch settings.
+
+The new GitHub App is private. To install it outside its owning account, change
+its visibility in GitHub App settings. Guided registration supports GitHub.com.
+Use **Use an existing App** for a registration you already own or manual setup.
+Complete registration within an hour. If credential conversion or saving fails,
+recover the existing App by generating a private key and setting a webhook secret
+in GitHub, then enter those values through manual setup. A saved credential remains
+available even if the Omnara app's settings changed during registration.
+
+Guided discovery supports user and organization Apps and installations.
+Enterprise-owned Apps and enterprise-level installations report an unsupported
+setup instead of prompting repeated retries. Organization installations within
+GitHub Enterprise Cloud still use the ordinary organization flow.
+
+### Manual setup
+
 1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
-   if agents will comment. Install it on the repositories you want to use.
+   if agents will comment, and **Issues: Read-only** for incoming PR conversation
+   comments. Install it on the repositories you want to use.
 2. Record its numeric **App ID**, numeric **Installation ID**, RSA private key
    and webhook secret. App ID and Installation ID are different values.
 3. [Create a secret](/organization/secrets#create-a-secret) available to the
@@ -48,8 +76,10 @@ remain fixed. Disconnecting or deleting the Omnara app requires no GitHub reques
 and changes no comments or reviews in GitHub.
 
 Set the GitHub registration's webhook to
-`https://YOUR_OMNARA_HOST/api/integrations/github/APP_ID/events`, using the numeric
-GitHub App ID. The signed installation identity routes ordinary events to each
+`https://YOUR_OMNARA_HOST/api/integrations/github/events`. The GitHub App ID header
+selects candidate credentials; the signature and installation identity authenticate
+the event. The existing `/api/integrations/github/APP_ID/events` URL also works with
+the numeric GitHub App ID. Verified installation identity routes ordinary events to each
 matching active Omnara app. Independent apps may use the same installation;
 they are not automatically merged. Configure an active app before testing ping.
 
@@ -118,8 +148,8 @@ For PR-open launches, this is the project app body for
   "settings": {
     "launcher": {
       "trigger": "pull_request_opened",
-      "scope_kind": "repository",
-      "scope_ref": "123456",
+      "scope_kind": "installation",
+      "scope_ref": "67890",
       "slots": [{"key": "reviewer", "agent_profile_id": "aprf_aeaqcaibaeaqcaibaeaqcaibae"}]
     }
   }
@@ -128,7 +158,10 @@ For PR-open launches, this is the project app body for
 
 The launcher derives the PR tools, adding missing entries and preserving explicit
 entries from the profile. It attaches a subscription for the triggering PR with
-the default event selection. Use
+the default event selection. An installation-scoped launcher applies to the
+repositories granted to that installation in GitHub. The API also supports an
+explicit `repository` scope with a numeric repository ID; editing an existing
+restricted launcher in the dashboard preserves that restriction. Use
 `trigger: "mention"` instead for explicit mentions in new human PR comments.
 Human discussion/review input steers the agent and cancels open interactions;
 PR opens and synchronization events queue. Bot comments, edits and unrelated

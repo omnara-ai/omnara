@@ -54,7 +54,10 @@ func parsePrivateKey(raw string) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
-func (c *Client) appJWT() (string, error) {
+func (c *appClient) appJWT() (string, error) {
+	if c.appID <= 0 || c.privateKey == nil {
+		return "", errors.New("github App credentials are required")
+	}
 	now := c.now()
 	claims, err := json.Marshal(struct {
 		IssuedAt int64  `json:"iat"`

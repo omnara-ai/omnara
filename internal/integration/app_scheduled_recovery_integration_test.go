@@ -76,12 +76,13 @@ func TestScheduledLaunchReusesCommittedPlanAfterLostResponse(t *testing.T) {
 				store.commitErr = failure
 			}
 			f.consumer.inbox = store
+			f.handler.inbox = store
 			f.consumer.router.integrations = store
 			worker := NewAppInboxWorker(f.store.Integrations(), f.consumer, AppInboxWorkerOptions{})
 			err := worker.consume(t.Context(), receipt)
 			if failRead {
 				require.ErrorIs(t, err, failure)
-				require.NotErrorIs(t, err, ErrScheduledLaunchFailed)
+				require.NotErrorIs(t, err, ErrScheduledActionFailed)
 				saved, readErr := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
 				require.NoError(t, readErr)
 				require.Equal(t, integrationstore.IntegrationInboxPending, saved.State)
@@ -170,7 +171,7 @@ EXECUTE FUNCTION fail_scheduled_plan()`)
 			}
 			worker := NewAppInboxWorker(f.store.Integrations(), f.consumer, AppInboxWorkerOptions{})
 			err := worker.consume(t.Context(), receipt)
-			require.ErrorIs(t, err, ErrScheduledLaunchFailed)
+			require.ErrorIs(t, err, ErrScheduledActionFailed)
 			if !test.deleteProfile && !test.unknown {
 				require.ErrorContains(t, err, "injected scheduled plan failure")
 			}
@@ -285,6 +286,6 @@ func newScheduledDiscordJourney(t *testing.T) (*scheduledJourney, *discordInboxF
 	remote.identity.ApplicationID = remote.appSetup.ProviderTenantID
 	// Historical GET responses do not need the create response's nonce.
 	remote.message = discord.Message{ID: "500", ChannelID: "300", Author: discord.User{ID: "22", Bot: true}}
-	f.consumer.providers[appdefinition.ProviderDiscord] = provider
+	f.handler.provider = provider
 	return f, remote
 }

@@ -75,7 +75,7 @@ export function ProjectAppPortalSetup({
         )}
         <FieldDescription>
           {github
-            ? 'In your GitHub App’s settings, set this as the webhook URL with the webhook secret above, and subscribe to pull requests, issue comments, and pull request review comments.'
+            ? 'In your GitHub App’s settings, set this as the webhook URL with the webhook secret above, and subscribe to pull_request, issue_comment, pull_request_review, and pull_request_review_comment. Set Pull requests permission to Read and write and Issues to Read-only. Contents access is not required.'
             : 'In the Discord Developer Portal, paste this into General Information → Interactions Endpoint URL and save. This enables profile choices and answers to agent questions.'}
         </FieldDescription>
         {!github && (

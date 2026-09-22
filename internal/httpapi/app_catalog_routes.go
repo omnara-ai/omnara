@@ -73,6 +73,13 @@ func appCapabilitiesResponse(id appdefinition.Type) (openapi.AppCapabilities, er
 		}
 		result.InteractionHandler = &entry
 	}
+	if schedule := definition.Schedule; schedule != nil {
+		entry, err := appCapabilityResponse(schedule.InputSchema, schedule.Description)
+		if err != nil {
+			return result, err
+		}
+		result.Schedule = &entry
+	}
 	return result, nil
 }
 

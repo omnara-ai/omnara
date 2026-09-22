@@ -57,8 +57,23 @@ func TestAppCatalogStaticArgumentSchemas(t *testing.T) {
 			}
 			if appdefinition.Type(definition.AppType) == appdefinition.GitHubPR {
 				require.Nil(t, definition.Capabilities.InteractionHandler)
+				require.Nil(t, definition.Capabilities.Schedule)
 				return
 			}
+			require.NotNil(t, definition.Capabilities.Schedule)
+			scheduleSchema, err := json.Marshal(definition.Capabilities.Schedule.InputSchema)
+			require.NoError(t, err)
+			channel := "C123"
+			if appdefinition.Type(definition.AppType) == appdefinition.DiscordThread {
+				channel = "123"
+			}
+			settings, err := json.Marshal(map[string]string{
+				"agent_profile_id": "aprf_aaaaaaaaaaaaaaaaaaaaaaaaaa", "channel_id": channel,
+				"opening_message_template": "Daily", "message_template": "Prepare the report.",
+			})
+			require.NoError(t, err)
+			require.NoError(t, jsonschema.Validate(scheduleSchema, settings))
+			require.Error(t, jsonschema.Validate(scheduleSchema, json.RawMessage(`{}`)))
 			handler := definition.Capabilities.InteractionHandler
 			require.NotNil(t, handler)
 			schema, err := json.Marshal(handler.InputSchema)

@@ -406,3 +406,33 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	require.Empty(t, candidates, "deleted and no-longer-authorized references cannot verify a callback")
 	githubHTTPWebhook(t, f.handler, "ping", "unavailable-ping", githubJourneyWebhookSecret, ping, http.StatusUnauthorized)
 }
+
+func TestGitHubSharedAndLegacyRoutesDeduplicateSameAppFanout(t *testing.T) {
+	t.Parallel()
+	f := newGitHubHTTPJourney(t, "github-shared-events")
+	second := createSetupHTTPApp(t, f.handler, f.project, "second-github-app", appdefinition.GitHubPR)
+	body := appSetupHTTPBody("123", "456")
+	body["credential_secret_id"] = f.secretID
+	body["expected_setup_revision"] = second.SetupRevision
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, second),
+		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	raw := githubHTTPComment(t, 42, 3001, "@helper please review")
+	for _, path := range []string{GitHubSharedEventsPath, "/api/integrations/github/123/events", GitHubSharedEventsPath} {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(raw))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set(github.EventHeader, "issue_comment")
+		r.Header.Set(github.DeliveryHeader, "cross-route-delivery")
+		r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
+		mac := hmac.New(sha256.New, []byte(githubJourneyWebhookSecret))
+		_, _ = mac.Write([]byte(raw))
+		r.Header.Set(github.SignatureHeader, "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		response := performRequest(f.handler, r)
+		require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+	}
+	var receipts int
+	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
+		`SELECT count(*) FROM integration_inbox
+		 WHERE project_id=$1 AND receipt_key='github:issue_comment:cross-route-delivery'`,
+		f.project.ProjectUUID).Scan(&receipts))
+	require.Equal(t, 2, receipts, "each saved app gets one receipt independently of callback route")
+}

@@ -129,6 +129,60 @@ describe('app metadata form', () => {
       ).toEqual({})
     },
   )
+  it('defaults a new GitHub launcher to the verified installation while leaving launch disabled', () => {
+    const github = projectApp({
+      app_type: 'github_pr',
+      state: 'active',
+      provider_tenant_id: '111',
+      provider_account_ref: '222',
+    })
+    const initial = projectAppFormValues('github_pr', github)
+    expect(initial).toMatchObject({
+      launcher: false,
+      scopeKind: 'installation',
+      scopeRef: '222',
+      trigger: 'pull_request_opened',
+    })
+    expect(projectAppFormRequest('github_pr', initial, github).settings).toEqual({})
+    expect(
+      projectAppFormRequest(
+        'github_pr',
+        { ...initial, launcher: true, profileIds: [profileId] },
+        github,
+      ).settings.launcher,
+    ).toEqual({
+      trigger: 'pull_request_opened',
+      scope_kind: 'installation',
+      scope_ref: '222',
+      slots: [{ key: 'default', agent_profile_id: profileId }],
+    })
+  })
+  it('keeps saved GitHub repository restrictions and advanced slots when editing the trigger', () => {
+    const github = projectApp({
+      app_type: 'github_pr',
+      provider_account_ref: '222',
+      settings: {
+        launcher: {
+          trigger: 'mention',
+          scope_kind: 'repository',
+          scope_ref: '123',
+          slots: [
+            { key: 'named', agent_profile_id: profileId },
+            { key: 'repeat', agent_profile_id: profileId },
+            { key: 'existing', agent_id: fakeId('agt') },
+          ],
+        },
+      },
+    })
+    const initial = projectAppFormValues('github_pr', github)
+    expect(
+      projectAppFormRequest('github_pr', { ...initial, trigger: 'pull_request_opened' }, github)
+        .settings.launcher,
+    ).toEqual({ ...github.settings.launcher, trigger: 'pull_request_opened' })
+    expect(() =>
+      projectAppFormRequest('github_pr', { ...initial, profileIds: [second] }, github),
+    ).toThrow('Edit advanced GitHub launch slots through the API.')
+  })
   it('retains a GitHub slot key when changing its profile', () => {
     const github = projectApp({
       app_type: 'github_pr',

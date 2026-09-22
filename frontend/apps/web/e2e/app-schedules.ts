@@ -30,18 +30,19 @@ export async function exerciseDiscordAppSchedule(
   const schedules = page.getByRole('region', { name: 'Schedules', exact: true })
   await schedules.getByRole('button', { name: 'Add schedule', exact: true }).click()
   const createDialog = page.getByRole('dialog', { name: 'Add cron schedule', exact: true })
+  await expect(createDialog.getByLabel('Server ID', { exact: false })).toHaveCount(0)
   await createDialog.getByLabel('Name', { exact: true }).fill(name)
   await createDialog.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
   await page.getByPlaceholder('Choose an agent profile…').fill(profileName)
   await page.getByRole('option', { name: profileName, exact: true }).click()
   await createDialog.getByLabel('Channel ID', { exact: true }).fill('333')
-  await expect(createDialog.getByLabel('Opening message template')).toHaveValue(
+  await expect(createDialog.getByLabel('Opening message')).toHaveValue(
     '{{.trigger.name}} — {{.trigger.local_date}}',
   )
   await createDialog.getByLabel('Cron expression').fill('0 9 1 1 *')
   await createDialog.getByRole('combobox', { name: 'Timezone', exact: true }).fill('UTC')
   await page.getByRole('option', { name: 'UTC (GMT+00:00)', exact: true }).click()
-  await createDialog.getByLabel('Task message').fill('Summarize this channel.')
+  await createDialog.getByLabel('Task instructions').fill('Summarize this channel.')
   const createdResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -54,27 +55,31 @@ export async function exerciseDiscordAppSchedule(
     name,
     cron: '0 9 1 1 *',
     timezone: 'UTC',
-    message_template: 'Summarize this channel.',
     target: {
-      type: 'app_launch',
+      type: 'app',
       app_id: app.id,
-      agent_profile_id: profileId,
-      destination: { channel_id: '333' },
-      opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
+      settings: {
+        agent_profile_id: profileId,
+        channel_id: '333',
+        opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
+        message_template: 'Summarize this channel.',
+      },
     },
   })
   const trigger = schemas.zCronTrigger.parse(await created.json())
+  expect(trigger.message_template).toBeUndefined()
+  if (trigger.target.type !== 'app') throw new Error('Expected an app schedule')
   await expect(createDialog).toBeHidden()
-  await expect(schedules.getByText('Channel 333 · Not run yet', { exact: true })).toBeVisible()
+  await expect(schedules.getByText('Not run yet', { exact: true })).toBeVisible()
   await schedules.getByRole('button', { name: `Edit schedule ${name}`, exact: true }).click()
   const editDialog = page.getByRole('dialog', { name: 'Edit cron schedule', exact: true })
   await expect(
     editDialog.getByRole('combobox', { name: 'Agent profile', exact: true }),
-  ).toBeDisabled()
-  await expect(editDialog.getByLabel('Task message')).toHaveValue('Summarize this channel.')
+  ).toBeEnabled()
+  await expect(editDialog.getByLabel('Task instructions')).toHaveValue('Summarize this channel.')
   await editDialog.getByLabel('Channel ID', { exact: true }).fill('334')
   const opening = 'Channel update\n{{.trigger.local_date}}'
-  await editDialog.getByLabel('Opening message template').fill(opening)
+  await editDialog.getByLabel('Opening message').fill(opening)
   const updatedResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'PATCH' &&
@@ -83,15 +88,19 @@ export async function exerciseDiscordAppSchedule(
   await editDialog.getByRole('button', { name: 'Save changes', exact: true }).click()
   const updated = await updatedResponse
   expect(updated.status()).toBe(200)
+  expect(updated.request().postDataJSON()).not.toHaveProperty('message_template')
   expect(updated.request().postDataJSON()).toMatchObject({
     target: {
       ...trigger.target,
-      destination: { channel_id: '334' },
-      opening_message_template: opening,
+      settings: {
+        ...trigger.target.settings,
+        channel_id: '334',
+        opening_message_template: opening,
+      },
     },
   })
   await expect(editDialog).toBeHidden()
-  await expect(schedules.getByText('Channel 334 · Not run yet', { exact: true })).toBeVisible()
+  await expect(schedules.getByText('Not run yet', { exact: true })).toBeVisible()
   const disabledResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'PATCH' &&

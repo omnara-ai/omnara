@@ -25,7 +25,7 @@ import (
 type CronTriggerTargetKind string
 
 const (
-	CronTriggerTargetAppLaunch    CronTriggerTargetKind = "app_launch"
+	CronTriggerTargetApp          CronTriggerTargetKind = "app"
 	CronTriggerTargetAgent        CronTriggerTargetKind = "agent"
 	CronTriggerTargetAgentProfile CronTriggerTargetKind = "profile"
 )
@@ -37,14 +37,10 @@ const (
 	CronTriggerDeliveryModeSteering CronTriggerDeliveryMode = "steering"
 )
 
-type CronAppLaunchTarget struct {
-	ProfileID              uuid.UUID
-	Destination            json.RawMessage
-	OpeningMessageTemplate string
-}
-
 type CronTriggerTarget struct {
-	AppLaunch    *CronAppLaunchTarget
+	// Settings belongs only to app targets. Any resource references inside it
+	// are app inputs, not relational cron ownership or execution authority.
+	Settings     json.RawMessage
 	Kind         CronTriggerTargetKind
 	ID           uuid.UUID
 	DeliveryMode CronTriggerDeliveryMode
@@ -93,8 +89,8 @@ type CronTriggerRecord struct {
 	Created         bool                      `json:"-"`
 }
 
-// CronTriggerLastRun describes only the exact retained handoff receipt. Launched
-// means agent admission completed, not that the agent delivered its report.
+// CronTriggerLastRun describes the scheduled action's exact retained handoff
+// receipt. Completion is defined by the app handling that action.
 type CronTriggerLastRun struct {
 	State          CronTriggerLastRunState `json:"state"`
 	CreatedAt      time.Time               `json:"created_at"`
@@ -105,11 +101,11 @@ type CronTriggerLastRun struct {
 type CronTriggerLastRunState string
 
 const (
-	CronTriggerLastRunQueued    CronTriggerLastRunState = "queued"
-	CronTriggerLastRunPreparing CronTriggerLastRunState = "preparing"
-	CronTriggerLastRunLaunched  CronTriggerLastRunState = "launched"
-	CronTriggerLastRunFailed    CronTriggerLastRunState = "failed"
-	CronTriggerLastRunDiscarded CronTriggerLastRunState = "discarded"
+	CronTriggerLastRunQueued     CronTriggerLastRunState = "queued"
+	CronTriggerLastRunProcessing CronTriggerLastRunState = "processing"
+	CronTriggerLastRunCompleted  CronTriggerLastRunState = "completed"
+	CronTriggerLastRunFailed     CronTriggerLastRunState = "failed"
+	CronTriggerLastRunDiscarded  CronTriggerLastRunState = "discarded"
 )
 
 type CronTriggerFailureReport struct {
@@ -137,23 +133,11 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, errors.New("cron trigger target is required")
 	}
 	if input.Target.Kind != CronTriggerTargetAgent && input.Target.Kind != CronTriggerTargetAgentProfile &&
-		input.Target.Kind != CronTriggerTargetAppLaunch {
+		input.Target.Kind != CronTriggerTargetApp {
 		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("unsupported cron trigger target kind"))
 	}
-	if input.Target.Kind == CronTriggerTargetAppLaunch {
-		if input.Target.AppLaunch == nil || input.Target.AppLaunch.ProfileID == uuid.Nil {
-			return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("app launch profile is required"))
-		}
-		// Own the mutable settings before canonicalizing caller input.
-		settings := *input.Target.AppLaunch
-		input.Target.AppLaunch = &settings
-	} else if input.Target.AppLaunch != nil {
-		return CronTriggerRecord{}, storeerr.InvalidRequest(
-			errors.New("app launch settings require an app launch target"),
-		)
-	}
-	if input.MessageTemplate == "" {
-		return CronTriggerRecord{}, errors.New("cron trigger message template is required")
+	if input.Target.Kind != CronTriggerTargetApp && input.MessageTemplate == "" {
+		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("cron trigger message template is required"))
 	}
 	if input.Timezone == "" {
 		input.Timezone = "UTC"
@@ -167,8 +151,8 @@ func (s *Store) CreateCronTrigger(
 	if err := cronschedule.Validate(input.CronExpression, input.Timezone); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
-	if err := cronschedule.ValidateMessageTemplate(input.MessageTemplate); err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
+	if err := validateCronTriggerContent(input.Target, input.MessageTemplate); err != nil {
+		return CronTriggerRecord{}, err
 	}
 	input.IdempotencyKey = cronTriggerCreateIdempotencyKey(input.IdempotencyKey)
 
@@ -188,7 +172,7 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, err
 	}
 	switch input.Target.Kind {
-	case CronTriggerTargetAppLaunch:
+	case CronTriggerTargetApp:
 		if err := integrationstore.LockAppsTx(ctx, tx, input.ProjectID, nil, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
 		}
@@ -196,10 +180,7 @@ func (s *Store) CreateCronTrigger(
 		if err != nil {
 			return CronTriggerRecord{}, err
 		}
-		if err := validateCronAppLaunchTarget(&input.Target, app, input.Name); err != nil {
-			return CronTriggerRecord{}, err
-		}
-		if _, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.AppLaunch.ProfileID); err != nil {
+		if err := validateCronAppTarget(&input.Target, app); err != nil {
 			return CronTriggerRecord{}, err
 		}
 	case CronTriggerTargetAgentProfile:
@@ -389,7 +370,7 @@ func (s *Store) UpdateCronTrigger(
 		record.Timezone = *input.Timezone
 	}
 	if input.MessageTemplate != nil {
-		if *input.MessageTemplate == "" {
+		if record.Target.Kind != CronTriggerTargetApp && *input.MessageTemplate == "" {
 			return CronTriggerRecord{}, fmt.Errorf(
 				"cron trigger message template cannot be empty: %w",
 				storeerr.ErrInvalidRequest,
@@ -404,19 +385,7 @@ func (s *Store) UpdateCronTrigger(
 				storeerr.ErrInvalidRequest,
 			)
 		}
-		if record.Target.Kind == CronTriggerTargetAppLaunch {
-			if input.Target.AppLaunch == nil || input.Target.AppLaunch.ProfileID != record.Target.AppLaunch.ProfileID {
-				return CronTriggerRecord{}, storeerr.InvalidRequest(
-					errors.New("cron trigger app and profile cannot change"),
-				)
-			}
-			settings := *input.Target.AppLaunch
-			record.Target.AppLaunch = &settings
-		} else if input.Target.AppLaunch != nil {
-			return CronTriggerRecord{}, storeerr.InvalidRequest(
-				errors.New("app launch settings require an app launch target"),
-			)
-		}
+		record.Target.Settings = input.Target.Settings
 		if input.Target.DeliveryMode != "" {
 			record.Target.DeliveryMode = input.Target.DeliveryMode
 		}
@@ -430,16 +399,17 @@ func (s *Store) UpdateCronTrigger(
 	if err := cronschedule.Validate(record.CronExpression, record.Timezone); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
-	if err := cronschedule.ValidateMessageTemplate(record.MessageTemplate); err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
+	if err := validateCronTriggerContent(record.Target, record.MessageTemplate); err != nil {
+		return CronTriggerRecord{}, err
 	}
-	if record.Target.Kind == CronTriggerTargetAppLaunch {
-		// Identity is immutable. A plain read avoids taking an app/profile gate under cron.
+	if record.Target.Kind == CronTriggerTargetApp {
+		// App identity is immutable. Do not take its lifecycle gate under cron.
+		// References inside settings belong to the app and are resolved at execution.
 		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, record.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err
 		}
-		if err := validateCronAppLaunchTarget(&record.Target, app, record.Name); err != nil {
+		if err := validateCronAppTarget(&record.Target, app); err != nil {
 			return CronTriggerRecord{}, err
 		}
 	}
@@ -457,17 +427,16 @@ func (s *Store) UpdateCronTrigger(
 		nextFireAfter = &next
 	}
 	row, err := qtx.UpdateCronTrigger(ctx, dbsqlc.UpdateCronTriggerParams{
-		Name:                   record.Name,
-		CronExpression:         record.CronExpression,
-		Timezone:               record.Timezone,
-		MessageTemplate:        record.MessageTemplate,
-		DeliveryMode:           cronTriggerDeliveryModeColumn(record.Target),
-		AppDestination:         cronAppDestinationColumn(record.Target),
-		OpeningMessageTemplate: cronOpeningMessageColumn(record.Target),
-		Enabled:                record.Enabled,
-		NextFireAfter:          nextFireAfter,
-		ProjectID:              input.ProjectID,
-		ID:                     input.TriggerID,
+		Name:            record.Name,
+		CronExpression:  record.CronExpression,
+		Timezone:        record.Timezone,
+		MessageTemplate: record.MessageTemplate,
+		DeliveryMode:    cronTriggerDeliveryModeColumn(record.Target),
+		AppSettings:     cronAppSettingsColumn(record.Target),
+		Enabled:         record.Enabled,
+		NextFireAfter:   nextFireAfter,
+		ProjectID:       input.ProjectID,
+		ID:              input.TriggerID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CronTriggerRecord{}, storeerr.ErrNotFound
@@ -534,11 +503,9 @@ func insertCronTriggerTx(
 		IdempotencyKey:  storeutil.TextFromEmpty(input.IdempotencyKey),
 	}
 	switch input.Target.Kind {
-	case CronTriggerTargetAppLaunch:
+	case CronTriggerTargetApp:
 		params.AppID = &input.Target.ID
-		params.AgentProfileID = &input.Target.AppLaunch.ProfileID
-		params.AppDestination = cronAppDestinationColumn(input.Target)
-		params.OpeningMessageTemplate = cronOpeningMessageColumn(input.Target)
+		params.AppSettings = cronAppSettingsColumn(input.Target)
 	case CronTriggerTargetAgentProfile:
 		params.AgentProfileID = &input.Target.ID
 	case CronTriggerTargetAgent:
@@ -702,8 +669,7 @@ func (s *Store) ClaimDueCronTriggers(
 				row.AgentID,
 				row.DeliveryMode,
 				row.AppID,
-				row.AppDestination,
-				row.OpeningMessageTemplate,
+				row.AppSettings,
 			),
 			MessageTemplate: row.MessageTemplate,
 			DueAt:           storeutil.TimeOrZero(row.NextFireAfter),
@@ -852,20 +818,15 @@ func cronTriggerTargetFromColumns(
 	agentProfileID, agentID *uuid.UUID,
 	deliveryMode string,
 	appID *uuid.UUID,
-	destination *json.RawMessage,
-	opening *string,
+	settings *json.RawMessage,
 ) CronTriggerTarget {
 	if appID != nil {
 		target := CronTriggerTarget{
-			Kind:      CronTriggerTargetAppLaunch,
-			ID:        *appID,
-			AppLaunch: &CronAppLaunchTarget{ProfileID: storeutil.IDFromPtr(agentProfileID)},
+			Kind: CronTriggerTargetApp,
+			ID:   *appID,
 		}
-		if destination != nil {
-			target.AppLaunch.Destination = *destination
-		}
-		if opening != nil {
-			target.AppLaunch.OpeningMessageTemplate = *opening
+		if settings != nil {
+			target.Settings = *settings
 		}
 		return target
 	}
@@ -880,7 +841,7 @@ func cronTriggerTargetFromColumns(
 }
 
 func validateCronTriggerDeliveryMode(kind CronTriggerTargetKind, mode CronTriggerDeliveryMode) error {
-	if kind == CronTriggerTargetAgentProfile || kind == CronTriggerTargetAppLaunch {
+	if kind == CronTriggerTargetAgentProfile || kind == CronTriggerTargetApp {
 		if mode != "" {
 			return fmt.Errorf("delivery mode is only supported for agent targets: %w", storeerr.ErrInvalidRequest)
 		}
@@ -903,54 +864,54 @@ func cronTriggerCreateIdempotencyKey(key string) string {
 }
 
 func cronTriggerDeliveryModeColumn(target CronTriggerTarget) string {
-	if target.Kind == CronTriggerTargetAgentProfile || target.Kind == CronTriggerTargetAppLaunch {
+	if target.Kind == CronTriggerTargetAgentProfile || target.Kind == CronTriggerTargetApp {
 		return string(CronTriggerDeliveryModeQueued)
 	}
 	return string(target.DeliveryMode)
 }
 
-func cronAppDestinationColumn(target CronTriggerTarget) *json.RawMessage {
-	if target.AppLaunch == nil {
+func cronAppSettingsColumn(target CronTriggerTarget) *json.RawMessage {
+	if target.Kind != CronTriggerTargetApp {
 		return nil
 	}
-	return &target.AppLaunch.Destination
+	return &target.Settings
 }
-func cronOpeningMessageColumn(target CronTriggerTarget) *string {
-	if target.AppLaunch == nil {
-		return nil
-	}
-	return &target.AppLaunch.OpeningMessageTemplate
-}
+
 func cronTriggerTargetsEqual(a, b CronTriggerTarget) bool {
 	if a.Kind != b.Kind || a.ID != b.ID || a.DeliveryMode != b.DeliveryMode {
 		return false
 	}
-	if a.AppLaunch == nil || b.AppLaunch == nil {
-		return a.AppLaunch == nil && b.AppLaunch == nil
+	if a.Settings == nil || b.Settings == nil {
+		return a.Settings == nil && b.Settings == nil
 	}
 	// PostgreSQL jsonb reformats canonical JSON on read.
-	return a.AppLaunch.ProfileID == b.AppLaunch.ProfileID &&
-		a.AppLaunch.OpeningMessageTemplate == b.AppLaunch.OpeningMessageTemplate &&
-		jsoncanonical.Equal(a.AppLaunch.Destination, b.AppLaunch.Destination)
+	return jsoncanonical.Equal(a.Settings, b.Settings)
 }
 
-func validateCronAppLaunchTarget(target *CronTriggerTarget, app integrationstore.ProjectAppRecord, name string) error {
-	if target.AppLaunch == nil || target.AppLaunch.ProfileID == uuid.Nil {
-		return storeerr.InvalidRequest(errors.New("app launch profile is required"))
-	}
-	if app.AppType != appdefinition.SlackThread && app.AppType != appdefinition.DiscordThread {
-		return storeerr.InvalidRequest(errors.New("scheduled launches require a built-in Slack or Discord app"))
-	}
-	canonical, err := appdefinition.CanonicalScheduledDestination(app.Provider, target.AppLaunch.Destination)
+func validateCronAppTarget(target *CronTriggerTarget, app integrationstore.ProjectAppRecord) error {
+	canonical, err := appdefinition.ValidateScheduleSettings(app.AppType, target.Settings)
 	if err != nil {
 		return storeerr.InvalidRequest(err)
 	}
-	if _, err := cronschedule.RenderOpeningMessage(
-		target.AppLaunch.OpeningMessageTemplate,
-		cronschedule.MessageData(name, time.Time{}, nil),
-	); err != nil {
+	target.Settings = canonical
+	return nil
+}
+
+func validateCronTriggerContent(target CronTriggerTarget, message string) error {
+	if target.Kind == CronTriggerTargetApp {
+		if len(target.Settings) == 0 {
+			return storeerr.InvalidRequest(errors.New("app schedule settings are required"))
+		}
+		if message != "" {
+			return storeerr.InvalidRequest(errors.New("message template is only supported for agent and profile targets"))
+		}
+		return nil
+	}
+	if target.Settings != nil {
+		return storeerr.InvalidRequest(errors.New("app schedule settings require an app target"))
+	}
+	if err := cronschedule.ValidateMessageTemplate(message); err != nil {
 		return storeerr.InvalidRequest(err)
 	}
-	target.AppLaunch.Destination = canonical
 	return nil
 }

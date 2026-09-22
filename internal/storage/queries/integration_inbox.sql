@@ -245,8 +245,8 @@ WITH deleted_apps AS MATERIALIZED (
 DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates.id;
 
 -- Only the cron handoff uses this query. Raw provider intake cannot set source.
--- name: InsertScheduledAppLaunchReceipt :one
+-- name: InsertScheduledAppEventReceipt :one
 INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload, source)
-VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled_launch')
+VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled')
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
 RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;

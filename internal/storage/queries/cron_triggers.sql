@@ -1,22 +1,22 @@
 -- name: InsertCronTrigger :one
 INSERT INTO cron_triggers(
     id, project_id, name, agent_profile_id, agent_id,
-    app_id, app_destination, opening_message_template,
+    app_id, app_settings,
     cron_expression, timezone, message_template, delivery_mode, enabled,
     next_fire_after, idempotency_key, created_at, updated_at
 )
 VALUES (
     uuidv7(), sqlc.arg(project_id), sqlc.arg(name),
     sqlc.narg(agent_profile_id), sqlc.narg(agent_id),
-    sqlc.narg(app_id), sqlc.narg(app_destination), sqlc.narg(opening_message_template),
-    sqlc.arg(cron_expression), sqlc.arg(timezone), sqlc.arg(message_template),
+    sqlc.narg(app_id), sqlc.narg(app_settings),
+    sqlc.arg(cron_expression), sqlc.arg(timezone), NULLIF(sqlc.arg(message_template)::text, ''),
     sqlc.arg(delivery_mode), sqlc.arg(enabled), sqlc.narg(next_fire_after),
     sqlc.narg(idempotency_key), transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          app_id, app_destination, opening_message_template,
-          cron_expression, timezone, message_template, delivery_mode, enabled,
+          app_id, app_settings,
+          cron_expression, timezone, coalesce(message_template, '')::text AS message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at;
@@ -24,15 +24,14 @@ RETURNING id, project_id, name, agent_profile_id, agent_id,
 -- name: GetCronTrigger :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -40,7 +39,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
   AND trigger.id = sqlc.arg(id)
   AND trigger.deleted_at IS NULL;
@@ -48,15 +47,14 @@ WHERE trigger.project_id = sqlc.arg(project_id)
 -- name: GetCronTriggerByIdempotencyKey :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -64,7 +62,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
   AND trigger.idempotency_key = sqlc.arg(idempotency_key)::text
   AND trigger.deleted_at IS NULL;
@@ -73,15 +71,14 @@ WHERE trigger.project_id = sqlc.arg(project_id)
 WITH listed AS (
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at,
@@ -95,7 +92,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
   AND trigger.deleted_at IS NULL
   AND (sqlc.arg(name_pattern)::text = '' OR trigger.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
@@ -104,7 +101,7 @@ WHERE trigger.project_id = sqlc.arg(project_id)
   AND (sqlc.narg(app_id)::uuid IS NULL OR trigger.app_id = sqlc.narg(app_id)::uuid)
 )
 SELECT id, org_id, project_id, name, agent_profile_id, agent_id,
-       app_id, app_destination, opening_message_template, last_run,
+       app_id, app_settings, last_run,
        cron_expression, timezone, message_template, delivery_mode, enabled,
        last_fired_at, next_fire_after, failure_report, idempotency_key,
        created_at, updated_at, sort_key, sort_is_null
@@ -121,15 +118,14 @@ LIMIT sqlc.arg(row_limit)::bigint;
 -- name: GetCronTriggerForUpdate :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -137,7 +133,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
   AND trigger.id = sqlc.arg(id)
   AND trigger.deleted_at IS NULL
@@ -148,9 +144,8 @@ UPDATE cron_triggers
 SET name = sqlc.arg(name),
     cron_expression = sqlc.arg(cron_expression),
     timezone = sqlc.arg(timezone),
-    message_template = sqlc.arg(message_template),
-    app_destination = sqlc.narg(app_destination),
-    opening_message_template = sqlc.narg(opening_message_template),
+    message_template = NULLIF(sqlc.arg(message_template)::text, ''),
+    app_settings = sqlc.narg(app_settings),
     delivery_mode = sqlc.arg(delivery_mode),
     enabled = sqlc.arg(enabled),
     next_fire_after = sqlc.narg(next_fire_after),
@@ -159,8 +154,8 @@ WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          app_id, app_destination, opening_message_template,
-          cron_expression, timezone, message_template, delivery_mode, enabled,
+          app_id, app_settings,
+          cron_expression, timezone, coalesce(message_template, '')::text AS message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at;
@@ -198,8 +193,8 @@ WHERE project_id = sqlc.arg(project_id)
 -- name: SelectDueCronTriggers :many
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.last_fired_at, trigger.next_fire_after
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id AND project.deleted_at IS NULL

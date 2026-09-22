@@ -307,7 +307,7 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 	}
 	outcome := "lease_lost"
 	terminal := (len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable)) ||
-		errors.Is(err, ErrScheduledLaunchFailed)
+		errors.Is(err, ErrScheduledActionFailed)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
 		// Shutdown must release still-owned work, too. This short transaction has
 		// no provider I/O; an expired/stolen lease cannot overwrite its successor.

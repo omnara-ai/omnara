@@ -1,8 +1,10 @@
 import {
   ApiError,
   type ConfigureProjectAppRequest,
+  type CreateGitHubSetupRequest,
   type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
+  type InspectGitHubInstallationsRequest,
   type ListProjectAppsData,
   type SaveProjectAppRequest,
   sdk,
@@ -145,6 +147,43 @@ export function useCreateProjectAppSlackSetup(orgID: string, projectID: string) 
   return useMutation({
     mutationFn: async ({ appID, ...body }: CreateSlackSetupRequest & { appID: string }) => {
       const { data } = await sdk.createProjectAppSlackSetup({
+        path: { orgID, projectID, appID },
+        body,
+        client,
+      })
+      return data
+    },
+  })
+}
+
+export function useCreateProjectAppGitHubSetup(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  const cache = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ appID, ...body }: CreateGitHubSetupRequest & { appID: string }) => {
+      const { data } = await sdk.createProjectAppGitHubSetup({
+        path: { orgID, projectID, appID },
+        body,
+        client,
+      })
+      return data
+    },
+    onError: async (_, { appID }) => {
+      await cache.invalidateQueries({
+        queryKey: getProjectAppQueryKey({ path: { orgID, projectID, appID }, client }),
+      })
+    },
+  })
+}
+
+export function useInspectProjectAppGitHubInstallations(orgID: string, projectID: string) {
+  const client = useOmnaraClient()
+  return useMutation({
+    mutationFn: async ({
+      appID,
+      ...body
+    }: InspectGitHubInstallationsRequest & { appID: string }) => {
+      const { data } = await sdk.inspectProjectAppGitHubInstallations({
         path: { orgID, projectID, appID },
         body,
         client,

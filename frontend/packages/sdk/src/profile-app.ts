@@ -38,7 +38,7 @@ export function profileAppSetup(input: {
   /** Defaults to true; use false to create a metadata-only draft. */
   launcher?: boolean
   scopeRef?: string
-  scopeKind?: 'workspace' | 'channel' | 'repository'
+  scopeKind?: 'workspace' | 'channel' | 'repository' | 'installation'
   trigger?: 'mention' | 'pull_request_opened'
 }): SaveProjectAppRequest {
   const { appType } = input
@@ -90,9 +90,11 @@ export function profileAppLauncherScope(input: {
       throw new Error('Discord mentions work wherever the bot has access; omit launcher scope.')
     return { trigger }
   }
-  const scopeKind = input.scopeKind ?? (appType === 'slack_thread' ? 'workspace' : 'repository')
+  const scopeKind = input.scopeKind ?? (appType === 'slack_thread' ? 'workspace' : 'installation')
   if (
-    !(appType === 'slack_thread' ? ['workspace', 'channel'] : ['repository']).includes(scopeKind)
+    !(
+      appType === 'slack_thread' ? ['workspace', 'channel'] : ['repository', 'installation']
+    ).includes(scopeKind)
   ) {
     throw new Error('The launcher scope does not belong to this app type.')
   }

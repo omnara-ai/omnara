@@ -3,6 +3,7 @@ import {
   OmnaraClientProvider,
   useAppDefinitions,
   useConfigureProjectApp,
+  useCreateProjectAppGitHubSetup,
   useCronTriggers,
   useDeleteProjectApp,
   useDisconnectProjectApp,
@@ -14,7 +15,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { type FakeApi, fakeApi } from '@/test/fake-api'
+import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { appDefinition, fakeId, projectApp } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, waitForUI } from '@/test/secret-editor'
@@ -70,6 +71,73 @@ it('loads the registry through the project-scoped catalog hook', async () => {
   })
   expect(api.requestsTo('GET', path + '/app-definitions')).toHaveLength(1)
 })
+function GitHubRegistration() {
+  const detail = useProjectApp(orgID, projectID, app.id)
+  const start = useCreateProjectAppGitHubSetup(orgID, projectID)
+  return (
+    <>
+      <output>{detail.data?.setup_revision}</output>
+      <button
+        disabled={!detail.data || start.isPending}
+        onClick={() => {
+          if (detail.data)
+            start.mutate({ appID: app.id, expected_setup_revision: detail.data.setup_revision })
+        }}
+      >
+        Register
+      </button>
+    </>
+  )
+}
+
+it('refreshes a conflicted GitHub registration before retrying its setup revision', async () => {
+  cache.setDefaultOptions({ queries: { retry: false, staleTime: 30_000 } })
+  let current = projectApp({ app_type: 'github_pr' }),
+    attempts = 0
+  const setupPath = path + '/apps/' + app.id + '/github-setup'
+  const api = fakeApi([
+    { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(current) },
+    {
+      method: 'POST',
+      path: setupPath,
+      respond: () => {
+        if (++attempts === 1) {
+          current = { ...current, setup_revision: 2 }
+          return jsonResponse({ code: 'conflict', error: 'App setup changed' }, 409)
+        }
+        return Response.json({
+          app_id: app.id,
+          setup_revision: 2,
+          registration_url: 'https://github.com/settings/apps/new',
+          manifest: {},
+          expires_at: '2026-09-22T01:00:00Z',
+        })
+      },
+    },
+  ])
+  render(api, <GitHubRegistration />)
+  await waitForUI(() => {
+    expect(container.querySelector('output')?.textContent).toBe('1')
+  })
+  act(() => {
+    button('Register').click()
+  })
+  await waitForUI(() => {
+    expect(container.querySelector('output')?.textContent).toBe('2')
+    expect(button('Register').disabled).toBe(false)
+  })
+  act(() => {
+    button('Register').click()
+  })
+  await waitForUI(() => {
+    expect(api.requestsTo('POST', setupPath)).toHaveLength(2)
+  })
+  expect(api.requestsTo('POST', setupPath).map((request) => request.body)).toEqual([
+    { expected_setup_revision: 1 },
+    { expected_setup_revision: 2 },
+  ])
+})
+
 function Setup() {
   const detail = useProjectApp(orgID, projectID, app.id)
   const configure = useConfigureProjectApp(orgID, projectID)
@@ -214,15 +282,17 @@ it('refreshes app and profile cron lists after app deletion without invalidating
     project_id: projectID,
     name: 'app-schedule',
     target: {
-      type: 'app_launch',
+      type: 'app',
       app_id: app.id,
-      agent_profile_id: fakeId('aprf'),
-      destination: { channel_id: 'C123' },
-      opening_message_template: 'Daily update',
+      settings: {
+        agent_profile_id: fakeId('aprf'),
+        channel_id: 'C123',
+        opening_message_template: 'Daily update',
+        message_template: 'Write a report.',
+      },
     },
     cron: '0 9 * * *',
     timezone: 'UTC',
-    message_template: 'Write a report.',
     enabled: true,
     last_fired_at: null,
     next_fire_at: null,
@@ -235,6 +305,7 @@ it('refreshes app and profile cron lists after app deletion without invalidating
     ...scheduled,
     id: `cron_${'b'.repeat(26)}`,
     name: 'ordinary-schedule',
+    message_template: 'Write a report.',
     target: { type: 'profile', agent_profile_id: fakeId('aprf') },
   }
   const otherPath = `/api/v1/orgs/${orgID}/projects/${otherProjectID}/cron-triggers`

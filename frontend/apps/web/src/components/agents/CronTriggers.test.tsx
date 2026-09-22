@@ -1,158 +1,33 @@
 /** @vitest-environment happy-dom */
 
-import { OmnaraClientProvider } from '@omnara/react'
-import {
-  type AgentProfile,
-  createOmnaraClient,
-  type CronTrigger,
-  type CronTriggerTarget,
-  schemas,
-} from '@omnara/sdk'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import {
-  createMemoryHistory,
-  createRootRoute,
-  createRouter,
-  RouterContextProvider,
-} from '@tanstack/react-router'
-import { act, type ReactNode } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { type CronTrigger, type CronTriggerTarget, schemas } from '@omnara/sdk'
+import { act } from 'react'
+import { expect, it, vi } from 'vitest'
 
 import { formatDateTime } from '@/lib/format'
 import { ProjectAppDetail } from '@/routes/ProjectAppPage'
-import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
-import { agentConfigModel, fakeId, projectApp } from '@/test/fixtures'
-import { enableReactActEnvironment } from '@/test/react-act'
+import { fakeApi, jsonResponse } from '@/test/fake-api'
+import { fakeId, projectApp } from '@/test/fixtures'
 import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
+import {
+  appTarget,
+  cache,
+  chooseProfile,
+  container,
+  cronPath,
+  now,
+  orgId,
+  path,
+  profile,
+  profileRoutes,
+  projectId,
+  render,
+  submit,
+  trigger,
+} from './cron-trigger-test-fixture'
 import { CreateCronTriggerDialog, EditCronTriggerDialog } from './CronTriggerDialog'
 import { CronTriggersList } from './CronTriggersSection'
-
-const orgId = fakeId('org'),
-  projectId = fakeId('proj')
-const path = `/api/v1/orgs/${orgId}/projects/${projectId}`
-const cronPath = path + '/cron-triggers'
-const now = '2026-09-20T09:00:00Z'
-const profile: AgentProfile = {
-  id: fakeId('aprf'),
-  org_id: orgId,
-  project_id: projectId,
-  name: 'Daily reporter',
-  current_generation: 1,
-  current_config_id: fakeId('acfg'),
-  current_config: {
-    id: fakeId('acfg'),
-    org_id: orgId,
-    project_id: projectId,
-    model: agentConfigModel(),
-    effective_definition_hash: 'hash',
-    created_at: now,
-  },
-  created_at: now,
-  updated_at: now,
-}
-const appTarget: CronTriggerTarget = {
-  type: 'app_launch',
-  app_id: fakeId('app'),
-  agent_profile_id: profile.id,
-  destination: { channel_id: 'C123' },
-  opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
-}
-function trigger(overrides: Partial<CronTrigger> = {}): CronTrigger {
-  return {
-    id: fakeId('cron'),
-    org_id: orgId,
-    project_id: projectId,
-    name: 'daily-report',
-    target: appTarget,
-    cron: '0 9 * * 1-5',
-    timezone: 'UTC',
-    message_template: 'Summarize the daily progress.',
-    enabled: true,
-    last_fired_at: null,
-    next_fire_at: now,
-    failure_report: null,
-    last_run: null,
-    created_at: now,
-    updated_at: now,
-    ...overrides,
-  }
-}
-const profileRoutes = [
-  {
-    method: 'GET',
-    path: path + '/agent-profiles',
-    respond: () => Response.json({ data: [profile], next_cursor: null }),
-  },
-  {
-    method: 'GET',
-    path: path + '/agent-profiles/' + profile.id,
-    respond: () => Response.json(profile),
-  },
-]
-
-let root: Root, container: HTMLDivElement, cache: QueryClient, restore: () => void
-beforeEach(() => {
-  restore = enableReactActEnvironment()
-  container = document.createElement('div')
-  document.body.append(container)
-  root = createRoot(container)
-  cache = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
-  })
-})
-afterEach(() => {
-  act(() => {
-    root.unmount()
-  })
-  cache.clear()
-  container.remove()
-  restore()
-  vi.useRealTimers()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
-function render(api: FakeApi, node: ReactNode) {
-  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
-  const router = createRouter({ routeTree: createRootRoute(), history: createMemoryHistory() })
-  const rerender = (content: ReactNode) => {
-    act(() => {
-      root.render(
-        <OmnaraClientProvider client={client}>
-          <QueryClientProvider client={cache}>
-            <RouterContextProvider router={router}>{content}</RouterContextProvider>
-          </QueryClientProvider>
-        </OmnaraClientProvider>,
-      )
-    })
-  }
-  rerender(node)
-  return rerender
-}
-async function submit() {
-  await act(async () => {
-    const form = document.querySelector('form')
-    if (!form) throw new Error('Missing cron form')
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    await Promise.resolve()
-  })
-}
-async function chooseProfile() {
-  act(() => {
-    button('Choose an agent profile…').click()
-  })
-  await waitForUI(() => {
-    expect(document.querySelector('[role="option"]')).not.toBeNull()
-  })
-  act(() => {
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-      (item) => item.textContent === profile.name,
-    )
-    if (!option) throw new Error('Missing profile option')
-    option.click()
-  })
-}
 
 it.each(['slack_thread', 'discord_thread'] as const)(
   'creates a %s app schedule without a mention launcher',
@@ -181,19 +56,17 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     await waitForUI(() => {
       expect(button('Add schedule')).toBeDefined()
     })
-    expect(container.textContent).toContain('Schedules work independently')
+    expect(container.textContent).toContain('Start a fresh agent in a new channel thread')
     act(() => {
       button('Add schedule').click()
     })
-    expect(field('Opening message template').value).toBe(
-      '{{.trigger.name}} — {{.trigger.local_date}}',
-    )
+    expect(field('Opening message').value).toBe('{{.trigger.name}} — {{.trigger.local_date}}')
     expect(button('Create schedule').disabled).toBe(true)
     await enter('Name', 'morning-report')
     await enter('Cron expression', '0 9 * * 1-5')
-    await enter('Task message', 'Summarize yesterday’s progress.')
+    await enter('Task instructions', 'Summarize yesterday’s progress.')
     await enter('Channel ID', appType === 'slack_thread' ? 'G123' : '123456789')
-    if (appType === 'discord_thread') await enter('Server ID (optional)', '987654321')
+    expect(document.body.textContent).not.toContain('Server ID')
     expect(button('Create schedule').disabled).toBe(true)
     await chooseProfile()
     await submit()
@@ -203,18 +76,17 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     expect(api.requestsTo('POST', cronPath)[0]?.body).toEqual({
       name: 'morning-report',
       target: {
-        type: 'app_launch',
+        type: 'app',
         app_id: app.id,
-        agent_profile_id: profile.id,
-        destination:
-          appType === 'slack_thread'
-            ? { channel_id: 'G123' }
-            : { channel_id: '123456789', guild_id: '987654321' },
-        opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
+        settings: {
+          agent_profile_id: profile.id,
+          channel_id: appType === 'slack_thread' ? 'G123' : '123456789',
+          opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
+          message_template: 'Summarize yesterday’s progress.',
+        },
       },
       cron: '0 9 * * 1-5',
       timezone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
-      message_template: 'Summarize yesterday’s progress.',
     })
     expect(
       api
@@ -275,13 +147,19 @@ it.each(['github_pr', 'future_app'] as const)(
   },
 )
 
-it('edits destination and heading while keeping the saved app and profile immutable', async () => {
+it('edits app settings including the profile for future runs while keeping the saved app', async () => {
   const app = projectApp({ app_type: 'discord_thread', state: 'active' })
   const saved = trigger({
-    target: { ...appTarget, destination: { channel_id: '123', guild_id: '456' } },
+    target: { ...appTarget, settings: { ...appTarget.settings, channel_id: '123' } },
   })
+  const replacement = { ...profile, id: `aprf_${'b'.repeat(26)}`, name: 'Weekly reporter' }
   const onOpenChange = vi.fn()
   const api = fakeApi([
+    {
+      method: 'GET',
+      path: path + '/agent-profiles',
+      respond: () => Response.json({ data: [profile, replacement], next_cursor: null }),
+    },
     ...profileRoutes,
     { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
     {
@@ -302,13 +180,14 @@ it('edits destination and heading while keeping the saved app and profile immuta
     />,
   )
   await waitForUI(() => {
-    expect(field('Server ID (optional)').value).toBe('456')
+    expect(field('Channel ID').value).toBe('123')
   })
-  expect(document.querySelector<HTMLButtonElement>('#app-profiles')?.disabled).toBe(true)
+  expect(document.querySelector<HTMLButtonElement>('#app-profiles')?.disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('Server ID')
+  await chooseProfile(replacement)
   await enter('Channel ID', '789')
-  await enter('Server ID (optional)', '')
-  await enter('Opening message template', 'Daily update {{.trigger.local_date}}')
-  await enter('Task message', 'Write a detailed update.')
+  await enter('Opening message', 'Daily update {{.trigger.local_date}}')
+  await enter('Task instructions', 'Write a detailed update.')
   await submit()
   await waitForUI(() => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
@@ -317,13 +196,15 @@ it('edits destination and heading while keeping the saved app and profile immuta
     name: saved.name,
     cron: saved.cron,
     timezone: saved.timezone,
-    message_template: 'Write a detailed update.',
     target: {
-      type: 'app_launch',
+      type: 'app',
       app_id: app.id,
-      agent_profile_id: profile.id,
-      destination: { channel_id: '789' },
-      opening_message_template: 'Daily update {{.trigger.local_date}}',
+      settings: {
+        agent_profile_id: replacement.id,
+        channel_id: '789',
+        opening_message_template: 'Daily update {{.trigger.local_date}}',
+        message_template: 'Write a detailed update.',
+      },
     },
   })
 })
@@ -360,12 +241,12 @@ it('rejects Slack DMs and thread addresses before sending an update and retains 
   }
   expect(api.requestsTo('PATCH', cronPath + '/' + saved.id)).toHaveLength(0)
   await enter('Channel ID', 'C456')
-  await enter('Opening message template', 'Keep this draft')
+  await enter('Opening message', 'Keep this draft')
   await submit()
   await waitForUI(() => {
     expect(document.body.textContent).toContain('Bot cannot access this channel')
   })
-  expect(field('Opening message template').value).toBe('Keep this draft')
+  expect(field('Opening message').value).toBe('Keep this draft')
   expect(field('Channel ID').value).toBe('C456')
 })
 
@@ -432,7 +313,7 @@ it.each([
     expect(button('Add schedule').disabled).toBe(state !== 'active')
     if (state === 'disconnected') {
       expect(container.textContent).toContain(
-        'Connect this app before creating schedules or running scheduled agents.',
+        'Connect this app before creating schedules or running scheduled actions.',
       )
       act(() => {
         button('Add schedule').click()
@@ -577,12 +458,12 @@ it('closes a schedule editor when management permission is removed', async () =>
 
 it.each([
   ['queued', 'Last run: queued'],
-  ['preparing', 'Last run: preparing thread'],
-  ['launched', 'Agent launched'],
+  ['processing', 'Last run: processing'],
+  ['completed', 'Last run: app action completed'],
   ['failed', 'Last run: Could not prepare the thread'],
   ['discarded', 'Last run: discarded'],
 ] as const)(
-  'shows %s app launch state independently of firing failure reports',
+  'shows %s app action state independently of firing failure reports',
   async (state, label) => {
     const earlierRun = '2026-09-19T09:00:00Z'
     const saved = trigger({
@@ -626,14 +507,14 @@ it.each([
   },
 )
 
-it('shows a generic launch failure once with its update time', async () => {
+it('shows a generic action failure once with its update time', async () => {
   const saved = trigger({
     last_fired_at: now,
     last_run: {
       state: 'failed',
       created_at: now,
       updated_at: now,
-      failure_message: 'Scheduled app launch failed.',
+      failure_message: 'Scheduled app action failed.',
     },
   })
   const api = fakeApi([
@@ -654,7 +535,7 @@ it('shows a generic launch failure once with its update time', async () => {
     />,
   )
   await waitForUI(() => {
-    expect(container.textContent).toContain('Scheduled app launch failed.')
+    expect(container.textContent).toContain('Scheduled app action failed.')
   })
   expect(container.textContent.match(/failed/gi)).toHaveLength(1)
   expect(container.querySelector('time')?.textContent).toBe(formatDateTime(now))
@@ -721,7 +602,7 @@ it.each([
   await enter('Message', 'Check the queue')
   expect(document.body.textContent).toContain('{{.trigger.local_date}}')
   expect(document.body.textContent).toContain('The local date uses the schedule’s timezone.')
-  expect(document.body.textContent).not.toContain('Opening message template')
+  expect(document.body.textContent).not.toContain('Opening message')
   expect(document.body.textContent).not.toContain('Agent profile')
   await submit()
   await waitForUI(() => {
@@ -740,7 +621,7 @@ it.each([
   { type: 'profile', agent_profile_id: profile.id },
   { type: 'agent', agent_id: fakeId('agt'), delivery_mode: 'steering' },
 ] satisfies CronTriggerTarget[])('preserves ordinary $type cron editing', async (target) => {
-  const saved = trigger({ target }),
+  const saved = trigger({ target, message_template: 'Original prompt' }),
     onOpenChange = vi.fn()
   const api = fakeApi([
     {

@@ -51,6 +51,7 @@ type AppInboxConsumer struct {
 	artifacts AppArtifactUploader
 	providers map[string]AppInboxProvider
 	launchers *AppLaunchWorkflow
+	scheduled map[appdefinition.Type]AppScheduledHandler
 }
 
 // NewAppInboxConsumer requires an explicit presenter choice. Production callers
@@ -62,14 +63,19 @@ func NewAppInboxConsumer(
 	providers map[string]AppInboxProvider,
 	presenter AppCanceledInteractionPresenter,
 	launchers *AppLaunchWorkflow,
+	options ...AppInboxConsumerOption,
 ) *AppInboxConsumer {
 	snapshot := make(map[string]AppInboxProvider, len(providers))
 	for provider, adapter := range providers {
 		snapshot[provider] = adapter
 	}
-	return &AppInboxConsumer{
+	consumer := &AppInboxConsumer{
 		router: router, inbox: inbox, artifacts: artifacts, providers: snapshot, presenter: presenter, launchers: launchers,
 	}
+	for _, option := range options {
+		option(consumer)
+	}
+	return consumer
 }
 
 // Consume processes one already-claimed receipt. The worker owns claiming,
@@ -105,7 +111,7 @@ func (c *AppInboxConsumer) Consume(
 		appSetup.State != integrationstore.ProjectAppStateActive {
 		return nil, storeerr.ErrUnauthorized
 	}
-	if receipt.Source == integrationstore.IntegrationInboxSourceScheduledLaunch {
+	if receipt.Source == integrationstore.IntegrationInboxSourceScheduled {
 		return c.consumeScheduled(ctx, lease, receipt, appSetup)
 	}
 	adapter := c.providers[appSetup.Provider]

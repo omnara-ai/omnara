@@ -41,10 +41,10 @@ function appRunLabel(trigger: CronTrigger) {
   switch (trigger.last_run.state) {
     case 'queued':
       return 'Last run: queued'
-    case 'preparing':
-      return 'Last run: preparing thread'
-    case 'launched':
-      return 'Agent launched'
+    case 'processing':
+      return 'Last run: processing'
+    case 'completed':
+      return 'Last run: app action completed'
     case 'failed':
       return `Last run: ${trigger.last_run.failure_message ?? 'failed'}`
     case 'discarded':
@@ -121,7 +121,7 @@ export function CronTriggersListContent({
                       align="start"
                       className="max-w-sm whitespace-pre-wrap px-4 py-2 text-left text-sm leading-relaxed"
                     >
-                      {trigger.message_template}
+                      {trigger.message_template ?? 'Scheduled app action'}
                     </TooltipContent>
                   </Tooltip>
                   {trigger.failure_report && <Badge variant="destructive">Failing</Badge>}
@@ -132,9 +132,9 @@ export function CronTriggersListContent({
                     ` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}
                   {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
-                {trigger.target.type === 'app_launch' && (
+                {trigger.target.type === 'app' && (
                   <p className="text-muted-foreground break-words text-xs">
-                    Channel {trigger.target.destination.channel_id} · {appRunLabel(trigger)}
+                    {appRunLabel(trigger)}
                     {trigger.last_run && (
                       <>
                         {' · '}

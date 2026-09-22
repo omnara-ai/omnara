@@ -21,14 +21,9 @@ func readPage[T any](
 ) ([]T, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
-	if options.Page == 0 {
-		options.Page = 1
-	}
-	if options.PerPage == 0 {
-		options.PerPage = 30
-	}
-	if options.Page < 1 || options.PerPage < 1 || options.PerPage > 100 {
-		return nil, 0, errors.New("github page must be positive and per_page between 1 and 100")
+	options, err := canonicalPageOptions(options)
+	if err != nil {
+		return nil, 0, err
 	}
 	pull, err := c.preparePull(ctx, scope, false)
 	if err != nil {
@@ -51,13 +46,26 @@ func readPage[T any](
 	return output, next, nil
 }
 
-func (c *Client) sameEndpoint(u *url.URL, path string) bool {
+func canonicalPageOptions(options PageOptions) (PageOptions, error) {
+	if options.Page == 0 {
+		options.Page = 1
+	}
+	if options.PerPage == 0 {
+		options.PerPage = 30
+	}
+	if options.Page < 1 || options.PerPage < 1 || options.PerPage > 100 {
+		return PageOptions{}, errors.New("github page must be positive and per_page between 1 and 100")
+	}
+	return options, nil
+}
+
+func (c *appClient) sameEndpoint(u *url.URL, path string) bool {
 	return u != nil && u.Scheme == c.base.Scheme && strings.EqualFold(u.Host, c.base.Host) &&
 		u.User == nil && u.Opaque == "" && u.Fragment == "" && !u.ForceQuery &&
 		strings.EqualFold(u.EscapedPath(), path)
 }
 
-func (c *Client) nextPage(headers []string, path string, options PageOptions) (int, error) {
+func (c *appClient) nextPage(headers []string, path string, options PageOptions) (int, error) {
 	next := 0
 	for _, header := range headers {
 		for _, link := range strings.Split(header, ",") {

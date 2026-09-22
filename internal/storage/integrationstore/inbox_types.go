@@ -31,8 +31,8 @@ type IntegrationInboxState string
 type IntegrationInboxSource string
 
 const (
-	IntegrationInboxSourceProvider        IntegrationInboxSource = "provider"
-	IntegrationInboxSourceScheduledLaunch IntegrationInboxSource = "scheduled_launch"
+	IntegrationInboxSourceProvider  IntegrationInboxSource = "provider"
+	IntegrationInboxSourceScheduled IntegrationInboxSource = "scheduled"
 )
 
 const (

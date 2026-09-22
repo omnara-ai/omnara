@@ -1,5 +1,6 @@
 import { useCreateCronTrigger, useUpdateCronTrigger } from '@omnara/react'
 import {
+  type CreateCronTriggerRequest,
   type CronTrigger,
   type CronTriggerDeliveryMode,
   type CronTriggerTarget,
@@ -84,16 +85,12 @@ function cronDescription(expression: string) {
   }
 }
 
-function cronTriggerFormValid(value: CronTriggerFormValues) {
+function cronTriggerFormValid(value: CronTriggerFormValues, appSettingsValid: boolean) {
   return (
     resourceNameValid(value.name) &&
     value.cron.trim() !== '' &&
     value.timezone.trim() !== '' &&
-    value.messageTemplate.trim() !== '' &&
-    (!value.appTarget ||
-      (value.appTarget.agent_profile_id !== '' &&
-        /^(?:[CG][A-Z0-9]+|[1-9][0-9]*)$/.test(value.appTarget.destination.channel_id) &&
-        value.appTarget.opening_message_template.trim() !== ''))
+    (value.appTarget ? appSettingsValid : value.messageTemplate.trim() !== '')
   )
 }
 
@@ -103,7 +100,7 @@ interface CronTriggerFormValues {
   timezone: string
   messageTemplate: string
   deliveryMode: CronTriggerDeliveryMode
-  appTarget?: Extract<CronTriggerTarget, { type: 'app_launch' }>
+  appTarget?: Extract<CronTriggerTarget, { type: 'app' }>
 }
 
 function CronTriggerFormDialog({
@@ -119,7 +116,6 @@ function CronTriggerFormDialog({
   onSubmit,
   orgId,
   projectId,
-  editing = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -133,13 +129,13 @@ function CronTriggerFormDialog({
   onSubmit: (value: CronTriggerFormValues) => Promise<void>
   orgId: string
   projectId: string
-  editing?: boolean
 }) {
   const [error, setError] = useState('')
+  const [appSettingsValid, setAppSettingsValid] = useState(false)
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      if (!cronTriggerFormValid(value)) return
+      if (!cronTriggerFormValid(value, appSettingsValid)) return
       setError('')
       try {
         await onSubmit(value)
@@ -189,7 +185,7 @@ function CronTriggerFormDialog({
                 </Field>
               )}
             </form.Field>
-            {target.type === 'app_launch' && (
+            {target.type === 'app' && (
               <form.Field name="appTarget">
                 {(field) =>
                   field.state.value && (
@@ -198,7 +194,7 @@ function CronTriggerFormDialog({
                       projectId={projectId}
                       value={field.state.value}
                       onChange={field.handleChange}
-                      editing={editing}
+                      onValidityChange={setAppSettingsValid}
                     />
                   )
                 }
@@ -257,32 +253,30 @@ function CronTriggerFormDialog({
                 </Field>
               )}
             </form.Field>
-            <form.Field name="messageTemplate">
-              {(field) => (
-                <Field>
-                  <FieldLabel htmlFor="cron-trigger-message">
-                    {target.type === 'app_launch' ? 'Task message' : 'Message'}
-                  </FieldLabel>
-                  <Textarea
-                    id="cron-trigger-message"
-                    required
-                    rows={4}
-                    value={field.state.value}
-                    onChange={(event) => {
-                      field.handleChange(event.target.value)
-                    }}
-                  />
-                  <FieldDescription>
-                    {target.type === 'app_launch'
-                      ? 'The initial task for each new agent.'
-                      : 'Sent on each firing.'}{' '}
-                    Go template syntax with {'{{.trigger.name}}'}, {'{{.trigger.fired_at}}'},{' '}
-                    {'{{.trigger.last_fired_at}}'}, and {'{{.trigger.local_date}}'} available. The
-                    local date uses the schedule’s timezone.
-                  </FieldDescription>
-                </Field>
-              )}
-            </form.Field>
+            {target.type !== 'app' && (
+              <form.Field name="messageTemplate">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor="cron-trigger-message">Message</FieldLabel>
+                    <Textarea
+                      id="cron-trigger-message"
+                      required
+                      rows={4}
+                      value={field.state.value}
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
+                      }}
+                    />
+                    <FieldDescription>
+                      Sent on each firing. Go template syntax with {'{{.trigger.name}}'},{' '}
+                      {'{{.trigger.fired_at}}'}, {'{{.trigger.last_fired_at}}'}, and{' '}
+                      {'{{.trigger.local_date}}'} available. The local date uses the schedule’s
+                      timezone.
+                    </FieldDescription>
+                  </Field>
+                )}
+              </form.Field>
+            )}
             {target.type === 'agent' && (
               <form.Field name="deliveryMode">
                 {(field) => (
@@ -316,7 +310,10 @@ function CronTriggerFormDialog({
             <DialogFooter>
               <form.Subscribe
                 selector={(state) =>
-                  [cronTriggerFormValid(state.values), state.isSubmitting] as const
+                  [
+                    cronTriggerFormValid(state.values, appSettingsValid),
+                    state.isSubmitting,
+                  ] as const
                 }
               >
                 {([valid, isSubmitting]) => (
@@ -334,8 +331,8 @@ function CronTriggerFormDialog({
 }
 
 function targetDescription(target: CronTriggerTarget, targetLabel?: string) {
-  if (target.type === 'app_launch') {
-    return 'Each run posts the opening message in the channel and launches a fresh agent with your task in the new thread.'
+  if (target.type === 'app') {
+    return `Each run asks ${targetLabel ?? 'this app'} to perform its scheduled action using these settings. Changes apply to future runs; work already prepared keeps its saved settings.`
   }
   if (target.type === 'profile') {
     return `Each firing launches a new agent from ${targetLabel ?? 'this profile'} and sends the message as its initial prompt. To message an agent that already exists, add a schedule from that agent's page instead.`
@@ -378,11 +375,11 @@ export function CreateCronTriggerDialog({
         timezone: browserTimezone,
         messageTemplate: '',
         deliveryMode: 'queued',
-        appTarget: target.type === 'app_launch' ? target : undefined,
+        appTarget: target.type === 'app' ? target : undefined,
       }}
       isPending={createTrigger.isPending}
       onSubmit={async (value) => {
-        const trigger = await createTrigger.mutateAsync({
+        const request: CreateCronTriggerRequest = {
           name: value.name,
           target:
             target.type === 'agent'
@@ -390,8 +387,9 @@ export function CreateCronTriggerDialog({
               : (value.appTarget ?? target),
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
-          message_template: value.messageTemplate,
-        })
+        }
+        if (target.type !== 'app') request.message_template = value.messageTemplate
+        const trigger = await createTrigger.mutateAsync(request)
         onCreated?.(trigger)
       }}
     />
@@ -416,7 +414,6 @@ export function EditCronTriggerDialog({
     <CronTriggerFormDialog
       orgId={orgId}
       projectId={projectId}
-      editing
       open={open}
       onOpenChange={onOpenChange}
       title="Edit cron schedule"
@@ -428,10 +425,10 @@ export function EditCronTriggerDialog({
         name: trigger.name,
         cron: trigger.cron,
         timezone: trigger.timezone,
-        messageTemplate: trigger.message_template,
+        messageTemplate: trigger.message_template ?? '',
         deliveryMode:
           trigger.target.type === 'agent' ? (trigger.target.delivery_mode ?? 'queued') : 'queued',
-        appTarget: trigger.target.type === 'app_launch' ? trigger.target : undefined,
+        appTarget: trigger.target.type === 'app' ? trigger.target : undefined,
       }}
       isPending={updateTrigger.isPending}
       onSubmit={async (value) => {
@@ -440,17 +437,13 @@ export function EditCronTriggerDialog({
           name: value.name,
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
-          message_template: value.messageTemplate,
         }
+        if (trigger.target.type !== 'app') update.message_template = value.messageTemplate
         if (trigger.target.type === 'agent') {
           update.target = { ...trigger.target, delivery_mode: value.deliveryMode }
         }
-        if (trigger.target.type === 'app_launch' && value.appTarget) {
-          update.target = {
-            ...trigger.target,
-            destination: value.appTarget.destination,
-            opening_message_template: value.appTarget.opening_message_template,
-          }
+        if (trigger.target.type === 'app' && value.appTarget) {
+          update.target = value.appTarget
         }
         await updateTrigger.mutateAsync(update)
       }}

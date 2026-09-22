@@ -56,16 +56,16 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 		)
 	}
 	for _, trigger := range claim.Claimed {
-		if trigger.Target.Kind == executionstore.CronTriggerTargetAppLaunch {
-			queued, err := s.execution.CreateCronTriggerAppLaunch(ctx, trigger)
+		if trigger.Target.Kind == executionstore.CronTriggerTargetApp {
+			queued, err := s.execution.CreateCronTriggerAppEvent(ctx, trigger)
 			if err != nil {
 				stats.Failures++
-				s.logger.Error("queue scheduled app launch", "cron_trigger_id", trigger.TriggerID, "error", err)
-				// Known unavailable/render failures are completed atomically by the handoff.
+				s.logger.Error("queue scheduled app action", "cron_trigger_id", trigger.TriggerID, "error", err)
+				// Known unavailable/invalid targets are completed atomically by the handoff.
 				// Unexpected storage failures retain their occurrence for lease recovery.
 				if recordErr := s.execution.RecordCronTriggerFailure(ctx, executionstore.CronTriggerFailureParams{
 					ProjectID: trigger.ProjectID, TriggerID: trigger.TriggerID, ClaimToken: trigger.ClaimToken,
-					Message: "Scheduled app launch could not be queued.", WillRetry: true,
+					Message: "Scheduled app action could not be queued.", WillRetry: true,
 				}); recordErr != nil {
 					s.logger.Error("record app cron failure", "cron_trigger_id", trigger.TriggerID, "error", recordErr)
 				}

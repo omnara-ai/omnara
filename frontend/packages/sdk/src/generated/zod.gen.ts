@@ -629,6 +629,33 @@ export const zAppProviderDisplayName = z.string().max(512);
  */
 export const zAppProviderConfig = z.record(z.string(), z.unknown());
 
+export const zCreateGitHubSetupRequest = z.object({
+    expected_setup_revision: z.int().gte(1),
+    app_name: z.string().min(1).max(34).optional(),
+    organization: z.string().min(1).max(39).regex(/^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/).optional()
+});
+
+export const zInspectGitHubInstallationsRequest = z.object({
+    credentials_secret_ref: zSecretId,
+    page: z.int().gte(1).lte(1000).optional().default(1)
+});
+
+export const zGitHubSetupInstallation = z.object({
+    id: z.string().regex(/^[1-9][0-9]*$/),
+    account: z.string(),
+    account_type: z.string().optional(),
+    settings_url: z.url()
+});
+
+export const zGitHubInstallations = z.object({
+    provider_app_id: z.string().regex(/^[1-9][0-9]*$/),
+    name: z.string(),
+    slug: z.string(),
+    install_url: z.url(),
+    installations: z.array(zGitHubSetupInstallation),
+    next_page: z.int().gte(1).lte(1000).optional()
+});
+
 export const zSlackSetupIcon = z.object({
     filename: z.string().optional(),
     data_base64: z.string().min(1)
@@ -897,7 +924,7 @@ export const zCronExpression = z.string().min(9).max(256);
 export const zCronTimezone = z.string().max(64).default('UTC');
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. For app launches this is the agent task, snapshotted at durable handoff. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for app targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export const zCronMessageTemplate = z.string().max(65536);
 
@@ -919,12 +946,12 @@ export const zCronTriggerFailureReport = z.object({
 });
 
 /**
- * State of the latest accepted scheduled app launch: queued while waiting to start, preparing while creating its thread and agent, launched once the agent has started, failed if the launch could not complete, or discarded if an operator discarded the failed work. Launched does not indicate task completion or report delivery.
+ * State of the latest accepted scheduled app action. Completed means the app handled the occurrence; it does not indicate completion of any agent task that action started.
  */
 export const zCronTriggerLastRunState = z.enum([
     'queued',
-    'preparing',
-    'launched',
+    'processing',
+    'completed',
     'failed',
     'discarded'
 ]);
@@ -2659,6 +2686,14 @@ export const zIntegrationOAuthSetup = z.object({
     expires_at: zTimestamp
 });
 
+export const zGitHubSetup = z.object({
+    app_id: zProjectAppId,
+    setup_revision: z.int().gte(1),
+    registration_url: z.url(),
+    manifest: z.record(z.string(), z.unknown()),
+    expires_at: zTimestamp
+});
+
 export const zSlackSetup = z.object({
     app_id: zProjectAppId,
     setup_revision: z.int().gte(1),
@@ -2672,21 +2707,16 @@ export const zSlackSetup = z.object({
     expires_at: zTimestamp
 });
 
-export const zAppLaunchCronTriggerTarget = z.object({
-    type: z.enum(['app_launch']),
+export const zAppCronTriggerTarget = z.object({
+    type: z.enum(['app']),
     app_id: zProjectAppId,
-    agent_profile_id: zAgentProfileId,
-    destination: z.object({
-        channel_id: z.string().min(1),
-        guild_id: z.string().min(1).optional()
-    }),
-    opening_message_template: z.string().min(1).refine(value => Array.from(value).length <= 2000, { message: 'String cannot exceed 2000 Unicode characters' })
+    settings: z.record(z.string(), z.unknown())
 });
 
 export const zCronTriggerTarget = z.discriminatedUnion('type', [
     zAgentCronTriggerTarget.extend({ type: z.literal('agent') }),
     zAgentProfileCronTriggerTarget.extend({ type: z.literal('profile') }),
-    zAppLaunchCronTriggerTarget.extend({ type: z.literal('app_launch') })
+    zAppCronTriggerTarget.extend({ type: z.literal('app') })
 ]);
 
 export const zCreateCronTriggerRequest = z.object({
@@ -2694,7 +2724,7 @@ export const zCreateCronTriggerRequest = z.object({
     target: zCronTriggerTarget,
     cron: zCronExpression,
     timezone: zCronTimezone.optional(),
-    message_template: zCronMessageTemplate,
+    message_template: zCronMessageTemplate.optional(),
     enabled: z.boolean().optional().default(true)
 });
 
@@ -2715,7 +2745,7 @@ export const zCronTrigger = z.object({
     target: zCronTriggerTarget,
     cron: zCronExpression,
     timezone: zCronTimezone,
-    message_template: zCronMessageTemplate,
+    message_template: zCronMessageTemplate.optional(),
     enabled: z.boolean(),
     last_fired_at: zTimestamp.nullable(),
     next_fire_at: zTimestamp.nullable(),
@@ -2896,7 +2926,8 @@ export const zAppSubscriptionDefinition = z.object({
 export const zAppCapabilities = z.object({
     tools: z.record(z.string(), zAppCapabilityDefinition),
     subscriptions: z.record(z.string(), zAppSubscriptionDefinition),
-    interaction_handler: zAppCapabilityDefinition.optional()
+    interaction_handler: zAppCapabilityDefinition.optional(),
+    schedule: zAppCapabilityDefinition.optional()
 });
 
 export const zProjectApp = z.object({
@@ -3873,6 +3904,32 @@ export const zCreateProjectAppSlackSetupPath = z.object({
  * Slack app created and OAuth setup started.
  */
 export const zCreateProjectAppSlackSetupResponse = zSlackSetup;
+
+export const zCreateProjectAppGitHubSetupBody = zCreateGitHubSetupRequest;
+
+export const zCreateProjectAppGitHubSetupPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    appID: zProjectAppId
+});
+
+/**
+ * GitHub setup information verified.
+ */
+export const zCreateProjectAppGitHubSetupResponse = zGitHubSetup;
+
+export const zInspectProjectAppGitHubInstallationsBody = zInspectGitHubInstallationsRequest;
+
+export const zInspectProjectAppGitHubInstallationsPath = z.object({
+    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
+    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    appID: zProjectAppId
+});
+
+/**
+ * GitHub setup information verified.
+ */
+export const zInspectProjectAppGitHubInstallationsResponse = zGitHubInstallations;
 
 export const zListCronTriggersPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),

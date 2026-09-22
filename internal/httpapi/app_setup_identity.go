@@ -32,6 +32,10 @@ func appSetupInputError(err error) error {
 		return apierror.ProjectScoped(err)
 	}
 	switch githubErr.Code {
+	case github.UnsupportedAccount:
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest,
+			"Guided GitHub setup supports user or organization Apps and installations; "+
+				"enterprise-owned Apps and enterprise-level installations are not supported")
 	case github.ScopeMismatch, github.PermanentFailure:
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest,
 			"GitHub App, installation, or bot identity could not be verified")

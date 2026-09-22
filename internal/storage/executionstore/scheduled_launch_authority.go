@@ -1,10 +1,6 @@
 package executionstore
 
 import (
-	"encoding/json"
-
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -14,9 +10,9 @@ import (
 // The provider thread is a destination, not a claim that a human wrote the task.
 func ScheduledInboxActor(
 	app integrationstore.ProjectAppRecord,
-	launch integrationstore.ScheduledAppLaunch,
+	launch integrationstore.ScheduledAppEvent,
 ) (*ActorParams, error) {
-	return CronTriggerActor(app.OrgID, launch.TriggerID, launch.TriggerName)
+	return CronTriggerActor(app.OrgID, launch.TriggerID, launch.Occurrence.Name)
 }
 
 // The private admission flag is derived only from the fenced trusted receipt.
@@ -26,23 +22,16 @@ func validateScheduledInboxLaunch(
 	app integrationstore.ProjectAppRecord,
 	slot InboxLaunchSlot,
 ) error {
-	launch, err := receipt.ScheduledLaunch()
+	launch, err := receipt.ScheduledEvent()
 	if err != nil {
 		return err
 	}
-	root, err := receipt.ScheduledRoot(app.Provider, receipt.Plan)
-	if err != nil {
-		return err
-	}
-	kind, ref, err := root.Conversation()
-	if err != nil {
+	if err := receipt.ValidateScheduledPlan(app, receipt.Plan); err != nil {
 		return err
 	}
 	input := slot.Launch.InitialInput
 	if app.ID != receipt.AppID || app.ProjectID != receipt.ProjectID ||
-		slot.Selection.AppID != receipt.AppID || slot.Selection.Slot != "scheduled" ||
-		slot.Selection.Address != (integrationstore.ConversationAddress{Kind: kind, Ref: ref}) ||
-		slot.Launch.ProfileID != launch.ProfileID || slot.Launch.DerivedBaseConfigID != launch.ConfigID ||
+		slot.Selection.AppID != receipt.AppID ||
 		slot.Launch.LaunchedBy.Type != identitystore.PrincipalTypeSystem || slot.Launch.LaunchedBy.ID != launch.TriggerID ||
 		input == nil || input.Actor == nil || input.SemanticEventKey != receipt.ReceiptKey {
 		return storeerr.ErrUnauthorized
@@ -53,17 +42,6 @@ func validateScheduledInboxLaunch(
 	}
 	if input.Actor.Provider != actor.Provider || input.Actor.ProviderTenantID != actor.ProviderTenantID ||
 		input.Actor.ProviderUserID != actor.ProviderUserID {
-		return storeerr.ErrUnauthorized
-	}
-	content, err := json.Marshal([]map[string]string{{"type": "text", "text": launch.Message}})
-	if err != nil {
-		return err
-	}
-	content, err = appdefinition.AppendInputContext(app.Name, root, content)
-	if err != nil {
-		return err
-	}
-	if !jsoncanonical.Equal(content, input.ContentBlocks) {
 		return storeerr.ErrUnauthorized
 	}
 	return nil

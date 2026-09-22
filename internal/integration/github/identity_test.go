@@ -15,7 +15,7 @@ import (
 func identityResponse(path string) string {
 	switch path {
 	case "/app":
-		return `{"id":123,"slug":"helper","owner":{"id":888}}`
+		return `{"id":123,"slug":"helper","name":"Helper Bot","owner":{"id":888}}`
 	case "/app/installations/456":
 		return `{"id":456,"app_id":123}`
 	case "/users/helper[bot]":
@@ -78,11 +78,31 @@ func TestCheckAppIdentity(t *testing.T) {
 	identity, err := client.CheckAppIdentity(t.Context())
 	if err != nil || identity != (AppIdentity{
 		AppID: 123, InstallationID: 456, AppSlug: "helper", BotUserID: 999, BotLogin: "helper[bot]",
+		DisplayName: "Helper Bot",
 	}) {
 		t.Fatalf("identity=%+v err=%v", identity, err)
 	}
 	if requests.Load() != 5 || hooks != 5 || client.tokens != ([2]cachedToken{}) {
 		t.Fatal("all five attempts must be fenced; setup token must not enter the PR tool cache")
+	}
+}
+
+func TestCheckAppIdentityDisplayNameFallback(t *testing.T) {
+	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/app":
+			fmt.Fprint(w, `{"id":123,"slug":"helper"}`)
+		case "/app/installations/456/access_tokens":
+			tokenResponse(w)
+		case "/installation/token":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			fmt.Fprint(w, identityResponse(r.URL.Path))
+		}
+	})
+	identity, err := client.CheckAppIdentity(t.Context())
+	if err != nil || identity.DisplayName != "helper[bot]" {
+		t.Fatalf("missing App name must preserve discovery: %+v %v", identity, err)
 	}
 }
 

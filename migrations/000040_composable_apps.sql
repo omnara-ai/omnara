@@ -289,7 +289,7 @@ CREATE TABLE integration_inbox (
     app_id uuid NOT NULL,
     receipt_key text NOT NULL CHECK (octet_length(receipt_key) BETWEEN 1 AND 512),
     payload bytea NOT NULL CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
-    source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled_launch')),
+    source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled')),
     CHECK (source = 'provider' OR events IS NULL),
     -- Only trusted app decisions populate normalized events; provider ingress leaves NULL.
     events jsonb CHECK (jsonb_typeof(events) = 'array' AND octet_length(events::text) <= 262144),
@@ -516,20 +516,37 @@ END;
 $$;
 -- +goose StatementEnd
 
--- App launches reuse the profile identity and its existing lifecycle constraint.
+-- App schedules own only an app reference and opaque, app-validated settings.
+-- Profiles mentioned in settings are resolved by the app at execution; deleting
+-- one must not delete its schedule. Ordinary agent/profile targets keep their
+-- existing relational ownership and required message template.
 ALTER TABLE cron_triggers
+    -- Migration 20's second multi-column check is agent/profile exclusivity.
+    -- Keep its first multi-column check (enabled requires next_fire_after).
+    DROP CONSTRAINT cron_triggers_check1,
+    DROP CONSTRAINT cron_triggers_message_template_check,
+    DROP CONSTRAINT cron_triggers_profile_delivery_mode_check,
+    ALTER COLUMN message_template DROP NOT NULL,
     ADD COLUMN app_id uuid,
-    ADD COLUMN app_destination jsonb,
-    ADD COLUMN opening_message_template text,
+    ADD COLUMN app_settings jsonb,
     -- Diagnostic provenance only: inbox retention must not constrain schedules.
     ADD COLUMN last_app_receipt_id uuid,
     ADD FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
-    ADD CHECK (
-        (app_id IS NULL AND app_destination IS NULL AND opening_message_template IS NULL AND last_app_receipt_id IS NULL)
-        OR (app_id IS NOT NULL AND agent_profile_id IS NOT NULL
-            AND app_destination IS NOT NULL AND jsonb_typeof(app_destination) = 'object'
-            AND octet_length(app_destination::text) <= 4096
-            AND opening_message_template IS NOT NULL AND char_length(opening_message_template) BETWEEN 1 AND 2000)
+    ADD CONSTRAINT cron_triggers_target_check CHECK (
+        num_nonnulls(app_id, agent_profile_id, agent_id) = 1
+    ),
+    ADD CONSTRAINT cron_triggers_message_template_check CHECK (
+        (app_id IS NOT NULL AND message_template IS NULL)
+        OR (app_id IS NULL AND message_template IS NOT NULL AND message_template <> '')
+    ),
+    ADD CONSTRAINT cron_triggers_app_settings_check CHECK (
+        (app_id IS NULL AND app_settings IS NULL AND last_app_receipt_id IS NULL)
+        OR (app_id IS NOT NULL AND app_settings IS NOT NULL
+            AND jsonb_typeof(app_settings) = 'object'
+            AND octet_length(app_settings::text) <= 262144)
+    ),
+    ADD CONSTRAINT cron_triggers_target_delivery_mode_check CHECK (
+        agent_id IS NOT NULL OR delivery_mode = 'queued'
     );
 CREATE INDEX cron_triggers_app_idx ON cron_triggers(project_id, app_id)
     WHERE app_id IS NOT NULL AND deleted_at IS NULL;

@@ -61,7 +61,6 @@ it('pins the app ID, revision and original provider identity on reconnect', asyn
     expected_setup_revision: 8,
     provider_tenant_id: '111',
     provider_account_ref: '222',
-    provider_agent_display_name: '',
     credential_secret_id: fakeId('sec'),
     provider_config: {},
   })

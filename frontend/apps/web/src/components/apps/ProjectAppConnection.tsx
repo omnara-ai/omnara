@@ -1,6 +1,7 @@
 import type { ProjectApp } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
+import { ConnectGitHubForm } from './ConnectGitHubForm'
 import { ConnectSlackForm } from './ConnectSlackForm'
 import { ProjectAppSetup } from './ProjectAppSetup'
 
@@ -27,6 +28,15 @@ export function ProjectAppConnection({
       <fieldset disabled={disabled} className="min-w-0">
         {app.app_type === 'slack_thread' ? (
           <ConnectSlackForm
+            orgId={orgId}
+            projectId={projectId}
+            app={app}
+            onConnected={onConnected}
+            onCancel={onCancel}
+            footerAction={footerAction}
+          />
+        ) : app.app_type === 'github_pr' ? (
+          <ConnectGitHubForm
             orgId={orgId}
             projectId={projectId}
             app={app}

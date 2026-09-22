@@ -617,3 +617,67 @@ func TestGitHubHTTPKnownInstallationNeverBorrowsFallbackCredentials(t *testing.T
 		t.Fatalf("response=%d fallback=%d receipts=%+v", w.Code, f.appLookups, f.accepted)
 	}
 }
+
+func TestGitHubSharedIntakeLookupHintRequiresVerification(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		hints     []string
+		signature bool
+		want      int
+		lookup    bool
+	}{
+		{"missing", nil, true, http.StatusBadRequest, false},
+		{"duplicate", []string{"123", "123"}, true, http.StatusBadRequest, false},
+		{"noncanonical", []string{"0123"}, true, http.StatusNotFound, false},
+		{"comma separated", []string{"123,456"}, true, http.StatusNotFound, false},
+		{"whitespace", []string{" 123 "}, true, http.StatusNotFound, false},
+		{"negative", []string{"-1"}, true, http.StatusNotFound, false},
+		{"zero", []string{"0"}, true, http.StatusNotFound, false},
+		{"spoofed", []string{"789"}, true, http.StatusUnauthorized, true},
+		{"unsigned", []string{"123"}, false, http.StatusUnauthorized, true},
+		{"verified", []string{"123"}, true, http.StatusNoContent, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newGitHubIntakeFixture()
+			r := githubIntakeRequest(t, f, githubIntakeBody)
+			r.SetPathValue("app_id", "")
+			r.URL.Path = GitHubSharedEventsPath
+			for _, hint := range tc.hints {
+				r.Header.Add("X-Github-Hook-Installation-Target-Id", hint)
+			}
+			if !tc.signature {
+				r.Header.Del(github.SignatureHeader)
+			}
+			w := httptest.NewRecorder()
+			(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("response = %d %s, want %d", w.Code, w.Body.String(), tc.want)
+			}
+			if !tc.lookup && (f.pages != 0 || f.appLookups != 0 || len(f.secretReads) != 0) {
+				t.Fatal("malformed hint reached credential lookup")
+			}
+			if tc.want != http.StatusNoContent && len(f.accepted) != 0 {
+				t.Fatal("unverified hint admitted an event")
+			}
+		})
+	}
+}
+
+func TestGitHubSharedIntakeFailsClosedBeforeConfiguration(t *testing.T) {
+	t.Parallel()
+	f := newGitHubIntakeFixture()
+	f.apps = []integrationstore.ProjectAppRecord{}
+	f.candidates = []integrationstore.ProjectAppRecord{}
+	r := githubIntakeRequest(t, f, `{"zen":"bootstrap","hook":{"id":1}}`)
+	r.SetPathValue("app_id", "")
+	r.URL.Path = GitHubSharedEventsPath
+	r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
+	r.Header.Set(github.EventHeader, "ping")
+	w := httptest.NewRecorder()
+	(&githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}).ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized || len(f.accepted) != 0 {
+		t.Fatalf("early ping = %d %s, receipts %d", w.Code, w.Body.String(), len(f.accepted))
+	}
+}

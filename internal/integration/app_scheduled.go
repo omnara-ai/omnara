@@ -14,15 +14,15 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-var ErrScheduledLaunchFailed = errors.New("scheduled app launch failed")
+var ErrScheduledActionFailed = errors.New("scheduled app action failed")
 
-// Publication runs outside transactions. The confirmed root is saved only in
-// the frozen plan, which later thread preparation and admission reuse.
-type scheduledConversationProvider interface {
+// ScheduledThreadProvider publishes outside transactions. The confirmed root is
+// saved only in the frozen plan, which thread preparation and admission reuse.
+type ScheduledThreadProvider interface {
 	PublishScheduledRoot(
 		context.Context,
 		integrationstore.ProjectAppRecord,
-		integrationstore.ScheduledAppLaunch,
+		appdefinition.ScheduledThreadLaunch,
 		uuid.UUID,
 		func(context.Context) error,
 	) (appdefinition.Scope, error)
@@ -34,25 +34,44 @@ type scheduledConversationProvider interface {
 	) error
 }
 
-func (c *AppInboxConsumer) consumeScheduled(
+// ThreadAppScheduledHandler shares the publish/freeze/ensure/admit workflow
+// between thread apps. The launch preparation is transient until FreezePlan.
+type ThreadAppScheduledHandler struct {
+	router   *AppRouter
+	inbox    AppRoutingStore
+	provider ScheduledThreadProvider
+}
+
+func NewThreadAppScheduledHandler(
+	router *AppRouter,
+	inbox AppRoutingStore,
+	provider ScheduledThreadProvider,
+) *ThreadAppScheduledHandler {
+	return &ThreadAppScheduledHandler{router: router, inbox: inbox, provider: provider}
+}
+
+func (h *ThreadAppScheduledHandler) Handle(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	receipt integrationstore.IntegrationInboxRecord,
 	app integrationstore.ProjectAppRecord,
 ) ([]AppSlotAdmission, error) {
-	provider, ok := c.providers[app.Provider].(scheduledConversationProvider)
-	if !ok {
-		return nil, fmt.Errorf("%w: app does not support scheduled threads", ErrScheduledLaunchFailed)
-	}
-	launch, err := receipt.ScheduledLaunch()
+	event, err := receipt.ScheduledEvent()
 	if err != nil {
 		return nil, err
 	}
+	launch, err := appdefinition.PrepareThreadSchedule(app.AppType, event.Settings, event.Occurrence)
+	if err != nil {
+		return nil, fmt.Errorf("%w: prepare scheduled thread: %w", ErrScheduledActionFailed, err)
+	}
 	authority := func(ctx context.Context) error {
-		if _, err := c.router.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID); err != nil {
+		if _, err := h.router.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID); err != nil {
+			if storeerr.IsNotFound(err) {
+				return fmt.Errorf("%w: scheduled profile unavailable: %w", ErrScheduledActionFailed, err)
+			}
 			return err
 		}
-		return c.inbox.WithIntegrationInboxLease(ctx, lease, func(*integrationstore.IntegrationInboxLeaseTx) error {
+		return h.inbox.WithIntegrationInboxLease(ctx, lease, func(*integrationstore.IntegrationInboxLeaseTx) error {
 			return nil
 		})
 	}
@@ -62,18 +81,18 @@ func (c *AppInboxConsumer) consumeScheduled(
 		if err := authority(ctx); err != nil {
 			return nil, err
 		}
-		root, err := provider.PublishScheduledRoot(ctx, app, launch, receipt.ID, authority)
+		root, err := h.provider.PublishScheduledRoot(ctx, app, launch, receipt.ID, authority)
 		if err != nil {
 			return nil, err
 		}
-		freezeErr := c.router.FreezeScheduledLaunch(ctx, lease, root)
-		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		freezeErr := h.router.FreezeScheduledLaunch(ctx, lease, root)
+		receipt, err = h.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if freezeErr != nil && (err != nil || len(receipt.Plan) == 0) {
 			// A commit may have succeeded despite a lost acknowledgement. Reuse
 			// its plan if visible; otherwise stop so deterministic errors cannot
 			// repost a heading on every retry. Losing the lease or outcome write
 			// can still leave a stray heading on recovery.
-			return nil, fmt.Errorf("%w: save scheduled thread plan: %w", ErrScheduledLaunchFailed, errors.Join(freezeErr, err))
+			return nil, fmt.Errorf("%w: save scheduled thread plan: %w", ErrScheduledActionFailed, errors.Join(freezeErr, err))
 		}
 		if err != nil {
 			return nil, err
@@ -84,7 +103,7 @@ func (c *AppInboxConsumer) consumeScheduled(
 		return nil, err
 	}
 	if len(plan) != 1 {
-		return nil, fmt.Errorf("%w: invalid scheduled launch plan", ErrScheduledLaunchFailed)
+		return nil, fmt.Errorf("%w: invalid scheduled launch plan", ErrScheduledActionFailed)
 	}
 	var progress map[string]struct {
 		Committed json.RawMessage `json:"committed"`
@@ -101,15 +120,15 @@ func (c *AppInboxConsumer) consumeScheduled(
 			return nil, err
 		}
 		check := func(ctx context.Context) error {
-			return c.router.execution.CheckInboxConversationAuthority(
+			return h.router.execution.CheckInboxConversationAuthority(
 				ctx, lease, key, integrationstore.ConversationAddress{Kind: kind, Ref: ref},
 			)
 		}
-		if err := provider.EnsureScheduledThread(ctx, app, slot.Scope, check); err != nil {
+		if err := h.provider.EnsureScheduledThread(ctx, app, slot.Scope, check); err != nil {
 			return nil, err
 		}
 	}
-	return c.router.Admit(ctx, lease)
+	return h.router.Admit(ctx, lease)
 }
 
 // FreezeScheduledLaunch authorizes exactly the accepted occurrence, independently
@@ -127,7 +146,7 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if len(receipt.Plan) != 0 {
 		return nil
 	}
-	launch, err := receipt.ScheduledLaunch()
+	event, err := receipt.ScheduledEvent()
 	if err != nil {
 		return err
 	}
@@ -138,10 +157,17 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if app.ProjectID != receipt.ProjectID || app.State != integrationstore.ProjectAppStateActive {
 		return storeerr.ErrUnauthorized
 	}
-	if _, err := r.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID); err != nil {
+	launch, err := appdefinition.PrepareThreadSchedule(app.AppType, event.Settings, event.Occurrence)
+	if err != nil {
 		return err
 	}
-	base, found, err := r.execution.GetAgentConfig(ctx, receipt.ProjectID, launch.ConfigID)
+	// Resolve the current config while building this plan. Edits before this
+	// read apply; once frozen, retries reuse the derived config in the plan.
+	profile, err := r.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID)
+	if err != nil {
+		return err
+	}
+	base, found, err := r.execution.GetAgentConfig(ctx, receipt.ProjectID, profile.CurrentConfigID)
 	if err != nil {
 		return err
 	}
@@ -152,7 +178,7 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if err != nil {
 		return err
 	}
-	actor, err := executionstore.ScheduledInboxActor(app, launch)
+	actor, err := executionstore.ScheduledInboxActor(app, event)
 	if err != nil {
 		return err
 	}
@@ -182,11 +208,11 @@ func (r *AppRouter) FreezeScheduledLaunch(
 			ProjectID: receipt.ProjectID, ProfileID: launch.ProfileID,
 			DerivedConfig: &derived, DerivedBaseConfigID: base.ID,
 			Subscriptions:  []integrationstore.AppSubscriptionAttachment{subscription},
-			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
+			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: event.TriggerID},
 			IdempotencyKey: "app:" + receipt.ID.String() + ":" + key,
 			InitialInput: &executionstore.LaunchInitialInput{
 				ContentBlocks: content, Actor: actor, SemanticEventKey: receipt.ReceiptKey,
-				Origin: &executionstore.LaunchInputOrigin{AppID: app.ID, Address: address, DisplayName: launch.TriggerName},
+				Origin: &executionstore.LaunchInputOrigin{AppID: app.ID, Address: address, DisplayName: event.Occurrence.Name},
 			},
 		},
 	}}

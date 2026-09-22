@@ -17,6 +17,7 @@ type AppIdentity struct {
 	AppSlug        string `json:"app_slug"`
 	BotUserID      int64  `json:"bot_user_id"`
 	BotLogin       string `json:"bot_login"`
+	DisplayName    string `json:"display_name"`
 }
 
 // CheckAppIdentity verifies the supplied private key's App, the installation's
@@ -40,6 +41,7 @@ func (c *Client) CheckAppIdentity(ctx context.Context) (AppIdentity, error) {
 	var app struct {
 		ID   int64  `json:"id"`
 		Slug string `json:"slug"`
+		Name string `json:"name"`
 	}
 	if _, err := c.doJSON(ctx, http.MethodGet, "/app", jwt, nil, &app, false); err != nil {
 		return AppIdentity{}, err
@@ -86,9 +88,13 @@ func (c *Client) CheckAppIdentity(ctx context.Context) (AppIdentity, error) {
 	if bot.ID <= 0 || bot.Type != "Bot" || !strings.EqualFold(bot.Login, login) {
 		return AppIdentity{}, &APIError{Code: ScopeMismatch}
 	}
+	displayName := strings.TrimSpace(app.Name)
+	if displayName == "" {
+		displayName = bot.Login
+	}
 	return AppIdentity{
 		AppID: app.ID, InstallationID: installation.ID, AppSlug: app.Slug,
-		BotUserID: bot.ID, BotLogin: bot.Login,
+		BotUserID: bot.ID, BotLogin: bot.Login, DisplayName: displayName,
 	}, nil
 }
 

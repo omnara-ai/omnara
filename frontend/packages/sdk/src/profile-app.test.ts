@@ -29,9 +29,27 @@ describe('app metadata setup', () => {
       expect(() => profileAppSetup({ name, appType: 'slack_thread', launcher: false })).toThrow()
     },
   )
+  it('defaults new GitHub launchers to installation scope and keeps explicit repository scope', () => {
+    expect(
+      profileAppSetup({ ...base, appType: 'github_pr', scopeRef: '222' }).settings.launcher,
+    ).toMatchObject({
+      scope_kind: 'installation',
+      scope_ref: '222',
+      trigger: 'pull_request_opened',
+    })
+    expect(
+      profileAppSetup({ ...base, appType: 'github_pr', scopeKind: 'repository', scopeRef: '333' })
+        .settings.launcher,
+    ).toMatchObject({ scope_kind: 'repository', scope_ref: '333' })
+  })
   it('keeps large repository IDs as decimal strings and saves only launcher settings', () => {
     expect(
-      profileAppSetup({ ...base, appType: 'github_pr', scopeRef: '9223372036854775807' }),
+      profileAppSetup({
+        ...base,
+        appType: 'github_pr',
+        scopeKind: 'repository',
+        scopeRef: '9223372036854775807',
+      }),
     ).toEqual({
       name: base.name,
       app_type: 'github_pr',
@@ -48,7 +66,9 @@ describe('app metadata setup', () => {
   it.each(['owner/repo', '01', '0', '9223372036854775808'])(
     'rejects invalid repository ID %s',
     (scopeRef) => {
-      expect(() => profileAppSetup({ ...base, appType: 'github_pr', scopeRef })).toThrow()
+      expect(() =>
+        profileAppSetup({ ...base, appType: 'github_pr', scopeKind: 'repository', scopeRef }),
+      ).toThrow()
     },
   )
   it.each(['slack_thread', 'discord_thread'] as const)(

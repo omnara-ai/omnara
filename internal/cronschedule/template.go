@@ -9,7 +9,6 @@ import (
 	"text/template"
 	"text/template/parse"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -196,23 +195,6 @@ func OccurrenceMessageData(
 		return nil, err
 	}
 	return messageData(name, firedAt, lastFiredAt, dueAt.In(location).Format("2006-01-02")), nil
-}
-
-const MaxOpeningMessageCodepoints = 2000
-
-// RenderOpeningMessage uses the same bounded renderer as the task template.
-func RenderOpeningMessage(source string, data map[string]any) (string, error) {
-	if strings.TrimSpace(source) == "" || utf8.RuneCountInString(source) > MaxOpeningMessageCodepoints {
-		return "", fmt.Errorf("opening message template must contain 1 to %d codepoints", MaxOpeningMessageCodepoints)
-	}
-	rendered, err := RenderMessage(source, data)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(rendered) == "" || utf8.RuneCountInString(rendered) > MaxOpeningMessageCodepoints {
-		return "", fmt.Errorf("rendered opening message must contain 1 to %d codepoints", MaxOpeningMessageCodepoints)
-	}
-	return rendered, nil
 }
 
 func ValidateMessageTemplate(messageTemplate string) error {

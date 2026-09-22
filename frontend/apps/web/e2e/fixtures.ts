@@ -69,6 +69,10 @@ export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
 }
 
 export function installAppFailureTracking(page: Page) {
+  const origin = new URL(requiredEnvironmentVariable('OMNARA_WEB_E2E_BASE_URL')).origin.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    '\\$&',
+  )
   return installFailureTracking(page, [
     /^page: Canceled$/,
     /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
@@ -84,6 +88,9 @@ export function installAppFailureTracking(page: Page) {
     // Full-document navigation also cancels intent-preloaded route chunks.
     // HTTP failures and import/page errors are still recorded independently.
     /request: .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
+    // Navigation can also cancel a lazily loaded bundled font. Other font errors
+    // and HTTP failures remain visible; only this local origin is allowed.
+    new RegExp(String.raw`^request: ${origin}/assets/[^/?]+\.woff2 \(net::ERR_ABORTED\)$`),
   ])
 }
 
@@ -102,6 +109,8 @@ export async function openAppSetup(page: Page, projectID: string, appType: AppTy
   if (await add.isVisible()) await add.click()
   await choice.click()
   await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
+  if (appType === 'github_pr')
+    await page.getByRole('button', { name: 'Use an existing App', exact: true }).click()
   await page.getByLabel('App name', { exact: true }).fill(name)
   await expect(
     page.getByLabel(
@@ -282,15 +291,6 @@ export async function expectAppCapabilities(page: Page, app: ProjectApp) {
     await expect(
       capabilities.getByText(/Listed under/).getByText(app.name, { exact: true }),
     ).toBeVisible()
-  // Opening Advanced starts the monospace font load; finish it before navigating away.
-  const readTool = capabilities.getByText(`app__${app.name}__read`, { exact: true })
-  expect(
-    await readTool.evaluate(async (element) => {
-      const font = getComputedStyle(element).font
-      await document.fonts.ready
-      return document.fonts.check(font, element.textContent)
-    }),
-  ).toBe(true)
 }
 
 export async function expectInteractionToolMenu(page: Page) {

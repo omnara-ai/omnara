@@ -258,19 +258,21 @@ func main() {
 		}
 	}()
 	appRouter := integration.NewAppRouter(store.Execution(), store.Integrations())
+	slackProvider := integration.NewSlackAppInboxProvider(
+		slack.OAuthConfig{HTTPClient: integrationHTTPClient},
+		store.Secrets(),
+		store.Integrations(),
+		store.Execution(),
+	)
+	discordProvider := integration.NewDiscordAppInboxProvider(
+		discord.Config{HTTPClient: integrationHTTPClient},
+		store.Secrets(),
+		store.Integrations(),
+	)
 	appProviders := map[string]integration.AppInboxProvider{
-		"slack": integration.NewSlackAppInboxProvider(
-			slack.OAuthConfig{HTTPClient: integrationHTTPClient},
-			store.Secrets(),
-			store.Integrations(),
-			store.Execution(),
-		),
-		"discord": integration.NewDiscordAppInboxProvider(
-			discord.Config{HTTPClient: integrationHTTPClient},
-			store.Secrets(),
-			store.Integrations(),
-		),
-		"github": integration.GitHubAppInboxProvider{},
+		"slack":   slackProvider,
+		"discord": discordProvider,
+		"github":  integration.GitHubAppInboxProvider{},
 	}
 	chatLauncher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), appProviders)
 	appLaunchers := integration.NewAppLaunchWorkflow(appRouter, map[appdefinition.Type]integration.AppLauncher{
@@ -286,6 +288,14 @@ func main() {
 		appProviders,
 		integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient},
 		appLaunchers,
+		integration.WithAppScheduledHandlers(map[appdefinition.Type]integration.AppScheduledHandler{
+			appdefinition.SlackThread: integration.NewThreadAppScheduledHandler(
+				appRouter, store.Integrations(), slackProvider,
+			).Handle,
+			appdefinition.DiscordThread: integration.NewThreadAppScheduledHandler(
+				appRouter, store.Integrations(), discordProvider,
+			).Handle,
+		}),
 	)
 	appWorker := integration.NewAppInboxWorker(store.Integrations(), appConsumer, integration.AppInboxWorkerOptions{
 		Log: log, MachinePools: machinePoolManager, Capacity: cfg.WorkerInboxCapacity,

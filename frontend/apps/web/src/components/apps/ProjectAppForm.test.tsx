@@ -14,7 +14,9 @@ import { button, enter, waitForUI } from '@/test/secret-editor'
 
 import { ConnectSlackForm } from './ConnectSlackForm'
 import { ProjectAppForm } from './ProjectAppForm'
-import { ProjectAppSetup } from './ProjectAppSetup'
+import { ProjectAppSetup, ProjectAppSetupForm } from './ProjectAppSetup'
+import { useProjectAppDraft } from './useProjectAppDraft'
+import { useProjectAppSetupState } from './useProjectAppSetupState'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj')
@@ -60,6 +62,73 @@ async function submit() {
     await Promise.resolve()
   })
 }
+
+function ManualSetupOwner({ visible, onSaved }: { visible: boolean; onSaved: () => void }) {
+  const app = projectApp({ app_type: 'github_pr' })
+  const draft = useProjectAppDraft(orgId, projectId, 'github_pr', app)
+  const state = useProjectAppSetupState(app, { credentialSecretId: fakeId('sec') })
+  return (
+    <>
+      <output>{state.busy ? 'busy' : 'idle'}</output>
+      {visible && (
+        <ProjectAppSetupForm
+          orgId={orgId}
+          projectId={projectId}
+          app={app}
+          appType="github_pr"
+          draft={draft}
+          state={state}
+          onSaved={onSaved}
+        />
+      )}
+    </>
+  )
+}
+
+it.each([200, 500])(
+  'releases parent setup state after the manual form unmounts (status=%s)',
+  async (status) => {
+    const app = projectApp({ app_type: 'github_pr' })
+    const setupPath = `${path}/apps/${app.id}/setup`
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: path + '/secrets',
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+      { method: 'GET', path: `${path}/apps/${app.id}`, respond: () => Response.json(app) },
+      { method: 'POST', path: setupPath, respond: () => pending },
+    ])
+    const onSaved = vi.fn()
+    const { rerender } = render(api, <ManualSetupOwner visible onSaved={onSaved} />)
+    await enter('GitHub App ID', '111')
+    await enter('Installation ID', '222')
+    await submit()
+    await waitForUI(() => {
+      expect(api.requestsTo('POST', setupPath)).toHaveLength(1)
+    })
+    rerender(<ManualSetupOwner visible={false} onSaved={onSaved} />)
+    expect(container.querySelector('form')).toBeNull()
+    expect(container.querySelector('output')?.textContent).toBe('busy')
+    act(() => {
+      release(
+        status === 200
+          ? Response.json({ ...app, state: 'active', setup_revision: 2 })
+          : jsonResponse({ code: 'unavailable', error: 'Try again' }, status),
+      )
+    })
+    await waitForUI(() => {
+      expect(container.querySelector('output')?.textContent).toBe('idle')
+    })
+    expect(onSaved).not.toHaveBeenCalled()
+    rerender(<ManualSetupOwner visible onSaved={onSaved} />)
+    expect(button('Connect app').disabled).toBe(false)
+  },
+)
 
 it.each(['App name already exists', 'project apps limit of 64 reached'])(
   'preserves creation error %s and credentials through retry',

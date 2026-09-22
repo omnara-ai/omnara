@@ -22,6 +22,7 @@ import (
 )
 
 const GitHubEventsPath = "/api/integrations/github/{app_id}/events"
+const GitHubSharedEventsPath = "/api/integrations/github/events"
 
 const githubIntakeTimeout = 5 * time.Second
 const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLimit
@@ -50,7 +51,7 @@ type GitHubWebhookCredentialApps func(
 	context.Context, string, int,
 ) ([]integrationstore.ProjectAppRecord, error)
 
-// GitHubEventsHandler serves the provider-signed POST GitHubEventsPath. Known
+// GitHubEventsHandler serves both provider-signed GitHub event routes. Known
 // active installation events require durable acceptance. Verified App pings and
 // unmanaged/disconnected installation events acknowledge without agent input.
 // Ping/bootstrap verification resolves credentials from saved apps;
@@ -83,6 +84,16 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	r = r.WithContext(ctx)
 	appID := r.PathValue("app_id")
+	if appID == "" && r.URL.Path == GitHubSharedEventsPath {
+		// This header chooses bounded credential candidates only. The shared
+		// verifier below still requires exact-body HMAC and signed installation.
+		values := r.Header.Values("X-Github-Hook-Installation-Target-Id")
+		if len(values) != 1 {
+			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "GitHub App lookup hint is required")
+			return
+		}
+		appID = values[0]
+	}
 	parsedAppID, err := strconv.ParseInt(appID, 10, 64)
 	if err != nil || parsedAppID <= 0 || strconv.FormatInt(parsedAppID, 10) != appID {
 		apierror.Write(w, openapi.ErrorCodeNotFound)

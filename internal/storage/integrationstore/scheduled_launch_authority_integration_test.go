@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/cronschedule"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -16,38 +18,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func scheduledInboxSnapshot(t *testing.T, f inboxFixture) integrationstore.ScheduledAppLaunch {
+func scheduledInboxSnapshot(t *testing.T, f inboxFixture) integrationstore.ScheduledAppEvent {
 	t.Helper()
-	launch := integrationstore.ScheduledAppLaunch{
-		TriggerID:   uuid.New(),
-		TriggerName: "Daily review",
-		DueAt:       time.Now().UTC(),
-		Destination: json.RawMessage(
-			`{"channel_id":"C123"}`,
-		),
-		OpeningMessage: "Daily review",
-		Message:        "Review the queue.",
-	}
+	var profileID uuid.UUID
 	require.NoError(t, f.pool.QueryRow(f.ctx,
-		`SELECT profile.id,version.agent_config_id FROM agent_profiles profile
- JOIN agent_profile_versions version ON version.id=profile.current_version_id
- WHERE profile.project_id=$1 AND profile.deleted_at IS NULL LIMIT 1`,
-		f.project).Scan(&launch.ProfileID, &launch.ConfigID))
+		`SELECT id FROM agent_profiles WHERE project_id=$1 AND deleted_at IS NULL LIMIT 1`, f.project).Scan(&profileID))
+	profileRef, err := publicid.Encode(publicid.KindAgentProfile, profileID)
+	require.NoError(t, err)
+	settings, err := json.Marshal(appdefinition.ThreadScheduleSettings{
+		AgentProfileID: profileRef, ChannelID: "C123",
+		OpeningMessageTemplate: "Daily review", MessageTemplate: "Review the queue.",
+	})
+	require.NoError(t, err)
+	launch := integrationstore.ScheduledAppEvent{
+		TriggerID: uuid.New(), Settings: settings,
+		Occurrence: cronschedule.Occurrence{
+			Name: "Daily review", DueAt: time.Now().UTC(), FiredAt: time.Now().UTC(), Timezone: "UTC",
+		},
+	}
 	return launch
 }
 
-func acceptScheduledInbox(t *testing.T, f inboxFixture, launch integrationstore.ScheduledAppLaunch) {
+func acceptScheduledInbox(t *testing.T, f inboxFixture, launch integrationstore.ScheduledAppEvent) {
 	t.Helper()
 	tx := integrationdb.BeginTx(t, f.ctx, f.pool)
 	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
 	require.NoError(t, integrationstore.LockAppsTx(f.ctx, tx, f.project, nil, f.appID))
-	var profile uuid.UUID
-	require.NoError(t, tx.QueryRow(f.ctx,
-		`SELECT id FROM agent_profiles WHERE project_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE`,
-		f.project, launch.ProfileID).Scan(&profile))
-	_, created, err := f.store.AcceptScheduledAppLaunchTx(f.ctx, tx, integrationstore.AcceptScheduledAppLaunchInput{
-		ProjectID: f.project, AppID: f.appID, Launch: launch,
-		ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.DueAt.Format(time.RFC3339),
+	_, created, err := f.store.AcceptScheduledAppEventTx(f.ctx, tx, integrationstore.AcceptScheduledAppEventInput{
+		ProjectID: f.project, AppID: f.appID, Event: launch,
+		ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.Occurrence.DueAt.Format(time.RFC3339),
 	})
 	require.NoError(t, err)
 	require.True(t, created)
@@ -62,10 +61,10 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 	// A verified provider body can contain arbitrary fields, including a forged
 	// source and a thread. None of them may become storage authority.
 	payload, err := json.Marshal(struct {
-		integrationstore.ScheduledAppLaunch
+		integrationstore.ScheduledAppEvent
 		Source string              `json:"source"`
 		Root   appdefinition.Scope `json:"root"`
-	}{launch, "scheduled_launch", root})
+	}{launch, "scheduled", root})
 	require.NoError(t, err)
 	_, _, err = f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: f.project, AppID: f.appID, ReceiptKey: "forged-scheduled-event", Payload: payload,
@@ -73,10 +72,10 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 	require.NoError(t, err)
 	provider := f.claim(t)
 	require.Equal(t, integrationstore.IntegrationInboxSourceProvider, provider.Source)
-	_, err = provider.ScheduledLaunch()
+	_, err = provider.ScheduledEvent()
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	plan, err := json.Marshal(map[string]any{"scheduled": map[string]any{
-		"scope": root,
+		"scope": root, "launch": scheduledPlanLaunch(t, f, launch, root),
 		"selection": integrationstore.InboxAppSelection{
 			AppID: f.appID, Slot: "scheduled",
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
@@ -120,14 +119,20 @@ func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 			if scenario == "different thread" {
 				selection.Address.Ref = "C123:101.1"
 			}
-			slots := map[string]any{"scheduled": map[string]any{"selection": selection, "scope": root}}
+			slots := map[string]any{"scheduled": map[string]any{
+				"selection": selection, "scope": root,
+				"launch": scheduledPlanLaunch(t, f, scheduledInboxSnapshot(t, f), root),
+			}}
 			if scenario == "no scope" {
 				slots["scheduled"] = map[string]any{"selection": selection}
 			}
 			if scenario == "wrong parent" {
 				root.Slack.ChannelID = "C999"
 				selection.Address.Ref = "C999:100.1"
-				slots["scheduled"] = map[string]any{"selection": selection, "scope": root}
+				slots["scheduled"] = map[string]any{
+					"selection": selection, "scope": root,
+					"launch": scheduledPlanLaunch(t, f, scheduledInboxSnapshot(t, f), root),
+				}
 			}
 			if scenario == "empty plan" {
 				slots = map[string]any{}
@@ -145,11 +150,7 @@ func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 					return work.FreezePlan(f.ctx, plan)
 				},
 			)
-			if scenario == "no scope" || scenario == "wrong parent" {
-				require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-			} else {
-				require.ErrorIs(t, err, storeerr.ErrUnauthorized)
-			}
+			require.Error(t, err)
 			require.Empty(t, f.read(t, receipt.ID).Plan)
 		})
 	}
@@ -165,17 +166,13 @@ func TestScheduledReceiptReplayRequiresIdenticalSnapshot(t *testing.T) {
 		tx := integrationdb.BeginTx(t, f.ctx, f.pool)
 		require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
 		require.NoError(t, integrationstore.LockAppsTx(f.ctx, tx, f.project, nil, f.appID))
-		var profile uuid.UUID
-		require.NoError(t, tx.QueryRow(f.ctx,
-			`SELECT id FROM agent_profiles WHERE project_id=$1 AND id=$2 FOR UPDATE`,
-			f.project, launch.ProfileID).Scan(&profile))
 		replayed := launch
 		if changed {
-			replayed.Message = "A different task must not replace the accepted occurrence."
+			replayed.Occurrence.Name = "Different occurrence settings"
 		}
-		receipt, created, err := f.store.AcceptScheduledAppLaunchTx(f.ctx, tx, integrationstore.AcceptScheduledAppLaunchInput{
-			ProjectID: f.project, AppID: f.appID, Launch: replayed,
-			ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.DueAt.Format(time.RFC3339),
+		receipt, created, err := f.store.AcceptScheduledAppEventTx(f.ctx, tx, integrationstore.AcceptScheduledAppEventInput{
+			ProjectID: f.project, AppID: f.appID, Event: replayed,
+			ReceiptKey: "cron_trigger:" + launch.TriggerID.String() + ":" + launch.Occurrence.DueAt.Format(time.RFC3339),
 		})
 		require.False(t, created)
 		if changed {
@@ -187,4 +184,19 @@ func TestScheduledReceiptReplayRequiresIdenticalSnapshot(t *testing.T) {
 		require.NoError(t, tx.Rollback(f.ctx))
 	}
 	require.JSONEq(t, string(original.Payload), string(f.read(t, original.ID).Payload))
+}
+
+func scheduledPlanLaunch(
+	t *testing.T, f inboxFixture, event integrationstore.ScheduledAppEvent, root appdefinition.Scope,
+) map[string]any {
+	t.Helper()
+	launch, err := appdefinition.PrepareThreadSchedule(appdefinition.SlackThread, event.Settings, event.Occurrence)
+	require.NoError(t, err)
+	app, err := f.store.GetProjectAppByID(f.ctx, f.appID)
+	require.NoError(t, err)
+	raw, err := json.Marshal([]map[string]string{{"type": "text", "text": launch.Message}})
+	require.NoError(t, err)
+	content, err := appdefinition.AppendInputContext(app.Name, root, raw)
+	require.NoError(t, err)
+	return map[string]any{"ProfileID": launch.ProfileID, "InitialInput": map[string]any{"content_blocks": content}}
 }

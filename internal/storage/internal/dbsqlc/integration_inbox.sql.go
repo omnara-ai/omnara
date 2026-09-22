@@ -404,14 +404,14 @@ func (q *Queries) InsertIntegrationInboxReceipt(ctx context.Context, arg InsertI
 	return i, err
 }
 
-const insertScheduledAppLaunchReceipt = `-- name: InsertScheduledAppLaunchReceipt :one
+const insertScheduledAppEventReceipt = `-- name: InsertScheduledAppEventReceipt :one
 INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload, source)
-VALUES ($1, $2, $3, $4, 'scheduled_launch')
+VALUES ($1, $2, $3, $4, 'scheduled')
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
 RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 `
 
-type InsertScheduledAppLaunchReceiptParams struct {
+type InsertScheduledAppEventReceiptParams struct {
 	ProjectID  uuid.UUID
 	AppID      uuid.UUID
 	ReceiptKey string
@@ -419,8 +419,8 @@ type InsertScheduledAppLaunchReceiptParams struct {
 }
 
 // Only the cron handoff uses this query. Raw provider intake cannot set source.
-func (q *Queries) InsertScheduledAppLaunchReceipt(ctx context.Context, arg InsertScheduledAppLaunchReceiptParams) (IntegrationInbox, error) {
-	row := q.db.QueryRow(ctx, insertScheduledAppLaunchReceipt,
+func (q *Queries) InsertScheduledAppEventReceipt(ctx context.Context, arg InsertScheduledAppEventReceiptParams) (IntegrationInbox, error) {
+	row := q.db.QueryRow(ctx, insertScheduledAppEventReceipt,
 		arg.ProjectID,
 		arg.AppID,
 		arg.ReceiptKey,

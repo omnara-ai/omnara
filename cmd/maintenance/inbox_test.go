@@ -43,7 +43,7 @@ func TestInboxShowDoesNotDiscloseRawContent(t *testing.T) {
 	require.NoError(t, command.run(t.Context(), inboxReadStore{record}, &output))
 	var shown map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(output.Bytes(), &shown))
-	require.JSONEq(t, `"scheduled_launch"`, string(shown["source"]))
+	require.JSONEq(t, `"scheduled"`, string(shown["source"]))
 	require.JSONEq(t, `[{"key":"slot","prepared":true,"committed":false}]`, string(shown["slots"]))
 	require.NotContains(t, output.String(), "private-")
 	for _, field := range []string{"payload", "plan", "progress", "events", "credentials"} {
@@ -75,7 +75,7 @@ func inboxInspectionRecord() integrationstore.IntegrationInboxRecord {
 			State: integrationstore.IntegrationInboxFailed, AttemptCount: 1,
 			CreatedAt: now, UpdatedAt: now, AvailableAt: now,
 		},
-		Source:  integrationstore.IntegrationInboxSourceScheduledLaunch,
+		Source:  integrationstore.IntegrationInboxSourceScheduled,
 		Payload: []byte(`{"token":"private-payload","opening_message":"private-heading"}`),
 		Events:  json.RawMessage(`[{"text":"private-event"}]`),
 		Plan: json.RawMessage(`{"slot":{"launch":{"compiled_config":"private-config"},` +

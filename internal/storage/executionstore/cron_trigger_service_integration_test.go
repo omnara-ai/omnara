@@ -105,7 +105,7 @@ func TestFireDueTriggersAppHandoffRollbackAndRecovery(t *testing.T) {
 	current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, trigger.ID)
 	require.NoError(t, err)
 	require.NotNil(t, current.FailureReport)
-	require.Equal(t, "Scheduled app launch could not be queued.", current.FailureReport.Message)
+	require.Equal(t, "Scheduled app action could not be queued.", current.FailureReport.Message)
 	require.True(t, current.FailureReport.WillRetry)
 	require.Nil(t, current.LastFiredAt)
 	require.Nil(t, current.LastRun)
@@ -131,8 +131,8 @@ func TestFireDueTriggersAppHandoffRollbackAndRecovery(t *testing.T) {
 	stats, err = service.FireDueTriggers(f.ctx)
 	require.NoError(t, err)
 	require.Equal(t, crontrigger.FireStats{Claimed: 1, Queued: 1}, stats)
-	receipt, launch := cronAppReceipt(t, f, trigger.ID)
-	require.True(t, launch.DueAt.Equal(due), "recovery must queue the same occurrence")
+	receipt, event := cronAppReceipt(t, f, trigger.ID)
+	require.True(t, event.Occurrence.DueAt.Equal(due), "recovery must queue the same occurrence")
 	var key string
 	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT receipt_key FROM integration_inbox WHERE id=$1`, receipt).
 		Scan(&key))

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/assert"
@@ -53,9 +54,11 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 				`UPDATE project_apps SET provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`, f.appID)
 			require.NoError(t, err)
 			receipt := f.fire()
-			launch, err := receipt.ScheduledLaunch()
+			event, err := receipt.ScheduledEvent()
 			require.NoError(t, err)
 			app, err := f.store.Integrations().GetProjectAppByID(t.Context(), f.appID)
+			require.NoError(t, err)
+			launch, err := appdefinition.PrepareThreadSchedule(app.AppType, event.Settings, event.Occurrence)
 			require.NoError(t, err)
 			var posts atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +91,7 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 			}))
 			defer server.Close()
 			access := &slackInboxTestAccess{appSetup: app, version: uuid.New()}
-			f.consumer.providers["slack"] = NewSlackAppInboxProvider(
+			f.handler.provider = NewSlackAppInboxProvider(
 				slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil,
 			)
 			worker := NewAppInboxWorker(f.store.Integrations(), f.consumer, AppInboxWorkerOptions{})
@@ -97,10 +100,10 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 			require.NoError(t, readErr)
 			if test.retry {
 				require.Error(t, err)
-				require.NotErrorIs(t, err, ErrScheduledLaunchFailed)
+				require.NotErrorIs(t, err, ErrScheduledActionFailed)
 				require.Equal(t, integrationstore.IntegrationInboxPending, saved.State)
 			} else {
-				require.ErrorIs(t, err, ErrScheduledLaunchFailed)
+				require.ErrorIs(t, err, ErrScheduledActionFailed)
 				require.Equal(t, integrationstore.IntegrationInboxFailed, saved.State)
 			}
 			require.Equal(t, 1, saved.AttemptCount)

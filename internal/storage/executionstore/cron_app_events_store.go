@@ -15,16 +15,14 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// CreateCronTriggerAppLaunch atomically snapshots a live occurrence into the app
+// CreateCronTriggerAppEvent atomically copies a live occurrence into the app
 // inbox and completes its firing. False means no new handoff: a stale/canceled
 // claim or a reported unavailable target. No provider I/O occurs here.
-func (s *Store) CreateCronTriggerAppLaunch(ctx context.Context, claimed ClaimedCronTrigger) (bool, error) {
+func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCronTrigger) (bool, error) {
 	if claimed.ProjectID == uuid.Nil || claimed.TriggerID == uuid.Nil ||
-		claimed.ClaimToken == uuid.Nil || claimed.DueAt.IsZero() ||
-		claimed.Target.Kind != CronTriggerTargetAppLaunch || claimed.Target.ID == uuid.Nil ||
-		claimed.Target.AppLaunch == nil ||
-		claimed.Target.AppLaunch.ProfileID == uuid.Nil {
-		return false, storeerr.InvalidRequest(errors.New("claimed app launch occurrence is required"))
+		claimed.ClaimToken == uuid.Nil || claimed.DueAt.IsZero() || claimed.FiredAt.IsZero() ||
+		claimed.Target.Kind != CronTriggerTargetApp || claimed.Target.ID == uuid.Nil {
+		return false, storeerr.InvalidRequest(errors.New("claimed app occurrence is required"))
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -45,20 +43,14 @@ func (s *Store) CreateCronTriggerAppLaunch(ctx context.Context, claimed ClaimedC
 		}
 		return false, err
 	}
-	// The app gate is taken before profile and cron, including on unavailable paths.
+	// The app gate is taken before cron, including on unavailable paths. Resource
+	// references inside settings belong to the app and grant no authority here.
 	unavailable := ""
 	if err := integrationstore.LockAppsTx(ctx, tx, claimed.ProjectID, nil, claimed.Target.ID); err != nil {
 		if !errors.Is(err, storeerr.ErrNotFound) && !errors.Is(err, storeerr.ErrUnauthorized) {
 			return false, err
 		}
-		unavailable = "Scheduled app launch skipped: app is unavailable."
-	}
-	profile, err := lockAgentProfileTx(ctx, q, claimed.ProjectID, claimed.Target.AppLaunch.ProfileID)
-	if err != nil {
-		if !errors.Is(err, storeerr.ErrNotFound) {
-			return false, err
-		}
-		unavailable = "Scheduled app launch skipped: profile is unavailable."
+		unavailable = "Scheduled app action skipped: app is unavailable."
 	}
 	current, err := lockCronTriggerTx(ctx, q, claimed.ProjectID, claimed.TriggerID)
 	if errors.Is(err, storeerr.ErrNotFound) {
@@ -77,9 +69,8 @@ func (s *Store) CreateCronTriggerAppLaunch(ctx context.Context, claimed ClaimedC
 		return false, nil
 	}
 	// Never acquire a new identity's gates under cron, even for malformed claims.
-	if current.Target.Kind != CronTriggerTargetAppLaunch || current.Target.ID != claimed.Target.ID ||
-		current.Target.AppLaunch.ProfileID != claimed.Target.AppLaunch.ProfileID {
-		return false, storeerr.InvalidRequest(errors.New("claimed app launch identity does not match cron trigger"))
+	if current.Target.Kind != CronTriggerTargetApp || current.Target.ID != claimed.Target.ID {
+		return false, storeerr.InvalidRequest(errors.New("claimed app identity does not match cron trigger"))
 	}
 	if !current.Enabled || current.NextFireAfter == nil || !current.NextFireAfter.Equal(claimed.DueAt) {
 		if _, err := q.ReleaseCronTriggerClaim(ctx, dbsqlc.ReleaseCronTriggerClaimParams{
@@ -89,7 +80,7 @@ func (s *Store) CreateCronTriggerAppLaunch(ctx context.Context, claimed ClaimedC
 		}
 		return false, tx.Commit(ctx)
 	}
-	// A manually forged future claim must not launch early.
+	// A manually forged future claim must not fire early.
 	now, err := q.DBNow(ctx)
 	if err != nil {
 		return false, err
@@ -98,75 +89,51 @@ func (s *Store) CreateCronTriggerAppLaunch(ctx context.Context, claimed ClaimedC
 		return false, nil
 	}
 	if unavailable != "" {
-		return false, skipCronAppLaunchTx(ctx, tx, q, claimed, unavailable)
+		return false, skipCronAppEventTx(ctx, tx, q, claimed, unavailable)
 	}
 	app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, current.Target.ID)
 	if err != nil {
 		return false, err
 	}
-	if err := validateCronAppLaunchTarget(&current.Target, app, current.Name); err != nil {
-		return false, skipCronAppLaunchTx(
+	if err := validateCronAppTarget(&current.Target, app); err != nil {
+		return false, skipCronAppEventTx(
 			ctx,
 			tx,
 			q,
 			claimed,
-			"Scheduled app launch skipped: invalid destination or opening message template.",
+			"Scheduled app action skipped: invalid settings.",
 		)
 	}
-	data, err := cronschedule.OccurrenceMessageData(
-		current.Name,
-		claimed.FiredAt,
-		current.LastFiredAt,
-		claimed.DueAt,
-		current.Timezone,
-	)
-	if err != nil {
-		return false, skipCronAppLaunchTx(ctx, tx, q, claimed, "Scheduled app launch skipped: invalid timezone.")
+	if _, err := time.LoadLocation(current.Timezone); err != nil {
+		return false, skipCronAppEventTx(ctx, tx, q, claimed, "Scheduled app action skipped: invalid timezone.")
 	}
-	opening, err := cronschedule.RenderOpeningMessage(current.Target.AppLaunch.OpeningMessageTemplate, data)
-	if err != nil {
-		return false, skipCronAppLaunchTx(
-			ctx,
-			tx,
-			q,
-			claimed,
-			"Scheduled app launch skipped: opening message template could not be rendered.",
-		)
-	}
-	message, err := cronschedule.RenderMessage(current.MessageTemplate, data)
-	if err != nil {
-		return false, skipCronAppLaunchTx(
-			ctx,
-			tx,
-			q,
-			claimed,
-			"Scheduled app launch skipped: task template could not be rendered.",
-		)
-	}
-	receipt, _, err := s.integrations.AcceptScheduledAppLaunchTx(
+	receipt, _, err := s.integrations.AcceptScheduledAppEventTx(
 		ctx,
 		tx,
-		integrationstore.AcceptScheduledAppLaunchInput{
+		integrationstore.AcceptScheduledAppEventInput{
 			ProjectID: current.ProjectID, AppID: current.Target.ID,
 			ReceiptKey: "cron_trigger:" + current.ID.String() + ":" + claimed.DueAt.UTC().Format(time.RFC3339),
-			Launch: integrationstore.ScheduledAppLaunch{
-				TriggerID: current.ID, ProfileID: profile.ID, ConfigID: profile.CurrentConfigID,
-				TriggerName: current.Name, DueAt: claimed.DueAt, Destination: current.Target.AppLaunch.Destination,
-				OpeningMessage: opening, Message: message,
+			Event: integrationstore.ScheduledAppEvent{
+				TriggerID: current.ID,
+				Occurrence: cronschedule.Occurrence{
+					Name: current.Name, DueAt: claimed.DueAt, FiredAt: claimed.FiredAt,
+					LastFiredAt: current.LastFiredAt, Timezone: current.Timezone,
+				},
+				Settings: current.Target.Settings,
 			},
 		},
 	)
 	if err != nil {
 		if errors.Is(err, storeerr.ErrInvalidRequest) || errors.Is(err, storeerr.ErrIdempotencyConflict) {
-			return false, skipCronAppLaunchTx(
+			return false, skipCronAppEventTx(
 				ctx,
 				tx,
 				q,
 				claimed,
-				"Scheduled app launch skipped: occurrence could not be accepted.",
+				"Scheduled app action skipped: occurrence could not be accepted.",
 			)
 		}
-		return false, fmt.Errorf("accept scheduled app launch: %w", err)
+		return false, fmt.Errorf("accept scheduled app event: %w", err)
 	}
 	rows, err := q.SetCronTriggerAppReceipt(ctx, dbsqlc.SetCronTriggerAppReceiptParams{
 		ProjectID: current.ProjectID, ID: current.ID, ClaimToken: &claimed.ClaimToken, ReceiptID: &receipt.ID,
@@ -185,14 +152,14 @@ func (s *Store) CreateCronTriggerAppLaunch(ctx context.Context, claimed ClaimedC
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit scheduled app launch: %w", err)
+		return false, fmt.Errorf("commit scheduled app event: %w", err)
 	}
 	return true, nil
 }
 
 // An unavailable setup is a failed occurrence, not an endless claim-lease retry.
 // Record and completion share the lock and transaction; future firings still run.
-func skipCronAppLaunchTx(
+func skipCronAppEventTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	q *dbsqlc.Queries,

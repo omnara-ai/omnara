@@ -90,6 +90,14 @@ it.each(['discord_thread', 'github_pr'] as const)(
       })),
     ])
     render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+    if (appType === 'github_pr') {
+      await waitForUI(() => {
+        expect(button('Use an existing App')).toBeDefined()
+      })
+      act(() => {
+        button('Use an existing App').click()
+      })
+    }
     await waitForUI(() => {
       expect(container.querySelector('#provider-tenant')).not.toBeNull()
     })
@@ -135,6 +143,45 @@ it.each(['discord_thread', 'github_pr'] as const)(
     expect(button(appType === 'github_pr' ? 'Choose a profile' : 'Choose profiles')).toBeDefined()
   },
 )
+
+it('shows a saved GitHub callback credential when another setup already connected the app', async () => {
+  const app = projectApp({
+    app_type: 'github_pr',
+    state: 'active',
+    setup_revision: 3,
+    provider_tenant_id: '999',
+    provider_account_ref: '888',
+  })
+  const secretId = fakeId('sec')
+  window.history.replaceState(
+    null,
+    '',
+    `/projects/${projectId}/apps/${app.id}?github_setup=credentials_saved&github_setup_error=app_setup_changed&credentials_secret_ref=${secretId}`,
+  )
+  const api = fakeApi([
+    { method: 'GET', path: `${projectPath}/apps/${app.id}`, respond: () => Response.json(app) },
+    ...['secrets', 'agent-profiles', `apps/${app.id}/subscriptions`].map((suffix) => ({
+      method: 'GET',
+      path: `${projectPath}/${suffix}`,
+      respond: () => Response.json({ data: [], next_cursor: null }),
+    })),
+  ])
+  render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+  await waitForUI(() => {
+    expect(button('Check installations')).toBeDefined()
+  })
+  expect(container.textContent).toContain('Review the current app setup before connecting')
+  expect(container.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+  act(() => {
+    button('Use an existing App').click()
+  })
+  expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.value).toBe('999')
+  expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.readOnly).toBe(true)
+  expect(container.querySelector<HTMLInputElement>('#provider-account')?.value).toBe('888')
+  expect(container.querySelector<HTMLInputElement>('#provider-account')?.readOnly).toBe(true)
+  expect(container.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+  expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(0)
+})
 
 it('keeps fresh app connection controls unavailable to readers', async () => {
   const app = projectApp()

@@ -41,24 +41,50 @@ type Config struct {
 // Client is safe for concurrent use and belongs to one credential revision and
 // installation. All pagination and redirects remain confined to the chosen API.
 type Client struct {
-	http           *http.Client
-	base           *url.URL
-	appID          int64
+	*appClient
 	installationID int64
-	privateKey     *rsa.PrivateKey
-	beforeRequest  func(context.Context) error
 	tokenGate      chan struct{}
 	tokens         [2]cachedToken
-	now            func() time.Time
+}
+
+// appClient shares bounded transport and App JWT signing with setup. It has no
+// installation authority or installation token cache.
+type appClient struct {
+	http          *http.Client
+	base          *url.URL
+	appID         int64
+	privateKey    *rsa.PrivateKey
+	beforeRequest func(context.Context) error
+	now           func() time.Time
 }
 
 func NewClient(config Config) (*Client, error) {
 	if config.Credentials.AppID <= 0 || config.InstallationID <= 0 || config.Credentials.WebhookSecret == "" {
 		return nil, errors.New("github requires app ID, installation ID and webhook secret")
 	}
-	key, err := parsePrivateKey(config.Credentials.PrivateKeyPEM)
+	app, err := newAppClient(SetupConfig{
+		Credentials: config.Credentials, HTTPClient: config.HTTPClient,
+		APIURL: config.APIURL, BeforeRequest: config.BeforeRequest,
+	})
 	if err != nil {
 		return nil, err
+	}
+	return &Client{
+		appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1),
+	}, nil
+}
+
+func newAppClient(config SetupConfig) (*appClient, error) {
+	var key *rsa.PrivateKey
+	if config.Credentials != (Credentials{}) {
+		if config.Credentials.AppID <= 0 || config.Credentials.WebhookSecret == "" {
+			return nil, errors.New("github requires app ID, private key and webhook secret")
+		}
+		var err error
+		key, err = parsePrivateKey(config.Credentials.PrivateKeyPEM)
+		if err != nil {
+			return nil, err
+		}
 	}
 	raw := config.APIURL
 	if raw == "" {
@@ -83,9 +109,9 @@ func NewClient(config Config) (*Client, error) {
 			client.Timeout = OperationTimeout
 		}
 	}
-	return &Client{
-		http: client, base: base, appID: config.Credentials.AppID, installationID: config.InstallationID,
-		privateKey: key, beforeRequest: config.BeforeRequest, tokenGate: make(chan struct{}, 1), now: time.Now,
+	return &appClient{
+		http: client, base: base, appID: config.Credentials.AppID,
+		privateKey: key, beforeRequest: config.BeforeRequest, now: time.Now,
 	}, nil
 }
 
@@ -101,7 +127,7 @@ func (c *Client) request(
 	return header, err
 }
 
-func (c *Client) doJSON(
+func (c *appClient) doJSON(
 	ctx context.Context, method, path, token string, input, output any, mutation bool,
 ) (http.Header, error) {
 	var body []byte
@@ -126,7 +152,7 @@ func (c *Client) doJSON(
 	return header, nil
 }
 
-func (c *Client) do(
+func (c *appClient) do(
 	ctx context.Context, method, path, token, accept string, body []byte, mutation bool,
 ) ([]byte, http.Header, error) {
 	// Paths originate only from the typed methods below, not provider URLs.
@@ -141,7 +167,9 @@ func (c *Client) do(
 		if err != nil {
 			return nil, nil, errors.New("invalid github request")
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 		req.Header.Set("Accept", accept)
 		req.Header.Set("X-Github-Api-Version", APIVersion)
 		req.Header.Set("User-Agent", "Omnara-GitHub-App")
@@ -176,7 +204,7 @@ func (c *Client) do(
 	return nil, nil, &APIError{Code: TransientFailure}
 }
 
-func (c *Client) attempt(req *http.Request, mutation bool) ([]byte, http.Header, *APIError) {
+func (c *appClient) attempt(req *http.Request, mutation bool) ([]byte, http.Header, *APIError) {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		code := TransientFailure

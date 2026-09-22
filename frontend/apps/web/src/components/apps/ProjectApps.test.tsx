@@ -335,7 +335,14 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
   act(() => {
     button('Edit').click()
   })
-  await enter('Repository ID', '999')
+  act(() => {
+    const select = container.querySelector<HTMLSelectElement>('#app-trigger')
+    if (!select) throw new Error('Missing trigger selector')
+    select.value = 'mention'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(container.querySelector('#launcher-scope')).toBeNull()
+  expect(container.textContent).toContain('Restricted to repository 123')
   const draft = container.querySelector('form')
   unavailable = true
   await act(async () => {
@@ -346,7 +353,7 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
       'Could not refresh this app. Your current edits are kept.',
     )
   })
-  expect(container.querySelector<HTMLInputElement>('#launcher-scope')?.value).toBe('999')
+  expect(container.querySelector<HTMLSelectElement>('#app-trigger')?.value).toBe('mention')
   expect(container.querySelector('form')).toBe(draft)
   unavailable = false
   act(() => {
@@ -355,7 +362,7 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
   await waitForUI(() => {
     expect(document.body.textContent).not.toContain('Could not refresh this app.')
   })
-  expect(container.querySelector<HTMLInputElement>('#launcher-scope')?.value).toBe('999')
+  expect(container.querySelector<HTMLSelectElement>('#app-trigger')?.value).toBe('mention')
 })
 
 it('does not let a delayed GET overwrite a successful app update', async () => {

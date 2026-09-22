@@ -59,11 +59,13 @@ function launchMoment(launcher: AppLauncher, appType: ProjectApp['app_type']) {
   if (appType === 'discord_thread')
     return 'When someone mentions the bot in any server where it has access'
   const where =
-    launcher.scope_kind === 'workspace'
-      ? 'anywhere it has been added in the workspace'
-      : `in ${launcher.scope_kind} ${launcher.scope_ref}`
+    appType === 'github_pr' && launcher.scope_kind === 'installation'
+      ? 'in repositories granted to this GitHub installation'
+      : launcher.scope_kind === 'workspace'
+        ? 'anywhere it has been added in the workspace'
+        : `in ${launcher.scope_kind} ${launcher.scope_ref}`
   if (launcher.trigger === 'pull_request_opened') return `When a pull request opens ${where}`
-  return launcher.scope_kind === 'repository'
+  return appType === 'github_pr'
     ? `When someone mentions the bot on a pull request ${where}`
     : `When someone mentions the bot ${where}`
 }

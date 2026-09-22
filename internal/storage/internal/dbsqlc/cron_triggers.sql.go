@@ -239,15 +239,14 @@ func (q *Queries) DisableCronTrigger(ctx context.Context, arg DisableCronTrigger
 const getCronTrigger = `-- name: GetCronTrigger :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -255,7 +254,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = $1
   AND trigger.id = $2
   AND trigger.deleted_at IS NULL
@@ -267,27 +266,26 @@ type GetCronTriggerParams struct {
 }
 
 type GetCronTriggerRow struct {
-	ID                     uuid.UUID
-	OrgID                  uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
-	FailureReport          *json.RawMessage
-	LastRun                json.RawMessage
-	IdempotencyKey         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
+	LastRun         json.RawMessage
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (q *Queries) GetCronTrigger(ctx context.Context, arg GetCronTriggerParams) (GetCronTriggerRow, error) {
@@ -301,8 +299,7 @@ func (q *Queries) GetCronTrigger(ctx context.Context, arg GetCronTriggerParams) 
 		&i.AgentProfileID,
 		&i.AgentID,
 		&i.AppID,
-		&i.AppDestination,
-		&i.OpeningMessageTemplate,
+		&i.AppSettings,
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
@@ -322,15 +319,14 @@ func (q *Queries) GetCronTrigger(ctx context.Context, arg GetCronTriggerParams) 
 const getCronTriggerByIdempotencyKey = `-- name: GetCronTriggerByIdempotencyKey :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -338,7 +334,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = $1
   AND trigger.idempotency_key = $2::text
   AND trigger.deleted_at IS NULL
@@ -350,27 +346,26 @@ type GetCronTriggerByIdempotencyKeyParams struct {
 }
 
 type GetCronTriggerByIdempotencyKeyRow struct {
-	ID                     uuid.UUID
-	OrgID                  uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
-	FailureReport          *json.RawMessage
-	LastRun                json.RawMessage
-	IdempotencyKey         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
+	LastRun         json.RawMessage
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (q *Queries) GetCronTriggerByIdempotencyKey(ctx context.Context, arg GetCronTriggerByIdempotencyKeyParams) (GetCronTriggerByIdempotencyKeyRow, error) {
@@ -384,8 +379,7 @@ func (q *Queries) GetCronTriggerByIdempotencyKey(ctx context.Context, arg GetCro
 		&i.AgentProfileID,
 		&i.AgentID,
 		&i.AppID,
-		&i.AppDestination,
-		&i.OpeningMessageTemplate,
+		&i.AppSettings,
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
@@ -405,15 +399,14 @@ func (q *Queries) GetCronTriggerByIdempotencyKey(ctx context.Context, arg GetCro
 const getCronTriggerForUpdate = `-- name: GetCronTriggerForUpdate :one
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at
@@ -421,7 +414,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = $1
   AND trigger.id = $2
   AND trigger.deleted_at IS NULL
@@ -434,27 +427,26 @@ type GetCronTriggerForUpdateParams struct {
 }
 
 type GetCronTriggerForUpdateRow struct {
-	ID                     uuid.UUID
-	OrgID                  uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
-	FailureReport          *json.RawMessage
-	LastRun                json.RawMessage
-	IdempotencyKey         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
+	LastRun         json.RawMessage
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTriggerForUpdateParams) (GetCronTriggerForUpdateRow, error) {
@@ -468,8 +460,7 @@ func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTrigge
 		&i.AgentProfileID,
 		&i.AgentID,
 		&i.AppID,
-		&i.AppDestination,
-		&i.OpeningMessageTemplate,
+		&i.AppSettings,
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
@@ -489,64 +480,62 @@ func (q *Queries) GetCronTriggerForUpdate(ctx context.Context, arg GetCronTrigge
 const insertCronTrigger = `-- name: InsertCronTrigger :one
 INSERT INTO cron_triggers(
     id, project_id, name, agent_profile_id, agent_id,
-    app_id, app_destination, opening_message_template,
+    app_id, app_settings,
     cron_expression, timezone, message_template, delivery_mode, enabled,
     next_fire_after, idempotency_key, created_at, updated_at
 )
 VALUES (
     uuidv7(), $1, $2,
     $3, $4,
-    $5, $6, $7,
-    $8, $9, $10,
-    $11, $12, $13,
-    $14, transaction_timestamp(), transaction_timestamp()
+    $5, $6,
+    $7, $8, NULLIF($9::text, ''),
+    $10, $11, $12,
+    $13, transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, idempotency_key) DO NOTHING
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          app_id, app_destination, opening_message_template,
-          cron_expression, timezone, message_template, delivery_mode, enabled,
+          app_id, app_settings,
+          cron_expression, timezone, coalesce(message_template, '')::text AS message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at
 `
 
 type InsertCronTriggerParams struct {
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	NextFireAfter          *time.Time
-	IdempotencyKey         *string
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	NextFireAfter   *time.Time
+	IdempotencyKey  *string
 }
 
 type InsertCronTriggerRow struct {
-	ID                     uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
-	FailureReport          *json.RawMessage
-	IdempotencyKey         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerParams) (InsertCronTriggerRow, error) {
@@ -556,8 +545,7 @@ func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerPa
 		arg.AgentProfileID,
 		arg.AgentID,
 		arg.AppID,
-		arg.AppDestination,
-		arg.OpeningMessageTemplate,
+		arg.AppSettings,
 		arg.CronExpression,
 		arg.Timezone,
 		arg.MessageTemplate,
@@ -574,8 +562,7 @@ func (q *Queries) InsertCronTrigger(ctx context.Context, arg InsertCronTriggerPa
 		&i.AgentProfileID,
 		&i.AgentID,
 		&i.AppID,
-		&i.AppDestination,
-		&i.OpeningMessageTemplate,
+		&i.AppSettings,
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,
@@ -595,15 +582,14 @@ const listCronTriggersForProject = `-- name: ListCronTriggersForProject :many
 WITH listed AS (
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' WHEN 'processing' THEN 'preparing'
-                    WHEN 'completed' THEN 'launched' ELSE receipt.state END,
+           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
-           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app launch failed.' ELSE NULL END
+           'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled app action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
        coalesce(trigger.idempotency_key, '') AS idempotency_key,
        trigger.created_at, trigger.updated_at,
@@ -617,7 +603,7 @@ FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
 LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
-    AND receipt.source = 'scheduled_launch'
+    AND receipt.source = 'scheduled'
 WHERE trigger.project_id = $7
   AND trigger.deleted_at IS NULL
   AND ($8::text = '' OR trigger.name ILIKE $8::text ESCAPE '\')
@@ -626,7 +612,7 @@ WHERE trigger.project_id = $7
   AND ($11::uuid IS NULL OR trigger.app_id = $11::uuid)
 )
 SELECT id, org_id, project_id, name, agent_profile_id, agent_id,
-       app_id, app_destination, opening_message_template, last_run,
+       app_id, app_settings, last_run,
        cron_expression, timezone, message_template, delivery_mode, enabled,
        last_fired_at, next_fire_after, failure_report, idempotency_key,
        created_at, updated_at, sort_key, sort_is_null
@@ -656,29 +642,28 @@ type ListCronTriggersForProjectParams struct {
 }
 
 type ListCronTriggersForProjectRow struct {
-	ID                     uuid.UUID
-	OrgID                  uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	LastRun                json.RawMessage
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
-	FailureReport          *json.RawMessage
-	IdempotencyKey         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	SortKey                string
-	SortIsNull             bool
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	LastRun         json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	SortKey         string
+	SortIsNull      bool
 }
 
 func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTriggersForProjectParams) ([]ListCronTriggersForProjectRow, error) {
@@ -710,8 +695,7 @@ func (q *Queries) ListCronTriggersForProject(ctx context.Context, arg ListCronTr
 			&i.AgentProfileID,
 			&i.AgentID,
 			&i.AppID,
-			&i.AppDestination,
-			&i.OpeningMessageTemplate,
+			&i.AppSettings,
 			&i.LastRun,
 			&i.CronExpression,
 			&i.Timezone,
@@ -798,8 +782,8 @@ func (q *Queries) ReleaseCronTriggerClaim(ctx context.Context, arg ReleaseCronTr
 const selectDueCronTriggers = `-- name: SelectDueCronTriggers :many
 SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.agent_profile_id, trigger.agent_id,
-       trigger.app_id, trigger.app_destination, trigger.opening_message_template,
-       trigger.cron_expression, trigger.timezone, trigger.message_template,
+       trigger.app_id, trigger.app_settings,
+       trigger.cron_expression, trigger.timezone, coalesce(trigger.message_template, '')::text AS message_template,
        trigger.delivery_mode, trigger.last_fired_at, trigger.next_fire_after
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id AND project.deleted_at IS NULL
@@ -817,21 +801,20 @@ type SelectDueCronTriggersParams struct {
 }
 
 type SelectDueCronTriggersRow struct {
-	ID                     uuid.UUID
-	OrgID                  uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
+	ID              uuid.UUID
+	OrgID           uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
 }
 
 func (q *Queries) SelectDueCronTriggers(ctx context.Context, arg SelectDueCronTriggersParams) ([]SelectDueCronTriggersRow, error) {
@@ -851,8 +834,7 @@ func (q *Queries) SelectDueCronTriggers(ctx context.Context, arg SelectDueCronTr
 			&i.AgentProfileID,
 			&i.AgentID,
 			&i.AppID,
-			&i.AppDestination,
-			&i.OpeningMessageTemplate,
+			&i.AppSettings,
 			&i.CronExpression,
 			&i.Timezone,
 			&i.MessageTemplate,
@@ -902,58 +884,55 @@ UPDATE cron_triggers
 SET name = $1,
     cron_expression = $2,
     timezone = $3,
-    message_template = $4,
-    app_destination = $5,
-    opening_message_template = $6,
-    delivery_mode = $7,
-    enabled = $8,
-    next_fire_after = $9,
+    message_template = NULLIF($4::text, ''),
+    app_settings = $5,
+    delivery_mode = $6,
+    enabled = $7,
+    next_fire_after = $8,
     updated_at = statement_timestamp()
-WHERE project_id = $10
-  AND id = $11
+WHERE project_id = $9
+  AND id = $10
   AND deleted_at IS NULL
 RETURNING id, project_id, name, agent_profile_id, agent_id,
-          app_id, app_destination, opening_message_template,
-          cron_expression, timezone, message_template, delivery_mode, enabled,
+          app_id, app_settings,
+          cron_expression, timezone, coalesce(message_template, '')::text AS message_template, delivery_mode, enabled,
           last_fired_at, next_fire_after, failure_report,
           coalesce(idempotency_key, '') AS idempotency_key,
           created_at, updated_at
 `
 
 type UpdateCronTriggerParams struct {
-	Name                   string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	DeliveryMode           string
-	Enabled                bool
-	NextFireAfter          *time.Time
-	ProjectID              uuid.UUID
-	ID                     uuid.UUID
+	Name            string
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	AppSettings     *json.RawMessage
+	DeliveryMode    string
+	Enabled         bool
+	NextFireAfter   *time.Time
+	ProjectID       uuid.UUID
+	ID              uuid.UUID
 }
 
 type UpdateCronTriggerRow struct {
-	ID                     uuid.UUID
-	ProjectID              uuid.UUID
-	Name                   string
-	AgentProfileID         *uuid.UUID
-	AgentID                *uuid.UUID
-	AppID                  *uuid.UUID
-	AppDestination         *json.RawMessage
-	OpeningMessageTemplate *string
-	CronExpression         string
-	Timezone               string
-	MessageTemplate        string
-	DeliveryMode           string
-	Enabled                bool
-	LastFiredAt            *time.Time
-	NextFireAfter          *time.Time
-	FailureReport          *json.RawMessage
-	IdempotencyKey         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	Name            string
+	AgentProfileID  *uuid.UUID
+	AgentID         *uuid.UUID
+	AppID           *uuid.UUID
+	AppSettings     *json.RawMessage
+	CronExpression  string
+	Timezone        string
+	MessageTemplate string
+	DeliveryMode    string
+	Enabled         bool
+	LastFiredAt     *time.Time
+	NextFireAfter   *time.Time
+	FailureReport   *json.RawMessage
+	IdempotencyKey  string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (q *Queries) UpdateCronTrigger(ctx context.Context, arg UpdateCronTriggerParams) (UpdateCronTriggerRow, error) {
@@ -962,8 +941,7 @@ func (q *Queries) UpdateCronTrigger(ctx context.Context, arg UpdateCronTriggerPa
 		arg.CronExpression,
 		arg.Timezone,
 		arg.MessageTemplate,
-		arg.AppDestination,
-		arg.OpeningMessageTemplate,
+		arg.AppSettings,
 		arg.DeliveryMode,
 		arg.Enabled,
 		arg.NextFireAfter,
@@ -978,8 +956,7 @@ func (q *Queries) UpdateCronTrigger(ctx context.Context, arg UpdateCronTriggerPa
 		&i.AgentProfileID,
 		&i.AgentID,
 		&i.AppID,
-		&i.AppDestination,
-		&i.OpeningMessageTemplate,
+		&i.AppSettings,
 		&i.CronExpression,
 		&i.Timezone,
 		&i.MessageTemplate,

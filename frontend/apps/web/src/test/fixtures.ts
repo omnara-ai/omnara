@@ -148,7 +148,63 @@ export function appDefinition(appType: AppDefinition['app_type'] = 'slack_thread
       },
     },
   }
-  if (appType !== 'github_pr') definition.capabilities.interaction_handler = capability
+  if (appType !== 'github_pr') {
+    definition.capabilities.interaction_handler = capability
+    definition.capabilities.schedule = {
+      description: 'Start a fresh agent in a new channel thread on each run.',
+      input_schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'agent_profile_id',
+          'channel_id',
+          'opening_message_template',
+          'message_template',
+        ],
+        'x-omnara-field-order': [
+          'agent_profile_id',
+          'channel_id',
+          'opening_message_template',
+          'message_template',
+        ],
+        properties: {
+          message_template: {
+            type: 'string',
+            title: 'Task instructions',
+            minLength: 1,
+            description: 'The initial task for each new agent.',
+            'x-omnara-control': 'textarea',
+          },
+          channel_id: {
+            type: 'string',
+            title: 'Channel ID',
+            pattern: appType === 'slack_thread' ? '^[CG][A-Z0-9]+$' : '^[1-9][0-9]*$',
+            description:
+              appType === 'slack_thread'
+                ? 'Use a Slack channel ID beginning with C or G.'
+                : 'Use a Discord text or announcement channel ID.',
+          },
+          agent_profile_id: {
+            type: 'string',
+            title: 'Agent profile',
+            pattern: '^aprf_[a-z0-9]{26}$',
+            description: 'Choose a profile for future runs.',
+            'x-omnara-control': 'agent_profile',
+          },
+          opening_message_template: {
+            type: 'string',
+            title: 'Opening message',
+            minLength: 1,
+            maxLength: 2000,
+            default: '{{.trigger.name}} — {{.trigger.local_date}}',
+            description:
+              'Posted before the agent starts. {{.trigger.local_date}} uses the schedule’s timezone.',
+            'x-omnara-control': 'textarea',
+          },
+        },
+      },
+    }
+  }
   return definition
 }
 

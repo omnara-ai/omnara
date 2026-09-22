@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { AppCatalog } from '@/components/apps/AppCatalog'
 import { appCatalog } from '@/components/apps/appDefinitions'
 import { AppIcon } from '@/components/apps/AppIcon'
+import { ConnectGitHubForm } from '@/components/apps/ConnectGitHubForm'
 import { ConnectSlackForm } from '@/components/apps/ConnectSlackForm'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
 import { ProjectAppPortalSetup } from '@/components/apps/ProjectAppPortalSetup'
@@ -149,6 +150,8 @@ export function ProjectAppCreateSetup({
         </section>
       ) : appType === 'slack_thread' ? (
         <ConnectSlackForm orgId={orgId} projectId={projectId} onConnected={setConnected} />
+      ) : appType === 'github_pr' ? (
+        <ConnectGitHubForm orgId={orgId} projectId={projectId} onConnected={setConnected} />
       ) : (
         <ProjectAppSetup
           orgId={orgId}

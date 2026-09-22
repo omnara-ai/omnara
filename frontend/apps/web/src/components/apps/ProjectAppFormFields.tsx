@@ -7,11 +7,6 @@ import { githubHasAdvancedSlots, type ProjectAppFormValues } from './projectAppF
 import { ProjectAppProfilePicker } from './ProjectAppProfilePicker'
 
 const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
-const launcherScopeKinds: Record<AppType, readonly string[]> = {
-  slack_thread: ['workspace', 'channel'],
-  github_pr: ['repository'],
-  discord_thread: [],
-}
 
 interface LauncherFieldsProps {
   orgId: string
@@ -114,6 +109,16 @@ function ProjectAppLauncherScopeFields({
   onChange,
   workspaceId,
 }: Pick<LauncherFieldsProps, 'appType' | 'app' | 'values' | 'onChange' | 'workspaceId'>) {
+  if (appType === 'github_pr')
+    return (
+      <FieldDescription>
+        {values.scopeKind === 'repository'
+          ? `Restricted to repository ${values.scopeRef}. This saved restriction is kept when editing profiles or triggers.`
+          : values.scopeKind === 'installation'
+            ? 'Applies to repositories granted to this GitHub installation. Manage repository access in GitHub.'
+            : `Saved launcher scope: ${values.scopeKind} / ${values.scopeRef}. This scope is kept unchanged; edit it through the API.`}
+      </FieldDescription>
+    )
   if (appType === 'discord_thread')
     return (
       <FieldDescription>
@@ -121,7 +126,7 @@ function ProjectAppLauncherScopeFields({
         channel access in Discord.
       </FieldDescription>
     )
-  if (!launcherScopeKinds[appType].includes(values.scopeKind))
+  if (!['workspace', 'channel'].includes(values.scopeKind))
     return (
       <FieldDescription>
         Saved launcher scope: {values.scopeKind} / {values.scopeRef}. This advanced scope is kept
@@ -131,32 +136,30 @@ function ProjectAppLauncherScopeFields({
   const launcher = app?.settings.launcher
   return (
     <>
-      {appType === 'slack_thread' && (
-        <Field>
-          <FieldLabel htmlFor="app-launch-scope">Respond to mentions in</FieldLabel>
-          <select
-            id="app-launch-scope"
-            aria-label="Respond to mentions in"
-            className={selectClass}
-            value={values.scopeKind}
-            onChange={(event) => {
-              const scopeKind = event.target.value
-              onChange({
-                scopeKind,
-                scopeRef:
-                  scopeKind === 'workspace'
-                    ? (workspaceId ?? '')
-                    : launcher?.scope_kind === scopeKind
-                      ? launcher.scope_ref
-                      : '',
-              })
-            }}
-          >
-            <option value="workspace">Connected workspace</option>
-            <option value="channel">One channel</option>
-          </select>
-        </Field>
-      )}
+      <Field>
+        <FieldLabel htmlFor="app-launch-scope">Respond to mentions in</FieldLabel>
+        <select
+          id="app-launch-scope"
+          aria-label="Respond to mentions in"
+          className={selectClass}
+          value={values.scopeKind}
+          onChange={(event) => {
+            const scopeKind = event.target.value
+            onChange({
+              scopeKind,
+              scopeRef:
+                scopeKind === 'workspace'
+                  ? (workspaceId ?? '')
+                  : launcher?.scope_kind === scopeKind
+                    ? launcher.scope_ref
+                    : '',
+            })
+          }}
+        >
+          <option value="workspace">Connected workspace</option>
+          <option value="channel">One channel</option>
+        </select>
+      </Field>
       {values.scopeKind === 'workspace' ? (
         <FieldDescription>
           Workspace: {values.scopeRef || (workspaceId ?? 'Connect this Slack app')}. The bot must
@@ -164,9 +167,7 @@ function ProjectAppLauncherScopeFields({
         </FieldDescription>
       ) : (
         <Field>
-          <FieldLabel htmlFor="launcher-scope">
-            {appType === 'github_pr' ? 'Repository ID' : 'Channel ID'}
-          </FieldLabel>
+          <FieldLabel htmlFor="launcher-scope">Channel ID</FieldLabel>
           <Input
             id="launcher-scope"
             name="scope"
@@ -175,11 +176,7 @@ function ProjectAppLauncherScopeFields({
               onChange({ scopeRef: event.target.value })
             }}
           />
-          <FieldDescription>
-            {appType === 'github_pr'
-              ? 'Use the numeric repository ID, not owner/repository.'
-              : 'The bot must have access to this channel.'}
-          </FieldDescription>
+          <FieldDescription>The bot must have access to this channel.</FieldDescription>
         </Field>
       )}
     </>
@@ -216,7 +213,7 @@ function ProjectAppLaunchProfiles({
           onChange({ profileIds: profiles.map((profile) => profile.id) })
         }}
         single={appType === 'github_pr'}
-        label={appType === 'github_pr' ? 'Offered profiles' : 'Profiles for mentions'}
+        label={appType === 'github_pr' ? 'Agent profile' : 'Profiles for mentions'}
         disabled={disabled}
         slotCount={slotCount}
       />

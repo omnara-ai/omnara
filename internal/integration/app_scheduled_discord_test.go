@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,7 +42,7 @@ func TestDiscordScheduledRootAndThreadRecovery(t *testing.T) {
 		}
 		return true
 	}
-	launch := integrationstore.ScheduledAppLaunch{Destination: json.RawMessage(`{"channel_id":"300"}`), OpeningMessage: "Daily update"}
+	launch := appdefinition.ScheduledThreadLaunch{ChannelID: "300", OpeningMessage: "Daily update"}
 	check := func(context.Context) error { return nil }
 	root, err := provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, check)
 	require.NoError(t, err)
@@ -93,12 +92,12 @@ func TestDiscordScheduledUnknownPublicationIsTerminal(t *testing.T) {
 				}
 				return true
 			}
-			launch := integrationstore.ScheduledAppLaunch{
-				Destination: json.RawMessage(`{"channel_id":"300"}`), OpeningMessage: "Daily update",
+			launch := appdefinition.ScheduledThreadLaunch{
+				ChannelID: "300", OpeningMessage: "Daily update",
 			}
 			check := func(context.Context) error { return nil }
 			root, err := provider.PublishScheduledRoot(t.Context(), f.appSetup, launch, receipt, check)
-			require.ErrorIs(t, err, ErrScheduledLaunchFailed)
+			require.ErrorIs(t, err, ErrScheduledActionFailed)
 			require.ErrorContains(t, err, "outcome is unknown")
 			require.Equal(t, appdefinition.Scope{}, root)
 			require.Equal(t, test.wantPosts, posts)

@@ -61,8 +61,10 @@ func customScope(note string) operationScope {
 type operationID string
 
 const (
-	operationCreateProjectAppOAuthSetup operationID = "CreateProjectAppOAuthSetup"
-	operationCreateProjectAppSlackSetup operationID = "CreateProjectAppSlackSetup"
+	operationCreateProjectAppOAuthSetup           operationID = "CreateProjectAppOAuthSetup"
+	operationCreateProjectAppSlackSetup           operationID = "CreateProjectAppSlackSetup"
+	operationCreateProjectAppGitHubSetup          operationID = "CreateProjectAppGitHubSetup"
+	operationInspectProjectAppGitHubInstallations operationID = "InspectProjectAppGitHubInstallations"
 )
 
 const (
@@ -252,8 +254,10 @@ func (a operationAuthorizer) policy(operation operationID) (operationPolicy, boo
 }
 
 var openAPIOperationPolicies = map[operationID]operationPolicy{
-	operationCreateProjectAppOAuthSetup: userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateProjectAppSlackSetup: userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateProjectAppOAuthSetup:           userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateProjectAppSlackSetup:           userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateProjectAppGitHubSetup:          browserSessionPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationInspectProjectAppGitHubInstallations: browserSessionPolicy(projectScope(identitystore.ProjectActionManage)),
 
 	operationGetCurrentUser:    userPolicy(noScope()),
 	operationDeleteCurrentUser: userPolicy(noScope()),

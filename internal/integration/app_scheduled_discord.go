@@ -15,7 +15,7 @@ import (
 func (p *DiscordAppInboxProvider) PublishScheduledRoot(
 	ctx context.Context,
 	app integrationstore.ProjectAppRecord,
-	launch integrationstore.ScheduledAppLaunch,
+	launch appdefinition.ScheduledThreadLaunch,
 	receiptID uuid.UUID,
 	authority func(context.Context) error,
 ) (appdefinition.Scope, error) {
@@ -23,18 +23,14 @@ func (p *DiscordAppInboxProvider) PublishScheduledRoot(
 	if err != nil {
 		return appdefinition.Scope{}, err
 	}
-	destination, err := appdefinition.ResolveDestination(app.Provider, launch.Destination)
-	if err != nil {
-		return appdefinition.Scope{}, err
-	}
-	parent := discord.Scope{GuildID: destination.Discord.GuildID, ChannelID: destination.Discord.ChannelID}
+	parent := discord.Scope{ChannelID: launch.ChannelID}
 	channel, err := client.GetScopedChannel(ctx, parent)
 	if err != nil {
 		return appdefinition.Scope{}, scheduledDiscordError(err)
 	}
 	if channel.GuildID == "" || (channel.Type != 0 && channel.Type != 5) {
 		return appdefinition.Scope{}, fmt.Errorf(
-			"%w: Discord requires a server text or announcement channel", ErrScheduledLaunchFailed,
+			"%w: Discord requires a server text or announcement channel", ErrScheduledActionFailed,
 		)
 	}
 	parent.GuildID = channel.GuildID
@@ -51,7 +47,7 @@ func (p *DiscordAppInboxProvider) PublishScheduledRoot(
 	}
 	if err != nil || root.ID == "" {
 		return appdefinition.Scope{}, fmt.Errorf(
-			"%w: opening publication outcome is unknown; no replacement sent", ErrScheduledLaunchFailed,
+			"%w: opening publication outcome is unknown; no replacement sent", ErrScheduledActionFailed,
 		)
 	}
 	return appdefinition.Scope{Discord: &appdefinition.DiscordScope{
@@ -87,7 +83,7 @@ func scheduledDiscordError(err error) error {
 	}
 	var apiErr *discord.APIError
 	if errors.As(err, &apiErr) && (apiErr.Code == discord.PermanentFailure || apiErr.Code == discord.ScopeMismatch) {
-		return fmt.Errorf("%w: Discord rejected the destination or request", ErrScheduledLaunchFailed)
+		return fmt.Errorf("%w: Discord rejected the destination or request", ErrScheduledActionFailed)
 	}
 	return err
 }

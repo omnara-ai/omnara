@@ -863,6 +863,58 @@ export type IntegrationOAuthSetup = {
     expires_at: Timestamp;
 };
 
+export type CreateGitHubSetupRequest = {
+    expected_setup_revision: number;
+    /**
+     * Initial GitHub App name suggestion. Defaults to the saved Omnara app name; GitHub may change it during registration.
+     */
+    app_name?: string;
+    /**
+     * GitHub organization login. Omit to register under a personal account.
+     */
+    organization?: string;
+};
+
+export type GitHubSetup = {
+    app_id: ProjectAppId;
+    setup_revision: number;
+    registration_url: string;
+    /**
+     * Server-authored GitHub App manifest. Serialize this object to the manifest form field when posting to registration_url.
+     */
+    manifest: {
+        [key: string]: unknown;
+    };
+    expires_at: Timestamp;
+};
+
+export type InspectGitHubInstallationsRequest = {
+    credentials_secret_ref: SecretId;
+    page?: number;
+};
+
+export type GitHubInstallations = {
+    provider_app_id: string;
+    name: string;
+    slug: string;
+    /**
+     * Verified GitHub App installation URL. Its state may carry the public credential secret ID as a recovery hint, never credentials or authorization.
+     */
+    install_url: string;
+    installations: Array<GitHubSetupInstallation>;
+    next_page?: number;
+};
+
+export type GitHubSetupInstallation = {
+    id: string;
+    /**
+     * Provider-verified installation account login.
+     */
+    account: string;
+    account_type?: string;
+    settings_url: string;
+};
+
 export type CreateSlackSetupRequest = {
     app_name: string;
     app_configuration_token: string;
@@ -1234,21 +1286,15 @@ export type AgentProfileCronTriggerTarget = {
     agent_profile_id: AgentProfileId;
 };
 
-export type AppLaunchCronTriggerTarget = {
-    type: 'app_launch';
+export type AppCronTriggerTarget = {
+    type: 'app';
     app_id: ProjectAppId;
-    agent_profile_id: AgentProfileId;
     /**
-     * Parent destination for a new thread on a built-in Slack or Discord app. Slack requires a C/G channel ID; direct messages and existing threads are not supported. Discord requires a text or announcement channel; guild_id is optional.
+     * Settings validated by the target app's published schedule input schema. Each accepted occurrence retains its own copy. App resource references are resolved when the app handles the occurrence.
      */
-    destination: {
-        channel_id: string;
-        guild_id?: string;
+    settings: {
+        [key: string]: unknown;
     };
-    /**
-     * Go text/template for the parent heading, using the same trigger values as message_template. Both the source and rendered heading must contain at most 2000 Unicode codepoints. The heading is published before agent launch; the agent's report is a reply in its new thread.
-     */
-    opening_message_template: string;
 };
 
 export type CronTriggerTarget = ({
@@ -1256,8 +1302,8 @@ export type CronTriggerTarget = ({
 } & AgentCronTriggerTarget) | ({
     type: 'profile';
 } & AgentProfileCronTriggerTarget) | ({
-    type: 'app_launch';
-} & AppLaunchCronTriggerTarget);
+    type: 'app';
+} & AppCronTriggerTarget);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -1270,7 +1316,7 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. For app launches this is the agent task, snapshotted at durable handoff. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for app targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
 
@@ -1296,13 +1342,13 @@ export type CreateCronTriggerRequest = {
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone?: CronTimezone;
-    message_template: CronMessageTemplate;
+    message_template?: CronMessageTemplate;
     enabled?: boolean;
 };
 
 export type UpdateCronTriggerRequest = {
     /**
-     * Updates target options. The target type, app, and profile identities cannot change. App destination and opening heading can change for future handoffs. Omitted delivery_mode preserves the current mode.
+     * Updates target options. The target type and ID cannot change. App settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
      */
     target?: CronTriggerTarget;
     name?: ResourceName;
@@ -1313,16 +1359,16 @@ export type UpdateCronTriggerRequest = {
 };
 
 /**
- * State of the latest accepted scheduled app launch: queued while waiting to start, preparing while creating its thread and agent, launched once the agent has started, failed if the launch could not complete, or discarded if an operator discarded the failed work. Launched does not indicate task completion or report delivery.
+ * State of the latest accepted scheduled app action. Completed means the app handled the occurrence; it does not indicate completion of any agent task that action started.
  */
-export type CronTriggerLastRunState = 'queued' | 'preparing' | 'launched' | 'failed' | 'discarded';
+export type CronTriggerLastRunState = 'queued' | 'processing' | 'completed' | 'failed' | 'discarded';
 
 export type CronTriggerLastRun = {
     state: CronTriggerLastRunState;
     created_at: Timestamp;
     updated_at: Timestamp;
     /**
-     * Coarse launch failure description; no raw provider errors.
+     * Coarse scheduled action failure description; no raw provider errors.
      */
     failure_message: string | null;
 };
@@ -1335,10 +1381,10 @@ export type CronTrigger = {
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone: CronTimezone;
-    message_template: CronMessageTemplate;
+    message_template?: CronMessageTemplate;
     enabled: boolean;
     /**
-     * When the trigger last fired, or null if it has never fired. For app launches this means durable inbox handoff.
+     * When the trigger last fired, or null if it has never fired. For app targets this means durable inbox handoff.
      */
     last_fired_at: Timestamp | null;
     /**
@@ -3614,6 +3660,7 @@ export type AppCapabilities = {
         [key: string]: AppSubscriptionDefinition;
     };
     interaction_handler?: AppCapabilityDefinition;
+    schedule?: AppCapabilityDefinition;
 };
 
 export type AppDefinition = {
@@ -8640,6 +8687,144 @@ export type CreateProjectAppSlackSetupResponses = {
 };
 
 export type CreateProjectAppSlackSetupResponse = CreateProjectAppSlackSetupResponses[keyof CreateProjectAppSlackSetupResponses];
+
+export type CreateProjectAppGitHubSetupData = {
+    body: CreateGitHubSetupRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        appID: ProjectAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup';
+};
+
+export type CreateProjectAppGitHubSetupErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateProjectAppGitHubSetupError = CreateProjectAppGitHubSetupErrors[keyof CreateProjectAppGitHubSetupErrors];
+
+export type CreateProjectAppGitHubSetupResponses = {
+    /**
+     * GitHub setup information verified.
+     */
+    201: GitHubSetup;
+};
+
+export type CreateProjectAppGitHubSetupResponse = CreateProjectAppGitHubSetupResponses[keyof CreateProjectAppGitHubSetupResponses];
+
+export type InspectProjectAppGitHubInstallationsData = {
+    body: InspectGitHubInstallationsRequest;
+    path: {
+        orgID: string;
+        projectID: string;
+        appID: ProjectAppId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup/installations';
+};
+
+export type InspectProjectAppGitHubInstallationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type InspectProjectAppGitHubInstallationsError = InspectProjectAppGitHubInstallationsErrors[keyof InspectProjectAppGitHubInstallationsErrors];
+
+export type InspectProjectAppGitHubInstallationsResponses = {
+    /**
+     * GitHub setup information verified.
+     */
+    200: GitHubInstallations;
+};
+
+export type InspectProjectAppGitHubInstallationsResponse = InspectProjectAppGitHubInstallationsResponses[keyof InspectProjectAppGitHubInstallationsResponses];
 
 export type ListCronTriggersData = {
     body?: never;

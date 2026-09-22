@@ -69,7 +69,6 @@ export async function submitProjectAppSetup(
     expected_setup_revision: app.setup_revision,
     provider_tenant_id: tenant,
     provider_account_ref: account,
-    provider_agent_display_name: app.app_type === 'github_pr' ? value('displayName') : undefined,
     credential_secret_id: secretId,
     provider_config: providerConfig,
   })

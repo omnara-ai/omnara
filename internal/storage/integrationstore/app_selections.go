@@ -104,7 +104,7 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	); err != nil {
 		return err
 	}
-	if len(identities) == 0 && w.record.Source != IntegrationInboxSourceScheduledLaunch {
+	if len(identities) == 0 && w.record.Source != IntegrationInboxSourceScheduled {
 		return nil
 	}
 	// Every selection belongs to this receipt's app. Read its authority once,
@@ -116,8 +116,8 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	if app.State != ProjectAppStateActive {
 		return storeerr.ErrUnauthorized
 	}
-	if w.record.Source == IntegrationInboxSourceScheduledLaunch {
-		if _, err := w.record.ScheduledRoot(app.Provider, plan); err != nil {
+	if w.record.Source == IntegrationInboxSourceScheduled {
+		if err := w.record.ValidateScheduledPlan(app, plan); err != nil {
 			return err
 		}
 	} else if app.Settings.Launcher == nil {

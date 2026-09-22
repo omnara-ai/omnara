@@ -21,6 +21,9 @@ const (
 	PermanentFailure ErrorCode = "permanent_failure"
 	InvalidResponse  ErrorCode = "invalid_response"
 	ScopeMismatch    ErrorCode = "scope_mismatch"
+	// UnsupportedAccount means setup inspection recognized an enterprise owner
+	// or installation. Retrying cannot make it a supported personal/org account.
+	UnsupportedAccount ErrorCode = "unsupported_account"
 )
 
 // APIError deliberately excludes raw provider bodies, URLs and transport errors:

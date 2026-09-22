@@ -113,7 +113,15 @@ function ProjectAppSettings({
   const canSetUp = canManage && appCatalog.some((definition) => definition.appType === appType)
   // A never-connected app is still in setup: connecting it is the whole page.
   const draft = app.state === 'disconnected' && !app.provider_tenant_id
-  const [connecting, setConnecting] = useState(canSetUp && draft)
+  const [connecting, setConnecting] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const githubReturn =
+      appType === 'github_pr' &&
+      ['github_setup', 'github_setup_error', 'credentials_secret_ref', 'installation_id'].some(
+        (key) => params.has(key),
+      )
+    return canSetUp && (draft || githubReturn)
+  })
   const [connected, setConnected] = useState(oauth?.kind === 'success')
   const [editing, setEditing] = useState(
     canSetUp && oauth?.kind === 'success' && !app.settings.launcher,
@@ -226,7 +234,7 @@ function ProjectAppSettings({
           }}
         />
       )}
-      {chat && (
+      {app.capabilities.schedule && (
         <ProjectAppSchedules
           orgId={orgId}
           projectId={projectId}
@@ -259,7 +267,7 @@ function ConnectedNotice({ app, chooseNext }: { app: ProjectApp; chooseNext: boo
         {chooseNext &&
           (chat
             ? ' Choose which agents people can start by mentioning the bot, or add a schedule instead.'
-            : ' Configure when agents start for pull requests. Your GitHub App’s webhook URL is under Advanced.')}
+            : ' Choose an agent profile and when pull requests start agents.')}
       </span>
     </p>
   )

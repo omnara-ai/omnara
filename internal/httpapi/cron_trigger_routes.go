@@ -48,13 +48,17 @@ func (s strictOpenAPIServer) createCronTrigger(
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
+	messageTemplate := ""
+	if request.Body.MessageTemplate != nil {
+		messageTemplate = *request.Body.MessageTemplate
+	}
 	trigger, err := s.server.store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
 		ProjectID:       project.ID,
 		Name:            request.Body.Name,
 		Target:          target,
 		CronExpression:  request.Body.Cron,
 		Timezone:        timezone,
-		MessageTemplate: request.Body.MessageTemplate,
+		MessageTemplate: messageTemplate,
 		Enabled:         enabled,
 		IdempotencyKey:  idempotencyKey,
 	})
@@ -284,12 +288,12 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 		)
 	}
 	switch kind {
-	case string(executionstore.CronTriggerTargetAppLaunch):
-		target, err := input.AsAppLaunchCronTriggerTarget()
+	case string(executionstore.CronTriggerTargetApp):
+		target, err := input.AsAppCronTriggerTarget()
 		if err != nil {
 			return executionstore.CronTriggerTarget{}, apierror.FromCode(
 				openapi.ErrorCodeInvalidRequest,
-				"invalid app launch target",
+				"invalid app target",
 			)
 		}
 		appID, ok := parseOpenAPIPublicID(publicid.KindProjectApp, target.AppId)
@@ -299,24 +303,12 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 				"invalid target app_id",
 			)
 		}
-		profileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, target.AgentProfileId)
-		if !ok {
-			return executionstore.CronTriggerTarget{}, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"invalid target agent_profile_id",
-			)
-		}
-		destination, err := json.Marshal(target.Destination)
+		settings, err := json.Marshal(target.Settings)
 		if err != nil {
 			return executionstore.CronTriggerTarget{}, err
 		}
-		return executionstore.CronTriggerTarget{
-			Kind: executionstore.CronTriggerTargetAppLaunch,
-			ID:   appID,
-			AppLaunch: &executionstore.CronAppLaunchTarget{
-				ProfileID: profileID, Destination: destination, OpeningMessageTemplate: target.OpeningMessageTemplate,
-			},
-		}, nil
+		return executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetApp, ID: appID, Settings: settings}, nil
+
 	case string(executionstore.CronTriggerTargetAgent):
 		target, err := input.AsAgentCronTriggerTarget()
 		if err != nil {
@@ -371,25 +363,19 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi.CronTriggerTarget, error) {
 	var response openapi.CronTriggerTarget
 	switch target.Kind {
-	case executionstore.CronTriggerTargetAppLaunch:
+	case executionstore.CronTriggerTargetApp:
 		appID, err := publicID(publicid.KindProjectApp, target.ID)
 		if err != nil {
 			return response, err
 		}
-		profileID, err := publicID(publicid.KindAgentProfile, target.AppLaunch.ProfileID)
-		if err != nil {
+		appTarget := openapi.AppCronTriggerTarget{Type: openapi.AppCronTriggerTargetTypeApp, AppId: appID}
+		if err := json.Unmarshal(target.Settings, &appTarget.Settings); err != nil {
 			return response, err
 		}
-		appTarget := openapi.AppLaunchCronTriggerTarget{
-			Type: openapi.AppLaunchCronTriggerTargetTypeAppLaunch, AppId: appID, AgentProfileId: profileID,
-			OpeningMessageTemplate: target.AppLaunch.OpeningMessageTemplate,
-		}
-		if err := json.Unmarshal(target.AppLaunch.Destination, &appTarget.Destination); err != nil {
+		if err := response.FromAppCronTriggerTarget(appTarget); err != nil {
 			return response, err
 		}
-		if err := response.FromAppLaunchCronTriggerTarget(appTarget); err != nil {
-			return response, err
-		}
+
 	case executionstore.CronTriggerTargetAgent:
 		agentID, err := publicID(publicid.KindAgent, target.ID)
 		if err != nil {
@@ -442,6 +428,10 @@ func cronTriggerResponseFromRecord(
 	if err != nil {
 		return openapi.CronTrigger{}, err
 	}
+	var message *string
+	if record.Target.Kind != executionstore.CronTriggerTargetApp {
+		message = &record.MessageTemplate
+	}
 	return openapi.CronTrigger{
 		Id:              id,
 		OrgId:           orgID,
@@ -450,7 +440,7 @@ func cronTriggerResponseFromRecord(
 		Target:          target,
 		Cron:            record.CronExpression,
 		Timezone:        record.Timezone,
-		MessageTemplate: record.MessageTemplate,
+		MessageTemplate: message,
 		Enabled:         record.Enabled,
 		LastFiredAt:     nullableFromPtr(record.LastFiredAt),
 		NextFireAt:      nullableFromPtr(record.NextFireAfter),

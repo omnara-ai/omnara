@@ -92,16 +92,20 @@ func startServiceSlackWorkers(
 		StreamPublisher: bus, StreamLog: log,
 	}, worker.Options{Log: log, Capacity: 1, ControlSubscriber: bus})
 	router := integration.NewAppRouter(store.Execution(), store.Integrations())
-	providers := map[string]integration.AppInboxProvider{
-		"slack": integration.NewSlackAppInboxProvider(slack.OAuthConfig{HTTPClient: client},
-			store.Secrets(), store.Integrations(), store.Execution()),
-	}
+	slackProvider := integration.NewSlackAppInboxProvider(
+		slack.OAuthConfig{HTTPClient: client}, store.Secrets(), store.Integrations(), store.Execution(),
+	)
+	providers := map[string]integration.AppInboxProvider{"slack": slackProvider}
 	launcher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), providers)
 	launches := integration.NewAppLaunchWorkflow(router, map[appdefinition.Type]integration.AppLauncher{
 		appdefinition.SlackThread: launcher.Decide,
 	})
+	scheduled := integration.NewThreadAppScheduledHandler(router, store.Integrations(), slackProvider)
 	consumer := integration.NewAppInboxConsumer(router, store.Integrations(), store.Artifacts(), providers,
-		integration.InteractionPresenter{Store: store, HTTPClient: client}, launches)
+		integration.InteractionPresenter{Store: store, HTTPClient: client}, launches,
+		integration.WithAppScheduledHandlers(map[appdefinition.Type]integration.AppScheduledHandler{
+			appdefinition.SlackThread: scheduled.Handle,
+		}))
 	appWorker := integration.NewAppInboxWorker(store.Integrations(), consumer,
 		integration.AppInboxWorkerOptions{Log: log, Capacity: 1})
 	workerCtx, cancel := context.WithCancel(ctx)

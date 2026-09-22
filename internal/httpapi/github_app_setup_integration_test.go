@@ -191,7 +191,7 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	require.NoError(t, json.Unmarshal(current.ProviderIdentity, &identity))
 	require.Equal(t, github.AppIdentity{
 		AppID: 123, InstallationID: 456, BotUserID: 999,
-		AppSlug: "renamed-helper", BotLogin: "renamed-helper[bot]",
+		AppSlug: "renamed-helper", BotLogin: "renamed-helper[bot]", DisplayName: "renamed-helper[bot]",
 	}, identity)
 	require.Equal(t, f.app.CredentialSecretID, current.CredentialSecretID)
 	require.Equal(

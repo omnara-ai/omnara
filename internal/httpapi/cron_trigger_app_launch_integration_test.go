@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCronTriggerAppLaunchHTTP(t *testing.T) {
+func TestCronTriggerAppHTTP(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
@@ -23,21 +23,23 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 	app := createSlackHTTPApp(t, ctx, project, "A123", "T123", "Scheduled app")
 	appID, err := publicid.Encode(publicid.KindProjectApp, app.ID)
 	require.NoError(t, err)
-	target := map[string]any{
-		"type":                     "app_launch",
-		"app_id":                   appID,
-		"agent_profile_id":         profileID,
-		"destination":              map[string]any{"channel_id": "C123"},
-		"opening_message_template": "Daily {{.trigger.local_date}}",
+	settings := map[string]any{
+		"agent_profile_id": profileID, "channel_id": "C123",
+		"opening_message_template": "Daily {{.trigger.local_date}}", "message_template": "Run the daily task.",
 	}
+	target := map[string]any{"type": "app", "app_id": appID, "settings": settings}
 	body := map[string]any{
-		"name":             "Daily app task",
-		"target":           target,
-		"cron":             "0 9 * * *",
-		"timezone":         "America/Los_Angeles",
-		"message_template": "Run the daily task.",
+		"name":     "Daily app task",
+		"target":   target,
+		"cron":     "0 9 * * *",
+		"timezone": "America/Los_Angeles",
 	}
 	path, headers := project.ProjectPath+"/cron-triggers", authHeaders(project.AdminToken)
+	// Making message_template optional for app targets must not turn missing
+	// ordinary cron content into an internal error or an accepted empty message.
+	requestJSONWithHeaders(t, handler, http.MethodPost, path, projectAppHTTPJSON(t, map[string]any{
+		"name": "Missing task", "cron": "0 9 * * *", "target": map[string]any{"type": "profile", "agent_profile_id": profileID},
+	}), "", http.StatusBadRequest, headers)
 	created := requestJSONWithHeaders(
 		t,
 		handler,
@@ -50,6 +52,7 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 	)
 	require.Equal(t, target, created["target"])
 	require.Nil(t, created["last_run"])
+	require.NotContains(t, created, "message_template")
 	id := testutil.RequireType[string](t, created["id"])
 	replay := requestJSONWithHeaders(
 		t,
@@ -74,7 +77,7 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		http.StatusOK,
 		headers,
 	)
-	require.Len(t, testutil.RequireType[[]any](t, page["data"]), 1)
+	require.Len(t, testutil.RequireType[[]any](t, page["data"]), 0)
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -85,8 +88,8 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		http.StatusBadRequest,
 		headers,
 	)
-	target["destination"] = map[string]any{"channel_id": "G456"}
-	target["opening_message_template"] = "Revised {{.trigger.local_date}}"
+	settings["channel_id"] = "G456"
+	settings["opening_message_template"] = "Revised {{.trigger.local_date}}"
 	updated := requestJSONWithHeaders(
 		t,
 		handler,
@@ -98,23 +101,17 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		headers,
 	)
 	require.Equal(t, target, updated["target"])
-	for _, destination := range []map[string]any{
-		{}, {"channel_id": "D123"}, {"channel_id": "C123", "thread_ts": "1.2"}, {"channel_id": "C123", "guild_id": "123"},
-	} {
-		target["destination"] = destination
-		requestJSONWithHeaders(
-			t,
-			handler,
-			http.MethodPatch,
-			path+"/"+id,
-			projectAppHTTPJSON(t, map[string]any{"target": target}),
-			"",
-			http.StatusBadRequest,
-			headers,
-		)
+	for _, channel := range []string{"", "D123", "bad"} {
+		settings["channel_id"] = channel
+		requestJSONWithHeaders(t, handler, http.MethodPatch, path+"/"+id,
+			projectAppHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
 	}
-	target["destination"] = map[string]any{"channel_id": "C123"}
-	target["opening_message_template"] = strings.Repeat("🚀", 2001)
+	settings["channel_id"] = "C123"
+	settings["guild_id"] = "123"
+	requestJSONWithHeaders(t, handler, http.MethodPatch, path+"/"+id,
+		projectAppHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
+	delete(settings, "guild_id")
+	settings["opening_message_template"] = strings.Repeat("🚀", 2001)
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -125,7 +122,7 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		http.StatusBadRequest,
 		headers,
 	)
-	target["opening_message_template"] = `{{printf "%1024s" "a"}}{{printf "%1024s" "b"}}`
+	settings["opening_message_template"] = `{{printf "%1024s" "a"}}{{printf "%1024s" "b"}}`
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -136,7 +133,7 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		http.StatusBadRequest,
 		headers,
 	)
-	target["opening_message_template"] = "Daily"
+	settings["opening_message_template"] = "Daily"
 	other := projectAppHTTPSecondProject(t, handler, project)
 	foreignProfile := createPublicHTTPAgent(t, handler, other, "foreign-profile", other.AdminToken)
 	foreignApp := createSlackHTTPApp(t, ctx, other, "A999", "T999", "Foreign app")
@@ -165,7 +162,8 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		headers,
 	)
 	target["app_id"] = appID
-	target["agent_profile_id"] = testutil.RequireType[string](t, foreignProfile["id"])
+	// App references are resolved when the occurrence runs, within its project.
+	settings["agent_profile_id"] = testutil.RequireType[string](t, foreignProfile["id"])
 	body["name"] = "Foreign profile schedule"
 	requestJSONWithHeaders(
 		t,
@@ -174,7 +172,7 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		path,
 		projectAppHTTPJSON(t, body),
 		"",
-		http.StatusNotFound,
+		http.StatusCreated,
 		headers,
 	)
 	requestJSONWithHeaders(
@@ -184,14 +182,14 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 		path+"/"+id,
 		projectAppHTTPJSON(t, map[string]any{"target": target}),
 		"",
-		http.StatusBadRequest,
+		http.StatusOK,
 		headers,
 	)
 	// The diagnostic exposes the public outcome, not raw inbox errors or UUIDs.
 	triggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, id)
 	_, err = pool.Exec(
 		ctx,
-		`WITH receipt AS (INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,last_error) VALUES ($1,$2,'diagnostic',convert_to('{}','UTF8'),'scheduled_launch','failed','private provider error') RETURNING id) UPDATE cron_triggers SET last_app_receipt_id=(SELECT id FROM receipt) WHERE id=$3`,
+		`WITH receipt AS (INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,last_error) VALUES ($1,$2,'diagnostic',convert_to('{}','UTF8'),'scheduled','failed','private provider error') RETURNING id) UPDATE cron_triggers SET last_app_receipt_id=(SELECT id FROM receipt) WHERE id=$3`,
 		project.ProjectUUID,
 		app.ID,
 		triggerUUID,
@@ -200,7 +198,7 @@ func TestCronTriggerAppLaunchHTTP(t *testing.T) {
 	got := requestJSONWithHeaders(t, handler, http.MethodGet, path+"/"+id, "", "", http.StatusOK, headers)
 	last := testutil.RequireType[map[string]any](t, got["last_run"])
 	require.Equal(t, "failed", last["state"])
-	require.Equal(t, "Scheduled app launch failed.", last["failure_message"])
+	require.Equal(t, "Scheduled app action failed.", last["failure_message"])
 	require.NotContains(t, projectAppHTTPJSON(t, last), "private provider error")
 	require.Nil(t, got["failure_report"])
 	requestJSONWithHeaders(

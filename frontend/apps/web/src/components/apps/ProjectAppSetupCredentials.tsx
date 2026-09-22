@@ -1,6 +1,5 @@
 import { useProjectAvailableSecrets } from '@omnara/react'
 import type { AppType } from '@omnara/sdk'
-import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { CheckboxField, Field, FieldLabel } from '@/components/ui/field'
@@ -16,6 +15,8 @@ export function ProjectAppSetupCredentials({
   name,
   credentialSecretId,
   savedSecret,
+  selectedSecret,
+  onSelectedSecretChange,
   newCredential,
   onNewCredentialChange,
   onChooseCredentials,
@@ -26,16 +27,12 @@ export function ProjectAppSetupCredentials({
   name: string
   credentialSecretId?: string
   savedSecret: string
+  selectedSecret: string
+  onSelectedSecretChange: (value: string) => void
   newCredential: boolean
   onNewCredentialChange: (value: boolean) => void
   onChooseCredentials: () => void
 }) {
-  const [selectedSecret, setSelectedSecret] = useState(credentialSecretId ?? '')
-  const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
-    filters: { kind: appType === 'github_pr' ? 'github_app_credentials' : 'generic' },
-    enabled: !newCredential && !savedSecret,
-  })
-  const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
   return (
     <>
       {savedSecret ? (
@@ -71,54 +68,87 @@ export function ProjectAppSetupCredentials({
               <AppCredentialFields appType={appType} />
             </div>
           ) : (
-            <Field>
-              <FieldLabel htmlFor="saved-secret">Saved credential</FieldLabel>
-              <select
-                id="saved-secret"
-                aria-label="Saved credential"
-                name="secret"
-                required
-                value={selectedSecret}
-                onChange={(event) => {
-                  setSelectedSecret(event.target.value)
-                }}
-                className="control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm"
-              >
-                <option value="">Choose a credential</option>
-                {credentialSecretId &&
-                  !secrets.some((secret) => secret.id === credentialSecretId) && (
-                    <option value={credentialSecretId}>Current credential</option>
-                  )}
-                {secrets.map((secret) => (
-                  <option key={secret.id} value={secret.id}>
-                    {secret.name}
-                  </option>
-                ))}
-              </select>
-              {secretsQuery.isError && (
-                <div role="alert">
-                  Could not load credentials.{' '}
-                  <Button type="button" variant="link" onClick={() => void secretsQuery.refetch()}>
-                    Retry credentials
-                  </Button>
-                </div>
-              )}
-              {secretsQuery.hasNextPage && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  disabled={secretsQuery.isFetchingNextPage}
-                  onClick={() => void secretsQuery.fetchNextPage()}
-                >
-                  More credentials
-                </Button>
-              )}
-            </Field>
+            <ProjectAppCredentialPicker
+              orgId={orgId}
+              projectId={projectId}
+              appType={appType}
+              value={selectedSecret}
+              onChange={onSelectedSecretChange}
+              currentCredentialId={credentialSecretId}
+            />
           )}
         </>
       )}
     </>
+  )
+}
+
+/** Selects an available credential by public ID; secret material never enters the form. */
+export function ProjectAppCredentialPicker({
+  orgId,
+  projectId,
+  appType,
+  value,
+  onChange,
+  currentCredentialId,
+}: {
+  orgId: string
+  projectId: string
+  appType: AppType
+  value: string
+  onChange: (value: string) => void
+  currentCredentialId?: string
+}) {
+  const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
+    filters: { kind: appType === 'github_pr' ? 'github_app_credentials' : 'generic' },
+  })
+  const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
+  return (
+    <Field>
+      <FieldLabel htmlFor="saved-secret">Saved credential</FieldLabel>
+      <select
+        id="saved-secret"
+        aria-label="Saved credential"
+        name="secret"
+        required
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value)
+        }}
+        className="control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm"
+      >
+        <option value="">Choose a credential</option>
+        {value && !secrets.some((secret) => secret.id === value) && (
+          <option value={value}>
+            {value === currentCredentialId ? 'Current credential' : value}
+          </option>
+        )}
+        {secrets.map((secret) => (
+          <option key={secret.id} value={secret.id}>
+            {secret.name}
+          </option>
+        ))}
+      </select>
+      {secretsQuery.isError && (
+        <div role="alert">
+          Could not load credentials.{' '}
+          <Button type="button" variant="link" onClick={() => void secretsQuery.refetch()}>
+            Retry credentials
+          </Button>
+        </div>
+      )}
+      {secretsQuery.hasNextPage && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="self-start"
+          disabled={secretsQuery.isFetchingNextPage}
+          onClick={() => void secretsQuery.fetchNextPage()}
+        >
+          More credentials
+        </Button>
+      )}
+    </Field>
   )
 }

@@ -231,6 +231,12 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 		if observed.BotUserID > 0 && observed.BotUserID != identity.BotUserID {
 			return input, &github.APIError{Code: github.ScopeMismatch}
 		}
+		if body.ProviderAgentDisplayName == nil {
+			input.ProviderAgentDisplayName = current.ProviderAgentDisplayName
+			if input.ProviderAgentDisplayName == "" {
+				input.ProviderAgentDisplayName = identity.DisplayName
+			}
+		}
 		if err := setVerifiedAppIdentity(&input, current, identity); err != nil {
 			return input, err
 		}

@@ -1,4 +1,10 @@
-import { type AppType, createOmnaraClient, type JsonBody, schemas } from '@omnara/sdk'
+import {
+  type AppLauncher,
+  type AppType,
+  createOmnaraClient,
+  type JsonBody,
+  schemas,
+} from '@omnara/sdk'
 import { expect, it, vi } from 'vitest'
 import * as z from 'zod'
 
@@ -40,18 +46,20 @@ it.each(['slack_thread', 'discord_thread'] as const)(
   'edits %s profile choices without touching credentials or existing-agent slots',
   async (appType) => {
     const second = `aprf_${'b'.repeat(26)}`
+    const launcher: AppLauncher = {
+      trigger: 'mention',
+      slots: [
+        { key: 'original', agent_profile_id: id('aprf') },
+        { key: 'continue', agent_id: id('agt') },
+      ],
+    }
+    if (appType === 'slack_thread') {
+      launcher.scope_kind = 'workspace'
+      launcher.scope_ref = 'T123'
+    }
     const saved = {
       ...app(appType),
-      settings: {
-        launcher: {
-          trigger: 'mention',
-          ...(appType === 'slack_thread' ? { scope_kind: 'workspace', scope_ref: 'T123' } : {}),
-          slots: [
-            { key: 'original', agent_profile_id: id('aprf') },
-            { key: 'continue', agent_id: id('agt') },
-          ],
-        },
-      },
+      settings: { launcher },
     }
     const requests: Request[] = []
     const client = createOmnaraClient({

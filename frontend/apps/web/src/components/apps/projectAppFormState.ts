@@ -33,9 +33,14 @@ export function projectAppFormValues(appType: AppType, app?: ProjectApp): Projec
     ],
     scopeKind:
       launcher?.scope_kind ??
-      (appType === 'slack_thread' ? 'workspace' : appType === 'github_pr' ? 'repository' : ''),
+      (appType === 'slack_thread' ? 'workspace' : appType === 'github_pr' ? 'installation' : ''),
     scopeRef:
-      launcher?.scope_ref ?? (appType === 'slack_thread' ? (app?.provider_tenant_id ?? '') : ''),
+      launcher?.scope_ref ??
+      (appType === 'slack_thread'
+        ? (app?.provider_tenant_id ?? '')
+        : appType === 'github_pr'
+          ? (app?.provider_account_ref ?? '')
+          : ''),
     trigger: launcher?.trigger ?? (appType === 'github_pr' ? 'pull_request_opened' : 'mention'),
   }
 }
@@ -89,7 +94,7 @@ export function projectAppFormRequest(
       name,
       profileIds: values.profileIds,
       scopeKind: z
-        .enum(['workspace', 'channel', 'repository'])
+        .enum(['workspace', 'channel', 'repository', 'installation'])
         .optional()
         .parse(scopeKind || undefined),
       scopeRef,

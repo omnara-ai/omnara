@@ -28,6 +28,7 @@ type Definition struct {
 	Tools              []string
 	Subscriptions      map[string]SubscriptionDefinition
 	InteractionHandler *InteractionHandlerDefinition
+	Schedule           *ScheduleDefinition
 }
 
 // All returns the installed app implementations in stable catalog order.
@@ -52,6 +53,7 @@ func Lookup(id Type) (Definition, bool) {
 				"thread_messages": {Name: "thread_messages", Provider: ProviderSlack, Events: []string{"message"}},
 			},
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
+			Schedule:           slackThreadSchedule,
 		}
 	case DiscordThread:
 		d = Definition{
@@ -62,6 +64,7 @@ func Lookup(id Type) (Definition, bool) {
 				"thread_messages": {Name: "thread_messages", Provider: ProviderDiscord, Events: []string{"message"}},
 			},
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
+			Schedule:           discordThreadSchedule,
 		}
 	case GitHubPR:
 		d = Definition{

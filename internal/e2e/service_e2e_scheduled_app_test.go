@@ -61,14 +61,12 @@ tools:
 		map[string]any{"source_format": "yaml", "source": source}, "", project.adminToken, http.StatusCreated)
 	profile := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/agent-profiles",
 		map[string]any{"name": "Scheduled Slack", "config": config["id"]}, "", project.adminToken, http.StatusCreated)
-	target := map[string]any{
-		"type": "app_launch", "app_id": appID, "agent_profile_id": profile["id"],
-		"destination":              map[string]any{"channel_id": "C123"},
-		"opening_message_template": "Daily update — {{.trigger.local_date}}",
-	}
+	target := map[string]any{"type": "app", "app_id": appID, "settings": map[string]any{
+		"agent_profile_id": profile["id"], "channel_id": "C123", "opening_message_template": "Daily update — {{.trigger.local_date}}", "message_template": "Prepare the update for {{.trigger.local_date}}.",
+	}}
 	trigger := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/cron-triggers", map[string]any{
 		"name": "daily-update", "cron": "0 0 1 1 *", "timezone": "America/Los_Angeles",
-		"message_template": "Prepare the update for {{.trigger.local_date}}.", "target": target,
+		"target": target,
 	}, "scheduled-app", project.adminToken, http.StatusCreated)
 	require.Equal(t, target, trigger["target"])
 	triggerID := mustDecodeServiceE2EPublicID(t, publicid.KindCronTrigger,
@@ -257,11 +255,13 @@ tools:
 		require.NotEqual(t, previousReceipt, receiptID)
 		receipt, err := store.Integrations().GetIntegrationInbox(ctx, projectID, receiptID)
 		require.NoError(t, err)
-		launch, err := receipt.ScheduledLaunch()
+		event, err := receipt.ScheduledEvent()
+		require.NoError(t, err)
+		launch, err := appdefinition.PrepareThreadSchedule(appdefinition.SlackThread, event.Settings, event.Occurrence)
 		require.NoError(t, err)
 		require.Equal(t, "Daily update — "+dates[i], launch.OpeningMessage)
 		require.Equal(t, "Prepare the update for "+dates[i]+".", launch.Message)
-		require.True(t, dueAt.Equal(launch.DueAt))
+		require.True(t, dueAt.Equal(event.Occurrence.DueAt))
 		if i == 0 {
 			require.Equal(t, integrationstore.IntegrationInboxPending, receipt.State)
 			startServiceSlackWorkers(t, ctx, store, client, log)

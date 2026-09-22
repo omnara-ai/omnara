@@ -2973,6 +2973,120 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: appID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectAppID'
+    post:
+      operationId: createProjectAppGitHubSetup
+      tags: [Integrations]
+      summary: Start registration of a customer-owned GitHub App
+      description: >-
+        Starts guided registration on github.com for a never-connected GitHub app. Requires a browser session and project management access. Submit manifest as a JSON-encoded form field to registration_url. The callback saves a project credential secret and redirects to the canonical app page with github_setup=credentials_saved and credentials_secret_ref (a public secret ID). It does not connect an installation or change launcher settings.
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGitHubSetupRequest'
+      responses:
+        '201':
+          description: GitHub setup information verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSetup'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup/installations:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^org_[a-z2-7]{26}$'
+      - name: projectID
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^proj_[a-z2-7]{26}$'
+      - name: appID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProjectAppID'
+    post:
+      operationId: inspectProjectAppGitHubInstallations
+      tags: [Integrations]
+      summary: Inspect installations of a customer-owned GitHub App
+      description: >-
+        Verifies the supplied project-available GitHub credential secret using App authentication and returns one bounded page of installations. Requires a browser session and project management access. Inspection does not connect or change this app. Explicit confirmation uses ConfigureProjectApp with the returned provider_app_id, selected installation ID, credential secret ID and current expected setup revision. A saved secret remains usable while organization approval is pending; there is no expiring continuation. Guided links support github.com only.
+      security:
+        - browserSessionCookie: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectGitHubInstallationsRequest'
+      responses:
+        '200':
+          description: GitHub setup information verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubInstallations'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/projects/{projectID}/cron-triggers:
     parameters:
       - name: orgID
@@ -8767,6 +8881,98 @@ components:
           format: uri
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    CreateGitHubSetupRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_setup_revision]
+      properties:
+        expected_setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+        app_name:
+          type: string
+          minLength: 1
+          maxLength: 34
+          description: Initial GitHub App name suggestion. Defaults to the saved Omnara app name; GitHub may change it during registration.
+        organization:
+          type: string
+          minLength: 1
+          maxLength: 39
+          pattern: '^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$'
+          description: GitHub organization login. Omit to register under a personal account.
+    GitHubSetup:
+      type: object
+      additionalProperties: false
+      required: [app_id, setup_revision, registration_url, manifest, expires_at]
+      properties:
+        app_id:
+          $ref: '#/components/schemas/ProjectAppID'
+        setup_revision:
+          type: integer
+          x-go-type: int64
+          minimum: 1
+        registration_url:
+          type: string
+          format: uri
+        manifest:
+          type: object
+          additionalProperties: true
+          description: Server-authored GitHub App manifest. Serialize this object to the manifest form field when posting to registration_url.
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    InspectGitHubInstallationsRequest:
+      type: object
+      additionalProperties: false
+      required: [credentials_secret_ref]
+      properties:
+        credentials_secret_ref:
+          $ref: '#/components/schemas/SecretID'
+        page:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 1
+    GitHubInstallations:
+      type: object
+      additionalProperties: false
+      required: [provider_app_id, name, slug, install_url, installations]
+      properties:
+        provider_app_id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        name:
+          type: string
+        slug:
+          type: string
+        install_url:
+          type: string
+          format: uri
+          description: Verified GitHub App installation URL. Its state may carry the public credential secret ID as a recovery hint, never credentials or authorization.
+        installations:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitHubSetupInstallation'
+        next_page:
+          type: integer
+          minimum: 1
+          maximum: 1000
+    GitHubSetupInstallation:
+      type: object
+      additionalProperties: false
+      required: [id, account, settings_url]
+      properties:
+        id:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        account:
+          type: string
+          description: Provider-verified installation account login.
+        account_type:
+          type: string
+        settings_url:
+          type: string
+          format: uri
     CreateSlackSetupRequest:
       type: object
       additionalProperties: false
@@ -9369,54 +9575,35 @@ components:
           enum: [profile]
         agent_profile_id:
           $ref: '#/components/schemas/AgentProfileID'
-    AppLaunchCronTriggerTarget:
+    AppCronTriggerTarget:
       type: object
       additionalProperties: false
-      required: [type, app_id, agent_profile_id, destination, opening_message_template]
+      required: [type, app_id, settings]
       properties:
         type:
           type: string
-          enum: [app_launch]
-          x-enum-varnames: [AppLaunchCronTriggerTargetTypeAppLaunch]
+          enum: [app]
+          x-enum-varnames: [AppCronTriggerTargetTypeApp]
         app_id:
           $ref: '#/components/schemas/ProjectAppID'
-        agent_profile_id:
-          $ref: '#/components/schemas/AgentProfileID'
-        destination:
+        settings:
           type: object
-          additionalProperties: false
-          required: [channel_id]
+          additionalProperties: true
           description: >-
-            Parent destination for a new thread on a built-in Slack or Discord app.
-            Slack requires a C/G channel ID; direct messages and existing threads are not supported.
-            Discord requires a text or announcement channel; guild_id is optional.
-          properties:
-            channel_id:
-              type: string
-              minLength: 1
-            guild_id:
-              type: string
-              minLength: 1
-        opening_message_template:
-          type: string
-          minLength: 1
-          maxLength: 2000
-          x-omnara-max-length-unit: codepoints
-          description: >-
-            Go text/template for the parent heading, using the same trigger values as message_template.
-            Both the source and rendered heading must contain at most 2000 Unicode codepoints.
-            The heading is published before agent launch; the agent's report is a reply in its new thread.
+            Settings validated by the target app's published schedule input schema.
+            Each accepted occurrence retains its own copy. App resource references
+            are resolved when the app handles the occurrence.
     CronTriggerTarget:
       oneOf:
         - $ref: '#/components/schemas/AgentCronTriggerTarget'
         - $ref: '#/components/schemas/AgentProfileCronTriggerTarget'
-        - $ref: '#/components/schemas/AppLaunchCronTriggerTarget'
+        - $ref: '#/components/schemas/AppCronTriggerTarget'
       discriminator:
         propertyName: type
         mapping:
           agent: '#/components/schemas/AgentCronTriggerTarget'
           profile: '#/components/schemas/AgentProfileCronTriggerTarget'
-          app_launch: '#/components/schemas/AppLaunchCronTriggerTarget'
+          app: '#/components/schemas/AppCronTriggerTarget'
     CronExpression:
       type: string
       description: >-
@@ -9435,7 +9622,7 @@ components:
         Go text/template rendered on each firing to produce the message sent to the target. The
         template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields.
         Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone.
-        For app launches this is the agent task, snapshotted at durable handoff.
+        Required for agent and profile targets; omitted for app targets, which use their own settings.
         Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf`
         width and precision specifiers are capped at 1024; a firing whose template fails to
         render is recorded in `failure_report` without sending a message.
@@ -9462,7 +9649,7 @@ components:
     CreateCronTriggerRequest:
       type: object
       additionalProperties: false
-      required: [name, target, cron, message_template]
+      required: [name, target, cron]
       properties:
         name:
           $ref: '#/components/schemas/ResourceName'
@@ -9483,7 +9670,7 @@ components:
       properties:
         target:
           $ref: '#/components/schemas/CronTriggerTarget'
-          description: Updates target options. The target type, app, and profile identities cannot change. App destination and opening heading can change for future handoffs. Omitted delivery_mode preserves the current mode.
+          description: Updates target options. The target type and ID cannot change. App settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
         name:
           $ref: '#/components/schemas/ResourceName'
         cron:
@@ -9496,13 +9683,11 @@ components:
           type: boolean
     CronTriggerLastRunState:
       type: string
-      enum: [queued, preparing, launched, failed, discarded]
-      x-enum-varnames: [CronTriggerLastRunStateQueued, CronTriggerLastRunStatePreparing, CronTriggerLastRunStateLaunched, CronTriggerLastRunStateFailed, CronTriggerLastRunStateDiscarded]
+      enum: [queued, processing, completed, failed, discarded]
+      x-enum-varnames: [CronTriggerLastRunStateQueued, CronTriggerLastRunStateProcessing, CronTriggerLastRunStateCompleted, CronTriggerLastRunStateFailed, CronTriggerLastRunStateDiscarded]
       description: >-
-        State of the latest accepted scheduled app launch: queued while waiting to start,
-        preparing while creating its thread and agent, launched once the agent has started,
-        failed if the launch could not complete, or discarded if an operator discarded the failed work.
-        Launched does not indicate task completion or report delivery.
+        State of the latest accepted scheduled app action. Completed means the app handled
+        the occurrence; it does not indicate completion of any agent task that action started.
     CronTriggerLastRun:
       type: object
       additionalProperties: false
@@ -9516,11 +9701,11 @@ components:
           $ref: '#/components/schemas/Timestamp'
         failure_message:
           type: [string, "null"]
-          description: Coarse launch failure description; no raw provider errors.
+          description: Coarse scheduled action failure description; no raw provider errors.
     CronTrigger:
       type: object
       additionalProperties: false
-      required: [id, org_id, project_id, name, target, cron, timezone, message_template, enabled, last_fired_at, next_fire_at, failure_report, last_run, created_at, updated_at]
+      required: [id, org_id, project_id, name, target, cron, timezone, enabled, last_fired_at, next_fire_at, failure_report, last_run, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/CronTriggerID'
@@ -9544,7 +9729,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
             - type: "null"
-          description: When the trigger last fired, or null if it has never fired. For app launches this means durable inbox handoff.
+          description: When the trigger last fired, or null if it has never fired. For app targets this means durable inbox handoff.
         next_fire_at:
           oneOf:
             - $ref: '#/components/schemas/Timestamp'
@@ -13676,6 +13861,8 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/AppSubscriptionDefinition'
         interaction_handler:
+          $ref: '#/components/schemas/AppCapabilityDefinition'
+        schedule:
           $ref: '#/components/schemas/AppCapabilityDefinition'
     AppDefinition:
       type: object

@@ -84,7 +84,7 @@ in-flight setup through the new app page after cutover.
 App actors use `provider: app`; legacy Slack actor attribution is preserved.
 The released `Agent.integration_target.provider` remains transport-valued
 (`slack`, `discord` or `github`). Secrets add `github_app_credentials`.
-Cron trigger responses can now include an `app_launch` target. Update clients
+Cron trigger responses can now include an `app` target with app-defined `settings`. Update clients
 that validate or switch on cron target types before creating app schedules.
 
 ## Prepare and rehearse

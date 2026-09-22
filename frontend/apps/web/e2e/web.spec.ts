@@ -2,6 +2,7 @@ import { schemas } from '@omnara/sdk'
 import { type Cookie, expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
+import { exerciseGuidedGitHubSetup } from './app-github'
 import { exerciseDiscordAppSchedule } from './app-schedules'
 import { exerciseSlackAppSetup } from './app-slack'
 import { exerciseAppConversations, stopDisconnectedConversation } from './app-subscriptions'
@@ -633,7 +634,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
       })
       await expect(launcher).not.toBeChecked()
       await launcher.check()
-      await launch.getByRole('combobox', { name: 'Offered profiles', exact: true }).click()
+      await launch.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
     } else {
       await expect(launch.getByRole('checkbox')).toHaveCount(0)
       await expect(launch.getByLabel('Server ID', { exact: true })).toHaveCount(0)
@@ -652,7 +653,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
       ).toBeVisible()
     }
     if (appType === 'github_pr')
-      await launch.getByLabel('Repository ID', { exact: true }).fill('333')
+      await expect(launch.getByLabel('Repository ID', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
     const savedLauncher = page.waitForResponse(
       (response) =>
@@ -665,10 +666,11 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
       { key: 'default', agent_profile_id: profileId },
     ])
     expect(launched.settings.launcher?.scope_kind).toBe(
-      appType === 'github_pr' ? 'repository' : undefined,
+      appType === 'github_pr' ? 'installation' : undefined,
     )
     if (appType === 'discord_thread')
       expect(launched.settings.launcher).not.toHaveProperty('scope_ref')
+    else expect(launched.settings.launcher?.scope_ref).toBe(app.provider_account_ref)
     expect(launched.setup_revision).toBe(app.setup_revision)
     await expect(page).toHaveURL(appPath)
     await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()
@@ -834,4 +836,12 @@ test('project viewers can browse apps but cannot open app setup', async ({ page 
   await expect(page.getByRole('alert')).toContainText('You don’t have permission to manage apps')
   await expect(page.getByRole('button', { name: 'Create and connect', exact: true })).toHaveCount(0)
   expect(failures).toEqual([])
+})
+
+test('guides customer-owned GitHub registration and installation without live provider calls', async ({
+  page,
+}) => {
+  test.setTimeout(60_000)
+  await signIn(page, adminEmail, `/projects/${projectID}/apps`)
+  await exerciseGuidedGitHubSetup(page, projectID)
 })
