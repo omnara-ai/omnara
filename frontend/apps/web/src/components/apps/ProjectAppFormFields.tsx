@@ -10,7 +10,7 @@ const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-
 const launcherScopeKinds: Record<AppType, readonly string[]> = {
   slack_thread: ['workspace', 'channel'],
   github_pr: ['repository'],
-  discord_thread: ['channel'],
+  discord_thread: ['guild', 'channel'],
 }
 
 interface LauncherFieldsProps {
@@ -51,11 +51,12 @@ export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
         </>
       ) : (
         <FieldDescription>
-          Mentions start an agent using the profiles below. Leave the selection empty to use only
-          schedules. Existing conversations continue unchanged.
+          Choose where mentions start agents and which profiles people can use. Leave the profiles
+          empty to use schedules only. Each schedule has its own profile and destination channel.
+          Existing conversations continue unchanged.
           {props.app?.settings.launcher &&
             props.slotCount === 0 &&
-            ' Saving removes the mention launcher and its channel selection.'}
+            ' Saving removes the mention launcher.'}
         </FieldDescription>
       )}
       {(appType !== 'github_pr' || values.launcher) && (
@@ -63,16 +64,14 @@ export function ProjectAppLauncherFields(props: LauncherFieldsProps) {
           {appType === 'github_pr' && (
             <GitHubLaunchTrigger value={values.trigger} onChange={onChange} />
           )}
+          <ProjectAppLauncherScopeFields
+            appType={appType}
+            app={props.app}
+            values={values}
+            onChange={onChange}
+            workspaceId={props.workspaceId}
+          />
           <ProjectAppLaunchProfiles {...props} />
-          {(values.profileIds.length > 0 || props.slotCount !== 0) && (
-            <ProjectAppLauncherScopeFields
-              appType={appType}
-              app={props.app}
-              values={values}
-              onChange={onChange}
-              workspaceId={props.workspaceId}
-            />
-          )}
         </>
       )}
     </Field>
@@ -125,12 +124,12 @@ function ProjectAppLauncherScopeFields({
   const launcher = app?.settings.launcher
   return (
     <>
-      {appType === 'slack_thread' && (
+      {appType !== 'github_pr' && (
         <Field>
-          <FieldLabel htmlFor="app-launch-scope">Launch in</FieldLabel>
+          <FieldLabel htmlFor="app-launch-scope">Respond to mentions in</FieldLabel>
           <select
             id="app-launch-scope"
-            aria-label="Launch in"
+            aria-label="Respond to mentions in"
             className={selectClass}
             value={values.scopeKind}
             onChange={(event) => {
@@ -146,7 +145,11 @@ function ProjectAppLauncherScopeFields({
               })
             }}
           >
-            <option value="workspace">Connected workspace</option>
+            {appType === 'slack_thread' ? (
+              <option value="workspace">Connected workspace</option>
+            ) : (
+              <option value="guild">Entire server</option>
+            )}
             <option value="channel">One channel</option>
           </select>
         </Field>
@@ -159,7 +162,11 @@ function ProjectAppLauncherScopeFields({
       ) : (
         <Field>
           <FieldLabel htmlFor="launcher-scope">
-            {appType === 'github_pr' ? 'Repository ID' : 'Channel ID'}
+            {appType === 'github_pr'
+              ? 'Repository ID'
+              : values.scopeKind === 'guild'
+                ? 'Server ID'
+                : 'Channel ID'}
           </FieldLabel>
           <Input
             id="launcher-scope"
@@ -168,13 +175,13 @@ function ProjectAppLauncherScopeFields({
             onChange={(event) => {
               onChange({ scopeRef: event.target.value })
             }}
-            pattern={appType === 'slack_thread' ? '[CG][A-Z0-9]+' : '[1-9][0-9]*'}
-            required
           />
           <FieldDescription>
             {appType === 'github_pr'
               ? 'Use the numeric repository ID, not owner/repository.'
-              : 'The bot must have access to this channel.'}
+              : values.scopeKind === 'guild'
+                ? 'In Discord, enable User Settings → Advanced → Developer Mode, then right-click your server and choose Copy Server ID. Mentions work wherever the bot has access; manage channel permissions in Discord.'
+                : 'The bot must have access to this channel.'}
           </FieldDescription>
         </Field>
       )}
@@ -212,6 +219,7 @@ function ProjectAppLaunchProfiles({
           onChange({ profileIds: profiles.map((profile) => profile.id) })
         }}
         single={appType === 'github_pr'}
+        label={appType === 'github_pr' ? 'Offered profiles' : 'Profiles for mentions'}
         disabled={disabled}
         slotCount={slotCount}
       />

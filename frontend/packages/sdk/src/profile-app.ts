@@ -38,7 +38,7 @@ export function profileAppSetup(input: {
   /** Defaults to true; use false to create a metadata-only draft. */
   launcher?: boolean
   scopeRef?: string
-  scopeKind?: 'workspace' | 'channel' | 'repository'
+  scopeKind?: 'workspace' | 'channel' | 'repository' | 'guild'
   trigger?: 'mention' | 'pull_request_opened'
 }): SaveProjectAppRequest {
   const { appType } = input
@@ -88,7 +88,7 @@ export function profileAppLauncherScope(input: {
         ? ['workspace', 'channel']
         : appType === 'github_pr'
           ? ['repository']
-          : ['channel']
+          : ['guild', 'channel']
     ).includes(scopeKind)
   ) {
     throw new Error('The launcher scope does not belong to this app type.')

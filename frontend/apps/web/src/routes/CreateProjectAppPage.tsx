@@ -122,7 +122,7 @@ export function ProjectAppCreateSetup({
         >
           <p role="status" className="text-sm">
             {appType === 'discord_thread'
-              ? 'Account connected. Finish setup in Discord below, then choose your agent profiles.'
+              ? 'Account connected. Finish setup in Discord below, then set up mentions. You can add schedules on the app page.'
               : 'Account connected. Choose which agents this app can start. Connection details remain available on the app page.'}
           </p>
           {savedApp.app_type === 'discord_thread' && (
@@ -133,7 +133,7 @@ export function ProjectAppCreateSetup({
             />
           )}
           {savedApp.app_type === 'discord_thread' && (
-            <h2 className="pt-3 text-sm font-medium">4. Choose agent profiles</h2>
+            <h2 className="pt-3 text-sm font-medium">4. Set up mentions</h2>
           )}
           <ProjectAppForm
             orgId={orgId}

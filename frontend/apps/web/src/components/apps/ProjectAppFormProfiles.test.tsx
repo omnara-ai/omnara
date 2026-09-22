@@ -172,7 +172,7 @@ it('keeps off-page and existing-agent slots and retries a failed profile save', 
   act(() => {
     button('Remove Support').click()
   })
-  await enter('Offered profiles', 'Triage')
+  await enter('Profiles for mentions', 'Triage')
   await chooseProfile('Triage')
   expect(button('Remove Reviews')).toBeDefined()
   await submit()
@@ -301,7 +301,7 @@ it.each([1, 15])(
       settings: {
         launcher: {
           trigger: 'mention',
-          scope_kind: 'channel',
+          scope_kind: existingCount === 1 ? 'channel' : 'guild',
           scope_ref: '333',
           slots: [
             { key: 'original', agent_profile_id: support.id },
@@ -442,7 +442,9 @@ it.each(['saved channel', 'new launcher'] as const)(
     )
     function selectScope(value: string) {
       act(() => {
-        const select = container.querySelector<HTMLSelectElement>('select[aria-label="Launch in"]')
+        const select = container.querySelector<HTMLSelectElement>(
+          'select[aria-label="Respond to mentions in"]',
+        )
         if (!select) throw new Error('Missing launcher scope selector')
         select.value = value
         select.dispatchEvent(new Event('change', { bubbles: true }))

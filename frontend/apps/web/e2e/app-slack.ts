@@ -103,7 +103,7 @@ export async function exerciseSlackAppSetup(
   fixture.complete()
   const mentions = page.getByRole('region', { name: 'Mentions', exact: true })
   await expect(
-    mentions.getByRole('combobox', { name: 'Offered profiles', exact: true }),
+    mentions.getByRole('combobox', { name: 'Profiles for mentions', exact: true }),
   ).toBeVisible()
   await expect(page).toHaveURL(`/projects/${projectID}/apps/new/slack_thread`)
   await expect(page.getByRole('dialog')).toHaveCount(0)

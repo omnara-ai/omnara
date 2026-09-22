@@ -59,7 +59,9 @@ function launchMoment(launcher: AppLauncher) {
   const where =
     launcher.scope_kind === 'workspace'
       ? 'anywhere it has been added in the workspace'
-      : `in ${launcher.scope_kind} ${launcher.scope_ref}`
+      : launcher.scope_kind === 'guild'
+        ? `anywhere it has access in server ${launcher.scope_ref}`
+        : `in ${launcher.scope_kind} ${launcher.scope_ref}`
   if (launcher.trigger === 'pull_request_opened') return `When a pull request opens ${where}`
   return launcher.scope_kind === 'repository'
     ? `When someone mentions the bot on a pull request ${where}`

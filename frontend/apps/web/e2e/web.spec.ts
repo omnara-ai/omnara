@@ -634,20 +634,31 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
       await expect(launcher).not.toBeChecked()
       await launcher.check()
       await launch.getByRole('combobox', { name: 'Offered profiles', exact: true }).click()
-    } else await expect(launch.getByRole('checkbox')).toHaveCount(0)
+    } else {
+      await expect(launch.getByRole('checkbox')).toHaveCount(0)
+      await expect(launch.getByLabel('Server ID', { exact: true })).toBeVisible()
+      await expect(launch.getByLabel('Channel ID', { exact: true })).toHaveCount(0)
+      await expect(launch.getByLabel('Respond to mentions in', { exact: true })).toHaveValue(
+        'guild',
+      )
+    }
     await page
       .getByPlaceholder(
         appType === 'github_pr' ? 'Choose an agent profile…' : 'Search agent profiles…',
       )
       .fill(profileName)
     await page.getByRole('option', { name: profileName, exact: true }).click()
-    if (appType === 'discord_thread')
+    if (appType === 'discord_thread') {
       await expect(
         page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
       ).toBeVisible()
-    // Scope appears after selecting a profile. Filling it also leaves the chooser.
+      await expect(launch.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+      await launch.getByLabel('Server ID', { exact: true }).fill('invalid-server')
+      await expect(launch.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
+    }
+    // Filling the destination also leaves the profile chooser.
     await launch
-      .getByLabel(appType === 'github_pr' ? 'Repository ID' : 'Channel ID', { exact: true })
+      .getByLabel(appType === 'github_pr' ? 'Repository ID' : 'Server ID', { exact: true })
       .fill('333')
     await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
     const savedLauncher = page.waitForResponse(
@@ -660,6 +671,9 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     expect(launched.settings.launcher?.slots).toEqual([
       { key: 'default', agent_profile_id: profileId },
     ])
+    expect(launched.settings.launcher?.scope_kind).toBe(
+      appType === 'github_pr' ? 'repository' : 'guild',
+    )
     expect(launched.setup_revision).toBe(app.setup_revision)
     await expect(page).toHaveURL(appPath)
     await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()
@@ -668,7 +682,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     await launch.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(launch.getByLabel('App name', { exact: true })).toHaveCount(0)
     if (appType === 'github_pr') await page.getByLabel('Launch when').selectOption('mention')
-    else await page.getByLabel('Channel ID', { exact: true }).fill('334')
+    else await page.getByLabel('Server ID', { exact: true }).fill('334')
     const updated = page.waitForResponse(
       (response) =>
         response.request().method() === 'PUT' &&

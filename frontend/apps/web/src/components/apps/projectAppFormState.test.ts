@@ -93,22 +93,42 @@ describe('app metadata form', () => {
       ).settings,
     ).toEqual({})
   })
-  it('adds or removes only the launcher', () => {
-    const draft = { ...app, settings: {} }
-    const request = projectAppFormRequest(
-      'slack_thread',
-      { ...projectAppFormValues('slack_thread', draft), profileIds: [profileId] },
-      draft,
-    )
-    expect(request.settings).toEqual(app.settings)
-    expect(
-      projectAppFormRequest(
-        'slack_thread',
-        { ...projectAppFormValues('slack_thread', app), profileIds: [] },
-        app,
-      ).settings,
-    ).toEqual({})
-  })
+  it.each(['slack_thread', 'discord_thread'] as const)(
+    'adds or removes only the %s launcher',
+    (appType) => {
+      const draft = {
+        ...app,
+        app_type: appType,
+        settings: {},
+        provider_config: { public_key: 'ab'.repeat(32) },
+      }
+      const initial = projectAppFormValues(appType, draft)
+      expect(initial.scopeKind).toBe(appType === 'slack_thread' ? 'workspace' : 'guild')
+      expect(projectAppFormRequest(appType, initial, draft).settings).toEqual({})
+      const request = projectAppFormRequest(
+        appType,
+        {
+          ...initial,
+          scopeRef: appType === 'slack_thread' ? 'T123' : '333',
+          profileIds: [profileId],
+        },
+        draft,
+      )
+      expect(request.settings.launcher).toEqual({
+        ...app.settings.launcher,
+        scope_kind: initial.scopeKind,
+        scope_ref: appType === 'slack_thread' ? 'T123' : '333',
+      })
+      const saved = { ...draft, ...request }
+      expect(
+        projectAppFormRequest(
+          appType,
+          { ...projectAppFormValues(appType, saved), profileIds: [] },
+          saved,
+        ).settings,
+      ).toEqual({})
+    },
+  )
   it('retains a GitHub slot key when changing its profile', () => {
     const github = projectApp({
       app_type: 'github_pr',

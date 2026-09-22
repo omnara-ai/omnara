@@ -52,8 +52,13 @@ these independently configured apps.
 
 ## Launch from mentions
 
-Choose profiles and a channel scope in the app's settings. A mention in the
-parent channel creates or reuses the public thread attached to that message. A
+Choose a server and **Profiles for mentions** in the app's settings. By default,
+mentions work throughout that server wherever the bot has permission; control
+channel access in Discord. To copy the Server ID, enable **User Settings →
+Advanced → Developer Mode**, then right-click the server and choose **Copy Server ID**.
+You can optionally restrict launches to one channel in Omnara.
+
+A mention in a parent channel creates or reuses the public thread attached to that message. A
 mention already inside a thread uses that thread. One offered profile starts
 immediately; several profiles produce a menu and start only the selected profile.
 Anyone in the conversation can choose. The menu expires after an hour; send
@@ -70,7 +75,8 @@ An empty selection leaves schedules and existing conversations available.
 ## Scheduled threads
 
 Use **Add schedule** on the app page to post a template opening message and launch
-one profile in its new thread. The tools, reply subscription and interaction handler
+one profile in its new thread. Each schedule selects its own profile and destination
+channel, independently of mention settings. The tools, reply subscription and interaction handler
 are ready when the agent starts. Schedules can coexist with mention launches.
 See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
