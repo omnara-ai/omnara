@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
@@ -18,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 var errInvalidIntegrationAction = errors.New("invalid integration action")
@@ -211,46 +209,9 @@ func (s *Server) resolveIntegrationInteractionAction(
 		}
 		return nil, err
 	}
-	text := integrationActionResolvedText(existing, resolution)
+	text := integration.InteractionResolvedText(resolved)
 	s.dismissInteractionAsync(r.Context(), resolved)
 	return map[string]any{"ok": "resolved", "text": text}, nil
-}
-
-func integrationActionResolvedText(
-	existing executionstore.AgentInteractionRecord,
-	resolution interactionform.Resolution,
-) string {
-	switch existing.InteractionKind {
-	case executionstore.AgentInteractionKindPermission:
-		request, err := toolpermission.ParseRequest(existing.Request)
-		if err != nil {
-			return "Permission response recorded."
-		}
-		decision, err := toolpermission.Resolve(request, resolution)
-		if err != nil {
-			return "Permission response recorded."
-		}
-		text := "Permission denied"
-		if decision.Decision == toolpermission.DecisionAllow {
-			text = "Permission allowed"
-		}
-		if toolName := interactionToolName(existing.Request); toolName != "" {
-			return text + " for " + toolName + "."
-		}
-		return text + "."
-	case executionstore.AgentInteractionKindQuestion:
-		return "Answers recorded."
-	default:
-		return "Recorded."
-	}
-}
-
-func interactionToolName(request json.RawMessage) string {
-	value, err := toolpermission.ParseRequest(request)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(value.Authorization.ToolName)
 }
 
 type integrationInteractionResolutionResult struct {

@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 // InteractionPresenter mirrors core interactions. Handler authority is independent
@@ -412,6 +413,33 @@ func postSlackInteraction(
 	return "", errors.New("slack interaction retry limit reached")
 }
 
+// InteractionResolvedText describes the recorded response for chat confirmations.
+func InteractionResolvedText(record executionstore.AgentInteractionRecord) string {
+	switch record.InteractionKind {
+	case executionstore.AgentInteractionKindPermission:
+		request, err := toolpermission.ParseRequest(record.Request)
+		if err != nil {
+			return "Permission response recorded."
+		}
+		resolution, err := interactionform.ParseResolution(request.Form, record.Resolution)
+		if err != nil {
+			return "Permission response recorded."
+		}
+		decision, err := toolpermission.Resolve(request, resolution)
+		if err != nil {
+			return "Permission response recorded."
+		}
+		if decision.Decision == toolpermission.DecisionAllow {
+			return "Approved: " + request.Authorization.ToolName
+		}
+		return "Denied: " + request.Authorization.ToolName
+	case executionstore.AgentInteractionKindQuestion:
+		return "Answers recorded."
+	default:
+		return "Recorded."
+	}
+}
+
 func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore.AgentInteractionRecord) error {
 	if record.State == executionstore.AgentInteractionStateOpen || len(record.PresentationReceipt) == 0 {
 		return nil
@@ -442,7 +470,7 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 	check := func(ctx context.Context) error { return p.recheck(ctx, access, checkAuthority) }
 	text := "This interaction is closed."
 	if record.State == executionstore.AgentInteractionStateResolved {
-		text = "Response recorded."
+		text = InteractionResolvedText(record)
 	}
 	switch access.appSetup.Provider {
 	case appdefinition.ProviderSlack:

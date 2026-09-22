@@ -414,12 +414,12 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 	t.Parallel()
 	for _, provider := range []string{"slack", "discord"} {
 		for _, choice := range []struct {
-			kind, name string
-			index      int
+			kind, name, confirmation string
+			index                    int
 		}{
-			{"question", "yes", 0},
-			{"permission", "allow", toolpermission.AllowOptionIndex},
-			{"permission", "deny", toolpermission.DenyOptionIndex},
+			{"question", "yes", "Answers recorded.", 0},
+			{"permission", "allow", "Approved: run_command", toolpermission.AllowOptionIndex},
+			{"permission", "deny", "Denied: run_command", toolpermission.DenyOptionIndex},
 		} {
 			t.Run(provider+"/"+choice.kind+"/"+choice.name, func(t *testing.T) {
 				t.Parallel()
@@ -453,7 +453,9 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				)
 				require.NoError(t, err)
 				if provider == "slack" {
-					require.Equal(t, "resolved", f.slackRequest(t, false, slackChoice)["ok"])
+					response := f.slackRequest(t, false, slackChoice)
+					require.Equal(t, "resolved", response["ok"])
+					require.Equal(t, choice.confirmation, response["text"])
 				} else {
 					require.Equal(t, float64(6), f.discordRequest(t, action, false, false)["type"])
 				}
@@ -687,7 +689,7 @@ func TestSlackActionsResolvePermissionAsAppActor(t *testing.T) {
 		require.Equal(t, "C123", update["channel"])
 		require.Equal(t, "222.333", update["ts"])
 		require.Empty(t, update["blocks"])
-		require.Equal(t, "Response recorded.", update["text"])
+		require.Equal(t, "Approved: run_command", update["text"])
 	case <-time.After(3 * time.Second):
 		t.Fatal("confirmed prompt was not dismissed")
 	}
