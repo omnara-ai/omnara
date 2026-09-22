@@ -189,9 +189,7 @@ func (s *Store) resolvePoolMachineProvisioningConfig(
 	)
 }
 
-func (s *Store) ResolvePoolMachineTx(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
+func (s *Store) ResolvePoolMachine(
 	poolGrant dbsqlc.GetActiveProjectMachinePoolGrantForLaunchRow,
 	agentMachine agentconfig.RuntimeMachine,
 ) (ResolvedPoolMachine, error) {
@@ -213,11 +211,7 @@ func (s *Store) ResolvePoolMachineTx(
 	if err != nil {
 		return ResolvedPoolMachine{}, fmt.Errorf("project machine pool grant default_machine fields: %w", err)
 	}
-	machineEnv, err := resolveMachineEnvironmentTx(
-		ctx,
-		qtx,
-		poolGrant.OrgID,
-		poolGrant.ProjectID,
+	machineEnv, err := resolveMachineEnvironment(
 		poolDefaultEnvironment,
 		projectEnvironmentOverlay,
 	)
@@ -225,11 +219,7 @@ func (s *Store) ResolvePoolMachineTx(
 		return ResolvedPoolMachine{}, err
 	}
 	bindingEnvironmentOverlay := runtimeMachineEnvironmentOverlay(agentMachine)
-	if _, err := resolveMachineEnvironmentTx(
-		ctx,
-		qtx,
-		poolGrant.OrgID,
-		poolGrant.ProjectID,
+	if _, err := resolveMachineEnvironment(
 		machineEnv,
 		bindingEnvironmentOverlay,
 	); err != nil {
@@ -787,7 +777,10 @@ func (s *Store) resolveEnvironmentSecrets(
 		if !ok {
 			payload, err := s.readEnvironmentSecretPayload(ctx, orgID, projectID, secretID)
 			if err != nil {
-				if errors.Is(err, storeerr.ErrNotFound) || errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+				if errors.Is(err, storeerr.ErrNotFound) {
+					continue
+				}
+				if errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 					return nil, fmt.Errorf("%w: secret_env.%s: %w", storeerr.ErrPermanentEnvironment, envName, err)
 				}
 				return nil, fmt.Errorf("secret_env.%s: %w", envName, err)

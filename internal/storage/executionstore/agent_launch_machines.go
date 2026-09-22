@@ -85,7 +85,7 @@ func (s *Store) resolveLaunchMachineSourcesTx(
 	if err := lockLaunchMachineSourcesTx(ctx, tx, orgID, sources, nil); err != nil {
 		return err
 	}
-	return s.resolveLaunchExplicitMachineSourcesTx(ctx, qtx, orgID, projectID, sources)
+	return s.resolveLaunchExplicitMachineSourcesTx(ctx, qtx, projectID, sources)
 }
 
 func (s *Store) resolveLaunchPoolMachineSourcesTx(
@@ -133,9 +133,7 @@ func (s *Store) resolveLaunchPoolMachineSourcesTx(
 			}
 			return fmt.Errorf("load launch machine pool grant: %w", err)
 		}
-		resolved, err := s.ResolvePoolMachineTx(
-			ctx,
-			qtx,
+		resolved, err := s.ResolvePoolMachine(
 			poolGrant,
 			sources[index].Contract,
 		)
@@ -176,7 +174,7 @@ func lockLaunchMachineSourcesTx(
 func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	orgID, projectID uuid.UUID,
+	projectID uuid.UUID,
 	sources []launchMachineSource,
 ) error {
 	machineIDs := make([]uuid.UUID, 0, len(sources))
@@ -223,11 +221,7 @@ func (s *Store) resolveLaunchExplicitMachineSourcesTx(
 			return fmt.Errorf("machine_sources[%d] machine environment: %w", sources[index].Index, err)
 		}
 		environmentOverlay := runtimeMachineEnvironmentOverlay(sources[index].Contract)
-		if _, err := resolveMachineEnvironmentTx(
-			ctx,
-			qtx,
-			orgID,
-			projectID,
+		if _, err := resolveMachineEnvironment(
 			machineEnvironment,
 			environmentOverlay,
 		); err != nil {
