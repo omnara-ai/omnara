@@ -128,7 +128,7 @@ func TestDownloadArtifactProcessInput(t *testing.T) {
 		input.IOMode != processcmd.IOModePipe ||
 		input.Cwd != "" ||
 		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
-		input.TimeoutSeconds != 0 {
+		input.TimeoutSeconds != downloadArtifactProcessTimeoutSeconds {
 		t.Fatalf("download process input = %+v, want command %q", input, wantCommand)
 	}
 }
