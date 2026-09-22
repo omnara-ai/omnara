@@ -277,6 +277,7 @@ func (e *serviceE2EEnvironment) startWorker(
 		"OMNARA_DATABASE_URL=" + e.databaseURL,
 		"OMNARA_REDIS_URL=" + e.redisURL,
 		"OMNARA_PUBLIC_URL=" + workerPublicURL,
+		"OMNARA_MEMORY_DIR=" + filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_LOG_LEVEL=" + opts.LogLevel,

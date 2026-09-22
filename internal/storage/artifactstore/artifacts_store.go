@@ -11,9 +11,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -225,6 +227,33 @@ func (s *Store) GetArtifactBlob(
 		return nil, ArtifactRecord{}, fmt.Errorf("load artifact %s content: %w", record.ID, err)
 	}
 	return content, record, nil
+}
+
+func (s *Store) ListFiles(
+	ctx context.Context, agentID uuid.UUID, artifactID *uuid.UUID, pattern string, limit int,
+) ([]listing.FileEntry, error) {
+	rows, err := s.q.ListAgentArtifacts(ctx, dbsqlc.ListAgentArtifactsParams{
+		AgentID: agentID, ArtifactID: artifactID, Pattern: pattern, RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list artifact files: %w", err)
+	}
+	entries := make([]listing.FileEntry, 0, len(rows))
+	for _, row := range rows {
+		id, err := publicid.Encode(publicid.KindArtifact, row.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list artifact files: %w", err)
+		}
+		entry := listing.FileEntry{Path: "/artifacts/" + id, Type: listing.FileTypeFile, SizeBytes: row.SizeBytes}
+		if row.Filename != nil {
+			entry.Filename = *row.Filename
+		}
+		if row.Digest != nil {
+			entry.Digest = *row.Digest
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 func (s *Store) ListAgentArtifactsByIDs(

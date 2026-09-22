@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -36,13 +36,11 @@ func (s *Store) ListFiles(
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	q := dbsqlc.New(s.pool)
 	attachments, err := s.memories.LoadAgentAttachments(ctx, projectID, agentID)
 	if err != nil {
 		return listing.FileListResult{}, fmt.Errorf("load file listing scope: %w", err)
 	}
 	entries := make([]listing.FileEntry, 0, limit+1)
-	add := func(entry listing.FileEntry) { entries = append(entries, entry) }
 	truncated := false
 	prefix := pattern
 	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
@@ -55,7 +53,7 @@ func (s *Store) ListFiles(
 		return strings.HasPrefix(root, prefix) || strings.HasPrefix(prefix, root+"/")
 	}
 	if matcher.MatchString("/artifacts") {
-		add(listing.FileEntry{Path: "/artifacts", Type: "directory"})
+		entries = append(entries, listing.FileEntry{Path: "/artifacts", Type: listing.FileTypeDirectory})
 	}
 	if len(entries) <= limit && relevant("/artifacts") && descend {
 		var artifactID *uuid.UUID
@@ -65,30 +63,14 @@ func (s *Store) ListFiles(
 				artifactID = &id
 			}
 		}
-		rows, queryErr := q.ListAgentArtifacts(ctx, dbsqlc.ListAgentArtifactsParams{
-			AgentID: agentID, ArtifactID: artifactID,
-			Pattern: matcher.String(), RowLimit: int32(limit + 1 - len(entries)),
-		})
-		if queryErr != nil {
-			return listing.FileListResult{}, fmt.Errorf("list artifact files: %w", queryErr)
+		files, err := s.artifacts.ListFiles(ctx, agentID, artifactID, matcher.String(), limit+1-len(entries))
+		if err != nil {
+			return listing.FileListResult{}, err
 		}
-		for _, row := range rows {
-			id, encodeErr := publicid.Encode(publicid.KindArtifact, row.ID)
-			if encodeErr != nil {
-				return listing.FileListResult{}, fmt.Errorf("list artifact files: %w", encodeErr)
-			}
-			entry := listing.FileEntry{Path: "/artifacts/" + id, Type: "file", SizeBytes: row.SizeBytes}
-			if row.Filename != nil {
-				entry.Filename = *row.Filename
-			}
-			if row.Digest != nil {
-				entry.Digest = *row.Digest
-			}
-			add(entry)
-		}
+		entries = append(entries, files...)
 	}
 	if len(entries) <= limit && matcher.MatchString(memorystore.Root) {
-		add(listing.FileEntry{Path: memorystore.Root, Type: "directory"})
+		entries = append(entries, listing.FileEntry{Path: memorystore.Root, Type: listing.FileTypeDirectory})
 	}
 	if len(entries) <= limit && relevant(memorystore.Root) && descend {
 		result, err := s.memories.ListFiles(ctx, projectID, attachments, pattern, matcher, limit-len(entries))
@@ -107,7 +89,8 @@ func (s *Store) ListFiles(
 }
 
 func CompileFilePattern(pattern string) (*regexp.Regexp, error) {
-	if len(pattern) > memorystore.MaxPathBytes+73 || !strings.HasPrefix(pattern, "/") || !utf8.ValidString(pattern) {
+	const maxPatternBytes = len(memorystore.Root) + skills.MaxSkillNameChars + memorystore.MaxPathBytes + 2
+	if len(pattern) > maxPatternBytes || !strings.HasPrefix(pattern, "/") || !utf8.ValidString(pattern) {
 		return nil, errors.New("pattern must be an absolute path")
 	}
 	if strings.ContainsAny(pattern, "\\\x00") {
@@ -120,7 +103,9 @@ func CompileFilePattern(pattern string) (*regexp.Regexp, error) {
 		if part == "" || part == "." || part == ".." {
 			return nil, errors.New("invalid glob component")
 		}
-		out.WriteByte('/')
+		if i == 0 || parts[i-1] != "**" {
+			out.WriteByte('/')
+		}
 		if part == "**" {
 			if i == len(parts)-1 {
 				out.WriteString(".*")
@@ -140,6 +125,6 @@ func CompileFilePattern(pattern string) (*regexp.Regexp, error) {
 			}
 		}
 	}
-	expr := strings.ReplaceAll(out.String(), "(?:[^/]+/)*/", "(?:[^/]+/)*") + "$"
-	return regexp.Compile(expr)
+	out.WriteByte('$')
+	return regexp.Compile(out.String())
 }

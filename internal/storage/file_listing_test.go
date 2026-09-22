@@ -3,6 +3,9 @@ package storage
 import (
 	"strings"
 	"testing"
+
+	"github.com/omnara-ai/omnara/internal/skills"
+	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 )
 
 func TestCompileFilePatternDirectoryDepth(t *testing.T) {
@@ -15,6 +18,12 @@ func TestCompileFilePatternDirectoryDepth(t *testing.T) {
 		{"/memory/team/**/*.md", "/memory/team/a.md", true},
 		{"/memory/team/**/*.md", "/memory/team/deep/a.md", true},
 		{"/memory/team/**/*.md", "/memory/team/deep/a.txt", false},
+		{"/memory/team/**/**/?.md", "/memory/team/é.md", true},
+		{"/memory/team/**/**/?.md", "/memory/team/deep/nested/a.md", true},
+		{"/memory/team/**/**/?.md", "/memory/team/deep/ab.md", false},
+		{"/memory/team/**", "/memory/team/deep/a.md", true},
+		{"/memory/team/**", "/memory/team", false},
+		{"/**/**", "/memory/team/a.md", true},
 		{"/memory/team/*", "/memory/team", false},
 		{"/memory/team", "/memory/team", true},
 	} {
@@ -31,7 +40,7 @@ func TestCompileFilePatternDirectoryDepth(t *testing.T) {
 }
 
 func TestFilePatternMaximumMemoryPath(t *testing.T) {
-	pattern := "/memory/" + strings.Repeat("a", 64) + "/" + strings.Repeat("b", 1024)
+	pattern := memorystore.Root + "/" + strings.Repeat("a", skills.MaxSkillNameChars) + "/" + strings.Repeat("b", memorystore.MaxPathBytes)
 	matcher, err := CompileFilePattern(pattern)
 	if err != nil || !matcher.MatchString(pattern) {
 		t.Fatalf("maximum memory path: %v", err)

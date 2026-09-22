@@ -244,7 +244,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			t.Fatalf("artifact listing %s: %+v %v", pattern, result, listErr)
 		}
 		entry := result.Entries[0]
-		if entry.Type != "file" || entry.SizeBytes == nil || *entry.SizeBytes != 8 || entry.Digest == "" {
+		if entry.Type != listing.FileTypeFile || entry.SizeBytes == nil || *entry.SizeBytes != 8 || entry.Digest == "" {
 			t.Fatalf("artifact metadata: %+v", entry)
 		}
 	}
@@ -506,7 +506,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 			"weird[1]%_文.md", "folder.md/child.txt", "prefix/\U0001f600.md"},
 		"a-b": {"next.md"}, "z": {"last.md", "last.txt"}, "unattached": {"hidden.md"},
 	}
-	all := []listing.FileEntry{{Path: "/artifacts", Type: "directory"}, {Path: "/memory", Type: "directory"}}
+	all := []listing.FileEntry{{Path: "/artifacts", Type: listing.FileTypeDirectory}, {Path: "/memory", Type: listing.FileTypeDirectory}}
 	for _, name := range []string{"a", "a-b", "z", "unattached"} {
 		for _, path := range fixtures[name] {
 			if _, err := store.Memories().Write(ctx, memorystore.WriteInput{
@@ -530,16 +530,16 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 			}
 		}
 		root := "/memory/" + name
-		all = append(all, listing.FileEntry{Path: root, Type: "directory"})
-		children := make(map[string]string)
+		all = append(all, listing.FileEntry{Path: root, Type: listing.FileTypeDirectory})
+		children := make(map[string]listing.FileType)
 		if name == "a" {
-			children["empty"] = "directory"
+			children["empty"] = listing.FileTypeDirectory
 		}
 		for _, path := range fixtures[name] {
-			children[path] = "file"
+			children[path] = listing.FileTypeFile
 			parts := strings.Split(path, "/")
 			for n := 1; n < len(parts); n++ {
-				children[strings.Join(parts[:n], "/")] = "directory"
+				children[strings.Join(parts[:n], "/")] = listing.FileTypeDirectory
 			}
 		}
 		var paths []string
@@ -688,7 +688,7 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 				if entry.Path != want[i].Path || entry.Type != want[i].Type {
 					t.Fatalf("entry %d: got %+v, want %+v", i, entry, want[i])
 				}
-				if entry.Type == "file" && (entry.Digest != "" || entry.SizeBytes == nil) {
+				if entry.Type == listing.FileTypeFile && (entry.Digest != "" || entry.SizeBytes == nil) {
 					t.Fatalf("missing file metadata: %+v", entry)
 				}
 			}
@@ -755,7 +755,7 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 			}
 			for i, n := range test.matches {
 				entry := entries[i]
-				if entry.Path != artifactPaths[n] || entry.Filename != filenames[n] || entry.Type != "file" ||
+				if entry.Path != artifactPaths[n] || entry.Filename != filenames[n] || entry.Type != listing.FileTypeFile ||
 					entry.Digest != "test-digest" || entry.SizeBytes == nil || *entry.SizeBytes != 4 {
 					t.Fatalf("entry %d: %+v", i, entry)
 				}

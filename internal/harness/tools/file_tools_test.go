@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
@@ -243,19 +244,23 @@ func TestMemoryTransferProcessInput(t *testing.T) {
 }
 
 func TestMemoryUploadDigestValidation(t *testing.T) {
+	tool, ok, err := toolImplementationFor(toolcatalog.ToolNameUploadFile)
+	if err != nil || !ok {
+		t.Fatalf("upload_file registration: %v", err)
+	}
 	for _, expected := range []string{`""`, `null`, `"invalid"`, `123`, `"sha256:` + strings.Repeat("A", 64) + `"`} {
 		raw := json.RawMessage(`{"path":"/memory/team/file","source":"file","expected_digest":` + expected + `}`)
-		if err := validateUploadFileInput(raw); err == nil {
+		if err := tool.validateInput(raw); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
 	}
 	digest := "sha256:" + strings.Repeat("0", 64)
-	if err := validateUploadFileInput(
+	if err := tool.validateInput(
 		json.RawMessage(`{"path":"/memory/team/file","source":"file","expected_digest":"` + digest + `"}`),
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateUploadFileInput(
+	if err := tool.validateInput(
 		json.RawMessage(`{"path":"/artifacts","source":"file","expected_digest":"` + digest + `"}`),
 	); err == nil {
 		t.Fatal("artifact accepted digest precondition")

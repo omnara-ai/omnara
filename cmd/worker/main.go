@@ -20,6 +20,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/metrics"
@@ -133,7 +134,7 @@ func main() {
 	defer func() { _ = memoryFS.Close() }()
 	storeOpts = append(storeOpts, storage.WithMemoryFilesystem(memoryFS))
 	if err := tools.CheckFileToolSupport(ctx); err != nil {
-		log.Warn("file search or scripted edits may be unavailable", "error", err)
+		logent.WorkerFileToolsUnavailable(logpkg.WithLogger(ctx, log), err)
 	}
 	store := storage.NewStore(db, storeOpts...)
 	healthErr := metrics.Serve(

@@ -24,7 +24,7 @@ import (
 const fileTransferProcessTimeoutSeconds = 30
 
 type uploadFileRequest struct {
-	ExpectedDigest json.RawMessage `json:"expected_digest,omitempty"`
+	ExpectedDigest *string         `json:"expected_digest,omitempty"`
 	Path           string          `json:"path"`
 	Source         string          `json:"source"`
 	MachineID      json.RawMessage `json:"machine_id,omitempty"`
@@ -64,16 +64,12 @@ func resolveUploadFileRequest(raw json.RawMessage) (resolvedUploadFileRequest, e
 		if _, _, err := memorystore.ParsePath(input.Path); err != nil {
 			return resolvedUploadFileRequest{}, err
 		}
-		if len(input.ExpectedDigest) != 0 {
-			var digest string
-			if err := json.Unmarshal(input.ExpectedDigest, &digest); err != nil {
-				return resolvedUploadFileRequest{}, err
-			}
-			if err := daemonprotocol.ValidateFileDigest(digest); err != nil {
+		if input.ExpectedDigest != nil {
+			if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
 				return resolvedUploadFileRequest{}, err
 			}
 		}
-	} else if len(input.ExpectedDigest) != 0 {
+	} else if input.ExpectedDigest != nil {
 		return resolvedUploadFileRequest{}, errors.New("expected_digest only applies to memory")
 	}
 	if !isMemory && input.Path != toolcatalog.ArtifactVFSRoot {

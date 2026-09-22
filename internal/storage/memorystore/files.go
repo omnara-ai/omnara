@@ -118,7 +118,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	}
 	defer func() {
 		if err := s.files.Discard(staged); err != nil {
-			logent.MemoryCleanupFailed(ctx, "discard_staged_file", input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err)
+			logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDiscardStagedFile, input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err)
 		}
 	}()
 	result := WriteResult{Path: Root + "/" + ref.Name + "/" + input.Path, Digest: blobstore.ContentDigest(input.Content)}
@@ -178,38 +178,43 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		if input.ExpectedDigest != nil {
 			return WriteResult{}, fmt.Errorf("memory file does not exist: %w", &storeerr.FileContentConflictError{})
 		}
-		limits, err := resourceguard.ResolveLimits(ctx, q, input.Scope.OrgID)
-		if err != nil {
+		if err := checkFileCapacity(ctx, q, input.Scope.OrgID, root); err != nil {
 			return WriteResult{}, err
-		}
-		if limits.MaxMemoriesPerStore <= 0 {
-			return WriteResult{}, fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
-		}
-		if root != nil {
-			var count int64
-			if err := fs.WalkDir(root.FS(), ".", func(_ string, entry fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-				if entry.Type().IsRegular() {
-					count++
-				}
-				if count >= limits.MaxMemoriesPerStore {
-					return fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
-				}
-				return nil
-			}); err != nil {
-				return WriteResult{}, err
-			}
 		}
 	}
 	if err := s.files.Publish(ctx, ref, root, input.Path, staged); err != nil {
 		return WriteResult{}, err
 	}
 	return result, nil
+}
+
+func checkFileCapacity(ctx context.Context, q *dbsqlc.Queries, orgID uuid.UUID, root *os.Root) error {
+	limits, err := resourceguard.ResolveLimits(ctx, q, orgID)
+	if err != nil {
+		return err
+	}
+	if limits.MaxMemoriesPerStore <= 0 {
+		return fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
+	}
+	if root == nil {
+		return nil
+	}
+	var count int64
+	return fs.WalkDir(root.FS(), ".", func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Type().IsRegular() {
+			count++
+		}
+		if count >= limits.MaxMemoriesPerStore {
+			return fmt.Errorf("memory file limit reached: %w", storeerr.ErrConflict)
+		}
+		return nil
+	})
 }
 
 func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, path, expectedDigest string) error {
