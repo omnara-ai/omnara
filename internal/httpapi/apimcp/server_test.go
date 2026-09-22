@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -199,6 +200,18 @@ func TestManifestCompiles(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("%s has no description", tool.Name)
 		}
+		if tool.Title == "" || tool.Annotations == nil || tool.Annotations.Title != tool.Title {
+			t.Errorf("%s title=%q annotations=%+v, want matching titles", tool.Name, tool.Title, tool.Annotations)
+		}
+		properties := testutil.RequireType[map[string]any](t, schema["properties"])
+		for name, property := range properties {
+			decoded := testutil.RequireType[map[string]any](t, property)
+			_, typed := decoded["type"]
+			_, nullable := decoded["anyOf"]
+			if !typed && !nullable {
+				t.Errorf("%s argument %q has no type: %v", tool.Name, name, decoded)
+			}
+		}
 	}
 }
 
@@ -210,15 +223,19 @@ func TestAnnotationsDeriveFromMethod(t *testing.T) {
 		name        string
 		readOnly    bool
 		idempotent  bool
-		destructive *bool
+		destructive bool
 	}{
-		{name: "agents_list", readOnly: true, idempotent: true, destructive: new(false)},
+		{name: "agents_list", readOnly: true, idempotent: true},
 		{name: "agents_launch"},
-		{name: "secrets_update"},
-		{name: "pools_update", idempotent: true},
-		{name: "models_delete", idempotent: true, destructive: new(true)},
-		{name: "agents_cancel", destructive: new(true)},
-		{name: "agents_archive", destructive: new(true)},
+		{name: "grant_skills_add"},
+		{name: "secrets_update", destructive: true},
+		{name: "crons_update", destructive: true},
+		{name: "pools_update", idempotent: true, destructive: true},
+		{name: "agents_update", destructive: true},
+		{name: "profiles_update", destructive: true},
+		{name: "models_delete", idempotent: true, destructive: true},
+		{name: "agents_cancel", destructive: true},
+		{name: "agents_archive", destructive: true},
 	}
 	for _, tc := range cases {
 		annotations := tools[tc.name].Annotations
@@ -226,11 +243,8 @@ func TestAnnotationsDeriveFromMethod(t *testing.T) {
 			t.Errorf("%s readOnly=%v idempotent=%v, want %v/%v",
 				tc.name, annotations.ReadOnlyHint, annotations.IdempotentHint, tc.readOnly, tc.idempotent)
 		}
-		switch {
-		case tc.destructive == nil && annotations.DestructiveHint != nil:
-			t.Errorf("%s destructiveHint=%v, want unset", tc.name, *annotations.DestructiveHint)
-		case tc.destructive != nil && (annotations.DestructiveHint == nil || *annotations.DestructiveHint != *tc.destructive):
-			t.Errorf("%s destructiveHint=%v, want %v", tc.name, annotations.DestructiveHint, *tc.destructive)
+		if annotations.DestructiveHint == nil || *annotations.DestructiveHint != tc.destructive {
+			t.Errorf("%s destructiveHint=%v, want %v", tc.name, annotations.DestructiveHint, tc.destructive)
 		}
 	}
 }
@@ -289,6 +303,30 @@ func TestDispatchMapsArguments(t *testing.T) {
 	if got := echoed.Query["metadata[env]"]; len(got) != 1 || got[0] != "prod" {
 		t.Fatalf("deepObject query = %v", echoed.Query)
 	}
+
+	target := map[string]any{
+		"type":   "app",
+		"app_id": "app_abcdefghijklmnopqrstuvwxyz",
+		"settings": map[string]any{
+			"agent_profile_id":         "aprf_abcdefghijklmnopqrstuvwxyz",
+			"channel_id":               "C123",
+			"opening_message_template": "Daily review",
+			"message_template":         "Review today's changes",
+		},
+	}
+	echoed, result = callEcho(t, session, "crons_create", map[string]any{
+		"orgID": testOrgID, "projectID": testProject,
+		"name": "daily-review", "cron": "0 9 * * *", "target": target,
+	})
+	if result.IsError {
+		t.Fatalf("app cron rejected: %+v", result.Content)
+	}
+	if err := json.Unmarshal(echoed.Body, &body); err != nil {
+		t.Fatalf("decode cron body: %v", err)
+	}
+	if !reflect.DeepEqual(body["target"], target) {
+		t.Fatalf("cron target = %v, want %v", body["target"], target)
+	}
 }
 
 func TestInputSchemaIsEnforced(t *testing.T) {
@@ -310,6 +348,10 @@ func TestInputSchemaIsEnforced(t *testing.T) {
 		}},
 		{name: "wrong body type", tool: "agents_launch", arguments: map[string]any{
 			"orgID": testOrgID, "projectID": testProject, "config": testConfigID, "name": 7,
+		}},
+		{name: "missing app settings", tool: "crons_create", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "name": "daily-review", "cron": "0 9 * * *",
+			"target": map[string]any{"type": "app", "app_id": "app_abcdefghijklmnopqrstuvwxyz"},
 		}},
 	}
 	for _, tc := range cases {

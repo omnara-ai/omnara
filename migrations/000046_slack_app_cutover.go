@@ -17,7 +17,7 @@ import (
 )
 
 func newSlackAppCutoverMigration() *goose.Migration {
-	return goose.NewGoMigration(45, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
+	return goose.NewGoMigration(46, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
 }
 
 // Keep encoding local: migration replay must not depend on future config compilers.
@@ -426,7 +426,7 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	}
 	if unfinished {
 		return errors.New(
-			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 44)",
+			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 45)",
 		)
 	}
 	// An idle worker can still have a continuation with no model call inserted yet.

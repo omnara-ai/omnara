@@ -41,7 +41,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 43))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
 			ids := storagefixture.ProjectIDs{
 				OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
 				ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
@@ -137,7 +137,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			err = applyProductionPostgresMigrations(ctx, db)
 			if invalidLiveCredentials {
 				require.ErrorContains(t, err, liveID.String())
-				require.Equal(t, int64(43), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
 				var state string
 				var credential sql.NullString
 				require.NoError(
@@ -158,7 +158,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
+			require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted app history grants receive routes at cutover")

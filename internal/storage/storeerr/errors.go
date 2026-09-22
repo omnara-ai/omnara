@@ -49,6 +49,7 @@ var (
 	ErrPermanentEnvironment          = errors.New("permanent environment resolution error")
 	ErrModelGrantUnavailable         = errors.New("model grant unavailable")
 	ErrUnauthorized                  = errors.New("unauthorized")
+	ErrOAuthScopeExceedsGrant        = errors.New("requested scope exceeds the granted scope")
 	ErrNotFound                      = errors.New("not found")
 	ErrMCPOAuthFlowConsumed          = errors.New("mcp oauth flow already consumed")
 	ErrIntegrationOAuthFlowConsumed  = errors.New("integration oauth flow already consumed")

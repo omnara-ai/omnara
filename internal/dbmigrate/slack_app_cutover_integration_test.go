@@ -38,7 +38,7 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			baseline := int64(43)
+			baseline := int64(44)
 			if scenario == "pre_internal_ids" {
 				baseline = 41
 			}
@@ -436,7 +436,7 @@ tools:
 					want = "needs additional config quota"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(43), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
 				var oldConnections int
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_installs WHERE id=$1`, appID).Scan(&oldConnections))
@@ -515,7 +515,7 @@ tools:
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
-				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 45))
 				if scenario == "config_limit" {
 					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
 				}
@@ -566,7 +566,7 @@ tools:
 					want = "exceeds project config limit"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var count int
@@ -593,7 +593,7 @@ tools:
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected rewrite failure")
-				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var active, configs int
@@ -637,7 +637,7 @@ tools:
                  FOR EACH ROW EXECUTE FUNCTION reject_cutover_config_event()`)
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected cutover failure")
-				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
@@ -649,7 +649,7 @@ tools:
 			if scenario == "continuable_retry" {
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "still has continuable work")
-				require.Equal(t, int64(43), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
 				var turnID uuid.UUID
 				require.NoError(
 					t,
@@ -665,12 +665,12 @@ tools:
 				require.NoError(t, tx.Commit())
 			}
 			if scenario == "pre_internal_ids" {
-				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 45))
 				exec(`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_cutover_webhook CHECK (false) NOT VALID`)
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "reject_cutover_webhook")
-				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var configs, deliveries int

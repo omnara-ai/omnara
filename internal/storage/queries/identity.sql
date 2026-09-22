@@ -1323,7 +1323,7 @@ WHERE (sqlc.narg(user_id)::uuid IS NOT NULL AND roles.user_id = sqlc.narg(user_i
    OR (sqlc.narg(org_api_key_id)::uuid IS NOT NULL AND roles.org_api_key_id = sqlc.narg(org_api_key_id)::uuid);
 
 -- name: CreateOAuthAuthorizationCode :one
-INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce, created_at, expires_at)
 VALUES (
   sqlc.arg(code_hash),
   sqlc.arg(user_id),
@@ -1332,6 +1332,8 @@ VALUES (
   sqlc.arg(redirect_uri),
   sqlc.arg(code_challenge),
   sqlc.arg(resource),
+  sqlc.arg(scope),
+  sqlc.arg(nonce),
   transaction_timestamp(),
   transaction_timestamp() + (sqlc.arg(ttl_seconds)::bigint * interval '1 second')
 )
@@ -1350,7 +1352,7 @@ SET consumed_at = transaction_timestamp()
 WHERE code_hash = sqlc.arg(code_hash)
   AND consumed_at IS NULL
   AND expires_at > transaction_timestamp()
-RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource;
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce;
 
 -- name: ConsumeOAuthAuthorizationCodesForUser :exec
 UPDATE oauth_authorization_codes
@@ -1371,12 +1373,14 @@ USING candidates
 WHERE oauth_authorization_codes.id = candidates.id;
 
 -- name: CreateOAuthAccessToken :one
-INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, granted_scope, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
 VALUES (
   sqlc.arg(user_id),
   sqlc.arg(client_id),
   sqlc.arg(client_name),
   sqlc.arg(resource),
+  sqlc.arg(scope),
+  sqlc.arg(scope),
   sqlc.arg(token_hash),
   sqlc.arg(refresh_token_hash),
   transaction_timestamp(),
@@ -1385,8 +1389,8 @@ VALUES (
 )
 RETURNING id;
 
--- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT token.user_id
+-- name: GetOAuthAccessTokenGrantByRefreshToken :one
+SELECT token.user_id, token.granted_scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = sqlc.arg(presented_refresh_token_hash)::text
@@ -1418,13 +1422,14 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET token_hash = sqlc.arg(token_hash),
+  SET scope = CASE WHEN sqlc.arg(scope)::text = '' THEN token.granted_scope ELSE sqlc.arg(scope)::text END,
+      token_hash = sqlc.arg(token_hash),
       refresh_token_hash = sqlc.arg(refresh_token_hash),
       expires_at = transaction_timestamp() + (sqlc.arg(access_ttl_seconds)::bigint * interval '1 second'),
       refresh_expires_at = transaction_timestamp() + (sqlc.arg(refresh_ttl_seconds)::bigint * interval '1 second')
   FROM presented
   WHERE token.id = presented.id
-  RETURNING token.id, token.user_id, token.resource
+  RETURNING token.id, token.user_id, token.resource, token.scope
 ), retired AS (
   INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
   SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
@@ -1432,7 +1437,7 @@ WITH presented AS (
   JOIN oauth_access_tokens old ON old.id = rotated.id
   ON CONFLICT (refresh_token_hash) DO NOTHING
 )
-SELECT id, user_id, resource
+SELECT id, user_id, resource, scope
 FROM rotated;
 
 -- name: RevokeOAuthAccessTokenForRefreshTokenReuse :execrows
@@ -1445,7 +1450,7 @@ WHERE retired.oauth_access_token_id = token.id
 
 -- name: AuthenticateOAuthAccessToken :one
 WITH authenticated AS MATERIALIZED (
-  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource, t.scope
   FROM oauth_access_tokens t
   WHERE t.token_hash = sqlc.arg(token_hash)
     AND t.revoked_at IS NULL
@@ -1462,7 +1467,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING token.id
 )
-SELECT user_id, oauth_access_token_id, resource
+SELECT user_id, oauth_access_token_id, resource, scope
 FROM authenticated;
 
 -- name: RevokeOAuthAccessTokensForUser :exec
@@ -1483,3 +1488,11 @@ WITH candidates AS (
 DELETE FROM oauth_access_tokens
 USING candidates
 WHERE oauth_access_tokens.id = candidates.id;
+
+-- name: GetOIDCSigningKey :one
+SELECT encrypted_private_key FROM oidc_signing_keys WHERE id = 'default';
+
+-- name: CreateOIDCSigningKey :exec
+INSERT INTO oidc_signing_keys(id, encrypted_private_key)
+VALUES ('default', sqlc.arg(encrypted_private_key))
+ON CONFLICT (id) DO NOTHING;

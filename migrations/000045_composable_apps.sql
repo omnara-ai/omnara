@@ -1,8 +1,8 @@
 -- +goose Up
 
--- Goose commits each migration separately: reject unfinished work before SQL44
--- changes the schema needed by the old release to stop it. Go45 rechecks under lock.
--- Keep this legacy-policy preflight in sync with Go45's frozen translator.
+-- Goose commits each migration separately: reject unfinished work before SQL45
+-- changes the schema needed by the old release to stop it. Go46 rechecks under lock.
+-- Keep this legacy-policy preflight in sync with Go46's frozen translator.
 -- +goose StatementBegin
 DO $$
 DECLARE conflicting_config uuid; conflicting_tool text; unfinished_agent uuid;
@@ -202,7 +202,7 @@ CREATE UNIQUE INDEX integration_targets_selection_idx
 CREATE UNIQUE INDEX integration_targets_tool_context_idx
     ON integration_targets(project_id, agent_id, app_id) WHERE is_tool_context;
 
--- Go45 temporarily disables this guard to assign existing Slack sending contexts.
+-- Go46 temporarily disables this guard to assign existing Slack sending contexts.
 -- +goose StatementBegin
 CREATE FUNCTION integration_targets_reject_tool_context_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

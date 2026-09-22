@@ -18,7 +18,7 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 45))
 	var appTypeHasDefault bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT column_default IS NOT NULL
         FROM information_schema.columns WHERE table_schema='public'
@@ -85,7 +85,7 @@ func TestAppActorMigrationPreservesLegacySlackAttribution(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 43))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
 	ids := storagefixture.ProjectIDs{
 		OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
@@ -98,7 +98,7 @@ func TestAppActorMigrationPreservesLegacySlackAttribution(t *testing.T) {
 	require.NoError(t, err)
 	var before, after []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(a) FROM actors a WHERE id=$1`, id).Scan(&before))
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 45))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 46))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT to_jsonb(a) FROM actors a WHERE id=$1`, id).Scan(&after))
 	require.JSONEq(t, string(before), string(after), "cutover preserves actor identity and metadata")
 }
