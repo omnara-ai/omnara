@@ -198,7 +198,7 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 	if parsed.Host == "" || parsed.Hostname() == "" {
 		return "", errors.New("url host is required")
 	}
-	host := classifyMCPURLHost(parsed.Hostname())
+	host := classifyURLHost(parsed.Hostname())
 
 	switch parsed.Scheme {
 	case "https":
@@ -223,15 +223,15 @@ func ValidateMCPURL(raw string, allowInsecureLocalHTTP bool) (string, error) {
 	return parsed.String(), nil
 }
 
-type mcpURLHost struct {
+type urlHost struct {
 	IP       net.IP
 	LocalDev bool
 }
 
-func classifyMCPURLHost(host string) mcpURLHost {
+func classifyURLHost(host string) urlHost {
 	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
 	ip := net.ParseIP(normalized)
-	return mcpURLHost{
+	return urlHost{
 		IP:       ip,
 		LocalDev: normalized == "localhost" || (ip != nil && ip.IsLoopback()),
 	}

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	kjsonschema "github.com/kaptinlin/jsonschema"
+	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -25,6 +26,12 @@ const (
 	SourceFormatYAML SourceFormat = "yaml"
 )
 
+type EventWebhook struct {
+	Events          []string `json:"events"`
+	SigningSecretID string   `json:"signing_secret_id,omitempty"`
+	URL             string   `json:"url"`
+}
+
 type AgentConfigSource struct {
 	Version        string                               `json:"version,omitempty"`
 	Instruction    string                               `json:"instruction"`
@@ -32,6 +39,7 @@ type AgentConfigSource struct {
 	MachineSources []AgentConfigMachineSource           `json:"machine_sources,omitempty"`
 	Tools          map[string]AgentConfigToolSource     `json:"tools,omitempty"`
 	MCP            map[string]AgentConfigMCPSource      `json:"mcp,omitempty"`
+	EventWebhook   *EventWebhook                        `json:"event_webhook,omitempty"`
 	Skills         []string                             `json:"skills,omitempty"`
 	Subagents      map[string]AgentConfigSubagentSource `json:"subagents,omitempty"`
 	MaxSubagents   *int                                 `json:"max_subagents,omitempty"`
@@ -345,6 +353,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			kjsonschema.PropertyNames(kjsonschema.String(kjsonschema.Pattern(toolcatalog.MCPServerKeyPattern))),
 			kjsonschema.AdditionalPropsSchema(kjsonschema.Ref("#/$defs/AgentConfigMCPSource")),
 		)),
+		kjsonschema.Prop("event_webhook", kjsonschema.Ref("#/$defs/EventWebhook")),
 		kjsonschema.Prop("skills", kjsonschema.AnyOf(
 			kjsonschema.Array(
 				kjsonschema.Items(kjsonschema.String(
@@ -369,6 +378,19 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 		kjsonschema.Required("instruction", "model"),
 		kjsonschema.AdditionalProps(false),
 		kjsonschema.Defs(map[string]*kjsonschema.Schema{
+			"EventWebhook": kjsonschema.Object(
+				kjsonschema.Prop("events", kjsonschema.Array(
+					kjsonschema.MinItems(1),
+					kjsonschema.Items(kjsonschema.Enum(
+						string(events.KindAgentInput), string(events.KindModelOutput), string(events.KindToolResult),
+						string(events.KindContextCheckpoint), "tool_call_update",
+					)),
+					kjsonschema.UniqueItems(true),
+				)),
+				kjsonschema.Prop("signing_secret_id", kjsonschema.String(kjsonschema.MinLength(1))),
+				kjsonschema.Prop("url", kjsonschema.String(kjsonschema.MinLength(1))),
+				kjsonschema.Required("url", "events"), kjsonschema.AdditionalProps(false),
+			),
 			"AgentConfigSubagentSource": func() *kjsonschema.Schema {
 				def := kjsonschema.Object(
 					kjsonschema.Prop("type", kjsonschema.Enum(SubagentTypeProfile, SubagentTypeSelf)),

@@ -154,6 +154,24 @@ The full example above defines `create_ticket` as a custom tool. When the agent 
 
 `mcp` connects the agent to [Model Context Protocol](https://modelcontextprotocol.io) servers. Each entry sets the server URL, authentication, and permissions. `auth.secret_id` points to the [secret](/organization/secrets) required by the selected authentication type. [MCP servers](/tools/mcp) explains the full setup.
 
+## Event webhook
+
+`event_webhook` sends this agent's timeline events and tool-call updates to a public HTTPS endpoint:
+
+```yaml
+event_webhook:
+  url: https://example.com/events
+  events: [tool_call_update]
+```
+
+`event_webhook.events` is a required, nonempty event-type allowlist. Supported types are `agent_input`, `model_output`, `tool_result`, `context_checkpoint`, and `tool_call_update`. The builder defaults to tool-call updates; “All events” selects the currently supported types explicitly. Changes apply to newly queued events.
+
+Each POST contains `event` and `data` matching the [event stream](/events/streaming), excluding token previews, heartbeats, and stream errors. See [Webhook payloads](/events/webhooks) for examples and SDK validation. Each agent sends its own events. Self-subagents inherit the webhook configuration and send events with their own agent IDs; other subagents use their profile’s configuration.
+
+Deliveries are queued for up to ten minutes, with a five-second request timeout. Failed deliveries of every selected event type are retried with exponential backoff and jitter within that window. Return `2xx` to acknowledge receipt. Events may arrive more than once or out of order; deduplicate deliveries by `Webhook-Id` and custom tool execution by tool-call ID.
+
+Signing is optional. Set `event_webhook.signing_secret_id` to a project-available [generic secret](/organization/secrets), generated with `openssl rand -base64 32`. Configure the same value on your receiver and verify requests using [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md).
+
 ## Machines
 
 For new agents only, the builder preselects a cluster-managed pool granted to the project if one exists; otherwise, it starts without a machine source.

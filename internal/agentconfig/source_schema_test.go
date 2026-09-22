@@ -249,6 +249,7 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 		t.Fatal("source schema has no $defs object")
 	}
 	structsByDef := map[string]reflect.Type{
+		"EventWebhook":                         reflect.TypeOf(EventWebhook{}),
 		"AgentConfigModelSource":               reflect.TypeOf(AgentConfigModelSource{}),
 		"AgentConfigMachineSource":             reflect.TypeOf(AgentConfigMachineSource{}),
 		"AgentConfigToolSource":                reflect.TypeOf(AgentConfigToolSource{}),

@@ -9839,8 +9839,8 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ToolCallUpdate:
       description: >-
-        An ephemeral notification that a tool call entered a lifecycle state.
-        Sent for the streamed agent and for every subagent beneath it, so
+        A notification that a tool call entered a lifecycle state.
+        On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so
         questions, permission requests, and custom tool calls anywhere in the
         tree surface here; query the list endpoints with `include_subagents`
         for the current rows.
@@ -10078,6 +10078,77 @@ components:
           type: string
         created_at:
           $ref: '#/components/schemas/Timestamp'
+    EventWebhookPayload:
+      description: JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+      oneOf:
+        - $ref: '#/components/schemas/EventWebhookAgentInputEvent'
+        - $ref: '#/components/schemas/EventWebhookModelOutputEvent'
+        - $ref: '#/components/schemas/EventWebhookToolResultEvent'
+        - $ref: '#/components/schemas/EventWebhookContextCheckpointEvent'
+        - $ref: '#/components/schemas/EventWebhookToolCallUpdate'
+      discriminator:
+        propertyName: event
+        mapping:
+          agent_input: '#/components/schemas/EventWebhookAgentInputEvent'
+          model_output: '#/components/schemas/EventWebhookModelOutputEvent'
+          tool_result: '#/components/schemas/EventWebhookToolResultEvent'
+          context_checkpoint: '#/components/schemas/EventWebhookContextCheckpointEvent'
+          tool_call_update: '#/components/schemas/EventWebhookToolCallUpdate'
+    EventWebhookAgentInputEvent:
+      type: object
+      additionalProperties: false
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [agent_input]
+          x-enum-varnames: [EventWebhookEventAgentInput]
+        data:
+          $ref: '#/components/schemas/AgentInputEvent'
+    EventWebhookModelOutputEvent:
+      type: object
+      additionalProperties: false
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [model_output]
+          x-enum-varnames: [EventWebhookEventModelOutput]
+        data:
+          $ref: '#/components/schemas/ModelOutputEvent'
+    EventWebhookToolResultEvent:
+      type: object
+      additionalProperties: false
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [tool_result]
+          x-enum-varnames: [EventWebhookEventToolResult]
+        data:
+          $ref: '#/components/schemas/ToolResultEvent'
+    EventWebhookContextCheckpointEvent:
+      type: object
+      additionalProperties: false
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [context_checkpoint]
+          x-enum-varnames: [EventWebhookEventContextCheckpoint]
+        data:
+          $ref: '#/components/schemas/ContextCheckpointEvent'
+    EventWebhookToolCallUpdate:
+      type: object
+      additionalProperties: false
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [tool_call_update]
+          x-enum-varnames: [EventWebhookEventToolCallUpdate]
+        data:
+          $ref: '#/components/schemas/ToolCallUpdate'
     AgentEvent:
       oneOf:
         - $ref: '#/components/schemas/AgentInputEvent'

@@ -29,6 +29,7 @@ type Compiled struct {
 	MachineSources []MachineSourceCompiled      `json:"machine_sources,omitempty"`
 	Tools          map[string]ToolCompiled      `json:"tools,omitempty"`
 	MCP            map[string]MCPServerCompiled `json:"mcp,omitempty"`
+	EventWebhook   *EventWebhook                `json:"event_webhook,omitempty"`
 	Skills         []SkillCompiled              `json:"skills,omitempty"`
 	Subagents      map[string]SubagentCompiled  `json:"subagents,omitempty"`
 	MaxSubagents   *int                         `json:"max_subagents,omitempty"`
@@ -223,6 +224,24 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		Version:     source.Version,
 		Instruction: strings.TrimSpace(source.Instruction),
 		Model:       compiledModel.model,
+	}
+	if source.EventWebhook != nil {
+		webhookURL, err := ValidateEventWebhookURL(source.EventWebhook.URL)
+		if err != nil {
+			return Compiled{}, issueAt("/event_webhook/url", err)
+		}
+		secretID := strings.TrimSpace(source.EventWebhook.SigningSecretID)
+		if secretID != "" {
+			if _, err := publicid.Decode(publicid.KindSecret, secretID); err != nil {
+				return Compiled{}, issueAt("/event_webhook/signing_secret_id", err)
+			}
+			if opts.ValidateSecretID != nil {
+				if err := opts.ValidateSecretID(secretID, secrets.KindGeneric); err != nil {
+					return Compiled{}, issueOr("/event_webhook/signing_secret_id", err)
+				}
+			}
+		}
+		compiled.EventWebhook = &EventWebhook{URL: webhookURL, SigningSecretID: secretID, Events: source.EventWebhook.Events}
 	}
 	machines, err := compileMachineSources(source.MachineSources, opts)
 	if err != nil {
