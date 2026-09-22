@@ -395,8 +395,6 @@ func runCoreMaintenanceTick(
 		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
 	)
 	statesOutcome := completedMaintenanceOutcome(ctx, statesErr)
-	// Retention runs last, with independent soft budgets and hard deadlines
-	// so a stalled cleanup remains bounded.
 	completedInbox, completedInboxBudgetExhausted, completedInboxErr := drainIntegrationInboxCleanup(
 		ctx, func(cleanupCtx context.Context) (int64, error) {
 			return store.Integrations().CleanupTerminalIntegrationInbox(

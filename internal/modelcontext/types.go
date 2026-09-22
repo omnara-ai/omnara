@@ -135,8 +135,6 @@ type ToolResultRef struct {
 	ContentParts        json.RawMessage                  `json:"content_parts"`
 }
 
-// InteractionRoutingContext is present only for configs with an enabled interaction handler. A nil destination
-// means dashboard-only, not a missing or guessed channel.
 type InteractionRoutingContext struct {
 	Destination *InteractionDestinationRef `json:"destination"`
 }

@@ -16,17 +16,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// AgentInputOrigin is attribution for verified hosted inbox admission, not actor
-// identity or tool authority. Ordinary public input has no integration origin.
 type AgentInputOrigin struct {
 	AppID       uuid.UUID                            `json:"app_id"`
 	Address     integrationstore.ConversationAddress `json:"address"`
 	DisplayName string                               `json:"display_name,omitempty"`
 }
 
-// InboxInputResult returns the recorded input with Created=false on replay, without cancellation or
-// newly inserted artifacts. A committed receipt replay need not reload its
-// target; AgentInput.IntegrationTargetID remains the durable attribution.
 type InboxInputResult struct {
 	AgentInput             AgentInputRecord
 	ContentBlocks          json.RawMessage
@@ -78,8 +73,6 @@ func (s *Store) resolveInputOriginTx(
 	return input, app, nil
 }
 
-// App attribution is checked against the already loaded receipt app. This is
-// identity consistency, not an approver ACL or a live actor-to-app relationship.
 func validateAppInputActor(appID uuid.UUID, actor *ActorParams) error {
 	if actor == nil || strings.TrimSpace(actor.ProviderUserID) == "" {
 		return storeerr.ErrUnauthorized
@@ -94,8 +87,6 @@ func validateAppInputActor(appID uuid.UUID, actor *ActorParams) error {
 	return nil
 }
 
-// Caller holds project/app/conversation gates. No earlier locks are
-// acquired here; the agent row serializes input dedupe and transient effects.
 func (s *Store) admitOriginContentTx(
 	ctx context.Context,
 	tx pgx.Tx,

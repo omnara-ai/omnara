@@ -8,9 +8,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// Caller holds the agent lifecycle gate, so detach cannot remove a subscription
-// between this check and input admission. A fresh matching attachment may
-// authorize previously frozen work; subscription IDs are not ingress generations.
 func validateInboxSubscriptionTx(ctx context.Context, tx pgx.Tx, slot InboxInputSlot) error {
 	q := dbsqlc.New(tx)
 	for _, reference := range slot.Subscription.Alternatives {

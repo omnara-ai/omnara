@@ -15,9 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// LaunchInitialInput uses the ordinary input contract. Origin is available to
-// trusted hosted callers; the public API does not expose it. Provider ingress
-// must verify its actor and origin before calling storage.
 type LaunchInitialInput struct {
 	ContentBlocks          json.RawMessage        `json:"content_blocks"`
 	Metadata               json.RawMessage        `json:"metadata,omitempty"`
@@ -34,10 +31,7 @@ type LaunchInputOrigin struct {
 	DisplayName string                               `json:"display_name,omitempty"`
 }
 
-// Only fenced inbox admission supplies planned identities and prepared media.
-// Ordinary launch callers cannot choose an agent ID or claim blob preparation.
 type launchAdmission struct {
-	// Only locked scheduled receipt validation sets this actor alternative.
 	Scheduled     bool
 	AgentID       uuid.UUID
 	AppID         uuid.UUID

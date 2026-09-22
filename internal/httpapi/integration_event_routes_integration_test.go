@@ -3084,8 +3084,6 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 		var frozenPlan, frozenProgress json.RawMessage
 		for attempt := 1; attempt <= integrationstore.IntegrationInboxMaxAttempts; attempt++ {
 			if attempt > 1 {
-				// Advance only this fixture's retry time; claims still increment the
-				// real attempt budget and exercise the production terminal callback.
 				_, err := pool.Exec(ctx,
 					`UPDATE integration_inbox SET available_at=now() WHERE project_id=$1 AND receipt_key=$2`,
 					fixture.Project.ProjectUUID, "slack:"+eventID)
@@ -3139,8 +3137,6 @@ FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 		default:
 			t.Fatal("terminal worker attempt did not post a failure notice")
 		}
-		// Retained terminal receipts still deduplicate provider redelivery and
-		// cannot be claimed again, even though their retry timestamp is due.
 		requestJSONWithHeaders(t, fixture.Handler, http.MethodPost, integrationEventsPath,
 			body, "", http.StatusOK, unitSlackSignedHeaders(body, "signing-secret"))
 		worked, retryErr := worker.RunOnce(ctx)
@@ -3809,8 +3805,6 @@ func assertAgentInputText(
 	if len(hidden) == 0 {
 		t.Fatal("agent input has no text blocks")
 	}
-	// App input context is a separate hidden block. Validate its immutable app
-	// owner and actual provider address independently of the human message text.
 	last := len(texts) - 1
 	if raw, ok := strings.CutPrefix(texts[last], "Incoming app conversation: "); ok {
 		require.True(t, hidden[last])
@@ -4261,8 +4255,6 @@ func createInteractionForAgent(
 	return interaction
 }
 
-// slackJourneyTarget asserts this fixture's single expected live target. Product
-// routing may select several agents; it must never use this test-only shortcut.
 func slackJourneyTarget(
 	t *testing.T,
 	pool *pgxpool.Pool,
@@ -4304,8 +4296,6 @@ func slackJourneyTarget(
 	return integrations.GetIntegrationTarget(ctx, projectID, ids[0])
 }
 
-// drainSlackJourney runs the same consumer/worker as production, only after the
-// HTTP acknowledgement has returned. It never hides admission in a handler.
 func slackJourneyWorker(project publicHTTPProject, config slack.OAuthConfig) *integration.AppInboxWorker {
 	router := integration.NewAppRouter(project.Store.Execution(), project.Store.Integrations())
 	provider := integration.NewSlackAppInboxProvider(

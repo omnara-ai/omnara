@@ -50,7 +50,6 @@ func newInboxFixture(t *testing.T) inboxFixture {
 	execution := executionstore.New(pool, executionstore.Config{})
 	config := storagefixture.SeedAgentConfig(t, ctx, modelstore.New(pool), execution, ids.OrgID, ids.ProjectID,
 		"instruction: inbox test\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	// Profiles remain independent of the app that launches them.
 	_, err := execution.CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "inbox-profile", CurrentConfigID: config.ID,
 	})
@@ -78,8 +77,6 @@ func (f inboxFixture) accept(t *testing.T, key string) integrationstore.Integrat
 	return r
 }
 
-// A second saved app may use the same physical bot and credential while owning
-// its own receipts, choices and reservations.
 func (f inboxFixture) addApp(
 	t *testing.T,
 	name string,
@@ -144,7 +141,6 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 	}
 	wg.Wait()
 	require.Equal(t, []byte("  {\"verified\": true}\n"), f.read(t, first.ID).Payload)
-	// Opaque verified envelopes need not be JSON or valid UTF-8.
 	payload := bytes.Repeat([]byte{0, 255}, integrationstore.IntegrationInboxMaxPayloadBytes/2)
 	binary, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: f.project, AppID: f.appID, ReceiptKey: "binary", Payload: payload,
@@ -159,7 +155,6 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 		ProjectID: uuid.New(), AppID: f.appID, ReceiptKey: "cross-project", Payload: []byte{1},
 	})
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	// Database guards protect every writer, independently of Go validation.
 	for _, sql := range []string{
 		`UPDATE integration_inbox SET payload=decode(repeat('00',1048577),'hex') WHERE id=$1`,
 		`UPDATE integration_inbox SET payload=''::bytea WHERE id=$1`,
@@ -279,7 +274,6 @@ func TestInboxFrozenSlotsPreparationAndAtomicProgress(t *testing.T) {
 		return w.PrepareSlot(f.ctx, "one", prepared)
 	})
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		// Mutating returned JSON must not change the transaction's authority snapshot.
 		snapshot := w.Receipt()
 		snapshot.Plan[0] = 'x'
 		if err := w.FreezePlan(f.ctx, plan); err != nil {
@@ -301,7 +295,6 @@ func TestInboxFrozenSlotsPreparationAndAtomicProgress(t *testing.T) {
 	} {
 		require.Error(t, f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), apply))
 	}
-	// An observable product write shares the caller-owned transaction with progress.
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	w, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
@@ -325,7 +318,6 @@ func TestInboxFrozenSlotsPreparationAndAtomicProgress(t *testing.T) {
 	require.NoError(t, tx.Commit(f.ctx))
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
 	require.Equal(t, "admitted", display)
-	// A partial recipient success survives automatic retries and terminal failure.
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
 		return w.Retry(f.ctx, time.Second, "second slot temporarily unavailable")
 	})
@@ -379,7 +371,6 @@ func TestInboxLeaseRevalidatedAfterLockWaitAndInsideTransaction(t *testing.T) {
 	defer func() { _ = tx.Rollback(f.ctx) }()
 	w, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
 	require.NoError(t, err)
-	// The handle was valid, but its later mutation must still check wall-clock expiry.
 	_, err = tx.Exec(f.ctx,
 		`UPDATE integration_inbox SET claim_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, r.ID)
 	require.NoError(t, err)
@@ -471,8 +462,6 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	require.EqualValues(t, 1, n)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, f.read(t, pending.ID).State)
 	require.NotNil(t, f.read(t, pending.ID).CompletedAt)
-	// Inactive polling only visits the pending frontier. Processing receipts are
-	// already fenced from use and become failed through bounded expiry recovery.
 	require.Equal(t, integrationstore.IntegrationInboxProcessing, f.read(t, r.ID).State)
 	n, err = f.store.RecoverIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
@@ -581,7 +570,6 @@ func TestInboxJSONBNormalizedSizeBoundaryIsExplicitAndAtomic(t *testing.T) {
 	f := newInboxFixture(t)
 	f.accept(t, "json-size")
 	r := f.claim(t)
-	// Compact input is exactly at the Go bound; jsonb's spaces make it too large.
 	prefix, suffix := `{"slot":{"data":"`, `"}}`
 	remaining := integrationstore.IntegrationInboxMaxPlanBytes - len(prefix) - len(suffix)
 	oversized := json.RawMessage(prefix + strings.Repeat("x", remaining) + suffix)
@@ -591,10 +579,8 @@ func TestInboxJSONBNormalizedSizeBoundaryIsExplicitAndAtomic(t *testing.T) {
 	})
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	require.Empty(t, f.read(t, r.ID).Plan)
-	// This amount of room is sufficient for jsonb normalization, including Unicode.
 	fits := json.RawMessage(prefix + strings.Repeat("x", remaining-32) + suffix)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(f.ctx, fits) })
-	// The encoded aggregate progress fits raw bytes, but its jsonb form does not.
 	overhead := len(`{"slot":{"prepared":{"data":""}}}`)
 	preparationBytes := strings.Repeat("x", integrationstore.IntegrationInboxMaxPlanBytes-overhead)
 	preparation := json.RawMessage(`{"data":"` + preparationBytes + `"}`)
@@ -624,8 +610,6 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	// Seed the fixture's established OAuth credential; the raced settings update
-	// re-verifies the same identity and must acquire the app gate before secrets.
 	f.exec(t, `UPDATE project_apps SET credential_secret_id=$2 WHERE id=$1`, f.appID, credential.ID)
 	app, err := f.store.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
@@ -642,9 +626,6 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	defer func() { _ = tx.Rollback(f.ctx) }()
 	work, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, receipt.Lease())
 	require.NoError(t, err)
-	// Admission can touch a destination or secret after its app gate. An
-	// update must wait at the earlier app gate, never hold this secret while
-	// waiting for admission to release that gate.
 	_, err = tx.Exec(f.ctx, `SELECT id FROM secrets WHERE id=$1 FOR UPDATE`, credential.ID)
 	require.NoError(t, err)
 	done := make(chan error, 1)

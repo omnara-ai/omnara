@@ -144,7 +144,6 @@ func TestAppRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testing.T) {
 		return receipt
 	}
 	router := NewAppRouter(store.Execution(), store.Integrations())
-	// A concrete attachment's event filter, independent of config, controls intake.
 	excluded := event
 	excluded.Event.Kind, excluded.SemanticKey = "discussion_comment", "comment:1"
 	excludedReceipt := capture("excluded")
@@ -162,7 +161,6 @@ func TestAppRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testing.T) {
 	}
 	removeTestAgentSubscriptions(t, store, app, launched.Agent.ID)
 	createTestAppSubscription(t, store, app, launched.Agent.ID, "pull_request", conversation, "discussion_comment")
-	// Replacing events after freeze cannot authorize a different frozen event.
 	_, err = router.Freeze(ctx, receipt.Lease(), []AppEvent{excluded})
 	require.NoError(t, err)
 	results, err := router.Admit(ctx, receipt.Lease())
@@ -186,8 +184,6 @@ func TestAppRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testing.T) {
 	require.Empty(t, subscriptions.Subscriptions, "committed replay cannot recreate subscriptions")
 }
 
-// Subscription fixtures use the same validated attachment and deletion APIs as
-// callers, without manufacturing config capabilities or writing routing rows.
 func createTestAppSubscription(
 	t *testing.T, store *storage.Store, app integrationstore.ProjectAppRecord, agentID uuid.UUID,
 	subscriptionType string, conversation string, events ...string,

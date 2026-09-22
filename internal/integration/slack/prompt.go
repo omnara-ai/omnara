@@ -43,7 +43,6 @@ func PromptPayload(target MessageTarget, text string, blocks []map[string]any) (
 	return json.Marshal(payload)
 }
 
-// PostPromptReceipt returns the confirmed provider message ID for durable dismissal.
 func PostPromptReceipt(
 	ctx context.Context,
 	client *http.Client,
@@ -118,7 +117,6 @@ func ReconcilePromptReceipt(
 	}, nil
 }
 
-// DismissPrompt edits only a confirmed message; it never searches or reposts.
 func DismissPrompt(
 	ctx context.Context,
 	client *http.Client,

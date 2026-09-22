@@ -74,7 +74,6 @@ func TestAppSubscriptionsIndependentIdentityPaginationAndDetach(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, next.HasMore)
 	require.Equal(t, first.ID, next.Subscriptions[0].ID)
-	// The subscription itself need not create a send destination or change config.
 	var targets int
 	var currentConfig uuid.UUID
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT current_config_id,
@@ -142,7 +141,6 @@ func TestAppSubscriptionValidationDisconnectAndLifecycle(t *testing.T) {
 	_, err = f.store.CreateAppSubscription(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	require.NoError(t, f.store.DeleteAppSubscription(f.ctx, f.org, f.project, f.appID, subscription.ID))
-	// A second app can attach receive-only agents without any target/config binding.
 	other := f.addApp(t, "other", integrationstore.ProjectAppSettings{})
 	input.AppID = other.ID
 	_, err = f.store.CreateAppSubscription(f.ctx, input)
@@ -166,8 +164,6 @@ func TestAppSubscriptionValidationDisconnectAndLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 }
 
-// Deletion must enumerate subscription-only recipients before taking their
-// lifecycle gates. Holding the app gate also prevents a late attachment.
 func TestAppSubscriptionDeletionLocksReceiveOnlyAgentAndFencesAttach(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)

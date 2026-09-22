@@ -11,9 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-// DeriveAppConfig preserves the base config's pinned identities while resolving
-// only the added capabilities through the ordinary project-scoped compiler options.
-// The caller persists the result with the launch, never in a separate write.
 func DeriveAppConfig(
 	ctx context.Context,
 	store *storage.Store,

@@ -48,7 +48,7 @@ func (b *failedAppBlobs) DeleteBlob(_ context.Context, key string) error {
 		return b.failure
 	}
 	if _, found := b.content[key]; !found {
-		return blobstore.ErrNotFound // Also exercise backends that report missing objects.
+		return blobstore.ErrNotFound
 	}
 	delete(b.content, key)
 	return nil
@@ -98,8 +98,6 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 		ProjectID: ids.ProjectID, AgentID: agentID, ContentType: "text/plain", Content: []byte("accepted history"),
 	})
 	require.NoError(t, err)
-	// The failed initial launch has no agent row. Its object IDs/digests exist
-	// only in the plan: simulate a crash after upload, before PrepareSlot.
 	plannedAgent := uuid.New()
 	content := []byte("pinned upload")
 	files := []AppPlannedFile{
@@ -141,7 +139,6 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			}
 			return work.Fail(ctx, "fixture failed before preparation")
 		}))
-	// Blob deletion errors do not undo terminal failure or stop cleanup of other files.
 	blobs.failure = errors.New("temporary object-store failure")
 	blobs.failKey = "artifacts/" + plannedAgent.String() + "/" + files[0].ArtifactID.String()
 	require.ErrorIs(
@@ -164,7 +161,6 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	stored, _, err := artifacts.GetArtifactBlob(ctx, ids.ProjectID, agentID, durable.ID)
 	require.NoError(t, err)
 	require.Equal(t, "accepted history", string(stored))
-	// A wrong project cannot turn an existing reference into an apparent miss.
 	require.ErrorIs(t, artifacts.DeleteUnreferencedPreparedArtifact(ctx, uuid.New(), agentID, durable.ID),
 		storeerr.ErrUnauthorized)
 	require.ErrorIs(t, artifactstore.New(pool, nil).DeleteUnreferencedPreparedArtifact(

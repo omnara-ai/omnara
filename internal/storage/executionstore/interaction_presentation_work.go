@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// MaxPendingInteractionPresentations bounds each recovery batch, also in SQL.
 const MaxPendingInteractionPresentations = 100
 
 type InteractionPresentationReference struct {
@@ -21,13 +20,11 @@ type InteractionPresentationReference struct {
 	ID        uuid.UUID
 }
 
-// ListPendingInteractionPresentations discovers unattempted captured interactions
-// on live scopes. The presenter supplies its supported app types. No
-// connection/config authority filter is applied: claiming revoked destinations
-// must remove them from pending work before presentation revalidates authority.
 func (s *Store) ListPendingInteractionPresentations(
 	ctx context.Context, appTypes []string, limit int,
 ) ([]InteractionPresentationReference, error) {
+	// Revoked destinations must still be claimed to drain pending work;
+	// presentation checks live authority afterward.
 	if limit <= 0 {
 		return nil, storeerr.InvalidRequest(errors.New("presentation limit must be positive"))
 	}
@@ -47,14 +44,11 @@ func (s *Store) ListPendingInteractionPresentations(
 	return result, nil
 }
 
-// ClaimInteractionPresentation commits a single best-effort attempt before any
-// provider I/O or authority validation. True is returned only after a definite
-// commit; an ambiguous commit must never authorize sending. A crash can lose a
-// mirror, but neither a retry nor another worker can start another attempt.
-// This transaction takes no connection locks and ends before provider checks.
 func (s *Store) ClaimInteractionPresentation(
 	ctx context.Context, projectID, agentID, id uuid.UUID,
 ) (bool, error) {
+	// Commit before provider I/O to prevent duplicate sends after an ambiguous
+	// outcome. A crash between commit and send can lose the mirror.
 	if projectID == uuid.Nil || agentID == uuid.Nil || id == uuid.Nil {
 		return false, storeerr.InvalidRequest(errors.New("project, agent and interaction are required"))
 	}

@@ -62,7 +62,6 @@ export function useDeleteAppSubscription(orgID: string, projectID: string, appID
     onSuccess: async (_, subscriptionID) => {
       const queryKey = listAppSubscriptionsQueryKey({ path: { orgID, projectID, appID }, client })
       await cache.cancelQueries({ queryKey })
-      // A failed refresh must not leave a successfully detached conversation on screen.
       cache.setQueriesData<InfiniteData<ListAppSubscriptionsResponse>>(
         {
           queryKey: listAppSubscriptionsInfiniteQueryKey({

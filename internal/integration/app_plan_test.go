@@ -189,8 +189,6 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.Equal(t, slot.AgentID, kernel.AgentID)
 		require.Equal(t, slot.Launch.Subscriptions, kernel.Launch.Subscriptions)
 	}
-	// Frozen replay is read-only even after provider/app/profile changes. The
-	// embedded nil store interface would panic if replanning were attempted.
 	integrations.receipt.Plan, err = json.Marshal(plan)
 	require.NoError(t, err)
 	integrations.appSetup.State = integrationstore.ProjectAppStateDisconnected
@@ -233,8 +231,6 @@ func TestAppPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T) {
 		require.Nil(t, slot.Subscription, "explicit trigger is independent of subscription revocation")
 		require.Equal(t, agent, slot.AgentID)
 	}
-	// A matching exact continuation suppresses new profiles; a broad channel
-	// subscription alone does not suppress an unrelated thread's first selection.
 	requests[0].candidates.Selections = nil
 	requests[0].candidates.Subscriptions[0].Address = requests[0].address
 	applyTestAppLaunchPolicy(t, integrations.receipt, integrations.appSetup, requests)
@@ -326,8 +322,6 @@ func TestAppPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	require.Empty(t, plan, "matching saved setups do not authorize an implicit launch")
 	require.Zero(t, execution.reads)
 
-	// An app may explicitly choose one profile even when ordinary trigger and
-	// exact-continuation policy would choose none. Directed input stays exclusive.
 	requests[0].event.Event.Mentioned = false
 	requests[0].event.Directed = true
 	requests[0].event.Launches = []AppLaunchIntent{{AppID: app.ID, Slot: "b", ProfileID: execution.profile.ID}}
@@ -418,8 +412,6 @@ func TestAppPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 				`[{"type":"media_ref","artifact_id":"` + oldArtifact.String() + `"}]`,
 			)
 			second.Files = []AppPlannedFile{{ArtifactID: oldArtifact, ProviderFileID: "F123"}}
-			// Duplicate intent within an event must not create a second launch or
-			// an extra initial input for that same slot.
 			first.Launches = append(first.Launches, first.Launches[0])
 			requests, err := prepareAppEvents([]AppEvent{first, second}, integrations.appSetup)
 			require.NoError(t, err)
@@ -634,7 +626,7 @@ func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
 	} {
 		t.Run(provider, func(t *testing.T) {
 			router, execution, integrations, app, first := appPlannerFixture(t)
-			app.Name = "receiver" // Keep the fixture's explicit tool policy independent.
+			app.Name = "receiver"
 			app.Settings.Launcher.Slots = app.Settings.Launcher.Slots[:1]
 			subscriptionType, kind := "thread_messages", "message"
 			expectedEvents := []string{"message"}
@@ -726,8 +718,6 @@ func TestAppPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
 			}
 			integrations.receipt.Plan, err = json.Marshal(plan)
 			require.NoError(t, err)
-			// A changed current profile or definition cannot rebuild resolved events
-			// or media identities on retry. The nil store methods catch replanning.
 			execution.profile.CurrentConfig = executionstore.AgentConfigRecord{}
 			integrations.appSetup.AppType = "no-longer-available"
 			replayed, err := router.Freeze(t.Context(), integrations.receipt.Lease(), []AppEvent{other})

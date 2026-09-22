@@ -372,8 +372,6 @@ func TestCanceledPostAfterProviderAcceptsIsUnknown(t *testing.T) {
 		if _, err := io.Copy(io.Discard, r.Body); err != nil {
 			t.Error(err)
 		}
-		// The provider has received the entire mutation. Interrupt its response;
-		// a safe caller must not assume the comment was rejected and send again.
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":`))
 		_ = http.NewResponseController(w).Flush()

@@ -48,9 +48,6 @@ func activateInteractionToolHandlers(
 	return changed.AgentConfig
 }
 
-// Handler-selection calls must originate from a model context whose immutable
-// config already contains the handlers. Launch a fresh fixture agent against
-// that config; never rewrite an existing context to make a stale call succeed.
 func newInteractionToolFixture(
 	t *testing.T,
 	ctx context.Context,
@@ -135,8 +132,6 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-selection", "chat", "overlap")
-	// The selected handler's app has a sending context in a different channel.
-	// Listing, explicit selection, clearing and replay remain independent of it.
 	overlap, err := f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "overlap")
 	require.NoError(t, err)
 	seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, overlap,
@@ -198,7 +193,6 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	require.Equal(t, selected["args"], listed["args"])
 	dispatchInteractionHandler(t, ctx, f, turn, calls[3])
 	require.Nil(t, interactionToolResult(t, ctx, f, calls[3])["selection"])
-	// Completed-call replay returns the persisted result without restoring old selection.
 	replayed, err := (Executor{Store: f.Store}).Dispatch(ctx, turn, calls[1])
 	require.NoError(t, err)
 	require.Equal(t, selected, toolResultMapFromTestParts(t, replayed.ContentParts)["selection"])
@@ -214,7 +208,6 @@ func TestInteractionToolRejectsUnavailableChoiceWithoutMutation(t *testing.T) {
 	f := newInteractionToolFixture(t, ctx, "interaction-revoked", "chat")
 	call := f.recordToolCall(t, ctx, "set-revoked", toolcatalog.ToolNameSetInteractionHandler,
 		`{"handler":"chat","args":{"channel_id":"C123","thread_ts":"111.222"}}`, f.Now)
-	// A choice discovered before config replacement cannot restore removed authority.
 	activateInteractionToolHandlers(t, ctx, f)
 	result, err := (Executor{Store: f.Store}).Dispatch(
 		ctx, interactionToolTurn(f, toolpermission.ModeAlwaysAllow), call,
@@ -309,8 +302,6 @@ func TestInteractionToolAlwaysAskUsesOriginalAuthorizationInput(t *testing.T) {
 	)
 }
 
-// Use the production config reconciliation and origin selector without publishing
-// an extra model tool batch in the shared fixture.
 func prepareInteractionPromptFixture(t *testing.T, ctx context.Context, f integrationToolFixture) {
 	t.Helper()
 	activateInteractionToolHandlers(t, ctx, f, "chat")

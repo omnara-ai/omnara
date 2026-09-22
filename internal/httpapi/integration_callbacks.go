@@ -83,8 +83,6 @@ func (s *Server) verifySignedSlackCallback(
 	return install, true
 }
 
-// Callback payload IDs are only lookup hints. Authentication always uses the
-// captured app, never another saved app sharing the same provider identity.
 func (s *Server) slackCallbackOwner(ctx context.Context, envelope slack.ActionsEnvelope) (uuid.UUID, error) {
 	for _, action := range envelope.Actions {
 		if value, ok := strings.CutPrefix(action.ActionID, slack.ProfileChoiceActionPrefix); ok {

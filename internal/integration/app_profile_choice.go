@@ -16,8 +16,6 @@ type AppProfileNames interface {
 	GetAgentProfileDisplayNames(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
-// AppProfileChoiceProvider presents app-owned launch choices. These are not
-// agent interactions: there is no agent, config derivation or permission tool.
 type AppProfileChoiceProvider interface {
 	PresentProfileChoice(context.Context, integrationstore.ProjectAppRecord,
 		integrationstore.AppProfileChoiceRecord, func(context.Context) error) (string, string, error)
@@ -50,8 +48,6 @@ func profileChoiceExpiryText(expiresAt time.Time) string {
 		". Follow-up messages sent before selection may be missed."
 }
 
-// Decide implements our chat apps' one-profile-or-menu behavior. Other apps may
-// choose every slot or implement another policy using the same admission path.
 func (l *ChatAppLauncher) Decide(ctx context.Context, input AppLaunchContext) ([]AppLaunchIntent, error) {
 	intents, err := EverySlotAppLauncher(ctx, input)
 	if err != nil {
@@ -78,8 +74,6 @@ func (l *ChatAppLauncher) decideProfiles(
 	if err != nil {
 		return nil, err
 	}
-	// A delayed callback for the initiating message must recover its own chosen
-	// recipient, even if another setup has since launched into the conversation.
 	if exists && choice.SelectedKey != "" {
 		return l.selectedChoiceIntent(ctx, choice)
 	}
@@ -108,8 +102,6 @@ func (l *ChatAppLauncher) decideProfiles(
 			})
 		}
 	}
-	// Store only provider facts; neither a prior stage nor a provider payload can
-	// choose a recipient through fields in the normalized source.
 	source := input.Event
 	source.Launches, source.Directed = nil, false
 	raw, err := json.Marshal(source)
@@ -123,8 +115,6 @@ func (l *ChatAppLauncher) decideProfiles(
 			HasAttachments: len(source.Files) != 0 || (source.Sibling != nil && source.Sibling.AttachmentNotice != ""),
 		})
 	if errors.Is(err, integrationstore.ErrAppSelectionSettled) {
-		// Admission may have settled this setup after the launcher's snapshot.
-		// Freeze will re-read current subscriptions; do not publish a stale menu.
 		return nil, nil
 	}
 	if err != nil {
@@ -174,8 +164,7 @@ func (l *ChatAppLauncher) decideProfiles(
 	return nil, nil
 }
 
-// A second provider callback for the same source may carry attachments. It can
-// continue a committed choice, but must never independently launch that choice:
+// A sibling callback may add attachments, but cannot launch an uncommitted choice:
 // the original handoff could fail between this lookup and Freeze.
 func (l *ChatAppLauncher) selectedChoiceIntent(
 	ctx context.Context, choice integrationstore.AppProfileChoiceRecord,
@@ -195,9 +184,6 @@ func (l *ChatAppLauncher) selectedChoiceIntent(
 		}
 		for key := range plan {
 			if _, committed := progress[key]["committed"]; committed {
-				// A choice handoff contains exactly one selected profile. Its retained
-				// target, including a retirement tombstone, prevents a replacement
-				// launch when Freeze rechecks the intent.
 				return choiceIntent(choice), nil
 			}
 		}
@@ -218,8 +204,6 @@ func choiceIntent(choice integrationstore.AppProfileChoiceRecord) []AppLaunchInt
 	return nil
 }
 
-// SelectChatAppProfile performs no provider I/O or agent launch. A successful
-// choice durably hands the original request to the existing worker before ACK.
 func SelectChatAppProfile(
 	ctx context.Context, store *integrationstore.Store, appSetup integrationstore.ProjectAppRecord,
 	id uuid.UUID, key, actorID, channelID, messageID string,

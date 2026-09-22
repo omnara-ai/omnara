@@ -1,6 +1,5 @@
 import { type ReactNode, useId } from 'react'
 
-/** One task in the form: what it is and where to find it beside the fields that answer it. */
 export function ProjectAppSetupGroup({
   title,
   hint,

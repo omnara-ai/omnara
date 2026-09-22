@@ -58,8 +58,6 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 	f := newInboxFixture(t)
 	launch := scheduledInboxSnapshot(t, f)
 	root := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
-	// A verified provider body can contain arbitrary fields, including a forged
-	// source and a thread. None of them may become storage authority.
 	payload, err := json.Marshal(struct {
 		integrationstore.ScheduledAppEvent
 		Source string              `json:"source"`
@@ -91,8 +89,6 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 	)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	require.Empty(t, f.read(t, provider.ID).Plan)
-	// The same app has no mention launcher. Only the trusted scheduled receipt
-	// and a plan within its accepted parent authorize this reservation.
 	acceptScheduledInbox(t, f, launch)
 	scheduled := f.claim(t)
 	f.mutate(t, scheduled, func(w *integrationstore.IntegrationInboxLeaseTx) error {

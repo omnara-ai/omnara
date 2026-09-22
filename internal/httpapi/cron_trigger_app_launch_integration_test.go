@@ -35,8 +35,6 @@ func TestCronTriggerAppHTTP(t *testing.T) {
 		"timezone": "America/Los_Angeles",
 	}
 	path, headers := project.ProjectPath+"/cron-triggers", authHeaders(project.AdminToken)
-	// Making message_template optional for app targets must not turn missing
-	// ordinary cron content into an internal error or an accepted empty message.
 	requestJSONWithHeaders(t, handler, http.MethodPost, path, projectAppHTTPJSON(t, map[string]any{
 		"name": "Missing task", "cron": "0 9 * * *", "target": map[string]any{"type": "profile", "agent_profile_id": profileID},
 	}), "", http.StatusBadRequest, headers)
@@ -162,7 +160,6 @@ func TestCronTriggerAppHTTP(t *testing.T) {
 		headers,
 	)
 	target["app_id"] = appID
-	// App references are resolved when the occurrence runs, within its project.
 	settings["agent_profile_id"] = testutil.RequireType[string](t, foreignProfile["id"])
 	body["name"] = "Foreign profile schedule"
 	requestJSONWithHeaders(
@@ -185,7 +182,6 @@ func TestCronTriggerAppHTTP(t *testing.T) {
 		http.StatusOK,
 		headers,
 	)
-	// The diagnostic exposes the public outcome, not raw inbox errors or UUIDs.
 	triggerUUID := mustPublicHTTPID(t, publicid.KindCronTrigger, id)
 	_, err = pool.Exec(
 		ctx,

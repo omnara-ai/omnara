@@ -1,4 +1,3 @@
-// Command config-schema generates the agent config schema and its shared OpenAPI definitions.
 package main
 
 import (
@@ -62,7 +61,6 @@ func generate(root string, check bool) error {
 	if err != nil {
 		return err
 	}
-	// Render both outputs before writing so invalid input leaves both files intact.
 	for _, output := range []struct {
 		path string
 		data []byte
@@ -98,7 +96,6 @@ func renderOpenAPI(schema, spec []byte) ([]byte, error) {
 	if !found {
 		return nil, errors.New("OpenAPI generated app schema markers are out of order")
 	}
-	// Decode separately: rewriting OpenAPI references must not change the config schema.
 	var source struct {
 		Defs map[string]map[string]any `json:"$defs"`
 	}

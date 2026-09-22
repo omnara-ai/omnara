@@ -80,7 +80,7 @@ func runSlackTool(
 					continue
 				}
 			} else if (result.TransientFailure || result.DeliveryUnknown) && attempt < integrationMessageSendAttempts {
-				continue // reads are safe to retry
+				continue
 			}
 			break
 		}

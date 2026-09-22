@@ -128,7 +128,7 @@ func TestGatewayDurableFailureStopsAndRestoresPersistedSequence(t *testing.T) {
 			}
 			writePacket(t, ctx, conn, `{"op":7,"d":null}`)
 		}
-		_, _, _ = conn.Read(ctx) // Wait for the run to close its socket.
+		_, _, _ = conn.Read(ctx)
 	})
 	persisted := resumeCheckpoint(config)
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -192,7 +192,6 @@ func TestGatewayReadyChecksIdentityAndCommitsCheckpoint(t *testing.T) {
 			Shard   []int  `json:"shard"`
 			Token   string `json:"token"`
 		}
-		// Only GUILD_MESSAGES (512) and MESSAGE_CONTENT (32768) are needed.
 		if json.Unmarshal(auth.Data, &identify) != nil || auth.Op != 2 || identify.Intents != 512+32768 ||
 			len(identify.Shard) != 2 || identify.Shard[0] != 0 || identify.Shard[1] != 1 || permits.Load() != 1 {
 			t.Error("identify was not correctly gated")

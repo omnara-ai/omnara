@@ -16,8 +16,6 @@ type AppCapabilityCompiled struct {
 	AppID string `json:"app_id"`
 }
 
-// AppResolution supplies compile/preparation metadata. AppType is never persisted in a
-// compiled capability. The resolver must enforce project ownership and app state.
 type AppResolution struct {
 	AppID   string
 	AppType appdefinition.Type
@@ -109,8 +107,6 @@ func compileAppCapabilities(source AgentConfigSource, opts CompileOptions, compi
 	return nil
 }
 
-// ReferencedAppIDs is the distinct project-scoped read set for preparation.
-// Disabled tools grant no authority; handlers remain independent.
 func ReferencedAppIDs(compiled Compiled) []string {
 	ids := map[string]struct{}{}
 	for _, tool := range compiled.Tools {

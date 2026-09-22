@@ -214,7 +214,6 @@ export function useConfigureProjectApp(orgID: string, projectID: string) {
       })
     },
     onError: async (_, { appID }) => {
-      // A stale setup revision requires a fresh app before retrying credentials.
       await cache.invalidateQueries({
         queryKey: getProjectAppQueryKey({ path: { orgID, projectID, appID }, client }),
       })

@@ -38,7 +38,6 @@ type CleanupDeletedAppStatesParams struct {
 	RowLimit int32
 }
 
-// Deleted ownership reclaims every kind, regardless of its workflow deadline.
 func (q *Queries) CleanupDeletedAppStates(ctx context.Context, arg CleanupDeletedAppStatesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupDeletedAppStates, arg.RowLimit)
 	if err != nil {
@@ -63,7 +62,6 @@ type ExpireAppStateParams struct {
 	ExpectedRevision int64
 }
 
-// Explicit expiry never erases the record or its replay identity.
 func (q *Queries) ExpireAppState(ctx context.Context, arg ExpireAppStateParams) error {
 	_, err := q.db.Exec(ctx, expireAppState,
 		arg.ProjectID,
@@ -89,9 +87,6 @@ type GetAppStateParams struct {
 	ID        uuid.UUID
 }
 
-// These primitives compose inside the owning workflow's transaction. Callers
-// hold project/app lifecycle gates before mutation; updates fence stale reads.
-// Expired records remain readable for replay and recovery.
 func (q *Queries) GetAppState(ctx context.Context, arg GetAppStateParams) (AppState, error) {
 	row := q.db.QueryRow(ctx, getAppState,
 		arg.ProjectID,
@@ -126,7 +121,6 @@ type GetAppStateAppIDParams struct {
 	ID   uuid.UUID
 }
 
-// Private callback routing only; verification and workflow authorization follow.
 func (q *Queries) GetAppStateAppID(ctx context.Context, arg GetAppStateAppIDParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, getAppStateAppID, arg.Kind, arg.ID)
 	var app_id uuid.UUID
@@ -193,7 +187,6 @@ type InsertAppStateParams struct {
 	LifetimeMilliseconds int64
 }
 
-// Zero lifetime means no deadline. Relative deadlines use the database clock.
 func (q *Queries) InsertAppState(ctx context.Context, arg InsertAppStateParams) (AppState, error) {
 	row := q.db.QueryRow(ctx, insertAppState,
 		arg.ProjectID,
@@ -243,8 +236,6 @@ type ReplaceAppStateParams struct {
 	RequireUnexpired bool
 }
 
-// Identity, scope and deadline are immutable through ordinary replacement.
-// A workflow can require its decision deadline still to be live at the write.
 func (q *Queries) ReplaceAppState(ctx context.Context, arg ReplaceAppStateParams) (AppState, error) {
 	row := q.db.QueryRow(ctx, replaceAppState,
 		arg.Data,

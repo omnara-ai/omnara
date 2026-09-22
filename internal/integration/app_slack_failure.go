@@ -43,14 +43,11 @@ func (p *SlackAppInboxProvider) NotifyInboxFailure(ctx context.Context,
 		if err != nil || !ok {
 			return err
 		}
-		// Without a frozen recipient, only a direct request warrants feedback.
-		// Slack normalization treats a DM as directly addressing the bot too.
 		if len(receipt.Plan) == 0 && !event.Event.Mentioned {
 			return nil
 		}
 		if event.Event.Mentioned && event.Event.Scope.Slack.ThreadTS != "" {
-			// Slack sends both message and app_mention callbacks for a mention.
-			// Only app_mention owns feedback; DMs and ordinary replies have no sibling.
+			// Slack sends both message and app_mention for a mention; only app_mention sends failure feedback.
 			envelope, err := slack.DecodeEventsEnvelope(receipt.Payload)
 			if err != nil || envelope.Event.Type != "app_mention" {
 				return err

@@ -15,9 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// CreateCronTriggerAppEvent atomically copies a live occurrence into the app
-// inbox and completes its firing. False means no new handoff: a stale/canceled
-// claim or a reported unavailable target. No provider I/O occurs here.
 func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCronTrigger) (bool, error) {
 	if claimed.ProjectID == uuid.Nil || claimed.TriggerID == uuid.Nil ||
 		claimed.ClaimToken == uuid.Nil || claimed.DueAt.IsZero() || claimed.FiredAt.IsZero() ||
@@ -43,8 +40,6 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 		}
 		return false, err
 	}
-	// The app gate is taken before cron, including on unavailable paths. Resource
-	// references inside settings belong to the app and grant no authority here.
 	unavailable := ""
 	if err := integrationstore.LockAppsTx(ctx, tx, claimed.ProjectID, nil, claimed.Target.ID); err != nil {
 		if !errors.Is(err, storeerr.ErrNotFound) && !errors.Is(err, storeerr.ErrUnauthorized) {
@@ -68,7 +63,6 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 	if !live {
 		return false, nil
 	}
-	// Never acquire a new identity's gates under cron, even for malformed claims.
 	if current.Target.Kind != CronTriggerTargetApp || current.Target.ID != claimed.Target.ID {
 		return false, storeerr.InvalidRequest(errors.New("claimed app identity does not match cron trigger"))
 	}
@@ -80,7 +74,6 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 		}
 		return false, tx.Commit(ctx)
 	}
-	// A manually forged future claim must not fire early.
 	now, err := q.DBNow(ctx)
 	if err != nil {
 		return false, err
@@ -142,8 +135,6 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 		return false, err
 	}
 	if rows != 1 {
-		// The lease may expire while accepting the receipt. Roll back the entire
-		// handoff and let a fresh claim retry without recording a stale failure.
 		return false, nil
 	}
 	if err := completeCronTriggerFiringTx(ctx, q, CompleteCronTriggerFiringInput{
@@ -157,8 +148,6 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 	return true, nil
 }
 
-// An unavailable setup is a failed occurrence, not an endless claim-lease retry.
-// Record and completion share the lock and transaction; future firings still run.
 func skipCronAppEventTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -195,8 +184,6 @@ func skipCronAppEventTx(
 		if !errors.Is(err, storeerr.ErrInvalidRequest) {
 			return err
 		}
-		// A corrupt schedule cannot compute a next firing. Match claiming's
-		// existing disable behavior instead of retrying this occurrence forever.
 		if _, err := q.DisableCronTrigger(ctx, dbsqlc.DisableCronTriggerParams{
 			ProjectID: claimed.ProjectID, ID: claimed.TriggerID, FailureMessage: message,
 		}); err != nil {

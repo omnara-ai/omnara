@@ -45,7 +45,6 @@ func TestPersistentAppsMergeTypesAndPageByIdentity(t *testing.T) {
 		case 5:
 			f.exec(t, `UPDATE project_apps SET deleted_at=now() WHERE id=$1`, id)
 		case 8:
-			// An active app outside the selected types must not leak into a page.
 		default:
 			want = append(want, id)
 			if appType == appdefinition.DiscordThread {
@@ -54,8 +53,6 @@ func TestPersistentAppsMergeTypesAndPageByIdentity(t *testing.T) {
 		}
 	}
 	query := dbsqlc.New(f.pool)
-	// Two real types exercise the query's merge without inventing a registry
-	// entry or claiming that they currently share a persistent transport.
 	for _, appTypes := range [][]string{
 		{"discord_thread", "github_pr"},
 		{"github_pr", "discord_thread", "github_pr"},
@@ -161,8 +158,6 @@ func TestAppRuntimeFencesOwnershipAndCommitsReceiptWithCheckpoint(t *testing.T) 
 			require.NoError(t, err)
 			require.False(t, found)
 			if scenario == "commit" {
-				// Discovery on another worker must not queue behind the active
-				// owner's checkpoint/heartbeat transaction.
 				owner := integrationdb.BeginTx(t, f.ctx, f.pool)
 				_, err := owner.Exec(
 					f.ctx,
@@ -223,7 +218,6 @@ func TestAppRuntimeFencesOwnershipAndCommitsReceiptWithCheckpoint(t *testing.T) 
 			err = f.store.CommitAppRuntime(f.ctx, claim.Lease, checkpoint, &receipt)
 			if scenario == "commit" {
 				require.NoError(t, err)
-				// Same provider event is idempotent even while sequence advances.
 				require.NoError(
 					t,
 					f.store.CommitAppRuntime(f.ctx, claim.Lease, json.RawMessage(`{"sequence":8}`), &receipt),

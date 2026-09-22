@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-// PageOptions requests exactly one page. Zero values mean page 1, 30 items.
-// NextPage is an integer, never a token-bearing URL accepted from a tool caller.
 type PageOptions struct {
 	Page    int
 	PerPage int

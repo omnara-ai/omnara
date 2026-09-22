@@ -455,7 +455,6 @@ type GetAgentProfileDisplayNamesRow struct {
 	Name string
 }
 
-// Display-only lookup for app menus; never loads or derives an agent config.
 func (q *Queries) GetAgentProfileDisplayNames(ctx context.Context, arg GetAgentProfileDisplayNamesParams) ([]GetAgentProfileDisplayNamesRow, error) {
 	rows, err := q.db.Query(ctx, getAgentProfileDisplayNames, arg.ProjectID, arg.ProfileIds)
 	if err != nil {

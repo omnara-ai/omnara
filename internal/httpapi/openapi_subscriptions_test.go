@@ -14,8 +14,7 @@ import (
 )
 
 func TestGeneratedSubscriptionRequestsPreserveConversationAndEventSelection(t *testing.T) {
-	// A provider address can include int64 IDs that cannot survive decoding
-	// through float64. Keep the exact conversation JSON for app-owned validation.
+	// This repository ID exceeds float64's exact integer range.
 	const conversation = `{"repository_id":9007199254740993,"pull_request":42}`
 	var create openapi.CreateAppSubscriptionRequest
 	require.NoError(t, json.Unmarshal(

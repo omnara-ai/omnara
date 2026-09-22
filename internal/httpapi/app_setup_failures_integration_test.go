@@ -25,7 +25,6 @@ func TestAppSetupNameConflictAndMalformedID(t *testing.T) {
 		conflict["error"])
 	f.assertOneApp(t)
 
-	// The nil UUID passes the route's string pattern but fails public ID parsing.
 	invalidID := "app_" + strings.Repeat("a", 26)
 	for _, manifest := range []bool{false, true} {
 		path, body := projectSlackSetupRequest(t, f.project, invalidID, manifest)

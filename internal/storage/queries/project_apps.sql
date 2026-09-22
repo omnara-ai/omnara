@@ -1,4 +1,3 @@
--- Apps own credentials and behavior. Metadata writes never change setup_revision.
 -- name: InsertProjectApp :one
 INSERT INTO project_apps(org_id, project_id, name, app_type, settings, state, created_at, updated_at)
 VALUES (sqlc.arg(org_id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(app_type),
@@ -15,7 +14,6 @@ SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, 
 FROM project_apps
 WHERE project_id = sqlc.arg(project_id) AND name = sqlc.arg(name) AND deleted_at IS NULL;
 
--- Private provider ingress resolves identity before a project principal exists.
 -- name: GetProjectAppByID :one
 SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
@@ -26,8 +24,7 @@ FROM project_apps
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR UPDATE;
 
--- Take the lifecycle gate before app/profile/agent row locks. Sorted app IDs
--- provide a common order when one agent uses several apps.
+-- Lock order: project/app gates (sorted app IDs), inbox receipt, conversation gate, profile/agent rows.
 -- name: LockProjectAppLifecycleShared :exec
 SELECT pg_advisory_xact_lock_shared(hashtextextended('project_app:' || sqlc.arg(app_id)::uuid::text, 0));
 
@@ -39,9 +36,6 @@ UPDATE project_apps SET settings = sqlc.arg(settings), updated_at = statement_ti
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 RETURNING id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision;
 
--- Provider identity and secret version were verified before entering this
--- transaction. The revision rejects a stale setup result; unrelated settings
--- edits deliberately do not invalidate that verification.
 -- name: ConfigureProjectApp :one
 UPDATE project_apps
 SET installed_by_user_id = sqlc.arg(installed_by_user_id),
@@ -79,8 +73,6 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(row_limit);
 
--- A physical bot can have independent saved apps, including in other projects.
--- Iterate all pages; a truncated fanout must never be acknowledged as complete.
 -- name: ListProjectAppsByProviderIdentity :many
 SELECT app.id, app.org_id, app.project_id, app.installed_by_user_id, app.state, app.provider_tenant_id, app.provider_account_ref, app.provider_agent_display_name, app.credential_secret_id, app.provider_config, app.provider_identity, app.provider_metadata, app.last_oauth_flow_id, app.deleted_at, app.created_at, app.updated_at, app.name, app.app_type, app.settings, app.setup_revision
 FROM project_apps app
@@ -117,8 +109,6 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 -- Tombstones also prevent reusing a completed setup attempt.
 SELECT EXISTS (SELECT 1 FROM project_apps WHERE last_oauth_flow_id = sqlc.arg(flow_id)) AS consumed;
 
--- Metadata keeps stored configs interpretable after app deletion. These reads
--- grant no execution authority; tools check live setup immediately before I/O.
 -- name: ListProjectAppMetadataByIDs :many
 SELECT id, project_id, name, app_type, state, deleted_at
 FROM project_apps

@@ -366,8 +366,6 @@ func TestSlackAppLegacyContextsPreserveReadAndPost(t *testing.T) {
 	}
 }
 
-// The fixture's saved Slack identity is T123/B123. Individual identity-rotation
-// tests supply their own auth.test responses instead of using this handler.
 func serveSlackToolIdentity(w http.ResponseWriter, r *http.Request) bool {
 	if r.URL.Path != "/auth.test" {
 		return false
@@ -381,7 +379,7 @@ func TestSlackAppRotatedTokenKeepsVerifiedIdentity(t *testing.T) {
 	for _, identity := range []string{"same", "different-workspace", "different-bot"} {
 		for _, operation := range []string{"read", "post_message", "upload"} {
 			if identity == "same" && operation == "upload" {
-				continue // Successful uploads are covered by the artifact journey.
+				continue
 			}
 			t.Run(identity+"/"+operation, func(t *testing.T) {
 				t.Parallel()

@@ -47,8 +47,6 @@ func runAppTool(ctx context.Context, call asyncToolContext) (asyncPhaseResult, e
 	}
 }
 
-// Deterministic scope errors must finish the call so the model can correct it.
-// Storage and runtime-ownership failures still propagate unchanged.
 func appToolPreparationFailure(err error) error {
 	content, marshalErr := structuredToolResultContent(map[string]string{
 		"code": "app_tool_failed", "message": err.Error(),
@@ -59,7 +57,6 @@ func appToolPreparationFailure(err error) error {
 	return newToolCallPreparationError(content, err)
 }
 
-// An implicit conversation must still be visible to the approver.
 func appPermissionChallenge(
 	ctx context.Context,
 	e Executor,

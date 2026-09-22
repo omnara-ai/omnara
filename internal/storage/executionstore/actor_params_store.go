@@ -23,8 +23,6 @@ type ActorParams struct {
 	Metadata         resourcemeta.Metadata
 }
 
-// AppActorParams attributes a sender to one configured app. The app reference is
-// an identity namespace, not a foreign key or a grant of authority.
 func AppActorParams(appID uuid.UUID, userID string, displayName *string) (ActorParams, error) {
 	tenantID, err := publicid.Encode(publicid.KindProjectApp, appID)
 	if err != nil {

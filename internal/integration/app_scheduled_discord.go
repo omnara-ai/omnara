@@ -35,9 +35,6 @@ func (p *DiscordAppInboxProvider) PublishScheduledRoot(
 	}
 	parent.GuildID = channel.GuildID
 	nonce := base64.RawURLEncoding.EncodeToString(receiptID[:])
-	// CreateMessage bounds same-nonce retries to its initial operation. An
-	// uncertain outcome is terminal for this run; a crash before recording the
-	// outcome can still replay the send.
 	root, err := client.CreateMessage(ctx, parent, discord.MessageArgs{Content: launch.OpeningMessage, Nonce: nonce})
 	if err != nil {
 		var apiErr *discord.APIError

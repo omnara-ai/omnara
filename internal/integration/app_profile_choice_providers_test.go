@@ -52,7 +52,7 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 			if assert.NoError(t, json.NewDecoder(r.Body).Decode(&body)) {
 				assert.Equal(t, "Helper conversation", body["name"])
 			}
-			return false // Let the fixture create the actual source-message thread.
+			return false
 		}
 		if r.URL.Path != "/api/v10/channels/500/messages" && r.URL.Path != "/api/v10/channels/500/messages/600" {
 			return false
@@ -100,8 +100,6 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 	require.Equal(t, 1, selectMenu.MaxValues)
 	require.Positive(t, checks.Load())
 
-	// Re-presenting the same durable choice reuses the source thread and the
-	// enforced message nonce. It must not create a second unrelated thread.
 	channel, message, err = provider.PresentProfileChoice(t.Context(), f.appSetup, choice, check)
 	require.NoError(t, err)
 	require.Equal(t, "500", channel)

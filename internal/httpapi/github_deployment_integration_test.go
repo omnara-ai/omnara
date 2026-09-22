@@ -71,15 +71,12 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	pool := integrationPoolForHandler(t, f.handler)
 	old := httptest.NewServer(f.handler)
 	t.Cleanup(old.Close)
-	// Separate mounted API instances share only the durable database.
 	next := httptest.NewServer(newIntegrationServer(pool))
 	t.Cleanup(next.Close)
 	raw := githubHTTPComment(t, 42, 3001, "in flight during drain")
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
-	// Hold a conflicting, uncommitted receipt key. This blocks the real intake
-	// INSERT without blocking a different delivery on the replacement server.
 	_, err = lock.Exec(ctx, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload)
 		VALUES($1,$2,'github:issue_comment:draining',$3)`, f.app.ProjectID, f.app.ID, []byte(raw))
 	require.NoError(t, err)
@@ -99,8 +96,6 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	shutdown := make(chan error, 1)
-	// cmd/api first calls Server.Close, which stops event reconciliation and
-	// daemon sockets without canceling webhook requests or closing their stores.
 	go func() { shutdown <- old.Config.Shutdown(shutdownCtx) }()
 	select {
 	case <-draining:
@@ -143,8 +138,6 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	require.Equal(t, 2, count, "redelivery to the replacement must preserve the original receipt")
 }
 
-// Drop a successful handler response at the socket, after the real handler has
-// persisted the receipt. This models a lost acknowledgement, not a fake store.
 type githubLostDeploymentResponse struct {
 	http.ResponseWriter
 	dropped bool
@@ -195,8 +188,6 @@ func TestGitHubHTTPDeploymentLostResponseReplayDeduplicates(t *testing.T) {
 	var receipt integrationstore.IntegrationInboxRecord
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT id FROM integration_inbox
 		WHERE app_id=$1 AND receipt_key='github:issue_comment:lost'`, f.app.ID).Scan(&receipt.ID))
-	// Drain the committed receipt through the real consumer before redelivery;
-	// an acknowledgement loss must not reopen even a terminal receipt.
 	require.Empty(t, f.consume(t, raw), "this app has no launcher or subscriptions")
 	old.Close()
 	for range 2 {

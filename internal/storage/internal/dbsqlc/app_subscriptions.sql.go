@@ -180,8 +180,6 @@ type HasAppSubscriptionParams struct {
 	Event            string
 }
 
-// Recheck receive authority after taking the agent lifecycle gate. Subscription
-// IDs fence deletion retries; a new matching subscription can authorize an input.
 func (q *Queries) HasAppSubscription(ctx context.Context, arg HasAppSubscriptionParams) (bool, error) {
 	row := q.db.QueryRow(ctx, hasAppSubscription,
 		arg.ProjectID,
@@ -333,7 +331,6 @@ type ListMatchingAppSubscriptionsParams struct {
 	Event     string
 }
 
-// Provider decoding supplies exact addresses and a bounded set of parent scopes.
 func (q *Queries) ListMatchingAppSubscriptions(ctx context.Context, arg ListMatchingAppSubscriptionsParams) ([]AppSubscription, error) {
 	rows, err := q.db.Query(ctx, listMatchingAppSubscriptions,
 		arg.Scopes,

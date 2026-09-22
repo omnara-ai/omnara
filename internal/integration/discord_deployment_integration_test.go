@@ -41,8 +41,6 @@ type deploymentGatewaySocket struct {
 	closed <-chan error
 }
 
-// The trusted HTTP transport maps the public gateway origin to a local socket.
-// RunShard, the runtime's commit callback, and Redis IDENTIFY gating are real.
 func newDeploymentGateway(t *testing.T) (*http.Client, <-chan deploymentGatewaySocket) {
 	t.Helper()
 	connections := make(chan deploymentGatewaySocket, 4)
@@ -152,8 +150,6 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	t.Helper()
 	ctx := t.Context()
 	f := newDiscordRuntimeFixture(t)
-	// Each run owns a distinct Redis bot namespace, including concurrent agents'
-	// test runs. Never flush shared Redis or delete another test's permit keys.
 	_, version, err := f.store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
 		OrgID: f.appSetup.OrgID, SecretID: f.appSetup.CredentialSecretID,
 		Actor:    identitystore.NewUserPrincipal(f.appSetup.InstalledByUserID),
@@ -224,8 +220,6 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	old := newRuntime()
 	go func() {
 		if scenario == "crash" {
-			// Run the real connection without the process's renewal/release loop:
-			// losing this socket leaves exactly the durable state of a killed worker.
 			oldDone <- old.connect(oldCtx, f.appSetup, first)
 			return
 		}
@@ -273,7 +267,6 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		_, found, err = f.store.Integrations().ClaimAppRuntime(ctx, revision, discordRuntimeLease)
 		require.NoError(t, err)
 		require.False(t, found, "replacement cannot steal an unexpired lease")
-		// Advance only the isolated database lease clock, not a 30-second sleep.
 		_, err = f.pool.Exec(ctx, `UPDATE app_runtime SET claim_expires_at=now()-interval '1 second'
 			WHERE app_id=$1`, f.appSetup.ID)
 		require.NoError(t, err)
@@ -326,8 +319,6 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	require.NoError(t, json.Unmarshal(two.auth.Data, &resume))
 	require.Equal(t, "deployment-session", resume.Session)
 	require.Equal(t, int64(3), resume.Sequence)
-	// Even an old process that wakes up cannot renew, publish, or release the
-	// replacement's claim. A stale receipt must not be partially inserted.
 	require.ErrorIs(t, f.store.Integrations().RenewAppRuntime(ctx, first.Lease, discordRuntimeLease),
 		integrationstore.ErrAppRuntimeLeaseLost)
 	require.ErrorIs(t, f.store.Integrations().CommitAppRuntime(ctx, first.Lease,

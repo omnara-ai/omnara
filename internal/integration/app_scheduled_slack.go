@@ -27,11 +27,10 @@ func (p *SlackAppInboxProvider) PublishScheduledRoot(
 	result, err := slack.PostPlainMessage(ctx, config, target, launch.OpeningMessage)
 	if err != nil {
 		return appdefinition.Scope{}, err
-	} // Request checks precede provider I/O.
+	}
 	switch {
 	case result.StatusCode >= 500 || result.TransientFailure || result.DeliveryUnknown:
-		// A timeout or server error can follow publication. Fail this run rather
-		// than deliberately repeat an unconfirmed post.
+		// Slack may have published before the timeout or server error; retrying could duplicate it.
 		return appdefinition.Scope{}, fmt.Errorf(
 			"%w: Slack opening publication could not be confirmed", ErrScheduledActionFailed,
 		)
@@ -53,6 +52,5 @@ func (p *SlackAppInboxProvider) EnsureScheduledThread(
 	_ appdefinition.Scope,
 	authority func(context.Context) error,
 ) error {
-	// Slack's root is the thread. No extra provider mutation is needed.
 	return authority(ctx)
 }

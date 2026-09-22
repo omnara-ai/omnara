@@ -11,14 +11,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// GitHubWebhookCredentialLimit bounds App-level signature verification work.
 const GitHubWebhookCredentialLimit = 16
 
-// ListGitHubWebhookCredentialApps selects one existing app per live credential
-// for unknown-installation/ping verification, including disconnected apps.
-// Known-installation fanout verifies each matching app without this fallback cap.
-// Callers must authorize and read the secret again before signature verification.
-// This method neither provisions an App nor chooses a recipient installation.
 func (s *Store) ListGitHubWebhookCredentialApps(
 	ctx context.Context, appID string, limit int,
 ) ([]ProjectAppRecord, error) {

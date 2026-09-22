@@ -21,7 +21,6 @@ func TestGeneratePreservesHandwrittenOpenAPIAndCheckIsReadOnly(t *testing.T) {
 	for _, path := range []string{configSchemaPath, openAPIPath} {
 		t.Run(path, func(t *testing.T) {
 			require.NoError(t, generate(root, false))
-			// Change each output independently; checking must not repair either one.
 			filename := filepath.Join(root, path)
 			original, err := os.ReadFile(filename)
 			require.NoError(t, err)

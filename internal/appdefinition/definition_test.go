@@ -193,7 +193,6 @@ func TestInteractionHandlersRequireCompleteIndependentDestinations(t *testing.T)
 			require.Error(t, err)
 			destination, err := d.InteractionHandler.ResolveArgs([]byte(test.args))
 			require.NoError(t, err)
-			// Verified input origins carry all handler arguments, including threads.
 			origin, err := destination.ConversationJSON()
 			require.NoError(t, err)
 			require.JSONEq(t, test.args, string(origin))

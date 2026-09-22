@@ -43,7 +43,7 @@ func (s *scheduledPlanResponseFailure) WithIntegrationInboxLease(
 	)
 	if err == nil && froze {
 		s.planSaved = true
-		return s.commitErr // Simulate a lost response only after the real transaction commits.
+		return s.commitErr
 	}
 	return err
 }
@@ -158,7 +158,6 @@ func TestScheduledDiscordStartupFailureIsTerminal(t *testing.T) {
 				return true
 			}
 			if !test.deleteProfile && !test.unknown {
-				// Fail the real plan transaction after a confirmed provider send.
 				_, err := f.pool.Exec(t.Context(), `
 CREATE FUNCTION fail_scheduled_plan() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -186,8 +185,6 @@ EXECUTE FUNCTION fail_scheduled_plan()`)
 			require.NoError(t, f.pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
 			require.Zero(t, agents, "a failed plan or deleted profile must never leave an orphan agent")
-			// Move availability forward so this also catches an accidental retry
-			// instead of merely observing the worker's backoff delay.
 			_, err = f.pool.Exec(t.Context(),
 				`UPDATE integration_inbox SET available_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
 			require.NoError(t, err)
@@ -221,8 +218,6 @@ func TestScheduledDiscordLeaseLossBeforePlanCanLeaveUnusedHeading(t *testing.T) 
 		}
 		assert.Equal(t, nonce, body.Nonce, "receipt nonce stays stable even across lease recovery")
 		if posts.Add(1) == 1 {
-			// Lose ownership after the provider accepts the opening, before either
-			// the plan or a terminal outcome can be saved. No wall-clock sleep.
 			_, err := f.pool.Exec(r.Context(),
 				`UPDATE integration_inbox SET claim_expires_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
 			if !assert.NoError(t, err) {
@@ -230,8 +225,6 @@ func TestScheduledDiscordLeaseLossBeforePlanCanLeaveUnusedHeading(t *testing.T) 
 				return true
 			}
 		} else {
-			// A provider may create a new heading on replay; nonce deduplication
-			// is not promised after an arbitrarily delayed worker recovery.
 			remote.message.ID = "501"
 		}
 		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
@@ -284,7 +277,6 @@ func newScheduledDiscordJourney(t *testing.T) (*scheduledJourney, *discordInboxF
 	remote.appSetup, err = f.store.Integrations().GetProjectAppByID(t.Context(), f.appID)
 	require.NoError(t, err)
 	remote.identity.ApplicationID = remote.appSetup.ProviderTenantID
-	// Historical GET responses do not need the create response's nonce.
 	remote.message = discord.Message{ID: "500", ChannelID: "300", Author: discord.User{ID: "22", Bot: true}}
 	f.handler.provider = provider
 	return f, remote

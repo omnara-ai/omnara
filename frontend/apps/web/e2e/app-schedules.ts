@@ -125,7 +125,6 @@ export async function exerciseDiscordAppSchedule(
   const deleted = await deletedResponse
   expect(deleted.status()).toBe(204)
   await expect(schedules.getByText('No schedules yet.', { exact: true })).toBeVisible()
-  // Schedules can be managed before enabling mention launches.
   expect((await readApp(page, apiProjectPath, app.id)).settings.launcher).toBeUndefined()
   await mentions.getByRole('button', { name: 'Choose profiles', exact: true }).click()
 }

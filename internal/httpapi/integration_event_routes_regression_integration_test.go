@@ -53,8 +53,6 @@ func TestProviderIngressBodyLimits(t *testing.T) {
 				path, limit = "/api/integrations/discord/100/interactions", discord.InteractionMaxBytes
 				base = `{"id":"600","type":1,"application_id":"100"}`
 			}
-			// Unknown-length bodies exercise the streaming cap, not Content-Length.
-			// Exactly the limit must still pass provider authentication and dispatch.
 			for _, size := range []int{limit + 1, limit + 16*1024, limit} {
 				body := base + strings.Repeat(padding, size-len(base))
 				reader := &io.LimitedReader{R: strings.NewReader(body), N: int64(size)}
@@ -137,8 +135,6 @@ func TestSlackSharedBotUninstallVerifiesEachAppAndFencesSetupRevision(t *testing
 			}
 			var response *httptest.ResponseRecorder
 			if concurrentSetup {
-				// Hold the app row until the authenticated callback reaches its
-				// disconnect write, then publish a newer verified setup revision.
 				tx := integrationdb.BeginTx(t, ctx, pool)
 				_, err := tx.Exec(ctx, `SELECT id FROM project_apps WHERE id=$1 FOR UPDATE`, f.Install.ID)
 				require.NoError(t, err)

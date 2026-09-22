@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests of admission use an explicit app policy rather than teaching the generic
-// planner to launch every matching setup. Provider choice tests supply their own.
 func testAppLaunchWorkflow(router *AppRouter) *AppLaunchWorkflow {
 	return NewAppLaunchWorkflow(router, map[appdefinition.Type]AppLauncher{
 		appdefinition.SlackThread:   EverySlotAppLauncher,

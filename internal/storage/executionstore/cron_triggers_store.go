@@ -38,8 +38,6 @@ const (
 )
 
 type CronTriggerTarget struct {
-	// Settings belongs only to app targets. Any resource references inside it
-	// are app inputs, not relational cron ownership or execution authority.
 	Settings     json.RawMessage
 	Kind         CronTriggerTargetKind
 	ID           uuid.UUID
@@ -89,8 +87,6 @@ type CronTriggerRecord struct {
 	Created         bool                      `json:"-"`
 }
 
-// CronTriggerLastRun describes the scheduled action's exact retained handoff
-// receipt. Completion is defined by the app handling that action.
 type CronTriggerLastRun struct {
 	State          CronTriggerLastRunState `json:"state"`
 	CreatedAt      time.Time               `json:"created_at"`
@@ -402,8 +398,6 @@ func (s *Store) UpdateCronTrigger(
 		return CronTriggerRecord{}, err
 	}
 	if record.Target.Kind == CronTriggerTargetApp {
-		// App identity is immutable. Do not take its lifecycle gate under cron.
-		// References inside settings belong to the app and are resolved at execution.
 		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, record.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err

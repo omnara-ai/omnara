@@ -949,8 +949,6 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	require.NoError(t, err)
 	actor := &appActor
 	if fixtureOptions.withToolContext {
-		// Context is inserted once below. Ordinary attribution must never be
-		// promoted to context or authorize conversation-bound app tools.
 		origin = nil
 		actor, err = executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(user.ID))
 		require.NoError(t, err)
@@ -1040,8 +1038,6 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 }
 
-// seedToolContext inserts a new immutable binding before fixture workers start.
-// It never promotes attribution or rewrites recorded model arguments.
 func seedToolContext(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool, store *storage.Store,
 	agent executionstore.AgentRecord, app integrationstore.ProjectAppRecord,

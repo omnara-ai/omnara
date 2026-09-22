@@ -278,7 +278,6 @@ func TestProjectAppCredentialRebindRequiresVerifiedSetup(t *testing.T) {
 	input.ExpectedSetupRevision, input.OAuthFlowID = saved.SetupRevision, uuid.Must(uuid.NewV7())
 	_, err = f.store.ConfigureProjectApp(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "old setup cannot restore replaced credentials")
-	// A metadata save queued before another credential change preserves it.
 	tx := integrationdb.BeginTx(t, f.ctx, f.pool)
 	require.NoError(
 		t,

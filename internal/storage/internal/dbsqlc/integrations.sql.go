@@ -85,8 +85,7 @@ type GetAgentAppToolContextRow struct {
 	UpdatedAt        time.Time
 }
 
-// A retired context remains binding. Live app/agent authorization belongs to
-// the caller; never treat retirement or disconnection as unrestricted sending.
+// A retired sending context still confines the agent; it must not mean unrestricted access.
 func (q *Queries) GetAgentAppToolContext(ctx context.Context, arg GetAgentAppToolContextParams) (GetAgentAppToolContextRow, error) {
 	row := q.db.QueryRow(ctx, getAgentAppToolContext, arg.ProjectID, arg.AgentID, arg.AppID)
 	var i GetAgentAppToolContextRow

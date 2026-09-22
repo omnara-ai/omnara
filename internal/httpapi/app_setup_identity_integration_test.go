@@ -146,8 +146,6 @@ func TestAppSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 			})
 			require.Equal(t, f.steps, calls)
 			verifiedAppCredentialVersion(t, f.app)
-			// Disconnecting an existing credential binding remains independent of
-			// provider availability. Discord can also save active settings offline.
 			offline = true
 			if provider == "discord" {
 				f.body["provider_agent_display_name"] = "Updated active label"
@@ -168,8 +166,6 @@ func TestAppSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 				string(f.app.ProviderMetadata),
 				string(current.ProviderMetadata),
 			)
-			// An existing record with missing bot facts is repaired by public setup,
-			// even when its credential revision was previously marked verified.
 			offline = false
 			_, err := integrationPoolForHandler(t, f.handler).Exec(t.Context(),
 				`UPDATE project_apps SET provider_identity='{}' WHERE id=$1`, f.app.ID)
@@ -186,7 +182,6 @@ func TestAppSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 			f.update(t, http.StatusOK)
 			require.Equal(t, 3*f.steps, calls, "same-secret rotation must rediscover identity")
 			require.Equal(t, version, verifiedAppCredentialVersion(t, f.current(t)))
-			// A new credential reference must also be independently verified.
 			secret, _, err := f.project.Store.Secrets().
 				CreateSecret(t.Context(), secretstore.CreateSecretInput{
 					OrgID:          f.project.OrgUUID,
@@ -220,7 +215,7 @@ func TestAppSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 					}
 					return nil
 				})
-				version := f.rotate(t) // Require fresh verification on the next setup.
+				version := f.rotate(t)
 				before = func() {
 					switch change {
 					case "credential rotation":

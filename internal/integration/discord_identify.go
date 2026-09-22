@@ -13,12 +13,8 @@ type identifyRedis interface {
 	EvalInt(context.Context, string, []string, ...any) (int, error)
 }
 
-// Discord has a bot-wide session budget and five-second shard concurrency
-// buckets. Redis coordinates workers; each permit also consults Discord so a
-// Redis restart cannot reset the provider's daily budget.
-// Keep one start in reserve: Discord can reset the token when its budget is
-// exhausted. A zero reset interval has no useful expiration, so retain the
-// conservative 24-hour budget until a later provider observation lowers it.
+// Reserve one start because exhausting Discord's session budget can reset the token.
+// A zero reset interval uses 24 hours to avoid immediately forgetting that budget.
 const discordIdentifyPermitScript = `
 local remaining = tonumber(redis.call('GET', KEYS[1]))
 local observed = tonumber(ARGV[1])

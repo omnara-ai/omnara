@@ -66,7 +66,6 @@ export function ConnectGitHubForm({
       mounted.current = false
     }
   }, [])
-  // Read the live ref after awaits; cleanup can change it while a request is pending.
   const isMounted = () => mounted.current
   const selected = inspected?.installations.find(
     (installation) => installation.id === installationId,

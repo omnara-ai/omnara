@@ -84,7 +84,6 @@ export function readFileBase64(file: File): Promise<string> {
 }
 
 export function slackConnectionFormValid(values: SlackConnectionFormValues) {
-  // Rejected icons are not attached. Only an unfinished check blocks this optional upload.
   return (
     values.appName.trim() !== '' &&
     Array.from(values.appName.trim()).length <= slackAppNameMaxLength &&

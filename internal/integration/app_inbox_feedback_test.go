@@ -158,13 +158,16 @@ func TestSlackNotifyInboxFailureMentionSiblings(t *testing.T) {
 				}
 			}))
 			t.Cleanup(server.Close)
-			p := NewSlackAppInboxProvider(slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil)
+			p := NewSlackAppInboxProvider(
+				slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}, access, access, nil)
 			for _, kind := range []string{"message", "app_mention"} {
 				receipt := feedbackReceipt(app, slackInboxTestPayload(t, slack.Event{
 					Type: kind, User: "U123", Channel: "C123", TS: "1.2", ThreadTS: thread, Text: "<@UBOT> help",
 				}))
 				if planned {
-					receipt.Plan = feedbackPlan(t, appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.1"}})
+					receipt.Plan = feedbackPlan(t, appdefinition.Scope{
+						Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.1"},
+					})
 				}
 				require.NoError(t, p.NotifyInboxFailure(t.Context(), app, receipt, inboxFailureMessage))
 			}
@@ -275,7 +278,8 @@ func TestDiscordNotifyInboxFailureRechecksAuthority(t *testing.T) {
 				}
 				return false
 			}
-			err := p.NotifyInboxFailure(t.Context(), app, feedbackReceipt(app, discordInboxPayload(t, f.message)), inboxFailureMessage)
+			err := p.NotifyInboxFailure(
+				t.Context(), app, feedbackReceipt(app, discordInboxPayload(t, f.message)), inboxFailureMessage)
 			require.Error(t, err)
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -288,8 +292,6 @@ func TestDiscordNotifyInboxFailureRechecksAuthority(t *testing.T) {
 
 func TestInboxFailureSkipsUnplannedOrdinaryHumanMessages(t *testing.T) {
 	slackApp, discordApp := slackInboxTestApp(), discordInboxApp()
-	// These adapters have no credential resolvers: an unrelated message must
-	// return before any secret lookup, identity request, or provider send.
 	slackProvider, discordProvider := &SlackAppInboxProvider{}, &DiscordAppInboxProvider{}
 	for _, thread := range []string{"", "1.1"} {
 		receipt := feedbackReceipt(slackApp, slackInboxTestPayload(t, slack.Event{
@@ -316,7 +318,6 @@ func TestInboxFailureSkipsUnknownScheduledOpeningsAndAutomatedMessages(t *testin
 		require.NoError(t, slackProvider.NotifyInboxFailure(t.Context(), slackApp, slackReceipt, inboxFailureMessage))
 		require.NoError(t, discordProvider.NotifyInboxFailure(t.Context(), discordApp, discordReceipt, inboxFailureMessage))
 	}
-	// A channel in a malformed/partial plan does not establish a saved opening.
 	unknownSlack, unknownDiscord := feedbackReceipt(slackApp, nil), feedbackReceipt(discordApp, nil)
 	unknownSlack.Source, unknownDiscord.Source = integrationstore.IntegrationInboxSourceScheduled,
 		integrationstore.IntegrationInboxSourceScheduled
@@ -335,5 +336,6 @@ func TestInboxFailureSkipsUnknownScheduledOpeningsAndAutomatedMessages(t *testin
 	require.NoError(t, discordProvider.NotifyInboxFailure(t.Context(), discordApp,
 		feedbackReceipt(discordApp, discordInboxPayload(t, message)), inboxFailureMessage))
 	slackReceipt.AppID = uuid.New()
-	require.ErrorIs(t, slackProvider.NotifyInboxFailure(t.Context(), slackApp, slackReceipt, inboxFailureMessage), storeerr.ErrUnauthorized)
+	require.ErrorIs(t,
+		slackProvider.NotifyInboxFailure(t.Context(), slackApp, slackReceipt, inboxFailureMessage), storeerr.ErrUnauthorized)
 }

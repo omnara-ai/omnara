@@ -114,7 +114,6 @@ func TestConfigChangeSerializesNextAppWithRevocation(t *testing.T) {
 					revoked = integrationdb.RunAsyncError(revoke)
 					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectAppLifecycleExclusive", 1)
 				} else {
-					// Queue revocation ahead of the config's shared app gate.
 					require.NoError(t, dbsqlc.New(control).LockProjectAppLifecycleShared(
 						f.ctx, dbsqlc.LockProjectAppLifecycleSharedParams{AppID: f.app.ID},
 					))

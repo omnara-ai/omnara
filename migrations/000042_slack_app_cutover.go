@@ -22,9 +22,7 @@ func newSlackAppCutoverMigration() *goose.Migration {
 	return goose.NewGoMigration(42, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
 }
 
-// SQL41 preserves install IDs as app IDs and retains conversation attribution. This
-// migration runs before any new release writers start. Keep its data encoding
-// local: replay must not depend on a future config compiler or provider client.
+// Keep encoding local: migration replay must not depend on future config compilers.
 func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `LOCK TABLE agent_configs, agents IN ACCESS EXCLUSIVE MODE`); err != nil {
 		return err
@@ -173,9 +171,7 @@ func rewriteSlackAppConfig(config appCutoverConfig, apps []slackCutoverApp) (app
 	return config, true, err
 }
 
-// Frozen legacy policy grammar. The released send tool only supports
-// always_allow; explicit disable is its deny mechanism. Never reinterpret an
-// unsupported policy as a flexible app grant.
+// Released send policies supported only always_allow; disabling the tool represented denial.
 func slackCutoverSendPolicy(value any) (map[string]any, error) {
 	tool, ok := value.(map[string]any)
 	if !ok {
@@ -190,8 +186,7 @@ func slackCutoverSendPolicy(value any) (map[string]any, error) {
 			}
 			delete(policy, key)
 		case "enabled", "deferred":
-			// Released source accepts a nullable enabled field; null means the
-			// default, just like omission. Compiled policies contain a boolean.
+			// Released JSON/YAML treats enabled: null as the default; compiled policies use booleans.
 			if key == "enabled" && value == nil {
 				delete(policy, key)
 				continue
@@ -249,9 +244,7 @@ func rewriteSlackToolKeys(root map[string]any, apps []slackCutoverApp, compiled 
 			if len(apps) == 0 {
 				return false, errors.New("disabled legacy send policy has no known Slack app; repair before cutover")
 			}
-			// Preserve disables for live apps, including disconnected setups.
-			// Tombstones cannot resolve by name when source is saved again; a
-			// future app reusing that name has a new identity and no old policy.
+			// Deleted app names cannot resolve when this source is saved again.
 			for _, app := range apps {
 				if app.deleted {
 					continue
@@ -298,8 +291,7 @@ func rewriteSlackToolsYAML(raw []byte, apps []slackCutoverApp) ([]byte, bool, er
 		return nil, false, err
 	}
 	root := document.Content[0]
-	// As in migration37, resolve aliases/merges before editing shared nodes.
-	// Ordinary source retains its comments, key order and scalar formatting.
+	// Expand aliases before editing shared YAML nodes to avoid changing their other uses.
 	if fileToolYAMLHasReferences(root) {
 		if err := root.Encode(expected); err != nil {
 			return nil, false, err
@@ -319,8 +311,6 @@ func rewriteSlackToolsYAML(raw []byte, apps []slackCutoverApp) ([]byte, bool, er
 			key, value := tools.Content[i], tools.Content[i+1]
 			switch key.Value {
 			case "send_integration_message":
-				// App tools infer their type from the qualified name. Preserve
-				// source comments and formatting while dropping source-only fields.
 				var policyFields []*yaml.Node
 				for j := 0; j < len(value.Content); j += 2 {
 					field, setting := value.Content[j], value.Content[j+1]
@@ -366,12 +356,9 @@ type slackCutoverTarget struct {
 	id, appID, appName, kind, ref string
 }
 
-// Frozen provider address grammar: migration replay cannot depend on future runtime validation.
 var slackCutoverChannel = regexp.MustCompile(`^[CDG][A-Z0-9]+$`)
 var slackCutoverTimestamp = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 
-// A compiled-only successor preserves the exact model, policy and other resolved
-// resources without re-resolving the shared profile or its external references.
 func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, error) {
 	value, err := decodeAgentConfigNameMigrationJSON(raw)
 	if err != nil {
@@ -463,8 +450,7 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 41)",
 		)
 	}
-	// A model continuation can exist before its next call is inserted. Match the
-	// kernel frontier rather than mistaking an idle worker for a finished turn.
+	// An idle worker can still have a continuation with no model call inserted yet.
 	var agentID string
 	err := tx.QueryRowContext(ctx, `SELECT agent.id::text FROM agents agent
 		JOIN LATERAL (SELECT id FROM agent_turns WHERE agent_id=agent.id ORDER BY turn_sequence DESC LIMIT 1) latest ON true
@@ -537,17 +523,12 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	// Capture original send policies above before historical configs drop enabled
-	// legacy entries. Rewrite those configs before inserting successors: without
-	// hidden destinations a successor can equal a rewritten historical config,
-	// and the existing hash-based insertion must reuse that row. All changes,
-	// context designation and activation events still commit atomically.
+	// Rewrite history after capturing old policies but before inserting successors:
+	// a successor can hash to a rewritten historical config and must reuse that row.
 	if err := rewriteSlackAppConfigs(ctx, tx, apps); err != nil {
 		return err
 	}
-	// These exact targets formerly supplied each successor's fixed tool config.
-	// Designation is migration-only; selection slots remain NULL so a new
-	// mention can still launch through the app. Restore the guard before commit.
+	// Leave selection slots NULL so new mentions can launch through the app after cutover.
 	if _, err := tx.ExecContext(
 		ctx,
 		`ALTER TABLE integration_targets DISABLE TRIGGER integration_targets_tool_context_immutable`,
@@ -612,8 +593,6 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 	); err != nil {
 		return err
 	}
-	// Previous target pointers were also automatic prompt destinations. Keep the
-	// targets as history, without inferring handlers or app subscriptions from them.
 	_, err = tx.ExecContext(
 		ctx,
 		`UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE integration_target_id IS NOT NULL`,

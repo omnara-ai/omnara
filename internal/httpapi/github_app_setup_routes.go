@@ -23,8 +23,7 @@ import (
 
 const githubManifestCallbackPath = "/api/integrations/github/manifest/callback"
 
-// Registration may take longer than Slack OAuth; keep the sealed state usable
-// for GitHub's one-hour manifest conversion window.
+// Match GitHub's one-hour manifest conversion window.
 const githubManifestStateTTL = time.Hour
 
 var githubOrganizationLogin = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
@@ -123,8 +122,6 @@ func (s *Server) githubManifestWebhookURL() (string, error) {
 	if validateSlackSetupPublicURL(base) != nil {
 		return "", apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "GitHub webhooks require a public HTTPS API URL")
 	}
-	// PublicAPIURL is an API base (often ending in /api/v1), while provider
-	// callbacks have their own root route. Reuse the configured origin parser.
 	origin, err := parseConfiguredOrigin(base)
 	if err != nil {
 		return "", err
@@ -178,9 +175,6 @@ func githubAppReturnPath(projectID, appID uuid.UUID) (string, error) {
 	return "/projects/" + project + "/apps/" + app, nil
 }
 
-// Registration state contains no provider credentials or arbitrary return URL.
-// It authorizes only the one-time GitHub conversion; saved secrets have their
-// ordinary lifetime, including while organization installation approval is pending.
 type githubManifestState struct {
 	FlowID        uuid.UUID `json:"flow_id"`
 	OrgID         uuid.UUID `json:"org_id"`

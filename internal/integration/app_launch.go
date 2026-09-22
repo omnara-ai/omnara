@@ -11,9 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-// AppLauncher decides what a saved setup does with an event. It runs before
-// config derivation or agent admission, and may return zero, one or many intents.
-// Pending human choices belong to the app implementation, not the agent loop.
 type AppLauncher func(context.Context, AppLaunchContext) ([]AppLaunchIntent, error)
 
 type AppLaunchContext struct {
@@ -37,9 +34,6 @@ func NewAppLaunchWorkflow(router *AppRouter, launchers map[appdefinition.Type]Ap
 	return &AppLaunchWorkflow{router: router, launchers: registered}
 }
 
-// Decide reads routing under the receipt lease, releases all locks, then invokes
-// app code. Freeze independently validates its resulting intents under current
-// authority. Provider I/O and a human response never hold database locks.
 func (w *AppLaunchWorkflow) Decide(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -70,8 +64,6 @@ func (w *AppLaunchWorkflow) Decide(
 	result := slices.Clone(events)
 	for _, request := range requests {
 		event := &result[request.order]
-		// Normalization describes provider facts. Only app code supplies launch
-		// decisions; callback handoffs skip this stage entirely.
 		event.Launches, event.Directed = nil, false
 		if app := request.candidates.Launcher; app != nil {
 			launcher := w.launchers[app.AppType]
@@ -100,8 +92,6 @@ func (w *AppLaunchWorkflow) Decide(
 	return result, nil
 }
 
-// EverySlotAppLauncher is GitHub's explicit launch policy. Other app behaviors
-// may reuse it; the generic planner does not choose fan-out as a default.
 func EverySlotAppLauncher(_ context.Context, input AppLaunchContext) ([]AppLaunchIntent, error) {
 	launcher := input.App.Settings.Launcher
 	if input.App.State != integrationstore.ProjectAppStateActive || launcher == nil ||

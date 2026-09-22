@@ -19,8 +19,6 @@ import (
 
 var ErrAppRuntimeLeaseLost = errors.New("app runtime lease lost")
 
-// AppRuntimeRevision pins the setup and credential used to open the provider
-// session. Behavior settings do not fence it. It contains no secret material.
 type AppRuntimeRevision struct {
 	ProjectID, AppID    uuid.UUID
 	Key                 string
@@ -255,9 +253,6 @@ func (s *Store) RenewAppRuntime(
 	})
 }
 
-// CommitAppRuntime records verified receipt bytes and the provider resume
-// checkpoint in the same transaction. Nil receipt advances an irrelevant dispatch;
-// nil checkpoint deliberately resets a provider session that can no longer resume.
 func (s *Store) CommitAppRuntime(
 	ctx context.Context,
 	lease AppRuntimeLease,

@@ -26,8 +26,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-// InteractionPresenter mirrors core interactions. Handler authority is independent
-// of model send tools and subscriptions. Errors never resolve or fail the interaction.
 type InteractionPresenter struct {
 	Store      *storage.Store
 	HTTPClient *http.Client
@@ -39,9 +37,6 @@ type InteractionReceipt struct {
 	MessageID string `json:"message_id"`
 }
 
-// DismissCanceled is the post-commit hook for input admission/worker callers.
-// Its failure must not retry or roll back the accepted input. A late receipt is
-// independently handled by Present; this path handles already confirmed sends.
 func (p InteractionPresenter) DismissCanceled(
 	ctx context.Context, projectID, agentID uuid.UUID, ids []uuid.UUID,
 ) error {
@@ -154,8 +149,6 @@ func (a interactionAccess) slackTarget(ctx context.Context, client *http.Client)
 	return slack.MessageTarget{Channel: channel, ThreadTS: thread, BotToken: credentials.BotToken}, err
 }
 
-// DiscordInteractionScope retains every captured destination field, including
-// guild context that the canonical channel/thread attribution address omits.
 func DiscordInteractionScope(destination executionstore.InteractionDestination) (discord.Scope, error) {
 	if appdefinition.ProviderForType(destination.AppType) != appdefinition.ProviderDiscord {
 		return discord.Scope{}, storeerr.ErrUnauthorized
@@ -184,16 +177,12 @@ func (p InteractionPresenter) discordClient(
 	if err != nil {
 		return nil, err
 	}
-	// Secret values can rotate independently of app setup. Revalidate the
-	// live token's identity before any prompt, dismissal or runtime message.
 	if err := client.CheckIdentity(ctx); err != nil {
 		return nil, err
 	}
 	return client, nil
 }
 
-// Permission prompts in chat offer choices only. Keep the stored form intact so
-// dashboard/API responses can still include a denial reason; questions keep text.
 func interactionPromptForm(record executionstore.AgentInteractionRecord) (interactionform.Form, error) {
 	form, err := record.Form()
 	if err != nil {
@@ -209,8 +198,6 @@ func interactionPromptForm(record executionstore.AgentInteractionRecord) (intera
 	return form, nil
 }
 
-// SlackInteractionPromptPayload renders a captured form and destination. It is
-// pure; the presenter separately checks live authority before every request.
 func SlackInteractionPromptPayload(
 	destination executionstore.InteractionDestination, agentID uuid.UUID, record executionstore.AgentInteractionRecord,
 ) (json.RawMessage, error) {
@@ -256,9 +243,8 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	if len(record.PresentationReceipt) != 0 {
 		return nil
 	}
-	// A claim is permanent, including an uncertain commit or provider response.
-	// Recovery can discover work that never started, but cannot safely infer that
-	// a previous provider request failed. The dashboard remains authoritative.
+	// Claims are permanent because an unconfirmed provider send may have succeeded;
+	// retrying publication could duplicate the prompt.
 	claimed, err := p.Store.Execution().ClaimInteractionPresentation(ctx, projectID, agentID, id)
 	if err != nil || !claimed {
 		return err
@@ -333,16 +319,12 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	if err != nil {
 		return err
 	}
-	// A provider success can arrive after cancellation. Persist its identity even
-	// when the request context ended, then best-effort remove the stale controls.
 	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	input := executionstore.RecordInteractionPresentationReceiptInput{
 		ProjectID: projectID, AgentID: agentID, ID: id, Destination: *destination, Receipt: raw,
 	}
 	current, err := p.Store.Execution().RecordInteractionPresentationReceipt(receiptCtx, input)
-	// Retry only persistence of the confirmed receipt, never publication. This
-	// operation is idempotent even when the previous commit response was lost.
 	for attempt := 0; err != nil && attempt < 2 && receiptCtx.Err() == nil; attempt++ {
 		if errors.Is(err, storeerr.ErrNotFound) || errors.Is(err, storeerr.ErrUnauthorized) ||
 			errors.Is(err, storeerr.ErrIdempotencyConflict) {
@@ -413,7 +395,6 @@ func postSlackInteraction(
 	return "", errors.New("slack interaction retry limit reached")
 }
 
-// InteractionResolvedText describes the recorded response for chat confirmations.
 func InteractionResolvedText(record executionstore.AgentInteractionRecord) string {
 	switch record.InteractionKind {
 	case executionstore.AgentInteractionKindPermission:
@@ -512,8 +493,6 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 	return nil
 }
 
-// PostRuntimeMessage uses only the currently selected eligible handler. It grants
-// no model send capability and never falls back to another destination.
 func (p InteractionPresenter) PostRuntimeMessage(
 	ctx context.Context, projectID, agentID, operationID uuid.UUID, text string,
 ) error {

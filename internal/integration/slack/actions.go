@@ -119,11 +119,8 @@ func PromptActionFromActions(envelope ActionsEnvelope) (PromptActionValue, error
 	return PromptActionValue{}, errors.New("missing Omnara integration prompt action value")
 }
 
-// PromptCallbackInteractionID identifies the prompt whose owner must authenticate
-// the callback. Form edits carry its message marker instead of a clicked Submit
-// action. This identity is only a lookup hint; submission still requires
-// PromptActionFromActions after signature verification.
 func PromptCallbackInteractionID(envelope ActionsEnvelope) (string, error) {
+	// Form edits lack a Submit action, so their prompt identity comes from the message marker.
 	if action, err := PromptActionFromActions(envelope); err == nil {
 		return action.InteractionID, nil
 	}

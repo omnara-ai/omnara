@@ -8,9 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// These limits match integration_inbox's durable bounds. Every claim consumes
-// an attempt, including a worker crash before planning. Failed receipts are
-// terminal; their original identity, frozen plan and progress remain retained.
 const (
 	IntegrationInboxMaxPayloadBytes    = 1024 * 1024
 	IntegrationInboxMaxPlanBytes       = 256 * 1024
@@ -41,10 +38,6 @@ const (
 	IntegrationInboxFailed     IntegrationInboxState = "failed"
 )
 
-// VerifiedIntegrationReceipt is admitted only after provider authentication and
-// account identity validation by the caller. Payload is the exact verified body;
-// the first receipt wins on (project, app, receipt key), even if a provider
-// replay changes transport metadata. No receipt or payload update is exposed.
 type VerifiedIntegrationReceipt struct {
 	ProjectID  uuid.UUID
 	AppID      uuid.UUID
@@ -67,17 +60,10 @@ type IntegrationInboxRecord struct {
 	CompletedAt    *time.Time
 	Source         IntegrationInboxSource
 	Payload        []byte
-	// Events is an optional array normalized and decided by trusted app code.
-	// Raw provider receipts leave this nil and preserve Payload unchanged.
-	Events json.RawMessage
-	// Plan is an object keyed by stable recipient slot. Each value is a provider-
-	// typed object containing all frozen recipient identities/config references.
-	// An empty object represents a receipt deliberately having no recipients.
-	Plan json.RawMessage
-	// Progress maps slot keys to append-only prepared/committed result objects.
-	// It carries outcomes only; admission identities MUST come from Plan.
-	Progress   json.RawMessage
-	ClaimToken uuid.UUID
+	Events         json.RawMessage
+	Plan           json.RawMessage
+	Progress       json.RawMessage // Outcomes only; admission identities come from Plan.
+	ClaimToken     uuid.UUID
 }
 
 type IntegrationInboxLease struct {

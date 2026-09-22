@@ -42,8 +42,6 @@ type EnsureConversationTargetInput struct {
 	IsToolContext             bool
 }
 
-// LockConversationTx must precede agent locks, after the project and all
-// app gates. Planning and subscription changes use this same lock.
 func LockConversationTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -61,10 +59,6 @@ func LockConversationTx(
 	})
 }
 
-// EnsureConversationTargetTx records attribution/selection and may bind the
-// initial target as an immutable tool context, never a credential grant or
-// subscription. Caller holds project, app, conversation and agent gates;
-// the agent may have been inserted earlier in this same launch transaction.
 func (s *Store) EnsureConversationTargetTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -126,9 +120,6 @@ func (s *Store) EnsureConversationTargetTx(
 		return IntegrationTargetRecord{}, err
 	}
 	if input.SelectionSlot != "" {
-		// Profile launches create a fresh agent for each selected slot.
-		// Existing-agent launch slots are ordinary triggers and use an
-		// attribution target, never a second selection on the same agent.
 		_, err := q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
 			ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: input.AppID,
 			Kind: input.Address.Kind, Ref: input.Address.Ref,

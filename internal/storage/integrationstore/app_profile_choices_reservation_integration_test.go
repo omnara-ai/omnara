@@ -42,7 +42,6 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 			if state == "processing" {
 				decided = f.claim(t)
 			}
-			// Menu expiry cannot release an already accepted request in this gap.
 			f.exec(t, `UPDATE app_states SET expires_at=now()-interval '1 second' WHERE id=$1`, choice.ID)
 			nextInput := f.input
 			nextInput.SourceKey = "new-mention"
@@ -64,7 +63,6 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 			require.Equal(t, integrationstore.IntegrationInboxState(state), reservation.State)
 			require.Nil(t, f.read(t, late.ID).Plan, "raw follow-up must retry instead of freezing an empty plan")
 
-			// Reducing a setup to one profile must not bypass the accepted choice.
 			setup := integrationstore.SaveProjectAppInput{
 				OrgID: f.org, ProjectID: f.project, Name: f.app.Name, AppType: f.app.AppType,
 				Settings: f.app.Settings,
@@ -78,7 +76,6 @@ func TestAppProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 			require.ErrorAs(t, err, &reservation)
 			require.Equal(t, decided.ID, reservation.ReceiptID)
 
-			// Accepted misconfiguration remains independent across distinct apps.
 			otherApp := f.addApp(t, "another-setup", setup.Settings)
 			other := f
 			other.appID, other.app = otherApp.ID, otherApp
@@ -110,7 +107,6 @@ func TestAppProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 	decided := f.claim(t)
 	plan := f.selectionPlan(t, f.app.ID, "support")
 	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		// The selected receipt must never reserve against itself.
 		if err := work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address); err != nil {
 			return err
 		}
@@ -145,7 +141,6 @@ func TestAppProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created, "terminal work releases the conversation for a new menu")
 	require.NotEqual(t, choice.ID, reused.ID)
-	// Both ordinary follow-ups and replacement launches are released.
 	f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		if err := work.CheckNoUnsettledAppSelection(f.ctx, f.input.Address); err != nil {
 			return err
@@ -185,7 +180,6 @@ func TestAppProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	f.mutate(t, newDecided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		return work.FreezePlan(f.ctx, newPlan)
 	})
-	// The stale selected worker cannot revive the failed request.
 	err = f.store.WithIntegrationInboxLease(f.ctx, decided.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			return work.FreezePlan(f.ctx, f.selectionPlan(t, f.app.ID, "support"))
@@ -228,7 +222,6 @@ func TestAppProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing
 				return err
 			})
 			require.Empty(t, snapshot.Selections)
-			// Another admission commits after the launcher reads its routing snapshot.
 			execution := executionstore.New(f.pool, executionstore.Config{})
 			profile, err := execution.GetAgentProfile(f.ctx, f.project, f.input.Options[0].ProfileID)
 			require.NoError(t, err)
@@ -296,8 +289,6 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	setup.Settings.Launcher.Slots[0].AgentProfileID = &f.input.Options[1].ProfileID
 	_, err := f.store.UpdateProjectApp(f.ctx, f.app.ID, setup)
 	require.NoError(t, err)
-	// Authentication and source revision failures cannot expire this menu, nor
-	// can a forged unoffered key, even though the setup has changed meanwhile.
 	wrongMenu := click
 	wrongMenu.MessageID = "forged"
 	_, err = f.store.ChooseAppProfile(f.ctx, wrongMenu)
@@ -321,8 +312,6 @@ func TestAppProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	require.Greater(t, expired.Revision, choice.Revision)
 	require.Empty(t, expired.SelectedKey)
 
-	// This is a committed rejection, not a rolled-back update. Same-source
-	// replay remains expired, while an unrelated new source gets the new setup.
 	replay, created, err := f.store.EnsureAppProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.NoError(t, err)
 	require.False(t, created)
@@ -385,7 +374,6 @@ func TestAppProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.T) {
 				require.NotEqual(t, choice.ID, fresh.ID)
 				require.Equal(t, late.ID, fresh.OwnerReceiptID)
 			}
-			// The old source cannot create another menu, even after its owner is deleted.
 			replayed, created, err := f.store.EnsureAppProfileChoice(f.ctx, late.Lease(), f.input)
 			require.NoError(t, err)
 			require.False(t, created)
@@ -477,8 +465,6 @@ func TestAppProfileChoiceInboxRetentionProtectsOldSource(t *testing.T) {
 				require.NoError(t, err)
 				require.False(t, found)
 			}
-			// An old menu whose receipt just failed/completed retains its source
-			// barrier for the receipt's full terminal retention window.
 			f.exec(t, `UPDATE app_states SET expires_at=now()-interval '30 days' WHERE id=$1`, choice.ID)
 			for range 2 {
 				count, err := f.store.CleanupAppStates(f.ctx, integrationstore.AppProfileChoiceMinRetention, 1)

@@ -68,8 +68,6 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	ctx := t.Context()
 	pool := integrationPoolForHandler(t, f.handler)
 	before := f.counts(t)
-	// Fail after derived config activation and subscription insertion. All
-	// of them, including actor resolution, must roll back with initial admission.
 	_, err := pool.Exec(ctx, `CREATE FUNCTION reject_launch_initial() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN IF NEW.input_kind='content' THEN RAISE EXCEPTION 'fixture rejects initial input'; END IF;
 		RETURN NEW; END $$;
@@ -163,8 +161,6 @@ func TestPublicAppLaunchAuthorizationAndAppBoundary(t *testing.T) {
 			projectAppHTTPJSON(t, request), "denied-app", http.StatusBadRequest, authHeaders(f.launchToken))
 	}
 	require.Equal(t, before, f.counts(t))
-	// Operating a pinned config does not become a management operation merely
-	// because its first text input carries customer actor attribution.
 	plain := f.body()
 	removeLaunchHTTPCapabilities(plain)
 	created := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
@@ -238,7 +234,6 @@ func TestPublicAppLaunchPreservesPinnedProfileConfigContract(t *testing.T) {
 		f.project.ProjectPath+"/agent-profiles/"+f.profileID+"/config",
 		projectAppHTTPJSON(t, map[string]any{"config": otherID, "expected_current_config_id": f.configID}),
 		"retarget-profile", http.StatusOK, authHeaders(f.project.AdminToken))
-	// A pinned historical version remains a valid base after profile retargeting.
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		projectAppHTTPJSON(t, f.body()), "historical-profile-config", http.StatusCreated, authHeaders(f.launchToken))
 }
@@ -273,8 +268,6 @@ func TestPublicAppLaunchInitialInputReplay(t *testing.T) {
 			require.Equal(t, agent["id"], testutil.RequireType[map[string]any](t, replay["agent"])["id"])
 			require.Equal(t, after, f.counts(t))
 			path := f.project.ProjectPath + "/agents/" + testutil.RequireType[string](t, agent["id"]) + "/inputs"
-			// Launch-scoped idempotency does not deduplicate a later ordinary input,
-			// even when the customer reuses the same event key and content.
 			input := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
 				projectAppHTTPJSON(t, body["initial_input"]), "launch-event", http.StatusCreated, authHeaders(f.launchToken))
 			require.NotEqual(t, testutil.RequireType[map[string]any](t, launched["agent_input"])["id"],
@@ -336,7 +329,6 @@ func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path+"/"+testutil.RequireType[string](t, subscription["id"]),
 		"", "", http.StatusNoContent, authHeaders(f.launchToken))
 	after = f.counts(t)
-	// Changed replay attachments are ignored, including provider validation.
 	body["subscriptions"] = []any{map[string]any{"app_id": f.appID, "type": "missing", "conversation": map[string]any{}}}
 	replay := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		projectAppHTTPJSON(t, body), "subscription-launch", http.StatusOK, authHeaders(f.launchToken))

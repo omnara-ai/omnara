@@ -60,7 +60,7 @@ func TestDiscordHTTPCredentialReplacementCannotChangeIdentity(t *testing.T) {
 	f.update(
 		t,
 		http.StatusBadRequest,
-	) // Even verified replacement IDs cannot change this app's account.
+	)
 	require.Equal(t, "222", f.current(t).ProviderAccountRef)
 }
 
@@ -194,7 +194,6 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 				"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 			require.JSONEq(t, wantConfig, projectAppHTTPJSON(t, response["provider_config"]))
 
-			// A stale setup must not overwrite either the preserved or explicitly cleared config.
 			f.body["expected_setup_revision"] = before.SetupRevision
 			f.body["provider_config"] = map[string]any{"public_key": strings.Repeat("cd", 32)}
 			f.update(t, http.StatusConflict)

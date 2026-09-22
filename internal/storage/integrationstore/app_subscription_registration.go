@@ -14,8 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// PrepareAppSubscriptionTx validates an attachment before taking conversation
-// and agent locks. The caller already holds the app lifecycle gate.
 func PrepareAppSubscriptionTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -40,8 +38,6 @@ func PrepareAppSubscriptionTx(
 	}, nil
 }
 
-// RegisterAppSubscriptionTx requires project, app, conversation and agent gates.
-// Repeated registration reuses an identical policy; conflicting event sets fail.
 func RegisterAppSubscriptionTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -54,8 +50,6 @@ func RegisterAppSubscriptionTx(
 	return rows[0], nil
 }
 
-// RegisterAppSubscriptionsTx admits one agent's subscriptions under its existing
-// lifecycle gate. Quota is checked once for the batch; callers roll back on error.
 func RegisterAppSubscriptionsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -93,8 +87,7 @@ func RegisterAppSubscriptionsTx(
 		record.AgentName = agent.Name
 		result = append(result, record)
 	}
-	// Lowered quotas prevent growth; they must not revoke existing receive routes
-	// or make an unchanged registration fail.
+	// A lowered quota must not invalidate replay of an existing subscription.
 	if !inserted {
 		return result, nil
 	}

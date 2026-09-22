@@ -64,11 +64,8 @@ func (s *Store) enterInboxApp(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, app.OrgID, projectID); err != nil {
 		return err
 	}
-	// Lock the sorted union before the receipt. An admission may use capabilities
-	// on other apps; taking those gates beneath the receipt can deadlock
+	// Acquire every app gate before the receipt; adding one later can deadlock
 	// with another receipt and concurrent app revocation.
-	// Compiled references only need project ownership. The receipt's owning
-	// app supplies the required live authority for this admission.
 	return lockProjectAppsTx(ctx, tx, projectID, additional, []uuid.UUID{appID})
 }
 
@@ -105,12 +102,10 @@ func (s *Store) ClaimIntegrationInbox(
 	return inboxRecord(row), true, nil
 }
 
-// ListReadyIntegrationInboxApps discovers work without acquiring child
-// locks before lifecycle gates. Claim revalidates scope and skips busy receipts.
-// Workers also call RecoverIntegrationInbox periodically, even when this is empty.
 func (s *Store) ListReadyIntegrationInboxApps(
 	ctx context.Context, limit int,
 ) ([]IntegrationInboxApp, error) {
+	// Expired processing receipts are absent here; recovery must also run on empty polls.
 	if err := validateInboxBatch(limit); err != nil {
 		return nil, err
 	}
@@ -127,8 +122,6 @@ func (s *Store) ListReadyIntegrationInboxApps(
 	return result, nil
 }
 
-// GetIntegrationInbox reads retained receipt state. Mutations require
-// LockIntegrationInboxLeaseTx and its fenced snapshot.
 func (s *Store) GetIntegrationInbox(
 	ctx context.Context, projectID, receiptID uuid.UUID,
 ) (IntegrationInboxRecord, error) {
@@ -147,9 +140,6 @@ func (s *Store) GetIntegrationInbox(
 	return inboxRecord(row), nil
 }
 
-// OldestReadyIntegrationInboxLag samples the oldest due pending receipt, including
-// inactive scopes awaiting recovery. Empty is zero; a failed sample is an error.
-// The database clock and available_at exclude scheduled retry backoff from lag.
 func (s *Store) OldestReadyIntegrationInboxLag(ctx context.Context) (time.Duration, error) {
 	seconds, err := s.q.OldestReadyIntegrationInboxLag(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -161,11 +151,8 @@ func (s *Store) OldestReadyIntegrationInboxLag(ctx context.Context) (time.Durati
 	return time.Duration(seconds * float64(time.Second)), nil
 }
 
-// RecoverIntegrationInbox gives expired claims and inactive pending receipts
-// independent allowances of limit rows, at most 2*limit total per call. Each
-// statement commits separately and skips busy rows. Neither backlog can spend
-// the other's allowance; a full allowance warrants another bounded pass.
 func (s *Store) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, error) {
+	// Separate budgets prevent either backlog from starving the other.
 	if err := validateInboxBatch(limit); err != nil {
 		return 0, err
 	}
@@ -184,9 +171,6 @@ func (s *Store) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, 
 	return recovered + inactive, nil
 }
 
-// CleanupTerminalIntegrationInbox bounds the replay-deduplication window as well
-// as payload retention. The database owns the cutoff clock. This deletes only
-// completed/failed receipts, never committed agent history or other product state.
 func (s *Store) CleanupTerminalIntegrationInbox(
 	ctx context.Context, retention time.Duration, limit int,
 ) (int64, error) {

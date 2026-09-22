@@ -17,10 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
-// ThreadBotIntents requests guild messages and message content for replies
-// without mentions. Channel metadata is fetched through REST, not a guild cache.
-// MESSAGE_CONTENT must also be enabled
-// (and approved when required) in the customer's Discord developer portal.
+// ThreadBotIntents includes GUILD_MESSAGES (512) and MESSAGE_CONTENT (32768) for replies without mentions.
+// Enable MESSAGE_CONTENT in the Discord developer portal too.
 const ThreadBotIntents = 512 + 32768
 
 type GatewayInfo struct {
@@ -51,8 +49,6 @@ func (c *Client) GetGatewayBot(ctx context.Context) (GatewayInfo, error) {
 	return info, nil
 }
 
-// Checkpoint belongs to one connection credential revision and shard topology.
-// The caller must fence ownership and persist this atomically with dispatch intake.
 type Checkpoint struct {
 	ApplicationID string `json:"application_id"`
 	BotUserID     string `json:"bot_user_id"`
@@ -64,20 +60,14 @@ type Checkpoint struct {
 }
 
 type ShardConfig struct {
-	Credentials Credentials
-	ShardID     int
-	ShardCount  int
-	// GatewayURL comes from GetGatewayBot, not customer-authored arbitrary URLs.
-	GatewayURL string
-	// HTTPClient is a trusted transport/test setting. Redirects are forbidden.
-	HTTPClient    *http.Client
-	BeforeConnect func(context.Context) error
-	// BeforeIdentify must obtain the worker's bot-wide IDENTIFY rate permit using
-	// session_start_limit, including shard_id % max_concurrency bucket spacing.
-	// It runs immediately before IDENTIFY, not on RESUME.
+	Credentials    Credentials
+	ShardID        int
+	ShardCount     int
+	GatewayURL     string
+	HTTPClient     *http.Client
+	BeforeConnect  func(context.Context) error
 	BeforeIdentify func(context.Context) error
 
-	// Tests can fix the first heartbeat delay without changing the protocol clock.
 	heartbeatJitter func() float64
 	helloTimeout    time.Duration
 }
@@ -85,8 +75,6 @@ type ShardConfig struct {
 type CommitDispatch func(context.Context, Dispatch, Checkpoint) error
 
 type GatewayError struct {
-	// ResetSession means Discord cannot resume. The caller must durably record
-	// that fact before a fresh IDENTIFY; old-session replay may be lost.
 	ResetSession bool
 	Fatal        bool
 	CloseCode    int
@@ -97,11 +85,9 @@ func (e *GatewayError) Error() string {
 	return fmt.Sprintf("discord gateway stopped (close %d, reset %t, fatal %t)", e.CloseCode, e.ResetSession, e.Fatal)
 }
 
-// RunShard performs exactly one connection. Every subsequent run MUST reload the
-// durable checkpoint. Heartbeats report received sequence; only committed events
-// advance the checkpoint used for RESUME. Database work is sequential and bounded
-// separately from heartbeats; backpressure can delay incoming control frames.
 func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, commit CommitDispatch) (runErr error) {
+	// Reload the durable checkpoint before each run: intake may commit even when
+	// cancellation makes the previous run return an error.
 	if !validID(config.Credentials.ApplicationID) || !validID(config.Credentials.BotUserID) ||
 		config.Credentials.BotToken == "" || strings.ContainsAny(config.Credentials.BotToken, " \r\n\t") ||
 		config.ShardCount < 1 || config.ShardID < 0 || config.ShardID >= config.ShardCount || commit == nil {
@@ -147,15 +133,12 @@ func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, co
 		return &GatewayError{RetryAfter: time.Second}
 	}
 	var jobs sync.WaitGroup
-	var workerErr error // Read only after joining the worker.
+	var workerErr error
 	defer func() {
 		cancel()
-		// Discord invalidates sessions closed with 1000/1001. TCP close retains
-		// resumability for shutdown, lease loss, and protocol failures alike.
+		// Close codes 1000/1001 invalidate Discord sessions; closing TCP preserves resumability.
 		_ = socket.CloseNow()
 		jobs.Wait()
-		// A protocol stop may race an independent intake/IDENTIFY failure. Keep
-		// both causes (especially reset/fatal signals), not our own cancellation.
 		if workerErr != nil && !errors.Is(workerErr, context.Canceled) && !errors.Is(runErr, workerErr) {
 			if errors.Is(runErr, context.Canceled) {
 				runErr = workerErr
@@ -175,7 +158,6 @@ func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, co
 	if err != nil {
 		return gatewayConnectionError(ctx, err)
 	}
-	// Discord can request reconnection at any point, even before HELLO.
 	if hello.Op == 7 {
 		return &GatewayError{RetryAfter: time.Second}
 	}
@@ -193,12 +175,10 @@ func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, co
 	heartbeat := time.NewTimer(time.Duration(float64(interval) * jitter))
 	defer heartbeat.Stop()
 
-	// Backpressure allows replay bursts to drain without reconnecting repeatedly.
-	// The worker, loop and reader each retain at most one bounded dispatch frame.
 	dispatches := make(chan gatewayEvent)
 	committed := make(chan error, 1)
 	jobs.Go(func() {
-		checkpoint := checkpoint // Durable progress belongs only to the intake worker.
+		checkpoint := checkpoint
 		err := authenticateGateway(ctx, socket, config, checkpoint)
 		if err == nil {
 			for {
@@ -263,9 +243,8 @@ func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, co
 		case err := <-committed:
 			return err
 		case <-heartbeat.C:
-			// An ACK may be behind dispatches while intake is backpressured.
-			// Allow one extra interval; continuous backpressure must not disable
-			// the dead-connection watchdog indefinitely.
+			// Backpressure can delay an ACK behind dispatches. Allow one extra interval
+			// without disabling the dead-connection watchdog indefinitely.
 			if awaitingACK {
 				if !pausedSinceBeat || usedACKGrace {
 					return &GatewayError{RetryAfter: time.Second}
@@ -427,7 +406,7 @@ func commitGatewayEvent(
 			return checkpoint, err
 		}
 		next.SessionID, next.ResumeURL = ready.SessionID, resumeURL
-		next.Sequence = -1 // READY establishes a new session, independent of the old sequence.
+		next.Sequence = -1
 	}
 	if next.SessionID == "" {
 		return checkpoint, invalidResponse(false)
@@ -439,8 +418,6 @@ func commitGatewayEvent(
 	if err := commit(commitCtx, dispatch, next); err != nil {
 		return checkpoint, err
 	}
-	// Cancellation does not prove rollback. Even on this error the next run must
-	// reload storage; a commit may have succeeded while cancellation raced it.
 	return next, commitCtx.Err()
 }
 

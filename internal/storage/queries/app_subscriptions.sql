@@ -27,8 +27,6 @@ WHERE subscription.project_id = sqlc.arg(project_id) AND subscription.app_id = s
 ORDER BY subscription.created_at DESC, subscription.id DESC
 LIMIT sqlc.arg(row_limit);
 
--- Recheck receive authority after taking the agent lifecycle gate. Subscription
--- IDs fence deletion retries; a new matching subscription can authorize an input.
 -- name: HasAppSubscription :one
 SELECT EXISTS (
     SELECT 1
@@ -46,7 +44,6 @@ SELECT EXISTS (
 SELECT count(*)::bigint FROM app_subscriptions
 WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id);
 
--- Provider decoding supplies exact addresses and a bounded set of parent scopes.
 -- name: ListMatchingAppSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.app_id,
        subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,

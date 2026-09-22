@@ -44,7 +44,6 @@ func TestInboxRetentionUsesTerminalAgeAndSkipsLockedReceipts(t *testing.T) {
 			locked, old, recent := finish("locked"), finish("old"), finish("recent")
 			f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '9 days' WHERE id=$1`, locked.ID)
 			f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '8 days' WHERE id=$1`, old.ID)
-			// Creation age cannot shorten retention of a recently terminal receipt.
 			f.exec(t, `UPDATE integration_inbox SET created_at=now()-interval '30 days',
  completed_at=now()-interval '6 days' WHERE id=$1`, recent.ID)
 			recent = f.read(t, recent.ID)
@@ -79,7 +78,6 @@ func TestInboxRetentionUsesTerminalAgeAndSkipsLockedReceipts(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, created)
 			require.Equal(t, recent, replayed)
-			// Retention ends transport dedupe; committed product objects are separate.
 			reaccepted := f.accept(t, "old")
 			require.NotEqual(t, old.ID, reaccepted.ID)
 		})

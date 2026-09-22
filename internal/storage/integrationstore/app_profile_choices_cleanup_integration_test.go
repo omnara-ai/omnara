@@ -52,7 +52,6 @@ func TestAppProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *testing.T) 
 				f.exec(t, `UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.org)
 			}
 			deleted := scope != "active" && scope != "disconnected"
-			// Deleted-scope cleanup remains bounded and must skip a busy choice.
 			tx, err := f.pool.Begin(f.ctx)
 			require.NoError(t, err)
 			defer func() { _ = tx.Rollback(f.ctx) }()
@@ -117,8 +116,6 @@ func TestAppProfileChoiceCleanupSharesBatchAcrossExpiryAndDeletedScopes(t *testi
 	require.NoError(t, err)
 	deleted := f.addApp(t, "deleted", f.app.Settings).ID
 	require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, deleted))
-	// One deleted row overlaps expiry; two expired rows still have live owners.
-	// After deleting the first row, expiry must receive only the remaining slot.
 	f.exec(t, `INSERT INTO app_states
  (project_id,app_id,kind,key,scope_kind,scope_ref,data,expires_at)
  SELECT project_id,$1,kind,key,scope_kind,scope_ref,data,expires_at

@@ -12,11 +12,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// LockAppsTx precedes profile, machine-source and agent locks. Include the
-// receipt's app in the same sorted set when admitting an inbox event. Compiled
-// references remain valid metadata after disconnection/deletion; only additional
-// apps authorize the current operation and must be active.
 func LockAppsTx(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, refs []string, additional ...uuid.UUID) error {
+	// Compiled references remain readable after revocation; only additional apps
+	// supply live authority.
 	referenced := make([]uuid.UUID, 0, len(refs))
 	for _, ref := range refs {
 		id, err := publicid.Decode(publicid.KindProjectApp, ref)
@@ -28,8 +26,6 @@ func LockAppsTx(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, refs []stri
 	return lockProjectAppsTx(ctx, tx, projectID, referenced, additional)
 }
 
-// Both compiled references and inbox admission use this sorted gate set. Only
-// required apps authorize the operation; references may be disconnected/deleted.
 func lockProjectAppsTx(
 	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, referenced, required []uuid.UUID,
 ) error {
@@ -62,7 +58,7 @@ func lockProjectAppsTx(
 		return err
 	}
 	if len(apps) != len(ordered) {
-		return storeerr.ErrNotFound // Missing and foreign-project IDs grant no authority.
+		return storeerr.ErrNotFound
 	}
 	for _, app := range apps {
 		if !ids[app.ID] {

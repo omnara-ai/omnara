@@ -111,7 +111,6 @@ function ProjectAppSettings({
   const appType = app.app_type
   const chat = appType === 'slack_thread' || appType === 'discord_thread'
   const canSetUp = canManage && appCatalog.some((definition) => definition.appType === appType)
-  // A never-connected app is still in setup: connecting it is the whole page.
   const draft = app.state === 'disconnected' && !app.provider_tenant_id
   const [connecting, setConnecting] = useState(() => {
     const params = new URLSearchParams(window.location.search)
@@ -126,8 +125,7 @@ function ProjectAppSettings({
   const [editing, setEditing] = useState(
     canSetUp && oauth?.kind === 'success' && !app.settings.launcher,
   )
-  // Keep setup mounted until its own authorization flow finishes, even if another flow
-  // activates the app first. The Slack form also refreshes the apps list before completing.
+  // Keep this form mounted until its own OAuth flow finishes, even if another flow activates the app.
   const finishConnection = useCallback(
     (savedApp: ProjectApp) => {
       setConnecting(false)

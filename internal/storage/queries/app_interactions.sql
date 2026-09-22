@@ -51,7 +51,6 @@ WHERE interaction.agent_id = sqlc.arg(agent_id) AND interaction.id = sqlc.arg(id
   );
 
 -- name: GetInteractionCallbackAppID :one
--- Private callback routing only; the captured prompt is checked again during resolution.
 SELECT (destination ->> 'app_id')::uuid AS app_id
 FROM agent_interactions
 WHERE id = $1 AND destination ->> 'app_id' IS NOT NULL;

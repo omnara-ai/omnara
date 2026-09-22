@@ -51,9 +51,7 @@ func TestWebE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Keep callback URL validation and secure browser cookies enabled. Chromium
-	// resolves this test-only hostname to the local TLS proxy; no public server
-	// or provider traffic is involved.
+	// Chromium maps this hostname to local TLS so secure-cookie and callback checks stay enabled.
 	proxy := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(apiURL))
 	t.Cleanup(proxy.Close)
 	env.publicURL = strings.Replace(proxy.URL, "127.0.0.1", "app.omnara.test", 1)
@@ -234,10 +232,6 @@ func TestWebE2E(t *testing.T) {
 	t.Logf("Playwright output:\n%s", output)
 }
 
-// The real API binary has no provider-client test switch. Playwright replaces
-// only GitHub/Discord credential setup with this loopback fixture: it configures
-// a saved app using the secret just saved through the real public API. Discovery
-// itself is covered by HTTP integration tests with local provider servers.
 func webE2EVerifiedAppSetupFixture(
 	t *testing.T,
 	store *storage.Store,

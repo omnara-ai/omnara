@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-// Structural validation has no database reads and needs no live app metadata.
 func validateCompiledApps(compiled Compiled) error {
 	identities := map[string]string{}
 	check := func(name, id string) error {
@@ -83,9 +82,6 @@ func resolvedDefinition(appID string, apps map[string]AppResolution) (appdefinit
 	return definition, nil
 }
 
-// PrepareAppTools is pure. Callers enforce project ownership and live app status
-// before supplying metadata. Unavailable capabilities are omitted; handlers are
-// prepared independently when listing or selecting them.
 func PrepareAppTools(compiled Compiled, apps map[string]AppResolution) ([]RuntimeTool, error) {
 	if err := validateCompiledApps(compiled); err != nil {
 		return nil, err

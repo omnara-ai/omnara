@@ -49,8 +49,6 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 		return id
 	}
 	first, second := create("engineering"), create("support")
-	// Separate saved apps can attach the same physical bot. An unconnected app
-	// has no verified identity yet; once attached, that identity cannot change.
 	for _, id := range []uuid.UUID{first, second} {
 		_, err := pool.Exec(ctx,
 			`UPDATE project_apps SET provider_tenant_id='T123',provider_account_ref='A123' WHERE id=$1`, id)

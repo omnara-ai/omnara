@@ -216,8 +216,6 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 				"unsupported GitHub handler chooses dashboard",
 			)
 
-			// Repeated provider callbacks and overlapping subscriptions deduplicate
-			// across receipt/slot identity and cannot cancel newer prompts.
 			selected := f.selectOrigin(t, f.a.ID)
 			newPrompt := createQuestionInteractionForTest(t, f.ctx, f.process, calls[2])
 			duplicate := freezeInboxInput(t, f.activation(), slot, "other-callback", time.Minute)
@@ -240,8 +238,6 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 					),
 			)
 
-			// A GitHub commit is ordinary queued activity. Delivery policy is
-			// explicit and remains independent of its provider and origin.
 			slot.Input.IdempotencyKey = "commit:abcdef"
 			slot.Input.DeliveryMode = executionstore.DeliveryModeQueued
 			slot.Input.CancelOpenInteractions = false
@@ -251,7 +247,6 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			require.Equal(t, executionstore.DeliveryModeQueued, result.AgentInput.DeliveryMode)
 			require.Empty(t, result.CanceledInteractionIDs)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, newPrompt.ID).State)
-			// Steering and prompt cancellation remain independent policies.
 			slot.Input.DeliveryMode, slot.Input.IdempotencyKey = executionstore.DeliveryModeSteering, "steer-without-cancel"
 			steering := freezeInboxInput(t, f.activation(), slot, "steering-callback", time.Minute)
 			result, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, steering.Lease(), "recipient")
@@ -606,8 +601,6 @@ func TestInboxMessageSiblingsConcurrentAndDelayedFiles(t *testing.T) {
 					Scan(&artifacts),
 			)
 			require.Equal(t, 1, artifacts)
-			// Committed replay follows the recorded winning key even if the plaintext
-			// callback was suppressed by a prior file callback.
 			replay, err := admit(textReceipt)
 			require.NoError(t, err)
 			require.Equal(t, textResult.AgentInput.ID, replay.AgentInput.ID)

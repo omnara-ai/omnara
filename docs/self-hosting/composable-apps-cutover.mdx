@@ -270,7 +270,7 @@ error message. Scheduled failures remain visible in the schedule's latest run;
 a known opening thread can also receive a notice. Crash recovery can miss notices
 and unused-upload cleanup without blocking new work. Inspect `app inbox admission
 failed` logs using the receipt, app and project IDs. See the
-[inbox operations contract](https://github.com/omnara-ai/omnara/blob/main/internal/storage/integrationstore/inbox_retention.md).
+[inbox operation and retention](/self-hosting/configuration#app-inbox-operation).
 
 If a GitHub webhook failed before intake persisted it, restore intake and manually
 redeliver it from GitHub. GitHub does not automatically retry these deliveries.

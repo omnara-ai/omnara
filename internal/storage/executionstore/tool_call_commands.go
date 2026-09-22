@@ -78,8 +78,6 @@ func CreateQuestionForToolCall(input CreateQuestionInteractionInput) ToolCallCom
 		if err != nil {
 			return nil, err
 		}
-		// The interaction owns completion as soon as it is created. Provider
-		// presentation must not keep the question tied to a worker runtime.
 		return record, tx.startToolCall(ctx, false)
 	})
 }

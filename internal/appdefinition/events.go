@@ -5,8 +5,6 @@ import (
 	"strconv"
 )
 
-// Event is a verified provider fact, not a configurable filter. Transport
-// adapters establish mentions and concrete conversation identity before routing.
 type Event struct {
 	Scope     Scope  `json:"scope"`
 	Kind      string `json:"kind"`
@@ -53,9 +51,6 @@ func (e Event) MatchesLauncher(trigger string) bool {
 	}
 }
 
-// RoutingAddresses derives only proven provider parents. Slack's workspace and
-// GitHub's installation come from the authenticated connection. Discord routes
-// subscriptions by conversation; its app-wide launcher needs no parent filter.
 func (e Event) RoutingAddresses(account string) ([]EventAddress, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err

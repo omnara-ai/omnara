@@ -9,13 +9,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-// DeriveAppProfileConfig adds app capabilities to a pinned profile. Source stays
-// empty because it would describe the unmodified profile. Admission persists it.
 func DeriveAppProfileConfig(
 	base executionstore.AgentConfigRecord,
 	additions agentconfig.AppCapabilitiesSource,
 	opts agentconfig.CompileOptions,
 ) (executionstore.CreateAgentConfigInput, error) {
+	// Source stays empty because the original source would describe the unmodified profile.
 	if base.ID == uuid.Nil || base.ProjectID == uuid.Nil {
 		return executionstore.CreateAgentConfigInput{}, fmt.Errorf("a pinned project config is required")
 	}

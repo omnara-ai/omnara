@@ -17,8 +17,6 @@ import (
 	"time"
 )
 
-// Credentials are supplied by the connection owner, never resolved from a DB.
-// PrivateKeyPEM accepts an unencrypted PKCS#1 or PKCS#8 RSA private key.
 type Credentials struct {
 	AppID         int64
 	PrivateKeyPEM string
@@ -77,8 +75,6 @@ func (c *appClient) appJWT() (string, error) {
 	return unsigned + "." + encode(signature), nil
 }
 
-// The two cache slots bound memory regardless of how many repos a connection
-// accesses. Serializing minting avoids duplicate tokens; waiting is cancellable.
 func (c *Client) installationToken(ctx context.Context, repositoryID int64, write bool) (string, error) {
 	select {
 	case c.tokenGate <- struct{}{}:

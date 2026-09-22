@@ -11,9 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// GetConversationDisplayName returns the latest nonempty label from a live
-// target at this exact address, or an empty string when no label is known.
-// It neither chooses an agent nor grants any authority to receive or send.
 func (s *Store) GetConversationDisplayName(
 	ctx context.Context,
 	projectID, appID uuid.UUID,

@@ -11,18 +11,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// AppRoutingCandidates is a snapshot for planning only. Admission rechecks the
-// live subscription or launcher authority in its transaction.
 type AppRoutingCandidates struct {
 	Launcher      *ProjectAppRecord
 	Subscriptions []AppSubscriptionRecord
 	Selections    []IntegrationTargetRecord
 }
 
-// AppRoutingCandidatesForInbox reads routing in the caller's fenced receipt
-// transaction. The lease has already acquired project/app/receipt gates;
-// callers visiting multiple conversations must supply them in canonical order.
-// No agent lock or provider I/O belongs in this planning transaction.
 func (s *Store) AppRoutingCandidatesForInbox(
 	ctx context.Context,
 	work *IntegrationInboxLeaseTx,
@@ -45,7 +39,6 @@ func (s *Store) AppRoutingCandidatesForInbox(
 	); err != nil {
 		return AppRoutingCandidates{}, err
 	}
-	// Wall time may have advanced while waiting for a prior launch/planner.
 	if err := work.checkLease(ctx); err != nil {
 		return AppRoutingCandidates{}, err
 	}
@@ -60,9 +53,6 @@ func (s *Store) AppRoutingCandidatesForInbox(
 	)
 }
 
-// AppRoutingCandidatesTx reads under the caller's app and conversation
-// gates. Provider decoding supplies the exact conversation and bounded parent
-// addresses; there is no user-authored SQL/filter language.
 func (s *Store) AppRoutingCandidatesTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -100,8 +90,6 @@ func (s *Store) AppRoutingCandidatesTx(
 	q := dbsqlc.New(tx)
 	result := AppRoutingCandidates{}
 	if launcher := app.Settings.Launcher; launcher != nil {
-		// The app lookup above is the boundary. Discord permits mentions in every
-		// server where this bot is installed; subscriptions stay conversation-scoped.
 		if app.Provider == IntegrationProviderDiscord && launcher.ScopeKind == "" && launcher.ScopeRef == "" {
 			result.Launcher = &app
 		}

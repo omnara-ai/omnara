@@ -1,6 +1,3 @@
-// Package appdefinition describes app tools, subscriptions and interaction
-// handlers without depending on storage, provider transports or the agent compiler.
-// Launchers and credentials belong to project setup.
 package appdefinition
 
 import (
@@ -21,7 +18,6 @@ const (
 	DiscordThread   Type = "discord_thread"
 )
 
-// Definition is the reviewed capability registry for one immutable app kind.
 type Definition struct {
 	AppType            Type
 	Provider           string
@@ -31,7 +27,6 @@ type Definition struct {
 	Schedule           *ScheduleDefinition
 }
 
-// All returns the installed app implementations in stable catalog order.
 func All() []Definition {
 	definitions := make([]Definition, 0, 3)
 	for _, id := range []Type{DiscordThread, GitHubPR, SlackThread} {
@@ -85,8 +80,6 @@ func Lookup(id Type) (Definition, bool) {
 	return d, true
 }
 
-// AppTypesForProvider supplies indexed discovery with the types that share a
-// transport. The association comes from registration, never the type's spelling.
 func AppTypesForProvider(provider string) []string {
 	var types []string
 	for _, definition := range All() {
@@ -97,14 +90,11 @@ func AppTypesForProvider(provider string) []string {
 	return types
 }
 
-// ProviderForType returns the registered transport, or empty for an unknown type.
 func ProviderForType(appType Type) string {
 	definition, _ := Lookup(appType)
 	return definition.Provider
 }
 
-// Scope contains exactly one provider-specific, concrete address. Optional
-// thread fields select a whole channel when omitted; they are not placeholders.
 type Scope struct {
 	Slack   *SlackScope   `json:"slack,omitempty"`
 	GitHub  *GitHubScope  `json:"github,omitempty"`
@@ -175,7 +165,6 @@ func (s Scope) Validate(provider string) error {
 	return fmt.Errorf("scope does not match provider %q", provider)
 }
 
-// Provider returns the selected provider; Validate rejects empty/mixed scopes.
 func (s Scope) Provider() string {
 	switch {
 	case s.Slack != nil:
@@ -189,9 +178,6 @@ func (s Scope) Provider() string {
 	}
 }
 
-// Conversation is the canonical address within an app. Slack preserves
-// existing thread (channel:timestamp) and DM addresses. GitHub PR identity uses
-// the immutable repository ID; inline threads are tool arguments within that same PR.
 func (s Scope) Conversation() (kind, key string, err error) {
 	if err := s.Validate(s.Provider()); err != nil {
 		return "", "", err

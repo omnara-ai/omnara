@@ -26,8 +26,6 @@ func profileChoiceText(choice integrationstore.AppProfileChoiceRecord) string {
 	return unavailableProfileChoice
 }
 
-// Authentication and provider account checks have already completed. App choices
-// are handled before agent interactions, without creating a fake permission.
 func (s *Server) slackProfileChoiceAction(
 	w http.ResponseWriter, r *http.Request,
 	app integrationstore.ProjectAppRecord, envelope slack.ActionsEnvelope,
@@ -61,7 +59,6 @@ func (s *Server) slackProfileChoiceAction(
 		}
 		text = unavailableProfileChoice
 	}
-	// Rejected/forged options must not remove controls from a usable menu.
 	retired := !choice.ExpiresAt.IsZero() && !time.Now().Before(choice.ExpiresAt)
 	if (err == nil || retired) && choice.MessageID != "" && choice.MessageID == envelope.Message.TS &&
 		choice.MessageChannelID == envelope.Channel.ID {
@@ -90,17 +87,16 @@ func (s *Server) discordProfileChoiceAction(
 		if !unavailableChoiceError(err) {
 			return discord.InteractionResponse{}, err
 		}
-		// Only retire the confirmed menu. A forged option or another message
-		// must not remove controls from a still-usable chooser.
 		if choice.ExpiresAt.IsZero() || time.Now().Before(choice.ExpiresAt) ||
 			choice.MessageID != input.Message.ID || choice.MessageChannelID != input.ChannelID {
 			return discordInteractionNotice(unavailableProfileChoice)
 		}
 		text = unavailableProfileChoice
 	}
-	return discord.InteractionResponse{Type: 7, Data: &discord.InteractionResponseData{
-		Content: text, Components: []discord.ActionRow{},
-	}}, nil
+	return discord.InteractionResponse{
+		Type: discord.InteractionResponseUpdateMessage,
+		Data: &discord.InteractionResponseData{Content: text, Components: []discord.ActionRow{}},
+	}, nil
 }
 
 func unavailableChoiceError(err error) bool {

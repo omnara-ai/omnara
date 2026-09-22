@@ -15,8 +15,6 @@ type appConversation struct {
 	address integrationstore.ConversationAddress
 }
 
-// Launch locks only concrete origins, after app gates and before agent locks.
-// Configured handlers are discoverable without materializing attribution targets.
 func lockAppConversationsTx(
 	ctx context.Context,
 	tx pgx.Tx,

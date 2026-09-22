@@ -337,7 +337,6 @@ async function beginSlackAuthorization({ setupRevision = 1, callbackError = fals
 }
 
 it('keeps Slack authorization open when a fresh read reveals an earlier active flow', async () => {
-  // The browser still has revision 1; the new OAuth intent captured server revision 2.
   const { connected, refreshApp } = await beginSlackAuthorization({ setupRevision: 2 })
   await refreshApp({
     ...connected,
@@ -345,7 +344,6 @@ it('keeps Slack authorization open when a fresh read reveals an earlier active f
     last_oauth_flow_id: `ioaf_${'b'.repeat(26)}`,
   })
   await waitForUI(() => {
-    // Wait for the page to render the refreshed app before checking the pending form.
     expect(container.querySelector('header')?.textContent).toContain('Connected')
   })
   expect(container.querySelector('a[href="https://slack.test/authorize"]')).not.toBeNull()
@@ -424,7 +422,6 @@ it.each([404, 500])(
       { method: 'GET', path: `${projectPath}/apps/${app.id}`, respond: () => pending },
     ])
     render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
-    // Callback parameters are consumed even before the app response is available.
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(
       `${pagePath}?draft=keep#profiles`,
     )

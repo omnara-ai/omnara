@@ -31,6 +31,8 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
 
+### App inbox operation
+
 Inbox concurrency is independent of agent-turn concurrency. All worker activity
 shares the database pool; raising inbox capacity does not raise its connection
 limit. Start with the default pool of 10 maximum connections and measure queue
@@ -53,8 +55,11 @@ budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget
 exhaustion retries after one second; drained queues return to 30-second polling.
 The lag query has its own one-second deadline and runs at most once per 30 seconds.
 
-Inbox retention runs last in each core maintenance tick. Completed/failed
-receipts remain for seven days after completion or failure, measured by the database clock.
+Inbox retention runs last in each core maintenance tick. Completed/failed receipts
+become eligible for deletion seven days after finishing, measured by the database
+clock. Locks or cleanup backlogs can delay deletion. Deleting the app, project or
+organization can purge receipts earlier; disconnecting an app preserves normal
+retention.
 Terminal and deleted-scope cleanup each drain 100-row transactions with a 250 ms
 soft budget checked between batches. The current batch may finish beyond that
 budget without cancellation. Each cleanup pass has a five-second hard deadline,
@@ -64,8 +69,21 @@ commit, so a failed call may have an uncertain result. Logged counts include onl
 confirmed deletions; the next tick safely continues from remaining rows.
 Normal soft-budget exhaustion is logged as
 `budget_exhausted=true`. Failed receipts are terminal, release unfinished launch
-reservations, and remain for seven days for diagnostics. See the
-[inbox operations contract](https://github.com/omnara-ai/omnara/blob/main/internal/storage/integrationstore/inbox_retention.md).
+reservations, and follow the same retention policy. Pending and processing
+receipts are never removed by terminal retention. Deleting a receipt ends its
+transport deduplication window; exceptionally late replays can be accepted again.
+Accepted agent history is independent and remains intact. Newer messages may pass
+an older receipt waiting to retry.
+
+The opt-in `TestAppInboxLocalLoad` experiment runs with `OMNARA_INBOX_LOAD=1`
+and the normal local test database URL. A September 2026 PostgreSQL 18 run against
+100,000 historical receipts completed about 289 receipts/s with four consumers
+and ten connections, or 639/s with sixteen consumers and twenty connections.
+Neither reached 1,000 completions/s; admission outpaced completion. Empty recipient
+plans make these optimistic local results, not production agent-delivery capacity.
+At 1,000 receipts/s, seven-day retention implies about 605 million rows, which this
+experiment did not test. Measure representative routing, payloads, retained history
+and competing workloads before sizing deployment capacity.
 
 ## Database and Redis
 

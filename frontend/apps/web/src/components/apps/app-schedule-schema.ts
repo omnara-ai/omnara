@@ -14,8 +14,6 @@ const stringField = z.strictObject({
   'x-omnara-control': z.enum(['agent_profile', 'textarea']).optional(),
 })
 
-// Unsupported schemas use the JSON editor. The server validates the full schema
-// and resource authority; presentation hints grant no permissions.
 const simpleSchema = z.strictObject({
   $schema: z.string().optional(),
   type: z.literal('object'),

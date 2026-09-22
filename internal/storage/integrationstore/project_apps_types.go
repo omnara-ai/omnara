@@ -9,8 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 )
 
-// ProjectAppSettings is reusable setup. A launcher supplies the concrete event
-// scope when deriving a config; it never mutates the profile's base config.
 type ProjectAppSettings struct {
 	Launcher *AppLauncher `json:"launcher,omitempty"`
 }
@@ -22,8 +20,6 @@ type AppLauncher struct {
 	Slots     []AppLaunchSlot `json:"slots"`
 }
 
-// AppLaunchSlot keys are stable across edits and frozen into each received event's plan.
-// UUIDs here are storage identities; HTTP representations use public IDs.
 type AppLaunchSlot struct {
 	Key            string     `json:"key"`
 	AgentProfileID *uuid.UUID `json:"agent_profile_id,omitempty"`
@@ -34,7 +30,7 @@ type ProjectAppRecord struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	InstalledByUserID        uuid.UUID
-	Provider                 string // Derived transport metadata; never persisted as app classification.
+	Provider                 string
 	State                    ProjectAppState
 	ProviderTenantID         string
 	ProviderAccountRef       string

@@ -21,9 +21,23 @@ const (
 	InteractionTimeout  = 2 * time.Second
 )
 
-// CustomID carries only a captured Omnara interaction identity and action.
-// The caller must load that interaction and revalidate live destination/actor
-// authority. Neither a custom ID nor a valid Discord signature grants authority.
+const (
+	InteractionTypePing               = 1
+	InteractionTypeApplicationCommand = 2
+	InteractionTypeMessageComponent   = 3
+	InteractionTypeModalSubmit        = 5
+)
+
+const (
+	InteractionResponsePong                     = 1
+	InteractionResponseChannelMessageWithSource = 4
+	InteractionResponseDeferredUpdateMessage    = 6
+	InteractionResponseUpdateMessage            = 7
+	InteractionResponseModal                    = 9
+)
+
+const MessageFlagEphemeral = 64
+
 type CustomID struct {
 	InteractionID string
 	Action        string
@@ -66,8 +80,6 @@ type ActionRow struct {
 	Components []Component `json:"components"`
 }
 
-// Component supports interaction buttons, profile menus and modal text inputs.
-// Links, arbitrary URLs, mention selectors and executable routing data are absent.
 type Component struct {
 	Type        int            `json:"type"`
 	Style       int            `json:"style,omitempty"`
@@ -118,6 +130,7 @@ func validateRows(rows []ActionRow, modal bool) error {
 				return errors.New("invalid discord component")
 			}
 			if modal {
+				// Text-input length bounds: https://docs.discord.com/developers/components/reference#text-input
 				if component.Type != 4 || component.Style < 1 || component.Style > 2 ||
 					utf8.RuneCountInString(component.Label) > 45 || !asciiToken(component.CustomID) ||
 					len(component.CustomID) > 100 || component.MinLength < 0 || component.MaxLength < 1 ||
@@ -155,14 +168,12 @@ type InteractionMember struct {
 }
 
 type InteractionData struct {
-	Name          string   `json:"name,omitempty"`
-	CustomID      string   `json:"custom_id,omitempty"`
-	Values        []string `json:"values,omitempty"`
-	ComponentType int      `json:"component_type,omitempty"`
-	// Slash options and submitted modal components remain bounded JSON for the
-	// application-specific command/form decoder. Interaction tokens are omitted.
-	Options    json.RawMessage `json:"options,omitempty"`
-	Components json.RawMessage `json:"components,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	CustomID      string          `json:"custom_id,omitempty"`
+	Values        []string        `json:"values,omitempty"`
+	ComponentType int             `json:"component_type,omitempty"`
+	Options       json.RawMessage `json:"options,omitempty"`
+	Components    json.RawMessage `json:"components,omitempty"`
 }
 
 func (i Interaction) Actor() User {
@@ -189,13 +200,12 @@ type InteractionResponseData struct {
 	AllowedMentions *allowedMentions `json:"allowed_mentions,omitempty"`
 }
 
-// Acknowledge returns an immediate, final acknowledgement. Components defer the
-// message update; slash commands/modal submissions receive an ephemeral receipt.
 func Acknowledge(interaction Interaction) InteractionResponse {
-	if interaction.Type == 3 {
-		return InteractionResponse{Type: 6}
+	if interaction.Type == InteractionTypeMessageComponent {
+		return InteractionResponse{Type: InteractionResponseDeferredUpdateMessage}
 	}
-	return InteractionResponse{Type: 4, Data: &InteractionResponseData{Content: "Received.", Flags: 64}}
+	return InteractionResponse{Type: InteractionResponseChannelMessageWithSource,
+		Data: &InteractionResponseData{Content: "Received.", Flags: MessageFlagEphemeral}}
 }
 
 type InteractionIntake func(context.Context, Interaction) (InteractionResponse, error)
@@ -206,9 +216,6 @@ type InteractionHandler struct {
 	intake        InteractionIntake
 }
 
-// NewInteractionHandler requires synchronous durable intake before a 2xx ack.
-// The callback must honor its 2s context and deduplicate by Discord interaction
-// ID. Slow/failed commits get a non-2xx response, never a false success.
 func NewInteractionHandler(applicationID, publicKeyHex string, intake InteractionIntake) (*InteractionHandler, error) {
 	key, err := hex.DecodeString(publicKeyHex)
 	if err != nil || len(key) != ed25519.PublicKeySize || !validID(applicationID) || intake == nil {
@@ -244,7 +251,6 @@ func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), InteractionTimeout)
 	defer cancel()
-	// Bound the read on real net/http servers as well as the callback budget.
 	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(InteractionTimeout))
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, InteractionMaxBytes))
 	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
@@ -262,15 +268,16 @@ func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid interaction", http.StatusBadRequest)
 		return
 	}
-	response := InteractionResponse{Type: 1}
-	if interaction.Type != 1 {
+	response := InteractionResponse{Type: InteractionResponsePong}
+	if interaction.Type != InteractionTypePing {
 		if !validID(interaction.ChannelID) || !validID(interaction.Actor().ID) ||
 			(interaction.GuildID != "" && !validID(interaction.GuildID)) ||
-			(interaction.Type != 2 && interaction.Type != 3 && interaction.Type != 5) {
+			(interaction.Type != InteractionTypeApplicationCommand &&
+				interaction.Type != InteractionTypeMessageComponent && interaction.Type != InteractionTypeModalSubmit) {
 			http.Error(w, "unsupported interaction", http.StatusBadRequest)
 			return
 		}
-		if interaction.Type == 3 || interaction.Type == 5 {
+		if interaction.Type == InteractionTypeMessageComponent || interaction.Type == InteractionTypeModalSubmit {
 			_, callbackErr := DecodeCustomID(interaction.Data.CustomID)
 			if callbackErr != nil {
 				_, callbackErr = ProfileChoiceFromInteraction(interaction)
@@ -297,27 +304,29 @@ func (h *InteractionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		return // The response may already be partially written; do not append an error.
+		return
 	}
 }
 
 func validResponse(interactionType int, response InteractionResponse) bool {
-	if response.Type == 6 {
-		return interactionType == 3 && response.Data == nil
+	if response.Type == InteractionResponseDeferredUpdateMessage {
+		return interactionType == InteractionTypeMessageComponent && response.Data == nil
 	}
 	data := response.Data
 	if data == nil {
 		return false
 	}
-	if response.Type == 9 {
+	if response.Type == InteractionResponseModal {
 		_, err := DecodeCustomID(data.CustomID)
-		return interactionType != 5 && err == nil && utf8.ValidString(data.Title) &&
+		return interactionType != InteractionTypeModalSubmit && err == nil && utf8.ValidString(data.Title) &&
 			data.Content == "" && data.Flags == 0 &&
 			utf8.RuneCountInString(data.Title) >= 1 && utf8.RuneCountInString(data.Title) <= 45 &&
 			validateRows(data.Components, true) == nil
 	}
-	messageResponse := (response.Type == 4 && (data.Flags == 0 || data.Flags == 64)) ||
-		(response.Type == 7 && interactionType == 3 && data.Flags == 0)
+	messageResponse := (response.Type == InteractionResponseChannelMessageWithSource &&
+		(data.Flags == 0 || data.Flags == MessageFlagEphemeral)) ||
+		(response.Type == InteractionResponseUpdateMessage &&
+			interactionType == InteractionTypeMessageComponent && data.Flags == 0)
 	return messageResponse && data.Content != "" && utf8.ValidString(data.Content) &&
 		data.Title == "" && data.CustomID == "" &&
 		utf8.RuneCountInString(data.Content) <= 2000 &&

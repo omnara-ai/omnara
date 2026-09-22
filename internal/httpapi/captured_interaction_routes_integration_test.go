@@ -193,7 +193,6 @@ func newCapturedHTTPFixtureWithDismiss(
 		"instruction":          "Help with the request.",
 		"model":                map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
 		"interaction_handlers": map[string]any{"support": map[string]any{}},
-		// Declaring a handler does not grant the tools used to select it.
 		"tools": map[string]any{
 			toolcatalog.ToolNameListInteractionHandlers: map[string]any{},
 			toolcatalog.ToolNameSetInteractionHandler:   map[string]any{},
@@ -431,8 +430,6 @@ func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
 			}},
 		}}
 	}
-	// Use the rendered message, including its Submit button: merely receiving
-	// that button in message.blocks must never turn a selection into a submit.
 	for range 2 {
 		require.Equal(t, "ignored", f.slackRequest(t, false, selection)["ok"])
 	}
@@ -511,7 +508,6 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, found)
 				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
-				// Moving the current selection does not reroute an existing prompt.
 				_, err = f.pool.Exec(
 					t.Context(),
 					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",

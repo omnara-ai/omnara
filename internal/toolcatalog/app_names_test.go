@@ -36,6 +36,5 @@ func TestAppToolNamesRejectOverflowWithoutTruncation(t *testing.T) {
 	require.Len(t, AppToolName(app, operation), 64)
 	require.NoError(t, ValidateAppToolName(app, operation))
 	require.ErrorContains(t, ValidateAppToolName(app, operation+"b"), "exceeds 64")
-	// The limit is on the whole tool name, not an arbitrary operation-length cap.
 	require.NoError(t, ValidateAppToolName("a", strings.Repeat("b", 56)))
 }

@@ -28,18 +28,10 @@ type Config struct {
 	Credentials    Credentials
 	InstallationID int64
 	HTTPClient     *http.Client
-	// BeforeRequest optionally revalidates caller authority immediately before
-	// every HTTP attempt, including token requests and retries. Its trusted error
-	// is returned unchanged without sending the request. It shares the operation
-	// context and must be safe for concurrent use.
-	BeforeRequest func(context.Context) error
-	// APIURL is a trusted deployment/test setting, never a tool argument. Empty
-	// uses GitHub.com. Custom origins require HTTPS, except loopback test servers.
-	APIURL string
+	BeforeRequest  func(context.Context) error
+	APIURL         string
 }
 
-// Client is safe for concurrent use and belongs to one credential revision and
-// installation. All pagination and redirects remain confined to the chosen API.
 type Client struct {
 	*appClient
 	installationID int64
@@ -47,8 +39,6 @@ type Client struct {
 	tokens         [2]cachedToken
 }
 
-// appClient shares bounded transport and App JWT signing with setup. It has no
-// installation authority or installation token cache.
 type appClient struct {
 	http          *http.Client
 	base          *url.URL
@@ -155,7 +145,6 @@ func (c *appClient) doJSON(
 func (c *appClient) do(
 	ctx context.Context, method, path, token, accept string, body []byte, mutation bool,
 ) ([]byte, http.Header, error) {
-	// Paths originate only from the typed methods below, not provider URLs.
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
 		return nil, nil, errors.New("invalid github API path")
 	}
@@ -189,7 +178,6 @@ func (c *appClient) do(
 			return nil, nil, apiErr
 		}
 		delay := max(time.Duration(attempt+1)*100*time.Millisecond, apiErr.RetryAfter)
-		// Long provider delays belong to the caller's scheduler, not this tool.
 		if delay > time.Second {
 			return nil, nil, apiErr
 		}

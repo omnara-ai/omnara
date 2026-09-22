@@ -75,7 +75,6 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	return ToolsFromSourceWithOptions(format, raw, CompileOptions{})
 }
 
-// ToolsFromSourceWithOptions resolves qualified app operations using project-scoped names.
 func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {

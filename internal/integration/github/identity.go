@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// AppIdentity contains provider-verified setup facts, never credentials. The
-// App owner, App ID, installation ID and bot user ID are distinct identities.
 type AppIdentity struct {
 	AppID          int64  `json:"app_id"`
 	InstallationID int64  `json:"installation_id"`
@@ -20,18 +18,10 @@ type AppIdentity struct {
 	DisplayName    string `json:"display_name"`
 }
 
-// CheckAppIdentity verifies the supplied private key's App, the installation's
-// ownership, and its bot account using documented endpoints. Setup must persist
-// these observations against the same validated credential revision. All calls
-// share the operation deadline and BeforeRequest hook.
-//
-// The temporary bot-lookup token has metadata-read permission only. Setup has no
-// selected repository yet; this token is never cached or used by PR tools, whose
-// separate tokens remain repository_ids restricted. Authentication also allows
-// bot lookup for organizations using Enterprise Managed Users. Once a token is
-// returned, revocation is best effort on every exit using the same operation
-// context and BeforeRequest hook; cleanup never replaces the identity result.
 func (c *Client) CheckAppIdentity(ctx context.Context) (AppIdentity, error) {
+	// Setup has no selected repository; its temporary metadata token also permits
+	// bot lookup for Enterprise Managed Users.
+	// https://docs.github.com/en/rest/users/users#get-a-user
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	jwt, err := c.appJWT()
@@ -67,9 +57,8 @@ func (c *Client) CheckAppIdentity(ctx context.Context) (AppIdentity, error) {
 	_, tokenErr := c.doJSON(ctx, http.MethodPost, path+"/access_tokens", jwt, input, &token, false)
 	if token.Token != "" && !strings.ContainsAny(token.Token, "\r\n") {
 		defer func() {
-			// 204 has no JSON body. Revocation authenticates with the temporary
-			// installation token itself, not the App JWT. No background retry or
-			// detached context may extend the operation or bypass caller authority.
+			// Revocation authenticates with the installation token being revoked.
+			// https://docs.github.com/en/rest/apps/installations#revoke-an-installation-access-token
 			_, _, _ = c.do(ctx, http.MethodDelete, "/installation/token", token.Token, jsonMediaType, nil, true)
 		}()
 	}
@@ -79,6 +68,8 @@ func (c *Client) CheckAppIdentity(ctx context.Context) (AppIdentity, error) {
 	if token.Token == "" || strings.ContainsAny(token.Token, "\r\n") || !token.ExpiresAt.After(c.now().Add(time.Minute)) {
 		return AppIdentity{}, &APIError{Code: InvalidResponse}
 	}
+	// GET /app's owner identifies the owning account, so resolve the bot separately.
+	// https://docs.github.com/en/rest/apps/apps#get-the-authenticated-app
 	login := app.Slug + "[bot]"
 	var bot User
 	botPath := "/users/" + url.PathEscape(login)

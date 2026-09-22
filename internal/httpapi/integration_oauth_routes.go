@@ -238,7 +238,6 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, integrationstore.ErrProjectAppSetupChanged):
 			outcome = "app_setup_changed"
 		case storeerr.IsNotFound(err):
-			// The app may have been deleted while Slack exchanged the code.
 			_, appErr := s.store.Integrations().GetProjectApp(r.Context(), state.ProjectID, state.AppID)
 			if storeerr.IsNotFound(appErr) {
 				outcome = "app_deleted"
@@ -248,8 +247,6 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 			s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {outcome}})
 			return
 		}
-		// A concurrent setup, deletion, or identity mismatch rejects this flow.
-		// Only its newly created credential is cleaned up; the saved app remains intact.
 		logpkg.Error(r.Context(), fmt.Errorf("integration oauth setup save failed: %w", err))
 		s.redirectOAuthOutcome(
 			w,

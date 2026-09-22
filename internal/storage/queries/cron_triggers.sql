@@ -262,7 +262,7 @@ UPDATE cron_triggers
 SET deleted_at = statement_timestamp(), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id) AND deleted_at IS NULL;
 
--- This separate statement runs after the cron lock, so its time includes lock waits.
+-- Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 -- name: CronTriggerClaimIsLive :one
 SELECT EXISTS (
     SELECT 1 FROM cron_triggers
@@ -271,7 +271,6 @@ SELECT EXISTS (
       AND deleted_at IS NULL
 )::boolean AS live;
 
--- Preserve a newer due time when an edit invalidates this claimed occurrence.
 -- name: ReleaseCronTriggerClaim :execrows
 UPDATE cron_triggers
 SET claimed_until = NULL, claim_token = NULL, updated_at = statement_timestamp()

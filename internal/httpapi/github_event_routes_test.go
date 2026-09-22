@@ -378,8 +378,6 @@ func TestGitHubHTTPMountedRouteUsesProviderAuthentication(t *testing.T) {
 	if !classified {
 		t.Fatal("GitHub route must declare provider-signed access")
 	}
-	// The actual server stack must reach the mounted provider handler. A missing
-	// store yields its 503, not bearer authentication, OpenAPI validation or 404.
 	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(githubIntakeBody))
 	r.Header.Set("Authorization", "Bearer deliberately-invalid")
 	r.Header.Set("Content-Type", "application/json")
@@ -418,7 +416,6 @@ func TestGitHubHTTPAppURLRoutesSeparateInstallationProjects(t *testing.T) {
 	if f.secretRead.ProjectID != second.ProjectID || f.secretRead.SecretID != second.CredentialSecretID {
 		t.Fatalf("shared credential was not read in receiving project's grant scope: %+v", f.secretRead)
 	}
-	// Disabling one app never becomes an App-wide credential anchor.
 	first := f.app
 	first.State = integrationstore.ProjectAppStateDisconnected
 	f.appsByIdentity["github:123:456"] = first
@@ -456,7 +453,6 @@ func TestGitHubHTTPAppPingAndUnmanagedInstallationDoNotChooseProject(t *testing.
 	if f.appLookups != 2 {
 		t.Fatalf("App-level credential lookups=%d", f.appLookups)
 	}
-	// The same valid signature does not authorize a different App URL.
 	w := httptest.NewRecorder()
 	r := githubIntakeRequest(t, f, `{"zen":"Keep it logically awesome","hook":{"id":123}}`)
 	r.Header.Set(github.EventHeader, "ping")
@@ -504,7 +500,6 @@ func TestGitHubHTTPFanoutPagesEveryIndependentApp(t *testing.T) {
 	for range 205 {
 		app := f.app
 		app.ID, app.ProjectID = uuid.New(), uuid.New()
-		// Even a shared secret must be read through each receiving project's grant.
 		f.apps = append(f.apps, app)
 	}
 	h := &githubIntakeHandler{store: f, secrets: f, credentialApps: f.credentialApps}

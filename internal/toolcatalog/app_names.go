@@ -10,8 +10,6 @@ const (
 	AppNamePattern = MCPServerKeyPattern
 )
 
-// ValidateAppName checks the same unambiguous syntax used by MCP server keys.
-// The operation may contain separators; split at the first separator only.
 func ValidateAppName(name string) error {
 	if !mcpServerKeyPattern.MatchString(name) {
 		return fmt.Errorf("app name %q must match %s", name, AppNamePattern)

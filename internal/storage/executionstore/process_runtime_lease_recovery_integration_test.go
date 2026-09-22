@@ -914,8 +914,6 @@ func TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction(t *testing.T) 
 		"expired_runtime_question",
 		"ask_question",
 	)
-	// Execute the production command directly: the test helper used to release
-	// runtime ownership afterward and masked the crash before that second write.
 	execution, err := fixture.Store.Execution().ExecuteToolCall(
 		ctx,
 		executionstore.ExecuteToolCallInput{

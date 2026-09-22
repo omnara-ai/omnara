@@ -65,7 +65,6 @@ func TestAppDeletionClearsInteractionSelectionAndReleasesCredentials(t *testing.
 		`SELECT count(*) FROM secret_versions WHERE secret_id=$1`, credential.SecretID).Scan(&versions))
 	require.Zero(t, versions, "unreferenced credential ciphertext can be destroyed")
 
-	// Deleting one app cannot revoke an independent app using the same physical bot.
 	other, err := f.store.Integrations().GetProjectApp(f.ctx, testProjectID, f.otherApp.ID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.ProjectAppStateActive, other.State)
@@ -76,7 +75,6 @@ func TestAppDeletionClearsInteractionSelectionAndReleasesCredentials(t *testing.
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	require.Equal(t, "other", f.selectOrigin(t, f.b.ID).HandlerKey)
 
-	// Captured history and ordinary dashboard input survive provider app deletion.
 	retained := f.read(t, question.ID)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, retained.State)
 	require.JSONEq(t, string(question.Destination), string(retained.Destination))
@@ -124,7 +122,6 @@ func TestScopeTeardownSweepsLiveAppsSubscriptionsTargetsAndCredentials(t *testin
 			require.Zero(t, liveTargets)
 			require.Zero(t, activeSubscriptions)
 			require.Zero(t, versions)
-			// Archival keeps agent metadata and accepted history; neither grants live app authority.
 			var agentState string
 			var retainedInput bool
 			require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT state,

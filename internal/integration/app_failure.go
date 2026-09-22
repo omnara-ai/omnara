@@ -11,9 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// FinalizeFailure is a best-effort follow-up to the worker's terminal commit.
-// It never requeues work or writes progress. Crash recovery can finalize a receipt
-// without this pass; losing a notice must not leave the conversation blocked.
 func (c *AppInboxConsumer) FinalizeFailure(ctx context.Context, projectID, receiptID uuid.UUID) error {
 	receipt, err := c.inbox.GetIntegrationInbox(ctx, projectID, receiptID)
 	if err != nil {
@@ -41,7 +38,7 @@ func (c *AppInboxConsumer) FinalizeFailure(ctx context.Context, projectID, recei
 			}
 		}
 		if !unfinished {
-			return nil // An empty plan or failed Complete does not mean lost input.
+			return nil
 		}
 	}
 	var failures []error
@@ -49,7 +46,9 @@ func (c *AppInboxConsumer) FinalizeFailure(ctx context.Context, projectID, recei
 	app, err := c.inbox.GetProjectAppByID(noticeCtx, receipt.AppID)
 	if err == nil {
 		if provider, ok := c.providers[app.Provider].(interface {
-			NotifyInboxFailure(context.Context, integrationstore.ProjectAppRecord, integrationstore.IntegrationInboxRecord, string) error
+			NotifyInboxFailure(
+				context.Context, integrationstore.ProjectAppRecord, integrationstore.IntegrationInboxRecord, string,
+			) error
 		}); ok {
 			err = provider.NotifyInboxFailure(noticeCtx, app, receipt, message)
 		}

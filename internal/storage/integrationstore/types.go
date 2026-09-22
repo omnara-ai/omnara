@@ -20,8 +20,6 @@ const (
 	ProjectAppStateDisconnected ProjectAppState = "disconnected"
 )
 
-// ConfigureProjectAppInput contains setup verified against the provider before
-// entering storage. Setup and secret revisions fence that verification.
 type ConfigureProjectAppInput struct {
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID

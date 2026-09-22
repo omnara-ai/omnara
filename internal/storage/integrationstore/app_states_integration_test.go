@@ -17,9 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A second app-defined document uses the same primitives without chooser fields,
-// an agent, a conversation, or a deadline. These are internal store operations;
-// semantic workflows still own lifecycle gates and authorization.
 func TestAppStateIdentityAndRevision(t *testing.T) {
 	t.Parallel()
 	f := newProfileChoiceFixture(t)
@@ -72,7 +69,6 @@ func TestAppStateIdentityAndRevision(t *testing.T) {
 	require.EqualValues(t, 2, state.Revision)
 	require.JSONEq(t, string(update.Data), string(state.Data))
 
-	// Indefinite state is live until explicitly expired; expiry preserves data.
 	require.NoError(t, q.ExpireAppState(f.ctx, dbsqlc.ExpireAppStateParams{
 		ProjectID: f.project, AppID: f.appID, Kind: state.Kind, ID: state.ID, ExpectedRevision: state.Revision,
 	}))
@@ -94,8 +90,6 @@ func TestAppStateDeadlineAndDeletedOwnership(t *testing.T) {
 		Data: json.RawMessage(`{"approved":false}`), LifetimeMilliseconds: time.Hour.Milliseconds(),
 	})
 	require.NoError(t, err)
-	// Time passing does not change the revision. A write requiring a live
-	// decision deadline must still reject, independently of the revision fence.
 	f.exec(t, `UPDATE app_states SET expires_at=now()-interval '8 days' WHERE id=$1`, state.ID)
 	_, err = q.ReplaceAppState(f.ctx, dbsqlc.ReplaceAppStateParams{
 		ProjectID: f.project, AppID: f.appID, Kind: state.Kind, ID: state.ID,
@@ -164,14 +158,11 @@ func TestAppProfileChoicePendingLookupAcrossRetainedHistory(t *testing.T) {
 	f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		return work.Fail(f.ctx, "publication owner no longer runnable")
 	})
-	// Older abandoned records must not hide the live published menu. Every
-	// candidate filter belongs before LIMIT; no capped Go scan can prove absence.
 	f.exec(t, `INSERT INTO app_states
  (project_id,app_id,kind,key,scope_kind,scope_ref,data,expires_at)
  SELECT project_id,app_id,kind,'abandoned-'||n,scope_kind,scope_ref,
         data-'message_id'-'message_channel_id',expires_at-interval '30 minutes'
  FROM app_states CROSS JOIN generate_series(1,200) n WHERE id=$1`, live.ID)
-	// Another kind may use the same JSON key with a completely different type.
 	f.exec(t, `INSERT INTO app_states
  (project_id,app_id,kind,key,scope_kind,scope_ref,data,expires_at)
  SELECT project_id,app_id,'onboarding','unrelated',scope_kind,scope_ref,

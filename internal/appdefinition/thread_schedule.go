@@ -20,8 +20,6 @@ type ThreadScheduleSettings struct {
 	MessageTemplate        string `json:"message_template"`
 }
 
-// ScheduledThreadLaunch is a prepared thread-app action, not a cron contract.
-// Config selection happens later while building the existing durable launch plan.
 type ScheduledThreadLaunch struct {
 	ProfileID      uuid.UUID
 	ChannelID      string
@@ -41,7 +39,6 @@ func newThreadScheduleDefinition(provider string) *ScheduleDefinition {
 		channelPattern = discordID.String()
 		channelDescription = "Use a Discord text or announcement channel ID, not a thread. The bot must have access."
 	}
-	// All substitutions are fixed schema constants; %q quotes the ASCII strings.
 	schema := json.RawMessage(fmt.Sprintf(`{
   "type": "object", "additionalProperties": false,
   "required": ["agent_profile_id", "channel_id", "opening_message_template", "message_template"],
@@ -167,7 +164,6 @@ func validateThreadSchedulePlan(provider string, plan SchedulePlan) error {
 
 const maxThreadOpeningCodepoints = 2000
 
-// renderThreadOpening uses the same bounded renderer as the task template.
 func renderThreadOpening(source string, data map[string]any) (string, error) {
 	if strings.TrimSpace(source) == "" || utf8.RuneCountInString(source) > maxThreadOpeningCodepoints {
 		return "", fmt.Errorf("opening message template must contain 1 to %d codepoints", maxThreadOpeningCodepoints)

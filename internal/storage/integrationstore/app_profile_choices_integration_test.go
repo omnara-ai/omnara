@@ -197,7 +197,7 @@ func TestAppProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 	pending = f.readChoice(t, id)
 	first := f.chooseInput(t, pending, "support")
 	second := f.chooseInput(t, pending, "review")
-	second.ActorID = "U789" // Choosing is not restricted to the original author.
+	second.ActorID = "U789"
 	winners := make(chan integrationstore.AppProfileChoiceRecord, 8)
 	for index := range 8 {
 		wg.Go(func() {
@@ -242,7 +242,6 @@ func TestAppProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 		require.JSONEq(t, string(receipt.Events), string(work.Receipt().Events))
 		return work.FreezePlan(f.ctx, json.RawMessage(`{}`))
 	})
-	// Deletion revokes callbacks while retaining the committed decision and receipt.
 	require.NoError(t, f.store.DeleteProjectApp(f.ctx, f.org, f.project, f.app.ID))
 	_, err := f.store.ChooseAppProfile(f.ctx, first)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
@@ -585,8 +584,6 @@ func TestAppProfileChoiceDoesNotInvertProfileSetupLockOrder(t *testing.T) {
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
-	// Setup update holds profile locks before it updates the app. A chooser
-	// must not take that profile lock after taking its shared app row lock.
 	_, err = tx.Exec(f.ctx, `SELECT id FROM agent_profiles WHERE id=$1 FOR UPDATE`, f.input.Options[0].ProfileID)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
@@ -722,8 +719,6 @@ func TestAppProfileChoiceExpiresWhileWaitingForConversation(t *testing.T) {
 		finished <- err
 	}()
 	started := integrationdb.WaitForLockWaitBlockedBy(t, ctx, f.pool, "-- name: LockAppConversation ", blockerPID)
-	// Expire only after the selection has begun and is demonstrably blocked.
-	// Keep revision unchanged so rejection must come from the write-time deadline.
 	var deadline time.Time
 	require.NoError(t, blocker.QueryRow(ctx,
 		`UPDATE app_states SET expires_at=clock_timestamp() WHERE id=$1 RETURNING expires_at`, choice.ID).Scan(&deadline))

@@ -20,17 +20,12 @@ const (
 	InteractionReceiptMaxBytes     = 16 * 1024
 )
 
-// InteractionSelection is mutable routing for future prompts, never authority.
-// The zero value selects dashboard only. Args are validated handler arguments;
-// the target is canonical attribution for their resolved concrete address.
 type InteractionSelection struct {
 	IntegrationTargetID uuid.UUID       `json:"integration_target_id"`
 	HandlerKey          string          `json:"handler_key"`
 	Args                json.RawMessage `json:"args"`
 }
 
-// InteractionDestination is immutable per prompt. Current handler availability and
-// live app state must still authorize presentation and provider responses.
 type InteractionDestination struct {
 	AppType             appdefinition.Type                   `json:"app_type"`
 	HandlerKey          string                               `json:"handler_key"`
@@ -40,7 +35,6 @@ type InteractionDestination struct {
 	Address             integrationstore.ConversationAddress `json:"address"`
 }
 
-// CapturedDestination never reconstructs a missing snapshot from today's selection.
 func (record AgentInteractionRecord) CapturedDestination() (*InteractionDestination, error) {
 	if len(record.Destination) == 0 {
 		return nil, nil //nolint:nilnil // Dashboard-only prompts have no external snapshot.
@@ -103,8 +97,6 @@ func validateInteractionObject(raw json.RawMessage, limit int) error {
 	return dbsafe.JSONStrings(raw)
 }
 
-// Convert the verified origin into complete handler arguments. Sending context
-// does not constrain where the model may route an interaction.
 func interactionArgsForOrigin(
 	provider string,
 	address integrationstore.ConversationAddress,

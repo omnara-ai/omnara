@@ -24,6 +24,8 @@ import (
 const GitHubEventsPath = "/api/integrations/github/{app_id}/events"
 const GitHubSharedEventsPath = "/api/integrations/github/events"
 
+// Leave headroom under GitHub's 10s deadline:
+// https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds
 const githubIntakeTimeout = 5 * time.Second
 const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLimit
 
@@ -42,20 +44,10 @@ type githubIntakeSecrets interface {
 	)
 }
 
-// GitHubWebhookCredentialApps reads bounded credential candidates from
-// saved apps for an App, without tying its URL to one installation.
-// The store should deduplicate credential references and select representatives
-// with live project secret access. Disconnected apps may supply credentials
-// for App-level verification; they never receive input. Return at most limit.
 type GitHubWebhookCredentialApps func(
 	context.Context, string, int,
 ) ([]integrationstore.ProjectAppRecord, error)
 
-// GitHubEventsHandler serves both provider-signed GitHub event routes. Known
-// active installation events require durable acceptance. Verified App pings and
-// unmanaged/disconnected installation events acknowledge without agent input.
-// Ping/bootstrap verification resolves credentials from saved apps;
-// normal events resolve directly by (github, App ID, installation ID).
 func (s *Server) GitHubEventsHandler() http.Handler {
 	if s.store == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -85,8 +77,6 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	r = r.WithContext(ctx)
 	appID := r.PathValue("app_id")
 	if appID == "" && r.URL.Path == GitHubSharedEventsPath {
-		// This header chooses bounded credential candidates only. The shared
-		// verifier below still requires exact-body HMAC and signed installation.
 		values := r.Header.Values("X-Github-Hook-Installation-Target-Id")
 		if len(values) != 1 {
 			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "GitHub App lookup hint is required")
@@ -103,7 +93,6 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	// Body identity is only a bounded credential-lookup hint until HMAC passes.
 	var hint github.Webhook
 	if !utf8.Valid(raw) || !strings.HasPrefix(strings.TrimSpace(string(raw)), "{") || json.Unmarshal(raw, &hint) != nil {
 		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid GitHub webhook")
@@ -146,7 +135,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if result.Matched > 0 {
-		// Never borrow another app's credentials for a known installation.
+		// Fallback would authorize a known installation through another project's credential grant.
 		if result.Verified == 0 {
 			apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid GitHub callback")
 			return
@@ -154,8 +143,6 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	// Only unmanaged installations and App-level pings use bounded credential
-	// candidates. This cap never limits ordinary event fanout.
 	event, verified, err := h.verifyAppWebhook(ctx, r.Header, raw, appID)
 	if err != nil {
 		if verified {

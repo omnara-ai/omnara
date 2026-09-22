@@ -147,7 +147,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	require.ErrorIs(t, failures[1-winner], integrationstore.ErrAppSelectionReserved)
 	plan, receipt := plans[winner], receipts[winner]
 	require.Len(t, plan, 2)
-	// Editing launcher slots does not change frozen membership or its pinned profile.
 	setup.Settings.Launcher.Slots[1].Key = "c"
 	_, err = store.Integrations().UpdateProjectApp(ctx, app.ID, setup)
 	require.NoError(t, err)
@@ -213,8 +212,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 		pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`, ids.ProjectID).Scan(&count),
 	)
 	require.Equal(t, 1, count)
-	// Once A exists, an ordinary follow-up may continue A without waiting for B
-	// or promising retrospective delivery to B when it eventually launches.
 	partialReceipt := claim("partial-follow")
 	partialEvent := event
 	partialEvent.SemanticKey, partialEvent.Event.Mentioned = "message:partial-follow", false
@@ -224,7 +221,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	require.Len(t, partialPlan, 1)
 	_, err = router.Admit(ctx, partialReceipt.Lease())
 	require.NoError(t, err)
-	// Recovery ignores replacement input/profile/app settings and preserves B.
 	recovered, err := freezeTestAppEvents(ctx, router, receipt.Lease(), nil)
 	require.NoError(t, err)
 	originalJSON, err := json.Marshal(plan)
@@ -252,7 +248,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 		pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`, ids.ProjectID).Scan(&count),
 	)
 	require.Equal(t, 2, count)
-	// The second receipt follows current subscriptions; edited slot C cannot replace B.
 	event.SemanticKey = "message:2"
 	event.ContentBlocks = json.RawMessage(`[{"type":"text","text":"follow up"}]`)
 	event.Files = nil
@@ -265,8 +260,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	}
 	_, err = router.Admit(ctx, receipts[1-winner].Lease())
 	require.NoError(t, err)
-	// The consumer owns no receipt schedule and never expands a frozen replay.
-	// Its result retains kernel cancellation/provisioning outcomes for the worker.
 	consumerReceipt := claim("consumer")
 	event.SemanticKey = "message:consumer"
 	provider := &appConsumerProvider{events: []AppEvent{event}}
@@ -285,7 +278,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	for _, result := range consumed {
 		require.False(t, result.Input.Created)
 	}
-	// Completed replay needs neither active app nor fresh handler writes.
 	_, err = pool.Exec(ctx, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, appSetup)
 	require.NoError(t, err)
 	results, err = router.Admit(ctx, receipt.Lease())
@@ -442,7 +434,6 @@ func TestAppRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 				require.Empty(t, unplanned.Plan, "plain follow-up must not freeze empty")
 				require.Equal(t, integrationstore.IntegrationInboxProcessing, unplanned.State)
 			}
-			// The reservation covers only the exact conversation, not its workspace.
 			other := capture("unrelated")
 			unrelated := event
 			unrelated.Event.Scope = appdefinition.Scope{

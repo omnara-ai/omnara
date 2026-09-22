@@ -1,12 +1,10 @@
--- The conversation gate serializes launcher selection with subscription changes.
--- Acquire it after project/app gates and before agent locks.
+-- Lock order: project/app gates, conversation gate, then agent locks.
 -- name: LockAppConversation :exec
 SELECT pg_advisory_xact_lock(hashtextextended(
     'app_conversation:' || jsonb_build_array(sqlc.arg(project_id)::uuid, sqlc.arg(app_id)::uuid,
         sqlc.arg(kind)::text, sqlc.arg(ref)::text)::text, 0));
 
--- Retired selections intentionally remain visible: stopping a selected agent
--- must not cause the next comment to launch a replacement.
+-- Keep retired selections so a later comment cannot launch a replacement agent.
 -- name: ListConversationSelections :many
 SELECT id, project_id, agent_id, app_id, provider_ref,
        provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
@@ -36,8 +34,6 @@ WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id)
   AND provider_ref_kind = sqlc.arg(kind) AND provider_ref = sqlc.arg(ref)
   AND deleted_at IS NULL;
 
--- Presentation only: several agents may have targets at this exact address.
--- Reuse the latest known nonempty label without selecting a routing authority.
 -- name: GetConversationDisplayName :one
 SELECT display_name
 FROM integration_targets

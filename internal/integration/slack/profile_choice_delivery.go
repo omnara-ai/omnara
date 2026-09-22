@@ -6,9 +6,6 @@ import (
 	"errors"
 )
 
-// PostProfileChoice makes one send attempt using the configured Slack endpoint.
-// The caller supplies checked credentials and owns receipt persistence and
-// bounded retries. Retrying an uncertain result may duplicate the menu.
 func PostProfileChoice(
 	ctx context.Context,
 	config OAuthConfig,
@@ -28,8 +25,6 @@ func PostProfileChoice(
 	return profileChoiceMessage(ctx, config, target, "chat.postMessage", payload)
 }
 
-// UpdateProfileChoice replaces a confirmed menu with caller-supplied text and
-// clears its controls. It never searches history or posts another message.
 func UpdateProfileChoice(
 	ctx context.Context, config OAuthConfig, target MessageTarget, messageID, text string,
 ) (APIResult, error) {

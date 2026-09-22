@@ -9,8 +9,6 @@ import (
 
 var slackWorkspace = regexp.MustCompile(`^T[A-Z0-9]+$`)
 
-// CanonicalLauncherScope is shared by saved launcher setup and event-derived
-// parent addresses. Conversation addresses use the same encoding as Scope.
 func CanonicalLauncherScope(provider, kind, ref string) (string, string, error) {
 	kind, ref = strings.TrimSpace(kind), strings.TrimSpace(ref)
 	invalid := func() (string, string, error) {
@@ -29,7 +27,6 @@ func CanonicalLauncherScope(provider, kind, ref string) (string, string, error) 
 		}
 		return kind, strconv.FormatInt(id, 10), nil
 	case provider == ProviderDiscord:
-		// Discord installation and permissions determine where mentions can launch.
 		if kind != "" || ref != "" {
 			return invalid()
 		}

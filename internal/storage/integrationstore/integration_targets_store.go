@@ -79,8 +79,6 @@ func integrationTargetRecordFromGetSQLC(
 	}, row.OrgID)
 }
 
-// GetAgentAppToolContext includes retired targets: retirement cannot remove the
-// immutable destination restriction. Callers must still authorize the app/agent.
 func (s *Store) GetAgentAppToolContext(
 	ctx context.Context,
 	projectID, agentID, appID uuid.UUID,

@@ -41,8 +41,6 @@ func TestInteractionPresentationWorkConcurrentClaim(t *testing.T) {
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
 	question := f.question(t)
-	// Claim must not acquire an app gate after the agent lock. Holding
-	// this gate also proves it can drain work while app changes serialize.
 	appGate := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	require.NoError(t, dbsqlc.New(appGate).LockProjectAppLifecycleExclusive(f.ctx,
 		dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: f.app.ID}))
@@ -51,8 +49,7 @@ func TestInteractionPresentationWorkConcurrentClaim(t *testing.T) {
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
-	// Two claimers plus both gates leave one of the fixture's five pool
-	// connections available for the lock-wait observer.
+	// Leave one of the five pool connections free for the lock-wait observer.
 	claims := make([]<-chan integrationdb.AsyncResult[bool], 2)
 	for i := range claims {
 		claims[i] = integrationdb.RunAsync(func() (bool, error) {
@@ -91,9 +88,6 @@ func TestInteractionPresentationWorkListBoundAndAppTypes(t *testing.T) {
 			ProjectID: testProjectID, AgentID: f.process.AgentID, ID: question.ID,
 		})
 	}
-	// An older unsupported-handler interaction must not block the hosted batch.
-	// Insert its immutable capture directly: this test exercises work discovery,
-	// not unsupported-handler config compilation or provider presentation.
 	unsupportedID := uuid.New()
 	_, err := f.store.pool.Exec(f.ctx, `
 INSERT INTO agent_interactions
@@ -152,8 +146,6 @@ func TestInteractionPresentationWorkMergeAppTypeOrdering(t *testing.T) {
 			ProjectID: testProjectID, AgentID: f.process.AgentID,
 			ID: uuid.MustParse(fmt.Sprintf("00000000-0000-0000-0000-%012d", len(calls)-i)),
 		}
-		// Synthetic captures isolate discovery from provider authorization. Each
-		// timestamp ties across app types, with IDs ordered opposite insertion.
 		_, err := f.store.pool.Exec(f.ctx, `
 INSERT INTO agent_interactions
     (id, agent_id, tool_call_id, interaction_kind, state, request, created_at, destination)
@@ -223,8 +215,6 @@ SET presentation_attempted_at=now() WHERE agent_id=$1 AND id=$2`, f.process.Agen
 		require.NoError(t, err)
 		require.False(t, claimed)
 	}
-	// Authority revocation must not leave an unclaimable row at the front of a
-	// bounded sweep. The later live-authority check still refuses presentation.
 	f.disable(t)
 	listed, err := f.store.Execution().
 		ListPendingInteractionPresentations(f.ctx, []string{string(appdefinition.SlackThread)}, 1)
@@ -340,7 +330,6 @@ func TestInteractionPresentationWorkClaimCancelRace(t *testing.T) {
 			replayed, err := claim()
 			require.NoError(t, err)
 			require.False(t, replayed)
-			// Terminal rows cannot acquire or replace a marker even without a receipt.
 			_, err = f.store.pool.Exec(f.ctx, `UPDATE agent_interactions
 SET presentation_attempted_at=now() WHERE agent_id=$1 AND id=$2`, f.process.AgentID, question.ID)
 			require.True(t, isPgReadOnlySQLTransaction(err), "terminal marker update: %v", err)
@@ -364,8 +353,6 @@ func TestInteractionPresentationWorkLiveScopes(t *testing.T) {
 			f := newAppInteractionFixture(t)
 			f.selectOrigin(t, f.a.ID)
 			question := f.question(t)
-			// Leave the child open deliberately to prove discovery and claiming
-			// independently honor lifecycle fences, even during partial teardown.
 			var err error
 			switch scope {
 			case "agent":
@@ -423,8 +410,6 @@ func TestInteractionPresentationWorkCommitFailureCannotAuthorizeSend(t *testing.
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
 	question := f.question(t)
-	// A deferred constraint fails after the CAS succeeds, specifically proving
-	// that a successful UPDATE alone cannot authorize a provider send.
 	_, err := f.store.pool.Exec(f.ctx, `
 CREATE FUNCTION fail_presentation_claim_commit() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

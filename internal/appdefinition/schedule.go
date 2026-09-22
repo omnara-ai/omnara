@@ -12,9 +12,6 @@ import (
 
 const MaxScheduleSettingsBytes = 128 * 1024
 
-// ScheduleDefinition describes an app-owned scheduled action. Presentation hints
-// in InputSchema do not grant authority or change server-side resource handling.
-// ValidatePlan is pure: storage invokes it while enforcing its transaction gates.
 type ScheduleDefinition struct {
 	InputSchema      json.RawMessage
 	Description      string
@@ -22,9 +19,6 @@ type ScheduleDefinition struct {
 	ValidatePlan     func(SchedulePlan) error
 }
 
-// ScheduleSlot exposes only the facts needed to authorize planned app work.
-// Project, actor, lease, selection identity and config membership are verified
-// separately by storage; app definitions never receive a database transaction.
 type ScheduleSlot struct {
 	Key       string
 	Scope     Scope

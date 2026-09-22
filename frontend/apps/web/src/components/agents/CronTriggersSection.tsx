@@ -56,7 +56,6 @@ interface CronTriggersListProps {
   canManage: boolean
   emptyMessage: string
   emptyState?: ReactNode
-  /** Borderless rows for pages that lay sections out flat. */
   plain?: boolean
 }
 

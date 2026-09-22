@@ -1,7 +1,6 @@
 import type { ProjectApp } from '@omnara/sdk'
 import { useState } from 'react'
 
-/** Keep completed setup steps when switching between manual and guided GitHub setup. */
 export function useProjectAppSetupState(
   existing?: ProjectApp,
   initial: { credentialSecretId?: string; error?: string } = {},

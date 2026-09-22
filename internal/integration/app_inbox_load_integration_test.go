@@ -28,9 +28,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Opt-in experiment, not a CI performance gate. The existing fixture creates
-// and drops a guarded omnara_test_* database; the supplied database is never used
-// for product writes. See plans/composable-agent-apps/inbox-load-results.md.
 func TestAppInboxLocalLoad(t *testing.T) {
 	if os.Getenv("OMNARA_INBOX_LOAD") != "1" {
 		t.Skip("set OMNARA_INBOX_LOAD=1 and OMNARA_TEST_DATABASE_URL for the local load experiment")
@@ -62,8 +59,6 @@ func TestAppInboxLocalLoad(t *testing.T) {
 	}
 }
 
-// Keep raw duration samples only for this short, opt-in run. No histogram or
-// instrumentation framework is introduced into the product or ordinary tests.
 type inboxLoadSamples struct {
 	mu     sync.Mutex
 	values []time.Duration
@@ -106,7 +101,7 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	fixturePool.Close()
 	pool, err := pgxpool.NewWithConfig(t.Context(), config)
 	require.NoError(t, err)
-	t.Cleanup(pool.Close) // Runs before the fixture drops its isolated database.
+	t.Cleanup(pool.Close)
 	store := storage.NewStore(pool)
 	inbox := store.Integrations()
 	ctx, cancel := context.WithTimeout(t.Context(), duration+2*time.Minute)
@@ -123,8 +118,6 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		require.NoError(t, err)
 		apps = append(apps, id)
 	}
-	// A valid JSON envelope, below TOAST's ordinary threshold, with nontrivial
-	// content rather than an easily compressed multi-kilobyte repeated string.
 	noise := make([]byte, 744)
 	_, err = rand.Read(noise)
 	require.NoError(t, err)
@@ -143,7 +136,6 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	_, err = pool.Exec(ctx, "VACUUM (ANALYZE) integration_inbox")
 	require.NoError(t, err)
 	logInboxLoadStorage(t, ctx, pool, "seeded")
-	// Remove connection creation from the timed comparison.
 	connections := make([]*pgxpool.Conn, 0, poolSize)
 	for range poolSize {
 		connection, err := pool.Acquire(ctx)
@@ -174,7 +166,6 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		var created time.Time
 		err := inbox.WithIntegrationInboxLease(callCtx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			created = work.Receipt().CreatedAt
-			// A real, deliberately empty frozen plan: no synthetic agent admission.
 			if err := work.FreezePlan(callCtx, json.RawMessage(`{}`)); err != nil {
 				return err
 			}
@@ -194,9 +185,6 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	phase, stop := context.WithTimeout(ctx, duration)
 	defer stop()
 	group, workCtx := errgroup.WithContext(ctx)
-	// RunOnce is the production discovery/claim/consume path. Like Run, share
-	// one worker and pause empty polls; surface any errors instead of retrying
-	// silently. Finish in-flight transactions after the measurement timer fires.
 	for range capacity {
 		group.Go(func() error {
 			for phase.Err() == nil && workCtx.Err() == nil {
@@ -236,8 +224,6 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
 		for phase.Err() == nil && workCtx.Err() == nil {
-			// Match maintenance's 250 ms work budget per one-second tick,
-			// allowing the last batch to finish so measured deletes are exact.
 			until := time.Now().Add(250 * time.Millisecond)
 			for time.Now().Before(until) && phase.Err() == nil {
 				begin := time.Now()
@@ -271,7 +257,6 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		group.Go(func() error {
 			for phase.Err() == nil && workCtx.Err() == nil {
 				begin := time.Now()
-				// Competing ordinary dashboard metadata reads share this exact pool.
 				_, err := inbox.GetProjectApp(workCtx, ids.ProjectID, firstApp)
 				if err != nil {
 					return err

@@ -12,9 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 )
 
-// ResolveAppDefinitions performs one project-scoped read for model preparation.
-// Unavailable apps are omitted; callers can still prepare unrelated capabilities.
-// This metadata never authorizes provider I/O or returns credentials.
 func (s *Store) ResolveAppDefinitions(
 	ctx context.Context,
 	projectID uuid.UUID,

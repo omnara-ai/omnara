@@ -196,9 +196,6 @@ func createAgentContentInputTx(
 	if agent.State == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
-	// Origin belongs to the project/agent and an active app independently
-	// of actor attribution. Hosted ingress validates its verified actor before
-	// reaching this shared input kernel.
 	if input.IntegrationTargetID != uuid.Nil {
 		target, err := qtx.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
 			ProjectID: input.ProjectID, AgentID: input.AgentID, TargetID: input.IntegrationTargetID,
@@ -340,12 +337,10 @@ func agentInputContentBlocks(
 }
 
 type CreateAgentContentInputInput struct {
-	ProjectID           uuid.UUID    `json:"project_id,omitempty"`
-	AgentID             uuid.UUID    `json:"agent_id,omitempty"`
-	Actor               *ActorParams `json:"actor,omitempty"`
-	IntegrationTargetID uuid.UUID    `json:"integration_target_id,omitempty"`
-	// Origin belongs to verified inbox admission. Ordinary content input rejects
-	// origin and target fields; its actors and idempotency remain independent.
+	ProjectID              uuid.UUID              `json:"project_id,omitempty"`
+	AgentID                uuid.UUID              `json:"agent_id,omitempty"`
+	Actor                  *ActorParams           `json:"actor,omitempty"`
+	IntegrationTargetID    uuid.UUID              `json:"integration_target_id,omitempty"`
 	Origin                 *AgentInputOrigin      `json:"origin,omitempty"`
 	ContentBlocks          json.RawMessage        `json:"content_blocks"`
 	Metadata               json.RawMessage        `json:"metadata,omitempty"`

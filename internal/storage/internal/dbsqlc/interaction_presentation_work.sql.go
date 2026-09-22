@@ -50,8 +50,6 @@ WITH app_types AS (
 SELECT pending.project_id, pending.agent_id, pending.id
 FROM app_types
 CROSS JOIN LATERAL (
-    -- Each app type uses the pending index's equality prefix and ordering.
-    -- Only this bounded set participates in the final oldest-first merge.
     SELECT agent.project_id, interaction.agent_id, interaction.id, interaction.created_at
     FROM agent_interactions interaction
     JOIN agents agent ON agent.id = interaction.agent_id

@@ -90,7 +90,6 @@ func githubHTTPWebhook(
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(raw))
 	r.Header.Set(github.SignatureHeader, "sha256="+hex.EncodeToString(mac.Sum(nil)))
-	// No bearer, browser session or SetPathValue: exercise the mounted HTTP stack.
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	require.Equal(t, want, w.Code, w.Body.String())
@@ -187,9 +186,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.NoError(t, pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 			require.Zero(t, receipts)
-			// A failed initial persistence returns 503 and stores nothing. GitHub
-			// does not retry automatically: these are manual redeliveries carrying
-			// the same X-GitHub-Delivery value, through the mounted HTTP stack.
+			// GitHub does not retry automatically; these requests model manual redelivery.
 			_, err := pool.Exec(t.Context(),
 				`ALTER TABLE integration_inbox ADD CONSTRAINT github_test_fail_receipt CHECK (false)`)
 			require.NoError(t, err)
@@ -213,8 +210,6 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			agentID := results[0].Launch.Agent.ID
 			firstInput := results[0].Launch.AgentInput.ID
 			require.Equal(t, "1001#42", results[0].Launch.IntegrationTarget.ProviderRef)
-			// A different delivery/header label can create a receipt, never another
-			// input or agent for the same signed semantic event.
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "relabeled", githubJourneyWebhookSecret,
 				raw, http.StatusNoContent)
 			f.consume(t, raw)
@@ -253,8 +248,6 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			results = f.consume(t, commit)
 			require.Len(t, results, 1)
 			require.Equal(t, executionstore.DeliveryModeQueued, results[0].Input.AgentInput.DeliveryMode)
-			// Renaming does not lose the subscription; reusing that name for a different
-			// repository ID cannot reach this agent or this repository launcher.
 			renamed := strings.ReplaceAll(githubHTTPComment(t, 42, 3003, "renamed repository"),
 				"owner/repository", "new-owner/new-name")
 			githubHTTPWebhook(t, f.handler, "issue_comment", "renamed", githubJourneyWebhookSecret,
@@ -369,8 +362,6 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	githubHTTPWebhook(t, f.handler, "issue_comment", "disabled", githubJourneyWebhookSecret,
 		githubHTTPComment(t, 42, 3001, "@helper disabled installation"), http.StatusNoContent)
-	// The same physical App URL still durably accepts the second installation's
-	// lifecycle event, scoped only to its project, and normalization ignores it.
 	installed := `{"action":"created","installation":{"id":457,"app_id":123}}`
 	githubHTTPWebhook(t, f.handler, "installation", "managed", githubJourneyWebhookSecret,
 		installed, http.StatusNoContent)
@@ -386,8 +377,6 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
-	// Disabled credentials can serve App health even after the other project's
-	// grant is revoked. The known installation cannot borrow that authorization.
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 		secretPath+"/grants/"+testutil.RequireType[string](t, grant["id"]),
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))

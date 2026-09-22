@@ -284,8 +284,6 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	require.Contains(t, string(input.ContentBlocks), "previous context")
 	require.NotContains(t, string(input.Metadata), "test-token")
 
-	// A cached sender skips the live lookup. The cache must use the configured
-	// app identity even when its provider workspace is shared with another app.
 	provider.actors = slackActorNamesFunc(func(
 		_ context.Context, projectID uuid.UUID, source, tenant string, users []string,
 	) (map[string]string, error) {

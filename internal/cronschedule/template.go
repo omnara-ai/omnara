@@ -181,8 +181,6 @@ func messageData(name string, firedAt time.Time, lastFiredAt *time.Time, localDa
 	}
 }
 
-// OccurrenceMessageData preserves UTC timestamp meanings while deriving local_date
-// from the scheduled due time, even when a worker processes the occurrence late.
 func OccurrenceMessageData(
 	name string,
 	firedAt time.Time,

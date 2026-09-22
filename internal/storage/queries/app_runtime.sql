@@ -1,5 +1,3 @@
--- Only actual hosted persistent transports are enumerated. Cursor scanning keeps
--- a busy prefix owned by other workers from hiding apps later in the set.
 -- name: ListPersistentApps :many
 WITH app_types AS (
     SELECT DISTINCT unnest(sqlc.arg(app_types)::text[]) AS app_type
@@ -7,7 +5,6 @@ WITH app_types AS (
 SELECT page.id, page.project_id
 FROM app_types
 CROSS JOIN LATERAL (
-    -- Limit each ordered type scan before merging the cursor's next page.
     SELECT app.id, app.project_id
     FROM project_apps app
     JOIN projects project ON project.id = app.project_id
@@ -21,8 +18,7 @@ CROSS JOIN LATERAL (
 ORDER BY page.id
 LIMIT sqlc.arg(row_limit);
 
--- This unlocked hint avoids contending with the owner's heartbeat on every
--- discovery scan. The claim below remains the authoritative atomic decision.
+-- Skip the row lock here to avoid contending with heartbeat; ClaimAppRuntime rechecks ownership.
 -- name: AppRuntimeClaimable :one
 SELECT NOT EXISTS (
     SELECT 1 FROM app_runtime
@@ -33,11 +29,6 @@ SELECT NOT EXISTS (
                AND credential_version_id = sqlc.arg(credential_version_id)))
 ) AS claimable;
 
--- Caller holds project/app/secret reference gates and validates revisions
--- before locking the runtime. Token changes on every claim; stale owners cannot
--- publish checkpoints even when the same process reacquires the unit later.
--- Only setup/credential revisions invalidate checkpoints or bypass backoff;
--- unrelated app settings edits leave the transport session intact.
 -- name: ClaimAppRuntime :one
 INSERT INTO app_runtime(project_id, app_id, runtime_key, setup_revision,
     credential_version_id, claim_token, claim_expires_at)
@@ -60,7 +51,7 @@ WHERE (app_runtime.claim_expires_at IS NULL OR app_runtime.claim_expires_at <= s
        OR app_runtime.credential_version_id <> EXCLUDED.credential_version_id)
 RETURNING checkpoint, claim_expires_at;
 
--- Lock then re-read in a fresh statement: the lease can expire while waiting.
+-- Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 -- name: LockAppRuntime :one
 SELECT runtime_key FROM app_runtime
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id) AND runtime_key = sqlc.arg(runtime_key)
@@ -85,8 +76,6 @@ SET checkpoint = sqlc.narg(checkpoint)::jsonb, updated_at = statement_timestamp(
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id) AND runtime_key = sqlc.arg(runtime_key)
   AND claim_token = sqlc.arg(claim_token)::uuid AND claim_expires_at > statement_timestamp();
 
--- Release never publishes a checkpoint. It can relinquish a revoked parent's
--- unit; the exact unexpired token still prevents releasing a replacement owner.
 -- name: ReleaseAppRuntime :execrows
 UPDATE app_runtime
 SET claim_token = NULL, claim_expires_at = NULL,

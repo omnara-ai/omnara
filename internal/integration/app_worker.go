@@ -32,8 +32,6 @@ type AppReceiptConsumer interface {
 	Consume(context.Context, integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error)
 }
 
-// AppLaunchProvisioner is implemented by machinepool.Manager. Provisioning has
-// its own durable recovery; it is not part of receipt completion or slot commit.
 type AppLaunchProvisioner interface {
 	StartLaunchProvisioning(context.Context, *slog.Logger, uuid.UUID, []uuid.UUID)
 }
@@ -50,8 +48,7 @@ type AppInboxWorker struct {
 	consumer AppReceiptConsumer
 	options  AppInboxWorkerOptions
 
-	// One shared discovery round prevents each consumer from repeatedly taking
-	// the first app. Entries keep the store's oldest-ready order.
+	// Share discovery so concurrent consumers cannot repeatedly favor the first ready app.
 	readyMu sync.Mutex
 	ready   []integrationstore.IntegrationInboxApp
 
@@ -83,22 +80,17 @@ func NewAppInboxWorker(
 	return &AppInboxWorker{inbox: inbox, consumer: consumer, options: options}
 }
 
-// Run drains ready receipts with bounded concurrency. Claims fence replicas;
-// expired-lease recovery also runs while there is no ready work. Cancellation
-// stops claiming and waits for in-flight consumers to return and release leases.
 func (w *AppInboxWorker) Run(ctx context.Context) error {
 	if w.inbox == nil || w.consumer == nil || w.options.Capacity < 1 ||
 		w.options.Capacity > integrationstore.IntegrationInboxMaxBatch {
 		return errors.New("app inbox worker requires stores and capacity between 1 and 100")
 	}
 	var workers sync.WaitGroup
-	// Recovery is independent of traffic and consumer occupancy, including when
-	// every slot is waiting on provider I/O. RunOnce shares this same throttle.
 	workers.Go(func() {
 		ticker := time.NewTicker(appInboxRecoveryRetry)
 		defer ticker.Stop()
 		for {
-			_ = w.recoverDue(ctx) // Recovery logs its errors, including when initiated by RunOnce.
+			_ = w.recoverDue(ctx)
 			select {
 			case <-ctx.Done():
 				return
@@ -133,10 +125,6 @@ func (w *AppInboxWorker) Run(ctx context.Context) error {
 	return nil
 }
 
-// RunOnce recovers expired claims when due and consumes at most one newly claimed receipt.
-// The bool reports a claim, including partial/failed work. Errors never turn a
-// reservation into an empty completed plan; Retry retains its plan and progress
-// and the store fails it durably when its eight-attempt budget is exhausted.
 func (w *AppInboxWorker) RunOnce(ctx context.Context) (bool, error) {
 	if w.inbox == nil || w.consumer == nil {
 		return false, errors.New("app inbox worker requires stores")
@@ -145,8 +133,6 @@ func (w *AppInboxWorker) RunOnce(ctx context.Context) (bool, error) {
 	if err := w.recoverDue(ctx); err != nil {
 		failures = append(failures, err)
 	}
-	// A bounded round avoids spinning on stale discovery or claim races. A hot
-	// app receives only one turn while other discovered entries wait.
 	for attempt := range integrationstore.IntegrationInboxMaxBatch {
 		if err := ctx.Err(); err != nil {
 			return false, errors.Join(append(failures, err)...)
@@ -202,9 +188,6 @@ func (w *AppInboxWorker) recoverDue(ctx context.Context) (err error) {
 		}
 	}()
 
-	// Sample once per normal recovery interval, even while a backlog requires
-	// faster recovery passes. Failure remains distinct from a successful empty
-	// result and does not prevent recovery or receipt processing.
 	if w.options.Metrics != nil && !time.Now().Before(w.nextLagSample) {
 		sampleCtx, cancel := context.WithTimeout(ctx, appInboxLagSampleTimeout)
 		lag, err := w.inbox.OldestReadyIntegrationInboxLag(sampleCtx)
@@ -216,8 +199,6 @@ func (w *AppInboxWorker) recoverDue(ctx context.Context) (err error) {
 		}
 	}
 
-	// Finish the current recovery call (two bounded SQL statements) when the
-	// soft budget runs out. Only a stalled pass reaches the hard deadline.
 	stopAt := time.Now().Add(appInboxRecoveryBudget)
 	recoveryCtx, cancel := context.WithTimeout(ctx, appInboxRecoveryTimeout)
 	defer cancel()
@@ -267,8 +248,7 @@ func (w *AppInboxWorker) nextApp(
 }
 
 func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.IntegrationInboxRecord) error {
-	// Leave time within the five-minute lease to record a timed-out attempt.
-	// A crashed or uncooperative consumer is still fenced by admission itself.
+	// Leave lease time to record a timed-out attempt.
 	deadline := time.Now().Add(integrationstore.IntegrationInboxMaxLease - 15*time.Second)
 	if receipt.ClaimExpiresAt != nil && receipt.ClaimExpiresAt.Add(-15*time.Second).Before(deadline) {
 		deadline = receipt.ClaimExpiresAt.Add(-15 * time.Second)
@@ -303,14 +283,12 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 				time.Since(receipt.CreatedAt),
 			)
 		}
-		return nil // Consumer completed the receipt atomically after all slot commits.
+		return nil
 	}
 	outcome := "lease_lost"
 	terminal := (len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable)) ||
 		errors.Is(err, ErrScheduledActionFailed)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
-		// Shutdown must release still-owned work, too. This short transaction has
-		// no provider I/O; an expired/stolen lease cannot overwrite its successor.
 		retryCtx, retryCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer retryCancel()
 		retryErr := w.inbox.WithIntegrationInboxLease(
@@ -338,8 +316,6 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 		if finalizer, ok := w.consumer.(interface {
 			FinalizeFailure(context.Context, uuid.UUID, uuid.UUID) error
 		}); ok {
-			// A confirmed terminal commit owns this one best-effort notification and
-			// cleanup pass. Losing the lease or failing to record failure owns neither.
 			finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 40*time.Second)
 			if finalErr := finalizer.FinalizeFailure(finalCtx, receipt.ProjectID, receipt.ID); finalErr != nil {
 				w.options.Log.WarnContext(ctx, "finalize failed app inbox", "receipt_id", receipt.ID, "error", finalErr)

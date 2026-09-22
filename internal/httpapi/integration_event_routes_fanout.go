@@ -20,10 +20,8 @@ type integrationFanoutResult struct {
 	Verified int
 }
 
-// fanoutIntegrationApps bounds each lookup and the request lifetime, not the
-// number of independently saved apps. A failed app does not prevent a sibling's
-// receipt from committing. Active-app failures still force provider redelivery;
-// already committed receipts make that retry safe.
+// Receipts commit independently. Redelivery can recover failed apps because
+// committed receipts deduplicate successful intake.
 func fanoutIntegrationApps(
 	ctx context.Context,
 	listApps func(context.Context, string, string, string, uuid.UUID, int) ([]integrationstore.ProjectAppRecord, error),
@@ -53,8 +51,7 @@ func fanoutIntegrationApps(
 				return result, fmt.Errorf("app ingress cursor did not advance")
 			}
 			after = app.ID
-			// Slack must acknowledge verified events for locally disconnected
-			// apps. The callback decides to ignore them without durable intake.
+			// Acknowledge disconnected apps to avoid retries: https://docs.slack.dev/apis/events-api/#responding
 			eligible := app.State == integrationstore.ProjectAppStateActive ||
 				(provider == integrationstore.IntegrationProviderSlack &&
 					app.State == integrationstore.ProjectAppStateDisconnected && app.CredentialSecretID != uuid.Nil)
@@ -73,8 +70,7 @@ func fanoutIntegrationApps(
 				if verified {
 					stage = "intake"
 				}
-				// Unknown storage/decryption errors may contain credential or row
-				// contents. Log owner and error type, never their raw message.
+				// Raw storage/decryption errors can contain credentials; log only their type.
 				log.LoggerFromContext(ctx).WarnContext(ctx, "provider event app failed",
 					"provider", app.Provider, "project_id", app.ProjectID, "app_id", app.ID,
 					"app_state", app.State,
@@ -90,9 +86,6 @@ func fanoutIntegrationApps(
 			}
 		}
 		if len(page) < integrationIngressPageSize {
-			// Disconnected apps have no intake obligation. Their failed
-			// verification cannot poison an independently verified sibling,
-			// but cannot authorize an acknowledgement on its own either.
 			if retryErr == nil && result.Verified == 0 {
 				retryErr = disconnectedVerificationErr
 			}

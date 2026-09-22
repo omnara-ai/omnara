@@ -24,12 +24,9 @@ type AppInboxFile struct {
 
 type AppInboxExpansion struct {
 	Events []AppEvent
-	// Files are ephemeral downloaded bytes, never persisted in the inbox plan.
-	Files map[string]AppInboxFile
+	Files  map[string]AppInboxFile
 }
 
-// AppInboxProvider owns verified provider normalization and bounded file reads.
-// It cannot mutate agents, plans or subscriptions. Credentials never enter output.
 type AppInboxProvider interface {
 	Expand(context.Context, integrationstore.ProjectAppRecord, []byte) (AppInboxExpansion, error)
 	DownloadFile(context.Context, integrationstore.ProjectAppRecord, []byte, string) (AppInboxFile, error)
@@ -54,8 +51,6 @@ type AppInboxConsumer struct {
 	scheduled map[appdefinition.Type]AppScheduledHandler
 }
 
-// NewAppInboxConsumer requires an explicit presenter choice. Production callers
-// supply InteractionPresenter; tests without interaction mirrors may pass nil.
 func NewAppInboxConsumer(
 	router *AppRouter,
 	inbox AppRoutingStore,
@@ -78,10 +73,6 @@ func NewAppInboxConsumer(
 	return consumer
 }
 
-// Consume processes one already-claimed receipt. The worker owns claiming,
-// bounded retry/failure scheduling and machine provisioning from returned launch
-// results. No provider or blob I/O runs inside a transaction. Frozen work skips
-// expansion, so config edits and provider enrichment cannot rewrite a retry.
 func (c *AppInboxConsumer) Consume(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -93,8 +84,6 @@ func (c *AppInboxConsumer) Consume(
 	if receipt.State == integrationstore.IntegrationInboxCompleted {
 		return c.router.Admit(ctx, lease)
 	}
-	// Fence before any external work; Freeze/Prepare/admission fence again after
-	// external work, where a slow download may have outlived the lease.
 	err = c.inbox.WithIntegrationInboxLease(
 		ctx,
 		lease,
@@ -136,8 +125,6 @@ func (c *AppInboxConsumer) Consume(
 			}
 		}
 		if len(receipt.Events) != 0 {
-			// Only the trusted app handoff writes Events. The provider payload is
-			// retained separately for attachment reads and thread preparation.
 			if err := json.Unmarshal(receipt.Events, &expansion.Events); err != nil {
 				return nil, fmt.Errorf("decode decided app events: %w", err)
 			}
@@ -157,8 +144,6 @@ func (c *AppInboxConsumer) Consume(
 		if _, err = c.router.Freeze(ctx, lease, expansion.Events); err != nil {
 			return nil, err
 		}
-		// Re-read durable preparation and the actual winning plan, never retain
-		// speculative identities from a competing worker's expansion.
 		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if err != nil {
 			return nil, err
@@ -250,7 +235,6 @@ func (c *AppInboxConsumer) Consume(
 	created := slices.ContainsFunc(results, func(result AppSlotAdmission) bool {
 		return (result.Launch != nil && result.Launch.Created) || (result.Input != nil && result.Input.Created)
 	})
-	// Presentation follows committed admission and must never retry accepted input.
 	if acknowledger, ok := adapter.(interface {
 		acknowledge(context.Context, integrationstore.ProjectAppRecord, []byte) error
 	}); ok && created {

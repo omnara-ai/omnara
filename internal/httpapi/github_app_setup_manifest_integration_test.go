@@ -29,8 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Keep the configured origin github.com while routing requests entirely to a
-// local provider. Guided setup must not guess an Enterprise web origin.
 type githubSetupLocalTransport struct {
 	target *url.URL
 	base   http.RoundTripper
@@ -273,7 +271,6 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 	replay := githubManifestCallback(f.handler, token, strings.Repeat("a", 40), f.project.AdminSession)
 	require.Contains(t, replay.Header().Get("Location"), "github_setup_error=conversion_failed")
 	require.NotContains(t, replay.Body.String(), "private conversion response")
-	// The failed one-time exchange and canceled installation leave the saved key available.
 	_, err = f.project.Store.Secrets().
 		ReadProjectAvailableSecretPayload(t.Context(), secretstore.ReadProjectAvailableSecretPayloadInput{
 			OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
@@ -299,8 +296,6 @@ func TestGitHubManifestUsesAPIOriginOnlyForWebhook(t *testing.T) {
 				testPublicID(t, publicid.KindProjectApp, f.app.ID)
 			require.Equal(t, canonical, manifest["setup_url"])
 			require.Equal(t, canonical, manifest["url"])
-			// The API host reaches shared intake (which rejects the missing hint),
-			// without accidentally nesting the integration route below /api/v1.
 			webhook := httptest.NewRequest(http.MethodPost, webhookURL, nil)
 			require.Equal(t, http.StatusBadRequest, performRequest(f.handler, webhook).Code)
 			callback := githubManifestCallback(f.handler, token, strings.Repeat("a", 40), f.project.AdminSession)
@@ -611,8 +606,6 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		"provider_account_ref":    "999",
 		"credential_secret_id":    ref,
 	}
-	// Browser-return installation IDs are hints; the ordinary setup route verifies
-	// App/installation membership with the saved key before activation.
 	requestJSONWithHeaders(
 		t,
 		f.handler,
@@ -636,7 +629,6 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 	)
 	require.Equal(t, "active", connected["state"])
 	require.Equal(t, "Verified Helper", connected["provider_agent_display_name"])
-	// A lost response follows ordinary revision conflict/refetch semantics.
 	requestJSONWithHeaders(
 		t,
 		f.handler,
@@ -657,7 +649,6 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		http.StatusBadRequest,
 		f.headers(),
 	)
-	// Existing PAT/manual reconnect remains available and explicit display names win.
 	body["expected_setup_revision"] = float64(2)
 	body["provider_agent_display_name"] = "Customer label"
 	reconnected := requestJSONWithHeaders(
@@ -671,7 +662,6 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		authHeaders(f.project.AdminToken),
 	)
 	require.Equal(t, "Customer label", reconnected["provider_agent_display_name"])
-	// Omitting the field on a later reconnect preserves the customer's label.
 	delete(body, "provider_agent_display_name")
 	body["expected_setup_revision"] = reconnected["setup_revision"]
 	preserved := requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, f.app),

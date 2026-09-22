@@ -22,8 +22,7 @@ const (
 	ScopeMismatch    ErrorCode = "scope_mismatch"
 )
 
-// APIError excludes provider text, URLs, credentials and transport error strings.
-// For message sends, DeliveryUnknown must not start a new send after the nonce window.
+// APIError with DeliveryUnknown must not be retried after Discord's nonce deduplication expires.
 type APIError struct {
 	Code         ErrorCode
 	StatusCode   int

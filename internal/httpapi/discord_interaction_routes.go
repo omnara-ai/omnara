@@ -52,7 +52,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 	}
 	var app integrationstore.ProjectAppRecord
 	var err error
-	if hint.Type == 1 {
+	if hint.Type == discord.InteractionTypePing {
 		app, err = s.discordPingApp(ctx, applicationID, r.Header, raw)
 	} else {
 		var ownerID uuid.UUID
@@ -62,7 +62,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if err != nil {
-		if hint.Type == 1 && permanentIntegrationIngressError(err) {
+		if hint.Type == discord.InteractionTypePing && permanentIntegrationIngressError(err) {
 			http.Error(w, "invalid interaction signature", http.StatusUnauthorized)
 		} else if permanentIntegrationIngressError(err) {
 			http.Error(w, "interaction owner unavailable", http.StatusNotFound)
@@ -85,8 +85,6 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// The provider handler performs final signature, timestamp and payload
-	// validation on these exact bytes before dispatching to the captured owner.
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	handler.ServeHTTP(w, r)
 }
@@ -164,9 +162,7 @@ func (s *Server) discordPingApp(
 	}
 }
 
-// Select a candidate key only; Discord's handler remains responsible for full
-// authentication, including timestamp age and protocol validation. PING has no
-// captured owner and may be verified by any matching active app.
+// This only selects a PING key; the handler must still validate timestamp age and protocol.
 func discordPingKeyMatches(app integrationstore.ProjectAppRecord, header http.Header, raw []byte) bool {
 	key, err := hex.DecodeString(integration.DiscordInteractionPublicKey(app.ProviderConfig))
 	if err != nil || len(key) != ed25519.PublicKeySize {
@@ -183,10 +179,11 @@ func discordPingKeyMatches(app integrationstore.ProjectAppRecord, header http.He
 	return ed25519.Verify(key, append([]byte(timestamp), raw...), signature)
 }
 
-// discordInteractionNotice acknowledges an invalid or stale action with an
-// ephemeral response; it does not ask Discord to retry a rejected user answer.
 func discordInteractionNotice(text string) (discord.InteractionResponse, error) {
-	return discord.InteractionResponse{Type: 4, Data: &discord.InteractionResponseData{Content: text, Flags: 64}}, nil
+	return discord.InteractionResponse{
+		Type: discord.InteractionResponseChannelMessageWithSource,
+		Data: &discord.InteractionResponseData{Content: text, Flags: discord.MessageFlagEphemeral},
+	}, nil
 }
 
 func (s *Server) resolveDiscordInteraction(
@@ -195,8 +192,7 @@ func (s *Server) resolveDiscordInteraction(
 	if strings.HasPrefix(input.Data.CustomID, discord.ProfileChoiceCustomIDPrefix) {
 		return s.discordProfileChoiceAction(ctx, app, input)
 	}
-	// Only buttons and their modal submissions can address core interactions.
-	if input.Type != 3 && input.Type != 5 {
+	if input.Type != discord.InteractionTypeMessageComponent && input.Type != discord.InteractionTypeModalSubmit {
 		return discordInteractionNotice("Respond using an Omnara prompt.")
 	}
 	custom, err := discord.DecodeCustomID(input.Data.CustomID)
@@ -241,7 +237,6 @@ func (s *Server) resolveDiscordInteraction(
 	if channel != input.ChannelID || (scope.GuildID != "" && scope.GuildID != input.GuildID) {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
-	// Modal opening is read-only, but still requires the same live handler.
 	_, err = s.store.Execution().GetAgentInteractionForPresentation(ctx, record.ProjectID, record.AgentID, record.ID)
 	if err != nil {
 		if errors.Is(err, storeerr.ErrUnauthorized) || errors.Is(err, storeerr.ErrNotFound) {

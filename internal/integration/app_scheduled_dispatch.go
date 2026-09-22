@@ -9,8 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-// AppScheduledHandler owns an app type's scheduled action and its recovery.
-// Actions may complete without launching an agent or using a provider adapter.
 type AppScheduledHandler func(
 	context.Context,
 	integrationstore.IntegrationInboxLease,
@@ -20,8 +18,6 @@ type AppScheduledHandler func(
 
 type AppInboxConsumerOption func(*AppInboxConsumer)
 
-// WithAppScheduledHandlers registers app-owned actions independently of the
-// provider adapters used to normalize incoming events.
 func WithAppScheduledHandlers(handlers map[appdefinition.Type]AppScheduledHandler) AppInboxConsumerOption {
 	snapshot := maps.Clone(handlers)
 	return func(consumer *AppInboxConsumer) { consumer.scheduled = snapshot }

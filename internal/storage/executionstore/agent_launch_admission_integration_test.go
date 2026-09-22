@@ -349,7 +349,6 @@ func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, true, time.Minute, "a")
-	// No blobs/configs/agents are inserted by freezing or failed admission.
 	_, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	f.assertAbsent(t, "a")
@@ -454,7 +453,6 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 	result := integrationdb.Await(t, done, "expired admission")
 	require.ErrorIs(t, result.Err, integrationstore.ErrIntegrationInboxLeaseLost)
 	f.assertAbsent(t, "a")
-	// Prepared blob facts remain available for recovery; admission performs no cleanup.
 	receipt, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, f.receipt.ID)
 	require.NoError(t, err)
 	var progress map[string]map[string]json.RawMessage
@@ -583,7 +581,7 @@ func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 		t,
 		f.ctx,
 		f.store,
-		slackProjectAppSetupInput(f.profile.ID, uuid.Nil, f.user.ID, credential, "A_SECONDARY", "T_SECONDARY"),
+		slackProjectAppSetupInput(f.user.ID, credential, "A_SECONDARY", "T_SECONDARY"),
 	)
 	resource := f.attachment()
 	resource.AppID = secondary.ID
@@ -604,8 +602,6 @@ func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 	primary := f.attachment()
 	primary.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
 	primary.Events = []string{"message"}
-	// The secondary app is referenced only by a subscription, in reverse
-	// order from the app lifecycle locks. The config grants no app capability.
 	slot.Launch.Subscriptions = []integrationstore.AppSubscriptionAttachment{resource, primary}
 	slot.Launch.IdempotencyKey = "secondary-launch"
 	_, _, err = f.store.Integrations().

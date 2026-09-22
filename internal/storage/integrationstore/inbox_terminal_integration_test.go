@@ -198,8 +198,6 @@ func TestInboxReservationsExcludeFailedOwnersBeforeLimit(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	pending, selection := freezeInboxSelection(t, f, "still-preparing")
-	// Retained failed plans may coexist with a new request. They must be
-	// filtered before LIMIT so the live owner is still found.
 	f.exec(t, `INSERT INTO integration_inbox(id,project_id,app_id,receipt_key,payload,plan,state,completed_at)
  SELECT ('00000000-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid,
         project_id,app_id,'failed-'||n,payload,plan,'failed',now()

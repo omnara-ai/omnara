@@ -6,8 +6,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// ScheduledInboxActor keeps scheduled tasks attributable to Omnara's cron actor.
-// The provider thread is a destination, not a claim that a human wrote the task.
 func ScheduledInboxActor(
 	app integrationstore.ProjectAppRecord,
 	launch integrationstore.ScheduledAppEvent,
@@ -15,8 +13,6 @@ func ScheduledInboxActor(
 	return CronTriggerActor(app.OrgID, launch.TriggerID, launch.Occurrence.Name)
 }
 
-// The private admission flag is derived only from the fenced trusted receipt.
-// Neither a provider event nor a caller-supplied plan can grant this alternative.
 func validateScheduledInboxLaunch(
 	receipt integrationstore.IntegrationInboxRecord,
 	app integrationstore.ProjectAppRecord,

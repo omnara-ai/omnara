@@ -19,7 +19,6 @@ func TestDiscordScheduledRootAndThreadRecovery(t *testing.T) {
 	receipt := uuid.New()
 	nonce := base64.RawURLEncoding.EncodeToString(receipt[:])
 	require.Len(t, nonce, 22)
-	// Historical GET responses do not carry the create response's nonce.
 	f.message = discord.Message{ID: "500", ChannelID: "300", Author: discord.User{ID: "22", Bot: true}}
 	posts := 0
 	f.override = func(w http.ResponseWriter, r *http.Request) bool {
@@ -49,7 +48,6 @@ func TestDiscordScheduledRootAndThreadRecovery(t *testing.T) {
 	require.Equal(t, "500", root.Discord.ThreadID)
 	require.Equal(t, "100", root.Discord.GuildID)
 	require.Zero(t, f.posts, "root publication does not create a thread before the durable plan")
-	// A frozen plan supplies this same scope on every thread preparation attempt.
 	require.NoError(t, provider.EnsureScheduledThread(t.Context(), f.appSetup, root, check))
 	require.NoError(t, provider.EnsureScheduledThread(t.Context(), f.appSetup, root, check))
 	require.Equal(t, 1, f.posts, "thread ensure reuses the message's one thread")

@@ -46,13 +46,9 @@ type ListGitHubWebhookCredentialAppsParams struct {
 	RowLimit    int32
 }
 
-// Only unknown-installation/ping verification uses these credential candidates,
-// capped at 16 by the caller. Known-installation fanout resolves every matching
-// app separately and verifies its own setup, without this fallback cap.
-// Disconnected apps can still verify the GitHub App's signature; they cannot
-// receive integration input.
-// Deduplicate shared grants before bounding work. The HTTP verifier reads the
-// payload through secretstore again, so this lookup does not grant secret access.
+// Ping/unknown-installation verification only; ordinary deliveries verify each
+// matching app independently rather than borrowing these fallback credentials.
+// Include disconnected apps so signed callbacks can be acknowledged without work.
 func (q *Queries) ListGitHubWebhookCredentialApps(ctx context.Context, arg ListGitHubWebhookCredentialAppsParams) ([]ProjectApp, error) {
 	rows, err := q.db.Query(ctx, listGitHubWebhookCredentialApps, arg.AppTypes, arg.GithubAppID, arg.RowLimit)
 	if err != nil {

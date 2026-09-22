@@ -1,16 +1,9 @@
--- Chooser policy stays explicit: accepted work can reserve a conversation
--- beyond menu expiry. The generic state table does not interpret inbox state.
--- JSON fields used below are part of the chooser codec, never shared indexes.
 -- name: GetAppProfileChoiceAppForShare :one
 SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, app_type, settings, setup_revision
 FROM project_apps
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR SHARE;
 
--- Accepted work owns the conversation only while pending/processing. Terminal
--- work releases it, including frozen plans. An unpublished menu remains
--- eligible only while its original receipt can publish; published menus outlive
--- that receipt. Every eligibility predicate runs before its branch's LIMIT.
 -- name: FindPendingAppProfileChoice :one
 WITH candidates AS (
     (SELECT choice.id, 0 AS priority
@@ -43,8 +36,6 @@ FROM candidates JOIN app_states choice ON choice.id = candidates.id
 ORDER BY candidates.priority
 LIMIT 1;
 
--- Bridge the accepted-choice interval before its first frozen inbox plan.
--- Terminal work never holds ordinary replies.
 -- name: FindUnplannedAppProfileChoiceReservation :one
 SELECT inbox.id, inbox.state
 FROM app_states choice
@@ -62,9 +53,7 @@ VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
 RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
--- Retain expired menus while their linked receipt exists in any state, including
--- recently terminal work. Receipt cleanup ends this source replay barrier; menu
--- expiry alone must not shorten the receipt retention window.
+-- Menu expiry must not remove the source replay barrier before its inbox receipt expires.
 -- name: CleanupExpiredAppProfileChoices :execrows
 WITH candidates AS (
     SELECT choice.id FROM app_states choice

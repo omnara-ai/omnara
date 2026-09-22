@@ -123,8 +123,6 @@ func (s *Server) acceptSlackEvent(
 		slack.BotOrSelfEvent(identity.BotUserID, envelope.Event) {
 		return "ignored", nil
 	}
-	// Every independently authorized app receives its own durable receipt.
-	// Subscription policy and message/app_mention semantic deduplication run later.
 	event := envelope.Event
 	if (event.Type != "message" && event.Type != "app_mention") ||
 		(event.Subtype != "" && event.Subtype != "file_share") || event.Channel == "" || event.TS == "" {

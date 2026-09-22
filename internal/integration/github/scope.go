@@ -8,10 +8,6 @@ import (
 	"strconv"
 )
 
-// Scope is an already-authorized repository and PR selection. RepositoryID and
-// PullRequest are required. Owner and Repository are optional display context;
-// neither is used for token grants, API paths, or identity comparisons.
-// Callers map their application scope here after applying current tool authority.
 type Scope struct {
 	RepositoryID int64  `json:"repository_id"`
 	PullRequest  int    `json:"pull_request"`
@@ -26,10 +22,11 @@ type preparedPull struct {
 	metadata   PullRequest
 }
 
-// preparePull resolves the current name using the ID-restricted token, then
-// validates PR identity before any further read or mutation. It deliberately
-// does not cache names: a token may survive a repository rename.
-// ctx must carry the public operation's deadline, shared by all these requests.
+// Resolve names on every operation because a cached token can survive repository renames.
+// GitHub App tokens can read public repositories beyond their installation.
+// Name-addressed diff/page reads retain a rename/name-reuse race after repository-ID
+// validation because those responses have no repository ID to recheck.
+// https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party
 func (c *Client) preparePull(ctx context.Context, scope Scope, write bool) (preparedPull, error) {
 	if scope.RepositoryID <= 0 || scope.PullRequest <= 0 {
 		return preparedPull{}, errors.New("github scope requires positive repository ID and pull request number")
@@ -47,8 +44,6 @@ func (c *Client) preparePull(ctx context.Context, scope Scope, write bool) (prep
 	if err != nil {
 		return preparedPull{}, err
 	}
-	// A token restricted to exactly one ID must resolve exactly that repository.
-	// Never scan an installation indefinitely or fall back to a stored name.
 	if listing.TotalCount == nil || *listing.TotalCount < 0 || listing.Repositories == nil ||
 		len(listing.Repositories) > 100 {
 		return preparedPull{}, &APIError{Code: InvalidResponse}

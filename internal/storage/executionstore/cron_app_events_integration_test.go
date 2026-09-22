@@ -108,8 +108,6 @@ func TestCronAppEventCurrentSnapshotReplayAndStats(t *testing.T) {
 	_, err := f.store.pool.Exec(f.ctx, `UPDATE cron_triggers SET last_fired_at=$2 WHERE id=$1`, record.ID, lastFired)
 	require.NoError(t, err)
 	claimed := claimCronApp(t, f, record.ID)
-	// App-owned profile settings may change even after a cron claim. The handoff
-	// copies current settings, without resolving or freezing profile config.
 	other := createIntegrationTestProfile(t, f.ctx, f.store, "other-cron-profile")
 	target := record.Target
 	target.Settings = cronAppSettings(t, other.ID, "G456",
@@ -147,7 +145,6 @@ func TestCronAppEventCurrentSnapshotReplayAndStats(t *testing.T) {
 	require.NotNil(t, current.LastFiredAt)
 	require.NotNil(t, current.LastRun)
 	require.Equal(t, executionstore.CronTriggerLastRunQueued, current.LastRun.State)
-	// Later edits and disable do not rewrite the accepted snapshot.
 	disabled := false
 	target.Settings = cronAppSettings(t, f.profile.ID, "C123", "Future opening", "Future task")
 	_, err = f.store.Execution().
@@ -278,8 +275,6 @@ func TestCronAppEventLifecycle(t *testing.T) {
 			}
 			require.NoError(t, err)
 			if scenario == "delete_profile" {
-				// Profile references are app inputs, not cron ownership. The app
-				// reports unavailable profiles when it handles this accepted event.
 				require.True(t, queued)
 				require.True(t, current.Enabled)
 				require.Nil(t, current.FailureReport)
@@ -381,7 +376,6 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 			require.Nil(t, current.LastRun.FailureMessage)
 		}
 	}
-	// A surviving older failure must never replace expired exact diagnostics.
 	_, err = f.store.pool.Exec(
 		f.ctx,
 		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,completed_at)
@@ -395,7 +389,6 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 	current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, record.ID)
 	require.NoError(t, err)
 	require.Nil(t, current.LastRun)
-	// Wrong app and provider source cannot masquerade as the pointed event.
 	other := f.createApp(t, "other-app")
 	for _, appID := range []uuid.UUID{other.ID, f.app.ID} {
 		var wrong uuid.UUID
@@ -431,8 +424,6 @@ func TestCronAppEventLeaseExpiresDuringHandoff(t *testing.T) {
 	t.Parallel()
 	f, record := cronAppFixture(t)
 	claimed := claimCronApp(t, f, record.ID)
-	// Expire the lease after insertion, before its diagnostic pointer and cron
-	// completion. Rollback must remove both the receipt and this injected expiry.
 	_, err := f.store.pool.Exec(
 		f.ctx,
 		`CREATE FUNCTION expire_app_handoff() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE cron_triggers SET claimed_until=clock_timestamp()-interval '1 second' WHERE id=(convert_from(NEW.payload,'UTF8')::jsonb->>'trigger_id')::uuid; RETURN NEW; END $$; CREATE TRIGGER expire_app_handoff AFTER INSERT ON integration_inbox FOR EACH ROW EXECUTE FUNCTION expire_app_handoff()`,
@@ -459,8 +450,6 @@ func TestCronAppEventInvalidTimezoneAfterClaimDoesNotRetry(t *testing.T) {
 	t.Parallel()
 	f, record := cronAppFixture(t)
 	claimed := claimCronApp(t, f, record.ID)
-	// API edits and claiming validate timezone. Exercise the defensive fallback
-	// for a stored value becoming invalid after the claim, without changing due.
 	_, err := f.store.pool.Exec(f.ctx, `UPDATE cron_triggers SET timezone='Invalid/Timezone' WHERE id=$1`, record.ID)
 	require.NoError(t, err)
 	queued, err := f.store.Execution().CreateCronTriggerAppEvent(f.ctx, claimed)
@@ -492,8 +481,6 @@ func TestCronAppEventProjectScopeAndProfileIndependence(t *testing.T) {
 	_, err := f.store.Execution().CreateCronTrigger(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	// Saving and handing off app settings validates their syntax, not referenced
-	// resource availability. Runtime app handling owns that check.
 	input = cronAppInput(t, f, "unavailable-profile")
 	input.Target.Settings = cronAppSettings(t, uuid.New(), "C123", "Opening", "Task")
 	created, err := f.store.Execution().CreateCronTrigger(f.ctx, input)
@@ -503,7 +490,6 @@ func TestCronAppEventProjectScopeAndProfileIndependence(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, queued)
 
-	// A concurrent profile edit must not block either create or handoff.
 	claimed = claimCronApp(t, f, record.ID)
 	tx, err := f.store.pool.Begin(f.ctx)
 	require.NoError(t, err)
@@ -567,8 +553,6 @@ func TestCronTriggerAppAndNormalContentContracts(t *testing.T) {
 	require.Len(t, page.Triggers, 1, "app settings do not make the schedule a profile-owned target")
 	require.Equal(t, normal.ID, page.Triggers[0].ID)
 
-	// The migration enforces the same ownership/content boundaries for all writers,
-	// while retaining enabled/next-fire and ordinary profile delivery constraints.
 	for _, test := range []struct {
 		name string
 		id   uuid.UUID

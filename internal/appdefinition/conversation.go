@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// ConversationJSON encodes one flat provider address, without a provider wrapper.
 func (s Scope) ConversationJSON() (json.RawMessage, error) {
 	if err := s.Validate(s.Provider()); err != nil {
 		return nil, err
@@ -24,10 +23,6 @@ func (s Scope) ConversationJSON() (json.RawMessage, error) {
 	}
 }
 
-// ParseConversation reconstructs a concrete address from the indexed routing
-// key. Discord guild IDs are optional metadata and are not part of that key.
-// Parent launcher scopes (workspace, repository, installation) are not
-// conversations. Numeric GitHub references are canonicalized by Conversation.
 func ParseConversation(provider, kind, ref string) (Scope, error) {
 	kind, ref = strings.TrimSpace(kind), strings.TrimSpace(ref)
 	invalid := func() (Scope, error) {

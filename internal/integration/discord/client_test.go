@@ -129,7 +129,6 @@ func TestNonceRetryAfterUncertainSend(t *testing.T) {
 		}
 		if attempts.Add(1) == 1 {
 			firstBody = body
-			// Provider committed this message, but the receipt never reached us.
 			conn, _, err := http.NewResponseController(w).Hijack()
 			if err != nil {
 				t.Error(err)
@@ -283,7 +282,7 @@ func TestClientConfigAndIdentity(t *testing.T) {
 	if err := client.CheckIdentity(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	appID = "333" // Guild identity must never stand in for application identity.
+	appID = "333"
 	requireAPIError(t, client.CheckIdentity(t.Context()), ScopeMismatch)
 }
 

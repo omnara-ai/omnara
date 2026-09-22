@@ -21,17 +21,13 @@ type FailedAppArtifactCleaner interface {
 	DeleteUnreferencedPreparedArtifact(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 }
 
-// CleanupFailedAppInboxArtifacts runs after terminal failure has committed.
-// It takes candidate IDs from the frozen plan: an upload may have finished before
-// Prepare was recorded. Committed slots and durable artifact references survive.
-// Cleanup is bounded and best effort; failures never undo the terminal state.
-// A crash, a stale upload finishing later, or receipt expiry can leave unused blobs.
 func CleanupFailedAppInboxArtifacts(
 	ctx context.Context,
 	inbox FailedAppInboxReader,
 	artifacts FailedAppArtifactCleaner,
 	projectID, receiptID uuid.UUID,
 ) error {
+	// Cleanup uses IDs from the frozen plan because uploads can finish before Prepare is recorded.
 	if projectID == uuid.Nil || receiptID == uuid.Nil || inbox == nil || artifacts == nil {
 		return storeerr.InvalidRequest(errors.New("project, receipt, inbox reader and artifact cleaner are required"))
 	}
@@ -50,7 +46,7 @@ func CleanupFailedAppInboxArtifacts(
 		return errors.New("failed receipt has invalid progress")
 	}
 	if len(receipt.Plan) == 0 {
-		return nil // No frozen plan means no prepared uploads.
+		return nil
 	}
 	plan, err := decodeAppInboxPlan(receipt.Plan)
 	if err != nil {

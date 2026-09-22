@@ -2,7 +2,6 @@ import { type GitHubInstallations, type ProjectApp, schemas, zJsonText } from '@
 import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
-/** Browser-only provider fixtures: no GitHub App, installation or credential is created. */
 export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   const origin = new URL(page.url()).origin
   const secretID = `sec_${'g'.repeat(26)}`

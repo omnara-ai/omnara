@@ -10,9 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// PreparedArtifactUploaded checks bytes at a frozen inbox identity. The planned
-// agent need not exist yet. This is a provider-ingress helper, not a public
-// artifact API; its caller must obtain identity and digest from the durable plan.
 func (s *Store) PreparedArtifactUploaded(
 	ctx context.Context,
 	agentID uuid.UUID,
@@ -37,16 +34,14 @@ func (s *Store) PreparedArtifactUploaded(
 	return true, nil
 }
 
-// UploadPreparedArtifact performs no metadata writes and must run outside a DB
-// transaction. Every writer verifies the same frozen digest before uploading;
-// even a worker whose lease expires during upload can only write identical bytes.
-// Never delete on an uncertain upload/commit: admission may already reference it.
 func (s *Store) UploadPreparedArtifact(
 	ctx context.Context,
 	agentID uuid.UUID,
 	expected PreparedArtifact,
 	content []byte,
 ) error {
+	// All writers use the frozen digest, so an expired uploader can only write
+	// identical bytes. Uncertain uploads must not delete possibly admitted data.
 	if present, err := s.PreparedArtifactUploaded(ctx, agentID, expected); err != nil || present {
 		return err
 	}

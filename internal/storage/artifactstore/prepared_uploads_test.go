@@ -75,8 +75,6 @@ func TestPreparedUploadPinnedBytesConcurrentReplayAndMismatch(t *testing.T) {
 	stored, _, err := blobs.GetBlob(t.Context(), artifactObjectKey(agentID, expected.ID))
 	require.NoError(t, err)
 	require.Equal(t, content, stored)
-	// No DB or agent row is needed before initial launch, and unverified bytes
-	// cannot be written even when no object exists yet.
 	expected.ID = uuid.Must(uuid.NewV7())
 	require.ErrorIs(
 		t,

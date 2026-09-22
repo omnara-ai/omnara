@@ -49,7 +49,6 @@ func TestServiceE2EScheduledSlackAppLaunch(t *testing.T) {
 	app := seedServiceSlackApp(t, ctx, env, project, store)
 	appID, err := publicid.Encode(publicid.KindProjectApp, app.ID)
 	require.NoError(t, err)
-	// The launcher must supply all app capabilities and the concrete thread.
 	const source = `instruction: Ask for review, then post the scheduled update in this thread.
 model:
   provider_config: openai-prod
@@ -72,8 +71,6 @@ tools:
 	triggerID := mustDecodeServiceE2EPublicID(t, publicid.KindCronTrigger,
 		testutil.RequireType[string](t, trigger["id"]))
 
-	// These historical instants have different UTC and schedule-local dates.
-	// Only the due time is advanced; cron still owns claiming/rendering/handoff.
 	dueTimes := []time.Time{
 		time.Date(2025, 1, 2, 7, 30, 0, 0, time.UTC),
 		time.Date(2025, 1, 3, 7, 30, 0, 0, time.UTC),
@@ -214,7 +211,6 @@ tools:
 		case 1:
 			assert.Contains(t, mustJSONString(body["input"]), replies[i])
 			assert.True(t, requestContainsTool(body, "app__chat__post_message"))
-			// The tool posts directly to the conversation assigned at launch.
 			writeOpenAIFunctionCall(w, fail, fmt.Sprintf("resp_post_%d", i), callID,
 				"app__chat__post_message", map[string]any{"text": reports[i]})
 		case 2:
@@ -228,8 +224,6 @@ tools:
 	var previousAgent, previousReceipt uuid.UUID
 	for i, dueAt := range dueTimes {
 		if i == 1 {
-			// The first occurrence needs no mention launcher. Enable one before the
-			// second occurrence to prove the two launch paths coexist on this app.
 			env.requestJSON(t, ctx, http.MethodPut, project.projectPath+"/apps/"+appID, map[string]any{
 				"name": "chat", "app_type": appdefinition.SlackThread,
 				"settings": map[string]any{"launcher": map[string]any{
@@ -299,8 +293,6 @@ WHERE input.agent_id=$1 AND input.input_kind='content'`, agentID).Scan(&actorPro
 		require.NoError(t, env.db.QueryRow(ctx, `SELECT scope_ref FROM app_subscriptions
 WHERE agent_id=$1 AND app_id=$2 AND subscription_type='thread_messages'`, agentID, app.ID).Scan(&scope))
 		require.Equal(t, "C123:"+roots[i], scope, "replies are subscribed before any model post or human reply")
-		// The shared workers omit presentation discovery. Exercise its production
-		// presenter synchronously, while the real kernel-created question is open.
 		presenter := integration.InteractionPresenter{Store: store, HTTPClient: client}
 		require.NoError(t, presenter.Present(ctx, projectID, agentID, questionID))
 		require.EqualValues(t, i+1, questionPosts.Load())
@@ -339,7 +331,6 @@ WHERE input.agent_id=$1 AND input.input_kind='content' AND block.block_kind='tex
 		previousAgent, previousReceipt = agentID, receiptID
 	}
 
-	// Mention launching remains usable on the same app with schedules enabled.
 	sendServiceSlackReply(t, ctx, env, "EvMentionAlongsideSchedule", "333.100", "333.100", mention)
 	var mentionAgent uuid.UUID
 	waitForServiceE2ECondition(t, ctx, func() (bool, string) {

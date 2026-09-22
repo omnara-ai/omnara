@@ -86,8 +86,6 @@ export async function exerciseSlackAppSetup(
   await authorization.close()
   await expect(page).toHaveURL(`/projects/${projectID}/apps/new/slack_thread`)
 
-  // Callback persistence is covered against a local Slack server in Go tests.
-  // This fixture exercises app polling, exact-flow matching and callback routing.
   const projectPath = new URL(apiProjectPath).pathname
   const fixture = await mockSlackSetupReturn(page, projectPath, app, setup.flow_id)
   const waiting = await page.waitForResponse(

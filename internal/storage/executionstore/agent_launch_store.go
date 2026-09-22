@@ -35,16 +35,11 @@ type LaunchAgentInput struct {
 	IdempotencyKey          string
 	ArchiveAfterIdleMinutes *int
 	DerivedConfig           *CreateAgentConfigInput
-	// DerivedBaseConfigID preserves the public caller's pinned base so deriving
-	// app capabilities cannot bypass its project/profile membership checks.
-	// Profile-attributed derived launches require it, except subagents whose
-	// separate parent-authority contract permits a derived profile configuration.
-	DerivedBaseConfigID uuid.UUID
-	Subagent            *SubagentLaunch
-	// InitialInput is mutually exclusive with Message/MessageActor.
-	InitialInput  *LaunchInitialInput
-	Subscriptions []integrationstore.AppSubscriptionAttachment
-	admission     *launchAdmission
+	DerivedBaseConfigID     uuid.UUID
+	Subagent                *SubagentLaunch
+	InitialInput            *LaunchInitialInput
+	Subscriptions           []integrationstore.AppSubscriptionAttachment
+	admission               *launchAdmission
 }
 
 type LaunchAgentResult struct {
@@ -147,8 +142,7 @@ func (s *Store) launchAgentTx(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// A completed launch is independent of the app's current state. The
-	// second lookup below serializes concurrent first attempts on the launch key.
+	// Replay must survive app revocation; concurrent first attempts serialize below.
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
 		return result, err
 	}
@@ -167,11 +161,9 @@ func (s *Store) launchAgentTx(
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
-	// Order: project -> all apps -> receipt (if any) -> conversation ->
-	// launch idempotency -> profile -> machine sources/model -> agent. Inbox
-	// admission locks the receipt's app and every app used by the
-	// slot admitted in its transaction before the receipt. Re-entry uses held gates;
-	// a nested launch must never discover another earlier app lock class.
+	// Lock order: project -> all apps -> receipt -> conversation -> launch key ->
+	// profile -> machine sources/model -> agent. Inbox admission must already hold
+	// every app gate used by this nested launch to avoid re-entering an earlier class.
 	if err := integrationstore.LockAppsTx(
 		ctx,
 		tx,
@@ -430,9 +422,8 @@ func (s *Store) launchAgentTx(
 	return result, nil
 }
 
-// Failed preparation still serializes with a concurrent same-key launch. This
-// terminal path may only replay or return the original failure: it cannot resume
-// admission and acquire app/conversation gates below the idempotency lock.
+// This path cannot resume admission: app/conversation gates would invert the
+// lock order after acquiring the launch key to await a concurrent commit.
 func launchReplayAfterFailureTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
@@ -453,9 +444,6 @@ func launchReplayAfterFailureTx(
 	return LaunchAgentResult{}, launchErr
 }
 
-// GetAgentLaunchReplay lets request preparation return an existing launch before
-// resolving app resources that may have changed since the original request.
-// LaunchAgent repeats this lookup under the idempotency lock for concurrent calls.
 func (s *Store) GetAgentLaunchReplay(
 	ctx context.Context,
 	projectID uuid.UUID,

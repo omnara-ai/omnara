@@ -13,7 +13,6 @@ import (
 )
 
 func TestAppLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
-	// Both cases exercise the same receipt lease without admitting any work.
 	f := newChoiceJourney(t, 1)
 	ctx := t.Context()
 	_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{

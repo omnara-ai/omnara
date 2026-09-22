@@ -76,8 +76,7 @@ func (f appInteractionFixture) target(
 	t *testing.T, agentID uuid.UUID, address string,
 ) integrationstore.IntegrationTargetRecord {
 	t.Helper()
-	// This fixture already owns an active tool turn. Construct attribution in
-	// the caller's transaction without admitting input that would alter its frontier.
+	// Admitting input here would disturb the fixture's already-active tool turn.
 	appID := f.app.ID
 	if strings.HasPrefix(address, "C456:") {
 		appID = f.otherApp.ID
@@ -797,8 +796,6 @@ func TestAppInteractionsCallbackRechecksConfigAfterAgentLockWait(t *testing.T) {
 	f := newAppInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
 	question := f.question(t)
-	// Prepare the immutable replacement before holding the agent, then model
-	// activation's final config switch at its actual serialization boundary.
 	definition := f.definition(t, "handler revoked while callback waits", nil)
 	config, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
 	require.NoError(t, err)

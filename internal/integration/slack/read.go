@@ -13,8 +13,6 @@ type MessagePage struct {
 	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
-// ReadMessages returns one provider page. The cursor is data, never a URL or a
-// replacement conversation. Provider scopes/rate limits remain authoritative.
 func ReadMessages(
 	ctx context.Context,
 	client *http.Client,

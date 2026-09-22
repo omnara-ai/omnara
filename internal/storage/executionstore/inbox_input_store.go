@@ -15,17 +15,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// InboxMessageSibling joins the provider's text and attachment callbacks for one
-// message. Text after attachments replays; attachments after text add only their
-// frozen notice/media and cannot cancel interactions opened since the text.
 type InboxMessageSibling struct {
 	Key              string `json:"key"`
 	AttachmentNotice string `json:"attachment_notice,omitempty"`
 }
 
-// InboxInputSlot freezes one existing recipient. It has no selection envelope:
-// app triggers and subscriptions deliver ordinary inputs, never change configuration,
-// reserve conversation membership or add subscriptions. Routing is caller-owned.
 type InboxInputSlot struct {
 	Sibling      *InboxMessageSibling         `json:"sibling,omitempty"`
 	AgentID      uuid.UUID                    `json:"agent_id"`
@@ -34,9 +28,6 @@ type InboxInputSlot struct {
 	Subscription *InboxSubscriptionAuthority  `json:"subscription,omitempty"`
 }
 
-// InboxSubscriptionAuthority requires live receive authority for a frozen recipient. Alternatives
-// preserve overlap deduplication: any matching current subscription is enough.
-// Pure app AgentID triggers omit this field; they are accepted ordinary inputs.
 type InboxSubscriptionAuthority struct {
 	Event        string                       `json:"event"`
 	Alternatives []InboxSubscriptionReference `json:"alternatives"`
@@ -63,9 +54,6 @@ type inboxInputProgress struct {
 	Committed *inboxInputCommit      `json:"committed"`
 }
 
-// AdmitInboxInputSlot commits target attribution, prepared artifact metadata,
-// input, cancellation/handler selection and slot progress in one transaction.
-// Prepared bytes must already exist; no provider or blob I/O occurs here.
 func (s *Store) AdmitInboxInputSlot(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -100,9 +88,6 @@ func (s *Store) admitInboxInputSlotOnce(
 		return InboxInputResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// Origin equals the receipt app. The lease helper acquires sorted
-	// project/app gates before receipt; no config resource gates are needed
-	// to deliver a frozen ordinary input. Conversation precedes the agent row.
 	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease)
 	if err != nil {
 		_ = tx.Rollback(ctx)
@@ -180,7 +165,6 @@ func (s *Store) admitInboxInputSlotOnce(
 				return InboxInputResult{}, err
 			}
 			if found && slot.Sibling.AttachmentNotice == "" {
-				// Persist the actual winning semantic key so replay reads that same input.
 				committed, err := json.Marshal(
 					inboxInputCommit{
 						InputID:          prior.AgentInput.ID,
@@ -276,7 +260,6 @@ func (s *Store) admitInboxInputSlotOnce(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	// The fresh lease check after agent/interaction lock waits fences every write.
 	if err := work.CommitSlot(ctx, slotKey, committed); err != nil {
 		return InboxInputResult{}, err
 	}

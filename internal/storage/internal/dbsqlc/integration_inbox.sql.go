@@ -94,10 +94,6 @@ type CleanupDeletedIntegrationInboxReceiptsParams struct {
 	RowLimit int32
 }
 
-// Soft-deleted scopes no longer need raw payloads, including failed receipts.
-// Disconnected live apps retain terminal receipts for the normal retention window.
-// Resolve deleted scopes first, then use the unique receipt identity index.
-// An empty cleanup poll does not inspect retained history in live apps.
 func (q *Queries) CleanupDeletedIntegrationInboxReceipts(ctx context.Context, arg CleanupDeletedIntegrationInboxReceiptsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupDeletedIntegrationInboxReceipts, arg.RowLimit)
 	if err != nil {
@@ -122,8 +118,7 @@ type CleanupTerminalIntegrationInboxReceiptsParams struct {
 	RowLimit              int32
 }
 
-// Completed or failed receipt identity is retained only for the configured retention
-// window. After deletion a sufficiently late provider replay can be accepted.
+// Deleting a receipt ends transport deduplication; later provider replays may be accepted.
 func (q *Queries) CleanupTerminalIntegrationInboxReceipts(ctx context.Context, arg CleanupTerminalIntegrationInboxReceiptsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupTerminalIntegrationInboxReceipts, arg.RetentionMilliseconds, arg.RowLimit)
 	if err != nil {
@@ -189,11 +184,7 @@ type FailInactiveIntegrationInboxReceiptsParams struct {
 	RowLimit int32
 }
 
-// Start from inactive scopes, not the inbox. The materialized scope set and
-// per-project app batches keep the planner off healthy pending/history rows.
-// There is deliberately no global inbox sort before LIMIT. Each matching scope
-// probes the pending-ready partial index; processing receipts are fenced from
-// use immediately and failed by expired-lease recovery after their lease ends.
+// Scan inactive apps first so recovery does not sort or scan healthy inbox history.
 func (q *Queries) FailInactiveIntegrationInboxReceipts(ctx context.Context, arg FailInactiveIntegrationInboxReceiptsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, failInactiveIntegrationInboxReceipts, arg.RowLimit)
 	if err != nil {
@@ -351,8 +342,6 @@ type InsertIntegrationInboxReceiptParams struct {
 	Payload    []byte
 }
 
-// Verified bytes and receipt identity are immutable. Provider verification happens
-// before this query; the owner holds active project/app lifecycle gates.
 func (q *Queries) InsertIntegrationInboxReceipt(ctx context.Context, arg InsertIntegrationInboxReceiptParams) (IntegrationInbox, error) {
 	row := q.db.QueryRow(ctx, insertIntegrationInboxReceipt,
 		arg.ProjectID,
@@ -398,7 +387,6 @@ type InsertScheduledAppEventReceiptParams struct {
 	Payload    []byte
 }
 
-// Only the cron handoff uses this query. Raw provider intake cannot set source.
 func (q *Queries) InsertScheduledAppEventReceipt(ctx context.Context, arg InsertScheduledAppEventReceiptParams) (IntegrationInbox, error) {
 	row := q.db.QueryRow(ctx, insertScheduledAppEventReceipt,
 		arg.ProjectID,
@@ -457,8 +445,6 @@ type ListReadyIntegrationInboxAppsRow struct {
 	AppID     uuid.UUID
 }
 
-// Bound pending receipt inspection before checking scope. Recovery drains an
-// inactive app that occupies this frontier; history is never inspected.
 func (q *Queries) ListReadyIntegrationInboxApps(ctx context.Context, arg ListReadyIntegrationInboxAppsParams) ([]ListReadyIntegrationInboxAppsRow, error) {
 	rows, err := q.db.Query(ctx, listReadyIntegrationInboxApps, arg.RowLimit)
 	if err != nil {
@@ -490,7 +476,7 @@ type LockIntegrationInboxReceiptParams struct {
 	ID        uuid.UUID
 }
 
-// Locking and checking are separate statements in Go: time advances while waiting.
+// Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 func (q *Queries) LockIntegrationInboxReceipt(ctx context.Context, arg LockIntegrationInboxReceiptParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, lockIntegrationInboxReceipt, arg.ProjectID, arg.ID)
 	var id uuid.UUID
@@ -506,10 +492,6 @@ ORDER BY available_at, id
 LIMIT 1
 `
 
-// One probe of the pending-ready index, including inactive scopes that recovery
-// must drain. No scope joins, counts, payload reads, or created_at history scan.
-// Valid transitions never leave pending attempts at 8: retry/expiry fails them.
-// Avoid a residual filter beyond the index.
 func (q *Queries) OldestReadyIntegrationInboxLag(ctx context.Context) (float64, error) {
 	row := q.db.QueryRow(ctx, oldestReadyIntegrationInboxLag)
 	var lag_seconds float64
@@ -588,8 +570,6 @@ type RecoverExpiredIntegrationInboxReceiptsParams struct {
 	RowLimit int32
 }
 
-// The expired frontier uses the lease-expiry partial index. Scope checks occur
-// only after the bounded SKIP LOCKED selection; healthy pending work is untouched.
 func (q *Queries) RecoverExpiredIntegrationInboxReceipts(ctx context.Context, arg RecoverExpiredIntegrationInboxReceiptsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, recoverExpiredIntegrationInboxReceipts, arg.RowLimit)
 	if err != nil {
@@ -648,8 +628,6 @@ type UpdateIntegrationInboxProgressParams struct {
 	ClaimToken uuid.UUID
 }
 
-// Progress cannot overwrite the plan or receipt. The semantic store only adds
-// prepared/committed stages of a frozen slot, preserving prior stage results.
 func (q *Queries) UpdateIntegrationInboxProgress(ctx context.Context, arg UpdateIntegrationInboxProgressParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateIntegrationInboxProgress,
 		arg.Progress,

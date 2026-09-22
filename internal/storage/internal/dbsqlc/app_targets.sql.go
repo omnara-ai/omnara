@@ -153,8 +153,6 @@ type GetConversationDisplayNameParams struct {
 	Ref       string
 }
 
-// Presentation only: several agents may have targets at this exact address.
-// Reuse the latest known nonempty label without selecting a routing authority.
 func (q *Queries) GetConversationDisplayName(ctx context.Context, arg GetConversationDisplayNameParams) (string, error) {
 	row := q.db.QueryRow(ctx, getConversationDisplayName,
 		arg.ProjectID,
@@ -270,8 +268,7 @@ type ListConversationSelectionsRow struct {
 	UpdatedAt        time.Time
 }
 
-// Retired selections intentionally remain visible: stopping a selected agent
-// must not cause the next comment to launch a replacement.
+// Keep retired selections so a later comment cannot launch a replacement agent.
 func (q *Queries) ListConversationSelections(ctx context.Context, arg ListConversationSelectionsParams) ([]ListConversationSelectionsRow, error) {
 	rows, err := q.db.Query(ctx, listConversationSelections,
 		arg.ProjectID,
@@ -324,8 +321,7 @@ type LockAppConversationParams struct {
 	Ref       string
 }
 
-// The conversation gate serializes launcher selection with subscription changes.
-// Acquire it after project/app gates and before agent locks.
+// Lock order: project/app gates, conversation gate, then agent locks.
 func (q *Queries) LockAppConversation(ctx context.Context, arg LockAppConversationParams) error {
 	_, err := q.db.Exec(ctx, lockAppConversation,
 		arg.ProjectID,

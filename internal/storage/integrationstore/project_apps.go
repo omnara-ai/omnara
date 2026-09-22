@@ -60,7 +60,6 @@ func (s *Store) saveProjectApp(ctx context.Context, id uuid.UUID, input SaveProj
 			return ProjectAppRecord{}, err
 		}
 	}
-	// Profile/agent locks precede the app row, just as they do during launch.
 	if err := s.lockProjectAppDestinations(ctx, tx, input); err != nil {
 		return ProjectAppRecord{}, err
 	}
@@ -265,8 +264,6 @@ func normalizeProjectApp(input SaveProjectAppInput) (SaveProjectAppInput, error)
 
 func (s *Store) lockProjectAppDestinations(ctx context.Context, tx pgx.Tx, input SaveProjectAppInput) error {
 	if launcher := input.Settings.Launcher; launcher != nil {
-		// Profile locks precede agent locks. Stable order prevents two app edits
-		// with the same destinations in a different slot order from deadlocking.
 		slots := slices.Clone(launcher.Slots)
 		slices.SortFunc(slots, func(a, b AppLaunchSlot) int {
 			if a.AgentProfileID != nil && b.AgentProfileID == nil {
@@ -330,8 +327,6 @@ func (s *Store) ListProjectApps(ctx context.Context, input ListProjectAppsInput)
 	return result, nil
 }
 
-// ListProjectAppsByProviderIdentity is the private ingress lookup. Callers page
-// through every active setup and verify each app's credential independently.
 func (s *Store) ListProjectAppsByProviderIdentity(
 	ctx context.Context, provider, tenant, account string, after uuid.UUID, limit int,
 ) ([]ProjectAppRecord, error) {
@@ -341,20 +336,16 @@ func (s *Store) ListProjectAppsByProviderIdentity(
 	return s.listProjectAppsByProviderIdentity(ctx, provider, tenant, &account, after, limit, false)
 }
 
-// ListProjectAppsForProviderEventVerification also includes disconnected apps
-// with retained credentials. These candidates permit authenticated acknowledgement,
-// never admission or other mutations while disconnected.
 func (s *Store) ListProjectAppsForProviderEventVerification(
 	ctx context.Context, provider, tenant, account string, after uuid.UUID, limit int,
 ) ([]ProjectAppRecord, error) {
+	// Disconnected apps retain credentials so ingress can authenticate acknowledgements.
 	if provider == "" || tenant == "" || account == "" || limit < 1 || limit > 100 {
 		return nil, storeerr.InvalidRequest(errors.New("provider identity and limit between 1 and 100 are required"))
 	}
 	return s.listProjectAppsByProviderIdentity(ctx, provider, tenant, &account, after, limit, true)
 }
 
-// ListProjectAppsByProviderTenant resolves setup for provider callbacks that do
-// not carry an account ID, such as Discord endpoint verification.
 func (s *Store) ListProjectAppsByProviderTenant(
 	ctx context.Context,
 	provider, tenant string,

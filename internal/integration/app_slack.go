@@ -65,9 +65,6 @@ func NewSlackAppInboxProvider(
 	return &SlackAppInboxProvider{config: config, secrets: secrets, apps: apps, actors: actors}
 }
 
-// requestAccess resolves project-owned or granted credentials without holding a
-// transaction during key unwrapping or provider I/O. The captured version and
-// app setup revision fence every subsequent request, including file hydration.
 func (p *SlackAppInboxProvider) requestAccess(
 	ctx context.Context,
 	appSetup integrationstore.ProjectAppRecord,
@@ -136,10 +133,6 @@ func (p *SlackAppInboxProvider) requestAccess(
 	return config, credentials.BotToken, check, nil
 }
 
-// NormalizeSlackAppEvent is pure. HTTP verifies signatures before capture; this
-// boundary rechecks receipt/account identity and excludes bot/remote mutations.
-// Root human messages are subscription events, but only mentions trigger a launcher.
-// Both message and app_mention callbacks use the same semantic message identity.
 func NormalizeSlackAppEvent(
 	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
@@ -152,8 +145,6 @@ func NormalizeSlackAppEvent(
 	mentioned := event.Type == "app_mention" || slackMentionsUser(event.Text, identity.BotUserID)
 	scope := appdefinition.SlackScope{ChannelID: event.Channel}
 	if event.ChannelType == "im" || strings.HasPrefix(event.Channel, "D") {
-		// A direct message explicitly addresses the bot, preserving Slack's
-		// existing per-DM conversation behavior without requiring mention syntax.
 		mentioned = true
 	} else {
 		scope.ThreadTS = event.ThreadTS
@@ -281,8 +272,6 @@ func (p *SlackAppInboxProvider) Expand(
 	event := envelope.Event
 	kind, ref, _ := normalized.Event.Scope.Conversation()
 	route := slack.InboundRoute{ProviderRefKind: kind, ProviderRef: ref, AppendOnly: !normalized.Event.Mentioned}
-	// Labels/history are best effort presentation. File failures retain the
-	// existing bounded skip/retry classification and precede plan publication.
 	enrichCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	history, status, _ := slack.FetchRecentContextMessages(
@@ -321,7 +310,6 @@ func (p *SlackAppInboxProvider) Expand(
 			StoredUserDisplayNames: stored,
 		},
 	)
-	// Best-effort presentation failures must not hide revoked authority.
 	if err := check(ctx); err != nil {
 		return AppInboxExpansion{}, err
 	}
@@ -466,8 +454,6 @@ func (p *SlackAppInboxProvider) DownloadFile(
 	return AppInboxFile{Content: file.Content, ContentType: file.ContentType, Filename: file.Filename}, nil
 }
 
-// Acknowledgement follows committed admission. Slack's already_reacted result
-// is idempotent, and an unavailable presentation never retries accepted input.
 func (p *SlackAppInboxProvider) acknowledge(
 	ctx context.Context,
 	appSetup integrationstore.ProjectAppRecord,

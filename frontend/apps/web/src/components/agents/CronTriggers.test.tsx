@@ -388,7 +388,6 @@ it.each([false, true])(
       )
       expect(button('Retry')).toBeDefined()
     })
-    // Give any mount/refetch cycle time to run; the failed query must stay idle instead.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000)
     })

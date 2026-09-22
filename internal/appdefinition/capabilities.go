@@ -6,8 +6,6 @@ import (
 	"slices"
 )
 
-// SubscriptionDefinition exports a named app-owned receive capability. Its
-// conversation is one concrete provider address, independent of agent config.
 type SubscriptionDefinition struct {
 	Name     string
 	Provider string
@@ -27,8 +25,6 @@ func (d SubscriptionDefinition) ConversationSchema() (json.RawMessage, error) {
 	return objectSchema(properties, required)
 }
 
-// Prepare resolves omitted events to all supported events and returns an owned,
-// sorted selection. Explicit empty, duplicate or unknown events are rejected.
 func (d SubscriptionDefinition) Prepare(conversation json.RawMessage, events []string) (PreparedSubscription, error) {
 	scope, err := ResolveDestination(d.Provider, conversation)
 	if err != nil {
@@ -62,7 +58,6 @@ type PreparedInteractionHandler struct {
 	InputSchema json.RawMessage
 }
 
-// Prepare describes a complete destination independently of sending context.
 func (d InteractionHandlerDefinition) Prepare() (PreparedInteractionHandler, error) {
 	properties, required, err := DestinationProperties(d.Provider)
 	if err != nil {

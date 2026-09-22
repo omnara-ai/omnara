@@ -92,7 +92,6 @@ func TestAppSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
 	require.NotEqual(t, -1, winner)
 	require.JSONEq(t, string(plans[winner]), string(f.read(t, receipts[winner].ID).Plan))
 	require.Empty(t, f.read(t, receipts[1-winner].ID).Plan)
-	// A profile/slot edit cannot replace the frozen B with a newly configured C.
 	setup.Settings.Launcher.Slots[1].Key = "c"
 	_, err = store.UpdateProjectApp(f.ctx, app.ID, setup)
 	require.NoError(t, err)
@@ -105,7 +104,6 @@ func TestAppSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
 		},
 	)
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
-	// Terminal failure releases the unfinished selection for a new launch.
 	f.mutate(t, receipts[winner], func(lease *integrationstore.IntegrationInboxLeaseTx) error {
 		return lease.Fail(f.ctx, "profile b unavailable")
 	})

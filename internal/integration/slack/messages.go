@@ -33,7 +33,6 @@ type MessageTarget struct {
 }
 
 type APIResult struct {
-	// StatusCode is set only for HTTP errors; a successful APIResult stays zero.
 	StatusCode       int
 	MessageID        string
 	Code             string

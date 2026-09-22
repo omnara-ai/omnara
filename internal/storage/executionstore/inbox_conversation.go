@@ -14,11 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// CheckInboxConversationAuthority authorizes provider conversation preparation
-// from a frozen, uncommitted recipient. It performs no writes or provider I/O.
-// Call before each provider request; admission still rechecks all authority.
-// Frozen profile selections survive launcher edits. App disconnection, profile
-// deletion, config revocation and subscription removal take effect immediately.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -146,8 +141,6 @@ func (s *Store) CheckInboxConversationAuthority(
 			}
 		}
 	}
-	// Fence again after profile/model/agent lock waits without entering an earlier
-	// lock class. The transaction ends before the caller performs provider I/O.
 	_, err = q.ReadIntegrationInboxLease(
 		ctx,
 		dbsqlc.ReadIntegrationInboxLeaseParams{

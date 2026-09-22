@@ -5,7 +5,6 @@ import { ConnectGitHubForm } from './ConnectGitHubForm'
 import { ConnectSlackForm } from './ConnectSlackForm'
 import { ProjectAppSetup } from './ProjectAppSetup'
 
-/** Inline account connection. A never-connected app has nothing to cancel back to. */
 export function ProjectAppConnection({
   orgId,
   projectId,

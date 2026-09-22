@@ -16,9 +16,7 @@ type AppProfileChoiceOption struct {
 }
 
 type AppProfileChoiceRecord struct {
-	ID, ProjectID, AppID uuid.UUID
-	// OwnerReceiptID is immutable publication provenance; only that receipt may
-	// present the menu, using its current inbox lease and ordinary recovery.
+	ID, ProjectID, AppID        uuid.UUID
 	OwnerReceiptID              uuid.UUID
 	Address                     ConversationAddress
 	SourceKey                   string
@@ -41,9 +39,6 @@ type EnsureAppProfileChoiceInput struct {
 	HasAttachments bool
 }
 
-// ChooseAppProfileInput carries events built by trusted app code from the stored
-// source. SourceChoiceRevision fences attachment siblings that replace it.
-// SourceSetupRevision pins the app authenticated by the callback.
 type ChooseAppProfileInput struct {
 	ProjectID, AppID, ID        uuid.UUID
 	Key, ActorID                string

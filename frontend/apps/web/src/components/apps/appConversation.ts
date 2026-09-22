@@ -8,7 +8,6 @@ const discordAddress = z.object({
 })
 const githubAddress = z.object({ repository_id: z.number(), pull_request: z.number() })
 
-/** Format indexed provider addresses without fetching provider metadata. */
 export function appConversation(app: ProjectApp, subscription: AppSubscription) {
   switch (app.app_type) {
     case 'slack_thread': {

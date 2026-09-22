@@ -112,7 +112,7 @@ type CronTriggerClaimIsLiveParams struct {
 	ClaimToken *uuid.UUID
 }
 
-// This separate statement runs after the cron lock, so its time includes lock waits.
+// Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 func (q *Queries) CronTriggerClaimIsLive(ctx context.Context, arg CronTriggerClaimIsLiveParams) (bool, error) {
 	row := q.db.QueryRow(ctx, cronTriggerClaimIsLive, arg.ProjectID, arg.ID, arg.ClaimToken)
 	var live bool
@@ -770,7 +770,6 @@ type ReleaseCronTriggerClaimParams struct {
 	ClaimToken *uuid.UUID
 }
 
-// Preserve a newer due time when an edit invalidates this claimed occurrence.
 func (q *Queries) ReleaseCronTriggerClaim(ctx context.Context, arg ReleaseCronTriggerClaimParams) (int64, error) {
 	result, err := q.db.Exec(ctx, releaseCronTriggerClaim, arg.ProjectID, arg.ID, arg.ClaimToken)
 	if err != nil {

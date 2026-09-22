@@ -72,8 +72,6 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	}
 	require.NotEqual(t, uuid.Nil, selectedID)
 
-	// Frozen input must match the live event selection. Config activation
-	// cannot change it, but explicit deletion and reattachment can.
 	freeze := func(event string) integrationstore.IntegrationInboxRecord {
 		input := inboxInputPlan(t, launched.Agent.ID, f.app, event)
 		input.Subscription = &executionstore.InboxSubscriptionAuthority{

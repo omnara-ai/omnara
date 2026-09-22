@@ -317,8 +317,6 @@ func createBrowserSessionForHTTPTest(
 	}
 }
 
-// Test convenience: explicitly create an app with a launcher before configuring
-// credentials. OAuth itself has no profile or automatic app-creation behavior.
 func completeSlackOAuthInstall(
 	t *testing.T,
 	handler http.Handler,

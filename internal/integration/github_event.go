@@ -16,18 +16,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// GitHubAppIdentity belongs in app.ProviderIdentity. Setup must resolve
-// the App's bot account: neither its numeric App ID nor installation ID is the
-// bot's user ID or @mention login. This normalizer performs no provider I/O.
 type GitHubAppIdentity struct {
 	BotUserID int64  `json:"bot_user_id"`
 	BotLogin  string `json:"bot_login"`
 }
 
-// GitHubAppInboxProvider expands already-verified raw receipts. Header metadata
-// is deliberately not needed: GitHub signs the body, not X-GitHub-Event or the
-// delivery ID. Signed object shapes/actions establish kind and semantic identity.
-// Do not feed unverified HTTP bodies to this adapter.
+// GitHubAppInboxProvider derives identity from body fields: GitHub does not sign event/delivery headers.
 type GitHubAppInboxProvider struct {
 	config  github.Config
 	secrets GitHubInboxSecrets
@@ -67,8 +61,6 @@ type githubEventPayload struct {
 	Review *githubReview `json:"review"`
 }
 
-// GitHubEventMetadata keeps display names separate from immutable scope. URLs
-// and diff paths are presentation only, never authorities or download targets.
 type GitHubEventMetadata struct {
 	RepositoryID   int64  `json:"repository_id"`
 	RepositoryName string `json:"repository_name,omitempty"`
@@ -90,11 +82,6 @@ type GitHubEventMetadata struct {
 	After          string `json:"after,omitempty"`
 }
 
-// NormalizeGitHubAppEvent handles new human discussion/diff comments, submitted
-// reviews, PR opens and synchronize events. Edits, lifecycle events, pushes
-// without proven PR identity, bots' comments and self-events produce no input.
-// Human comments/reviews steer and cancel open interactions; opens/commits queue.
-// No provider mutation (including review publication) happens at this boundary.
 func NormalizeGitHubAppEvent(
 	appSetup integrationstore.ProjectAppRecord, raw []byte,
 ) (AppEvent, bool, error) {
@@ -106,8 +93,6 @@ func NormalizeGitHubAppEvent(
 		!strings.HasPrefix(strings.TrimSpace(string(raw)), "{") || json.Unmarshal(raw, &payload) != nil {
 		return AppEvent{}, false, fmt.Errorf("invalid GitHub receipt JSON")
 	}
-	// Unsupported payloads (including signed ping) need no bot metadata. All
-	// routable shapes below must prove the installation and repository identity.
 	eventType := githubPayloadEventType(payload)
 	if eventType == "" {
 		return AppEvent{}, false, nil
@@ -176,8 +161,7 @@ func NormalizeGitHubAppEvent(
 			metadata.Before, metadata.After = payload.Before, payload.After
 			text = "Pull request head changed from " + payload.Before + " to " + payload.After
 			key = fmt.Sprintf("pull_request:%d:synchronize:%s:%s", payload.PullRequest.ID, payload.Before, payload.After)
-			// A later force-push can repeat the same transition. GitHub's signed
-			// PR update time distinguishes it while preserving redelivery dedupe.
+			// A force-push can repeat a transition; the signed update time distinguishes it from redelivery.
 			if !payload.PullRequest.UpdatedAt.IsZero() {
 				key += ":" + payload.PullRequest.UpdatedAt.UTC().Format(time.RFC3339Nano)
 			}
@@ -199,8 +183,6 @@ func NormalizeGitHubAppEvent(
 	if githubSelfEvent(actor, identity) || (humanInput && (actor.Type != "User" || payload.Sender.Type != "User")) {
 		return AppEvent{}, false, nil
 	}
-	// New-comment/review actors must agree with the signed sender. Edited events
-	// (where sender and author may differ legitimately) are intentionally ignored.
 	if humanInput && actor.ID != payload.Sender.ID {
 		return AppEvent{}, false, fmt.Errorf("GitHub comment author differs from event sender")
 	}
@@ -257,10 +239,8 @@ func githubPayloadEventType(p githubEventPayload) string {
 	return ""
 }
 
-// GitHubWebhookInstallationMatches checks signed payload facts against the
-// app. GitHub omits app_id on many installation summaries; HMAC validation
-// with that app's App credentials establishes App identity at intake.
 func GitHubWebhookInstallationMatches(c integrationstore.ProjectAppRecord, event github.Webhook) bool {
+	// GitHub can omit app_id; intake HMAC verification with this app's credentials establishes App identity.
 	appID, appErr := strconv.ParseInt(c.ProviderTenantID, 10, 64)
 	installationID, installationErr := strconv.ParseInt(c.ProviderAccountRef, 10, 64)
 	return c.Provider == integrationstore.IntegrationProviderGitHub && appErr == nil && installationErr == nil &&
@@ -286,9 +266,6 @@ func validGitHubBotLogin(login string) bool {
 	return true
 }
 
-// Mentions are explicit text tokens, case insensitive. GitHub Apps are commonly
-// addressed by @slug as well as the bot account's full @slug[bot] login. This is
-// a textual trigger, not GitHub notification delivery or a Markdown renderer.
 func githubMentionsBot(body, login string) bool {
 	body = strings.ToLower(body)
 	login = strings.ToLower(strings.TrimSuffix(login, "[bot]"))

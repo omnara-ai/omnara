@@ -1,7 +1,4 @@
-// Paste into Cloudflare > your domain > Rules > Snippets.
-// Restrict the snippet rule to your app, public API and webhook hostnames.
-// Preview before deploying. This file does not deploy anything.
-const MODE = "off"; // "banner", "maintenance", or "off"
+const MODE = "off";
 const NOTICE = "Scheduled maintenance: [DATE], [START–END TIME, TIME ZONE]. Omnara will be temporarily unavailable.";
 
 const escapeHTML = (text) => text.replace(/[&<>"']/g, (char) => ({
@@ -16,7 +13,6 @@ const banner = `
     ${escapeHTML(NOTICE)}
   </aside>`;
 
-// Keep the notice outside React's root, and let the app fill the remaining height.
 const bannerStyles = `<style>
   body:has(> #omnara-maintenance-notice) {
     display:flex; flex-direction:column;

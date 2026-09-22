@@ -4,7 +4,6 @@ import { useState } from 'react'
 
 import { projectAppFormRequest, projectAppFormValues } from './projectAppFormState'
 
-/** Create only on submission; reuse the saved app if connecting its account needs a retry. */
 export function useProjectAppDraft(
   orgId: string,
   projectId: string,

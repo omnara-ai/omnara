@@ -95,8 +95,6 @@ func TestRepositoryIdentitySurvivesRenameAndNameReuse(t *testing.T) {
 		}
 		if repository.Owner.Login != testRepository().Owner.Login &&
 			strings.HasPrefix(r.URL.Path, repoPath(testRepository())+"/") {
-			// The previous owner/name now addresses a different PUBLIC repository.
-			// An installation token alone does not prevent such public reads.
 			oldNameRequests++
 			fmt.Fprint(w, `{"id":99,"number":42,"base":{"repo":{"id":999}},"body":"wrong repository"}`)
 			return
@@ -135,7 +133,7 @@ func TestRepositoryIdentitySurvivesRenameAndNameReuse(t *testing.T) {
 			repository.Owner.Login, repository.Name = "new-owner", "renamed.repo_2"
 			mu.Unlock()
 		}
-		scope := testScope() // Intentionally retains the old owner/name after rename.
+		scope := testScope()
 		if phase == 2 {
 			scope.Owner, scope.Repository = "//other.example", "../../repo?token=secret#fragment"
 		}

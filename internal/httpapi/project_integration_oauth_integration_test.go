@@ -332,7 +332,6 @@ func TestProjectSlackOAuthSetupWithoutProfiles(t *testing.T) {
 				Scan(&profiles)
 			require.NoError(t, err)
 			require.Zero(t, profiles)
-			// This app already exists; credential setup creates no extra app or profile.
 			_, err = f.pool.Exec(
 				t.Context(),
 				`INSERT INTO org_resource_limit_overrides(org_id,max_active_project_apps_per_project) VALUES($1,0)`,
@@ -519,7 +518,6 @@ func TestProjectSlackOAuthIndependentAppsAndReconnect(t *testing.T) {
 	f := newProjectSlackOAuthFixture(t, nil)
 	token, _ := f.start(t, false)
 	first := f.complete(t, token, "first")
-	// A second project may independently own another setup of the same physical bot.
 	other := bootstrapPublicHTTPProject(t, f.handler, "other-slack")
 	otherApp := createSetupHTTPApp(t, f.handler, other, "slack", appdefinition.SlackThread)
 	otherRef := testPublicID(t, publicid.KindProjectApp, otherApp.ID)
@@ -618,7 +616,6 @@ func TestProjectSlackOAuthAuthorization(t *testing.T) {
 		)
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, path, body, "", http.StatusNotFound,
 			authHeaders(other.AdminToken))
-		// Organization and project IDs cannot be mixed even by an authenticated user.
 		requestJSONWithHeaders(t, f.handler, http.MethodPost,
 			strings.Replace(path, f.project.OrgID, other.OrgID, 1), body, "", http.StatusNotFound,
 			authHeaders(other.AdminToken))
@@ -665,7 +662,6 @@ func TestProjectSlackOAuthAuthorization(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+f.project.AdminToken)
 	require.Equal(t, http.StatusUnauthorized, performRequest(f.handler, req).Code)
 
-	// Authorization is rechecked at callback time, after the flow has been sealed.
 	_, err := f.pool.Exec(
 		t.Context(),
 		`UPDATE org_memberships SET role='member' WHERE org_id=$1 AND user_id=$2`,

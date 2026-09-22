@@ -28,8 +28,6 @@ type InteractionHandlerPage struct {
 	NextCursor string                    `json:"next_cursor,omitempty"`
 }
 
-// ListInteractionHandlers paginates available prepared handlers. Runtime passes
-// its current selection explicitly; selection is independent of the result page.
 func ListInteractionHandlers(
 	handlers map[string]PreparedAppInteractionHandler,
 	selection *HandlerSelection,
@@ -71,7 +69,6 @@ func ListInteractionHandlers(
 	return page, nil
 }
 
-// ReferencedAppIDs shares the same selection logic as compiled-config preparation.
 func (contract RuntimeContract) ReferencedAppIDs() []string {
 	return ReferencedAppIDs(
 		Compiled{Tools: contract.AppTools, InteractionHandlers: contract.InteractionHandlers},

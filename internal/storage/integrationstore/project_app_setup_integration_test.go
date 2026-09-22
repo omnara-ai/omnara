@@ -50,8 +50,6 @@ func TestSlackAppSetupFailureRetainsMetadataAndReconnectPreservesSettings(t *tes
 	require.NoError(t, err)
 	require.False(t, consumed)
 
-	// Verified setup updates the explicitly saved app; failed validation leaves
-	// its metadata available for retry and does not consume the OAuth flow.
 	invalid := input
 	invalid.CredentialVersionID = uuid.New()
 	_, err = f.store.ConfigureProjectApp(f.ctx, invalid)
@@ -67,8 +65,6 @@ func TestSlackAppSetupFailureRetainsMetadataAndReconnectPreservesSettings(t *tes
 	require.Equal(t, input.OAuthFlowID, app.LastOAuthFlowID)
 	require.Equal(t, metadata.Settings, app.Settings)
 
-	// Removing a launcher and disconnecting are separate operations. Reconnect
-	// may reactivate the saved app but cannot restore the removed launcher.
 	metadata.Settings.Launcher = nil
 	changed, err := f.store.UpdateProjectApp(f.ctx, app.ID, metadata)
 	require.NoError(t, err)
@@ -90,7 +86,7 @@ func TestSlackAppSetupFailureRetainsMetadataAndReconnectPreservesSettings(t *tes
 	require.Nil(t, reconnected.Settings.Launcher)
 	page, err := f.store.ListProjectApps(f.ctx, integrationstore.ListProjectAppsInput{ProjectID: f.project, Limit: 100})
 	require.NoError(t, err)
-	require.Len(t, page.Apps, 2) // Saved app plus the independent inbox fixture app.
+	require.Len(t, page.Apps, 2)
 }
 
 func TestSlackAppInvalidLauncherEditLeavesSetupAndOAuthUnchanged(t *testing.T) {
@@ -100,7 +96,6 @@ func TestSlackAppInvalidLauncherEditLeavesSetupAndOAuthUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	app, err := f.store.ConfigureProjectApp(f.ctx, input)
 	require.NoError(t, err)
-	// Simulate a dependency made unavailable outside ordinary guarded deletion.
 	profileID := *metadata.Settings.Launcher.Slots[0].AgentProfileID
 	f.exec(t, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, profileID)
 	pendingFlow := uuid.Must(uuid.NewV7())
@@ -112,7 +107,6 @@ func TestSlackAppInvalidLauncherEditLeavesSetupAndOAuthUnchanged(t *testing.T) {
 	current, err := f.store.GetProjectApp(f.ctx, f.project, app.ID)
 	require.NoError(t, err)
 	require.Equal(t, app, current)
-	// Credential setup is independent of the launcher's profile validation.
 	input.ExpectedSetupRevision, input.OAuthFlowID = app.SetupRevision, pendingFlow
 	input.ProviderAgentDisplayName = "Reverified bot"
 	refreshed, err := f.store.ConfigureProjectApp(f.ctx, input)
@@ -198,8 +192,6 @@ func TestProjectAppLauncherMatchesVerifiedProviderAccount(t *testing.T) {
 				Trigger: "mention", ScopeKind: scopeKind, ScopeRef: invalidScope,
 				Slots: []integrationstore.AppLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
 			}
-			// A draft can save setup before credentials exist. Verification rejects an
-			// incompatible account without changing metadata or consuming the attempt.
 			draft, err := f.store.UpdateProjectApp(f.ctx, app.ID, metadata)
 			require.NoError(t, err)
 			_, err = f.store.ConfigureProjectApp(f.ctx, setup)
@@ -218,8 +210,6 @@ func TestProjectAppLauncherMatchesVerifiedProviderAccount(t *testing.T) {
 			require.NoError(t, err)
 			connected, err := f.store.ConfigureProjectApp(f.ctx, setup)
 			require.NoError(t, err)
-			// Editing an established app checks the same invariant, including after
-			// disconnect: its physical identity remains pinned for later reconnect.
 			for _, disconnect := range []bool{false, true} {
 				if disconnect {
 					_, err = f.store.DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{

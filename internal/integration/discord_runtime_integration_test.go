@@ -113,7 +113,6 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, appSetup.SetupRevision, updated.SetupRevision)
 	require.False(t, updated.UpdatedAt.Equal(appSetup.UpdatedAt))
-	// The captured setup and existing lease remain usable after behavior edits.
 	r := DiscordRuntime{
 		Integrations: store.Integrations(),
 		Secrets:      store.Secrets(),
@@ -273,8 +272,6 @@ func TestDiscordReconnectDelayHonorsProviderFailures(t *testing.T) {
 	}
 }
 
-// A claimed app must not hide others, and the local capacity is a hard limit.
-// Cancellation waits for every connection and releases only this process's leases.
 func TestDiscordRuntimeScanClaimsAvailableAppsWithinCapacity(t *testing.T) {
 	f := newDiscordRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
@@ -401,7 +398,6 @@ func TestDiscordRuntimeScanPassesOwnedPageAndWraps(t *testing.T) {
 		require.NoError(t, err)
 		apps = append(apps, appSetup)
 	}
-	// Creation uses monotonic UUIDv7 IDs, matching the discovery cursor order.
 	var firstOwner integrationstore.AppRuntimeClaim
 	for i, appSetup := range apps[:100] {
 		claim, found, err := f.store.Integrations().ClaimAppRuntime(ctx, integrationstore.AppRuntimeRevision{

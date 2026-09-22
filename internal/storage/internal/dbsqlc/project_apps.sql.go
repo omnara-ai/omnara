@@ -65,9 +65,6 @@ type ConfigureProjectAppParams struct {
 	ExpectedSetupRevision    int64
 }
 
-// Provider identity and secret version were verified before entering this
-// transaction. The revision rejects a stale setup result; unrelated settings
-// edits deliberately do not invalidate that verification.
 func (q *Queries) ConfigureProjectApp(ctx context.Context, arg ConfigureProjectAppParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, configureProjectApp,
 		arg.InstalledByUserID,
@@ -230,7 +227,6 @@ type GetProjectAppByIDParams struct {
 	ID uuid.UUID
 }
 
-// Private provider ingress resolves identity before a project principal exists.
 func (q *Queries) GetProjectAppByID(ctx context.Context, arg GetProjectAppByIDParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, getProjectAppByID, arg.ID)
 	var i ProjectApp
@@ -313,7 +309,6 @@ type InsertProjectAppParams struct {
 	Settings  json.RawMessage
 }
 
-// Apps own credentials and behavior. Metadata writes never change setup_revision.
 func (q *Queries) InsertProjectApp(ctx context.Context, arg InsertProjectAppParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, insertProjectApp,
 		arg.OrgID,
@@ -386,8 +381,6 @@ type ListProjectAppMetadataByIDsRow struct {
 	DeletedAt *time.Time
 }
 
-// Metadata keeps stored configs interpretable after app deletion. These reads
-// grant no execution authority; tools check live setup immediately before I/O.
 func (q *Queries) ListProjectAppMetadataByIDs(ctx context.Context, arg ListProjectAppMetadataByIDsParams) ([]ListProjectAppMetadataByIDsRow, error) {
 	rows, err := q.db.Query(ctx, listProjectAppMetadataByIDs, arg.ProjectID, arg.Ids)
 	if err != nil {
@@ -506,8 +499,6 @@ type ListProjectAppsByProviderIdentityParams struct {
 	RowLimit            int32
 }
 
-// A physical bot can have independent saved apps, including in other projects.
-// Iterate all pages; a truncated fanout must never be acknowledged as complete.
 func (q *Queries) ListProjectAppsByProviderIdentity(ctx context.Context, arg ListProjectAppsByProviderIdentityParams) ([]ProjectApp, error) {
 	rows, err := q.db.Query(ctx, listProjectAppsByProviderIdentity,
 		arg.AppTypes,
@@ -617,8 +608,7 @@ type LockProjectAppLifecycleSharedParams struct {
 	AppID uuid.UUID
 }
 
-// Take the lifecycle gate before app/profile/agent row locks. Sorted app IDs
-// provide a common order when one agent uses several apps.
+// Lock order: project/app gates (sorted app IDs), inbox receipt, conversation gate, profile/agent rows.
 func (q *Queries) LockProjectAppLifecycleShared(ctx context.Context, arg LockProjectAppLifecycleSharedParams) error {
 	_, err := q.db.Exec(ctx, lockProjectAppLifecycleShared, arg.AppID)
 	return err

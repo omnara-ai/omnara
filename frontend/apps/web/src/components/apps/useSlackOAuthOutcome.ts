@@ -15,7 +15,6 @@ function readOutcome(appId: string): SlackOAuthOutcome | null {
     : null
 }
 
-/** Reads the Slack callback result once, then drops it from the URL so a reload stays quiet. */
 export function useSlackOAuthOutcome(appId: string) {
   const [outcome, setOutcome] = useState(() => readOutcome(appId))
   const clear = useCallback(() => {

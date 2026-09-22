@@ -33,8 +33,7 @@ WHERE target.project_id = sqlc.arg(project_id)
   AND target.id = sqlc.arg(id)
   AND target.deleted_at IS NULL;
 
--- A retired context remains binding. Live app/agent authorization belongs to
--- the caller; never treat retirement or disconnection as unrestricted sending.
+-- A retired sending context still confines the agent; it must not mean unrestricted access.
 -- name: GetAgentAppToolContext :one
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.app_id, target.provider_ref,
   target.provider_ref_kind, target.display_name, target.provider_metadata, target.selection_slot, target.is_tool_context, target.deleted_at, target.created_at, target.updated_at

@@ -82,8 +82,6 @@ func TestAppRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *testing.T
 		}
 	}
 	require.NotEqual(t, uuid.Nil, abandonedAgent)
-	// The broad channel subscription still accepts the input when the independently
-	// selected launch profile disappears after freeze.
 	_, err = pool.Exec(ctx, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, profile.ID)
 	require.NoError(t, err)
 	results, err := router.Admit(ctx, first.Lease())

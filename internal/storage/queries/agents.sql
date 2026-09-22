@@ -191,7 +191,6 @@ JOIN agent_profile_versions version
  AND version.deleted_at IS NULL
 WHERE profile.project_id = $1 AND profile.id = $2 AND profile.deleted_at IS NULL;
 
--- Display-only lookup for app menus; never loads or derives an agent config.
 -- name: GetAgentProfileDisplayNames :many
 SELECT id, name
 FROM agent_profiles

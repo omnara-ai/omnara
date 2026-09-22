@@ -18,8 +18,6 @@ type MessageEvent struct {
 	Automated   bool    `json:"automated"`
 }
 
-// NormalizeMessage does not subscribe anyone. Application intake uses these
-// facts to select configured mentions and replies in subscribed threads.
 func NormalizeMessage(dispatch Dispatch, botUserID string) (MessageEvent, bool, error) {
 	if !validID(botUserID) {
 		return MessageEvent{}, false, errors.New("invalid discord bot user ID")

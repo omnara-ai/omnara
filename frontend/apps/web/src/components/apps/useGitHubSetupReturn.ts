@@ -4,8 +4,7 @@ import { z } from 'zod'
 
 function readReturn() {
   const params = new URLSearchParams(window.location.search)
-  // GitHub returns the public credential ID as state on installation return. It is
-  // only a selection hint: inspection and Connect independently verify authority.
+  // Installation state carries a public credential selection hint, not OAuth authorization.
   const secret = schemas.zSecretId.safeParse(
     params.get('credentials_secret_ref') ?? params.get('state'),
   )
@@ -43,7 +42,6 @@ function readReturn() {
   }
 }
 
-/** No continuation or expiry: a saved project credential can be inspected again later. */
 export function useGitHubSetupReturn() {
   const [outcome] = useState(readReturn)
   useEffect(() => {

@@ -104,8 +104,7 @@ export function projectAppFormRequest(
       slots = [{ ...existing.slots[0], agent_profile_id: slots[0].agent_profile_id }]
   }
   if (!slots?.length) throw new Error('Choose at least one profile.')
-  // Normal scope edits use the SDK validator. Preserve a saved advanced scope
-  // when only changing its profile choices.
+  // Allow profile-only edits to preserve saved scopes that guided setup cannot express.
   if (
     !existing ||
     existing.scope_kind !== scopeKind ||

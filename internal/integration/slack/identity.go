@@ -6,10 +6,8 @@ import (
 	"fmt"
 )
 
-// CheckIdentity verifies a live token against the saved workspace and bot user.
-// Secret versions can change independently of app setup; a new token must not
-// silently redirect an existing app to another bot or workspace.
 func CheckIdentity(ctx context.Context, config OAuthConfig, token string, expected Identity) error {
+	// Secret rotation can change a token without changing the saved app identity.
 	if token == "" || expected.WorkspaceID == "" || expected.BotUserID == "" {
 		return errors.New("slack token and expected workspace/bot identity are required")
 	}

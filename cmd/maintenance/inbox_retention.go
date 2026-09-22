@@ -10,9 +10,6 @@ const (
 	integrationInboxCleanupTimeout = 5 * time.Second
 )
 
-// Each batch commits separately. The soft budget stops new batches without
-// canceling healthy SQL. The hard deadline bounds a stalled pass and returns an
-// error. The bool reports normal soft-budget exhaustion.
 func drainIntegrationInboxCleanup(
 	ctx context.Context,
 	cleanup func(context.Context) (int64, error),

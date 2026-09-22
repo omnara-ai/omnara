@@ -52,8 +52,6 @@ func TestDiscordIdentifyPermitCoordinatesWorkersAndDoesNotResetBudget(t *testing
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "2", string(remaining))
-	// Model a later spacing window without sleeping. A stale larger provider
-	// observation must not replenish the already consumed bot-wide budget.
 	_, err = redis.EvalInt(
 		t.Context(),
 		`redis.call('DEL',KEYS[1],KEYS[2]);return 0`,
@@ -81,8 +79,6 @@ func TestDiscordIdentifyPermitCoordinatesWorkersAndDoesNotResetBudget(t *testing
 	remaining, _, err = redis.GetBytes(t.Context(), prefix+"budget")
 	require.NoError(t, err)
 	require.Equal(t, "1", string(remaining), "never consume the final provider start")
-	// A fresh provider observation after Redis data loss still blocks starts if
-	// the provider reports that another client has exhausted the daily quota.
 	_, err = redis.EvalInt(t.Context(), `redis.call('DEL',KEYS[1]);return 0`, []string{prefix + "budget"})
 	require.NoError(t, err)
 	wait, err = redis.EvalInt(
@@ -94,8 +90,6 @@ func TestDiscordIdentifyPermitCoordinatesWorkersAndDoesNotResetBudget(t *testing
 	)
 	require.NoError(t, err)
 	require.Positive(t, wait)
-	// Zero is not excluded by Discord's reset_after contract. It must not
-	// prevent a fresh bot from connecting, nor immediately erase its budget.
 	wait, err = redis.EvalInt(
 		t.Context(),
 		discordIdentifyPermitScript,

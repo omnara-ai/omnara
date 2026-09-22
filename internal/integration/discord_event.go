@@ -43,9 +43,6 @@ type DiscordAppInboxProvider struct {
 	apps    DiscordInboxApps
 }
 
-// NewDiscordAppInboxProvider uses config only for trusted HTTP settings and an
-// optional additional BeforeRequest check. Credentials always come from the
-// project's live secret reference. Runtime/checkpoint ownership stays elsewhere.
 func NewDiscordAppInboxProvider(
 	config discord.Config, secrets DiscordInboxSecrets, apps DiscordInboxApps,
 ) *DiscordAppInboxProvider {
@@ -71,11 +68,6 @@ type DiscordEventFile struct {
 	Count  int    `json:"count,omitempty"`
 }
 
-// NormalizeDiscordAppEvent accepts only a trusted, durably captured Dispatch and
-// current REST channel metadata. Guild identity must be present in the dispatch
-// and agree with the lookup; it is never inferred from saved app application ID.
-// Root messages require a native bot mention. Replies identify exactly one
-// thread; the router must require an exact thread subscription for ordinary replies.
 func NormalizeDiscordAppEvent(
 	appSetup integrationstore.ProjectAppRecord, raw []byte, channel discord.Channel,
 ) (AppEvent, bool, error) {
@@ -92,8 +84,8 @@ func NormalizeDiscordAppEvent(
 		if !message.MentionsBot {
 			return AppEvent{}, false, nil
 		}
-		// Discord documents that a thread created from a message has that
-		// message's ID. This pins the future scope without a premature POST.
+		// Discord gives a message-created thread its source message ID,
+		// so the future scope can be frozen before creating the thread.
 		scope.ThreadID = message.Message.ID
 	}
 	name := message.Message.Author.GlobalName
@@ -154,8 +146,6 @@ func discordInboxMessage(
 	}
 	if message.Self || message.Automated || (message.Message.Type != 0 && message.Message.Type != 19) ||
 		message.Message.GuildID == "" {
-		// This transport subscribes to guild messages, not DMs or ephemeral
-		// system messages. Only verified guild messages can reach the launcher.
 		return discord.MessageEvent{}, false, nil
 	}
 	return message, true, nil
@@ -250,17 +240,12 @@ func (p *DiscordAppInboxProvider) requestAccess(
 	if err != nil {
 		return nil, nil, err
 	}
-	// Generic secret rotation can replace the token without editing app
-	// identity. Prove this token still belongs to both immutable identities.
 	if err := client.CheckIdentity(ctx); err != nil {
 		return nil, nil, err
 	}
 	return client, check, nil
 }
 
-// Expand is read-only at Discord. Attachments are pinned to bounded bytes/digests
-// and ephemeral UUID placeholders. The existing consumer freezes per-recipient
-// UUIDs, uploads via artifactstore and atomically admits artifact metadata/input.
 func (p *DiscordAppInboxProvider) Expand(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
 ) (AppInboxExpansion, error) {
@@ -383,8 +368,6 @@ func discordInboxDownload(
 	return AppInboxFile{Content: download.Content, ContentType: contentType, Filename: download.Attachment.Filename}, nil
 }
 
-// DownloadFile rehydrates only a captured attachment ID, never an event URL.
-// The consumer compares the returned bytes/metadata with the frozen digest.
 func (p *DiscordAppInboxProvider) DownloadFile(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte, fileID string,
 ) (AppInboxFile, error) {
@@ -434,8 +417,6 @@ func (p *DiscordAppInboxProvider) DownloadFile(
 	return file, nil
 }
 
-// Use the original message channel: a root mention lives in the parent channel,
-// while a follow-up lives inside the thread. Admission has already committed.
 func (p *DiscordAppInboxProvider) acknowledge(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
 ) error {
@@ -452,13 +433,6 @@ func (p *DiscordAppInboxProvider) acknowledge(
 	return client.AddReaction(ctx, message.Message.ChannelID, message.Message.ID, "👀")
 }
 
-// PrepareConversation runs only after the consumer freezes a nonempty plan and
-// before admission. authority must recheck that receipt's lease and a current
-// accepting recipient/launcher for frozenScope before EVERY HTTP attempt. The
-// provider independently fences app/credential revisions. Never pass an
-// unconditional success callback from a worker; an empty plan must not call this.
-// Replays reuse Discord's one thread per source message. No thread is created
-// during Expand, and existing thread replies cause no provider mutation here.
 func (p *DiscordAppInboxProvider) PrepareConversation(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
 	frozenScope appdefinition.DiscordScope, authority func(context.Context) error,

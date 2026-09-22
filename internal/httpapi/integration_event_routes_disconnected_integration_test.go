@@ -181,7 +181,6 @@ func TestSlackDisconnectedSiblingCannotAuthorizeIntakeOrPoisonActiveApp(t *testi
 	for key, value := range unitSlackSignedHeaders(body, "signing-secret") {
 		r.Header.Set(key, value)
 	}
-	// Invoke the real route with a captured logger for safe failure diagnostics.
 	server := &Server{store: f.Project.Store}
 	response := performRequest(http.HandlerFunc(server.integrationEventsRoute), r)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -201,7 +200,6 @@ func TestSlackDisconnectedSiblingCannotAuthorizeIntakeOrPoisonActiveApp(t *testi
 	require.Equal(t, "ignored", request(body, "disconnected-signing-secret", http.StatusOK)["ok"])
 	assertReceipts(2)
 
-	// A valid inactive sibling must never hide an ACTIVE app's unknown failure.
 	require.NoError(t, pool.QueryRow(ctx, `SELECT version.id, version.encrypted_dek FROM secret_versions version
 		JOIN secrets secret ON secret.current_version_id=version.id WHERE secret.id=$1`, f.Install.CredentialSecretID).
 		Scan(&version, &wrapped))

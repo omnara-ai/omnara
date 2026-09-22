@@ -70,7 +70,6 @@ it.each([
     pagePath + remaining,
   )
   expect(window.history.state).toEqual(historyState)
-  // Rendering again retains the result after the query parameters have been consumed.
   act(() => {
     root.render(<Outcome />)
   })

@@ -93,8 +93,6 @@ tools:
         text: {type: string}
 `,
 	)
-	// The customer service uses ordinary configuration and public APIs; no app
-	// registration or hosted routing is needed.
 	launchBody := map[string]any{
 		"config": project.configID, "profile": project.agentID,
 		"initial_input": map[string]any{"content_blocks": []any{map[string]any{
@@ -153,7 +151,7 @@ tools:
 	require.Equal(t, "permission", interaction["interaction_kind"])
 	require.NotContains(t, interaction, "destination")
 	require.NotContains(t, interaction, "presentation_receipt")
-	first := <-requests // The worker creates the approval after this model request.
+	first := <-requests
 	require.True(t, requestContainsTool(first, toolName), "worker omitted the custom tool")
 	interactionID := testutil.RequireType[string](t, interaction["id"])
 	resolved := env.requestJSON(
@@ -210,7 +208,7 @@ tools:
 	projectUUID := mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)
 	agentUUID := mustDecodeServiceE2EPublicID(t, publicid.KindAgent, agentID)
 	waitForAssistantText(t, ctx, env, projectUUID, agentUUID, finalText)
-	second := <-requests // Durable final output proves the continuation was requested.
+	second := <-requests
 	require.True(
 		t,
 		requestContainsToolResult(second, callID, resultText),
@@ -225,7 +223,6 @@ tools:
 		return locks == 0, "worker has not settled; " + worker.logExcerpt()
 	})
 	require.EqualValues(t, 2, requestCount.Load())
-	// Customer-owned routing delivers the next event through the ordinary input API.
 	followup := map[string]any{
 		"content_blocks": []any{
 			map[string]any{"type": "text", "text": "The customer replied: thank you."},

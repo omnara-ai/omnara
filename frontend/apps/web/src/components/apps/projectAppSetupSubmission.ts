@@ -7,7 +7,6 @@ import {
 } from '@omnara/sdk'
 import * as z from 'zod'
 
-/** Credential creation is checkpointed so a failed verification can retry the same secret. */
 export async function submitProjectAppSetup(
   input: {
     form: FormData
@@ -38,8 +37,6 @@ export async function submitProjectAppSetup(
   if (app.app_type === 'github_pr') identity.parse(account)
   const providerConfig: ConfigureProjectAppRequest['provider_config'] = {}
   if (app.app_type === 'discord_thread') {
-    // The normal Discord launcher includes an interaction handler. A public key
-    // is part of the guided setup, not a separate capabilities switch.
     providerConfig.public_key = z
       .string()
       .regex(/^[a-fA-F0-9]{64}$/, 'Enter the 64-character Discord public key.')

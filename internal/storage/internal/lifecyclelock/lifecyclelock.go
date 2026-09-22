@@ -13,7 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// Canonical order: organization, project, and integration-connection gates; account
+// Canonical order: organization, project, and app lifecycle gates; account
 // principals; agent profiles; agent sources; configured models; pools and grants;
 // machines; existing agents; environment keys; then child state. Account mutations
 // lock users before organization rows and memberships; organization teardown

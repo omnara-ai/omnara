@@ -235,7 +235,6 @@ func TestGitHubNormalizationStableOnRenameAndHeaderReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload.Repository.FullName = "new-owner/new-name"
-	// Neither unsigned nor body-injected transport metadata can choose a kind.
 	raw := githubEventJSON(t, payload)
 	raw = append([]byte(`{"event_type":"pull_request","delivery_id":"different",`), raw[1:]...)
 	after, ok, err := NormalizeGitHubAppEvent(appSetup, raw)
@@ -246,7 +245,6 @@ func TestGitHubNormalizationStableOnRenameAndHeaderReplay(t *testing.T) {
 	if after.Event.Kind != "review_comment" || !strings.HasPrefix(after.DisplayName, "new-owner/new-name#") {
 		t.Fatalf("renamed input: %+v", after)
 	}
-	// Reuse of the old name by a different repo never selects the original scope.
 	payload.Repository.ID++
 	payload.PullRequest.Base.Repo.ID = payload.Repository.ID
 	payload.Repository.FullName = "owner/repository"

@@ -15,23 +15,15 @@ import (
 type ErrorCode string
 
 const (
-	RateLimited      ErrorCode = "rate_limited"
-	DeliveryUnknown  ErrorCode = "delivery_unknown"
-	TransientFailure ErrorCode = "transient_failure"
-	PermanentFailure ErrorCode = "permanent_failure"
-	InvalidResponse  ErrorCode = "invalid_response"
-	ScopeMismatch    ErrorCode = "scope_mismatch"
-	// UnsupportedAccount means setup inspection recognized an enterprise owner
-	// or installation. Retrying cannot make it a supported personal/org account.
+	RateLimited        ErrorCode = "rate_limited"
+	DeliveryUnknown    ErrorCode = "delivery_unknown"
+	TransientFailure   ErrorCode = "transient_failure"
+	PermanentFailure   ErrorCode = "permanent_failure"
+	InvalidResponse    ErrorCode = "invalid_response"
+	ScopeMismatch      ErrorCode = "scope_mismatch"
 	UnsupportedAccount ErrorCode = "unsupported_account"
 )
 
-// APIError deliberately excludes raw provider bodies, URLs and transport errors:
-// those can echo tokens or private request content. errors.Is still recognizes
-// cancellation/deadline causes. DeliveryUnknown must not be retried as a send.
-// ScopeMismatch means the selected App/installation/bot or repository/PR could
-// not be established; no comment mutation was attempted. Never recover it by
-// falling back to display names.
 type APIError struct {
 	Code       ErrorCode
 	StatusCode int
@@ -63,7 +55,6 @@ func responseError(status int, header http.Header, body []byte, mutation bool, n
 	var payload struct {
 		Message string `json:"message"`
 	}
-	// Only classify known rate-limit text; never propagate arbitrary provider text.
 	_ = json.Unmarshal(body, &payload)
 	message := strings.ToLower(payload.Message)
 	limited := status == http.StatusTooManyRequests || (status == http.StatusForbidden &&

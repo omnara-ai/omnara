@@ -136,7 +136,6 @@ func (s *Server) resolveIntegrationInteractionAction(
 	channel, thread, err := slack.Destination(destination.Address.Kind, destination.Address.Ref)
 	messageThread := envelope.Message.ThreadTS
 	// A channel-root prompt gains thread_ts=ts when somebody replies to it.
-	// Its confirmed message identity and captured channel have not changed.
 	if thread == "" && messageThread == receipt.MessageID {
 		messageThread = ""
 	}

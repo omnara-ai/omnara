@@ -99,8 +99,6 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 	require.Positive(t, originalEvents)
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	// A busy host may consume the soft budget in one batch. Check eventual
-	// draining independently of how many batches fit within one tick.
 	until := time.Now().Add(10 * time.Second)
 	for {
 		runCoreMaintenanceTick(ctx, logger, store)
@@ -154,12 +152,10 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
  SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'
  FROM generate_series(1,202) n`, ids.ProjectID, app)
 	require.NoError(t, err)
-	// Establish a prior committed batch independently of the soft time budget.
 	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, integrationInboxRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 100, count)
-	// Sequence increments survive rollback. Stall the first batch attempted by
-	// maintenance so the timeout does not depend on fitting two batches in a tick.
+	// Sequence increments survive rollback, so only the first maintenance attempt stalls.
 	_, err = pool.Exec(ctx, `CREATE SEQUENCE inbox_cleanup_deletes;
  CREATE FUNCTION slow_inbox_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN
@@ -190,8 +186,6 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
 }
 
-// Maintenance fixtures use ordinary credential/setup methods so active-app
-// checks exercise the same state that ingress and recovery see in production.
 func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixture.ProjectIDs) *storage.Store {
 	t.Helper()
 	wrapper, err := secrets.NewLocalKeyWrapper("maintenance-test", map[string][]byte{

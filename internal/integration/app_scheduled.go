@@ -16,8 +16,6 @@ import (
 
 var ErrScheduledActionFailed = errors.New("scheduled app action failed")
 
-// ScheduledThreadProvider publishes outside transactions. The confirmed root is
-// saved only in the frozen plan, which thread preparation and admission reuse.
 type ScheduledThreadProvider interface {
 	PublishScheduledRoot(
 		context.Context,
@@ -34,8 +32,6 @@ type ScheduledThreadProvider interface {
 	) error
 }
 
-// ThreadAppScheduledHandler shares the publish/freeze/ensure/admit workflow
-// between thread apps. The launch preparation is transient until FreezePlan.
 type ThreadAppScheduledHandler struct {
 	router   *AppRouter
 	inbox    AppRoutingStore
@@ -76,8 +72,6 @@ func (h *ThreadAppScheduledHandler) Handle(
 		})
 	}
 	if len(receipt.Plan) == 0 {
-		// Reject an unavailable profile before posting. A later deletion is fenced
-		// again during admission; it can leave a heading but never an orphan agent.
 		if err := authority(ctx); err != nil {
 			return nil, err
 		}
@@ -88,10 +82,8 @@ func (h *ThreadAppScheduledHandler) Handle(
 		freezeErr := h.router.FreezeScheduledLaunch(ctx, lease, root)
 		receipt, err = h.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if freezeErr != nil && (err != nil || len(receipt.Plan) == 0) {
-			// A commit may have succeeded despite a lost acknowledgement. Reuse
-			// its plan if visible; otherwise stop so deterministic errors cannot
-			// repost a heading on every retry. Losing the lease or outcome write
-			// can still leave a stray heading on recovery.
+			// Retrying without a saved plan can duplicate the published heading.
+			// A crash before this terminal outcome is saved still leaves that recovery gap.
 			return nil, fmt.Errorf("%w: save scheduled thread plan: %w", ErrScheduledActionFailed, errors.Join(freezeErr, err))
 		}
 		if err != nil {
@@ -131,9 +123,6 @@ func (h *ThreadAppScheduledHandler) Handle(
 	return h.router.Admit(ctx, lease)
 }
 
-// FreezeScheduledLaunch authorizes exactly the accepted occurrence, independently
-// of mention scopes and profile-picker slots. Only the real root is used for
-// derivation; no mutable per-agent app destination or provisional config exists.
 func (r *AppRouter) FreezeScheduledLaunch(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -161,8 +150,6 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if err != nil {
 		return err
 	}
-	// Resolve the current config while building this plan. Edits before this
-	// read apply; once frozen, retries reuse the derived config in the plan.
 	profile, err := r.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID)
 	if err != nil {
 		return err

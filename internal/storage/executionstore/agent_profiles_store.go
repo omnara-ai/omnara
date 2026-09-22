@@ -321,8 +321,6 @@ func (s *Store) GetAgentProfile(ctx context.Context, projectID, id uuid.UUID) (A
 	return record, nil
 }
 
-// GetAgentProfileDisplayNames returns only live profile labels within a project.
-// App launchers use this before a human chooses; config loading belongs to launch.
 func (s *Store) GetAgentProfileDisplayNames(
 	ctx context.Context, projectID uuid.UUID, ids []uuid.UUID,
 ) (map[uuid.UUID]string, error) {

@@ -10,9 +10,6 @@ import (
 
 const MaxAppSubscriptionsPerLaunch = 100
 
-// AppSubscriptionAttachment is a concrete receive route supplied by a launcher
-// or public caller. Conversation is validated against the app's definition; only
-// its canonical address and event set are persisted in the subscription table.
 type AppSubscriptionAttachment struct {
 	AppID        uuid.UUID       `json:"app_id"`
 	Type         string          `json:"type"`

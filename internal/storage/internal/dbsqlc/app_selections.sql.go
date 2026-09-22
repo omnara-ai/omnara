@@ -38,11 +38,8 @@ type FindInboxSelectionReservationsRow struct {
 	State string
 }
 
-// Read other immutable plans without locking their receipts. The caller holds
-// its own receipt and then the conversation gate; locking another receipt here
-// would invert that order. Identity omits slot to reserve the entire N-slot set.
-// The receipt's app scopes both launches and ordinary follow-ups; independently
-// configured apps never reserve one another's conversation.
+// The caller holds its receipt, then the conversation gate. Locking another
+// receipt here would invert that order and deadlock concurrent selections.
 func (q *Queries) FindInboxSelectionReservations(ctx context.Context, arg FindInboxSelectionReservationsParams) ([]FindInboxSelectionReservationsRow, error) {
 	rows, err := q.db.Query(ctx, findInboxSelectionReservations,
 		arg.ProjectID,

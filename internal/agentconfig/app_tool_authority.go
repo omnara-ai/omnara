@@ -13,8 +13,6 @@ type AppToolAuthority struct {
 	Definition toolcatalog.AppToolDefinition
 }
 
-// ResolveAppToolAuthority protects a pending call's immutable identity and
-// permission. Live app state/credentials still gate provider I/O.
 func ResolveAppToolAuthority(
 	original, current RuntimeContract,
 	name string,
@@ -43,9 +41,6 @@ func ResolveAppToolAuthority(
 	return AppToolAuthority{Tool: before, Definition: metadata}, nil
 }
 
-// ResolveInteractionHandlerAuthority applies the same immutable-identity rule to
-// pending handler-selection calls and captured prompts. It never resolves a name
-// to a replacement app. ResolveArgs performs selected-handler validation next.
 func ResolveInteractionHandlerAuthority(
 	original, current RuntimeContract,
 	key string,

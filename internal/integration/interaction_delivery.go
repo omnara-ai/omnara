@@ -13,8 +13,6 @@ import (
 
 const interactionPresentationTimeout = 30 * time.Second
 
-// interactionRunner is also used for the worker's other bounded background work.
-// Enqueueing never claims delivery: shutdown or saturation leaves work discoverable.
 type interactionRunner interface {
 	TrySubmit(string, func(context.Context) error) bool
 }
@@ -33,9 +31,6 @@ func (p InteractionPresenter) Enqueue(
 	})
 }
 
-// EnqueuePending discovers only work that has never been attempted. Present
-// atomically claims when it actually runs, so immediate delivery and replicas
-// can safely race. An attempted but unconfirmed send is never automatically reposted.
 func (p InteractionPresenter) EnqueuePending(ctx context.Context, runner interactionRunner) error {
 	var appTypes []string
 	for _, definition := range appdefinition.All() {
@@ -57,8 +52,6 @@ func (p InteractionPresenter) EnqueuePending(ctx context.Context, runner interac
 	return ctx.Err()
 }
 
-// RunPending supplements immediate scheduling with bounded durable discovery.
-// The runner owns concurrency and shutdown; a full queue is retried next tick.
 func (p InteractionPresenter) RunPending(ctx context.Context, runner interactionRunner) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

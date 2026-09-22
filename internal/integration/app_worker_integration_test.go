@@ -122,7 +122,6 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.Contains(t, first.LastError, transient.Error())
 	require.Contains(t, string(first.Progress), "committed-a")
 	require.Zero(t, finalizations, "no failure notice during retry")
-	// Fast-forward the durable attempt budget, preserving exactly the frozen work.
 	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=7,available_at=now() WHERE id=$1`, receipt.ID)
 	require.NoError(t, err)
 	worked, err = worker.RunOnce(ctx)
@@ -137,8 +136,6 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.Contains(t, failed.LastError, transient.Error())
 	require.Equal(t, 1, finalizations)
 	require.NotNil(t, failed.CompletedAt)
-	// Exhaustion is terminal. A provider retry reuses the failed receipt; a new
-	// message is independent and gets its own budget.
 	duplicate, created, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: ids.ProjectID, AppID: appSetup, ReceiptKey: "partial", Payload: []byte(`{}`),
 	})
@@ -255,7 +252,7 @@ func TestAppInboxWorkerSlowReceiptDoesNotBlockSameApp(t *testing.T) {
 		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
 			if lease.ReceiptID == slow.ID {
 				close(slowStarted)
-				<-ctx.Done() // Simulate a provider file read awaiting its context.
+				<-ctx.Done()
 				return nil, ctx.Err()
 			}
 			<-slowStarted
@@ -292,8 +289,6 @@ func TestAppInboxWorkerSlowReceiptDoesNotBlockSameApp(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-// seedIndependentApp gives a second saved app its own lifecycle and receipt
-// identity while deliberately using the same physical provider credentials.
 func seedIndependentApp(
 	t *testing.T, pool *pgxpool.Pool, template integrationstore.ProjectAppRecord, name string,
 ) integrationstore.ProjectAppRecord {

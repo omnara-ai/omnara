@@ -37,11 +37,6 @@ type appEventCandidates struct {
 	candidates integrationstore.AppRoutingCandidates
 }
 
-// Freeze pins the entire bounded expansion before media work. A retry with an
-// existing plan ignores replacement events/configs. Reads/compilation between
-// the two fenced transactions cannot hold conversation locks over pool reads.
-// The second transaction checks routing again, then reserves all profile slots
-// together. A competing unfinished reservation is returned intact to recovery.
 func (r *AppRouter) Freeze(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -137,9 +132,7 @@ func (r *AppRouter) Freeze(
 					return ErrAppRoutingChanged
 				}
 			}
-			// A plain follow-up may arrive before the first reserved agent has any
-			// subscription. It must retry, not freeze empty and disappear. Check each
-			// zero-recipient event, including within a multi-event expansion.
+			// A reserved agent may not have a subscription yet; freezing empty would lose its follow-up.
 			for _, request := range requests {
 				if !recipientEvents[request.order] {
 					if err := work.CheckNoUnsettledAppSelection(ctx, request.address); err != nil {
@@ -202,8 +195,6 @@ func prepareAppEvents(
 		request.address = request.scopes[0]
 		requests = append(requests, request)
 	}
-	// Every transaction takes the same sorted conversation union. FreezePlan
-	// reenters these held gates when it checks the common selection envelopes.
 	slices.SortFunc(requests, func(a, b appEventCandidates) int {
 		if n := strings.Compare(a.address.Kind, b.address.Kind); n != 0 {
 			return n
@@ -216,9 +207,6 @@ func prepareAppEvents(
 	return requests, nil
 }
 
-// Root Discord mentions normalize to their future thread address. Their verified
-// source channel may authorize that one input; ordinary thread replies, including
-// mentions within a thread, still require an exact thread subscription.
 func (r appEventCandidates) matchesSubscriptionAddress(address integrationstore.ConversationAddress) bool {
 	if !slices.Contains(r.scopes, address) {
 		return false
@@ -263,8 +251,6 @@ func (r *AppRouter) buildAppPlan(
 	var planned []integrationstore.AppSubscriptionRecord
 	requests = slices.Clone(requests)
 	slices.SortFunc(requests, func(a, b appEventCandidates) int { return a.order - b.order })
-	// Explicit decisions can repeat across an expansion, including late files.
-	// Each app/slot/conversation gets one identity; another slot remains independent.
 	type selectionKey struct {
 		appID   uuid.UUID
 		slot    string
@@ -332,8 +318,6 @@ func (r *AppRouter) buildAppPlan(
 				if agent.AgentProfileID != intent.ProfileID {
 					return nil, fmt.Errorf("%w: settled agent uses another profile", ErrAppLaunchUnavailable)
 				}
-				// A chosen source or an intent racing another receipt's settlement
-				// can reuse this recipient. It grants this input, not a subscription.
 				recipients[settledAgent] = nil
 				continue
 			}
@@ -405,8 +389,6 @@ func (r *AppRouter) buildAppPlan(
 				ArtifactIDs:  appArtifactIDs(files),
 				BaseConfigID: profile.CurrentConfig.ID,
 			}
-			// This launch attaches exactly its source conversation. Keep a concrete
-			// route for later events in this expansion, before admission persists it.
 			planned = append(planned, integrationstore.AppSubscriptionRecord{
 				AppID: subscription.AppID, AgentID: agentID, Type: subscription.Type,
 				Address: request.address, Events: subscription.Events,
@@ -448,8 +430,6 @@ func (r *AppRouter) buildAppPlan(
 	return plan, nil
 }
 
-// resolveAppLaunchIntent validates the app-owned decision against live saved
-// setup. Trigger and continuation policy belong to the app, never this planner.
 func resolveAppLaunchIntent(
 	projectID uuid.UUID,
 	intent AppLaunchIntent,
@@ -497,9 +477,6 @@ func resolveAppLaunchIntent(
 	return unavailable()
 }
 
-// deriveAppLaunch adds the hosted launcher's concrete capabilities without
-// changing explicit profile entries. It resolves subscription defaults now so
-// replay and later events use the exact attachment that atomic admission receives.
 func deriveAppLaunch(
 	base executionstore.AgentConfigRecord,
 	app integrationstore.ProjectAppRecord,

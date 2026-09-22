@@ -51,7 +51,6 @@ export async function exerciseAppConversations(
     app.app_type === 'github_pr'
       ? { repository_id: 333, pull_request: 1 }
       : { channel_id: '333333333333333333', thread_id: '444444444444444444' }
-  // No input: the agent stays idle, and this journey performs no provider I/O.
   const launchResponse = await request(page, `${apiProjectPath}/agents`, {
     config: profile.current_config_id,
     profile: profile.id,

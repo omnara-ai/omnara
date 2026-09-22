@@ -95,8 +95,6 @@ func TestAppConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T) {
 	require.Equal(t, []artifactstore.PreparedArtifact{expected}, prepared)
 	require.Equal(t, 1, provider.downloads)
 	require.Equal(t, content, uploads.content)
-	// An upload completed before an expired lease/uncertain Prepare commit can
-	// be recovered without provider access or writing different bytes.
 	uploads.present = true
 	prepared, err = consumer.prepareFiles(
 		t.Context(),

@@ -30,8 +30,6 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			require.NoError(t, err)
 			f, provider := newDiscordInboxFixture(t)
 			f.appSetup = appSetup
-			// Local provider fixture supplies decrypted credentials; durable project,
-			// receipt, plan, app and agent authority use the production stores.
 			provider.apps = store.Integrations()
 			base := storagefixture.SeedAgentConfig(
 				t,
@@ -98,9 +96,6 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 				testAppLaunchWorkflow(router),
 			)
 			worker := NewAppInboxWorker(store.Integrations(), consumer, AppInboxWorkerOptions{})
-			// Observe real thread POST only after a nonempty plan is durable, before an
-			// agent exists. Revoke between expansion and preparation via the second
-			// identity request; the next pre-request authority check must stop the POST.
 			identityReads := 0
 			reactions := func() []string {
 				f.mu.Lock()
@@ -186,8 +181,6 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			require.False(t, results[0].Launch.Created)
 			require.Equal(t, []string{rootReaction}, reactions(), "replay must not repeat feedback")
 			require.Equal(t, 1, f.posts)
-			// Exact selected thread delivers human steering. A sibling thread has no
-			// subscription and must not launch or create input even under the same parent.
 			f.override = nil
 			reply := f.message
 			reply.ID, reply.ChannelID, reply.Content, reply.Mentions = "501", "500", "continue", nil
@@ -218,8 +211,6 @@ func TestAppDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T
 			}, reactions(), "react to accepted thread replies, not unrelated messages")
 			require.Equal(t, 1, f.posts)
 			if scenario == "launch and reply" {
-				// The same bot/profile launches separately in another server. Replies
-				// remain bound to the agent for their own thread, not the whole app.
 				f.mu.Lock()
 				f.channels["600"] = discord.Channel{ID: "600", GuildID: "200", Type: 0, Name: "other-server"}
 				f.message.ID, f.message.ChannelID, f.message.GuildID = "700", "600", "200"
@@ -319,7 +310,6 @@ func TestAppDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher(t *test
 					require.Empty(t, results, "even a thread mention cannot borrow its parent's subscription")
 				}
 			}
-			// Revoke after freezing a second root mention, before thread preparation.
 			next := f.message
 			next.ID = "600"
 			receipt := capture("removed-after-freeze", next)

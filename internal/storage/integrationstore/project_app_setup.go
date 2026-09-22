@@ -15,12 +15,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// ErrProjectAppSetupChanged also matches storeerr.ErrConflict.
 var ErrProjectAppSetupChanged = storeerr.Tag(storeerr.ErrConflict,
 	errors.New("app setup changed; refresh the app and start setup again"))
 
-// ConfigureProjectApp attaches verified credentials to an existing app. It never
-// discovers or merges another saved app based on those credentials.
 func (s *Store) ConfigureProjectApp(ctx context.Context, input ConfigureProjectAppInput) (ProjectAppRecord, error) {
 	input, err := normalizeConfigureProjectAppInput(input)
 	if err != nil {

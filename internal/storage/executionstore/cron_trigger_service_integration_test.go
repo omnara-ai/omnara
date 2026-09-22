@@ -31,13 +31,10 @@ func TestFireDueTriggersProfileUsesOccurrenceTimezone(t *testing.T) {
 		MessageTemplate: `{{.trigger.local_date}}|{{.trigger.fired_at}}|{{.trigger.last_fired_at}}`,
 	})
 	require.NoError(t, err)
-	// This UTC date is still March 8 in Los Angeles, after its DST transition.
-	// Processing is deliberately late: local_date comes from due, not wall time.
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE cron_triggers
  SET next_fire_after='2026-03-09T01:30:00Z', last_fired_at='2026-03-07T17:00:00Z' WHERE id=$1`, trigger.ID)
 	require.NoError(t, err)
-	// Bound database timestamps with the database clock, which may differ from
-	// the host clock when PostgreSQL runs in Docker.
+	// PostgreSQL in Docker may have a different clock from the test host.
 	before, err := f.store.q.DBNow(f.ctx)
 	require.NoError(t, err)
 	service := crontrigger.NewService(f.store.Execution(), nil, slog.Default())
@@ -73,7 +70,6 @@ func TestFireDueTriggersProfileUsesOccurrenceTimezone(t *testing.T) {
 	current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, trigger.ID)
 	require.NoError(t, err)
 	require.NotNil(t, current.LastFiredAt)
-	// Completion records its own database time, after the claim used by fired_at.
 	require.False(t, current.LastFiredAt.Before(firedAt))
 	require.False(t, current.LastFiredAt.After(after))
 	require.Nil(t, current.FailureReport)
@@ -92,7 +88,6 @@ func TestFireDueTriggersAppHandoffRollbackAndRecovery(t *testing.T) {
 	due := time.Date(2026, 3, 9, 1, 30, 0, 0, time.UTC)
 	_, err := f.store.pool.Exec(f.ctx, `UPDATE cron_triggers SET next_fire_after=$2 WHERE id=$1`, trigger.ID, due)
 	require.NoError(t, err)
-	// Fail after receipt insertion, when the same transaction updates its pointer.
 	_, err = f.store.pool.Exec(f.ctx, `CREATE FUNCTION fail_app_handoff() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN IF NEW.last_app_receipt_id IS NOT NULL THEN RAISE EXCEPTION 'injected handoff failure'; END IF;
  RETURN NEW; END $$;

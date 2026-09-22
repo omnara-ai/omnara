@@ -10,9 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
-// WithRequestCheck preserves the provider transport and applies revocable
-// application authority immediately before every HTTP request, including file
-// uploads and reconciliation pages. It never mutates the shared client.
 func WithRequestCheck(client *http.Client, check func(context.Context) error) *http.Client {
 	if client == nil {
 		client = defaultHTTPClient

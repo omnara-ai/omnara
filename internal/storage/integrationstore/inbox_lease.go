@@ -18,12 +18,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// IntegrationInboxLeaseTx is a fenced receipt transaction. The caller owns the
-// transaction and MUST roll back if any method fails. Acquire it before any
-// conversation/agent locks: organization, project, app, receipt, then
-// conversation/agent state. Never call provider I/O while holding this handle.
-// Use the same transaction for launch/input admission and CommitSlot so either
-// both commit or neither does. A failed lease check must roll back admission.
+// IntegrationInboxLeaseTx must contain both admission and CommitSlot so lease expiry
+// cannot leave admitted input without committed progress. Roll back on any error.
 type IntegrationInboxLeaseTx struct {
 	tx     pgx.Tx
 	q      *dbsqlc.Queries
@@ -31,14 +27,11 @@ type IntegrationInboxLeaseTx struct {
 	record IntegrationInboxRecord
 }
 
-// LockIntegrationInboxLeaseTx fences a receipt and its frozen admission's
-// apps. Additional identities include every compiled app reference used by the
-// admission, read from the immutable plan before entering this method. They are
-// locked in one sorted union with the receipt app but need not be active. Only
-// the receipt app supplies live authority; each concrete action rechecks its app.
 func (s *Store) LockIntegrationInboxLeaseTx(
 	ctx context.Context, tx pgx.Tx, lease IntegrationInboxLease, additional ...uuid.UUID,
 ) (*IntegrationInboxLeaseTx, error) {
+	// Include every app from the frozen admission plan so no new app gate is
+	// acquired beneath the receipt lock.
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil {
 		return nil, inboxInvalid("project, receipt, and claim token are required")
 	}
@@ -63,8 +56,8 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 		}
 		return nil, fmt.Errorf("lock inbox lease: %w", err)
 	}
-	// Separate statement evaluates wall time after any lock wait. Every mutation
-	// also checks a new statement_timestamp(), never transaction_timestamp().
+	// A separate statement observes time after the lock wait; the transaction's
+	// start time could incorrectly authorize an expired lease.
 	row, err = q.ReadIntegrationInboxLease(ctx, dbsqlc.ReadIntegrationInboxLeaseParams{
 		ProjectID: lease.ProjectID, ID: lease.ReceiptID, ClaimToken: lease.Token,
 	})
@@ -77,8 +70,6 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 	return &IntegrationInboxLeaseTx{tx: tx, q: q, lease: lease, record: inboxRecord(row)}, nil
 }
 
-// Receipt returns a detached snapshot so callers cannot mutate frozen state by
-// retaining or modifying JSON buffers obtained from this transaction.
 func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 	r := w.record
 	r.Payload = bytes.Clone(r.Payload)
@@ -122,18 +113,10 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 	return nil
 }
 
-// PrepareSlot persists once-only blob metadata/digests after uploads outside the
-// transaction and before admission. Agent/artifact UUIDs and recipient identity
-// MUST already be pinned in Plan. Preparation is evidence for those identities,
-// never a replacement source of admission identity. Stages can only be added;
-// replay of a different preparation fails and cannot overwrite an uploaded blob.
 func (w *IntegrationInboxLeaseTx) PrepareSlot(ctx context.Context, slot string, prepared json.RawMessage) error {
 	return w.writeSlotStage(ctx, slot, "prepared", prepared)
 }
 
-// CommitSlot records a successful admission in the same transaction as launch or
-// input. Media-free slots need no prepared stage. Admission code is responsible
-// for requiring preparation when its frozen plan contains media.
 func (w *IntegrationInboxLeaseTx) CommitSlot(ctx context.Context, slot string, result json.RawMessage) error {
 	return w.writeSlotStage(ctx, slot, "committed", result)
 }
@@ -247,9 +230,6 @@ func (w *IntegrationInboxLeaseTx) checkLease(ctx context.Context) error {
 	return nil
 }
 
-// WithIntegrationInboxLease commits standalone planning/progress transitions.
-// Atomic execution admission instead uses LockIntegrationInboxLeaseTx with its
-// own transaction and calls CommitSlot before committing that transaction.
 func (s *Store) WithIntegrationInboxLease(
 	ctx context.Context, lease IntegrationInboxLease, apply func(*IntegrationInboxLeaseTx) error,
 ) error {
@@ -276,10 +256,7 @@ func (s *Store) WithIntegrationInboxLease(
 
 func inboxLeaseMutation(operation string, rows int64, err error) error {
 	if err != nil {
-		// PostgreSQL jsonb expands spaces and numeric exponents. Raw-byte validation
-		// bounds parsing work; the durable CHECK is authoritative for stored size.
-		// Preserve its cause and return a permanent validation failure, never a lost
-		// lease or silent truncation. The caller must roll back the aborted transaction.
+		// jsonb expansion can exceed the durable bound even when raw-byte validation passed.
 		var databaseError *pgconn.PgError
 		if errors.As(err, &databaseError) && databaseError.Code == "23514" &&
 			(databaseError.ConstraintName == "integration_inbox_plan_check" ||
@@ -321,9 +298,8 @@ func inboxSlots(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	return slots, nil
 }
 
-// Do not let oversized or invalid diagnostics prevent retry/failure settlement.
-// Callers must redact credentials before supplying an error message.
 func boundedInboxError(reason string) string {
+	// Reasons are persisted; callers must redact credentials.
 	reason = strings.ToValidUTF8(strings.ReplaceAll(reason, "\x00", ""), "\uFFFD")
 	if strings.TrimSpace(reason) == "" {
 		reason = "inbox processing failed"

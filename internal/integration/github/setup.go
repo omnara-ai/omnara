@@ -10,10 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// SetupConfig uses App credentials without choosing an installation. Omit
-// Credentials only for manifest conversion. APIURL is a trusted deployment/test
-// setting with Config's restrictions; the guided HTTP adapter must enforce
-// github.com. BeforeRequest rechecks caller authority before every HTTP attempt.
 type SetupConfig struct {
 	Credentials   Credentials
 	HTTPClient    *http.Client
@@ -21,8 +17,6 @@ type SetupConfig struct {
 	BeforeRequest func(context.Context) error
 }
 
-// SetupClient performs bounded registration and App-authenticated discovery.
-// It never chooses an installation or mints installation access tokens.
 type SetupClient struct {
 	*appClient
 }
@@ -35,10 +29,6 @@ func NewSetupClient(config SetupConfig) (*SetupClient, error) {
 	return &SetupClient{appClient: client}, nil
 }
 
-// AppMetadata contains provider-returned identity, not credentials. Browser
-// links should be constructed from the verified slug/account at the HTTP layer.
-// Conversion preserves an enterprise owner's ID with empty login/type; App
-// inspection rejects that unsupported owner before returning browser metadata.
 type AppMetadata struct {
 	ID    int64  `json:"id"`
 	Slug  string `json:"slug"`
@@ -46,8 +36,6 @@ type AppMetadata struct {
 	Owner User   `json:"owner"`
 }
 
-// ManifestConversion is secret-bearing. Persist Credentials through secretstore;
-// never return this value to the browser or log it.
 type ManifestConversion struct {
 	App         AppMetadata
 	Credentials Credentials
@@ -58,8 +46,6 @@ type InstallationsPage struct {
 	NextPage      int            `json:"next_page,omitempty"`
 }
 
-// GitHub's enterprise account payload has a slug instead of a user's login and
-// type. Decode only the extra discriminator here; common User remains unchanged.
 type setupAccount struct {
 	User
 	Slug string `json:"slug"`
@@ -74,12 +60,9 @@ type setupApp struct {
 	Owner setupAccount `json:"owner"`
 }
 
-// ConvertManifest redeems a one-time code without authentication. A successful
-// response is validated in full before any credential is returned. The POST is
-// never retried; a failed response may have consumed the code.
-// A valid enterprise owner does not discard one-time credentials: save them, then
-// let App inspection report UnsupportedAccount. This does not enable connection.
 func (c *SetupClient) ConvertManifest(ctx context.Context, code string) (ManifestConversion, error) {
+	// Conversion consumes a one-time code, so preserve valid credentials even for
+	// enterprise owners; App inspection rejects those owners afterward.
 	if len(code) == 0 || len(code) > 512 {
 		return ManifestConversion{}, errors.New("invalid github manifest code")
 	}
@@ -137,10 +120,6 @@ func (c *SetupClient) App(ctx context.Context) (AppMetadata, error) {
 	return app.AppMetadata, nil
 }
 
-// ListInstallations returns one requested page. Every account belongs to the
-// authenticated App, but this does not prove any browser user's GitHub access.
-// An enterprise installation fails the whole page with UnsupportedAccount;
-// candidates are never silently filtered or partially returned.
 func (c *SetupClient) ListInstallations(ctx context.Context, options PageOptions) (InstallationsPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()

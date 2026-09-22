@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Explain the actual query source, with bound sqlc parameters, rather than a
-// separately maintained SQL approximation. Every data-changing EXPLAIN rolls back.
 func explainInboxQuery(t *testing.T, f inboxFixture, name string, parameters map[string]any) inboxQueryPlan {
 	t.Helper()
 	return explainInboxQueryFile(t, f, "integration_inbox.sql", name, parameters)
@@ -74,9 +72,6 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 	t.Parallel()
 	f := newInboxFixture(t)
 	app := f.appID
-	// Completed plans match the requested identity but must not reserve it. Failed
-	// unplanned receipts and many unrelated pending/processing/failed plans must
-	// not turn either an empty lookup or a late match into a history scan.
 	f.exec(t, `INSERT INTO integration_inbox
  (project_id,app_id,receipt_key,payload,state,plan,claim_token,claim_expires_at,completed_at)
  SELECT $1::uuid,$2::uuid,'reservation-history:'||n,'x'::bytea,
@@ -144,12 +139,9 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 		require.True(t, ginUsed, "reservation lookup must use the expression GIN, not scan all plans")
 	}
 	t.Run("no matching reservation", func(t *testing.T) { assertLookup(t, uuid.Nil, "", 0) })
-	// Two slots reserve the same whole recipient set, without returning the same
-	// receipt twice. The caller's own otherwise-matching receipt is excluded.
 	for i, state := range []string{"pending", "processing", "failed"} {
 		t.Run(state, func(t *testing.T) {
-			// Separate addresses keep this assertion about unrelated plan scans,
-			// independent of GIN retaining dead TIDs until vacuum after an update.
+			// Separate addresses avoid counting dead GIN entries retained until vacuum.
 			identity["address"] = map[string]any{"kind": "thread", "ref": "C123:123." + strconv.Itoa(456+i)}
 			selection, err := json.Marshal(identity)
 			require.NoError(t, err)
@@ -209,8 +201,6 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	disabled := f.addApp(t, "disconnected", integrationstore.ProjectAppSettings{}).ID
 	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, disabled)
 	other := f.addApp(t, "other-ready", integrationstore.ProjectAppSettings{}).ID
-	// Future work, recent completions, failed selections on an inactive app,
-	// and another app's ready backlog must not make empty polls scan history.
 	f.exec(
 		t,
 		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,state,available_at,completed_at)
@@ -245,7 +235,6 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 		"project_id": f.project, "app_id": f.appID,
 		"claim_token": uuid.New(), "lease_milliseconds": int64(60000),
 	}), 0)
-	// A single expired lease stays bounded even with thousands of healthy rows.
 	f.accept(t, "expired")
 	r := f.claim(t)
 	f.exec(t, `UPDATE integration_inbox SET claim_expires_at=now()-interval '1 second' WHERE id=$1`, r.ID)
@@ -261,8 +250,6 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupDeletedIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
-	// Empty lag sampling also seeks the ready index rather than scanning future
-	// retries or terminal history. All other access-path checks above are done.
 	f.exec(t, `UPDATE integration_inbox SET available_at=now()+interval '1 day' WHERE state='pending'`)
 	f.exec(t, "VACUUM ANALYZE integration_inbox")
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "OldestReadyIntegrationInboxLag", nil), 0)
@@ -274,9 +261,6 @@ func TestInboxInactiveRecoveryBatchesAppsAcrossProjects(t *testing.T) {
 	otherProject := uuid.New()
 	storagefixture.InsertProject(t, f.ctx, f.pool, f.org, otherProject,
 		"Other inbox project", "other-inbox-project", time.Now())
-	// Each project has four inactive apps with retained failures and an
-	// active app with a large healthy backlog. Arrays are real batches;
-	// a match in either project must not inspect unrelated apps' receipts.
 	for _, project := range []uuid.UUID{f.project, otherProject} {
 		for app := range 5 {
 			id := uuid.New()
@@ -302,8 +286,6 @@ func TestInboxInactiveRecoveryBatchesAppsAcrossProjects(t *testing.T) {
 	f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload)
  SELECT project_id,id,'batch-pending','x'::bytea FROM project_apps WHERE state='disconnected'`)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 3}), 6)
-	// Both the lateral and outer limit matter: three rows total, across all
-	// projects. Repeated bounded batches must eventually drain every app.
 	query, args := bindInboxQueryFile(t, "integration_inbox.sql", name, map[string]any{"row_limit": 3})
 	for _, want := range []int64{3, 3, 2, 0} {
 		result, err := f.pool.Exec(f.ctx, query, args...)

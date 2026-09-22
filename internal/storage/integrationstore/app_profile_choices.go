@@ -17,9 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// EnsureAppProfileChoice stores app-owned pre-launch state under the source
-// receipt's lease. Scope matching is app policy; storage rechecks the live setup
-// and offered profile identities without reading configs or allocating agents.
 func (s *Store) EnsureAppProfileChoice(
 	ctx context.Context, lease IntegrationInboxLease, input EnsureAppProfileChoiceInput,
 ) (AppProfileChoiceRecord, bool, error) {
@@ -46,7 +43,6 @@ func (s *Store) EnsureAppProfileChoice(
 	if err != nil {
 		return result, false, err
 	}
-	// A conversation or setup edit may have held us beyond the lease deadline.
 	if err := work.checkLease(ctx); err != nil {
 		return result, false, err
 	}
@@ -76,8 +72,6 @@ func ensureAppProfileChoiceTx(
 				return row, false, err
 			}
 		}
-		// Selected and expired source identities remain replay barriers. A text
-		// sibling cannot remove files and a replay cannot replace the offered menu.
 		if row.SelectedKey != "" || !input.HasAttachments ||
 			(jsoncanonical.Equal(row.Event, input.Event) && bytes.Equal(row.Payload, input.Payload)) {
 			return row, false, nil
@@ -88,7 +82,7 @@ func ensureAppProfileChoiceTx(
 		updated := row
 		updated.Event, updated.Payload = input.Event, input.Payload
 		updated, err = replaceAppProfileChoice(ctx, q, updated, true)
-		if errors.Is(err, pgx.ErrNoRows) { // Expiry never extends or revives the source.
+		if errors.Is(err, pgx.ErrNoRows) {
 			return row, false, nil
 		}
 		return updated, false, err
@@ -106,7 +100,7 @@ func ensureAppProfileChoiceTx(
 	})
 	if err == nil {
 		row, err = appProfileChoiceRecord(state)
-		return row, false, err // An unrelated mention cannot replace the original request.
+		return row, false, err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return row, false, err
@@ -138,8 +132,6 @@ func ensureAppProfileChoiceTx(
 func checkProfileChoiceUnsettled(
 	ctx context.Context, q *dbsqlc.Queries, receipt IntegrationInboxRecord, input EnsureAppProfileChoiceInput,
 ) error {
-	// Routing was only a snapshot. A concurrent admission may have settled this
-	// app before we acquired the conversation gate, including a retired target.
 	targets, err := q.ListConversationSelections(ctx, dbsqlc.ListConversationSelectionsParams{
 		ProjectID: receipt.ProjectID, AppID: receipt.AppID,
 		Kind: input.Address.Kind, Ref: input.Address.Ref,
@@ -166,8 +158,6 @@ func (s *Store) GetAppProfileChoice(
 	return row, nil
 }
 
-// GetAppProfileChoiceBySource retrieves retained app bookkeeping for exact late
-// siblings. This read grants no launch authority; ordinary admission rechecks it.
 func (s *Store) GetAppProfileChoiceBySource(
 	ctx context.Context, projectID, appID uuid.UUID, sourceKey string,
 ) (AppProfileChoiceRecord, bool, error) {
@@ -185,9 +175,6 @@ func (s *Store) GetAppProfileChoiceBySource(
 	return row, true, nil
 }
 
-// GetAppProfileChoiceInbox reads the retained receipt for an accepted choice.
-// Missing includes choices not yet accepted and receipts whose retention ended.
-// This read never creates or requeues work.
 func (s *Store) GetAppProfileChoiceInbox(
 	ctx context.Context, projectID, appID, choiceID uuid.UUID,
 ) (IntegrationInboxRecord, bool, error) {
@@ -206,8 +193,6 @@ func (s *Store) GetAppProfileChoiceInbox(
 	return inboxRecord(row), true, nil
 }
 
-// RecordAppProfileChoiceMessage binds the first confirmed provider message. A
-// duplicate publication cannot replace the identity callbacks must authenticate.
 func (s *Store) RecordAppProfileChoiceMessage(
 	ctx context.Context, projectID, appID, id uuid.UUID, channel, message string,
 ) error {
@@ -239,8 +224,6 @@ func (s *Store) RecordAppProfileChoiceMessage(
 	return tx.Commit(ctx)
 }
 
-// ChooseAppProfile commits the first valid selection and its decided inbox
-// receipt atomically. Repeated/competing clicks return the original winner.
 func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInput) (AppProfileChoiceRecord, error) {
 	var result AppProfileChoiceRecord
 	if !choiceText(input.Key, 64) || !choiceText(input.ActorID, 2048) ||
@@ -285,8 +268,6 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 	if len(offered) != 1 {
 		return result, storeerr.ErrStateTransitionConflict
 	}
-	// Unknown keys cannot retire a valid menu. Only an authenticated click on
-	// an actually offered option can discover that its setup/profile is stale.
 	app, err = appProfileChoiceApp(ctx, q, input.ProjectID, input.AppID)
 	if err == nil {
 		err = validateAppProfileChoiceOptions(ctx, q, app, offered)
@@ -304,7 +285,7 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 	row.SelectedKey, row.SelectedBy = input.Key, input.ActorID
 	row, err = replaceAppProfileChoice(ctx, q, row, true)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return result, storeerr.ErrStateTransitionConflict // Expired while waiting for a gate.
+		return result, storeerr.ErrStateTransitionConflict
 	}
 	if err != nil {
 		return result, err
@@ -313,8 +294,6 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 		ProjectID: input.ProjectID, AppID: input.AppID, ReceiptKey: "choice:" + input.ID.String(),
 		Payload: row.Payload, Events: &input.Events,
 	})
-	// A pre-existing receipt with an unselected choice cannot be a valid replay:
-	// both records are committed together. Never adopt unrelated provider bytes.
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, storeerr.ErrConflict
 	}
@@ -328,8 +307,6 @@ func (s *Store) ChooseAppProfile(ctx context.Context, input ChooseAppProfileInpu
 	return result, nil
 }
 
-// ExpireAppProfileChoice releases an unusable unselected menu, preserving its
-// source replay barrier. A selected choice and its accepted work are unchanged.
 func (s *Store) ExpireAppProfileChoice(ctx context.Context, projectID, appID, id uuid.UUID) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -460,7 +437,6 @@ func appProfileChoiceApp(
 func validateAppProfileChoiceOptions(
 	ctx context.Context, q *dbsqlc.Queries, app ProjectAppRecord, options []AppProfileChoiceOption,
 ) error {
-	// appProfileChoiceApp already checked the live launcher under its row lock.
 	ids := make([]uuid.UUID, 0, len(options))
 	for _, option := range options {
 		found := false
@@ -475,8 +451,8 @@ func validateAppProfileChoiceOptions(
 		}
 		ids = append(ids, option.ProfileID)
 	}
-	// Profile deletion checks app references under its own profile lock. Do not
-	// invert app-save's profile-before-app ordering with a profile row lock here.
+	// Profile deletion checks app references under its profile lock. Taking that
+	// lock here would invert app-save's profile-before-app ordering.
 	profiles, err := q.GetAgentProfileDisplayNames(ctx, dbsqlc.GetAgentProfileDisplayNamesParams{
 		ProjectID: app.ProjectID, ProfileIds: ids,
 	})
@@ -534,9 +510,8 @@ func validateChoiceJSON(value json.RawMessage, kind byte, limit int) error {
 	return nil
 }
 
-// GetAppProfileChoiceAppID identifies the setup that must verify a callback.
-// It grants no access to the choice; selection rechecks its app and receipt.
 func (s *Store) GetAppProfileChoiceAppID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	// Cross-project routing hint only; callers must verify the callback against the owning app.
 	appID, err := s.q.GetAppStateAppID(ctx, dbsqlc.GetAppStateAppIDParams{Kind: appProfileChoiceKind, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, storeerr.ErrNotFound

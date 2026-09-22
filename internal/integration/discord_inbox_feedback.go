@@ -60,7 +60,7 @@ func (p *DiscordAppInboxProvider) NotifyInboxFailure(ctx context.Context,
 			return err
 		}
 		if len(receipt.Plan) == 0 && !message.MentionsBot {
-			return nil // No recipient was frozen for this ordinary human message.
+			return nil
 		}
 		source = &message
 	}
@@ -83,9 +83,6 @@ func (p *DiscordAppInboxProvider) NotifyInboxFailure(ctx context.Context,
 		}
 	}
 	if root {
-		// A failed request may never have created its thread. Reuse an existing
-		// thread, or the original channel only after confirming the saved root.
-		// Never create a thread just to report that processing failed.
 		if _, err := client.GetScopedChannel(ctx, scope); err != nil {
 			var apiErr *discord.APIError
 			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
@@ -98,8 +95,6 @@ func (p *DiscordAppInboxProvider) NotifyInboxFailure(ctx context.Context,
 			}
 		}
 	}
-	// Separate from the scheduled opening's nonce; reuse only the existing
-	// bounded, nonce-protected message send. No durable notification retry.
 	nonce := "f_" + base64.RawURLEncoding.EncodeToString(receipt.ID[:])
 	_, err = client.CreateMessage(ctx, scope, discord.MessageArgs{Content: text, Nonce: nonce})
 	return err

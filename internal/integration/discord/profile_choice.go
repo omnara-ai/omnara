@@ -10,8 +10,6 @@ import (
 
 const ProfileChoiceCustomIDPrefix = "omnara_profile_choice:"
 
-// ProfileChoiceOption carries a frozen launcher slot and its display name, never
-// a profile, config or agent ID. The caller owns the slot's launch authority.
 type ProfileChoiceOption struct {
 	Key  string
 	Name string
@@ -22,12 +20,10 @@ type ProfileChoiceSelection struct {
 	Key      string
 }
 
-// ProfileChoicePrompt renders a single native menu for CreateMessage. Expiry
-// text is supplied by the caller; an empty string makes no expiry promise.
-// Schema: https://docs.discord.com/developers/components/reference#string-select
 func ProfileChoicePrompt(
 	choiceID string, options []ProfileChoiceOption, expiryText string,
 ) (string, []ActionRow, error) {
+	// String-select component schema: https://docs.discord.com/developers/components/reference#string-select
 	customID := ProfileChoiceCustomIDPrefix + choiceID
 	if _, err := decodeProfileChoiceCustomID(customID); err != nil {
 		return "", nil, err
@@ -57,14 +53,12 @@ func ProfileChoicePrompt(
 	return formText(text, 2000), []ActionRow{{Type: 1, Components: []Component{selectMenu}}}, nil
 }
 
-// ProfileChoiceFromInteraction decodes identity and slot only. Its caller must
-// verify conversation access, expiry and membership in the stored menu.
 func ProfileChoiceFromInteraction(input Interaction) (ProfileChoiceSelection, error) {
 	choiceID, err := decodeProfileChoiceCustomID(input.Data.CustomID)
 	if err != nil {
 		return ProfileChoiceSelection{}, err
 	}
-	if input.Type != 3 || input.Data.ComponentType != 3 || len(input.Data.Values) != 1 ||
+	if input.Type != InteractionTypeMessageComponent || input.Data.ComponentType != 3 || len(input.Data.Values) != 1 ||
 		!validProfileChoiceKey(input.Data.Values[0]) {
 		return ProfileChoiceSelection{}, errors.New("invalid discord profile choice selection")
 	}

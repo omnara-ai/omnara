@@ -11,8 +11,8 @@ import (
 
 const appProfileChoiceKind = "profile_choice"
 
-// The chooser owns this document. Its pending-menu SQL reads owner_receipt_id,
-// message_id and selected_key; change those queries together with these fields.
+// app_profile_choices.sql also reads owner_receipt_id, message_id and selected_key;
+// changes to these JSON keys must update those queries.
 type appProfileChoiceData struct {
 	OwnerReceiptID   uuid.UUID                `json:"owner_receipt_id"`
 	Event            json.RawMessage          `json:"event"`
@@ -73,7 +73,7 @@ func validateAppProfileChoiceState(record AppProfileChoiceRecord) error {
 	if err := encoder.Encode(record.Options); err != nil {
 		return err
 	}
-	// Bound the app's encoded options, excluding the encoder's trailing newline.
+	// json.Encoder adds a trailing newline.
 	if options.Len()-1 > 16*1024 {
 		return inboxInvalid("profile choice options exceed bounds")
 	}

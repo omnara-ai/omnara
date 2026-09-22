@@ -61,12 +61,10 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replay.ID)
 	require.False(t, replay.Created)
-	// One app cannot assign two launch slots to the same agent/conversation.
 	input.SelectionSlot = "another-slot"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	input.SelectionSlot = "agent"
-	// Independent apps may address the same bot/conversation and agent.
 	input.AppID = createApp("second")
 	sharedAgent, err := ensure(input)
 	require.NoError(t, err)
@@ -105,7 +103,6 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	require.Equal(t, second.ID, attribution.ID)
 	require.Equal(t, "reviewer", attribution.SelectionSlot, "input attribution must preserve launch selection")
 
-	// Attributing a new conversation does not create a launch selection.
 	originalAddress := input.Address
 	input.Address.Ref = "C123:789.123"
 	attribution, err = ensure(input)
@@ -117,8 +114,6 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	require.Empty(t, replay.SelectionSlot)
 	input.Address = originalAddress
 
-	// An independent receive route and attribution on the same conversation
-	// cannot become launch selection history.
 	input.AppID = first.AppID
 	attribution, err = ensure(input)
 	require.NoError(t, err)
@@ -129,8 +124,6 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	// Retiring a selected association retains the selection tombstone. A later
-	// mention may not silently launch a replacement for that app/slot.
 	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, second.ID)
 	input.AppID, input.SelectionSlot = second.AppID, "reviewer"
 	_, err = ensure(input)
@@ -151,7 +144,7 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 		"message",
 	)
 	require.NoError(t, err)
-	require.Len(t, candidates.Selections, 2) // Retired launch selections remain visible.
+	require.Len(t, candidates.Selections, 2)
 	require.Empty(t, candidates.Subscriptions)
 	require.ElementsMatch(
 		t,
@@ -246,7 +239,6 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, replay.IsToolContext, "ordinary attribution cannot clear an existing context")
 
-	// Database writes cannot bypass the write-once designation or retarget its identity.
 	_, err = f.pool.Exec(f.ctx, `UPDATE integration_targets SET is_tool_context=true WHERE id=$1`, ordinary.ID)
 	require.ErrorContains(t, err, "tool context is immutable")
 	for _, statement := range []string{
@@ -264,7 +256,6 @@ func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
 		_, err = f.pool.Exec(f.ctx, statement, args...)
 		require.ErrorContains(t, err, "tool context is immutable")
 	}
-	// Display metadata and routing remain independent of destination confinement.
 	f.exec(t,
 		`UPDATE integration_targets SET display_name='renamed',provider_metadata='{"retained":true}' WHERE id=$1`,
 		original.ID,

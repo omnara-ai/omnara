@@ -5,7 +5,6 @@ import { AppIcon } from './AppIcon'
 import { ProjectAppActions } from './ProjectAppActions'
 import type { useProjectAppActions } from './useProjectAppActions'
 
-/** Identity and account state live here, so the page body is only what people configure. */
 export function ProjectAppHeader({
   actions,
   app,

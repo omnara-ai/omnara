@@ -278,7 +278,6 @@ func TestProjectAppSetupValidationAndConfigChanges(t *testing.T) {
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	// Slack can only establish or rotate credentials through its verified OAuth exchange.
 	slackApp := createSetupHTTPApp(t, handler, project, "slack", appdefinition.SlackThread)
 	body["expected_setup_revision"] = slackApp.SetupRevision
 	rejected := requestJSONWithHeaders(
@@ -292,7 +291,6 @@ func TestProjectAppSetupValidationAndConfigChanges(t *testing.T) {
 		authHeaders(project.AdminToken),
 	)
 	require.Contains(t, projectAppHTTPJSON(t, rejected), "OAuth")
-	// Reusing the same physical bot is independent setup, not an upsert.
 	duplicate := createSetupHTTPApp(t, handler, project, "another-discord", appdefinition.DiscordThread)
 	body["expected_setup_revision"], body["provider_account_ref"] = duplicate.SetupRevision, "111"
 	created := requestJSONWithHeaders(
@@ -327,7 +325,6 @@ func TestProjectAppSetupCredentialScopeAndKind(t *testing.T) {
 	body["credential_secret_id"] = testPublicID(t, publicid.KindSecret, uuid.New())
 	requestJSONWithHeaders(t, handler, http.MethodPost, appSetupPath(t, project, app),
 		projectAppHTTPJSON(t, body), "", http.StatusNotFound, authHeaders(project.AdminToken))
-	// An available secret still needs the exact credential kind for this app.
 	body["credential_secret_id"] = createAppSetupHTTPSecret(
 		t,
 		handler,
@@ -422,8 +419,6 @@ func createSlackHTTPApp(
 	return app
 }
 
-// Each local token identifies one application/bot pair, allowing CRUD coverage
-// to exercise provider identity verification without contacting Discord.
 func appSetupDiscordConfig(t *testing.T) discord.Config {
 	t.Helper()
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

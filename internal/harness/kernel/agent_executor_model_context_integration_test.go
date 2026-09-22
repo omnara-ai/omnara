@@ -412,7 +412,6 @@ func (f kernelSlackRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, 
 	return f(req)
 }
 
-// Match attachKernelSlackHandler's saved identity before recording message sends.
 func kernelSlackRuntimeHTTPClient(
 	t *testing.T,
 	identifier string,
@@ -502,7 +501,6 @@ func attachKernelSlackHandler(
 	if source.InteractionHandlers == nil {
 		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigAppCapabilitySource)
 	}
-	// Runtime notices need a handler, independently of model send tools or subscriptions.
 	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigAppCapabilitySource{}
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
@@ -538,8 +536,6 @@ func attachKernelSlackHandler(
 	})
 	require.NoError(t, err)
 
-	// Config activation creates no target. Materialize this verified origin's
-	// canonical attribution and select its matching handler in one transaction.
 	tx, err := fixture.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()

@@ -64,7 +64,6 @@ func TestInteractionDeliveryRecoversUnstartedQueueWork(t *testing.T) {
 				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 			}))
 			defer server.Close()
-			// A new presenter/runner has no access to the previous process's queue.
 			presenter := integration.InteractionPresenter{
 				Store:      f.Store,
 				HTTPClient: integrationProviderTestClient(server),

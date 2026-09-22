@@ -7,8 +7,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// CronTriggerActor attributes both direct cron inputs and scheduled app tasks to
-// the same Omnara identity, regardless of their delivery path.
 func CronTriggerActor(orgID, triggerID uuid.UUID, name string) (*ActorParams, error) {
 	tenantID, err := publicid.Encode(publicid.KindOrganization, orgID)
 	if err != nil {

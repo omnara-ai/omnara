@@ -7,9 +7,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-// freezeEmptyIfUnrouted lets a pure normalized message avoid file downloads when
-// nobody can receive it. Empty completion is decided under the same conversation
-// gate/reservation check as full planning; possible recipients use normal Freeze.
 func (r *AppRouter) freezeEmptyIfUnrouted(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,

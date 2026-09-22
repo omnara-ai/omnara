@@ -7,11 +7,22 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
-// Add Reactions, View Channels, Send Messages, Attach Files, Read Message History,
-// Create Public Threads and Send Messages in Threads. No administrator access.
-const discordBotPermissions = '309237746752'
+const addReactions = 1n << 6n
+const viewChannels = 1n << 10n
+const sendMessages = 1n << 11n
+const attachFiles = 1n << 15n
+const readMessageHistory = 1n << 16n
+const createPublicThreads = 1n << 35n
+const sendMessagesInThreads = 1n << 38n
+const discordBotPermissions =
+  addReactions |
+  viewChannels |
+  sendMessages |
+  attachFiles |
+  readMessageHistory |
+  createPublicThreads |
+  sendMessagesInThreads
 
-/** The URL a provider portal needs. It stays empty until the typed provider ID can complete it. */
 export function ProjectAppPortalSetup({
   appType,
   providerId,

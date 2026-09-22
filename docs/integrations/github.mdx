@@ -184,10 +184,9 @@ deduplicated while that receipt remains stored. Signed pings and callbacks for
 unmanaged or disconnected installations can receive 204 without creating agent work.
 Omnara does not run an automatic GitHub redelivery scheduler.
 
-Completed raw receipts are eligible for cleanup seven days after completion.
-Their transport deduplication window ends when they are deleted; agent
-conversation history is preserved. Failed receipts remain available while their
-project and app still exist.
+Completed and failed raw receipts are eligible for cleanup seven days after
+finishing. Their transport deduplication window ends when they are deleted; agent
+conversation history is preserved.
 
 See [Composable apps](/integrations/apps) for mixing these tools with another
 provider's subscription or approval destination, and [Custom integrations](/integrations/custom-integrations)

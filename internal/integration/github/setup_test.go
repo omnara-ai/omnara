@@ -21,8 +21,6 @@ const setupAppJSON = `{"id":123,"slug":"helper","name":"Helper Bot",` +
 	`"owner":{"id":888,"login":"octo-org","type":"Organization"}}`
 const setupInstallationJSON = `{"id":456,"app_id":123,"account":{"id":888,"login":"octo-org","type":"Organization"}}`
 
-// The documented enterprise schema has slug/name, not login/type. Its URLs are
-// deliberately unrelated: setup must not use them for requests or browser links.
 const setupEnterpriseAccountJSON = `{"id":777,"node_id":"enterprise-node","slug":"octo-business",` +
 	`"name":"Octo Business","html_url":"https://untrusted.example/enterprise",` +
 	`"avatar_url":"https://untrusted.example/avatar",` +
@@ -232,13 +230,11 @@ func TestSetupConversionLostResponseIsNotRetried(t *testing.T) {
 			client, _ := testSetupClient(t, Credentials{}, func(w http.ResponseWriter, _ *http.Request) {
 				calls.Add(1)
 				if partialResponse {
-					// The code was consumed, but the credential response was cut off.
 					w.Header().Set("Content-Length", "1024")
 					w.WriteHeader(http.StatusCreated)
 					fmt.Fprint(w, `{"pem":"private-provider-key"`)
 					return
 				}
-				// Lose the entire response after the server received the code.
 				hijacker, ok := w.(http.Hijacker)
 				if !ok {
 					t.Error("fixture requires HTTP connection hijacking")

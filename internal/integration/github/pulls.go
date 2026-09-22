@@ -78,16 +78,14 @@ type ReviewComment struct {
 }
 
 type File struct {
-	SHA              string `json:"sha"`
-	Filename         string `json:"filename"`
-	PreviousFilename string `json:"previous_filename"`
-	Status           string `json:"status"`
-	Additions        int    `json:"additions"`
-	Deletions        int    `json:"deletions"`
-	Changes          int    `json:"changes"`
-	// Patch can be absent for binaries or omitted/truncated by GitHub. Never
-	// interpret an absent patch or an exhausted page as proof of a complete diff.
-	Patch *string `json:"patch"`
+	SHA              string  `json:"sha"`
+	Filename         string  `json:"filename"`
+	PreviousFilename string  `json:"previous_filename"`
+	Status           string  `json:"status"`
+	Additions        int     `json:"additions"`
+	Deletions        int     `json:"deletions"`
+	Changes          int     `json:"changes"`
+	Patch            *string `json:"patch"`
 }
 
 type Diff struct {
@@ -104,8 +102,7 @@ type ReviewCommentsPage struct {
 	NextPage int             `json:"next_page,omitempty"`
 }
 
-// FilesPage is capped by GitHub at 3,000 files across all pages. Compare with PullRequest.ChangedFiles
-// when deciding completeness. GetDiff fails explicitly if its byte bound is hit.
+// FilesPage can end at GitHub's 3,000-file limit; compare PullRequest.ChangedFiles to detect truncation.
 type FilesPage struct {
 	Files    []File `json:"files"`
 	NextPage int    `json:"next_page,omitempty"`
@@ -121,8 +118,6 @@ func (c *Client) GetPullRequest(ctx context.Context, scope Scope) (PullRequest, 
 	return pull.metadata, nil
 }
 
-// GetDiff uses the authenticated API media type, never the payload's diff_url.
-// A response exceeding ResponseMaxBytes fails instead of silently truncating.
 func (c *Client) GetDiff(ctx context.Context, scope Scope) (Diff, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
@@ -245,12 +240,10 @@ func (c *Client) CreateInlineComment(
 	return result, err
 }
 
-// Reply verifies PR membership before sending, including for IDs obtained from
-// a different resource. Replies to replies are normalized to the verified root
-// comment because GitHub only accepts top-level review comment IDs.
 func (c *Client) Reply(
 	ctx context.Context, scope Scope, commentID int64, body string,
 ) (ReviewComment, error) {
+	// GitHub accepts only top-level review comment IDs as reply targets.
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	if err := validateBody(body); err != nil {

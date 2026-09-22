@@ -65,7 +65,6 @@ export function ProjectAppProfilePicker({
       enabled: profile.name === profile.id,
     })),
   })
-  // Resolve saved selections independently of the current search/page; never drop failed lookups.
   const selected = value.map(
     (profile, index) =>
       selectedQueries[index]?.data ?? items.find((item) => item.id === profile.id) ?? profile,

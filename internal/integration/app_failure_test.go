@@ -86,7 +86,8 @@ func TestAppFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 				require.ErrorIs(t, err, provider.err)
 				require.Equal(t, 1, provider.notices)
 				if scenario.name == "partially admitted" {
-					require.Equal(t, "I couldn't deliver this request to every agent. Some agents have already received it.", provider.message)
+					require.Equal(t,
+						"I couldn't deliver this request to every agent. Some agents have already received it.", provider.message)
 				} else {
 					require.Equal(t, inboxFailureMessage, provider.message)
 				}

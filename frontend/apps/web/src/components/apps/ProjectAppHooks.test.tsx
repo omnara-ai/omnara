@@ -221,7 +221,6 @@ it('refreshes app details on tab focus even within the 30-second freshness windo
   act(() => {
     focusManager.setFocused(false)
   })
-  // Another tab completes OAuth while this tab still considers its cached read fresh.
   current = {
     ...app,
     state: 'active',

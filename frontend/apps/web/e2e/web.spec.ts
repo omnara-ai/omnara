@@ -371,10 +371,9 @@ test('granting a model from the Builder does not create a profile or agent', asy
 test('keeps profile config edits across tabs and confirms launching with unsaved edits', async ({
   page,
 }) => {
-  // Tab changes cancel obsolete profile reads; failed HTTP responses are still recorded.
   const failures = installFailureTracking(page, [
     /^page: Canceled$/,
-    /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
   ])
   await createProfile(
     page,
@@ -410,10 +409,9 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
 })
 
 test('keeps the save pending across tab switches while the revision uploads', async ({ page }) => {
-  // Refetch cancellation is expected here; the held save is explicitly completed below.
   const failures = installFailureTracking(page, [
     /^page: Canceled$/,
-    /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
   ])
   await createProfile(
     page,
@@ -477,7 +475,7 @@ test('renames a profile from its detail page', async ({ page }) => {
 
 test('deletes a profile from its detail page', async ({ page }) => {
   const failures = installFailureTracking(page, [
-    /agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/agent-profiles\/aprf_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
     /^response: 404 .*\/agent-profiles\/aprf_[a-z2-7]+$/,
   ])
   const profileName = uniqueName('Deleted Profile E2E')
@@ -743,7 +741,6 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
 
     const conversation = await exerciseAppConversations(page, app, profileId, apiProjectPath)
 
-    // A second app may select the same secret. Its lifecycle stays independent.
     await openAppSetup(page, projectID, appType, `${appName}-2`)
     await fillProviderAccount(page, appType)
     await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()

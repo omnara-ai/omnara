@@ -84,8 +84,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				source := map[string]any{
 					"instruction": "Review",
 					"model":       map[string]any{"provider_config": "openai-prod", "name": "test"},
-					// Match released builder output, not just compiled policy grammar.
-					"tools": map[string]any{"send_integration_message": map[string]any{"type": "built_in", "enabled": false}}}
+					"tools":       map[string]any{"send_integration_message": map[string]any{"type": "built_in", "enabled": false}}}
 				var raw []byte
 				if scenario.sourceFormat == "json" {
 					raw, err = json.Marshal(source)
@@ -115,7 +114,6 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 					fmt.Sprintf("T%d", i+1), fmt.Sprintf("A%d", i+1), credentialID,
 					time.Date(2026, 1, i+1, 0, 0, 0, 0, time.UTC))
 			}
-			// Released deletion preserves the state while clearing its credential.
 			exec(`UPDATE integration_installs SET deleted_at='2026-02-01',credential_secret_id=NULL WHERE id=$1`, deletedID)
 			if scenario.sourceFormat != "" {
 				exec(`UPDATE integration_installs SET state='disabled' WHERE id=$1`, liveID)
@@ -156,7 +154,6 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				)
 				require.Equal(t, "active", state, "invalid active setup must never silently become disconnected")
 				require.False(t, credential.Valid)
-				// A blocked cutover leaves the old release able to repair and retry.
 				exec(`UPDATE integration_installs SET credential_secret_id=$2 WHERE id=$1`, liveID, credentialID)
 				require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 			} else {
@@ -290,8 +287,6 @@ func assertSlackTombstoneSourceResave(
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, ConfiguredModelID: modelID,
 	})
 	require.NoError(t, err)
-	// Use the production resolver: tombstones do not resolve, but disconnected
-	// app metadata must allow an unrelated profile instruction edit and save.
 	source = strings.Replace(source, "Review", "Review edited", 1)
 	recompile := func() agentconfig.Compiled {
 		t.Helper()
@@ -310,8 +305,6 @@ func assertSlackTombstoneSourceResave(
 		return result
 	}
 	recompile()
-	// Reusing the tombstone name creates a new app identity. The old source must
-	// neither pin its old ID nor impose the historical provider-wide disable.
 	reusedName := "slack-2"
 	if onlyDeleted {
 		reusedName = "slack"

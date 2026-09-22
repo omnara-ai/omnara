@@ -101,7 +101,6 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			require.NoError(t, err)
 			compiled = string(canonical)
 			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(compiled)))
-			// Compiled-only snapshots are a released contract since migration39.
 			exec(
 				`INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,definition,compiled_definition,
                  effective_definition_hash,created_at)
@@ -138,8 +137,6 @@ tools:
 			if source != nil && sendingEnabled {
 				source = strings.ReplaceAll(testutil.RequireType[string](t, source), "enabled: false", "enabled: true")
 			}
-			// Literal released builder/API tool entries have source-only type and
-			// nullable enabled fields absent from their compiled representation.
 			if strings.Contains(scenario, "wire_") || strings.Contains(scenario, "null_") {
 				policy := `{"type":"built_in","enabled":false}`
 				if sendingEnabled {
@@ -181,7 +178,6 @@ tools:
 				ids.ProviderAdminUserID,
 				credentialID,
 			)
-			// Tie creation time to exercise the ID tiebreaker for stable names.
 			exec(`INSERT INTO integration_installs(id,org_id,project_id,agent_profile_id,installed_by_user_id,
              provider,integration_kind,
 			 connection_mode,state,provider_tenant_id,provider_account_ref,provider_identity,
@@ -248,8 +244,6 @@ tools:
 						eventID,
 					)
 				}
-				// Recoverable failures remain immutable history after retry or stop.
-				// Neither may block a later maintenance migration.
 				if i == 0 || i == 1 {
 					failed := uuid.New()
 					q(`INSERT INTO model_call_contexts(id,org_id,project_id,agent_id,operation_kind,attempt_number,
@@ -321,7 +315,6 @@ tools:
 				)
 				q(`UPDATE agents SET integration_target_id=$2 WHERE id=$1`, agentID, targetID)
 				if i == noTurnIndex {
-					// Unadmitted provider history retains its original attribution ID.
 					q(`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,
                      integration_target_id,queued_at,canceled_at)
 					 VALUES($1,$2,'canceled','content','steering',$3,now(),now())`, ids.ProjectID, agentID, targetID)
@@ -345,8 +338,6 @@ tools:
                 provider_ref,provider_ref_kind,provider_metadata,deleted_at,created_at,updated_at)
                 VALUES($1,$2,$3,$4,'retired','C999:1.2','thread','{"legacy":"retained"}',now(),now(),now())`,
 				retiredTargetID, ids.ProjectID, agents[0], appID)
-			// Snapshot durable history and agent data before the migration writes
-			// config activations. Exact JSON comparison catches unintended edits.
 			history := func() string {
 				t.Helper()
 				var value string
@@ -428,7 +419,6 @@ tools:
 				}
 				require.ErrorContains(t, err, want)
 				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
-				// The complete SQL41 transaction rolled back, leaving the old release usable.
 				var oldConnections int
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_installs WHERE id=$1`, appID).Scan(&oldConnections))
@@ -437,7 +427,6 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT to_regclass('project_apps') IS NOT NULL`).Scan(&newTableExists))
 				require.False(t, newTableExists)
-				// Exercise an old-writer statement after rollback, not just a table lookup.
 				exec(
 					`UPDATE integration_installs SET updated_at=now() WHERE id=$1 AND agent_profile_id IS NOT DISTINCT FROM agent_profile_id`,
 					appID,
@@ -508,8 +497,6 @@ tools:
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
-				// Independently exercise Go42's defensive checks and transaction
-				// rollback even if maintenance preflight was bypassed after SQL41.
 				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 41))
 				if scenario == "config_limit" {
 					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
@@ -519,8 +506,6 @@ tools:
 				}
 				expectedConfigs := 1
 				if scenario == "invalid_policy" {
-					// Inject after SQL41 so this remains a Go42 defense test when
-					// SQL41 also rejects unmappable policies before its rename.
 					legacySendPolicy["permission"] = map[string]any{"mode": "always_ask", "parameters": map[string]any{}}
 					invalid, err := json.Marshal(compiledObject)
 					require.NoError(t, err)
@@ -860,9 +845,6 @@ tools:
 					require.False(t, tool.Enabled)
 				}
 			}
-			// The shared profile is still usable for a new mention. An enabled
-			// legacy entry must not mask the launcher's ordinary app tool;
-			// an explicit disable still wins unchanged.
 			encodedAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
 			require.NoError(t, err)
 			launched, err := agentconfig.DeriveWithAppCapabilities(historical, agentconfig.AppCapabilitiesSource{
@@ -931,8 +913,6 @@ tools:
 			)
 			require.Equal(t, configID.String(), profileConfig)
 			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
-			// Ordinary public input remains usable after the cutover; it observes
-			// the successor without recreating an old Slack receive subscription.
 			for i, agentID := range agents {
 				if i == archivedIndex {
 					continue
@@ -962,8 +942,6 @@ tools:
 	}
 }
 
-// Exercise the ordinary immutable model context/output ledger, not an artificial
-// edit of the prior failed context. These are legal pre-cutover records.
 func seedSlackCutoverSuccessfulRetry(
 	t *testing.T,
 	exec func(string, ...any),

@@ -32,7 +32,6 @@ func TestPromptCallbackIdentityDoesNotSubmitFormEdits(t *testing.T) {
 			}
 		})
 	}
-	// Submit carries its own identity, independently of message blocks.
 	id, err := PromptCallbackInteractionID(ActionsEnvelope{Actions: []actionButton{submit}})
 	if err != nil || id != value.InteractionID {
 		t.Fatalf("submit identity = %q, %v", id, err)

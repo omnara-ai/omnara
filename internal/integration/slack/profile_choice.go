@@ -10,8 +10,6 @@ import (
 
 const ProfileChoiceActionPrefix = "omnara_profile_choice:"
 
-// ProfileChoiceOption carries a frozen launcher slot and its display name, never
-// a profile, config or agent ID. The caller owns the slot's launch authority.
 type ProfileChoiceOption struct {
 	Key  string
 	Name string
@@ -22,13 +20,10 @@ type ProfileChoiceSelection struct {
 	Key      string
 }
 
-// ProfileChoicePrompt renders a single native menu. Expiry text is supplied by
-// the caller; an empty string makes no expiry promise. PostProfileChoice sends
-// this menu. ReconcilePromptReceipt is for agent prompts only.
-// Schema: https://docs.slack.dev/reference/block-kit/block-elements/select-menu-element/
 func ProfileChoicePrompt(
 	choiceID string, options []ProfileChoiceOption, expiryText string,
 ) (string, []map[string]any, error) {
+	// Select-menu schema: https://docs.slack.dev/reference/block-kit/block-elements/select-menu-element/
 	if _, err := publicid.Decode(publicid.KindAppProfileChoice, choiceID); err != nil {
 		return "", nil, errors.New("invalid slack profile choice identity")
 	}
@@ -68,8 +63,6 @@ func ProfileChoicePrompt(
 	}, nil
 }
 
-// ProfileChoiceFromActions decodes identity and slot only. Its caller must verify
-// the callback, conversation access, expiry and membership in the stored menu.
 func ProfileChoiceFromActions(envelope ActionsEnvelope) (ProfileChoiceSelection, error) {
 	if envelope.Type != "block_actions" || len(envelope.Actions) != 1 {
 		return ProfileChoiceSelection{}, errors.New("invalid slack profile choice action")

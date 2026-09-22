@@ -14,15 +14,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-// AppEvent is normalized only after provider verification/expansion. Content
-// uses ordinary input blocks. Each media_ref has a placeholder artifact UUID
-// mapped to an immutable provider file ID; planning assigns fresh per-agent IDs.
-// Downloads and uploads happen after Freeze and outside every store transaction.
 type AppEvent struct {
-	// Launches are explicit decisions made by app code before generic planning.
-	Launches []AppLaunchIntent `json:"launches,omitempty"`
-	// Directed requests deliver only to their named setup/slot recipients. In
-	// particular, choosing an old menu must not replay its source to new subscriptions.
+	Launches               []AppLaunchIntent                     `json:"launches,omitempty"`
 	Directed               bool                                  `json:"directed,omitempty"`
 	Sibling                *executionstore.InboxMessageSibling   `json:"sibling,omitempty"`
 	Event                  appdefinition.Event                   `json:"event"`
@@ -49,11 +42,6 @@ type AppPlannedFile struct {
 	Expected       *artifactstore.PreparedArtifact `json:"expected,omitempty"`
 }
 
-// AppInboxSlot deliberately shares the kernel admission JSON envelopes. Only
-// profile launches contain Selection; existing agents never reserve membership.
-// BaseConfig identifies what was read. Launch freezes the derived tool/handler
-// config and concrete subscriptions, including resolved events. Recovery admits
-// those snapshots without rebuilding either from current source.
 type AppInboxSlot struct {
 	Sibling      *executionstore.InboxMessageSibling          `json:"sibling,omitempty"`
 	Scope        appdefinition.Scope                          `json:"scope"`
@@ -109,9 +97,6 @@ type AppRoutingStore interface {
 	) (integrationstore.AppRoutingCandidates, error)
 }
 
-// AppRouter owns bounded planning and semantic admission. Provider intake,
-// downloads, worker scheduling and retry budgets remain with their existing
-// owners. Errors retain the receipt/plan for explicit retry or diagnosis.
 type AppRouter struct {
 	execution    AppExecutionStore
 	integrations AppRoutingStore
@@ -121,7 +106,6 @@ func NewAppRouter(execution AppExecutionStore, integrations AppRoutingStore) *Ap
 	return &AppRouter{execution: execution, integrations: integrations}
 }
 
-// Prepare records metadata for bytes already uploaded at the frozen identities.
 func (r *AppRouter) Prepare(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -173,9 +157,6 @@ type AppSlotAdmission struct {
 	Input  *executionstore.InboxInputResult
 }
 
-// Admit attempts each frozen recipient independently, preserving successful
-// progress when another slot fails. Empty plans complete only after a successful
-// Freeze; a reservation conflict never becomes a silently completed empty plan.
 func (r *AppRouter) Admit(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,

@@ -42,7 +42,6 @@ type GetInteractionCallbackAppIDParams struct {
 	ID uuid.UUID
 }
 
-// Private callback routing only; the captured prompt is checked again during resolution.
 func (q *Queries) GetInteractionCallbackAppID(ctx context.Context, arg GetInteractionCallbackAppIDParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, getInteractionCallbackAppID, arg.ID)
 	var app_id uuid.UUID

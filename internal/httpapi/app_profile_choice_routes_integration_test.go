@@ -41,8 +41,6 @@ type profileChoiceHTTPFixture struct {
 	signingSecret string
 }
 
-// Start with profiles and a verified source receipt, never an agent or a fake
-// permission interaction. The callback must only decide a new inbox receipt.
 func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTTPFixture {
 	t.Helper()
 	updates := make(chan map[string]any, 8)
@@ -152,7 +150,6 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	}
 	kind, ref, err := scope.Conversation()
 	require.NoError(t, err)
-	// Raw provider bytes remain distinct from the normalized and selected event.
 	payload := []byte("  {\"text\":\"original request\"}\n")
 	store := f.project.Store.Integrations()
 	accepted, created, err := store.AcceptIntegrationReceipt(t.Context(), integrationstore.VerifiedIntegrationReceipt{
@@ -255,7 +252,6 @@ func (f profileChoiceHTTPFixture) callback(
 		headers["Content-Type"] = "application/x-www-form-urlencoded"
 	}
 	if badSignature {
-		// Modify the signed body after computing an otherwise valid signature.
 		body += " "
 	}
 	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
@@ -323,8 +319,6 @@ func TestAppProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *testing.T) {
 				AppID: f.app.ID, Slot: "reviewer", ProfileID: f.options[1].ProfileID,
 			}}
 			require.JSONEq(t, projectAppHTTPJSON(t, []integration.AppEvent{expected}), string(receipt.Events))
-			// Exact replay and a later participant choosing another offered profile
-			// both preserve the first decision and its single frozen receipt.
 			for _, replay := range []struct{ key, actor string }{{"reviewer", actor}, {"support", actor + "2"}} {
 				f.assertAccepted(t, f.callback(t, menu, menu.ID, replay.key, replay.actor, false, nil), menu)
 				replayed := f.readChoice(t, menu.ID)
@@ -340,7 +334,6 @@ func TestAppProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *testing.T) {
 }
 
 func TestAppProfileChoiceCallbacksRejectForgedAndCrossMenuChoices(t *testing.T) {
-	// Cases share two unselected menus so every rejection must preserve both.
 	for _, provider := range []string{appdefinition.ProviderSlack, appdefinition.ProviderDiscord} {
 		t.Run(provider, func(t *testing.T) {
 			f := newProfileChoiceHTTPFixture(t, provider)
@@ -539,7 +532,6 @@ func TestAppProfileChoiceRejectsSetupChangedAfterAuthentication(t *testing.T) {
 			CustomID:      discord.ProfileChoiceCustomIDPrefix + testPublicID(t, publicid.KindAppProfileChoice, menu.ID),
 			ComponentType: 3, Values: []string{"reviewer"}},
 	}
-	// The handler already authenticated this snapshot before setup was replaced.
 	response, err := (&Server{store: f.project.Store}).discordProfileChoiceAction(t.Context(), f.app, input)
 	require.NoError(t, err)
 	require.Equal(t, 4, response.Type)

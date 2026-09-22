@@ -93,8 +93,6 @@ func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 	}
 }
 
-// GitHub setup is real HTTP against this local provider fixture. Public secret
-// and app setup endpoints still validate and persist all identity observations.
 func githubSetupTestConfig(t *testing.T, appSlug ...func() string) github.Config {
 	t.Helper()
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -209,8 +207,6 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	)
 }
 
-// Setup-only fixture: all credentials and identities pass through public HTTP
-// against a local provider, independently of the webhook/launcher journeys.
 type githubSetupJourney struct {
 	handler  http.Handler
 	project  publicHTTPProject

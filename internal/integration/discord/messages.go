@@ -30,8 +30,6 @@ func (c *Client) channel(ctx context.Context, id string) (Channel, error) {
 	return channel, nil
 }
 
-// GetScopedChannel resolves a destination after validating its parent and guild.
-// Callers use the returned provider facts when guild_id was omitted in config.
 func (c *Client) GetScopedChannel(ctx context.Context, scope Scope) (Channel, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
@@ -92,8 +90,6 @@ func messageInChannel(message Message, channel Channel) bool {
 		(message.GuildID == "" || message.GuildID == channel.GuildID)
 }
 
-// AddReaction sets the bot's own reaction. Repeating this PUT is safe, including
-// after an uncertain response. Discord returns an empty 204 on success.
 func (c *Client) AddReaction(ctx context.Context, channelID, messageID, emoji string) error {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
@@ -112,10 +108,8 @@ type PageOptions struct {
 }
 
 type MessagePage struct {
-	Messages []Message `json:"messages"`
-	// NextBefore is only a bounded cursor, never a provider URL. A full page may
-	// require one more read to discover the end of history.
-	NextBefore string `json:"next_before,omitempty"`
+	Messages   []Message `json:"messages"`
+	NextBefore string    `json:"next_before,omitempty"`
 }
 
 func (c *Client) ListMessages(ctx context.Context, scope Scope, opts PageOptions) (MessagePage, error) {
@@ -162,8 +156,7 @@ func (c *Client) ListMessages(ctx context.Context, scope Scope, opts PageOptions
 
 type MessageArgs struct {
 	Content string
-	// Nonce must be stable for this logical send and unique across this bot's
-	// destinations. Persist it with the caller's operation, not a retry timestamp.
+	// Nonce deduplication spans this bot's destinations, so separate sends need separate nonces.
 	Nonce      string
 	Files      []Upload
 	Components []ActionRow
@@ -216,7 +209,6 @@ func (c *Client) CreateMessage(ctx context.Context, scope Scope, args MessageArg
 		message.Author.ID != c.credentials.BotUserID {
 		return Message{}, invalidResponse(true)
 	}
-	// Discord echoes a nonce for newly created and nonce-deduplicated messages.
 	var nonce string
 	if json.Unmarshal(message.Nonce, &nonce) != nil || nonce != args.Nonce {
 		return Message{}, invalidResponse(true)
@@ -224,8 +216,6 @@ func (c *Client) CreateMessage(ctx context.Context, scope Scope, args MessageArg
 	return message, nil
 }
 
-// EditMessage updates a confirmed bot presentation by ID. It does not scan
-// history or automatically retry an uncertain edit.
 func (c *Client) EditMessage(ctx context.Context, scope Scope, messageID, content string,
 	components []ActionRow,
 ) (Message, error) {
@@ -257,8 +247,6 @@ func (c *Client) EditMessage(ctx context.Context, scope Scope, messageID, conten
 	return result, nil
 }
 
-// EnsureThread reuses the selected thread or creates/reconciles the unique
-// thread attached to the source message. No arbitrary standalone threads.
 func (c *Client) EnsureThread(ctx context.Context, scope Scope, messageID, name string) (Channel, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
@@ -311,13 +299,9 @@ func (c *Client) EnsureThread(ctx context.Context, scope Scope, messageID, name 
 type Identity struct {
 	ApplicationID string `json:"application_id"`
 	BotUserID     string `json:"bot_user_id"`
-	// DisplayName is mutable presentation, not part of the saved identity.
-	DisplayName string `json:"-"`
+	DisplayName   string `json:"-"`
 }
 
-// DiscoverIdentity resolves customer bot credentials during connection setup.
-// IDs may be omitted initially; any supplied identity must match independently.
-// The returned facts can then be stored as immutable connection identity.
 func DiscoverIdentity(ctx context.Context, config Config) (Identity, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
@@ -340,7 +324,6 @@ func DiscoverIdentity(ctx context.Context, config Config) (Identity, error) {
 	return identity, nil
 }
 
-// CheckIdentity verifies the configured application and bot user independently.
 func (c *Client) CheckIdentity(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()

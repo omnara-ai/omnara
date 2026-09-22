@@ -110,7 +110,6 @@ func TestGatewayHeartbeatsDuringBlockedCommit(t *testing.T) {
 					writePacket(t, ctx, conn, `{"op":1,"d":null}`)
 				}
 				for range beats {
-					// The received sequence advances while its commit is still blocked.
 					expectGatewayHeartbeat(t, ctx, conn, "11")
 					writePacket(t, ctx, conn, `{"op":11,"d":null}`)
 				}
@@ -141,8 +140,6 @@ func TestGatewayServerHeartbeatDoesNotStartACKDeadline(t *testing.T) {
 		_ = readPacket(t, ctx, conn)
 		writePacket(t, ctx, conn, `{"op":1,"d":null}`)
 		expectGatewayHeartbeat(t, ctx, conn, "10")
-		// Withhold the requested heartbeat's ACK. The first timer tick must
-		// send its scheduled heartbeat, not treat the earlier reply as overdue.
 		expectGatewayHeartbeat(t, ctx, conn, "10")
 		writePacket(t, ctx, conn, `{"op":11,"d":null}`)
 		expectGatewayHeartbeat(t, ctx, conn, "10")
@@ -179,8 +176,6 @@ func TestGatewayReplayBurstBackpressure(t *testing.T) {
 					writePacket(t, ctx, conn, fmt.Sprintf(`{"op":0,"s":%d,"t":"MESSAGE_CREATE","d":{}}`, sequence))
 				}
 				for range 2 {
-					// One dispatch is in flight and one is pending. ACKs sent now are
-					// behind the burst, so the second heartbeat needs bounded grace.
 					expectGatewayHeartbeat(t, ctx, conn, "12")
 					if drain {
 						writePacket(t, ctx, conn, `{"op":11,"d":null}`)
@@ -194,8 +189,6 @@ func TestGatewayReplayBurstBackpressure(t *testing.T) {
 					if !waitGatewayBarrier(t, ctx, allCommitted) {
 						return
 					}
-					// Continue beyond the grace window: buffered ACKs must become
-					// visible after the burst drains and keep this connection alive.
 					expectGatewayHeartbeat(t, ctx, conn, "74")
 					writePacket(t, ctx, conn, `{"op":11,"d":null}`)
 					writePacket(t, ctx, conn, `{"op":7,"d":null}`)
@@ -297,7 +290,6 @@ func TestGatewayCancellationRacingSuccessfulCommitReloadsStorage(t *testing.T) {
 			<-ctx.Done()
 			close(canceled)
 			<-finish
-			// A transaction can commit successfully even as its context is canceled.
 			saved = next
 			return nil
 		})
@@ -320,7 +312,6 @@ func TestGatewayCancellationRacingSuccessfulCommitReloadsStorage(t *testing.T) {
 	}
 	require.EqualValues(t, 10, persisted.Sequence)
 	require.EqualValues(t, 11, saved.Sequence)
-	// Reload the saved record, rather than reusing the caller's old checkpoint.
 	reloaded := saved
 	err := RunShard(t.Context(), config, &reloaded, func(_ context.Context, _ Dispatch, next Checkpoint) error {
 		saved = next
@@ -356,8 +347,6 @@ func TestGatewayShutdownPreservesIndependentWorkerFailure(t *testing.T) {
 				calls.Add(1)
 				close(entered)
 				defer close(exited)
-				// The protocol/parent must stop first; the worker's independent
-				// result can only become available during RunShard's deferred join.
 				<-ctx.Done()
 				if test.worker == "intake panic" {
 					panic("private intake detail")
@@ -384,8 +373,6 @@ func TestGatewayShutdownPreservesIndependentWorkerFailure(t *testing.T) {
 				case "cancel":
 					cancel()
 				}
-				// A following dispatch must not start another commit. The peer
-				// may already have closed, so failure to send it is also valid.
 				_ = conn.Write(ctx, websocket.MessageText, []byte(`{"op":0,"s":12,"t":"MESSAGE_CREATE","d":{}}`))
 				if _, _, err := conn.Read(ctx); err == nil || ctx.Err() != nil {
 					t.Errorf("gateway did not promptly close after shutdown: err=%v context=%v", err, ctx.Err())

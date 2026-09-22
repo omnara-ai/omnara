@@ -20,8 +20,6 @@ func webhookHeaders(body []byte) http.Header {
 }
 
 func TestWebhookSignatureKnownVector(t *testing.T) {
-	// RFC 4231 test case 1, with GitHub's sha256= header encoding. This fixed
-	// vector is independent of the local fixture signing helper.
 	secret := strings.Repeat("\x0b", 20)
 	body := []byte("Hi There")
 	header := http.Header{}

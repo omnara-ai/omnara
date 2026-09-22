@@ -52,6 +52,8 @@ func encodeMessage(payload messagePayload, files []Upload) ([]byte, string, erro
 		if total > MaxUploadBytes {
 			return nil, "", errors.New("discord upload exceeds byte limit")
 		}
+		// Attachment IDs must match the multipart files[n] indices.
+		// https://docs.discord.com/developers/resources/message#attachment-object
 		payload.Attachments = append(payload.Attachments, uploadMetadata{ID: i, Filename: file.Filename})
 	}
 	data, err := json.Marshal(payload)
@@ -84,11 +86,11 @@ func encodeMessage(payload messagePayload, files []Upload) ([]byte, string, erro
 	return body.Bytes(), w.FormDataContentType(), nil
 }
 
-// DownloadAttachment refreshes metadata from the scoped message so expired CDN
-// URLs are not persisted authority. CDN requests never carry bot credentials.
 func (c *Client) DownloadAttachment(
 	ctx context.Context, scope Scope, messageID, attachmentID string,
 ) (Download, error) {
+	// Refresh attachment metadata because Discord CDN URLs expire.
+	// https://docs.discord.com/developers/reference#signed-attachment-cdn-urls
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	if !validID(attachmentID) {

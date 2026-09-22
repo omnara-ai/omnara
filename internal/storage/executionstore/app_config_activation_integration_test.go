@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
-	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -120,8 +119,6 @@ func (f appActivationFixture) changeInput(
 	}
 }
 
-// Read durable identity, event selection and provenance even while an app is
-// disconnected. Fixture mutations go through the semantic subscription APIs.
 func (f appActivationFixture) subscriptions(t *testing.T, agentID uuid.UUID) []dbsqlc.AppSubscription {
 	t.Helper()
 	rows, err := f.store.pool.Query(f.ctx, `SELECT id,project_id,agent_id,app_id,subscription_type,
@@ -260,14 +257,8 @@ func TestAppSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) {
 func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 	f := newAppActivationFixture(t)
 	otherProject := seedAdditionalProjectForTest(t, f.ctx, f.store.pool, "other-app")
-	otherConfig := storagefixture.SeedAgentConfig(t, f.ctx, f.store.Models(), f.store.Execution(), testOrgID, otherProject,
-		"instruction: Other project\nmodel: {provider_config: openai-prod, name: gpt-test}\n")
-	otherProfile, err := f.store.Execution().CreateAgentProfile(f.ctx, executionstore.CreateAgentProfileInput{
-		ProjectID: otherProject, Name: "Other", CurrentConfigID: otherConfig.ID,
-	})
-	require.NoError(t, err)
 	credential := createIntegrationCredential(t, f.ctx, f.store, otherProject, f.user.ID, "other-app")
-	otherInput := slackProjectAppSetupInput(otherProfile.ID, uuid.Nil, f.user.ID, credential, "A_OTHER", "T_OTHER")
+	otherInput := slackProjectAppSetupInput(f.user.ID, credential, "A_OTHER", "T_OTHER")
 	otherInput.ProjectID = otherProject
 	other := mustCreateProjectApp(t, f.ctx, f.store, otherInput)
 	base, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "app-base"))
@@ -299,7 +290,6 @@ func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 			})
 			require.ErrorIs(t, err, storeerr.ErrNotFound)
 			require.Empty(t, f.subscriptions(t, base.Agent.ID))
-			// Tool references keep their independent project boundary, too.
 			change := f.changeInput(t, base.Agent.ID, "Foreign tool", "foreign-tool-"+state)
 			definition := f.withSendingTools(t, change.CreateAgentConfigInput)
 			var compiled agentconfig.Compiled
@@ -609,8 +599,6 @@ func TestAppCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigChange(t *
 			}
 			require.Len(t, matching(f.app.ID), 2)
 			require.Empty(t, matching(secondary.ID), "unavailable app cannot deliver")
-			// Unlike optional config references, explicit receive attachments must
-			// authorize their app, including when the same config can launch.
 			launchInput.IdempotencyKey = "required-secondary"
 			launchInput.Subscriptions = append(launchInput.Subscriptions, attachment)
 			_, err = f.store.Execution().LaunchAgent(f.ctx, launchInput)

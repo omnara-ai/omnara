@@ -11,8 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// The caller installs the app authority check on IntegrationHTTPClient. Uploads
-// and completion share it, so revocation is rechecked before every provider I/O.
 func (e Executor) sendSlackArtifacts(
 	ctx context.Context,
 	turn Turn,

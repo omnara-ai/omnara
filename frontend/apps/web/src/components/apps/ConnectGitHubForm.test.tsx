@@ -673,7 +673,6 @@ it.each([true, false])(
     await waitForUI(() => {
       expect(document.querySelector('#github-installation')).not.toBeNull()
     })
-    // Both modes must use the same metadata draft, even when the guided mode submits.
     expect(api.requestsTo('POST', projectPath + '/apps')).toHaveLength(1)
     click('Use an existing App')
     expect(field('GitHub App ID').value).toBe('111')

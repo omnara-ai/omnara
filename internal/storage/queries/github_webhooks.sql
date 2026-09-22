@@ -1,10 +1,6 @@
--- Only unknown-installation/ping verification uses these credential candidates,
--- capped at 16 by the caller. Known-installation fanout resolves every matching
--- app separately and verifies its own setup, without this fallback cap.
--- Disconnected apps can still verify the GitHub App's signature; they cannot
--- receive integration input.
--- Deduplicate shared grants before bounding work. The HTTP verifier reads the
--- payload through secretstore again, so this lookup does not grant secret access.
+-- Ping/unknown-installation verification only; ordinary deliveries verify each
+-- matching app independently rather than borrowing these fallback credentials.
+-- Include disconnected apps so signed callbacks can be acknowledged without work.
 -- name: ListGitHubWebhookCredentialApps :many
 SELECT DISTINCT ON (app.credential_secret_id)
   app.id, app.org_id, app.project_id, app.installed_by_user_id,

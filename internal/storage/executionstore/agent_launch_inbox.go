@@ -15,14 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// InboxLaunchSlot is a profile launch frozen before preparing any media. The common selection
-// envelope reserves the app's entire conversation membership, not just Slot.
-// Launch contains a pinned config ID or an already compiled derived snapshot;
-// admission never resolves the current profile/app settings again. Existing-agent
-// trigger slots are ordinary inputs, not launches, and have no selection envelope.
-// Subscriptions are explicit app-owned attachments and may include other apps or
-// conversations in the project. Selection reserves the launch conversation; it
-// does not constrain receive routes chosen by the trusted application planner.
 type InboxLaunchSlot struct {
 	Selection   integrationstore.InboxAppSelection `json:"selection"`
 	AgentID     uuid.UUID                          `json:"agent_id"`
@@ -46,11 +38,6 @@ type inboxLaunchProgress struct {
 	Committed *inboxLaunchCommit      `json:"committed"`
 }
 
-// AdmitInboxLaunchSlot consumes only durable frozen plan/preparation, never
-// replacement identities or config supplied by a retrying worker. One slot is
-// atomic with its committed progress; other slots can recover independently.
-// Replays follow LaunchAgent's contract: Created=false and the current Agent,
-// without repeating launch effects or returning stale launch-only instructions.
 func (s *Store) AdmitInboxLaunchSlot(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -69,8 +56,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
 ) (LaunchAgentResult, error) {
-	// This unlocked immutable-plan read discovers all earlier app gates.
-	// The fenced read below is authoritative for preparation and admission.
+	// Read the immutable plan first to discover app gates that must precede the receipt lock.
 	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return LaunchAgentResult{}, err
@@ -102,11 +88,9 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, apps...)
 	if err != nil {
-		// No admission writes have happened. Release this connection before using
-		// diagnostic reads, including on a pool with only one available session.
+		// Release the connection before diagnostic reads, which may need the pool's only session.
 		_ = tx.Rollback(ctx)
-		// A first attempt may have committed while this worker waited, and then
-		// released its lease or lost live app authority. Replay is a read.
+		// Another attempt may have committed and released its lease while this worker waited.
 		latest, readErr := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if readErr == nil {
 			latestSlot, latestProgress, decodeErr := decodeInboxLaunchSlot(latest, slotKey)
@@ -132,9 +116,8 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// All these gates were acquired before the receipt. Validate only this
-	// slot's concrete resource authorities; another slot's revocation must not
-	// block independent progress. FreezePlan already reserved the full membership.
+	// These gates are already held. Recheck only this slot's authority so another
+	// slot's revocation cannot block its independent progress.
 	if err := integrationstore.LockAppsTx(ctx, tx, lease.ProjectID, resources); err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -173,9 +156,6 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		return LaunchAgentResult{}, err
 	}
 	if !result.Created || result.Agent.ID != slot.AgentID {
-		// A legitimate replay has committed slot progress in the same transaction
-		// as its agent. Anything else is a colliding launch key/identity, not a
-		// reason to attach this receipt's content to a different launch.
 		return LaunchAgentResult{}, storeerr.ErrIdempotencyConflict
 	}
 	committed, err := json.Marshal(
@@ -189,8 +169,6 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// CommitSlot checks wall-clock expiry again after all lock waits and work.
-	// Losing the lease rolls back config, agent, subscriptions, target, media and input.
 	if err := work.CommitSlot(ctx, slotKey, committed); err != nil {
 		return LaunchAgentResult{}, err
 	}

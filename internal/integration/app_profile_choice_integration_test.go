@@ -123,7 +123,6 @@ func (f *choiceJourney) receive(key string, event AppEvent) []AppSlotAdmission {
 			ProjectID: f.ids.ProjectID, AppID: f.appSetup.ID, ReceiptKey: key, Payload: []byte(`{"original":true}`),
 		})
 	require.NoError(f.t, err)
-	// The provider decodes this external sender separately for each owning app.
 	event.Actor = appTestActor(f.t, f.appSetup.ID, event.Actor.ProviderUserID)
 	f.provider.events = []AppEvent{event}
 	receipt := f.claim()
@@ -175,7 +174,6 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	require.Equal(t, "light", choice.Options[0].Name)
 	require.Equal(t, "heavy", choice.Options[1].Name)
 
-	// A later message must not overwrite the request associated with this menu.
 	later := f.event
 	later.SemanticKey, later.ContentBlocks = "later-message", json.RawMessage(`[{"type":"text","text":"do not substitute me"}]`)
 	require.Empty(t, f.receive("while-waiting", later))
@@ -242,8 +240,6 @@ func TestChatProfileChoiceFastClickBeforeOwnerFreeze(t *testing.T) {
 	_, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.appSetup, f.provider.events)
 	require.NoError(t, err)
 	require.Len(t, f.provider.menus, 1)
-	// The provider menu is confirmed, but the publishing receipt has not frozen
-	// its plan. A quick click accepts a separate request before that happens.
 	f.choose(f.provider.menus[0], "heavy")
 	_, err = f.consumer.Consume(ctx, owner.Lease())
 	require.ErrorIs(t, err, integrationstore.ErrAppSelectionReserved)
@@ -326,7 +322,6 @@ func TestChatProfileChoiceConcurrentSiblingDoesNotPostAnotherMenu(t *testing.T) 
 	require.NoError(t, err)
 	require.Empty(t, intents)
 	require.EqualValues(t, 1, p.calls.Load(), "sibling enrichment cannot become a second publisher")
-	// Let the original durable receipt finish publication after the sibling.
 	p.release <- struct{}{}
 	require.Empty(t, integrationdb.AwaitSuccess(t, one, "menu publication"))
 }
@@ -369,8 +364,6 @@ func TestChatProfileChoiceRetainsAttachmentDigestBeforeSelection(t *testing.T) {
 	f.event.Sibling = &executionstore.InboxMessageSibling{Key: "files-callback"}
 	require.Empty(t, f.receive("mention", f.event))
 	choice := f.provider.menus[0]
-	// Slack's attachment callback can enrich the original request while the
-	// menu is open. It must update both source representations, without a launch.
 	content := []byte("original file")
 	id := uuid.New()
 	sibling := f.event
@@ -414,7 +407,6 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	f := newChoiceJourney(t, 2)
 	require.Empty(t, f.receive("mention", f.event))
 	f.choose(f.provider.menus[0], "heavy")
-	// Keep the same key but replace the profile after the click and before work.
 	settings := f.app.Settings
 	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
 	_, err := f.store.Integrations().UpdateProjectApp(t.Context(), f.app.ID, integrationstore.SaveProjectAppInput{
@@ -509,7 +501,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			ctx := t.Context()
 			require.Empty(t, f.receive("mention", f.event))
 			f.choose(f.provider.menus[0], "heavy")
-			selected := f.claim() // No agent/subscription exists yet.
+			selected := f.claim()
 			router := NewAppRouter(f.store.Execution(), f.store.Integrations())
 			if scenario.frozen {
 				var events []AppEvent
@@ -553,7 +545,7 @@ func TestChatProfileChoiceUnavailableMenuRecoversOnNewMention(t *testing.T) {
 	f.provider.presentationError = ErrAppLaunchUnavailable
 	require.Empty(t, f.receive("missing-presentation-configuration", f.event))
 	require.Empty(t, f.provider.menus)
-	f.provider.presentationError = nil // An administrator fixed the provider configuration.
+	f.provider.presentationError = nil
 	next := f.event
 	next.SemanticKey = "fresh-mention"
 	require.Empty(t, f.receive("fresh-mention", next))
@@ -621,10 +613,9 @@ func TestChatProfileChoiceFailedSourceCannotLaunchAgain(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, f.profiles[0].ID, results[0].Launch.Agent.AgentProfileID)
-	changeProfile(f.profiles[1].ID) // Original intent once again matches the saved slot, but not its agent.
+	changeProfile(f.profiles[1].ID)
 	_, err = f.consumer.Consume(ctx, original.Lease())
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
-	// Repeating the selection button never queues another attempt.
 	f.choose(f.provider.menus[0], "heavy")
 	_, found, err := f.store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.ids.ProjectID, AppID: f.app.ID, LeaseDuration: time.Minute,
@@ -682,7 +673,7 @@ func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
 				`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
 			require.Zero(t, agents)
 			require.Len(t, f.provider.menus, 1)
-			f.choose(choice, "heavy") // Repeated buttons cannot resurrect the failed handoff.
+			f.choose(choice, "heavy")
 			next := f.event
 			next.SemanticKey, next.Sibling = "fresh-mention", nil
 			require.Empty(t, f.receive("fresh-mention", next))
@@ -716,7 +707,6 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 		require.NoError(t, err)
 		agentID = result.Agent.ID
 	}
-	// Admission committed, but completing the receipt never succeeded.
 	require.NoError(t, inbox.WithIntegrationInboxLease(ctx, selected.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			return work.Fail(ctx, "completion bookkeeping exhausted retries")

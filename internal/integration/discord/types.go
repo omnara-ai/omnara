@@ -65,9 +65,6 @@ type Message struct {
 	Nonce       json.RawMessage `json:"nonce,omitempty"`
 }
 
-// Scope keeps the parent channel separate from its optional selected thread.
-// GuildID is a Discord server ID, optional only when authoring did not capture it
-// (or for a DM). A thread is always checked against the selected parent channel.
 type Scope struct {
 	GuildID   string `json:"guild_id,omitempty"`
 	ChannelID string `json:"channel_id"`

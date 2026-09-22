@@ -46,7 +46,6 @@ export default defineConfig({
             )
           }
           enforceMaxCodePoints()
-          // Length-only annotations preserve template text without the resource-name policy.
           if (!resourceName) return ctx.chain.current
           ctx.chain.current = ctx.chain.current.attr('transform').call(
             ctx.$.func()

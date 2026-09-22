@@ -46,11 +46,11 @@ func TestScheduledDispatchUsesAppTypeWithoutThreadInputsOrProvider(t *testing.T)
 			require.NoError(t, err)
 			require.JSONEq(t, string(event.Settings), string(accepted.Settings))
 			calls = append(calls, appType)
-			return nil, nil // A scheduled action need not return an agent launch.
+			return nil, nil
 		}
 	}
 	consumer := NewAppInboxConsumer(nil, nil, nil, nil, nil, nil, WithAppScheduledHandlers(handlers))
-	delete(handlers, refreshType) // The registry supplied at construction is copied.
+	delete(handlers, refreshType)
 	for _, appType := range []appdefinition.Type{refreshType, archiveType} {
 		results, err := consumer.consumeScheduled(t.Context(), receipt.Lease(), receipt, integrationstore.ProjectAppRecord{
 			ID: receipt.AppID, ProjectID: receipt.ProjectID, AppType: appType, Provider: appdefinition.ProviderSlack,

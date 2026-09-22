@@ -1,5 +1,3 @@
--- Verified bytes and receipt identity are immutable. Provider verification happens
--- before this query; the owner holds active project/app lifecycle gates.
 -- name: InsertIntegrationInboxReceipt :one
 INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload)
 VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload))
@@ -18,10 +16,6 @@ FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
 -- name: OldestReadyIntegrationInboxLag :one
--- One probe of the pending-ready index, including inactive scopes that recovery
--- must drain. No scope joins, counts, payload reads, or created_at history scan.
--- Valid transitions never leave pending attempts at 8: retry/expiry fails them.
--- Avoid a residual filter beyond the index.
 SELECT EXTRACT(EPOCH FROM statement_timestamp() - available_at)::double precision AS lag_seconds
 FROM integration_inbox
 WHERE state = 'pending' AND available_at <= statement_timestamp()
@@ -29,8 +23,6 @@ ORDER BY available_at, id
 LIMIT 1;
 
 -- name: ListReadyIntegrationInboxApps :many
--- Bound pending receipt inspection before checking scope. Recovery drains an
--- inactive app that occupies this frontier; history is never inspected.
 WITH frontier AS MATERIALIZED (
   SELECT inbox.project_id, inbox.app_id
   FROM integration_inbox inbox
@@ -64,7 +56,7 @@ SET state = 'processing', attempt_count = inbox.attempt_count + 1,
 FROM candidate WHERE inbox.id = candidate.id
 RETURNING inbox.id, inbox.project_id, inbox.app_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.events, inbox.plan, inbox.progress, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
 
--- Locking and checking are separate statements in Go: time advances while waiting.
+-- Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 -- name: LockIntegrationInboxReceipt :one
 SELECT id FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
@@ -84,8 +76,6 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND claim_expires_at > statement_timestamp()
   AND plan IS NULL;
 
--- Progress cannot overwrite the plan or receipt. The semantic store only adds
--- prepared/committed stages of a frozen slot, preserving prior stage results.
 -- name: UpdateIntegrationInboxProgress :execrows
 UPDATE integration_inbox
 SET progress = sqlc.arg(progress)::jsonb, updated_at = statement_timestamp()
@@ -123,8 +113,6 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
 
--- The expired frontier uses the lease-expiry partial index. Scope checks occur
--- only after the bounded SKIP LOCKED selection; healthy pending work is untouched.
 -- name: RecoverExpiredIntegrationInboxReceipts :execrows
 WITH candidates AS MATERIALIZED (
   SELECT expired.id, expired.project_id, expired.app_id
@@ -152,11 +140,7 @@ SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN 'failed
     updated_at = statement_timestamp()
 FROM scoped WHERE inbox.id = scoped.id;
 
--- Start from inactive scopes, not the inbox. The materialized scope set and
--- per-project app batches keep the planner off healthy pending/history rows.
--- There is deliberately no global inbox sort before LIMIT. Each matching scope
--- probes the pending-ready partial index; processing receipts are fenced from
--- use immediately and failed by expired-lease recovery after their lease ends.
+-- Scan inactive apps first so recovery does not sort or scan healthy inbox history.
 -- name: FailInactiveIntegrationInboxReceipts :execrows
 WITH inactive_apps AS MATERIALIZED (
   SELECT app.project_id, array_agg(app.id) AS app_ids
@@ -185,8 +169,7 @@ SET state = 'failed', claim_token = NULL, claim_expires_at = NULL,
     last_error = 'integration scope inactive', updated_at = statement_timestamp()
 FROM candidates WHERE inbox.id = candidates.id;
 
--- Completed or failed receipt identity is retained only for the configured retention
--- window. After deletion a sufficiently late provider replay can be accepted.
+-- Deleting a receipt ends transport deduplication; later provider replays may be accepted.
 -- name: CleanupTerminalIntegrationInboxReceipts :execrows
 WITH candidates AS (
   SELECT finished.id FROM integration_inbox finished
@@ -197,10 +180,6 @@ WITH candidates AS (
 )
 DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates.id;
 
--- Soft-deleted scopes no longer need raw payloads, including failed receipts.
--- Disconnected live apps retain terminal receipts for the normal retention window.
--- Resolve deleted scopes first, then use the unique receipt identity index.
--- An empty cleanup poll does not inspect retained history in live apps.
 -- name: CleanupDeletedIntegrationInboxReceipts :execrows
 WITH deleted_apps AS MATERIALIZED (
   SELECT app.project_id, app.id
@@ -222,7 +201,6 @@ WITH deleted_apps AS MATERIALIZED (
 )
 DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates.id;
 
--- Only the cron handoff uses this query. Raw provider intake cannot set source.
 -- name: InsertScheduledAppEventReceipt :one
 INSERT INTO integration_inbox (project_id, app_id, receipt_key, payload, source)
 VALUES (sqlc.arg(project_id), sqlc.arg(app_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled')

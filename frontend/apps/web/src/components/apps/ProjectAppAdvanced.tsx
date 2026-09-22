@@ -4,7 +4,6 @@ import type { ProjectApp } from '@omnara/sdk'
 import { ChevronRightIcon } from '@/components/icons'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
-/** Reference material for provider portals and agent configurations; closed by default. */
 export function ProjectAppAdvanced({ app }: { app: ProjectApp }) {
   const client = useOmnaraClient()
   const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin

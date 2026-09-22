@@ -2,7 +2,6 @@ import { useAgentProfileQuery } from '@omnara/react'
 import type { AppLauncher, ProjectApp } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 
-/** What starts agents for this app, in plain words. */
 export function ProjectAppSummary({
   orgId,
   projectId,

@@ -107,8 +107,6 @@ func TestAppInboxWorkerRotatesAppsBeforeRevisitingHotApp(t *testing.T) {
 		{ProjectID: uuid.New(), AppID: uuid.New()},
 		{ProjectID: uuid.New(), AppID: uuid.New()},
 	}
-	// The store supplies oldest-first discovery. Every app stays ready,
-	// including a hot first app that would win every independent scan.
 	store := &appWorkerTestStore{ready: true, apps: apps}
 	worker := NewAppInboxWorker(
 		store,
@@ -237,7 +235,7 @@ func (s *appWorkerTestStore) WithIntegrationInboxLease(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.retried = append(s.retried, lease)
-	return nil // Durable Retry semantics are exercised by the database tests.
+	return nil
 }
 
 func TestAppInboxWorkerBoundedConcurrencyAndShutdown(t *testing.T) {
@@ -365,7 +363,6 @@ func TestAppInboxWorkerContinuesFullRecoveryBatches(t *testing.T) {
 		}
 		return 1, nil
 	}
-	// A failed observation must not make recovery or otherwise healthy intake fail.
 	store.sampleLag = func(context.Context) (time.Duration, error) {
 		return 0, errors.New("sample unavailable")
 	}

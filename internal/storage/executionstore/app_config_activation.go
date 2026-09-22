@@ -13,8 +13,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// launchAppIDsTx reads immutable config authority without taking profile,
-// model, machine-source or agent locks. Derived configs are not inserted yet.
 func launchAppIDsTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
@@ -67,10 +65,8 @@ func configChangeReplayExistsTx(ctx context.Context, q *dbsqlc.Queries, input Ch
 	return true, nil
 }
 
-// lockConfigChangeAppsTx locks only the next immutable config's references,
-// before the agent-source lock. Config changes do not own subscriptions, and
-// interaction selection is reconciled under the agent lock, so previous-only
-// apps need no gate. A committed replay needs no live app authority.
+// Previous-only apps need no gate: activation leaves subscriptions unchanged
+// and reconciles interaction selection under the agent lock.
 func lockConfigChangeAppsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -91,8 +87,7 @@ func lockConfigChangeAppsTx(
 		return err
 	}
 	if err := integrationstore.LockAppsTx(ctx, tx, input.ProjectID, next.ReferencedAppIDs()); err != nil {
-		// An activation may have committed while we waited. Let the normal
-		// replay path compare the request before rejecting its app references.
+		// An activation may have committed while we waited; replay must survive revocation.
 		if replay, replayErr := configChangeReplayExistsTx(ctx, q, input); replayErr == nil && replay {
 			return nil
 		}

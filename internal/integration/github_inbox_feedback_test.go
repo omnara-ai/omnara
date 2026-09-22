@@ -189,7 +189,7 @@ func TestGitHubNotifyInboxFailureHumanSources(t *testing.T) {
 
 func TestGitHubNotifyInboxFailureSkipsUnplannedHumanComments(t *testing.T) {
 	app := githubEventApp()
-	p := GitHubAppInboxProvider{} // An unrelated comment must not resolve credentials.
+	p := GitHubAppInboxProvider{}
 	for _, eventType := range []string{"issue_comment", "pull_request_review_comment", "pull_request_review"} {
 		t.Run(eventType, func(t *testing.T) {
 			event := githubEventFixture(eventType)
@@ -206,7 +206,7 @@ func TestGitHubNotifyInboxFailureSkipsUnplannedHumanComments(t *testing.T) {
 
 func TestGitHubNotifyInboxFailureSkipsAutomaticAndBotEvents(t *testing.T) {
 	app := githubEventApp()
-	p := GitHubAppInboxProvider{} // Skipped inputs must not even resolve credentials.
+	p := GitHubAppInboxProvider{}
 	for _, action := range []string{"opened", "synchronize"} {
 		event := githubEventFixture("pull_request")
 		event.Action, event.Before, event.After = action, strings.Repeat("a", 40), strings.Repeat("b", 40)
@@ -220,7 +220,8 @@ func TestGitHubNotifyInboxFailureSkipsAutomaticAndBotEvents(t *testing.T) {
 	}
 	event := githubEventFixture("issue_comment")
 	event.Comment.User.Type = "Bot"
-	require.NoError(t, p.NotifyInboxFailure(t.Context(), app, feedbackReceipt(app, githubEventJSON(t, event)), inboxFailureMessage))
+	require.NoError(t,
+		p.NotifyInboxFailure(t.Context(), app, feedbackReceipt(app, githubEventJSON(t, event)), inboxFailureMessage))
 }
 
 func TestGitHubNotifyInboxFailureAuthorityAndScope(t *testing.T) {

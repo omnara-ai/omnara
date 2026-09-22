@@ -16,8 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// ScheduledAppEvent is the immutable handoff from a claimed cron occurrence.
-// The app owns settings and their runtime interpretation; cron owns occurrence identity.
 type ScheduledAppEvent struct {
 	TriggerID  uuid.UUID               `json:"trigger_id"`
 	Occurrence cronschedule.Occurrence `json:"occurrence"`
@@ -31,9 +29,6 @@ type AcceptScheduledAppEventInput struct {
 	Event      ScheduledAppEvent
 }
 
-// AcceptScheduledAppEventTx is composed only by executionstore's cron handoff,
-// under project/app/cron gates. The caller must roll back on any error.
-// It cannot complete the firing on its own and performs no external I/O.
 func (s *Store) AcceptScheduledAppEventTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -103,8 +98,6 @@ func (r IntegrationInboxRecord) ScheduledEvent() (ScheduledAppEvent, error) {
 	return event, event.validate()
 }
 
-// ValidateScheduledPlan checks app-defined behavior without handing application
-// code a transaction. Storage retains project, selection and receipt authority.
 func (r IntegrationInboxRecord) ValidateScheduledPlan(app ProjectAppRecord, plan json.RawMessage) error {
 	event, err := r.ScheduledEvent()
 	if err != nil {
@@ -113,8 +106,7 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(app ProjectAppRecord, plan
 	if app.ID != r.AppID || app.ProjectID != r.ProjectID {
 		return storeerr.ErrUnauthorized
 	}
-	// The immutable receipt was validated at admission. Check planned authority
-	// below without compiling its schema or rendering sample templates under locks.
+	// Admission validated the immutable receipt; avoid schema compilation under locks.
 	var slots map[string]struct {
 		Scope     appdefinition.Scope `json:"scope"`
 		Selection *InboxAppSelection  `json:"selection"`

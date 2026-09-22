@@ -514,7 +514,6 @@ func seedListAgentsSlackTarget(
 		IdempotencyKey: "list-agents-handler",
 	})
 	require.NoError(t, err)
-	// A verified inbox input creates the attribution target through real admission.
 	_, _, err = store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: project.ProjectUUID, AppID: install.ID,
 		ReceiptKey: "list-origin", Payload: []byte(`{"verified":true}`),
@@ -579,8 +578,7 @@ func assertListAgentsIntegrationTarget(
 	if !ok {
 		t.Fatalf("integration target has unexpected shape: %+v", raw)
 	}
-	// Released clients interpret this field as a transport, even though the
-	// saved app and its catalog entry now expose app_type.
+	// Released clients still interpret this field as a transport, not an app type.
 	if got := target["provider"]; got != provider {
 		t.Fatalf("integration target provider = %v, want %q", got, provider)
 	}

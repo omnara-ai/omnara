@@ -14,10 +14,8 @@ import (
 )
 
 type DisconnectProjectAppInput struct {
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	// Provider revocation callbacks must not disconnect a newer verified setup.
-	// An explicit user disconnect does not need an observed revision.
+	ProjectID             uuid.UUID
+	AppID                 uuid.UUID
 	ExpectedSetupRevision *int64
 }
 
@@ -81,7 +79,6 @@ func (s *Store) deleteProjectAppOnce(ctx context.Context, orgID, projectID, id u
 		return err
 	}
 	q := dbsqlc.New(tx)
-	// Freeze admission before enumerating agents; target creation uses this gate.
 	if err := q.LockProjectAppLifecycleExclusive(
 		ctx,
 		dbsqlc.LockProjectAppLifecycleExclusiveParams{AppID: id},

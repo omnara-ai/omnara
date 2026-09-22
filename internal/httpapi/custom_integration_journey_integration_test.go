@@ -40,8 +40,6 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 				"ticket-event-1", http.StatusOK, authHeaders(token))
 			require.Equal(t, input, replay["agent_input"])
 
-			// Only the model/permission boundary uses a deterministic kernel fixture.
-			// Setup, launch, input, approval discovery/resolution and results use HTTP.
 			interaction, tool := customIntegrationHTTPPermission(t, f, inputID)
 			destination, err := interaction.CapturedDestination()
 			require.NoError(t, err)

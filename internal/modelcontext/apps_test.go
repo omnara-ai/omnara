@@ -96,8 +96,6 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 			original := append(json.RawMessage(nil), store.config.CompiledDefinition...)
 			hash := store.config.EffectiveDefinitionHash
 			require.True(t, HasTool(buildAppContext(t, store).ToolSpecs, "app__engineering__post_message"))
-			// The AppStore contract omits disconnected/deleted IDs. Recreating the same
-			// name supplies a different ID and must not retarget the pinned tool.
 			delete(store.appDefinitions, appID)
 			if state == "recreated name" {
 				replacement, err := publicid.Encode(publicid.KindProjectApp, testIDN(942))
@@ -121,9 +119,9 @@ func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t 
 	store, appID := appContextFixture(t, "interaction_handlers: {engineering: {}}\n")
 	args := json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
 	store.interactionHandlers = agentconfig.InteractionHandlerPage{
-		Selection: &agentconfig.HandlerSelection{Handler: "engineering", AppID: appID, Args: args},
-		// A bounded first page can exclude the selected handler.
-		Handlers: []agentconfig.InteractionHandlerEntry{{Handler: "another", Description: "Another app"}}, NextCursor: "next",
+		Selection:  &agentconfig.HandlerSelection{Handler: "engineering", AppID: appID, Args: args},
+		Handlers:   []agentconfig.InteractionHandlerEntry{{Handler: "another", Description: "Another app"}},
+		NextCursor: "next",
 	}
 	bundle := buildAppContext(t, store)
 	require.Equal(t, &InteractionDestinationRef{Handler: "engineering", Args: args}, bundle.InteractionRouting.Destination)
@@ -145,8 +143,6 @@ func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t 
 	store.interactionHandlers.Handlers = nil
 	require.Equal(t, bundle.InteractionRouting, buildAppContext(t, store).InteractionRouting,
 		"selection is returned independently even when the page is empty")
-	// Storage revokes an unavailable selection by returning nil, not by omitting
-	// the handler from this page. Other handlers can remain listed.
 	store.interactionHandlers.Selection = nil
 	store.interactionHandlers.Handlers = []agentconfig.InteractionHandlerEntry{{Handler: "another"}}
 	revoked := buildAppContext(t, store)

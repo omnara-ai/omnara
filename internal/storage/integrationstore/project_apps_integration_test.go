@@ -52,7 +52,6 @@ func TestProjectAppReferencesAndLifecycle(t *testing.T) {
 	_, err = s.GetProjectApp(f.ctx, uuid.New(), app.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
-	// Disconnected apps retain launcher references and protect their profiles.
 	updated, err := s.UpdateProjectApp(f.ctx, app.ID, input)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.ProjectAppStateDisconnected, updated.State)
@@ -62,7 +61,6 @@ func TestProjectAppReferencesAndLifecycle(t *testing.T) {
 	require.NoError(t, execution.DeleteAgentProfile(f.ctx, f.project, profile.ID))
 	_, err = s.GetProjectApp(f.ctx, f.project, app.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	// Deleting one app leaves independently owned apps intact.
 	other, err := s.GetProjectApp(f.ctx, f.project, f.appID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.ProjectAppStateActive, other.State)
@@ -79,7 +77,7 @@ func TestProjectAppIndependentCapabilitiesAndPagination(t *testing.T) {
 		AppType:   appdefinition.SlackThread,
 	}
 	first, err := s.CreateProjectApp(f.ctx, input)
-	require.NoError(t, err) // Reusable setup need not enable a launcher or listener.
+	require.NoError(t, err)
 	input.Name = "more-slack-settings"
 	second, err := s.CreateProjectApp(f.ctx, input)
 	require.NoError(t, err)
@@ -113,5 +111,5 @@ func TestProjectAppIndependentCapabilitiesAndPagination(t *testing.T) {
 	require.EqualError(t, err, "project apps limit of 3 reached: resource conflict")
 	page, err = s.ListProjectApps(f.ctx, integrationstore.ListProjectAppsInput{ProjectID: f.project, Limit: 100})
 	require.NoError(t, err)
-	require.Len(t, page.Apps, 3) // The failed insert rolled back.
+	require.Len(t, page.Apps, 3)
 }

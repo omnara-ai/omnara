@@ -55,8 +55,6 @@ func seedServiceSlackApp(
 	require.NoError(t, err)
 	userID, err := publicid.Decode(publicid.KindUser, project.adminUserID)
 	require.NoError(t, err)
-	// OAuth is covered at the HTTP boundary separately. Seed only its verified
-	// credential binding; targets, subscriptions, receipts, and inputs remain real work.
 	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID: app.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: projectID,
 		Name: "local-slack", Actor: identitystore.NewUserPrincipal(userID),

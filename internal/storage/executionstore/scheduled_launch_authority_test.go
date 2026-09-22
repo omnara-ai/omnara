@@ -15,8 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Model an already accepted occurrence and a worker's derived plan independently.
-// The receipt, not the plan or provider-supplied JSON, grants cron authority.
 func scheduledAuthorityFixture(t *testing.T) (
 	integrationstore.IntegrationInboxRecord, integrationstore.ProjectAppRecord, InboxLaunchSlot,
 ) {
@@ -60,8 +58,6 @@ func scheduledAuthorityFixture(t *testing.T) (
 			ProjectID: app.ProjectID, ProfileID: profileID, DerivedBaseConfigID: uuid.New(),
 			LaunchedBy: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
 			InitialInput: &LaunchInitialInput{
-				// Build the model-visible hidden context independently of the product
-				// helper. Outer JSON ordering and whitespace are not authority.
 				ContentBlocks: json.RawMessage(`[
                     { "text": "Review the queue.", "type": "text" },
                     { "metadata": {"omnara_hidden":"true"}, "type":"text",
@@ -186,8 +182,6 @@ func TestScheduledLaunchAuthorityRejectsPlanSubstitution(t *testing.T) {
 			t.Parallel()
 			receipt, app, slot := scheduledAuthorityFixture(t)
 			test.change(t, &receipt, &slot)
-			// Admission reads the slot from this frozen plan; exercise substitution of
-			// both together rather than an impossible independent caller argument.
 			if test.name != "no saved launch plan" {
 				var plan map[string]map[string]json.RawMessage
 				require.NoError(t, json.Unmarshal(receipt.Plan, &plan))

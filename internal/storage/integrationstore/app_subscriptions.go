@@ -57,8 +57,6 @@ func (s *Store) CreateAppSubscription(
 	return record, nil
 }
 
-// DeleteAppSubscription stops only this immutable subscription identity. A later
-// attachment gets a fresh ID, so a repeated deletion cannot remove its replacement.
 func (s *Store) DeleteAppSubscription(ctx context.Context, orgID, projectID, appID, id uuid.UUID) error {
 	if orgID == uuid.Nil || projectID == uuid.Nil || appID == uuid.Nil || id == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("organization, project, app and subscription are required"))

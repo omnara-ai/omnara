@@ -61,8 +61,6 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 			if err != nil {
 				stats.Failures++
 				s.logger.Error("queue scheduled app action", "cron_trigger_id", trigger.TriggerID, "error", err)
-				// Known unavailable/invalid targets are completed atomically by the handoff.
-				// Unexpected storage failures retain their occurrence for lease recovery.
 				if recordErr := s.execution.RecordCronTriggerFailure(ctx, executionstore.CronTriggerFailureParams{
 					ProjectID: trigger.ProjectID, TriggerID: trigger.TriggerID, ClaimToken: trigger.ClaimToken,
 					Message: "Scheduled app action could not be queued.", WillRetry: true,

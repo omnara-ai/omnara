@@ -58,8 +58,6 @@ func createGitHubToolApp(
 	return app
 }
 
-// Resolve the repository by its immutable ID to a current name, then verify the PR.
-// Each operation must reach the remaining provider endpoint with the restricted token.
 func githubToolTestServer(t *testing.T, permission string, operation http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

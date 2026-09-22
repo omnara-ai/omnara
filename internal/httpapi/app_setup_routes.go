@@ -45,8 +45,6 @@ func (s strictOpenAPIServer) ConfigureProjectApp(
 	return openapi.ConfigureProjectApp200JSONResponse(response), nil
 }
 
-// DisconnectProjectApp requires project management, and needs neither a user
-// principal nor provider/credential access. Setup endpoints require a user.
 func (s strictOpenAPIServer) DisconnectProjectApp(
 	ctx context.Context,
 	request openapi.DisconnectProjectAppRequestObject,

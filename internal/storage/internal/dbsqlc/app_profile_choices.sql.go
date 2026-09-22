@@ -33,9 +33,7 @@ type CleanupExpiredAppProfileChoicesParams struct {
 	RowLimit              int32
 }
 
-// Retain expired menus while their linked receipt exists in any state, including
-// recently terminal work. Receipt cleanup ends this source replay barrier; menu
-// expiry alone must not shorten the receipt retention window.
+// Menu expiry must not remove the source replay barrier before its inbox receipt expires.
 func (q *Queries) CleanupExpiredAppProfileChoices(ctx context.Context, arg CleanupExpiredAppProfileChoicesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cleanupExpiredAppProfileChoices, arg.RetentionMilliseconds, arg.RowLimit)
 	if err != nil {
@@ -84,10 +82,6 @@ type FindPendingAppProfileChoiceParams struct {
 	AddressRef  string
 }
 
-// Accepted work owns the conversation only while pending/processing. Terminal
-// work releases it, including frozen plans. An unpublished menu remains
-// eligible only while its original receipt can publish; published menus outlive
-// that receipt. Every eligibility predicate runs before its branch's LIMIT.
 func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendingAppProfileChoiceParams) (AppState, error) {
 	row := q.db.QueryRow(ctx, findPendingAppProfileChoice,
 		arg.ProjectID,
@@ -138,8 +132,6 @@ type FindUnplannedAppProfileChoiceReservationRow struct {
 	State string
 }
 
-// Bridge the accepted-choice interval before its first frozen inbox plan.
-// Terminal work never holds ordinary replies.
 func (q *Queries) FindUnplannedAppProfileChoiceReservation(ctx context.Context, arg FindUnplannedAppProfileChoiceReservationParams) (FindUnplannedAppProfileChoiceReservationRow, error) {
 	row := q.db.QueryRow(ctx, findUnplannedAppProfileChoiceReservation,
 		arg.ProjectID,
@@ -165,9 +157,6 @@ type GetAppProfileChoiceAppForShareParams struct {
 	ID        uuid.UUID
 }
 
-// Chooser policy stays explicit: accepted work can reserve a conversation
-// beyond menu expiry. The generic state table does not interpret inbox state.
-// JSON fields used below are part of the chooser codec, never shared indexes.
 func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetAppProfileChoiceAppForShareParams) (ProjectApp, error) {
 	row := q.db.QueryRow(ctx, getAppProfileChoiceAppForShare, arg.ProjectID, arg.ID)
 	var i ProjectApp

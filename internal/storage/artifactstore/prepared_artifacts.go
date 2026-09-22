@@ -14,9 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// PreparedArtifact describes content already uploaded at the artifact's fixed
-// agent/ID object key. The inbox freezes IDs before upload and persists these
-// facts before admission. This metadata is not permission to change that blob.
 type PreparedArtifact struct {
 	ID          uuid.UUID `json:"id"`
 	ContentType string    `json:"content_type"`
@@ -45,10 +42,6 @@ func (p PreparedArtifact) Validate() error {
 	return nil
 }
 
-// InsertPreparedArtifactsTx commits only metadata, in the caller's admission
-// transaction. The caller holds project/connection/conversation gates before
-// reaching this agent lock and must roll back on any error. No blob I/O or
-// cleanup happens here: an uncertain commit must never delete referenced data.
 func InsertPreparedArtifactsTx(
 	ctx context.Context,
 	tx pgx.Tx,

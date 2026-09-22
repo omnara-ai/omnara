@@ -36,9 +36,6 @@ func (s *Store) GetInteractionSelection(
 	return interactionSelectionFromRow(row), err
 }
 
-// SelectInteractionDestinationForOriginTx runs only after deduplication of a new
-// explicit-origin input, under the agent lock. Replays skip it; originless inputs
-// preserve selection. Reads never acquire an earlier app lifecycle gate.
 func (s *Store) SelectInteractionDestinationForOriginTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -100,8 +97,6 @@ func (s *Store) SelectInteractionDestinationForOriginTx(
 	return selection, writeInteractionSelection(ctx, q, projectID, agentID, selection)
 }
 
-// ReconcileInteractionSelectionTx affects future prompts only. Captured prompts retain their
-// snapshot and separately recheck effective config and live app authority.
 func (s *Store) ReconcileInteractionSelectionTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -149,8 +144,6 @@ func (s *Store) ListInteractionHandlers(
 	return listInteractionHandlers(ctx, dbsqlc.New(tx), projectID, agentID, cursor, limit)
 }
 
-// GetSelectedInteractionDestination resolves current routing for runtime messages.
-// Prompt presentation must use its immutable captured destination instead.
 func (s *Store) GetSelectedInteractionDestination(
 	ctx context.Context,
 	projectID, agentID uuid.UUID,
@@ -171,7 +164,6 @@ func (s *Store) GetSelectedInteractionDestination(
 	return selectedInteractionDestination(ctx, q, projectID, agentID, selection, handlers)
 }
 
-// ListInteractionHandlers is advisory; selection revalidates authority under the agent lock.
 func (r *ToolCallReader) ListInteractionHandlers(
 	ctx context.Context,
 	cursor string,
@@ -188,7 +180,6 @@ func listInteractionHandlers(
 	cursor string,
 	limit int,
 ) (agentconfig.InteractionHandlerPage, error) {
-	// Reject invalid bounds/cursors before reading app metadata.
 	if _, err := agentconfig.ListInteractionHandlers(nil, nil, cursor, limit); err != nil {
 		return agentconfig.InteractionHandlerPage{}, storeerr.InvalidRequest(err)
 	}
@@ -230,10 +221,6 @@ func listInteractionHandlers(
 	return agentconfig.ListInteractionHandlers(prepared, current, cursor, limit)
 }
 
-// SetInteractionHandlerForToolCall resolves the saved model-call config before
-// locking. Project/app/conversation gates precede the agent lock. Current config
-// is then compared under that lock, so a pending call cannot gain access to a
-// replacement app through a reused handler name.
 func SetInteractionHandlerForToolCall(
 	selection InteractionSelection,
 	completion ToolCallCompletionInput,
@@ -345,8 +332,7 @@ func SetInteractionHandlerForToolCall(
 			return nil, storeerr.ErrUnauthorized
 		}
 		if selected.HandlerKey != "" {
-			// Pure authority comparison uses only the app already gated above. Do not
-			// acquire another app gate if activation replaced the handler's app ID.
+			// A replacement handler app would require an earlier lock class than the held agent lock.
 			apps := map[string]agentconfig.AppResolution{
 				handler.prepared.AppID: {
 					AppID:   handler.prepared.AppID,
@@ -459,8 +445,6 @@ func loadInteractionHandlers(
 	return selection, handlers, err
 }
 
-// Read each distinct app once. Missing/disconnected apps omit only their own
-// capability; database failures still propagate rather than hiding outages.
 func prepareInteractionHandlers(
 	ctx context.Context,
 	q *dbsqlc.Queries,
@@ -580,8 +564,8 @@ func selectedInteractionDestination(
 	return destination, nil
 }
 
-// Capture is read-only under the existing agent lock. It must not acquire an
-// earlier app gate; presentation and hosted callbacks recheck live authority.
+// Taking an app gate under the held agent lock would invert lock order;
+// presentation and callbacks recheck live authority afterward.
 func captureInteractionDestinationTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
@@ -611,16 +595,14 @@ func captureInteractionDestinationTx(
 
 type ResolveAgentInteractionFromHandlerInput struct {
 	ResolveAgentInteractionInput
-	AppID   uuid.UUID
-	AppType appdefinition.Type
-	Address integrationstore.ConversationAddress
-	// The verified app revision is fenced with the actual resolution.
+	AppID               uuid.UUID
+	AppType             appdefinition.Type
+	Address             integrationstore.ConversationAddress
 	SourceSetupRevision int64
 }
 
-// GetInteractionCallbackAppID identifies the setup that must verify a callback.
-// This is not authorization; resolution rechecks the captured handler and origin.
 func (s *Store) GetInteractionCallbackAppID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	// Cross-project routing hint only; callers must verify the callback against the owning app.
 	appID, err := s.q.GetInteractionCallbackAppID(ctx, dbsqlc.GetInteractionCallbackAppIDParams{ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, storeerr.ErrNotFound
@@ -628,9 +610,6 @@ func (s *Store) GetInteractionCallbackAppID(ctx context.Context, id uuid.UUID) (
 	return appID, err
 }
 
-// GetInteractionForHandlerCallback locates an immutable captured interaction
-// within a verified app. The result is identity only; resolution still
-// goes through ResolveAgentInteractionFromHandler's fenced authority check.
 func (s *Store) GetInteractionForHandlerCallback(
 	ctx context.Context, projectID, appID, id uuid.UUID,
 ) (AgentInteractionRecord, error) {
@@ -650,10 +629,6 @@ func (s *Store) GetInteractionForHandlerCallback(
 	return record, err
 }
 
-// ResolveAgentInteractionFromHandler accepts a provider-verified conversation
-// participant. The caller verifies callback authenticity/address, not an
-// approver ACL. Project-authorized dashboard/API resolution uses the existing
-// ResolveAgentInteraction method and does not depend on mirror authority.
 func (s *Store) ResolveAgentInteractionFromHandler(
 	ctx context.Context, input ResolveAgentInteractionFromHandlerInput,
 ) (AgentInteractionRecord, error) {
@@ -715,10 +690,6 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 	return record, nil
 }
 
-// GetAgentInteractionForPresentation revalidates the captured destination, never
-// the mutable current selection. Call immediately before provider I/O and inspect
-// State: only open interactions may be posted; terminal receipts may be dismissed.
-// The returned snapshot cannot reserve provider authority across a network call.
 func (s *Store) GetAgentInteractionForPresentation(
 	ctx context.Context, projectID, agentID, id uuid.UUID,
 ) (AgentInteractionRecord, error) {
@@ -757,8 +728,6 @@ func lockAuthorizedInteractionDestination(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, projectID); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
-	// The snapshot is immutable, so its app can be gated before the
-	// agent lock without acquiring additional gates after a config change.
 	if err := q.LockProjectAppLifecycleShared(ctx, dbsqlc.LockProjectAppLifecycleSharedParams{
 		AppID: destination.AppID,
 	}); err != nil {
@@ -795,10 +764,6 @@ type RecordInteractionPresentationReceiptInput struct {
 	Receipt                json.RawMessage
 }
 
-// RecordInteractionPresentationReceipt stores one confirmed send, including a
-// late confirmation after cancellation or revocation. It grants no authority and
-// changes no lifecycle fields. Identical replays succeed; replacement conflicts.
-// Presentation attempts/retries belong to the presenter, not this receipt.
 func (s *Store) RecordInteractionPresentationReceipt(
 	ctx context.Context, input RecordInteractionPresentationReceiptInput,
 ) (AgentInteractionRecord, error) {

@@ -16,8 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// A settled selection asks the planner to re-read subscriptions. A reserved one
-// belongs to another pending or processing immutable plan.
 var (
 	ErrAppSelectionReserved = errors.New("app conversation reserved by another receipt")
 	ErrAppSelectionSettled  = errors.New("app conversation already selected; replan")
@@ -34,9 +32,8 @@ func (e *AppSelectionReservationError) Error() string {
 
 func (e *AppSelectionReservationError) Unwrap() error { return ErrAppSelectionReserved }
 
-// InboxAppSelection is the common envelope inside an initial-launch plan slot.
-// The rest of the slot remains owned and validated by its admission workflow.
-// Reservation queries omit Slot: one plan freezes all slots for this app/address.
+// InboxAppSelection reserves all slots at an app/address so concurrent plans cannot
+// split the initial conversation membership.
 type InboxAppSelection struct {
 	AppID   uuid.UUID           `json:"app_id"`
 	Address ConversationAddress `json:"address"`
@@ -48,15 +45,9 @@ type appSelectionIdentity struct {
 	Address ConversationAddress `json:"address"`
 }
 
-// CheckNoUnsettledAppSelection protects a zero-recipient event from being
-// dropped while another receipt is still preparing the conversation's first
-// agent. Launches and ordinary follow-ups use the receipt's owning app.
-// Terminal receipts release their unfinished reservations.
-// A chosen chat menu has accepted work before its plan exists. This app-storage
-// bridge also checks that handoff so post-selection replies cannot freeze empty;
-// unchosen menus never reserve agent execution or hold these gates for a human.
-// Call after acquiring the sorted conversation union and before freezing a plan.
 func (w *IntegrationInboxLeaseTx) CheckNoUnsettledAppSelection(ctx context.Context, address ConversationAddress) error {
+	// Zero-recipient events must wait for accepted choices and first-launch plans,
+	// or follow-ups could be dropped before their agent exists.
 	if err := w.checkLease(ctx); err != nil {
 		return err
 	}
@@ -105,8 +96,6 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	if len(identities) == 0 && w.record.Source != IntegrationInboxSourceScheduled {
 		return nil
 	}
-	// Every selection belongs to this receipt's app. Read its authority once,
-	// after the conversation gates, before checking individual reservations.
 	app, err := getProjectApp(ctx, w.q, w.record.ProjectID, w.record.AppID)
 	if err != nil {
 		return fmt.Errorf("load selected app: %w", err)
@@ -124,9 +113,6 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	// Lookup in separate statements after acquiring the gate, so a waiter sees
 	// the previous planner's committed reservation at READ COMMITTED.
 	for identity := range identities {
-		// Undecided ingress waits for accepted choices. Decided receipts instead
-		// compete for the frozen plan below without reserving against other
-		// accepted, unplanned choices.
 		if len(w.record.Events) == 0 {
 			if err := w.checkUnplannedAppProfileChoice(ctx, identity.Address); err != nil {
 				return err
@@ -164,8 +150,6 @@ func (w *IntegrationInboxLeaseTx) reserveAppSelections(ctx context.Context, plan
 	return nil
 }
 
-// Choice commit precedes inbox planning. Bridge only that gap; once a plan is
-// frozen, the existing plan reservation and retained target own continuation.
 func (w *IntegrationInboxLeaseTx) checkUnplannedAppProfileChoice(
 	ctx context.Context, address ConversationAddress,
 ) error {
@@ -184,7 +168,6 @@ func (w *IntegrationInboxLeaseTx) checkUnplannedAppProfileChoice(
 	return &AppSelectionReservationError{ReceiptID: owner.ID, State: IntegrationInboxState(owner.State)}
 }
 
-// Parse only the common selection envelope; admission owns all other slot fields.
 func inboxSelectionIdentities(
 	plan json.RawMessage,
 	appID uuid.UUID,

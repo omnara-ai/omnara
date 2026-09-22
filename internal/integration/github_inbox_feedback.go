@@ -28,8 +28,6 @@ type GitHubInboxApps interface {
 	GetProjectApp(context.Context, uuid.UUID, uuid.UUID) (integrationstore.ProjectAppRecord, error)
 }
 
-// NewGitHubAppInboxProvider uses config only for transport and an optional
-// additional request check. Feedback credentials always come from the live app.
 func NewGitHubAppInboxProvider(config github.Config, secrets GitHubInboxSecrets,
 	apps GitHubInboxApps,
 ) *GitHubAppInboxProvider {
@@ -51,10 +49,10 @@ func (p GitHubAppInboxProvider) NotifyInboxFailure(ctx context.Context,
 		return err
 	}
 	if event.Event.Kind != "discussion_comment" && event.Event.Kind != "review_comment" {
-		return nil // PR-open and synchronize failures are not human requests.
+		return nil
 	}
 	if len(receipt.Plan) == 0 && !event.Event.Mentioned {
-		return nil // A comment alone does not prove this app had a recipient.
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, github.OperationTimeout)
 	defer cancel()

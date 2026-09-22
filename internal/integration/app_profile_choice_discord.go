@@ -34,8 +34,6 @@ func (p *DiscordAppInboxProvider) PresentProfileChoice(
 	}
 	target := discord.Scope{GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID}
 	if metadata.ThreadStarter {
-		// The thread and its menu belong to this app workflow. No agent or config
-		// exists until someone chooses; a later launch reuses this exact thread.
 		_, err := client.EnsureThread(ctx, discord.Scope{GuildID: scope.GuildID, ChannelID: scope.ChannelID},
 			metadata.MessageID, discordConversationName(appSetup))
 		if err != nil {

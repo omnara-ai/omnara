@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 
-/** A flat page section: a label, an optional action beside it, then content. */
 export function ProjectAppSection({
   title,
   action,

@@ -1,18 +1,15 @@
 import { generateKeyPairSync } from 'node:crypto'
 
 import { type AppType, type ProjectApp, schemas, zJsonText } from '@omnara/sdk'
-import { expect, type Page, type Request } from '@playwright/test'
+import { expect, type Page, type Request, type Response } from '@playwright/test'
 import { z } from 'zod'
 
-/** Browser-side OAuth result fixture; callback persistence is covered by Go integration tests. */
 export async function mockSlackSetupReturn(
   page: Page,
   projectPath: string,
   draft: ProjectApp,
   flowID: string,
 ) {
-  // Keep the original setup while authorization is pending. Only the exact
-  // flow completion advances the revision and connects this app.
   let app: ProjectApp = { ...draft }
   await page.route(`**${projectPath}/apps/${draft.id}`, async (route) => {
     if (route.request().method() === 'PUT') {
@@ -44,8 +41,15 @@ export function requiredEnvironmentVariable(name: string): string {
   return value
 }
 
-export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
+interface FailureTrackingPage {
+  on(event: 'pageerror', listener: (error: Error) => void): void
+  on(event: 'requestfailed', listener: (request: Request) => void): void
+  on(event: 'response', listener: (response: Response) => void): void
+}
+
+export function installFailureTracking(page: FailureTrackingPage, ignore: RegExp[] = []) {
   const failures: string[] = []
+  const responses = new WeakMap<Request, number>()
   const record = (failure: string) => {
     if (!ignore.some((pattern) => pattern.test(failure))) failures.push(failure)
   }
@@ -54,10 +58,26 @@ export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
     record(`page: ${error.message}`)
   })
   page.on('requestfailed', (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
-    record(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
+    const method = request.method()
+    if (method === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
+    const error = request.failure()?.errorText ?? 'failed'
+    // Chromium can abort the empty 204 DELETE stream through the TLS proxy.
+    if (method === 'DELETE' && error === 'net::ERR_ABORTED' && responses.get(request) === 204)
+      return
+    const failure = `request: ${method} ${request.url()} (${error})`
+    if (
+      error === 'net::ERR_ABORTED' &&
+      (method === 'GET' ||
+        (method === 'POST' &&
+          /^\/api\/v1\/orgs\/[^/]+\/projects\/[^/]+\/agent-configs\/tools$/.test(
+            new URL(request.url()).pathname,
+          )))
+    )
+      record(failure)
+    else failures.push(failure)
   })
   page.on('response', (response) => {
+    responses.set(response.request(), response.status())
     const url = new URL(response.url())
     if (response.status() === 401 && url.pathname === '/api/v1/me') return
     if (response.status() >= 400) {
@@ -68,29 +88,23 @@ export function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   return failures
 }
 
-export function installAppFailureTracking(page: Page) {
+export function installAppFailureTracking(page: FailureTrackingPage) {
   const origin = new URL(requiredEnvironmentVariable('OMNARA_WEB_E2E_BASE_URL')).origin.replace(
     /[.*+?^${}()|[\]\\]/g,
     '\\$&',
   )
   return installFailureTracking(page, [
     /^page: Canceled$/,
-    /request: .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
-    /request: .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-    // Chromium can abort the empty 204 DELETE stream through the TLS proxy.
-    // The schedule journey asserts the 204 response and removal from the list.
-    /request: .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-    /request: .*\/subscriptions\/asub_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-    /request: .*\/apps\/app_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
-    /request: .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
-    /request: .*\/cron-triggers\?.* \(net::ERR_ABORTED\)$/,
-    // Navigation and successful writes cancel obsolete reads; writes are checked below.
+    /^request: GET .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/apps\/app_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/cron-triggers\?.* \(net::ERR_ABORTED\)$/,
+    /^request: POST .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
     // Full-document navigation also cancels intent-preloaded route chunks.
-    // HTTP failures and import/page errors are still recorded independently.
-    /request: .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
-    // Navigation can also cancel a lazily loaded bundled font. Other font errors
-    // and HTTP failures remain visible; only this local origin is allowed.
-    new RegExp(String.raw`^request: ${origin}/assets/[^/?]+\.woff2 \(net::ERR_ABORTED\)$`),
+    /^request: GET .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
+    // Navigation can also cancel a lazily loaded bundled font.
+    new RegExp(String.raw`^request: GET ${origin}/assets/[^/?]+\.woff2 \(net::ERR_ABORTED\)$`),
   ])
 }
 
@@ -190,7 +204,6 @@ export async function connectAppWithCredentialRetry(
   failures: string[],
 ) {
   await openAppSetup(page, projectID, appType, name)
-  // Only provider verification is replaced; creation and credentials use the real API.
   await mockVerifiedAppSetup(page, appType)
   let credentialCreates = 0
   const trackCredential = (request: Request) => {

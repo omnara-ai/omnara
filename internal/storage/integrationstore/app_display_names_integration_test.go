@@ -48,7 +48,6 @@ func TestConversationDisplayNameReusesLatestLiveLabelAcrossAgents(t *testing.T) 
 			targetID, f.project, launch.Agent.ID, f.appID, address.Kind, address.Ref,
 			name, updated, deleted)
 	}
-	// Empty and retired targets are newer but cannot hide the last useful label.
 	require.Equal(t, "latest", read(f.project, f.appID, address))
 	require.Empty(t, read(uuid.New(), f.appID, address))
 	require.Empty(t, read(f.project, uuid.New(), address))

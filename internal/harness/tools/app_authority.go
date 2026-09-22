@@ -28,10 +28,6 @@ type appToolAccess struct {
 	CredentialVersion uuid.UUID
 }
 
-// Resolve the immutable proposed tool first; a reused app name cannot retarget
-// it. The current config and live app remain revocable execution authority.
-// The three shipped apps require an assigned conversation; this is their tool
-// policy, not a restriction on app-owned subscriptions or future app types.
 func (e Executor) resolveAppToolScope(
 	ctx context.Context,
 	turn Turn,

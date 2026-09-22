@@ -14,8 +14,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// GetIntegrationTargetInputByIdempotency is an integration-test inspection helper.
-// Production provider inputs are admitted and replayed through the inbox.
 func (s *Store) GetIntegrationTargetInputByIdempotency(
 	ctx context.Context,
 	input GetIntegrationTargetInputByIdempotencyInput,

@@ -16,7 +16,6 @@ const (
 	AppOperationReply             = "reply"
 )
 
-// AppToolDefinition describes one app operation, independent of saved app identities.
 type AppToolDefinition struct {
 	Operation   string
 	AppType     appdefinition.Type
@@ -25,8 +24,6 @@ type AppToolDefinition struct {
 	properties  map[string]any
 }
 
-// Definitions and their private property maps are read-only after construction.
-// Prepare serializes operation properties into a fresh static schema.
 var appToolDefinitions = buildAppToolDefinitions()
 
 func LookupAppTool(appType appdefinition.Type, operation string) (AppToolDefinition, bool) {

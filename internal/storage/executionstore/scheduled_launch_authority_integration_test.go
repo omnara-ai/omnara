@@ -18,8 +18,6 @@ import (
 
 func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	t.Parallel()
-	// A mention launcher may legitimately name a slot "scheduled". Its provider
-	// receipt still cannot grant Omnara actor authority, even to a system launch.
 	f := newInboxLaunchFixture(t, false, time.Minute, "scheduled")
 	require.Equal(t, integrationstore.IntegrationInboxSourceProvider, f.receipt.Source)
 	slot := f.slots["scheduled"]
@@ -37,16 +35,12 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	f.slots["scheduled"] = slot
 	plan, err := json.Marshal(f.slots)
 	require.NoError(t, err)
-	// Seed a bad worker plan at the admission boundary; its valid app selection
-	// is already reserved. Frozen plan data must not substitute for receipt source.
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
 	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled")
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	f.assertAbsent(t, "scheduled")
 
-	// Changing only the actor back to the verified provider makes this same
-	// system launch admissible: rejection above was not a malformed plan/config.
 	slot.Launch.InitialInput.Actor = providerActor
 	f.slots["scheduled"] = slot
 	plan, err = json.Marshal(f.slots)

@@ -83,7 +83,6 @@ export function ProjectAppSetupCredentials({
   )
 }
 
-/** Selects an available credential by public ID; secret material never enters the form. */
 export function ProjectAppCredentialPicker({
   orgId,
   projectId,

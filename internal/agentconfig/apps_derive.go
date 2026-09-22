@@ -14,8 +14,6 @@ type AppCapabilitiesSource struct {
 	InteractionHandlers map[string]AgentConfigAppCapabilitySource `json:"interaction_handlers,omitempty"`
 }
 
-// CompileAppCapabilitiesSource compiles app capabilities alone: no default
-// tools or model/machine/skill resolution. The app resolver is project scoped.
 func CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOptions) (Compiled, error) {
 	raw, err := json.Marshal(source)
 	if err != nil {
@@ -63,10 +61,6 @@ func CompileAppCapabilitiesSource(source AppCapabilitiesSource, opts CompileOpti
 	return compiled, nil
 }
 
-// DeriveWithAppCapabilities compiles only missing app capabilities into a pinned
-// base. Existing entries win completely, including disabled tools and permissions.
-// Existing keys are removed before validation or resolution.
-// Launcher subscriptions are admitted separately by storage.
 func DeriveWithAppCapabilities(base Compiled, source AppCapabilitiesSource, opts CompileOptions) (Compiled, error) {
 	source.Tools = maps.Clone(source.Tools)
 	source.InteractionHandlers = maps.Clone(source.InteractionHandlers)

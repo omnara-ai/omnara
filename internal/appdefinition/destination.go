@@ -7,8 +7,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
 
-// DestinationProperties returns fresh static provider address fields and the
-// fields required for a concrete subscription, handler or schedule destination.
 func DestinationProperties(provider string) (map[string]any, []string, error) {
 	text := func(pattern string) any { return map[string]any{"type": "string", "pattern": pattern} }
 	positive := func() any { return map[string]any{"type": "integer", "minimum": 1} }
@@ -49,9 +47,6 @@ func objectSchema(properties map[string]any, required []string) (json.RawMessage
 	return json.Marshal(schema)
 }
 
-// ResolveDestination parses one complete, closed provider address. Optional
-// thread fields select a whole channel; Discord guild metadata is optional and
-// must be verified by the provider adapter when supplied.
 func ResolveDestination(provider string, args json.RawMessage) (Scope, error) {
 	properties, required, err := DestinationProperties(provider)
 	if err != nil {

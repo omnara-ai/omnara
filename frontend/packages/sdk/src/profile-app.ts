@@ -12,7 +12,6 @@ import { zAgentProfileId, zProjectAppName } from './generated/zod.gen'
 const discordPublicKeyPattern = '[a-fA-F0-9]{64}'
 const discordPublicKey = z.string().regex(new RegExp(`^${discordPublicKeyPattern}$`))
 
-/** Discord launchers include an interaction handler, even with one profile. */
 export function profileAppDiscordKeyStatus(input: {
   appType?: AppType
   slots: readonly Pick<AppLaunchSlot, 'agent_profile_id' | 'agent_id'>[]
@@ -28,7 +27,6 @@ export function profileAppDiscordKeyStatus(input: {
   }
 }
 
-/** Guided launcher defaults; the server validates identity and authority. */
 export function profileAppSetup(input: {
   appType: AppType
   name: string
@@ -67,11 +65,6 @@ export function profileAppSetup(input: {
   return setup
 }
 
-/**
- * Validate scopes offered by guided setup. The catalog describes capability configs,
- * not launcher scopes; the server remains authoritative for identity and routing.
- * Saved advanced scopes should be preserved unless the user edits them.
- */
 export function profileAppLauncherScope(input: {
   appType: AppType
   scopeKind?: string
@@ -118,7 +111,6 @@ export function profileAppLauncherScope(input: {
   return { trigger, scope_kind: scopeKind, scope_ref: scopeRef }
 }
 
-/** Edit only offered chat profiles. Existing-agent slots and all other settings survive unchanged. */
 export function profileAppProfileUpdate(
   app: SaveProjectAppRequest,
   profileIds: readonly string[],
@@ -128,7 +120,6 @@ export function profileAppProfileUpdate(
     throw new Error('Profile editing requires a Slack or Discord launcher.')
   }
   const ids = parseProfileIds(profileIds)
-  // Keep the original order and keys, including repeated profile slots in saved generic setups.
   const slots = launcher.slots.filter(
     (slot) =>
       Boolean(slot.agent_id) || !slot.agent_profile_id || ids.includes(slot.agent_profile_id),

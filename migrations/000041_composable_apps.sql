@@ -1,8 +1,8 @@
 -- +goose Up
 
--- Refuse before renaming anything: the old release must remain usable to stop
--- unfinished work. Go42 repeats these checks under its rewrite lock because
--- Goose commits each numbered migration separately. All writers must be stopped.
+-- Goose commits each migration separately: reject unfinished work before SQL41
+-- changes the schema needed by the old release to stop it. Go42 rechecks under lock.
+-- Keep this legacy-policy preflight in sync with Go42's frozen translator.
 -- +goose StatementBegin
 DO $$
 DECLARE conflicting_config uuid; conflicting_tool text; unfinished_agent uuid;
@@ -39,8 +39,6 @@ BEGIN
     IF unsupported_install IS NOT NULL THEN
         RAISE EXCEPTION 'install % is not a profile-bound Slack webhook setup; review and repair before app cutover', unsupported_install;
     END IF;
-    -- Frozen released send-policy grammar, matching Go42. Refuse policies that
-    -- cannot be translated while the old table/config contract still exists.
     SELECT config.id, config.project_id INTO policy_config, policy_project
     FROM agent_configs config
     CROSS JOIN LATERAL (SELECT config.compiled_definition->'tools'->'send_integration_message' AS value) policy
@@ -89,8 +87,6 @@ BEGIN
     IF invalid_target IS NOT NULL THEN
         RAISE EXCEPTION 'invalid Slack target %; repair before app cutover', invalid_target;
     END IF;
-    -- At most one successor config per agent. Reserve this conservative budget
-    -- before renaming; deduplication can reduce the actual number written.
     WITH successors AS (
         SELECT agent.project_id, count(DISTINCT agent.id) AS needed
         FROM agents agent
@@ -116,8 +112,6 @@ END;
 $$;
 -- +goose StatementEnd
 
--- This release uses a coordinated maintenance window. Existing provider account
--- and conversation identities survive; there is no rolling dual-write path.
 ALTER TABLE integration_installs RENAME TO project_apps;
 ALTER TABLE integration_targets RENAME COLUMN integration_install_id TO app_id;
 DROP INDEX integration_installs_provider_tenant_account_idx;
@@ -132,8 +126,6 @@ ALTER TABLE actors DROP CONSTRAINT actors_provider_check;
 ALTER TABLE actors ADD CONSTRAINT actors_provider_check
     CHECK (provider IN ('omnara', 'slack', 'app', 'external'));
 
--- One project-owned app owns setup, credentials and behavior. Preserve install
--- IDs, so existing conversation and audit references keep the same identity.
 ALTER TABLE project_apps
     ADD COLUMN name text,
     ADD COLUMN app_type text NOT NULL DEFAULT 'slack_thread'
@@ -144,7 +136,6 @@ ALTER TABLE project_apps
     ALTER COLUMN provider_tenant_id DROP NOT NULL,
     ALTER COLUMN provider_account_ref DROP NOT NULL;
 
--- Stable, readable migration names; no hash truncation or collision fallback.
 WITH names AS (
     SELECT id, row_number() OVER (PARTITION BY project_id ORDER BY (deleted_at IS NOT NULL), created_at, id) AS ordinal
     FROM project_apps
@@ -165,8 +156,6 @@ ALTER TABLE project_apps
     DROP COLUMN integration_kind,
     DROP COLUMN connection_mode;
 ALTER TABLE project_apps DROP CONSTRAINT integration_installs_state_check;
--- Legacy deletion clears credentials without changing the active state. Keep
--- tombstones disconnected; invalid live installs must fail the preflight above.
 UPDATE project_apps SET state = 'disconnected' WHERE state = 'disabled' OR deleted_at IS NOT NULL;
 ALTER TABLE project_apps ADD CONSTRAINT project_apps_state_check CHECK (state IN ('active', 'disconnected'));
 ALTER TABLE project_apps ADD CHECK ((provider_tenant_id IS NULL) = (provider_account_ref IS NULL));
@@ -196,9 +185,6 @@ $$;
 CREATE TRIGGER project_apps_identity_immutable BEFORE UPDATE ON project_apps
 FOR EACH ROW EXECUTE FUNCTION project_apps_reject_identity_change();
 
--- Targets retain attribution and successful selection even after receiving is
--- disabled. A non-null selection slot denotes a launcher selection; NULL denotes
--- attribution. Tool context is independent of both selection and receiving.
 ALTER TABLE integration_targets
     DROP COLUMN target_ref, -- Drops the obsolete alias index and nonempty check too.
     ADD COLUMN is_tool_context boolean NOT NULL DEFAULT false,
@@ -212,12 +198,11 @@ CREATE UNIQUE INDEX integration_targets_active_agent_address_idx
 CREATE UNIQUE INDEX integration_targets_selection_idx
     ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref, selection_slot)
     WHERE selection_slot IS NOT NULL;
--- Retirement must retain confinement and cannot free a second sending context.
+-- Retired sending contexts must still prevent assigning a second context.
 CREATE UNIQUE INDEX integration_targets_tool_context_idx
     ON integration_targets(project_id, agent_id, app_id) WHERE is_tool_context;
 
--- Context designation and its address/owner are write-once. Migration41 alone
--- temporarily disables this guard to designate exact legacy sending targets.
+-- Go42 temporarily disables this guard to assign existing Slack sending contexts.
 -- +goose StatementBegin
 CREATE FUNCTION integration_targets_reject_tool_context_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -238,8 +223,6 @@ FOR EACH ROW EXECUTE FUNCTION integration_targets_reject_tool_context_change();
 CREATE INDEX integration_targets_conversation_idx
     ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref);
 
--- Apps own receive subscriptions independently of agent configurations. Removing a
--- subscription deletes only its forwarding rule; target selection history stays.
 CREATE TABLE app_subscriptions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
@@ -260,8 +243,6 @@ CREATE INDEX app_subscriptions_routing_idx
 CREATE INDEX app_subscriptions_app_list_idx
     ON app_subscriptions(project_id, app_id, created_at DESC, id DESC);
 
--- Persistent transports own one bounded unit (a Discord shard today). Only
--- provider setup and credential changes fence the owner, not launcher edits.
 CREATE TABLE app_runtime (
     project_id uuid NOT NULL,
     app_id uuid NOT NULL,
@@ -280,9 +261,6 @@ CREATE TABLE app_runtime (
 );
 CREATE INDEX app_runtime_credential_idx ON app_runtime(credential_version_id);
 
--- A provider receipt is durable before acknowledgement. Its frozen plan tracks
--- independently committed recipient slots; provider I/O never runs in this
--- transaction. A random claim token fences retries after worker loss.
 CREATE TABLE integration_inbox (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
@@ -291,7 +269,6 @@ CREATE TABLE integration_inbox (
     payload bytea NOT NULL CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
     source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled')),
     CHECK (source = 'provider' OR events IS NULL),
-    -- Only trusted app decisions populate normalized events; provider ingress leaves NULL.
     events jsonb CHECK (jsonb_typeof(events) = 'array' AND octet_length(events::text) <= 262144),
     plan jsonb CHECK (jsonb_typeof(plan) = 'object' AND octet_length(plan::text) <= 262144),
     progress jsonb NOT NULL DEFAULT '{}'::jsonb
@@ -320,16 +297,10 @@ CREATE INDEX integration_inbox_terminal_idx ON integration_inbox(completed_at, i
     WHERE state IN ('completed', 'failed');
 CREATE INDEX integration_inbox_app_ready_idx
     ON integration_inbox(project_id, app_id, available_at, id) WHERE state = 'pending';
--- The first frozen plan reserves all launch slots for an app/conversation while
--- initial files are prepared outside a transaction. Only pending/processing
--- plans reserve; committed targets retain membership after terminal failure.
 CREATE INDEX integration_inbox_selection_idx ON integration_inbox USING gin
     ((jsonb_path_query_array(plan, '$.*.selection')) jsonb_path_ops)
     WHERE plan IS NOT NULL AND state IN ('pending', 'processing');
 
--- App-owned workflow data has common identity and lookup fields. The owning
--- Go workflow validates its document and composes transitions with inbox writes.
--- A deadline is not a deletion instruction: recoverable work may outlive it.
 CREATE TABLE app_states (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
@@ -353,7 +324,6 @@ CREATE INDEX app_states_scope_idx
 CREATE INDEX app_states_expiry_idx ON app_states(kind, expires_at, id)
     WHERE expires_at IS NOT NULL;
 
--- App limits follow the existing organization override mechanism.
 ALTER TABLE org_resource_limit_overrides
     ADD COLUMN max_active_project_apps_per_project bigint CHECK (max_active_project_apps_per_project >= 0),
     ADD COLUMN max_active_app_subscriptions_per_agent bigint CHECK (max_active_app_subscriptions_per_agent >= 0);
@@ -403,13 +373,8 @@ CROSS JOIN default_resource_limits AS defaults
 LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.id
 WHERE orgs.deleted_at IS NULL;
 
--- Legacy target pointers do not grant handler authority. Keep the attribution
--- targets: migration 42 derives send successors through their agent_id, not this
--- mutable selection pointer.
 UPDATE agents SET integration_target_id = NULL WHERE integration_target_id IS NOT NULL;
 
--- A selection has a handler, arguments and canonical attribution together.
--- Revoking it never removes the dashboard interaction.
 ALTER TABLE agents
     ADD COLUMN interaction_handler_key text,
     ADD COLUMN interaction_handler_args jsonb,
@@ -424,8 +389,6 @@ ALTER TABLE agent_interactions
     ADD COLUMN presentation_attempted_at timestamptz
         CHECK (presentation_attempted_at IS NULL OR destination IS NOT NULL);
 
--- Only unattempted captured interactions need discovery. The caller supplies
--- supported app types; provider policy does not belong in this index.
 CREATE INDEX agent_interactions_pending_presentation_idx
     ON agent_interactions ((destination ->> 'app_type'), created_at, agent_id, id)
     WHERE state = 'open' AND destination IS NOT NULL
@@ -471,8 +434,6 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Reserve one best-effort attempt before provider I/O. This metadata-only
-    -- transition cannot also resolve/cancel, replace the snapshot or save a receipt.
     IF OLD.state = 'open' AND OLD.destination IS NOT NULL
        AND OLD.presentation_attempted_at IS NULL AND NEW.presentation_attempted_at IS NOT NULL
        AND OLD.presentation_receipt IS NULL
@@ -480,8 +441,7 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- A late confirmed send may be recorded after cancellation so presentation
-    -- cleanup can dismiss it. This exception cannot alter lifecycle or lineage.
+    -- Record late confirmed sends after cancellation so cleanup can dismiss them.
     IF OLD.presentation_receipt IS NULL AND NEW.presentation_receipt IS NOT NULL
        AND NEW.destination IS NOT NULL
        AND (to_jsonb(OLD) - 'presentation_receipt') = (to_jsonb(NEW) - 'presentation_receipt') THEN
@@ -514,20 +474,14 @@ END;
 $$;
 -- +goose StatementEnd
 
--- App schedules own only an app reference and opaque, app-validated settings.
--- Profiles mentioned in settings are resolved by the app at execution; deleting
--- one must not delete its schedule. Ordinary agent/profile targets keep their
--- existing relational ownership and required message template.
+-- check1 is migration 20's profile/agent exclusivity; target_check replaces it.
 ALTER TABLE cron_triggers
-    -- Migration 20's second multi-column check is agent/profile exclusivity.
-    -- Keep its first multi-column check (enabled requires next_fire_after).
     DROP CONSTRAINT cron_triggers_check1,
     DROP CONSTRAINT cron_triggers_message_template_check,
     DROP CONSTRAINT cron_triggers_profile_delivery_mode_check,
     ALTER COLUMN message_template DROP NOT NULL,
     ADD COLUMN app_id uuid,
     ADD COLUMN app_settings jsonb,
-    -- Diagnostic provenance only: inbox retention must not constrain schedules.
     ADD COLUMN last_app_receipt_id uuid,
     ADD FOREIGN KEY (project_id, app_id) REFERENCES project_apps(project_id, id),
     ADD CONSTRAINT cron_triggers_target_check CHECK (

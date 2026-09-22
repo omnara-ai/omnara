@@ -21,9 +21,6 @@ import (
 
 const discordRuntimeLease = 30 * time.Second
 
-// DiscordRuntime owns one provider session per app, not agents or app behavior.
-// Apps can live on different workers. The database checkpoint advances together with
-// raw inbox receipt admission; AppConsumer handles routing and launches later.
 type DiscordRuntime struct {
 	Integrations *integrationstore.Store
 	Secrets      *secretstore.Store
@@ -322,8 +319,6 @@ func discordReconnectDelay(err error) time.Duration {
 	}
 	if errors.As(err, &apiError) {
 		if apiError.Code == discord.PermanentFailure {
-			// A bad credential or setup must not hammer shared provider egress.
-			// Updating the app or credential bypasses this delay.
 			return time.Hour
 		}
 		delay = max(delay, apiError.RetryAfter)

@@ -119,7 +119,6 @@ func TestAppRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t *testin
 	require.Equal(t, 2, subscriptions)
 	require.Equal(t, 4, inputs)
 
-	// A stale frozen policy decision cannot launch a replacement profile.
 	next := event
 	next.Actor = appTestActor(t, apps[0].ID, "U123")
 	next.Event.Scope.Slack = &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "2.1"}
@@ -218,8 +217,6 @@ func TestAppRouterDirectedSettledIntentWithoutSubscription(t *testing.T) {
 	agentID, targetID := results[0].Launch.Agent.ID, results[0].Launch.IntegrationTarget.ID
 	removeTestAgentSubscriptions(t, store, app, agentID)
 
-	// The app stage can redeliver its original source to the settled selection
-	// without granting a subscription. The ordinary future event still gets none.
 	for _, directed := range []bool{false, true} {
 		key := "ordinary-followup"
 		nextEvent := event

@@ -112,8 +112,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), integrationOAuthTimeout)
 	defer cancel()
-	// Conversion is a one-time external exchange. Do not retry it here, emit
-	// provider bodies, or put credentials in callback URLs or application logs.
+	// Do not retry this one-time manifest conversion.
 	client, err := github.NewSetupClient(github.SetupConfig{
 		APIURL: s.githubClientConfig.APIURL, HTTPClient: s.githubClientConfig.HTTPClient,
 		BeforeRequest: s.githubClientConfig.BeforeRequest,
@@ -141,9 +140,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		outcome("secret_save_failed")
 		return
 	}
-	// Keep the saved key even if the installation is canceled, approval takes
-	// days, or setup changed before or during the one-time exchange.
-	// Explicit ConfigureProjectApp independently rechecks revision and identity.
+	// Keep credentials through canceled or pending installations; manifest conversion is one-time.
 	ref, err := publicid.Encode(publicid.KindSecret, secret.ID)
 	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeInternalError)
@@ -154,8 +151,6 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	}
 	current, err := s.store.Integrations().GetProjectApp(ctx, state.ProjectID, state.AppID)
 	if err != nil || current.SetupRevision != state.SetupRevision {
-		// Always return the recoverable secret hint, even when the app needs a
-		// fresh read before Connect or was removed after credential conversion.
 		params.Set("github_setup_error", "app_setup_changed")
 	}
 	s.redirectOAuthOutcome(w, r, path, params)

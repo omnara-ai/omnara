@@ -258,7 +258,6 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 		`{"channel_id":"C123","thread_ts":"100.1"}`,
 		string(plan["scheduled"].Launch.Subscriptions[0].Conversation),
 	)
-	// A plain reply after the reservation cannot freeze as unrouted before launch.
 	follow, _, err := f.store.Integrations().AcceptIntegrationReceipt(
 		t.Context(),
 		integrationstore.VerifiedIntegrationReceipt{

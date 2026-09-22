@@ -32,8 +32,7 @@ type AppRuntimeClaimableParams struct {
 	CredentialVersionID uuid.UUID
 }
 
-// This unlocked hint avoids contending with the owner's heartbeat on every
-// discovery scan. The claim below remains the authoritative atomic decision.
+// Skip the row lock here to avoid contending with heartbeat; ClaimAppRuntime rechecks ownership.
 func (q *Queries) AppRuntimeClaimable(ctx context.Context, arg AppRuntimeClaimableParams) (bool, error) {
 	row := q.db.QueryRow(ctx, appRuntimeClaimable,
 		arg.ProjectID,
@@ -114,11 +113,6 @@ type ClaimAppRuntimeRow struct {
 	ClaimExpiresAt *time.Time
 }
 
-// Caller holds project/app/secret reference gates and validates revisions
-// before locking the runtime. Token changes on every claim; stale owners cannot
-// publish checkpoints even when the same process reacquires the unit later.
-// Only setup/credential revisions invalidate checkpoints or bypass backoff;
-// unrelated app settings edits leave the transport session intact.
 func (q *Queries) ClaimAppRuntime(ctx context.Context, arg ClaimAppRuntimeParams) (ClaimAppRuntimeRow, error) {
 	row := q.db.QueryRow(ctx, claimAppRuntime,
 		arg.RuntimeKey,
@@ -141,7 +135,6 @@ WITH app_types AS (
 SELECT page.id, page.project_id
 FROM app_types
 CROSS JOIN LATERAL (
-    -- Limit each ordered type scan before merging the cursor's next page.
     SELECT app.id, app.project_id
     FROM project_apps app
     JOIN projects project ON project.id = app.project_id
@@ -167,8 +160,6 @@ type ListPersistentAppsRow struct {
 	ProjectID uuid.UUID
 }
 
-// Only actual hosted persistent transports are enumerated. Cursor scanning keeps
-// a busy prefix owned by other workers from hiding apps later in the set.
 func (q *Queries) ListPersistentApps(ctx context.Context, arg ListPersistentAppsParams) ([]ListPersistentAppsRow, error) {
 	rows, err := q.db.Query(ctx, listPersistentApps, arg.AfterID, arg.RowLimit, arg.AppTypes)
 	if err != nil {
@@ -201,7 +192,7 @@ type LockAppRuntimeParams struct {
 	RuntimeKey string
 }
 
-// Lock then re-read in a fresh statement: the lease can expire while waiting.
+// Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 func (q *Queries) LockAppRuntime(ctx context.Context, arg LockAppRuntimeParams) (string, error) {
 	row := q.db.QueryRow(ctx, lockAppRuntime, arg.ProjectID, arg.AppID, arg.RuntimeKey)
 	var runtime_key string
@@ -263,8 +254,6 @@ type ReleaseAppRuntimeParams struct {
 	ClaimToken        uuid.UUID
 }
 
-// Release never publishes a checkpoint. It can relinquish a revoked parent's
-// unit; the exact unexpired token still prevents releasing a replacement owner.
 func (q *Queries) ReleaseAppRuntime(ctx context.Context, arg ReleaseAppRuntimeParams) (int64, error) {
 	result, err := q.db.Exec(ctx, releaseAppRuntime,
 		arg.DelayMilliseconds,

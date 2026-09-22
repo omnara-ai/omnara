@@ -15,8 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 )
 
-// ProjectAppCredentialKind describes the existing secret contract.
-// Secret availability is checked again at the write boundary.
 func ProjectAppCredentialKind(provider string) (secrets.Kind, error) {
 	switch provider {
 	case IntegrationProviderSlack:
@@ -107,8 +105,6 @@ func normalizeConfigureProjectAppInput(input ConfigureProjectAppInput) (
 			return input, fmt.Errorf("%s must be a valid JSON object of at most 16384 bytes", field.name)
 		}
 	}
-	// Closed provider config objects prevent accidentally storing app behavior,
-	// copied credentials, or arbitrary outbound endpoints on the app.
 	var config map[string]json.RawMessage
 	if err := json.Unmarshal(input.ProviderConfig, &config); err != nil {
 		return input, err
@@ -143,9 +139,6 @@ func normalizeConfigureProjectAppInput(input ConfigureProjectAppInput) (
 	return input, nil
 }
 
-// A launcher scoped to the provider account must match the app's verified
-// identity. Narrower scopes (channels or repositories) are provider addresses,
-// not identities, and are not compared with these account fields.
 func validateLauncherProviderScope(launcher *AppLauncher, provider, tenantID, accountRef string) error {
 	if launcher == nil {
 		return nil

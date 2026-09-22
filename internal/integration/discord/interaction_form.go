@@ -23,9 +23,6 @@ func formCustomID(id, action string) string {
 	return value
 }
 
-// InteractionFormPrompt uses direct buttons for a single choice. Larger forms
-// use a modal with numbered choices, supporting multiple choices and optional
-// text without persisting partial answers or provider interaction tokens.
 func InteractionFormPrompt(form interactionform.Form, id string) (string, []ActionRow) {
 	parts := []string{form.Title}
 	for _, item := range form.Context {
@@ -62,8 +59,6 @@ func InteractionFormPrompt(form interactionform.Form, id string) (string, []Acti
 		[]ActionRow{{Type: 1, Components: []Component{button}}}
 }
 
-// ResolveInteractionForm returns either a modal to open or a complete normalized
-// answer. Its caller validates the signed surface and current captured authority.
 func ResolveInteractionForm(
 	form interactionform.Form, input Interaction,
 ) (InteractionResponse, *interactionform.Resolution, error) {
@@ -89,13 +84,13 @@ func ResolveInteractionForm(
 			}
 			textOption = index
 		} else {
-			if input.Type != 3 {
+			if input.Type != InteractionTypeMessageComponent {
 				return invalid()
 			}
 			resolution.Answers = []interactionform.Answer{{OptionIndices: []int{index}}}
 		}
 	}
-	if input.Type == 3 && (id.Action == "form" || textOption >= 0) {
+	if input.Type == InteractionTypeMessageComponent && (id.Action == "form" || textOption >= 0) {
 		if len(form.Questions) > 5 {
 			return invalid()
 		}
@@ -115,9 +110,9 @@ func ResolveInteractionForm(
 				Type: 4, Style: 2, CustomID: field, Label: formText(label, 45), Required: &required, MaxLength: 4000,
 			}}})
 		}
-		return InteractionResponse{Type: 9, Data: modal}, nil, nil
+		return InteractionResponse{Type: InteractionResponseModal, Data: modal}, nil, nil
 	}
-	if input.Type == 5 && (id.Action == "submit" || textOption >= 0) {
+	if input.Type == InteractionTypeModalSubmit && (id.Action == "submit" || textOption >= 0) {
 		var rows []struct {
 			Components []struct {
 				CustomID string `json:"custom_id"`

@@ -31,8 +31,6 @@ func (r questionPromptRunner) TrySubmit(label string, task func(context.Context)
 	return r.trySubmit(label, task)
 }
 
-// Drive the same durable scan as the worker after tool dispatch. Returning a
-// drain function lets provider fixtures hold HTTP responses across other changes.
 func enqueuePendingQuestionPresentations(t *testing.T, ctx context.Context, executor Executor) func() error {
 	t.Helper()
 	var tasks sync.WaitGroup
@@ -84,8 +82,6 @@ func TestQuestionWaitSurvivesUndeliveredPromptAndRuntimeExpiry(t *testing.T) {
 			enqueues := 0
 			runner := questionPromptRunner{t: t, trySubmit: func(string, func(context.Context) error) bool {
 				enqueues++
-				// A separate read must see the complete durable wait before the
-				// notification can even enter the queue. Never run this task.
 				tool, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, toolID)
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ToolCallStateWaiting, tool.State)
@@ -93,8 +89,6 @@ func TestQuestionWaitSurvivesUndeliveredPromptAndRuntimeExpiry(t *testing.T) {
 				return accepted
 			}}
 			executor := Executor{Store: f.Store, BackgroundRunner: runner}
-			// A closed async scope rejects reservations. Questions must dispatch
-			// successfully without using the runtime's async capacity at all.
 			scope := NewAsyncExecutionScope(nil)
 			scope.Seal()
 			result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), f.turn(), call)
@@ -200,8 +194,6 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 	interaction := integrationToolInteraction(t, ctx, f, toolID, executionstore.AgentInteractionKindQuestion)
 	require.Zero(t, posts.Load())
 
-	// Observe the real runner rejecting the first polling attempt while its
-	// worker and queue are both occupied. The wrapper only reports that event.
 	rejected := make(chan struct{}, 1)
 	observed := questionPromptRunner{t: t, trySubmit: func(label string, task func(context.Context) error) bool {
 		accepted := runner.TrySubmit(label, task)
@@ -229,8 +221,6 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 		interaction.ID).Scan(&attempted))
 	require.False(t, attempted, "saturation must not claim presentation")
 	releaseCapacity()
-	// No tool redispatch or manual Enqueue: the actual one-second worker loop
-	// discovers the same question when the real runner has capacity again.
 	require.Eventually(t, func() bool {
 		current, found, err := f.Store.Execution().GetAgentInteraction(
 			ctx, toolsTestProjectID, f.Agent.ID, interaction.ID)

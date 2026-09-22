@@ -18,8 +18,6 @@ const (
 	EventBodyMaxBytes = 2 * 1024 * 1024
 )
 
-// ValidSignature verifies exactly the raw request bytes using HMAC-SHA256.
-// There is no timestamp in GitHub's signature scheme. Receivers must dedupe.
 func ValidSignature(header http.Header, body []byte, secret string) bool {
 	values := header.Values(SignatureHeader)
 	if secret == "" || len(body) > EventBodyMaxBytes || len(values) != 1 ||
@@ -52,26 +50,21 @@ type Issue struct {
 	} `json:"pull_request"`
 }
 
-// Webhook exposes facts without choosing recipients or suppressing bot events.
-// Comment.User and Sender are distinct: the sender may be editing another
-// author's comment. Unknown event types remain available for caller filtering.
 type Webhook struct {
-	EventType              string       `json:"-"`
-	DeliveryID             string       `json:"-"`
-	HookID                 int64        `json:"-"`
-	InstallationTargetID   int64        `json:"-"`
-	InstallationTargetType string       `json:"-"`
-	Action                 string       `json:"action"`
-	Sender                 User         `json:"sender"`
-	Installation           Installation `json:"installation"`
-	Repository             Repository   `json:"repository"`
-	PullRequest            *PullRequest `json:"pull_request"`
-	Issue                  *Issue       `json:"issue"`
-	// The shared comment fields also decode issue_comment payloads; diff-only
-	// fields are absent there. Use EventType plus Issue.PullRequest to distinguish.
-	Comment *ReviewComment `json:"comment"`
-	Before  string         `json:"before"`
-	After   string         `json:"after"`
+	EventType              string         `json:"-"`
+	DeliveryID             string         `json:"-"`
+	HookID                 int64          `json:"-"`
+	InstallationTargetID   int64          `json:"-"`
+	InstallationTargetType string         `json:"-"`
+	Action                 string         `json:"action"`
+	Sender                 User           `json:"sender"`
+	Installation           Installation   `json:"installation"`
+	Repository             Repository     `json:"repository"`
+	PullRequest            *PullRequest   `json:"pull_request"`
+	Issue                  *Issue         `json:"issue"`
+	Comment                *ReviewComment `json:"comment"`
+	Before                 string         `json:"before"`
+	After                  string         `json:"after"`
 }
 
 func DecodeWebhook(header http.Header, raw []byte, secret string) (Webhook, error) {

@@ -6,7 +6,6 @@ import { ProjectAppForm } from './ProjectAppForm'
 import { ProjectAppSection } from './ProjectAppSection'
 import { ProjectAppSummary } from './ProjectAppSummary'
 
-/** The event that starts agents: a readable summary that becomes its own editor in place. */
 export function ProjectAppLaunch({
   orgId,
   projectId,

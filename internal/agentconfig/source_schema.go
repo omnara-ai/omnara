@@ -318,7 +318,6 @@ func validateSourceSchema(schema *kjsonschema.Schema, jsonSource []byte, root *y
 	return nil
 }
 
-// SourceJSONSchema returns the schema used to validate agent config source.
 func SourceJSONSchema() ([]byte, error) {
 	schemaJSON, err := json.Marshal(agentConfigSourceSchema())
 	if err != nil {

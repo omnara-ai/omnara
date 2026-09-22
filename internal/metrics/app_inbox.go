@@ -7,7 +7,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// AppInboxRecorder exports cached samples only; scraping never queries storage.
 type AppInboxRecorder struct {
 	oldestReadyLag prometheus.Gauge
 	lastSuccess    prometheus.Gauge

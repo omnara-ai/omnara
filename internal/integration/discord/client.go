@@ -21,8 +21,6 @@ const (
 	ErrorMaxBytes    = 8 * 1024
 )
 
-// Credentials describe a customer-owned application and its bot user. The
-// application ID is NOT a guild ID or an assumed substitute for the bot user ID.
 type Credentials struct {
 	ApplicationID string
 	BotUserID     string
@@ -30,14 +28,9 @@ type Credentials struct {
 }
 
 type Config struct {
-	Credentials Credentials
-	// HTTPClient and APIURL are trusted deployment/test settings, never tool input.
-	HTTPClient *http.Client
-	APIURL     string
-	// BeforeRequest runs before each HTTP attempt, including retries and CDN
-	// downloads. Trusted errors return unchanged before an initial send; after an
-	// uncertain nonce attempt the delivery remains unknown. It must be concurrency
-	// safe and honor the shared operation deadline.
+	Credentials   Credentials
+	HTTPClient    *http.Client
+	APIURL        string
 	BeforeRequest func(context.Context) error
 }
 
@@ -104,8 +97,6 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 	return nil
 }
 
-// retrySend permits retries for idempotent reactions and create-message with a
-// stable enforced nonce. Attempts share a 15s operation, within the nonce window.
 func (c *Client) do(ctx context.Context, method, target, contentType string, body []byte,
 	auth, retrySend bool, limit int64,
 ) ([]byte, error) {
@@ -131,8 +122,6 @@ func (c *Client) do(ctx context.Context, method, target, contentType string, bod
 		}
 		if c.beforeRequest != nil {
 			if err := c.beforeRequest(ctx); err != nil {
-				// A previous retryable mutation may already have succeeded. Preserve
-				// that delivery uncertainty without exposing trusted authority errors.
 				if uncertain {
 					return nil, &APIError{Code: DeliveryUnknown}
 				}
