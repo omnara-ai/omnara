@@ -11,7 +11,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const uploadArtifactProcessTimeoutSeconds = 30
+const (
+	uploadArtifactProcessTimeoutSeconds   = 30
+	downloadArtifactProcessTimeoutSeconds = 60
+)
 
 type uploadArtifactAuthorization struct {
 	AgentMachineBindingID string `json:"agent_machine_binding_id"`
@@ -90,6 +93,6 @@ func downloadArtifactProcessInput(
 		Command:        command,
 		ShellSelector:  processcmd.ShellDefault,
 		InitialWaitMS:  processaction.MaxWaitMilliseconds,
-		TimeoutSeconds: 0,
+		TimeoutSeconds: downloadArtifactProcessTimeoutSeconds,
 	}
 }
