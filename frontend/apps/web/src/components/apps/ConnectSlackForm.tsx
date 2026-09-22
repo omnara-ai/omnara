@@ -150,11 +150,6 @@ export function ConnectSlackForm({
           pending={pending}
           isError={completion.isError}
           onRetry={() => void completion.refetch()}
-          onRestart={() => {
-            setPending(undefined)
-          }}
-          onCancel={onCancel}
-          footerAction={footerAction}
         />
       ) : (
         <form
@@ -403,16 +398,10 @@ function SlackAuthorizationPending({
   pending,
   isError,
   onRetry,
-  onRestart,
-  onCancel,
-  footerAction,
 }: {
   pending: IntegrationOAuthSetup
   isError: boolean
   onRetry: () => void
-  onRestart: () => void
-  onCancel?: () => void
-  footerAction?: ReactNode
 }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -436,17 +425,6 @@ function SlackAuthorizationPending({
       <p className="text-muted-foreground">
         Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
       </p>
-      <div className="flex flex-wrap items-start justify-end gap-2">
-        {footerAction}
-        {onCancel && (
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-        )}
-        <Button variant="outline" onClick={onRestart}>
-          Start again
-        </Button>
-      </div>
     </div>
   )
 }
