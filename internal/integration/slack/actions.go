@@ -25,8 +25,9 @@ type ActionsEnvelope struct {
 		ID string `json:"id"`
 	} `json:"channel"`
 	Message struct {
-		TS       string `json:"ts"`
-		ThreadTS string `json:"thread_ts"`
+		TS       string         `json:"ts"`
+		ThreadTS string         `json:"thread_ts"`
+		Blocks   []HistoryBlock `json:"blocks"`
 	} `json:"message"`
 	Container struct {
 		ChannelID string `json:"channel_id"`
@@ -116,6 +117,22 @@ func PromptActionFromActions(envelope ActionsEnvelope) (PromptActionValue, error
 		return value, nil
 	}
 	return PromptActionValue{}, errors.New("missing Omnara integration prompt action value")
+}
+
+// PromptCallbackInteractionID identifies the prompt whose owner must authenticate
+// the callback. Form edits carry its message marker instead of a clicked Submit
+// action. This identity is only a lookup hint; submission still requires
+// PromptActionFromActions after signature verification.
+func PromptCallbackInteractionID(envelope ActionsEnvelope) (string, error) {
+	if action, err := PromptActionFromActions(envelope); err == nil {
+		return action.InteractionID, nil
+	}
+	for _, block := range envelope.Message.Blocks {
+		if id, ok := strings.CutPrefix(block.BlockID, promptMarkerBlockID("")); ok && id != "" {
+			return id, nil
+		}
+	}
+	return "", errors.New("missing Omnara integration prompt identity")
 }
 
 func PromptActionID(actionID string) bool {

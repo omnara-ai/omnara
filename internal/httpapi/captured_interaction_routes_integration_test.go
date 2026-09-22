@@ -410,6 +410,67 @@ func (f capturedHTTPFixture) slackRequest(
 	return requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationActionsPath, body, "", status, headers)
 }
 
+func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
+	t.Parallel()
+	f := newCapturedHTTPFixture(t, "slack", "permission")
+	prompt := <-f.prompts
+	selection := func(payload map[string]any) {
+		testutil.RequireType[map[string]any](t, payload["message"])["blocks"] = prompt["blocks"]
+		payload["actions"] = []any{map[string]any{
+			"type": "radio_buttons", "action_id": "omnara_answer",
+			"selected_option": map[string]string{"value": "1"},
+		}}
+		payload["state"] = map[string]any{"values": map[string]any{
+			"omnara_question_0": map[string]any{"omnara_answer": map[string]any{
+				"type": "radio_buttons", "selected_option": map[string]string{"value": "1"},
+			}},
+		}}
+	}
+	// Use the rendered message, including its Submit button: merely receiving
+	// that button in message.blocks must never turn a selection into a submit.
+	for range 2 {
+		require.Equal(t, "ignored", f.slackRequest(t, false, selection)["ok"])
+	}
+	capturedSiblingApp(t, f)
+	forged := f
+	forged.signingSecret, forged.callbackStatus = "sibling-signing-secret", http.StatusUnauthorized
+	forged.slackRequest(t, false, selection)
+	current, found, err := f.project.Store.Execution().
+		GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+	require.Equal(t, uuid.Nil, current.ResolvedByInputID)
+	require.JSONEq(t, string(f.record.PresentationReceipt), string(current.PresentationReceipt))
+	select {
+	case <-f.dismissed:
+		t.Fatal("selection dismissed an unanswered prompt")
+	default:
+	}
+	response := f.slackRequest(t, false, func(payload map[string]any) {
+		submit := payload["actions"]
+		selection(payload)
+		payload["actions"] = submit
+	})
+	require.Equal(t, "resolved", response["ok"])
+	require.Equal(t, "Denied: run_command", response["text"])
+	current, found, err = f.project.Store.Execution().
+		GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentInteractionStateResolved, current.State)
+	form, err := current.Form()
+	require.NoError(t, err)
+	resolution, err := interactionform.ParseResolution(form, current.Resolution)
+	require.NoError(t, err)
+	require.Equal(t, []interactionform.Answer{{OptionIndices: []int{toolpermission.DenyOptionIndex}}}, resolution.Answers)
+	select {
+	case <-f.dismissed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("submitted prompt was not dismissed")
+	}
+}
+
 func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 	t.Parallel()
 	for _, provider := range []string{"slack", "discord"} {

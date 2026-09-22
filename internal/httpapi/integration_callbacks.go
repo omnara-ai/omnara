@@ -95,11 +95,11 @@ func (s *Server) slackCallbackOwner(ctx context.Context, envelope slack.ActionsE
 			return s.store.Integrations().GetAppProfileChoiceAppID(ctx, id)
 		}
 	}
-	action, err := slack.PromptActionFromActions(envelope)
+	interactionID, err := slack.PromptCallbackInteractionID(envelope)
 	if err != nil {
 		return uuid.Nil, storeerr.ErrNotFound
 	}
-	id, err := publicid.Decode(publicid.KindAgentInteraction, action.InteractionID)
+	id, err := publicid.Decode(publicid.KindAgentInteraction, interactionID)
 	if err != nil {
 		return uuid.Nil, storeerr.ErrNotFound
 	}
