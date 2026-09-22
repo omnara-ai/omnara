@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -118,7 +117,6 @@ mcp:
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
 		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil {
@@ -189,8 +187,7 @@ mcp:
 		t.Fatalf("execute mcp config removal work: %v", err)
 	}
 	require.Equal(t, 2, modelClient.preparedCount())
-	requireKernelToolNames(t, modelClient.prepared[1].ToolSpecs,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
+	requireKernelToolNames(t, modelClient.prepared[1].ToolSpecs)
 	if mcpClient.initializeCount != 3 {
 		t.Fatalf("initialize count after mcp removal = %d, want 3", mcpClient.initializeCount)
 	}
@@ -312,8 +309,7 @@ mcp:
 	require.Equal(t, 2, modelClient.preparedCount())
 	for _, prepared := range modelClient.prepared {
 		requireKernelToolNames(t, prepared.ToolSpecs,
-			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
+			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
 	}
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
@@ -411,8 +407,7 @@ mcp:
 	}
 	require.Equal(t, 1, modelClient.preparedCount())
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
-		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
 	conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 	if err != nil || !found {
 		t.Fatalf("load mcp connection: found=%t err=%v", found, err)
@@ -577,7 +572,6 @@ mcp:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	var changeErr error
@@ -785,12 +779,10 @@ mcp:
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
 		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	for _, prepared := range modelClient.prepared[1:] {
 		requireKernelToolNames(t, prepared.ToolSpecs,
-			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler)
+			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles)
 	}
 	if mcpClient.initializeCount != 2 {
 		t.Fatalf(
@@ -920,7 +912,6 @@ mcp:
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
 		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 		toolcatalog.MCPRuntimeToolName("good", "greet"))
 	if mcpClient.initializeCount != 2 {
 		t.Fatalf(
@@ -1109,7 +1100,6 @@ mcp:
 	require.Equal(t, 1, secondModel.preparedCount())
 	requireKernelToolNames(t, secondModel.prepared[0].ToolSpecs,
 		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 		toolcatalog.MCPRuntimeToolName("docs", "greet"))
 	secondConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, second.Agent.ID, "docs")
 	if err != nil || !found {
@@ -1191,7 +1181,6 @@ mcp:
 		require.Equal(t, 1, modelClient.preparedCount(), name)
 		requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
 			toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-			toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 			toolcatalog.MCPRuntimeToolName("docs", "greet"))
 		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
 		if err != nil || !found {
@@ -1573,11 +1562,7 @@ mcp:
 	})
 
 	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {
-		secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-		if err != nil {
-			t.Fatal(err)
-		}
-		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: secretID}
+		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: uuid.New()}
 		ensureFailed(t, load(t), "read mcp auth secret")
 	})
 }

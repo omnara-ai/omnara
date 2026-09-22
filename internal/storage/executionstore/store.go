@@ -72,6 +72,9 @@ func (s *Store) commitTxWithNotifications(
 	txNotifications *notifications.TxNotifications,
 	operation string,
 ) error {
+	if err := enqueueEventWebhooksTx(ctx, tx, txNotifications); err != nil {
+		return err
+	}
 	var publisher notifications.PostCommitPublisher
 	if s != nil {
 		publisher = s.postCommitPublisher

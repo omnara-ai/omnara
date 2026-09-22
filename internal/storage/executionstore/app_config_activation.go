@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -17,13 +16,12 @@ func launchAppIDsTx(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	input LaunchAgentInput,
-) ([]string, error) {
+) ([]uuid.UUID, error) {
 	var config AgentConfigRecord
 	if input.DerivedConfig != nil {
 		derived := withDefaultAgentConfigCompilation(*input.DerivedConfig)
 		config = AgentConfigRecord{
 			CompiledDefinition:      derived.CompiledDefinition,
-			CompilerVersion:         derived.CompilerVersion,
 			EffectiveDefinitionHash: derived.EffectiveDefinitionHash,
 		}
 	} else {
@@ -39,11 +37,10 @@ func launchAppIDsTx(
 	}
 	refs := contract.ReferencedAppIDs()
 	for _, subscription := range input.Subscriptions {
-		ref, err := publicid.Encode(publicid.KindProjectApp, subscription.AppID)
-		if err != nil {
-			return nil, storeerr.InvalidRequest(err)
+		if subscription.AppID == uuid.Nil {
+			return nil, storeerr.InvalidRequest(errors.New("subscription app id is required"))
 		}
-		refs = append(refs, ref)
+		refs = append(refs, subscription.AppID)
 	}
 	return refs, nil
 }

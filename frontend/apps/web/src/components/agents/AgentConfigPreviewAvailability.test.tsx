@@ -193,7 +193,7 @@ function SubagentPreviewHarness({ source }: { source: string }) {
               ...row,
               instructionAppend: `${row.instructionAppend} More detail.`,
               description: 'Updated description',
-              modelOverride: { name: 'another-model' },
+              modelOverride: { provider_config: 'anthropic', name: 'another-model' },
             })),
           )
         }}

@@ -12,7 +12,7 @@ func compileRuntimeContract(t *testing.T, source string) RuntimeContract {
 	t.Helper()
 	compiled, err := Compile(SourceFormatYAML, []byte(validAgentSource(source)), CompileOptions{})
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(json.RawMessage(compiled.CanonicalJSON), CompilerVersion, compiled.Hash)
+	contract, err := RuntimeContractFromCompiled(json.RawMessage(compiled.CanonicalJSON), compiled.Hash)
 	require.NoError(t, err)
 	return contract
 }
@@ -162,7 +162,7 @@ func TestToolSearchDefaultMatchesCompiledAndPreview(t *testing.T) {
 			}
 			require.Equal(t, test.wantSearch, previewHas)
 
-			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 			require.NoError(t, err)
 			runtimeSearch, runtimeHas := runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
 			require.Equal(t, test.wantOn, runtimeHas)
@@ -180,7 +180,7 @@ func TestRuntimeDoesNotAddToolSearch(t *testing.T) {
 	delete(result.Compiled.Tools, toolcatalog.ToolNameToolSearch)
 	encoded, err := EncodeCompiled(result.Compiled)
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 	require.NoError(t, err)
 	_, ok := runtimeToolByName(contract, toolcatalog.ToolNameToolSearch)
 	require.False(t, ok)

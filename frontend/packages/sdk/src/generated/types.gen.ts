@@ -1228,17 +1228,189 @@ export type AgentConfigModel = {
     output_modalities: Array<string>;
 };
 
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export type CompiledAgentConfig = {
+    version?: string;
+    instruction: string;
+    model: CompiledAgentModel;
+    machine_sources?: Array<CompiledMachineSource>;
+    tools?: {
+        [key: string]: CompiledTool;
+    };
+    mcp?: {
+        [key: string]: CompiledMcpServer;
+    };
+    event_webhook?: CompiledEventWebhook;
+    interaction_handlers?: {
+        [key: string]: CompiledAppCapability;
+    };
+    skills?: Array<CompiledSkill>;
+    subagents?: {
+        [key: string]: CompiledSubagent;
+    };
+    max_subagents?: number;
+    max_depth?: number;
+};
+
+export type CompiledEventWebhook = {
+    url: string;
+    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
+    signing_secret_id?: SecretId;
+};
+
+export type CompiledAgentModel = {
+    configured_model_id: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: ModelCacheRetention;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type CompiledModelReasoning = {
+    effort: string;
+};
+
+export type CompiledMachineSource = {
+    machine_id?: MachineId;
+    machine_pool_id?: MachinePoolId;
+    max_machines?: number;
+    initial_num_machines?: number;
+    delete_after_idle_minutes?: number;
+    cwd?: string;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    env_overlay?: {
+        [key: string]: string | null;
+    };
+    secret_env_overlay?: {
+        [key: string]: SecretId | null;
+    };
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    };
+    description?: string;
+};
+
+export type CompiledTool = {
+    app_id?: ProjectAppId;
+    enabled: boolean;
+    type?: 'built_in' | 'custom';
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    description?: string;
+    input_schema?: {
+        [key: string]: unknown;
+    };
+};
+
+export type CompiledAppCapability = {
+    app_id: ProjectAppId;
+};
+
+export type CompiledMcpServer = {
+    url: string;
+    auth?: CompiledMcpAuth;
+    default_enabled: boolean;
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    tools?: {
+        [key: string]: CompiledMcpTool;
+    };
+};
+
+export type CompiledMcpAuth = ({
+    type: 'bearer';
+} & CompiledMcpAuthBearer) | ({
+    type: 'oauth';
+} & CompiledMcpAuthOAuth) | ({
+    type: 'sigv4';
+} & CompiledMcpAuthSigV4);
+
+export type CompiledMcpAuthBearer = {
+    type: 'bearer';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthOAuth = {
+    type: 'oauth';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthSigV4 = {
+    type: 'sigv4';
+    secret_id: SecretId;
+    service: string;
+    region: string;
+};
+
+export type CompiledMcpTool = {
+    enabled?: boolean;
+    permission?: ToolPermissionSelection;
+    deferred?: boolean;
+};
+
+export type CompiledSkill = {
+    id: SkillId;
+};
+
+export type CompiledSubagent = ({
+    type: 'self';
+} & CompiledSelfSubagent) | ({
+    type: 'profile';
+} & CompiledProfileSubagent);
+
+export type CompiledSelfSubagent = {
+    type: 'self';
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledProfileSubagent = {
+    type: 'profile';
+    profile_id: AgentProfileId;
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledSubagentModel = {
+    configured_model_id?: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: ModelCacheRetention;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type AgentConfigSummary = {
+    id: AgentConfigId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    source?: string;
+    source_format?: 'yaml' | 'json';
+    effective_definition_hash: string;
+    model: AgentConfigModel;
+    instruction_hash?: string;
+    created_at: Timestamp;
+};
+
 export type AgentConfig = {
     id: AgentConfigId;
     org_id: OrganizationId;
     project_id: ProjectId;
     source?: string;
     source_format?: 'yaml' | 'json';
-    compiler_version?: string;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
     created_at: Timestamp;
+    compiled_definition: CompiledAgentConfig;
 };
 
 export type CreateAgentProfileRequest = {
@@ -1255,6 +1427,18 @@ export type RenameAgentProfileRequest = {
     name: ResourceName;
 };
 
+export type AgentProfileSummary = {
+    id: AgentProfileId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    name: ResourceName;
+    current_config_id: AgentConfigId;
+    current_generation: number;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    current_config: AgentConfigSummary;
+};
+
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
@@ -1262,13 +1446,13 @@ export type AgentProfile = {
     name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
-    current_config: AgentConfig;
     created_at: Timestamp;
     updated_at: Timestamp;
+    current_config: AgentConfig;
 };
 
 export type ListAgentProfilesResponse = {
-    data: Array<AgentProfile>;
+    data: Array<AgentProfileSummary>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
@@ -1832,7 +2016,7 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
@@ -1962,6 +2146,46 @@ export type ContextCheckpointEvent = {
     summarized_through_event_sequence: AgentSequence;
     summary: string;
     created_at: Timestamp;
+};
+
+/**
+ * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ */
+export type EventWebhookPayload = ({
+    event: 'agent_input';
+} & EventWebhookAgentInputEvent) | ({
+    event: 'model_output';
+} & EventWebhookModelOutputEvent) | ({
+    event: 'tool_result';
+} & EventWebhookToolResultEvent) | ({
+    event: 'context_checkpoint';
+} & EventWebhookContextCheckpointEvent) | ({
+    event: 'tool_call_update';
+} & EventWebhookToolCallUpdate);
+
+export type EventWebhookAgentInputEvent = {
+    event: 'agent_input';
+    data: AgentInputEvent;
+};
+
+export type EventWebhookModelOutputEvent = {
+    event: 'model_output';
+    data: ModelOutputEvent;
+};
+
+export type EventWebhookToolResultEvent = {
+    event: 'tool_result';
+    data: ToolResultEvent;
+};
+
+export type EventWebhookContextCheckpointEvent = {
+    event: 'context_checkpoint';
+    data: ContextCheckpointEvent;
+};
+
+export type EventWebhookToolCallUpdate = {
+    event: 'tool_call_update';
+    data: ToolCallUpdate;
 };
 
 export type AgentEvent = ({
@@ -3296,7 +3520,7 @@ export type OrgOverviewResponse = {
     /**
      * Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
      */
-    recent_agent_profiles: Array<AgentProfile>;
+    recent_agent_profiles: Array<AgentProfileSummary>;
 };
 
 /**

@@ -9,7 +9,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -63,11 +62,7 @@ func (e Executor) resolveAppToolScope(
 	if !ok {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app tool was not configured for this call"))
 	}
-	id, err := publicid.Decode(publicid.KindProjectApp, pinned.AppID)
-	if err != nil {
-		return appToolAccess{}, err
-	}
-	app, err := e.Store.Integrations().GetProjectApp(ctx, turn.ProjectID, id)
+	app, err := e.Store.Integrations().GetProjectApp(ctx, turn.ProjectID, pinned.AppID)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
 	}
@@ -78,7 +73,7 @@ func (e Executor) resolveAppToolScope(
 	if !valid || app.Name != name || app.State != integrationstore.ProjectAppStateActive || app.OrgID != turn.OrgID {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
 	}
-	metadata := map[string]agentconfig.AppResolution{pinned.AppID: {AppID: pinned.AppID, AppType: app.AppType}}
+	metadata := map[uuid.UUID]agentconfig.AppResolution{pinned.AppID: {AppID: pinned.AppID, AppType: app.AppType}}
 	authority, err := agentconfig.ResolveAppToolAuthority(original, current, tool.Name, metadata)
 	if err != nil {
 		return appToolAccess{}, appToolPreparationFailure(fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err))
@@ -162,7 +157,7 @@ func (e Executor) recheckAppToolAccess(
 			return err
 		}
 		ref := access.Authority.Tool.AppID
-		metadata := map[string]agentconfig.AppResolution{ref: {AppID: ref, AppType: access.App.AppType}}
+		metadata := map[uuid.UUID]agentconfig.AppResolution{ref: {AppID: ref, AppType: access.App.AppType}}
 		if _, err := agentconfig.ResolveAppToolAuthority(access.OriginalContract, current, tool.Name, metadata); err != nil {
 			return fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
 		}
@@ -197,7 +192,6 @@ func (e Executor) appRuntimeContract(
 	}
 	return agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
-		config.CompilerVersion,
 		config.EffectiveDefinitionHash,
 	)
 }

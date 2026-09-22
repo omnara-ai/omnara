@@ -385,7 +385,7 @@ type fakeContextStore struct {
 	completedToolCallWatermark int64
 	interactionHandlers        agentconfig.InteractionHandlerPage
 	interactionHandlerRequests []handlerListRequest
-	appDefinitions             map[string]agentconfig.AppResolution
+	appDefinitions             map[uuid.UUID]agentconfig.AppResolution
 	appDefinitionRequests      []appDefinitionRequest
 	appDefinitionsErr          error
 	machinePools               []executionstore.MachinePoolSourceRecord
@@ -405,9 +405,13 @@ type fakeContextStore struct {
 func (s *fakeContextStore) GetSkillForDispatch(
 	_ context.Context,
 	_ uuid.UUID,
-	publicSkillID string,
+	publicSkillID uuid.UUID,
 ) (skillstore.SkillRecord, error) {
-	if record, ok := s.skills[publicSkillID]; ok {
+	encoded, err := publicid.Encode(publicid.KindSkill, publicSkillID)
+	if err != nil {
+		return skillstore.SkillRecord{}, err
+	}
+	if record, ok := s.skills[encoded]; ok {
 		return record, nil
 	}
 	return skillstore.SkillRecord{}, storeerr.ErrNotFound
@@ -514,7 +518,7 @@ type handlerListRequest struct {
 }
 type appDefinitionRequest struct {
 	ProjectID uuid.UUID
-	IDs       []string
+	IDs       []uuid.UUID
 }
 
 func (s *fakeContextStore) ListInteractionHandlers(
@@ -528,16 +532,16 @@ func (s *fakeContextStore) ListInteractionHandlers(
 }
 
 func (s *fakeContextStore) ResolveAppDefinitions(
-	_ context.Context, projectID uuid.UUID, ids []string,
-) (map[string]agentconfig.AppResolution, error) {
+	_ context.Context, projectID uuid.UUID, ids []uuid.UUID,
+) (map[uuid.UUID]agentconfig.AppResolution, error) {
 	s.appDefinitionRequests = append(
 		s.appDefinitionRequests,
-		appDefinitionRequest{projectID, append([]string(nil), ids...)},
+		appDefinitionRequest{projectID, append([]uuid.UUID(nil), ids...)},
 	)
 	if s.appDefinitionsErr != nil {
 		return nil, s.appDefinitionsErr
 	}
-	apps := map[string]agentconfig.AppResolution{}
+	apps := map[uuid.UUID]agentconfig.AppResolution{}
 	for _, id := range ids {
 		if app, ok := s.appDefinitions[id]; ok {
 			apps[id] = app
@@ -716,7 +720,7 @@ skills:
 `),
 				agentconfig.CompileOptions{
 					ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-						return agentconfig.SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+						return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 					},
 				},
 			)
@@ -729,7 +733,6 @@ skills:
 				config: executionstore.AgentConfigRecord{
 					ID:                      testIDN(935),
 					CompiledDefinition:      compiled.CanonicalJSON,
-					CompilerVersion:         agentconfig.CompilerVersion,
 					EffectiveDefinitionHash: compiled.Hash,
 				},
 				skills: map[string]skillstore.SkillRecord{
@@ -887,7 +890,7 @@ skills:
 `),
 		agentconfig.CompileOptions{
 			ResolveSkillID: func(id string) (agentconfig.SkillResolution, error) {
-				return agentconfig.SkillResolution{PublicID: id, Name: "pdf-tools"}, nil
+				return agentconfig.SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "pdf-tools"}, nil
 			},
 		},
 	)
@@ -896,7 +899,6 @@ skills:
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		compiled.CanonicalJSON,
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	)
 	if err != nil {
@@ -1152,7 +1154,6 @@ model:
 	return executionstore.AgentConfigRecord{
 		ID:                      testIDN(500),
 		CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: result.Hash,
 	}
 }
@@ -1176,7 +1177,6 @@ tools:
 	return executionstore.AgentConfigRecord{
 		ID:                      testIDN(501),
 		CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: result.Hash,
 	}
 }
@@ -1206,7 +1206,6 @@ mcp:
 	return executionstore.AgentConfigRecord{
 		ID:                      testIDN(980),
 		CompiledDefinition:      json.RawMessage(result.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: result.Hash,
 	}
 }

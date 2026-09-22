@@ -2,7 +2,7 @@
 
 import { OmnaraClientProvider } from '@omnara/react'
 import {
-  type AgentProfile,
+  type AgentProfileSummary,
   type AppCronTriggerTarget,
   createOmnaraClient,
   type CronTrigger,
@@ -28,7 +28,7 @@ export const orgId = fakeId('org'),
 export const path = `/api/v1/orgs/${orgId}/projects/${projectId}`
 export const cronPath = path + '/cron-triggers'
 export const now = '2026-09-20T09:00:00Z'
-export const profile: AgentProfile = {
+export const profile: AgentProfileSummary = {
   id: fakeId('aprf'),
   org_id: orgId,
   project_id: projectId,
@@ -84,7 +84,17 @@ export const profileRoutes = [
   {
     method: 'GET',
     path: path + '/agent-profiles/' + profile.id,
-    respond: () => Response.json(profile),
+    respond: () =>
+      Response.json({
+        ...profile,
+        current_config: {
+          ...profile.current_config,
+          compiled_definition: {
+            instruction: 'Report daily progress.',
+            model: { configured_model_id: fakeId('mdl') },
+          },
+        },
+      }),
   },
 ]
 

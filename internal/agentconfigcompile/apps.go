@@ -36,7 +36,6 @@ func DeriveAppConfig(
 	return Body{
 		ConfiguredModelID:  base.ConfiguredModelID,
 		CompiledDefinition: json.RawMessage(encoded.CanonicalJSON),
-		CompilerVersion:    agentconfig.CompilerVersion,
 		DefinitionHash:     encoded.Hash,
 	}, nil
 }

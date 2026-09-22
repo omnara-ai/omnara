@@ -352,7 +352,7 @@ func appToolConfigChangeInput(
 	require.NoError(t, err)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-			return agentconfig.ResolvedModelSelection{ConfiguredModelID: f.AgentConfig.ConfiguredModelID.String()}, nil
+			return agentconfig.ResolvedModelSelection{ConfiguredModelID: f.AgentConfig.ConfiguredModelID}, nil
 		},
 		ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
 			return resolveToolsAppName(t.Context(), f.Store, name)
@@ -366,7 +366,6 @@ func appToolConfigChangeInput(
 			SourceFormat:            "json",
 			ConfiguredModelID:       f.AgentConfig.ConfiguredModelID,
 			CompiledDefinition:      compiled.CanonicalJSON,
-			CompilerVersion:         compiled.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:        f.Agent.ID,

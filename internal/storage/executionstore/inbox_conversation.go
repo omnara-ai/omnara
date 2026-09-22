@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
@@ -36,8 +35,7 @@ func (s *Store) CheckInboxConversationAuthority(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	var resources []string
-	var apps []uuid.UUID
+	var resources []uuid.UUID
 	if slots[key].Launch != nil {
 		slot, progress, err := decodeInboxLaunchSlot(snapshot, key)
 		if err != nil {
@@ -50,15 +48,8 @@ func (s *Store) CheckInboxConversationAuthority(
 		if err != nil {
 			return err
 		}
-		for _, ref := range resources {
-			id, err := publicid.Decode(publicid.KindProjectApp, ref)
-			if err != nil {
-				return err
-			}
-			apps = append(apps, id)
-		}
 	}
-	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, apps...)
+	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, resources...)
 	if err != nil {
 		return err
 	}

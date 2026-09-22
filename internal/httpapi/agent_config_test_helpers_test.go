@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -73,7 +72,6 @@ model:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
@@ -127,12 +125,12 @@ func compileHTTPAgentYAMLResolved(
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedHTTPAgentConfigModel(configuredModel), nil
 		},
-		ResolveMachineName: func(machineName string) (string, error) {
+		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
 			machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, projectID, machineName)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMachine, machineID)
+			return machineID, nil
 		},
 	})
 	if err != nil {
@@ -144,16 +142,12 @@ func compileHTTPAgentYAMLResolved(
 func resolvedHTTPAgentConfigModel(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }

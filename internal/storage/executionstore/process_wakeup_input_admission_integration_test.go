@@ -548,6 +548,7 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "permission_approval_pending")
+	enableEventWebhook(t, fixture, nil)
 	publisher := &recordingPostCommitPublisher{}
 	fixture.Store = newIntegrationStore(
 		fixture.Store.pool,
@@ -597,6 +598,7 @@ func TestPermissionApprovalReturnsToolCallToPending(t *testing.T) {
 		t.Fatalf("permission approval wakeups = %d, want 1", wakeups)
 	}
 	states := publisher.toolCallStates(toolCallID)
+	assertWebhookToolStates(t, fixture, toolCallID, states)
 	if len(states) != 3 ||
 		states[0] != string(executionstore.ToolCallStateAwaitingAuthorization) ||
 		states[1] != string(executionstore.ToolCallStateAwaitingPermission) ||

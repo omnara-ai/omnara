@@ -79,6 +79,9 @@ export function agentTemplateBasicConfig(
   return {
     interactionHandlers: {},
     mcpServers: [],
+    eventWebhookEvents: ['tool_call_update'],
+    eventWebhookUrl: '',
+    eventWebhookSigningSecretId: '',
     skillIds: [],
     subagents: [],
     maxSubagents: '',

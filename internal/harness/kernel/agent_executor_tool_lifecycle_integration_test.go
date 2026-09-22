@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -107,7 +106,6 @@ skills:
 	}
 	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
 		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
-		toolcatalog.ToolNameListInteractionHandlers, toolcatalog.ToolNameSetInteractionHandler,
 		toolcatalog.ToolNameSkill)
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)
 	<-scope.Done()
@@ -795,7 +793,6 @@ func (f kernelFixture) kernelAgentConfigInput(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 }
@@ -840,7 +837,6 @@ tools:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

@@ -17,7 +17,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 type backgroundRunnerFunc func(string, func(context.Context) error) bool
@@ -151,6 +153,42 @@ func TestSpawnAgentDispatchUsesOneDatabaseConnection(t *testing.T) {
 	if len(subagents) != 1 || subagents[0].Name != "worker" || subagents[0].Key != "fork" {
 		t.Fatalf("subagents after spawn = %+v, want one worker spawned from fork", subagents)
 	}
+}
+
+func TestSpawnAgentDispatchReturnsUnsupportedModelToolFailure(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(
+		t, ctx, "unsupported-subagent-model", toolFixtureOptions{withSubagents: true},
+	)
+	configuredModel, err := fixture.Store.Models().GetConfiguredModel(
+		ctx, toolsTestOrgID, fixture.AgentConfig.ConfiguredModelID,
+	)
+	require.NoError(t, err)
+	_, err = fixture.Store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+		OrgID: toolsTestOrgID, ModelProviderConfigID: configuredModel.ModelProviderConfigID,
+		ID: configuredModel.ID, SupportsTools: new(false),
+	})
+	require.NoError(t, err)
+	call := fixture.recordToolCall(t, ctx, "call_unsupported_subagent_model", "spawn_agent",
+		`{"agent":"fork","task":"Investigate the failing build."}`, fixture.Now.Add(20*time.Second))
+	turn := fixture.turn()
+	turn.Tools["spawn_agent"] = ToolSpec{
+		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
+	}
+	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
+	require.NoError(t, err)
+	require.Equal(t, DispatchCompleted, result.Disposition)
+	require.Contains(t, string(result.ContentParts), `"error_code":"spawn_agent_failed"`)
+	require.Contains(t, string(result.ContentParts), "does not support tools")
+	record, err := fixture.Store.Execution().GetToolCall(
+		ctx, toolsTestProjectID, fixture.Agent.ID, fixture.toolCallID(t, ctx, call.ID),
+	)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.ToolCallStateCompleted, record.State)
+	require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+	children, err := fixture.Store.Execution().ListSubagents(ctx, toolsTestProjectID, fixture.Agent.ID)
+	require.NoError(t, err)
+	require.Empty(t, children)
 }
 
 func TestStopProcessDispatchPreservesTerminalResults(t *testing.T) {

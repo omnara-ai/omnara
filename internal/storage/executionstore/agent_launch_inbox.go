@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -78,15 +77,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	var apps []uuid.UUID
-	for _, ref := range resources {
-		id, err := publicid.Decode(publicid.KindProjectApp, ref)
-		if err != nil {
-			return LaunchAgentResult{}, err
-		}
-		apps = append(apps, id)
-	}
-	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, apps...)
+	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, resources...)
 	if err != nil {
 		// Release the connection before diagnostic reads, which may need the pool's only session.
 		_ = tx.Rollback(ctx)

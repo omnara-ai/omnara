@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"github.com/google/uuid"
 	"slices"
 	"strings"
 	"testing"
@@ -88,10 +89,10 @@ func TestDefaultMachineTools(t *testing.T) {
 				expected := slices.Clone(wantTools)
 				opts := testMachineSourceCompileOptions(t)
 				opts.ResolveModelSelection = func(_, _ string) (ResolvedModelSelection, error) {
-					return ResolvedModelSelection{ConfiguredModelID: "test-model", SupportsTools: &supportsTools}, nil
+					return ResolvedModelSelection{ConfiguredModelID: publicidTestID(93), SupportsTools: &supportsTools}, nil
 				}
 				opts.ResolveSkillID = func(id string) (SkillResolution, error) {
-					return SkillResolution{PublicID: id, Name: "test-skill"}, nil
+					return SkillResolution{ID: uuid.Must(publicid.Decode(publicid.KindSkill, id)), Name: "test-skill"}, nil
 				}
 				source := validAgentSource(test.source)
 				result, err := Compile(SourceFormatYAML, []byte(source), opts)
@@ -104,7 +105,7 @@ func TestDefaultMachineTools(t *testing.T) {
 				if err != nil {
 					t.Fatalf("compile: %v", err)
 				}
-				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+				contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 				if err != nil {
 					t.Fatalf("runtime contract: %v", err)
 				}
@@ -146,7 +147,7 @@ func TestDefaultRetrievalTools(t *testing.T) {
 			result, err := Compile(SourceFormatYAML, []byte(validAgentSource(test.source)), CompileOptions{})
 			require.NoError(t, err)
 			require.Equal(t, validAgentSource(test.source), result.Source)
-			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.CompilerVersion, result.Hash)
+			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 			require.NoError(t, err)
 			var names []string
 			for _, tool := range contract.Tools {
@@ -165,7 +166,7 @@ func TestRuntimeDoesNotAddRetrievalTools(t *testing.T) {
 	delete(result.Compiled.Tools, "search_files")
 	encoded, err := EncodeCompiled(result.Compiled)
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 	require.NoError(t, err)
 	require.Len(t, contract.Tools, 1)
 	require.Equal(t, "web_fetch", contract.Tools[0].Name)

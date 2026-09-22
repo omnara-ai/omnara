@@ -29,7 +29,7 @@ several app types can share a transport without another database column.
 ## Identity and capabilities
 
 A project app owns its credentials, verified external identity and optional
-launcher. Its name is immutable; compiled configs pin its public app ID so deleting
+launcher. Its name is immutable; compiled configs pin its UUID so deleting
 and reusing a name cannot redirect an existing agent. Setup revision changes fence
 provider setup, not ordinary launcher/settings edits. Independent apps may use the
 same physical bot; shared webhook infrastructure does not merge their ownership.

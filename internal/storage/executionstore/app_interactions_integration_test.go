@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -60,10 +59,10 @@ func newAppInteractionFixture(t *testing.T) appInteractionFixture {
 	)
 	f.handlers = map[string]agentconfig.AppCapabilityCompiled{
 		"chat": {
-			AppID: publicResourceID(publicid.KindProjectApp, f.app.ID),
+			AppID: f.app.ID,
 		},
 		"other": {
-			AppID: publicResourceID(publicid.KindProjectApp, f.otherApp.ID),
+			AppID: f.otherApp.ID,
 		},
 	}
 	f.change(t, f.handlers)
@@ -162,7 +161,6 @@ func (f appInteractionFixture) definition(
 		ProjectID:               testProjectID,
 		ConfiguredModelID:       f.profile.CurrentConfig.ConfiguredModelID,
 		CompiledDefinition:      encoded.CanonicalJSON,
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: encoded.Hash,
 	}
 }
@@ -486,7 +484,7 @@ func TestAppInteractionsIdentityCannotRedirectCapturedPrompt(t *testing.T) {
 			if change == "handler key reused" {
 				replacement := f.createApp(t, "replacement")
 				handler := f.handlers["chat"]
-				handler.AppID = publicResourceID(publicid.KindProjectApp, replacement.ID)
+				handler.AppID = replacement.ID
 				f.handlers["chat"] = handler
 				f.change(t, f.handlers)
 			} else {

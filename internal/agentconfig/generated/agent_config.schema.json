@@ -298,6 +298,14 @@
     },
     "AgentConfigSubagentModelSource": {
       "additionalProperties": false,
+      "dependentRequired": {
+        "name": [
+          "provider_config"
+        ],
+        "provider_config": [
+          "name"
+        ]
+      },
       "properties": {
         "cache_retention": {
           "enum": [
@@ -501,6 +509,38 @@
       ],
       "type": "object"
     },
+    "EventWebhook": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "enum": [
+              "agent_input",
+              "model_output",
+              "tool_result",
+              "context_checkpoint",
+              "tool_call_update"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "signing_secret_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "events"
+      ],
+      "type": "object"
+    },
     "ToolPermissionSelection": {
       "additionalProperties": false,
       "properties": {
@@ -521,6 +561,9 @@
   },
   "additionalProperties": false,
   "properties": {
+    "event_webhook": {
+      "$ref": "#/$defs/EventWebhook"
+    },
     "instruction": {
       "minLength": 1,
       "pattern": "\\S",

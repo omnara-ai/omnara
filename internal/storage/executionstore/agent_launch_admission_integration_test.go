@@ -188,8 +188,19 @@ func newInboxLaunchFixture(
 	keys ...string,
 ) inboxLaunchFixture {
 	t.Helper()
+	return newInboxLaunchFixtureForApp(t, newAppActivationFixture(t), withFile, leaseDuration, keys...)
+}
+
+func newInboxLaunchFixtureForApp(
+	t *testing.T,
+	app appActivationFixture,
+	withFile bool,
+	leaseDuration time.Duration,
+	keys ...string,
+) inboxLaunchFixture {
+	t.Helper()
 	f := inboxLaunchFixture{
-		appActivationFixture: newAppActivationFixture(t),
+		appActivationFixture: app,
 		slots:                map[string]executionstore.InboxLaunchSlot{},
 	}
 	setup := integrationstore.SaveProjectAppInput{
@@ -443,12 +454,14 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 		return f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentLaunchIdempotencyKey", 1)
-	require.Eventually(
-		t,
-		func() bool { return time.Now().After(*f.receipt.ClaimExpiresAt) },
-		3*time.Second,
-		10*time.Millisecond,
-	)
+	// The lease is issued and fenced by PostgreSQL's clock, which may differ
+	// from the test host's clock. Wait there while retaining the launch blocker.
+	waitCtx, cancelWait := context.WithTimeout(f.ctx, 3*time.Second)
+	defer cancelWait()
+	_, err := blocker.Exec(waitCtx,
+		`SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ($1::timestamptz - clock_timestamp()))))`,
+		*f.receipt.ClaimExpiresAt)
+	require.NoError(t, err, "wait for PostgreSQL inbox lease expiry")
 	require.NoError(t, blocker.Commit(f.ctx))
 	result := integrationdb.Await(t, done, "expired admission")
 	require.ErrorIs(t, result.Err, integrationstore.ErrIntegrationInboxLeaseLost)

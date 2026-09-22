@@ -27,7 +27,7 @@ import (
 
 func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 	for _, scenario := range []string{
-		"normal", "injected_failure", "rewrite_failure", "continuable_retry", "custom_collision",
+		"normal", "pre_internal_ids", "injected_failure", "rewrite_failure", "continuable_retry", "custom_collision",
 		"live_lease", "started_context", "unfinished_tool", "open_interaction", "unsupported_setup",
 		"fixed_agent", "mislabeled_fixed_agent", "multiple_targets", "multiple_apps", "enabled", "json", "yaml", "yaml_alias", "enabled_json", "enabled_yaml", "channel", "dm",
 		"wire_json", "wire_yaml", "enabled_wire_json", "enabled_wire_yaml", "enabled_null_json", "enabled_null_yaml",
@@ -38,7 +38,11 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
+			baseline := int64(43)
+			if scenario == "pre_internal_ids" {
+				baseline = 41
+			}
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, baseline))
 			ids := storagefixture.ProjectIDs{
 				OrgID:                   uuid.New(),
 				ProjectID:               uuid.New(),
@@ -97,14 +101,28 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			if scenario == "preflight_invalid_policy" {
 				legacySendPolicy["permission"] = map[string]any{"mode": "always_ask"}
 			}
+			if scenario == "pre_internal_ids" {
+				secretID, err := publicid.Encode(publicid.KindSecret, ids.ProviderSecretID)
+				require.NoError(t, err)
+				compiledObject["event_webhook"] = map[string]any{
+					"url": "https://example.com/events", "signing_secret_id": secretID,
+					"events": []string{"agent_input"},
+				}
+			}
 			canonical, err := json.Marshal(compiledObject)
 			require.NoError(t, err)
 			compiled = string(canonical)
 			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(compiled)))
-			exec(
-				`INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,definition,compiled_definition,
+			insertConfig := `INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,compiled_definition,
                  effective_definition_hash,created_at)
-			 VALUES($1,$2,$3,$4,$5::jsonb,$5::jsonb,$6,now())`,
+			 VALUES($1,$2,$3,$4,$5::jsonb,$6,now())`
+			if scenario == "pre_internal_ids" {
+				insertConfig = `INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,definition,compiled_definition,
+                 effective_definition_hash,created_at)
+			 VALUES($1,$2,$3,$4,$5::jsonb,$5::jsonb,$6,now())`
+			}
+			exec(
+				insertConfig,
 				configID,
 				ids.OrgID,
 				ids.ProjectID,
@@ -389,9 +407,9 @@ tools:
 			if scenario == "preflight_unmapped_policy" {
 				projectID := uuid.New()
 				storagefixture.InsertProject(t, ctx, pool, ids.OrgID, projectID, "No Slack app", "no-slack-app", time.Now())
-				exec(`INSERT INTO agent_configs(org_id,project_id,configured_model_id,definition,compiled_definition,
+				exec(`INSERT INTO agent_configs(org_id,project_id,configured_model_id,compiled_definition,
                  effective_definition_hash,created_at)
-				 VALUES($1,$2,$3,$4::jsonb,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
+				 VALUES($1,$2,$3,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
 			}
 			switch scenario {
 			case "preflight_invalid_policy", "preflight_unmapped_policy", "preflight_address", "preflight_quota",
@@ -418,7 +436,7 @@ tools:
 					want = "needs additional config quota"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(43), currentPostgresMigrationVersion(t, ctx, db))
 				var oldConnections int
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_installs WHERE id=$1`, appID).Scan(&oldConnections))
@@ -497,7 +515,7 @@ tools:
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
-				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 41))
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
 				if scenario == "config_limit" {
 					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
 				}
@@ -511,7 +529,7 @@ tools:
 					require.NoError(t, err)
 					exec(`ALTER TABLE agent_configs DISABLE TRIGGER agent_configs_immutable`)
 					exec(
-						`UPDATE agent_configs SET definition=$2::jsonb,compiled_definition=$2::jsonb,effective_definition_hash=$3 WHERE id=$1`,
+						`UPDATE agent_configs SET compiled_definition=$2::jsonb,effective_definition_hash=$3 WHERE id=$1`,
 						configID,
 						invalid,
 						fmt.Sprintf(
@@ -526,9 +544,9 @@ tools:
 				if scenario == "unmapped_policy" {
 					projectID := uuid.New()
 					storagefixture.InsertProject(t, ctx, pool, ids.OrgID, projectID, "No Slack app", "no-slack-app", time.Now())
-					exec(`INSERT INTO agent_configs(org_id,project_id,configured_model_id,definition,compiled_definition,
+					exec(`INSERT INTO agent_configs(org_id,project_id,configured_model_id,compiled_definition,
                  effective_definition_hash,created_at)
-					 VALUES($1,$2,$3,$4::jsonb,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
+					 VALUES($1,$2,$3,$4::jsonb,$5,now())`, ids.OrgID, projectID, modelID, compiled, hash)
 					expectedConfigs++
 				}
 
@@ -548,7 +566,7 @@ tools:
 					want = "exceeds project config limit"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var count int
@@ -575,7 +593,7 @@ tools:
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected rewrite failure")
-				require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var active, configs int
@@ -619,7 +637,7 @@ tools:
                  FOR EACH ROW EXECUTE FUNCTION reject_cutover_config_event()`)
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected cutover failure")
-				require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
@@ -631,7 +649,7 @@ tools:
 			if scenario == "continuable_retry" {
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "still has continuable work")
-				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(43), currentPostgresMigrationVersion(t, ctx, db))
 				var turnID uuid.UUID
 				require.NoError(
 					t,
@@ -646,9 +664,30 @@ tools:
 				}, ids, agents[0], configID, revisionID, turnID, false)
 				require.NoError(t, tx.Commit())
 			}
+			if scenario == "pre_internal_ids" {
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 44))
+				exec(`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_cutover_webhook CHECK (false) NOT VALID`)
+				before := history()
+				err := applyProductionPostgresMigrations(ctx, db)
+				require.ErrorContains(t, err, "reject_cutover_webhook")
+				require.Equal(t, int64(44), currentPostgresMigrationVersion(t, ctx, db))
+				assertContextRollback()
+				require.JSONEq(t, before, history())
+				var configs, deliveries int
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs))
+				require.Equal(t, 1, configs)
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).Scan(&deliveries))
+				require.Zero(t, deliveries)
+				exec(`ALTER TABLE event_webhook_deliveries DROP CONSTRAINT reject_cutover_webhook`)
+			}
 			before := history()
 			require.NoError(t, applyProductionPostgresMigrations(ctx, db))
 			require.JSONEq(t, before, history())
+			if scenario != "pre_internal_ids" {
+				var deliveries int
+				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).Scan(&deliveries))
+				require.Zero(t, deliveries, "cutover must not enqueue deliveries without an event webhook")
+			}
 			var retiredContext bool
 			var retiredSlot sql.NullString
 			var retiredMetadata []byte
@@ -678,19 +717,26 @@ tools:
 				require.Equal(t, expectedSequence, snapshot.InputEventSequence)
 				contract, err := agentconfig.RuntimeContractFromCompiled(
 					snapshot.AgentConfig.CompiledDefinition,
-					"",
 					snapshot.AgentConfig.EffectiveDefinitionHash,
 				)
 				require.NoError(t, err)
 				require.Empty(t, contract.InteractionHandlers)
 				var raw agentconfig.Compiled
 				require.NoError(t, json.Unmarshal(snapshot.AgentConfig.CompiledDefinition, &raw))
-				encodedAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
-				require.NoError(t, err)
+				if scenario == "pre_internal_ids" {
+					var sequence int64
+					require.NoError(t, db.QueryRowContext(ctx,
+						`SELECT event_sequence FROM event_webhook_deliveries WHERE agent_id=$1`, agentID).Scan(&sequence))
+					require.Equal(t, snapshot.InputEventSequence, sequence)
+					require.NotNil(t, raw.EventWebhook)
+					require.Equal(t, ids.ProviderSecretID, raw.EventWebhook.SigningSecretID)
+					require.Equal(t, "https://example.com/events", raw.EventWebhook.URL)
+					require.Equal(t, []string{"agent_input"}, raw.EventWebhook.Events)
+				}
 				tool := raw.Tools["app__slack__post_message"]
 				require.Equal(t, sendingEnabled, tool.Enabled)
 				require.Equal(t, "always_allow", tool.Permission.Mode)
-				require.Equal(t, encodedAppID, tool.AppID)
+				require.Equal(t, appID, tool.AppID)
 				contexts := integrationstore.New(pool, executionstore.AppAccess{})
 				context, found, err := contexts.GetAgentAppToolContext(ctx, ids.ProjectID, agentID, appID)
 				require.NoError(t, err)
@@ -753,16 +799,15 @@ tools:
 			}
 			rows, err := db.QueryContext(
 				ctx,
-				`SELECT definition,compiled_definition,effective_definition_hash FROM agent_configs`,
+				`SELECT compiled_definition,effective_definition_hash FROM agent_configs`,
 			)
 			require.NoError(t, err)
 			defer rows.Close()
 			for rows.Next() {
-				var definition, raw []byte
+				var raw []byte
 				var hash string
-				require.NoError(t, rows.Scan(&definition, &raw, &hash))
-				require.JSONEq(t, string(raw), string(definition))
-				_, err := agentconfig.RuntimeContractFromCompiled(raw, "", hash)
+				require.NoError(t, rows.Scan(&raw, &hash))
+				_, err := agentconfig.RuntimeContractFromCompiled(raw, hash)
 				require.NoError(t, err)
 			}
 			require.NoError(t, rows.Err())
@@ -845,20 +890,18 @@ tools:
 					require.False(t, tool.Enabled)
 				}
 			}
-			encodedAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
-			require.NoError(t, err)
 			launched, err := agentconfig.DeriveWithAppCapabilities(historical, agentconfig.AppCapabilitiesSource{
 				Tools: map[string]agentconfig.AgentConfigToolSource{
 					"app__slack__post_message": {},
 				},
 			}, agentconfig.CompileOptions{ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
 				require.Equal(t, "slack", name)
-				return agentconfig.AppResolution{AppID: encodedAppID, AppType: appdefinition.SlackThread}, nil
+				return agentconfig.AppResolution{AppID: appID, AppType: appdefinition.SlackThread}, nil
 			}})
 			require.NoError(t, err)
 			if sendingEnabled {
 				require.True(t, launched.Tools["app__slack__post_message"].Enabled)
-				require.Equal(t, encodedAppID, launched.Tools["app__slack__post_message"].AppID)
+				require.Equal(t, appID, launched.Tools["app__slack__post_message"].AppID)
 			} else {
 				require.Equal(t, historical.Tools["app__slack__post_message"], launched.Tools["app__slack__post_message"])
 			}
@@ -929,6 +972,18 @@ tools:
 				)
 				require.NoError(t, err)
 				require.True(t, created)
+				if scenario == "pre_internal_ids" && i == 0 {
+					claim, found, err := execution.ClaimNextAgentWork(ctx, executionstore.ClaimNextAgentWorkInput{
+						WorkerProcessID: uuid.New(), LeaseDuration: time.Minute,
+					})
+					require.NoError(t, err)
+					require.True(t, found)
+					require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+					var deliveries int
+					require.NoError(t, db.QueryRowContext(ctx,
+						`SELECT count(*) FROM event_webhook_deliveries WHERE agent_id=$1`, agentID).Scan(&deliveries))
+					require.Equal(t, 2, deliveries)
+				}
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
 				if scenario == "multiple_apps" {

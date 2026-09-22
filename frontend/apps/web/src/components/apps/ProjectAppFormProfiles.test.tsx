@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { type AgentProfile, createOmnaraClient, type ProjectApp, schemas } from '@omnara/sdk'
+import { type AgentProfileSummary, createOmnaraClient, type ProjectApp, schemas } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -18,7 +18,7 @@ const orgId = fakeId('org'),
   projectId = fakeId('proj')
 const path = `/api/v1/orgs/${orgId}/projects/${projectId}`
 const now = '2026-09-18T00:00:00Z'
-function profile(letter: string, name: string): AgentProfile {
+function profile(letter: string, name: string): AgentProfileSummary {
   return {
     id: `aprf_${letter.repeat(26)}`,
     name,
@@ -41,10 +41,22 @@ function profile(letter: string, name: string): AgentProfile {
 const support = profile('a', 'Support'),
   reviews = profile('b', 'Reviews'),
   triage = profile('c', 'Triage')
+function profileDetail(item: AgentProfileSummary) {
+  return {
+    ...item,
+    current_config: {
+      ...item.current_config,
+      compiled_definition: {
+        instruction: 'Help with this app.',
+        model: { configured_model_id: fakeId('mdl') },
+      },
+    },
+  }
+}
 const profileNameRoutes = [support, reviews, triage].map((item) => ({
   method: 'GET',
   path: path + '/agent-profiles/' + item.id,
-  respond: () => Response.json(item),
+  respond: () => Response.json(profileDetail(item)),
 }))
 
 let root: Root, container: HTMLDivElement, cache: QueryClient, restore: () => void
@@ -224,7 +236,7 @@ it.each(['retry', 'remove'] as const)(
                 { code: 'internal_error', error: 'Profile lookup temporarily unavailable' },
                 503,
               )
-            : Response.json(reviews)
+            : Response.json(profileDetail(reviews))
         },
       },
       ...profileNameRoutes,

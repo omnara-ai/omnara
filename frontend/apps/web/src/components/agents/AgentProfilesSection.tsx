@@ -1,5 +1,5 @@
 import { type AgentProfileListSort, useAgentProfiles, useCreateAgent } from '@omnara/react'
-import { type AgentProfile, ApiError } from '@omnara/sdk'
+import { type AgentProfileSummary, ApiError } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -43,7 +43,7 @@ export function AgentProfilesSection({
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [launchError, setLaunchError] = useState<ApiError>()
 
-  async function launch(profile: AgentProfile) {
+  async function launch(profile: AgentProfileSummary) {
     setLaunchError(undefined)
     setLaunchingId(profile.id)
     try {

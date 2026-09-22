@@ -38,6 +38,7 @@ INTEGRATION_HTTPAPI_PACKAGES := \
 INTEGRATION_RUNTIME_PACKAGES := \
 	./cmd/maintenance \
 	./internal/integration \
+	./internal/maintenance \
 	./internal/harness/kernel \
 	./internal/harness/tools \
 	./internal/harness/worker \

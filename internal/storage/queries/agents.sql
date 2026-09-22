@@ -7,30 +7,30 @@ WHERE id = $1
 -- name: UpsertAgentConfigByHash :one
 WITH inserted_config AS (
 INSERT INTO agent_configs(
-    org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
-    compiled_definition, compiler_version, effective_definition_hash,
+    org_id, project_id, configured_model_id, source, source_format, source_hash,
+    compiled_definition, effective_definition_hash,
     created_at
 )
 VALUES (
     sqlc.arg(org_id), sqlc.arg(project_id),
     sqlc.arg(configured_model_id),
-    sqlc.arg(compiled_definition), sqlc.narg(source), sqlc.narg(source_format),
+    sqlc.narg(source), sqlc.narg(source_format),
     sqlc.narg(source_hash), sqlc.arg(compiled_definition),
-    sqlc.arg(compiler_version), sqlc.arg(effective_definition_hash),
+    sqlc.arg(effective_definition_hash),
     transaction_timestamp()
 )
 ON CONFLICT (project_id, effective_definition_hash, source_format, source_hash) DO NOTHING
 RETURNING id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
+          compiled_definition, effective_definition_hash,
           created_at, true AS inserted
 )
 SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
+          compiled_definition, effective_definition_hash,
        created_at, inserted
 FROM inserted_config
 UNION ALL
 SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
+          compiled_definition, effective_definition_hash,
        created_at, false AS inserted
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
@@ -41,7 +41,7 @@ LIMIT 1;
 
 -- name: GetAgentConfig :one
 SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
+          compiled_definition, effective_definition_hash,
        created_at
 FROM agent_configs
 WHERE project_id = $1 AND id = $2;
@@ -79,7 +79,7 @@ config_change AS MATERIALIZED (
 SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
        config.source, config.source_format, config.source_hash,
        config.compiled_definition,
-       config.compiler_version, config.effective_definition_hash,
+       config.effective_definition_hash,
        config.created_at,
        watermark.input_event_sequence
 FROM existing_agent
@@ -113,7 +113,7 @@ config_change AS MATERIALIZED (
 SELECT config.id, config.org_id, config.project_id, config.configured_model_id,
        config.source, config.source_format, config.source_hash,
        config.compiled_definition,
-       config.compiler_version, config.effective_definition_hash,
+       config.effective_definition_hash,
        config.created_at,
        sqlc.arg(input_event_sequence)::bigint AS input_event_sequence
 FROM existing_agent
@@ -123,7 +123,7 @@ JOIN agent_configs config ON config.project_id = existing_agent.project_id
 
 -- name: GetAgentConfigByHash :one
 SELECT id, org_id, project_id, configured_model_id, source, source_format, source_hash,
-          compiled_definition, compiler_version, effective_definition_hash,
+          compiled_definition, effective_definition_hash,
        created_at
 FROM agent_configs
 WHERE project_id = sqlc.arg(project_id)
@@ -217,7 +217,6 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
        config.compiled_definition AS config_compiled_definition,
-       config.compiler_version AS config_compiler_version,
        config.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at,
        CASE sqlc.arg(sort_field)::text
@@ -255,7 +254,7 @@ SELECT id, org_id, project_id, name, current_config_id, current_generation,
        idempotency_key, created_at, updated_at, config_id, config_org_id,
        config_project_id, config_configured_model_id, config_source,
        config_source_format, config_source_hash, config_compiled_definition,
-       config_compiler_version, config_effective_definition_hash,
+       config_effective_definition_hash,
        config_created_at, sort_key, sort_is_null
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
@@ -279,7 +278,6 @@ SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        config.source AS config_source, config.source_format AS config_source_format,
        config.source_hash AS config_source_hash,
        config.compiled_definition AS config_compiled_definition,
-       config.compiler_version AS config_compiler_version,
        config.effective_definition_hash AS config_effective_definition_hash,
        config.created_at AS config_created_at
 FROM agent_profiles profile

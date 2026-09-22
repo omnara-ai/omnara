@@ -78,7 +78,6 @@ func (e AgentExecutor) modelContextToolRuntime(
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
-		config.CompilerVersion,
 		config.EffectiveDefinitionHash,
 	)
 	if err != nil {

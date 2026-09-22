@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -35,7 +36,14 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
 	store := newMaintenanceInboxStore(t, pool, ids)
 	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
-		"instruction: Keep accepted history\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+		`instruction: Keep accepted history
+model:
+  provider_config: openai-prod
+  name: gpt-test
+event_webhook:
+  url: https://example.com/events
+  events: [agent_input]
+`)
 	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "history", CurrentConfigID: config.ID,
 	})
@@ -45,6 +53,10 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Message: "Accepted user input survives",
 	})
 	require.NoError(t, err)
+	expiredWebhooks, err := pool.Exec(ctx, `UPDATE event_webhook_deliveries
+ SET created_at = statement_timestamp() - interval '11 minutes' WHERE agent_id = $1`, launched.Agent.ID)
+	require.NoError(t, err)
+	require.Positive(t, expiredWebhooks.RowsAffected())
 	live := createMaintenanceInboxApp(t, store, ids, "live").ID
 	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected").ID
 	deleted := createMaintenanceInboxApp(t, store, ids, "deleted").ID
@@ -133,6 +145,11 @@ func TestCoreMaintenanceTickCleansInboxInBoundedBatchesAndPreservesHistory(t *te
 	}
 	require.Contains(t, logs.String(), "cleaned completed integration inbox")
 	require.Contains(t, logs.String(), "cleaned deleted integration inbox")
+	require.Contains(t, logs.String(), "cleaned expired event webhooks")
+	var remainingWebhooks int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM event_webhook_deliveries WHERE agent_id = $1`,
+		launched.Agent.ID).Scan(&remainingWebhooks))
+	require.Zero(t, remainingWebhooks)
 	require.NotContains(t, logs.String(), `"level":"ERROR"`)
 }
 
@@ -152,7 +169,7 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
  SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'
  FROM generate_series(1,202) n`, ids.ProjectID, app)
 	require.NoError(t, err)
-	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, integrationInboxRetention, 100)
+	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, maintenance.IntegrationInboxRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 100, count)
 	// Sequence increments survive rollback, so only the first maintenance attempt stalls.

@@ -19,21 +19,18 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/redistore"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const (
-	runtimeLockReapBatchSize         int32 = 100
-	providerRuntimeDiscoveryInterval       = 5 * time.Minute
-	providerRuntimeRecheckInterval         = 30 * time.Second
-	idleMachineReconcileInterval           = time.Minute
-	integrationInboxRetention              = 7 * 24 * time.Hour
-	integrationInboxCleanupBatch           = 100
+	providerRuntimeDiscoveryInterval = 5 * time.Minute
+	providerRuntimeRecheckInterval   = 30 * time.Second
+	idleMachineReconcileInterval     = time.Minute
 )
 
 type maintenanceOutcome struct {
@@ -372,56 +369,36 @@ func runCoreMaintenanceTick(
 			logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
 		}
 	}()
-	reapedRuntimeLocks, reapRuntimeLocksErr := store.Execution().ReapExpiredAgentRuntimeLocks(
-		ctx,
-		runtimeLockReapBatchSize,
-	)
-	reapRuntimeLocksOutcome := completedMaintenanceOutcome(ctx, reapRuntimeLocksErr)
-	records, expireDaemonRuntimesErr := store.Execution().EndExpiredDaemonRuntimes(ctx, 100)
-	expireDaemonRuntimesOutcome := completedMaintenanceOutcome(ctx, expireDaemonRuntimesErr)
-	var expiredDaemonRuntimes int
-	if expireDaemonRuntimesErr == nil {
-		expiredDaemonRuntimes = len(records)
-	}
-	expiredProcessTools, expireProcessToolsErr :=
-		store.Execution().ExpireProcessToolCallsForAllProjects(
-			ctx,
-			executionstore.ProcessToolMachineUnreachableGrace,
-		)
-	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, expireProcessToolsErr)
-	authCleanup, authCleanupErr := store.Identity().CleanupInactiveAuthState(ctx)
-	authCleanupOutcome := completedMaintenanceOutcome(ctx, authCleanupErr)
-	appStates, statesErr := store.Integrations().CleanupAppStates(
-		ctx, integrationInboxRetention, integrationInboxCleanupBatch,
-	)
-	statesOutcome := completedMaintenanceOutcome(ctx, statesErr)
-	completedInbox, completedInboxBudgetExhausted, completedInboxErr := drainIntegrationInboxCleanup(
-		ctx, func(cleanupCtx context.Context) (int64, error) {
-			return store.Integrations().CleanupTerminalIntegrationInbox(
-				cleanupCtx, integrationInboxRetention, integrationInboxCleanupBatch,
-			)
-		},
-	)
-	completedInboxOutcome := completedMaintenanceOutcome(ctx, completedInboxErr)
-	deletedInbox, deletedInboxBudgetExhausted, deletedInboxErr := drainIntegrationInboxCleanup(
-		ctx, func(cleanupCtx context.Context) (int64, error) {
-			return store.Integrations().CleanupDeletedIntegrationInbox(cleanupCtx, integrationInboxCleanupBatch)
-		},
-	)
-	deletedInboxOutcome := completedMaintenanceOutcome(ctx, deletedInboxErr)
-	authCleanupDeleted := authCleanup.DeletedInactiveTokens > 0 ||
-		authCleanup.DeletedBrowserSessions > 0 ||
-		authCleanup.DeletedAbandonedUsers > 0 ||
-		authCleanup.DeletedDeviceFlows > 0 ||
-		authCleanup.DeletedOAuthCodes > 0 ||
-		authCleanup.DeletedOAuthTokens > 0
-	worked := reapedRuntimeLocks > 0 ||
-		expiredDaemonRuntimes > 0 ||
-		expiredProcessTools > 0 ||
-		authCleanupDeleted || completedInbox > 0 || deletedInbox > 0 || appStates > 0
+	result := maintenance.RunCore(ctx, store)
+	reportCoreMaintenanceResult(ctx, log, result)
+}
+
+func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result maintenance.CoreResult) {
+	reapRuntimeLocksOutcome := completedMaintenanceOutcome(ctx, result.ReapRuntimeLocksErr)
+	expireDaemonRuntimesOutcome := completedMaintenanceOutcome(ctx, result.ExpireDaemonRuntimesErr)
+	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)
+	webhookCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookCleanupErr)
+	authCleanupOutcome := completedMaintenanceOutcome(ctx, result.AuthCleanupErr)
+	statesOutcome := completedMaintenanceOutcome(ctx, result.AppStatesCleanupErr)
+	completedInboxOutcome := completedMaintenanceOutcome(ctx, result.CompletedInboxCleanupErr)
+	deletedInboxOutcome := completedMaintenanceOutcome(ctx, result.DeletedInboxCleanupErr)
+	authCleanupDeleted := result.AuthCleanup.DeletedInactiveTokens > 0 ||
+		result.AuthCleanup.DeletedBrowserSessions > 0 ||
+		result.AuthCleanup.DeletedAbandonedUsers > 0 ||
+		result.AuthCleanup.DeletedDeviceFlows > 0 ||
+		result.AuthCleanup.DeletedOAuthCodes > 0 ||
+		result.AuthCleanup.DeletedOAuthTokens > 0
+	worked := result.ReapedRuntimeLocks > 0 ||
+		result.ExpiredDaemonRuntimes > 0 ||
+		result.ExpiredProcessTools > 0 ||
+		authCleanupDeleted ||
+		result.DeletedWebhooks > 0 ||
+		result.DeletedAppStates > 0 ||
+		result.CompletedInbox > 0 ||
+		result.DeletedInbox > 0
 	logent.MaintenanceLoopResult(
 		ctx,
-		reapedRuntimeLocks,
+		result.ReapedRuntimeLocks,
 		reapRuntimeLocksOutcome.err,
 		worked,
 		errors.Join(
@@ -432,34 +409,40 @@ func runCoreMaintenanceTick(
 			completedInboxOutcome.err,
 			deletedInboxOutcome.err,
 			statesOutcome.err,
+			webhookCleanupOutcome.err,
 		),
 	)
 	if statesOutcome.err != nil {
 		log.Error("cleanup app states", "error", statesOutcome.err)
-	} else if !statesOutcome.interrupted && appStates > 0 {
-		log.Info("cleaned app states", "count", appStates)
+	} else if !statesOutcome.interrupted && result.DeletedAppStates > 0 {
+		log.Info("cleaned app states", "count", result.DeletedAppStates)
 	}
 	if completedInboxOutcome.err != nil {
-		log.Error("cleanup completed integration inbox", "count", completedInbox, "error", completedInboxOutcome.err)
-	} else if !completedInboxOutcome.interrupted && (completedInbox > 0 || completedInboxBudgetExhausted) {
-		log.Info("cleaned completed integration inbox", "count", completedInbox,
-			"retention", integrationInboxRetention, "budget_exhausted", completedInboxBudgetExhausted)
+		log.Error("cleanup completed integration inbox", "count", result.CompletedInbox, "error", completedInboxOutcome.err)
+	} else if !completedInboxOutcome.interrupted && (result.CompletedInbox > 0 || result.CompletedInboxBudgetExhausted) {
+		log.Info("cleaned completed integration inbox", "count", result.CompletedInbox,
+			"retention", maintenance.IntegrationInboxRetention, "budget_exhausted", result.CompletedInboxBudgetExhausted)
 	}
 	if deletedInboxOutcome.err != nil {
-		log.Error("cleanup deleted integration inbox", "count", deletedInbox, "error", deletedInboxOutcome.err)
-	} else if !deletedInboxOutcome.interrupted && (deletedInbox > 0 || deletedInboxBudgetExhausted) {
-		log.Info("cleaned deleted integration inbox", "count", deletedInbox,
-			"budget_exhausted", deletedInboxBudgetExhausted)
+		log.Error("cleanup deleted integration inbox", "count", result.DeletedInbox, "error", deletedInboxOutcome.err)
+	} else if !deletedInboxOutcome.interrupted && (result.DeletedInbox > 0 || result.DeletedInboxBudgetExhausted) {
+		log.Info("cleaned deleted integration inbox", "count", result.DeletedInbox,
+			"budget_exhausted", result.DeletedInboxBudgetExhausted)
 	}
 	if expireDaemonRuntimesOutcome.err != nil {
 		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)
-	} else if !expireDaemonRuntimesOutcome.interrupted && expiredDaemonRuntimes > 0 {
-		log.Info("expired daemon runtimes", "count", expiredDaemonRuntimes)
+	} else if !expireDaemonRuntimesOutcome.interrupted && result.ExpiredDaemonRuntimes > 0 {
+		log.Info("expired daemon runtimes", "count", result.ExpiredDaemonRuntimes)
 	}
 	if expireProcessToolsOutcome.err != nil {
 		log.Error("expire process tool calls", "error", expireProcessToolsOutcome.err)
-	} else if !expireProcessToolsOutcome.interrupted && expiredProcessTools > 0 {
-		log.Info("expired process tool calls", "count", expiredProcessTools)
+	} else if !expireProcessToolsOutcome.interrupted && result.ExpiredProcessTools > 0 {
+		log.Info("expired process tool calls", "count", result.ExpiredProcessTools)
+	}
+	if webhookCleanupOutcome.err != nil {
+		log.Error("cleanup expired event webhooks", "error", webhookCleanupOutcome.err)
+	} else if !webhookCleanupOutcome.interrupted && result.DeletedWebhooks > 0 {
+		log.Info("cleaned expired event webhooks", "count", result.DeletedWebhooks)
 	}
 	if authCleanupOutcome.err != nil {
 		log.Error("cleanup inactive auth state", "error", authCleanupOutcome.err)
@@ -467,17 +450,17 @@ func runCoreMaintenanceTick(
 		log.Info(
 			"cleaned inactive auth state",
 			"deleted_inactive_tokens",
-			authCleanup.DeletedInactiveTokens,
+			result.AuthCleanup.DeletedInactiveTokens,
 			"deleted_browser_sessions",
-			authCleanup.DeletedBrowserSessions,
+			result.AuthCleanup.DeletedBrowserSessions,
 			"deleted_abandoned_users",
-			authCleanup.DeletedAbandonedUsers,
+			result.AuthCleanup.DeletedAbandonedUsers,
 			"deleted_device_flows",
-			authCleanup.DeletedDeviceFlows,
+			result.AuthCleanup.DeletedDeviceFlows,
 			"deleted_oauth_codes",
-			authCleanup.DeletedOAuthCodes,
+			result.AuthCleanup.DeletedOAuthCodes,
 			"deleted_oauth_tokens",
-			authCleanup.DeletedOAuthTokens,
+			result.AuthCleanup.DeletedOAuthTokens,
 		)
 	}
 }

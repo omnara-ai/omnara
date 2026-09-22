@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -25,7 +24,7 @@ func (f appActivationFixture) launchWithSelectedApp(t *testing.T) executionstore
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
 	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{
-		"chat": {AppID: publicResourceID(publicid.KindProjectApp, f.app.ID)},
+		"chat": {AppID: f.app.ID},
 	}
 	definition = f.encodedDefinition(t, compiled)
 	input := f.launchInput(uuid.Nil, "selected-app")

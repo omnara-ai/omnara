@@ -7,13 +7,14 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 
+import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigPanel } from '@/components/agents/AgentConfigPanel'
 import { fakeApi } from '@/test/fake-api'
 import { agentConfigModel, fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 
 it.each([undefined, 'instruction: Old generated source.'])(
-  'shows a read-only notice instead of the subagent editor (source: %s)',
+  'shows the saved compiled config instead of the subagent editor (source: %s)',
   async (source) => {
     const restore = enableReactActEnvironment()
     const container = document.createElement('div')
@@ -44,6 +45,25 @@ it.each([undefined, 'instruction: Old generated source.'])(
       effective_definition_hash: 'hash',
       model: agentConfigModel(),
       source,
+      compiled_definition: {
+        instruction: 'Parent instructions.\n\nChild instructions.',
+        model: { configured_model_id: fakeId('mdl'), default_max_output_tokens: 128 },
+        tools: {
+          read_agent: { enabled: true, permission: { mode: 'always_allow', parameters: {} } },
+          skill: { enabled: false, permission: { mode: 'always_allow', parameters: {} } },
+          app__chat__read: {
+            app_id: fakeId('app'),
+            enabled: true,
+            permission: { mode: 'always_allow', parameters: {} },
+          },
+        },
+        interaction_handlers: { chat: { app_id: fakeId('app') } },
+        event_webhook: {
+          url: 'https://example.com/events',
+          events: ['tool_call_update'],
+          signing_secret_id: fakeId('sec'),
+        },
+      },
     }
     const api = fakeApi([
       {
@@ -77,6 +97,10 @@ it.each([undefined, 'instruction: Old generated source.'])(
         expect(container.textContent).toContain('This derived configuration is read-only.')
       })
       expect(container.textContent).not.toContain('Old generated source.')
+      expect(container.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
+      expect(JSON.parse(container.querySelector('pre')?.textContent ?? '')).toEqual(
+        config.compiled_definition,
+      )
       expect(container.textContent).not.toContain('Save config')
       expect(container.querySelector('form')).toBeNull()
       expect(api.requests.map(({ method, url }) => [method, url.pathname])).toEqual([
@@ -99,3 +123,54 @@ it.each([undefined, 'instruction: Old generated source.'])(
     }
   },
 )
+
+it('keeps the saved compiled view separate from an unsaved form', async () => {
+  const restore = enableReactActEnvironment()
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const onSubmit = vi.fn((event: React.SyntheticEvent) => {
+    event.preventDefault()
+  })
+  const definition: AgentConfig['compiled_definition'] = {
+    instruction: 'Saved instruction.',
+    model: { configured_model_id: fakeId('mdl') },
+    tools: { read_file: { enabled: true, permission: { mode: 'always_allow', parameters: {} } } },
+  }
+  try {
+    act(() => {
+      root.render(
+        <form onSubmit={onSubmit}>
+          <textarea aria-label="Draft" defaultValue="Unsaved instruction." />
+          <AgentCompiledConfig definition={definition} />
+        </form>,
+      )
+    })
+    expect(container.querySelector('pre')).toBeNull()
+    const draft = container.querySelector('textarea')
+    const trigger = container.querySelector<HTMLButtonElement>('[data-slot="collapsible-trigger"]')
+    expect(trigger?.textContent).toBe('Compiled config (saved)')
+    expect(trigger?.getAttribute('aria-expanded')).toBe('false')
+    act(() => {
+      trigger?.click()
+    })
+    await vi.waitFor(() => {
+      expect(JSON.parse(container.querySelector('pre')?.textContent ?? '')).toEqual(definition)
+    })
+    expect(container.querySelector('textarea')).toBe(draft)
+    expect(draft?.value).toBe('Unsaved instruction.')
+    expect(onSubmit).not.toHaveBeenCalled()
+    act(() => {
+      trigger?.click()
+    })
+    expect(trigger?.getAttribute('aria-expanded')).toBe('false')
+    expect(draft?.value).toBe('Unsaved instruction.')
+    expect(onSubmit).not.toHaveBeenCalled()
+  } finally {
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restore()
+  }
+})

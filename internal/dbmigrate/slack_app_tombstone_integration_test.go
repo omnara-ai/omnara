@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -42,7 +41,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 43))
 			ids := storagefixture.ProjectIDs{
 				OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
 				ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
@@ -76,9 +75,9 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				"tools": map[string]any{"send_integration_message": map[string]any{"enabled": scenario.sourceFormat == "", "permission": map[string]any{"mode": "always_allow", "parameters": map[string]any{}}}},
 			})
 			require.NoError(t, err)
-			exec(`INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,definition,compiled_definition,
+			exec(`INSERT INTO agent_configs(id,org_id,project_id,configured_model_id,compiled_definition,
                  effective_definition_hash,created_at)
-				VALUES($1,$2,$3,$4,$5::jsonb,$5::jsonb,$6,now())`,
+				VALUES($1,$2,$3,$4,$5::jsonb,$6,now())`,
 				configID, ids.OrgID, ids.ProjectID, modelID, compiled, fmt.Sprintf("%x", sha256.Sum256(compiled)))
 			if scenario.sourceFormat != "" {
 				source := map[string]any{
@@ -138,7 +137,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			err = applyProductionPostgresMigrations(ctx, db)
 			if invalidLiveCredentials {
 				require.ErrorContains(t, err, liveID.String())
-				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(43), currentPostgresMigrationVersion(t, ctx, db))
 				var state string
 				var credential sql.NullString
 				require.NoError(
@@ -159,7 +158,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, int64(42), currentPostgresMigrationVersion(t, ctx, db))
+			require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted app history grants receive routes at cutover")
@@ -231,11 +230,9 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			)
 			var config map[string]any
 			require.NoError(t, json.Unmarshal(successor, &config))
-			appPublicID, err := publicid.Encode(publicid.KindProjectApp, liveID)
-			require.NoError(t, err)
 			tools := testutil.RequireType[map[string]any](t, config["tools"])
 			tool := testutil.RequireType[map[string]any](t, tools["app__slack__post_message"])
-			require.Equal(t, appPublicID, tool["app_id"])
+			require.Equal(t, liveID.String(), tool["app_id"])
 			require.NotContains(t, config["tools"], "app__slack-2__post_message")
 			require.NotContains(t, config, "interaction_handlers")
 		})
@@ -253,24 +250,21 @@ func assertSlackTombstoneSourceResave(
 	t.Helper()
 	ctx := t.Context()
 	var source, format, sourceHash, hash string
-	var definition, compiled []byte
+	var compiled []byte
 	var preservedConfigID uuid.UUID
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT config.id,config.source,config.source_format,config.source_hash,
-        config.definition,config.compiled_definition,config.effective_definition_hash
+        config.compiled_definition,config.effective_definition_hash
         FROM agent_profiles profile JOIN agent_profile_versions version ON version.id=profile.current_version_id
         JOIN agent_configs config ON config.id=version.agent_config_id WHERE profile.id=$1`, profileID).
-		Scan(&preservedConfigID, &source, &format, &sourceHash, &definition, &compiled, &hash))
+		Scan(&preservedConfigID, &source, &format, &sourceHash, &compiled, &hash))
 	require.Equal(t, configID, preservedConfigID)
 	require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(source))), sourceHash)
-	require.JSONEq(t, string(definition), string(compiled))
-	contract, err := agentconfig.RuntimeContractFromCompiled(compiled, "", hash)
+	contract, err := agentconfig.RuntimeContractFromCompiled(compiled, hash)
 	require.NoError(t, err)
 	require.Empty(t, contract.InteractionHandlers)
 	require.NotContains(t, source, "send_integration_message")
 	require.NotContains(t, source, "app_id")
 	require.NotContains(t, source, "app__slack-2__post_message")
-	livePublicID, err := publicid.Encode(publicid.KindProjectApp, liveID)
-	require.NoError(t, err)
 	if onlyDeleted {
 		require.Empty(t, contract.AppTools, "deleted-only projects remove the old disabled policy without granting a tool")
 		require.NotContains(t, source, "app__")
@@ -278,7 +272,7 @@ func assertSlackTombstoneSourceResave(
 		require.Len(t, contract.AppTools, 1)
 		tool := contract.AppTools["app__slack__post_message"]
 		require.False(t, tool.Enabled)
-		require.Equal(t, livePublicID, tool.AppID)
+		require.Equal(t, liveID, tool.AppID)
 		app, err := store.Integrations().GetProjectAppByName(ctx, ids.ProjectID, "slack")
 		require.NoError(t, err)
 		require.Equal(t, "disconnected", string(app.State))
@@ -299,7 +293,7 @@ func assertSlackTombstoneSourceResave(
 		require.NoError(t, json.Unmarshal(body.CompiledDefinition, &result))
 		require.Equal(t, "Review edited", result.Instruction)
 		if !onlyDeleted {
-			require.Equal(t, livePublicID, result.Tools["app__slack__post_message"].AppID)
+			require.Equal(t, liveID, result.Tools["app__slack__post_message"].AppID)
 			require.False(t, result.Tools["app__slack__post_message"].Enabled)
 		}
 		return result
@@ -319,7 +313,7 @@ func assertSlackTombstoneSourceResave(
 	recompiled := recompile()
 	require.NotContains(t, recompiled.Tools, "app__"+reusedName+"__post_message")
 	for _, tool := range recompiled.Tools {
-		if tool.AppID != "" {
+		if tool.AppID != uuid.Nil {
 			require.False(t, tool.Enabled, "recompiling must not grant any app tool")
 		}
 	}

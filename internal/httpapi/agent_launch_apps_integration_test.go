@@ -95,8 +95,15 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	require.True(t, found)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(stored.CompiledDefinition, &compiled))
-	require.Equal(t, f.appID, compiled.InteractionHandlers[f.appName].AppID)
-	require.Equal(t, f.appID, compiled.Tools[toolcatalog.AppToolName(f.appName, toolcatalog.AppOperationRead)].AppID)
+	appUUID := mustPublicHTTPID(t, publicid.KindProjectApp, f.appID)
+	require.Equal(t, appUUID, compiled.InteractionHandlers[f.appName].AppID)
+	toolName := toolcatalog.AppToolName(f.appName, toolcatalog.AppOperationRead)
+	require.Equal(t, appUUID, compiled.Tools[toolName].AppID)
+	publicCompiled := testutil.RequireType[map[string]any](t, config["compiled_definition"])
+	publicTools := testutil.RequireType[map[string]any](t, publicCompiled["tools"])
+	publicHandlers := testutil.RequireType[map[string]any](t, publicCompiled["interaction_handlers"])
+	require.Equal(t, f.appID, testutil.RequireType[map[string]any](t, publicTools[toolName])["app_id"])
+	require.Equal(t, f.appID, testutil.RequireType[map[string]any](t, publicHandlers[f.appName])["app_id"])
 	var provider, actorTenant, actorUser string
 	var noTarget bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT input.integration_target_id IS NULL,

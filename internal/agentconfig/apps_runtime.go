@@ -5,17 +5,17 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 func validateCompiledApps(compiled Compiled) error {
-	identities := map[string]string{}
-	check := func(name, id string) error {
-		if _, err := publicid.Decode(publicid.KindProjectApp, id); err != nil {
-			return fmt.Errorf("app %q: invalid app ID: %w", name, err)
+	identities := map[string]uuid.UUID{}
+	check := func(name string, id uuid.UUID) error {
+		if id == uuid.Nil {
+			return fmt.Errorf("app %q: empty app ID", name)
 		}
 		if previous, ok := identities[name]; ok && previous != id {
 			return fmt.Errorf("app %q has inconsistent pinned IDs", name)
@@ -25,7 +25,7 @@ func validateCompiledApps(compiled Compiled) error {
 	}
 	for key, tool := range compiled.Tools {
 		if !toolcatalog.UsesAppToolNamespace(key) {
-			if tool.AppID != "" {
+			if tool.AppID != uuid.Nil {
 				return fmt.Errorf("ordinary tool %q has an app ID", key)
 			}
 			continue
@@ -58,7 +58,7 @@ func validateCompiledApps(compiled Compiled) error {
 func appToolsFromCompiled(compiled Compiled) map[string]ToolCompiled {
 	result := map[string]ToolCompiled{}
 	for key, tool := range compiled.Tools {
-		if tool.AppID != "" {
+		if tool.AppID != uuid.Nil {
 			result[key] = tool
 		}
 	}
@@ -66,11 +66,11 @@ func appToolsFromCompiled(compiled Compiled) map[string]ToolCompiled {
 }
 
 type PreparedAppInteractionHandler struct {
-	AppID string
+	AppID uuid.UUID
 	appdefinition.PreparedInteractionHandler
 }
 
-func resolvedDefinition(appID string, apps map[string]AppResolution) (appdefinition.Definition, error) {
+func resolvedDefinition(appID uuid.UUID, apps map[uuid.UUID]AppResolution) (appdefinition.Definition, error) {
 	app, ok := apps[appID]
 	if !ok || app.AppID != appID {
 		return appdefinition.Definition{}, fmt.Errorf("app %q is unavailable", appID)
@@ -82,14 +82,14 @@ func resolvedDefinition(appID string, apps map[string]AppResolution) (appdefinit
 	return definition, nil
 }
 
-func PrepareAppTools(compiled Compiled, apps map[string]AppResolution) ([]RuntimeTool, error) {
+func PrepareAppTools(compiled Compiled, apps map[uuid.UUID]AppResolution) ([]RuntimeTool, error) {
 	if err := validateCompiledApps(compiled); err != nil {
 		return nil, err
 	}
 	var result []RuntimeTool
 	for _, key := range slices.Sorted(maps.Keys(compiled.Tools)) {
 		tool := compiled.Tools[key]
-		if tool.AppID == "" || !tool.Enabled {
+		if tool.AppID == uuid.Nil || !tool.Enabled {
 			continue
 		}
 		definition, err := resolvedDefinition(tool.AppID, apps)

@@ -1,4 +1,4 @@
-package main
+package maintenance
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 )
 
 const (
+	IntegrationInboxRetention      = 7 * 24 * time.Hour
+	integrationInboxCleanupBatch   = 100
 	integrationInboxCleanupBudget  = 250 * time.Millisecond
 	integrationInboxCleanupTimeout = 5 * time.Second
 )

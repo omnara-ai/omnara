@@ -20,7 +20,6 @@ func DeriveAppProfileConfig(
 	}
 	if _, err := agentconfig.RuntimeContractFromCompiled(
 		base.CompiledDefinition,
-		base.CompilerVersion,
 		base.EffectiveDefinitionHash,
 	); err != nil {
 		return executionstore.CreateAgentConfigInput{}, err
@@ -39,5 +38,5 @@ func DeriveAppProfileConfig(
 	}
 	return executionstore.CreateAgentConfigInput{OrgID: base.OrgID, ProjectID: base.ProjectID,
 		ConfiguredModelID: base.ConfiguredModelID, CompiledDefinition: encoded.CanonicalJSON,
-		CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: encoded.Hash}, nil
+		EffectiveDefinitionHash: encoded.Hash}, nil
 }

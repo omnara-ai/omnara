@@ -211,9 +211,13 @@ func listInteractionHandlers(
 		if err != nil {
 			return agentconfig.InteractionHandlerPage{}, err
 		}
+		appID, err := publicid.Encode(publicid.KindProjectApp, handler.prepared.AppID)
+		if err != nil {
+			return agentconfig.InteractionHandlerPage{}, err
+		}
 		current = &agentconfig.HandlerSelection{
 			Handler:     destination.HandlerKey,
-			AppID:       handler.prepared.AppID,
+			AppID:       appID,
 			Args:        destination.Args,
 			Destination: scope,
 		}
@@ -264,7 +268,7 @@ func SetInteractionHandlerForToolCall(
 				ctx,
 				t.tx,
 				t.input.ProjectID,
-				[]string{capability.AppID},
+				[]uuid.UUID{capability.AppID},
 			); err != nil {
 				return nil, err
 			}
@@ -333,7 +337,7 @@ func SetInteractionHandlerForToolCall(
 		}
 		if selected.HandlerKey != "" {
 			// A replacement handler app would require an earlier lock class than the held agent lock.
-			apps := map[string]agentconfig.AppResolution{
+			apps := map[uuid.UUID]agentconfig.AppResolution{
 				handler.prepared.AppID: {
 					AppID:   handler.prepared.AppID,
 					AppType: handler.definition.AppType,
@@ -454,12 +458,10 @@ func prepareInteractionHandlers(
 	apps := map[uuid.UUID]dbsqlc.ProjectApp{}
 	result := map[string]resolvedInteractionHandler{}
 	for key, capability := range configured {
-		id, err := publicid.Decode(publicid.KindProjectApp, capability.AppID)
-		if err != nil {
-			continue
-		}
+		id := capability.AppID
 		app, loaded := apps[id]
 		if !loaded {
+			var err error
 			app, err = q.GetProjectApp(
 				ctx,
 				dbsqlc.GetProjectAppParams{ProjectID: projectID, ID: id},

@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,24 +9,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
-func appTestOptions(t *testing.T) (CompileOptions, map[string]AppResolution) {
+func appTestOptions(t *testing.T) (CompileOptions, map[uuid.UUID]AppResolution) {
 	t.Helper()
-	id, err := publicid.Encode(publicid.KindProjectApp, publicidTestID(120))
-	require.NoError(t, err)
+	id := publicidTestID(120)
 	app := AppResolution{AppID: id, AppType: appdefinition.SlackThread}
 	return CompileOptions{ResolveAppName: func(name string) (AppResolution, error) {
 		if name != "engineering-team" {
 			return AppResolution{}, fmt.Errorf("app %s is unavailable", name)
 		}
 		return app, nil
-	}}, map[string]AppResolution{id: app}
+	}}, map[uuid.UUID]AppResolution{id: app}
 }
 func compileAppTest(t *testing.T, extra string, opts CompileOptions) Result {
 	t.Helper()
@@ -50,7 +50,7 @@ interaction_handlers:
 			opts.ResolveAppName = func(name string) (AppResolution, error) { calls++; return resolve(name) }
 			result := compileAppTest(t, extra, opts)
 			require.Equal(t, 1, calls, "resolve each distinct app once")
-			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+			contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 			require.NoError(t, err)
 			require.Equal(t, ReferencedAppIDs(result.Compiled), contract.ReferencedAppIDs())
 			require.Len(t, contract.ReferencedAppIDs(), 1)
@@ -90,7 +90,7 @@ func TestAppSourceValidation(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "ResolveAppName")
 	opts.ResolveAppName = func(string) (AppResolution, error) {
-		return AppResolution{AppID: "invalid", AppType: appdefinition.SlackThread}, nil
+		return AppResolution{AppID: uuid.Nil, AppType: appdefinition.SlackThread}, nil
 	}
 	_, err = Compile(
 		SourceFormatYAML,
@@ -107,7 +107,7 @@ interaction_handlers: {engineering-team: {}}`, opts)
 	for _, mutate := range []func(*Compiled){
 		func(c *Compiled) {
 			tool := c.Tools["app__engineering-team__read"]
-			tool.AppID = ""
+			tool.AppID = uuid.Nil
 			c.Tools["app__engineering-team__read"] = tool
 		},
 		func(c *Compiled) {
@@ -118,7 +118,7 @@ interaction_handlers: {engineering-team: {}}`, opts)
 		func(c *Compiled) { tool := c.Tools["app__engineering-team__read"]; c.Tools["web_search"] = tool },
 		func(c *Compiled) {
 			capability := c.InteractionHandlers["engineering-team"]
-			capability.AppID = testMachineSourcePublicID(t, publicid.KindProjectApp, "other")
+			capability.AppID = publicidTestID(121)
 			c.InteractionHandlers["engineering-team"] = capability
 		},
 	} {
@@ -127,7 +127,7 @@ interaction_handlers: {engineering-team: {}}`, opts)
 		mutate(&compiled)
 		encoded, err := EncodeCompiled(compiled)
 		require.NoError(t, err)
-		_, err = RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+		_, err = RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 		require.Error(t, err)
 	}
 }
@@ -163,8 +163,7 @@ subagents: {worker: {type: self}}`, opts).Compiled
 	require.Equal(t, base.InteractionHandlers, derived.InteractionHandlers)
 	require.Contains(t, derived.Tools, "app__engineering-team__read")
 	require.NotContains(t, base.Tools, "app__engineering-team__read")
-	child, err := SubagentCompiledFrom(derived, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{}, nil)
-	require.NoError(t, err)
+	child := SubagentCompiledFrom(derived, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{})
 	require.Empty(t, child.InteractionHandlers)
 	for key, tool := range child.Tools {
 		require.Empty(t, tool.AppID)
@@ -175,6 +174,60 @@ subagents: {worker: {type: self}}`, opts).Compiled
 	for _, name := range toolcatalog.InteractionHandlerToolNames() {
 		require.NotContains(t, child.Tools, name)
 	}
+}
+
+func TestAppCompositionPreservesCompiledReferencesAndWebhook(t *testing.T) {
+	opts, _ := appTestOptions(t)
+	secretID := publicidTestID(140)
+	base := Compiled{
+		Instruction: "Keep the compiled policy.",
+		Model:       ModelCompiled{ConfiguredModelID: publicidTestID(141)},
+		MachineSources: []MachineSourceCompiled{{
+			MachinePoolID: publicidTestID(142), MaxMachines: 1,
+			SecretEnvOverlay: map[string]*uuid.UUID{"TOKEN": &secretID},
+		}},
+		MCP: map[string]MCPServerCompiled{"docs": {
+			URL: "https://example.com/mcp", Auth: &MCPAuthCompiled{Type: "bearer", SecretID: secretID},
+		}},
+		Skills: []SkillCompiled{{ID: publicidTestID(143)}},
+		Subagents: map[string]SubagentCompiled{"worker": {
+			Type: SubagentTypeProfile, ProfileID: publicidTestID(144),
+			Model: &ModelCompiled{ConfiguredModelID: publicidTestID(145)},
+		}},
+		EventWebhook: &EventWebhookCompiled{
+			URL: "https://example.com/events", Events: []string{"model_output"}, SigningSecretID: secretID,
+		},
+	}
+	derived, err := DeriveWithAppCapabilities(base, AppCapabilitiesSource{
+		Tools: map[string]AgentConfigToolSource{
+			"app__engineering-team__read": {}, "list_interaction_handlers": {}, "set_interaction_handler": {},
+		},
+		InteractionHandlers: map[string]AgentConfigAppCapabilitySource{"engineering-team": {}},
+	}, opts)
+	require.NoError(t, err)
+	remaining := derived
+	remaining.Tools, remaining.InteractionHandlers = nil, nil
+	require.Equal(t, base, remaining)
+
+	encoded, err := EncodeCompiled(derived)
+	require.NoError(t, err)
+	var stored struct {
+		Tools map[string]map[string]json.RawMessage `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(encoded.CanonicalJSON, &stored))
+	require.JSONEq(t, `"`+publicidTestID(120).String()+`"`, string(stored.Tools["app__engineering-team__read"]["app_id"]))
+	require.NotContains(t, stored.Tools["list_interaction_handlers"], "app_id")
+
+	child := SubagentCompiledFrom(derived, derived.Subagents["worker"], SubagentDepth{})
+	require.Empty(t, child.Tools)
+	require.Empty(t, child.InteractionHandlers)
+	require.Equal(t, *base.Subagents["worker"].Model, child.Model)
+	require.Equal(t, base.EventWebhook, child.EventWebhook)
+	require.Equal(t, base.MachineSources, child.MachineSources)
+	require.Equal(t, base.MCP, child.MCP)
+	require.Equal(t, base.Skills, child.Skills)
+	derived.EventWebhook.Events[0] = "tool_call_update"
+	require.Equal(t, []string{"model_output"}, base.EventWebhook.Events)
 }
 
 func TestPendingAppToolIdentityAndPermission(t *testing.T) {
@@ -188,7 +241,7 @@ func TestPendingAppToolIdentityAndPermission(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, original.Tools[name].AppID, authority.Tool.AppID)
 	for _, mutate := range []func(*ToolCompiled){
-		func(tool *ToolCompiled) { tool.AppID = "recreated" },
+		func(tool *ToolCompiled) { tool.AppID = publicidTestID(122) },
 		func(tool *ToolCompiled) {
 			tool.Permission = toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
 		},
@@ -235,7 +288,7 @@ func TestInteractionToolsAreExplicitAndRespectModelAndOverrides(t *testing.T) {
 	}
 	encoded, err := EncodeCompiled(Compiled{})
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 	require.NoError(t, err)
 	require.Empty(t, contract.Tools)
 	require.False(t, contract.RequiresModelToolSupport())
@@ -254,7 +307,7 @@ func runtimeAppTest(t *testing.T, compiled Compiled) RuntimeContract {
 	t.Helper()
 	encoded, err := EncodeCompiled(compiled)
 	require.NoError(t, err)
-	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	contract, err := RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 	require.NoError(t, err)
 	return contract
 }
@@ -305,8 +358,7 @@ func TestCompositionAcceptsInteractionHelpersWithoutOtherBuiltIns(t *testing.T) 
 func TestReferencedAppIDsExcludeDisabledToolsOnly(t *testing.T) {
 	apps := map[string]AppResolution{}
 	for index, name := range []string{"disabled", "shared", "enabled", "denied", "handler"} {
-		id, err := publicid.Encode(publicid.KindProjectApp, publicidTestID(130+index))
-		require.NoError(t, err)
+		id := publicidTestID(130 + index)
 		apps[name] = AppResolution{AppID: id, AppType: appdefinition.SlackThread}
 	}
 	opts := CompileOptions{ResolveAppName: func(name string) (AppResolution, error) {
@@ -323,15 +375,15 @@ func TestReferencedAppIDsExcludeDisabledToolsOnly(t *testing.T) {
 interaction_handlers:
   shared: {}
   handler: {}`, opts)
-	want := []string{
+	want := []uuid.UUID{
 		apps["shared"].AppID,
 		apps["enabled"].AppID,
 		apps["denied"].AppID,
 		apps["handler"].AppID,
 	}
-	slices.Sort(want)
+	slices.SortFunc(want, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
 	require.Equal(t, want, ReferencedAppIDs(result.Compiled))
-	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, CompilerVersion, result.Hash)
+	contract, err := RuntimeContractFromCompiled(result.CanonicalJSON, result.Hash)
 	require.NoError(t, err)
 	require.Equal(t, want, contract.ReferencedAppIDs())
 	require.Contains(t, contract.AppTools, "app__disabled__read", "disabled entries remain pinned in the stored contract")
@@ -350,11 +402,11 @@ func TestDisabledAppReferencesStillRequireConsistentPinnedIdentity(t *testing.T)
 interaction_handlers:
   engineering-team: {}`, opts)
 	tool := result.Compiled.Tools["app__engineering-team__read"]
-	tool.AppID = testMachineSourcePublicID(t, publicid.KindProjectApp, "recreated")
+	tool.AppID = publicidTestID(122)
 	result.Compiled.Tools["app__engineering-team__read"] = tool
 	encoded, err := EncodeCompiled(result.Compiled)
 	require.NoError(t, err)
-	_, err = RuntimeContractFromCompiled(encoded.CanonicalJSON, CompilerVersion, encoded.Hash)
+	_, err = RuntimeContractFromCompiled(encoded.CanonicalJSON, encoded.Hash)
 	require.ErrorContains(t, err, "inconsistent pinned IDs")
 	_, err = PrepareAppTools(result.Compiled, nil)
 	require.ErrorContains(t, err, "inconsistent pinned IDs")

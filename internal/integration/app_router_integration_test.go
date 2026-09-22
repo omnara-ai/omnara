@@ -162,7 +162,6 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 				ProjectID:               ids.ProjectID,
 				ConfiguredModelID:       base.ConfiguredModelID,
 				CompiledDefinition:      encoded.CanonicalJSON,
-				CompilerVersion:         agentconfig.CompilerVersion,
 				EffectiveDefinitionHash: encoded.Hash,
 			},
 		)

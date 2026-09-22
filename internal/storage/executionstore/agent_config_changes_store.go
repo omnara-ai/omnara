@@ -266,16 +266,8 @@ func validateLiveAgentConfigChangeTx(
 	next CreateAgentConfigInput,
 ) (agentconfig.RuntimeContract, agentconfig.RuntimeContract, error) {
 	next = withDefaultAgentConfigCompilation(next)
-	if next.CompilerVersion != agentconfig.CompilerVersion {
-		return agentconfig.RuntimeContract{}, agentconfig.RuntimeContract{}, fmt.Errorf(
-			"agent config compiler contract %q is not activatable: %w",
-			next.CompilerVersion,
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
 	nextContract, err := agentconfig.RuntimeContractFromCompiled(
 		next.CompiledDefinition,
-		next.CompilerVersion,
 		next.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -293,7 +285,6 @@ func validateLiveAgentConfigChangeTx(
 	}
 	currentContract, err := agentconfig.RuntimeContractFromCompiled(
 		current.CompiledDefinition,
-		current.CompilerVersion,
 		current.EffectiveDefinitionHash,
 	)
 	if err != nil {

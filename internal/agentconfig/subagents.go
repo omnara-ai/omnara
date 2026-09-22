@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -56,66 +57,26 @@ type AgentConfigSubagentInstructionSource struct {
 }
 
 type SubagentCompiled struct {
-	Type                    string                 `json:"type"`
-	ProfileID               string                 `json:"profile_id,omitempty"`
-	Description             string                 `json:"description,omitempty"`
-	Model                   *SubagentModelCompiled `json:"model,omitempty"`
-	InstructionAppend       string                 `json:"instruction_append,omitempty"`
-	MaxInstances            *int                   `json:"max_instances,omitempty"`
-	ArchiveAfterIdleMinutes *int                   `json:"archive_after_idle_minutes,omitempty"`
+	Type                    string         `json:"type"`
+	ProfileID               uuid.UUID      `json:"profile_id,omitzero"`
+	Description             string         `json:"description,omitempty"`
+	Model                   *ModelCompiled `json:"model,omitempty"`
+	InstructionAppend       string         `json:"instruction_append,omitempty"`
+	MaxInstances            *int           `json:"max_instances,omitempty"`
+	ArchiveAfterIdleMinutes *int           `json:"archive_after_idle_minutes,omitempty"`
 }
-
-type SubagentModelCompiled struct {
-	ProviderConfig         string                  `json:"provider_config,omitempty"`
-	Name                   string                  `json:"name,omitempty"`
-	ContextWindowTokens    *int                    `json:"context_window_tokens,omitempty"`
-	DefaultMaxOutputTokens *int                    `json:"default_max_output_tokens,omitempty"`
-	CacheRetention         string                  `json:"cache_retention,omitempty"`
-	Reasoning              *ModelReasoningCompiled `json:"reasoning,omitempty"`
-}
-
-func (override *SubagentModelCompiled) ApplyTo(base AgentConfigModelSource) AgentConfigModelSource {
-	if override == nil {
-		return base
-	}
-	if override.ProviderConfig != "" {
-		base.ProviderConfig = override.ProviderConfig
-	}
-	if override.Name != "" {
-		base.Name = override.Name
-	}
-	if override.ContextWindowTokens != nil {
-		base.ContextWindowTokens = override.ContextWindowTokens
-	}
-	if override.DefaultMaxOutputTokens != nil {
-		base.DefaultMaxOutputTokens = override.DefaultMaxOutputTokens
-	}
-	if override.CacheRetention != "" {
-		base.CacheRetention = override.CacheRetention
-	}
-	if override.Reasoning != nil {
-		base.Reasoning = &AgentConfigModelReasoningSource{Effort: override.Reasoning.Effort}
-	}
-	return base
-}
-
-type SubagentModelResolver func(
-	baseConfiguredModelID string,
-	override SubagentModelCompiled,
-) (ResolvedModelSelection, error)
 
 func SubagentCompiledFrom(
 	base Compiled,
 	subagent SubagentCompiled,
 	depth SubagentDepth,
-	resolveModel SubagentModelResolver,
-) (Compiled, error) {
+) Compiled {
 	child := base
 	child.Tools = copyTools(base.Tools)
 	child.InteractionHandlers = nil
 	child.MCP = maps.Clone(base.MCP)
 	for name, tool := range child.Tools {
-		if tool.AppID != "" || toolcatalog.UsesAppToolNamespace(name) || toolcatalog.IsInteractionHandlerTool(name) {
+		if tool.AppID != uuid.Nil || toolcatalog.UsesAppToolNamespace(name) || toolcatalog.IsInteractionHandlerTool(name) {
 			delete(child.Tools, name)
 		}
 	}
@@ -132,9 +93,12 @@ func SubagentCompiledFrom(
 		}
 	}
 	if subagent.Model == nil {
-		return child, nil
+		return child
 	}
 	override := *subagent.Model
+	if override.ConfiguredModelID != uuid.Nil {
+		child.Model.ConfiguredModelID = override.ConfiguredModelID
+	}
 	if override.ContextWindowTokens != nil {
 		child.Model.ContextWindowTokens = override.ContextWindowTokens
 	}
@@ -147,21 +111,7 @@ func SubagentCompiledFrom(
 	if override.Reasoning != nil {
 		child.Model.Reasoning = &ModelReasoningCompiled{Effort: strings.TrimSpace(override.Reasoning.Effort)}
 	}
-	if override.ProviderConfig == "" && override.Name == "" {
-		return child, nil
-	}
-	if resolveModel == nil {
-		return Compiled{}, issuef(jsonPointer("model"), "subagent model overrides require a SubagentModelResolver")
-	}
-	resolved, err := resolveModel(base.Model.ConfiguredModelID, override)
-	if err != nil {
-		return Compiled{}, issueOr(jsonPointer("model"), err)
-	}
-	child.Model.ConfiguredModelID = resolved.ConfiguredModelID
-	if resolved.SupportsTools != nil && !*resolved.SupportsTools && requiresModelToolSupport(child) {
-		return Compiled{}, issuef(jsonPointer("model", "name"), "model %q does not support tools", override.Name)
-	}
-	return child, nil
+	return child
 }
 
 func copyTools(tools map[string]ToolCompiled) map[string]ToolCompiled {
@@ -194,15 +144,23 @@ func compileSubagents(
 			out.InstructionAppend = strings.TrimSpace(entry.Instruction.Append)
 		}
 		if entry.Model != nil {
-			out.Model = &SubagentModelCompiled{
-				ProviderConfig:         entry.Model.ProviderConfig,
-				Name:                   entry.Model.Name,
+			out.Model = &ModelCompiled{
 				ContextWindowTokens:    entry.Model.ContextWindowTokens,
 				DefaultMaxOutputTokens: entry.Model.DefaultMaxOutputTokens,
 				CacheRetention:         strings.TrimSpace(entry.Model.CacheRetention),
 			}
 			if entry.Model.Reasoning != nil {
 				out.Model.Reasoning = &ModelReasoningCompiled{Effort: strings.TrimSpace(entry.Model.Reasoning.Effort)}
+			}
+			if entry.Model.ProviderConfig != "" && opts.ResolveModelSelection != nil {
+				resolved, err := opts.ResolveModelSelection(entry.Model.ProviderConfig, entry.Model.Name)
+				if err != nil {
+					return nil, issueAt(pointer, issueOr("/model", err))
+				}
+				if resolved.ConfiguredModelID == uuid.Nil {
+					return nil, issuef(jsonPointer("subagents", key, "model"), "resolver returned an empty model id")
+				}
+				out.Model.ConfiguredModelID = resolved.ConfiguredModelID
 			}
 		}
 		switch entry.Type {
@@ -214,23 +172,11 @@ func compileSubagents(
 			if err != nil {
 				return nil, issueOr(jsonPointer("subagents", key, "profile"), err)
 			}
-			if profileID == "" {
+			if profileID == uuid.Nil {
 				return nil, issuef(jsonPointer("subagents", key, "profile"), "resolver returned an empty profile id")
 			}
 			out.ProfileID = profileID
-			if out.Model != nil && out.Model.ProviderConfig != "" && out.Model.Name != "" &&
-				opts.ResolveModelSelection != nil {
-				if _, err := opts.ResolveModelSelection(out.Model.ProviderConfig, out.Model.Name); err != nil {
-					return nil, issueOr(jsonPointer("subagents", key, "model"), err)
-				}
-			}
 		case SubagentTypeSelf:
-			if out.Model != nil && opts.ResolveModelSelection != nil {
-				merged := out.Model.ApplyTo(source.Model)
-				if _, err := opts.ResolveModelSelection(merged.ProviderConfig, merged.Name); err != nil {
-					return nil, issueOr(jsonPointer("subagents", key, "model"), err)
-				}
-			}
 		default:
 			return nil, issuef(
 				jsonPointer("subagents", key, "type"),

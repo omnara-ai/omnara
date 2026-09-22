@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -57,8 +58,8 @@ type RuntimeTool struct {
 }
 
 type RuntimeMachine struct {
-	MachineID                     string
-	MachinePoolID                 string
+	MachineID                     uuid.UUID
+	MachinePoolID                 uuid.UUID
 	MaxMachines                   int
 	InitialNumMachines            int
 	DeleteAfterIdleMinutes        *int
@@ -66,21 +67,17 @@ type RuntimeMachine struct {
 	MachineCPU                    *int
 	MachineMemoryMB               *int
 	EnvOverlay                    map[string]*string
-	SecretEnvOverlay              map[string]*string
+	SecretEnvOverlay              map[string]*uuid.UUID
 	MachineProviderOptionsOverlay map[string]json.RawMessage
 	Description                   string
 }
 
 func RuntimeContractFromCompiled(
 	compiledJSON json.RawMessage,
-	compilerVersion string,
 	definitionHash string,
 ) (RuntimeContract, error) {
 	if len(compiledJSON) == 0 {
 		return RuntimeContract{}, errors.New("agent config compiled definition is required")
-	}
-	if compilerVersion != CompilerVersion {
-		return RuntimeContract{}, fmt.Errorf("agent config compiler contract %q is not supported", compilerVersion)
 	}
 	canonical := canonicalizeJSON(compiledJSON)
 	sum := sha256.Sum256(canonical)

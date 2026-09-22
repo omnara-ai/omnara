@@ -133,3 +133,19 @@ export function unexposableMcpTools(
     return error === undefined ? [] : [{ name, error }]
   })
 }
+
+export function mcpServerValid(server: BasicMcpServer) {
+  return (
+    mcpServerNameError(server.name) === undefined &&
+    server.url.trim() !== '' &&
+    (server.authType === 'none' ||
+      (server.secretId.trim() !== '' &&
+        (server.authType !== 'sigv4' ||
+          (server.service.trim() !== '' && server.region.trim() !== ''))))
+  )
+}
+
+export function mcpServerNamesUnique(servers: BasicMcpServer[]) {
+  const names = servers.map((server) => server.name)
+  return new Set(names).size === names.length
+}

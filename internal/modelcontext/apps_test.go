@@ -16,11 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func appContextFixture(t *testing.T, source string) (*fakeContextStore, string) {
+func appContextFixture(t *testing.T, source string) (*fakeContextStore, uuid.UUID) {
 	t.Helper()
-	appID, err := publicid.Encode(publicid.KindProjectApp, testIDN(940))
-	require.NoError(t, err)
-	apps := map[string]agentconfig.AppResolution{appID: {AppID: appID, AppType: appdefinition.SlackThread}}
+	appID := testIDN(940)
+	apps := map[uuid.UUID]agentconfig.AppResolution{appID: {AppID: appID, AppType: appdefinition.SlackThread}}
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
 instruction: Help the user.
 model:
@@ -33,7 +32,6 @@ model:
 	require.NoError(t, err)
 	record := testAgentConfigRecord()
 	record.CompiledDefinition, record.EffectiveDefinitionHash = compiled.CanonicalJSON, compiled.Hash
-	record.CompilerVersion = compiled.CompilerVersion
 	return &fakeContextStore{watermark: 1, hasConfig: true, config: record, appDefinitions: apps}, appID
 }
 
@@ -76,7 +74,8 @@ interaction_handlers:
 	read := requireToolSpec(t, bundle.ToolSpecs, "app__engineering__read")
 	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{"cursor":"next","limit":25}`)))
 	require.NoError(t, jsonschema.Validate(read.InputSchema, []byte(`{}`)))
-	require.Equal(t, []appDefinitionRequest{{ProjectID: testProjectID, IDs: []string{appID}}}, store.appDefinitionRequests,
+	require.Equal(t,
+		[]appDefinitionRequest{{ProjectID: testProjectID, IDs: []uuid.UUID{appID}}}, store.appDefinitionRequests,
 		"one project-scoped metadata read deduplicates tools and handler")
 	require.Equal(t, original, store.config.CompiledDefinition)
 	require.Equal(t, hash, store.config.EffectiveDefinitionHash)
@@ -98,8 +97,7 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 			require.True(t, HasTool(buildAppContext(t, store).ToolSpecs, "app__engineering__post_message"))
 			delete(store.appDefinitions, appID)
 			if state == "recreated name" {
-				replacement, err := publicid.Encode(publicid.KindProjectApp, testIDN(942))
-				require.NoError(t, err)
+				replacement := testIDN(942)
 				store.appDefinitions[replacement] = agentconfig.AppResolution{
 					AppID: replacement, AppType: appdefinition.SlackThread,
 				}
@@ -110,16 +108,18 @@ func TestBuildOmitsUnavailableAppToolsWithoutChangingStoredConfig(t *testing.T) 
 			require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
 			require.Equal(t, original, store.config.CompiledDefinition)
 			require.Equal(t, hash, store.config.EffectiveDefinitionHash)
-			require.Equal(t, []string{appID}, store.appDefinitionRequests[len(store.appDefinitionRequests)-1].IDs)
+			require.Equal(t, []uuid.UUID{appID}, store.appDefinitionRequests[len(store.appDefinitionRequests)-1].IDs)
 		})
 	}
 }
 
 func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t *testing.T) {
 	store, appID := appContextFixture(t, "interaction_handlers: {engineering: {}}\n")
+	publicAppID, err := publicid.Encode(publicid.KindProjectApp, appID)
+	require.NoError(t, err)
 	args := json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
 	store.interactionHandlers = agentconfig.InteractionHandlerPage{
-		Selection:  &agentconfig.HandlerSelection{Handler: "engineering", AppID: appID, Args: args},
+		Selection:  &agentconfig.HandlerSelection{Handler: "engineering", AppID: publicAppID, Args: args},
 		Handlers:   []agentconfig.InteractionHandlerEntry{{Handler: "another", Description: "Another app"}},
 		NextCursor: "next",
 	}
@@ -130,7 +130,7 @@ func TestBuildInteractionSelectionIndependentOfHandlerPageWithoutImplicitSend(t 
 	require.Contains(t, content, `"channel_id":"C123"`)
 	require.Contains(t, content, `"thread_ts":"111.222"`)
 	require.Contains(t, content, "Omnara dashboard")
-	require.NotContains(t, content, appID)
+	require.NotContains(t, content, publicAppID)
 	require.NotContains(t, content, testIDN(940).String())
 	require.False(t, HasTool(bundle.ToolSpecs, "app__engineering__post_message"), "a handler grants no send tool")
 	require.False(t, HasTool(bundle.ToolSpecs, toolcatalog.ToolNameListInteractionHandlers))
@@ -201,7 +201,8 @@ func TestNewStoreUsesIndependentAppMetadataProvider(t *testing.T) {
 	bundle := buildAppContext(t, NewStore(execution, artifacts, apps))
 	require.True(t, HasTool(bundle.ToolSpecs, "app__engineering__read"))
 	require.Empty(t, execution.appDefinitionRequests)
-	require.Equal(t, []appDefinitionRequest{{ProjectID: testProjectID, IDs: []string{appID}}}, apps.appDefinitionRequests)
+	require.Equal(t,
+		[]appDefinitionRequest{{ProjectID: testProjectID, IDs: []uuid.UUID{appID}}}, apps.appDefinitionRequests)
 	apps.appDefinitionsErr = errors.New("metadata unavailable")
 	_, err := (Builder{Store: NewStore(execution, artifacts, apps)}).Build(t.Context(), BuildInput{
 		Now: time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC), ProjectID: testProjectID, AgentID: testAgentID,

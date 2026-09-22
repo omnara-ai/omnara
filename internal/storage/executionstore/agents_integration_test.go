@@ -24,6 +24,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentLaunchRequiresConfigAndCanRecordProfile(t *testing.T) {
@@ -895,7 +896,6 @@ model:
 			Source:                  updatedYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:        launch.Agent.ID,
@@ -956,7 +956,6 @@ model:
 			Source:                  secondYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, secondCompiled),
 			CompiledDefinition:      json.RawMessage(secondCompiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: secondCompiled.Hash,
 		},
 		AgentID:        launch.Agent.ID,
@@ -1057,7 +1056,6 @@ model:
 		Source:                  updatedYAML,
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
@@ -1085,7 +1083,6 @@ model:
 			Source:                  staleYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, staleCompiled),
 			CompiledDefinition:      json.RawMessage(staleCompiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: staleCompiled.Hash,
 		},
 		AgentID:                 launch.Agent.ID,
@@ -1394,7 +1391,6 @@ mcp:
 			Source:                  yaml,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:        launch.Agent.ID,
@@ -1422,7 +1418,6 @@ mcp:
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		currentConfig.CompiledDefinition,
-		currentConfig.CompilerVersion,
 		currentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -1544,7 +1539,6 @@ tools:
 		ctx,
 		testProjectID,
 		invalidConfig.CompiledDefinition,
-		invalidConfig.CompilerVersion,
 		invalidConfig.EffectiveDefinitionHash,
 	); err == nil || !strings.Contains(err.Error(), "env and secret_env cannot both set key BASE") {
 		t.Fatalf("invalid machine source validation error = %v", err)
@@ -1648,7 +1642,7 @@ tools:
 		t.Fatalf("reconciled bindings = first %+v second %+v", firstBinding, secondBinding)
 	}
 	if !sameJSON(firstBinding.EnvOverlay, json.RawMessage(`{"APP":"changed","Base":null,"UNUSED":null}`)) ||
-		!sameJSON(firstBinding.SecretEnvOverlay, json.RawMessage(`{"BASE":"`+secretPublicIDForTest(t, secret.ID)+`"}`)) {
+		!sameJSON(firstBinding.SecretEnvOverlay, json.RawMessage(`{"BASE":"`+secret.ID.String()+`"}`)) {
 		t.Fatalf("reconciled first binding environment = %s / %s", firstBinding.EnvOverlay, firstBinding.SecretEnvOverlay)
 	}
 	reorderedYAML := `
@@ -1925,7 +1919,6 @@ instruction: test
 		Source:                  sourceA,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledA.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiledA.Hash,
 	})
 	if err != nil {
@@ -1936,7 +1929,6 @@ instruction: test
 		Source:                  sourceB,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledB.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiledB.Hash,
 	})
 	if err != nil {
@@ -1957,7 +1949,6 @@ instruction: test
 		Source:                  sourceA,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledA.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiledA.Hash,
 	})
 	if err != nil {
@@ -2031,7 +2022,6 @@ func changeInputFromRecord(record executionstore.AgentConfigRecord) executionsto
 		Source:                  record.Source,
 		ConfiguredModelID:       record.ConfiguredModelID,
 		CompiledDefinition:      record.CompiledDefinition,
-		CompilerVersion:         record.CompilerVersion,
 		EffectiveDefinitionHash: record.EffectiveDefinitionHash,
 	}
 }
@@ -2056,4 +2046,46 @@ func changeAgentConfigFromYAMLForTest(
 		t.Fatalf("change agent config %s: %v", key, err)
 	}
 	return result
+}
+
+func TestEventWebhookTargetFollowsCurrentConfig(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "event-webhook@example.com", "Event webhook")
+	source := "instruction: Test event webhook.\nmodel:\n  provider_config: openai-prod\n  name: event-webhook\n"
+	profile := mustCreateConfigAndProfileBookmarkFromYAML(t, ctx, store, "event-webhook", "Event webhook", source)
+	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: profile.CurrentConfigID,
+		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "event-webhook-launch",
+	})
+	require.NoError(t, err)
+	target, err := store.Execution().GetAgentEventWebhookTarget(ctx, launch.Agent.ID)
+	require.NoError(t, err)
+	require.Empty(t, target.URL)
+	for _, destination := range []string{"https://example.com/first", "https://example.com/second", ""} {
+		updated := source
+		if destination != "" {
+			updated += "event_webhook:\n  url: " + destination + "\n  events: [tool_call_update]\n"
+		}
+		compiled := mustCompileAgentYAMLResolved(t, ctx, store, updated)
+		_, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+				ProjectID: testProjectID, Source: updated, SourceFormat: "yaml",
+				ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
+				EffectiveDefinitionHash: compiled.Hash,
+			},
+			AgentID: launch.Agent.ID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
+		})
+		require.NoError(t, err)
+		target, err := store.Execution().GetAgentEventWebhookTarget(ctx, launch.Agent.ID)
+		require.NoError(t, err)
+		require.Equal(t, testProjectID, target.ProjectID)
+		require.Equal(t, destination, target.URL)
+	}
+	target, err = store.Execution().GetAgentEventWebhookTarget(ctx, uuid.New())
+	require.NoError(t, err)
+	require.Empty(t, target.URL)
 }

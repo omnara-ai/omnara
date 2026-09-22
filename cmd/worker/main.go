@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
+	"github.com/omnara-ai/omnara/internal/eventwebhook"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
@@ -311,6 +312,15 @@ func main() {
 		}
 	}()
 
+	eventWebhooks := eventwebhook.New(
+		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
+	)
+	eventWebhookDone := make(chan struct{})
+	go func() {
+		defer close(eventWebhookDone)
+		eventWebhooks.Run(ctx)
+	}()
+
 	exitCode := 0
 	select {
 	case err := <-workerErr:
@@ -347,6 +357,7 @@ func main() {
 		exitCode = 1
 	}
 	<-presentationsDone
+	<-eventWebhookDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
 		os.Exit(exitCode)

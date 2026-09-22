@@ -203,8 +203,13 @@ func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(stored.CompiledDefinition, &compiled))
 	appID := testPublicID(t, publicid.KindProjectApp, app.ID)
-	require.Equal(t, appID, compiled.Tools[name].AppID)
-	require.Equal(t, appID, compiled.InteractionHandlers[app.Name].AppID)
+	require.Equal(t, app.ID, compiled.Tools[name].AppID)
+	require.Equal(t, app.ID, compiled.InteractionHandlers[app.Name].AppID)
+	publicCompiled := testutil.RequireType[map[string]any](t, config["compiled_definition"])
+	publicTools := testutil.RequireType[map[string]any](t, publicCompiled["tools"])
+	publicHandlers := testutil.RequireType[map[string]any](t, publicCompiled["interaction_handlers"])
+	require.Equal(t, appID, testutil.RequireType[map[string]any](t, publicTools[name])["app_id"])
+	require.Equal(t, appID, testutil.RequireType[map[string]any](t, publicHandlers[app.Name])["app_id"])
 	requestJSONWithHeaders(t, handler, http.MethodDelete, project.ProjectPath+"/apps/"+appID,
 		"", "", http.StatusNoContent, authHeaders(project.AdminToken))
 	replacement := requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/apps",
@@ -215,6 +220,10 @@ func TestProjectAppHTTPCompiledIdentitySurvivesNameReuse(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.JSONEq(t, string(stored.CompiledDefinition), string(after.CompiledDefinition))
+	fetched := requestJSONWithHeaders(t, handler, http.MethodGet,
+		project.ProjectPath+"/agent-configs/"+testPublicID(t, publicid.KindAgentConfig, configID),
+		"", "", http.StatusOK, authHeaders(project.AdminToken))
+	require.Equal(t, publicCompiled, fetched["compiled_definition"])
 	createPublicHTTPAgentConfig(t, handler, project, "disconnected", "json", source,
 		project.AdminToken, http.StatusCreated)
 	other := projectAppHTTPSecondProject(t, handler, project)

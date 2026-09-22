@@ -1,23 +1,24 @@
 package agentconfig
 
 import (
+	"bytes"
 	"fmt"
 	"maps"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
 type AgentConfigAppCapabilitySource struct{}
 type AppCapabilityCompiled struct {
-	AppID string `json:"app_id"`
+	AppID uuid.UUID `json:"app_id"`
 }
 
 type AppResolution struct {
-	AppID   string
+	AppID   uuid.UUID
 	AppType appdefinition.Type
 }
 
@@ -35,8 +36,8 @@ func cacheAppResolver(opts CompileOptions) CompileOptions {
 		if err != nil {
 			return AppResolution{}, err
 		}
-		if _, err := publicid.Decode(publicid.KindProjectApp, app.AppID); err != nil {
-			return AppResolution{}, fmt.Errorf("invalid app ID: %w", err)
+		if app.AppID == uuid.Nil {
+			return AppResolution{}, fmt.Errorf("resolver returned an empty app ID")
 		}
 		if _, ok := appdefinition.Lookup(app.AppType); !ok {
 			return AppResolution{}, fmt.Errorf("unknown app type %q", app.AppType)
@@ -107,15 +108,15 @@ func compileAppCapabilities(source AgentConfigSource, opts CompileOptions, compi
 	return nil
 }
 
-func ReferencedAppIDs(compiled Compiled) []string {
-	ids := map[string]struct{}{}
+func ReferencedAppIDs(compiled Compiled) []uuid.UUID {
+	ids := map[uuid.UUID]struct{}{}
 	for _, tool := range compiled.Tools {
-		if tool.Enabled && tool.AppID != "" {
+		if tool.Enabled && tool.AppID != uuid.Nil {
 			ids[tool.AppID] = struct{}{}
 		}
 	}
 	for _, capability := range compiled.InteractionHandlers {
 		ids[capability.AppID] = struct{}{}
 	}
-	return slices.Sorted(maps.Keys(ids))
+	return slices.SortedFunc(maps.Keys(ids), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
 }

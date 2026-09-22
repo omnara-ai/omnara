@@ -9,11 +9,13 @@ import {
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
+import { eventWebhookUrlError, eventWebhookWire } from '@/components/agents/agentConfigEventWebhook'
 import {
   type BasicMcpServer,
   type BasicMcpTool,
   type McpAuthType,
-  mcpServerNameError,
+  mcpServerNamesUnique,
+  mcpServerValid,
   mcpWire,
   permissionWire,
 } from '@/components/agents/agentConfigMcp'
@@ -43,6 +45,17 @@ import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
 import { normalizeResourceName, resourceNameValid } from '@/lib/resource-name'
 
 export { type BasicMcpServer, type BasicMcpTool, type McpAuthType }
+export {
+  mcpRuntimeToolName,
+  mcpRuntimeToolNameError,
+  mcpRuntimeToolNameMaxLength,
+  mcpServerNameError,
+  mcpServerNameMaxLength,
+  mcpToolEnabled,
+  mcpToolNameAddable,
+  type UnexposableMcpTool,
+  unexposableMcpTools,
+} from '@/components/agents/agentConfigMcp'
 
 export type MachineSourceKind = 'pool' | 'machine'
 
@@ -71,6 +84,9 @@ export interface BasicConfig {
   tools: BasicTool[]
   interactionHandlers: Record<string, ConfigAppCapabilitySource>
   mcpServers: BasicMcpServer[]
+  eventWebhookEvents: string[]
+  eventWebhookUrl: string
+  eventWebhookSigningSecretId: string
   skillIds: string[]
   subagents: BasicSubagent[]
   maxSubagents: string
@@ -104,6 +120,9 @@ export const emptyBasicConfig: BasicConfig = {
   tools: [],
   interactionHandlers: {},
   mcpServers: [],
+  eventWebhookEvents: ['tool_call_update'],
+  eventWebhookUrl: '',
+  eventWebhookSigningSecretId: '',
   skillIds: [],
   subagents: [],
   maxSubagents: '',
@@ -171,6 +190,9 @@ export function useAgentBuilderForm(
     interactionHandlers: draft.interactionHandlers,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,
+    eventWebhookEvents: draft.eventWebhookEvents,
+    eventWebhookUrl: draft.eventWebhookUrl,
+    eventWebhookSigningSecretId: draft.eventWebhookSigningSecretId,
     subagents: draft.subagents,
     maxSubagents: draft.maxSubagents,
     maxDepth: draft.maxDepth,
@@ -191,6 +213,15 @@ export function useAgentBuilderForm(
     },
     setMcpServers: (mcpServers: BasicMcpServer[]) => {
       patch({ mcpServers })
+    },
+    setEventWebhookEvents: (eventWebhookEvents: string[]) => {
+      patch({ eventWebhookEvents })
+    },
+    setEventWebhookUrl: (eventWebhookUrl: string) => {
+      patch({ eventWebhookUrl })
+    },
+    setEventWebhookSigningSecretId: (eventWebhookSigningSecretId: string) => {
+      patch({ eventWebhookSigningSecretId })
     },
     setSubagents: (subagents: BasicSubagent[]) => {
       patch(
@@ -219,6 +250,8 @@ export function useAgentBuilderForm(
 export function basicConfigValid(draft: BasicConfig) {
   return (
     draft.instruction.trim() !== '' &&
+    eventWebhookUrlError(draft.eventWebhookUrl) === undefined &&
+    (draft.eventWebhookUrl.trim() === '' || draft.eventWebhookEvents.length > 0) &&
     resourceNameValid(draft.providerConfig) &&
     resourceNameValid(draft.modelName) &&
     draft.machineSources.every(machineSourceValid) &&
@@ -246,22 +279,6 @@ function machineSourceValid(source: BasicMachineSource) {
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
-}
-
-function mcpServerValid(server: BasicMcpServer) {
-  return (
-    mcpServerNameError(server.name) === undefined &&
-    server.url.trim() !== '' &&
-    (server.authType === 'none' ||
-      (server.secretId.trim() !== '' &&
-        (server.authType !== 'sigv4' ||
-          (server.service.trim() !== '' && server.region.trim() !== ''))))
-  )
-}
-
-function mcpServerNamesUnique(servers: BasicMcpServer[]) {
-  const names = servers.map((server) => server.name)
-  return new Set(names).size === names.length
 }
 
 function parseSourceDocument(source: string): Document | null {
@@ -324,6 +341,13 @@ function applyToDocument(
     set,
     del,
   )
+  applyNamedEntries(
+    'interaction_handlers',
+    Object.entries(config.interactionHandlers),
+    baseline == null ? null : Object.entries(baseline.interactionHandlers),
+    set,
+    del,
+  )
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
   applyNamedEntries(
     'subagents',
@@ -349,6 +373,12 @@ function applyToDocument(
     set,
     del,
   )
+
+  const eventWebhook = eventWebhookWire(config)
+  if (!deepEqual(eventWebhook, baseline ? eventWebhookWire(baseline) : null)) {
+    if (eventWebhook) set(['event_webhook'], eventWebhook)
+    else del(['event_webhook'])
+  }
 
   return edits.count > 0 ? doc.toString() : baselineSource
 }

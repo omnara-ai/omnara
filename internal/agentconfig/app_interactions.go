@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
@@ -69,7 +70,7 @@ func ListInteractionHandlers(
 	return page, nil
 }
 
-func (contract RuntimeContract) ReferencedAppIDs() []string {
+func (contract RuntimeContract) ReferencedAppIDs() []uuid.UUID {
 	return ReferencedAppIDs(
 		Compiled{Tools: contract.AppTools, InteractionHandlers: contract.InteractionHandlers},
 	)

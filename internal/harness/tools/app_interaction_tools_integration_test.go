@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -191,6 +192,9 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, selected["handler"], listed["handler"])
 	require.Equal(t, selected["args"], listed["args"])
+	publicAppID, err := publicid.Encode(publicid.KindProjectApp, overlap.ID)
+	require.NoError(t, err)
+	require.Equal(t, publicAppID, listed["app_id"])
 	dispatchInteractionHandler(t, ctx, f, turn, calls[3])
 	require.Nil(t, interactionToolResult(t, ctx, f, calls[3])["selection"])
 	replayed, err := (Executor{Store: f.Store}).Dispatch(ctx, turn, calls[1])

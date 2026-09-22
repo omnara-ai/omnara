@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -16,7 +17,7 @@ type AppToolAuthority struct {
 func ResolveAppToolAuthority(
 	original, current RuntimeContract,
 	name string,
-	apps map[string]AppResolution,
+	apps map[uuid.UUID]AppResolution,
 ) (AppToolAuthority, error) {
 	_, operation, ok := toolcatalog.SplitAppToolName(name)
 	if !ok {
@@ -44,7 +45,7 @@ func ResolveAppToolAuthority(
 func ResolveInteractionHandlerAuthority(
 	original, current RuntimeContract,
 	key string,
-	apps map[string]AppResolution,
+	apps map[uuid.UUID]AppResolution,
 ) (PreparedAppInteractionHandler, error) {
 	before, was := original.InteractionHandlers[key]
 	after, is := current.InteractionHandlers[key]

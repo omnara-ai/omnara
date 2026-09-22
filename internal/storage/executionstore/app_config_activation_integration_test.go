@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -70,8 +69,7 @@ func (f appActivationFixture) encodedDefinition(
 	require.NoError(t, err)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID: testProjectID, ConfiguredModelID: f.profile.CurrentConfig.ConfiguredModelID,
-		CompiledDefinition: encoded.CanonicalJSON, CompilerVersion: agentconfig.CompilerVersion,
-		EffectiveDefinitionHash: encoded.Hash,
+		CompiledDefinition: encoded.CanonicalJSON, EffectiveDefinitionHash: encoded.Hash,
 	}
 }
 
@@ -87,7 +85,7 @@ func (f appActivationFixture) withSendingTools(
 	}
 	for _, operation := range []string{"post_message", "read"} {
 		compiled.Tools[toolcatalog.AppToolName(f.app.Name, operation)] = agentconfig.ToolCompiled{
-			Enabled: true, AppID: publicResourceID(publicid.KindProjectApp, f.app.ID),
+			Enabled: true, AppID: f.app.ID,
 			Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		}
 	}
@@ -296,7 +294,7 @@ func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
 			for _, name := range []string{"app__chat__post_message", "app__chat__read"} {
 				tool := compiled.Tools[name]
-				tool.AppID = publicResourceID(publicid.KindProjectApp, attachment.AppID)
+				tool.AppID = attachment.AppID
 				compiled.Tools[name] = tool
 			}
 			change.CreateAgentConfigInput = f.encodedDefinition(t, compiled)
@@ -551,7 +549,7 @@ func TestAppCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigChange(t *
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
 			compiled.Tools = map[string]agentconfig.ToolCompiled{
 				"app__secondary__post_message": {
-					Enabled: false, AppID: publicResourceID(publicid.KindProjectApp, secondary.ID),
+					Enabled: false, AppID: secondary.ID,
 					Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 				},
 			}
@@ -643,7 +641,7 @@ func TestAppCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *testing.T) {
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(definition.CompiledDefinition, &compiled))
 			compiled.Tools = map[string]agentconfig.ToolCompiled{"app__secondary__read": {
-				Enabled: false, AppID: publicResourceID(publicid.KindProjectApp, secondary.ID),
+				Enabled: false, AppID: secondary.ID,
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			}}
 			definition = f.encodedDefinition(t, compiled)

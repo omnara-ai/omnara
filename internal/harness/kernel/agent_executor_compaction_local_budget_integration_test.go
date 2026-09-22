@@ -223,7 +223,6 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

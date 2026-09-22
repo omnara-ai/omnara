@@ -1008,9 +1008,8 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(launch.AgentConfig.CompiledDefinition, &compiled))
-	appID, err := publicid.Encode(publicid.KindProjectApp, install.ID)
-	require.NoError(t, err)
-	prepared, err := agentconfig.PrepareAppTools(compiled, map[string]agentconfig.AppResolution{
+	appID := install.ID
+	prepared, err := agentconfig.PrepareAppTools(compiled, map[uuid.UUID]agentconfig.AppResolution{
 		appID: {AppID: appID, AppType: install.AppType},
 	})
 	require.NoError(t, err)
@@ -1271,7 +1270,6 @@ tools:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
@@ -1315,14 +1313,14 @@ func compileToolsAgentYAMLResolved(
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedToolsAgentConfigModel(configuredModel), nil
 		},
-		ResolveMachineName: func(machineName string) (string, error) {
+		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
 			machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, toolsTestProjectID, machineName)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMachine, machineID)
+			return machineID, nil
 		},
-		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
+		ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
 			machinePoolID, err := store.Execution().ResolveAgentConfigMachinePoolName(
 				ctx,
 				toolsTestOrgID,
@@ -1330,9 +1328,9 @@ func compileToolsAgentYAMLResolved(
 				machinePoolName,
 			)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMachinePool, machinePoolID)
+			return machinePoolID, nil
 		},
 		ResolveSkillID: func(skillID string) (agentconfig.SkillResolution, error) {
 			records, _, err := store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
@@ -1347,8 +1345,8 @@ func compileToolsAgentYAMLResolved(
 				return agentconfig.SkillResolution{}, storeerr.ErrNotFound
 			}
 			return agentconfig.SkillResolution{
-				PublicID: skillID,
-				Name:     records[0].Name,
+				ID:   uuid.Must(publicid.Decode(publicid.KindSkill, skillID)),
+				Name: records[0].Name,
 			}, nil
 		},
 	})
@@ -1363,18 +1361,14 @@ func resolvedToolsAgentConfigModel(
 ) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }
 
 func resolveToolsAppName(ctx context.Context, store *storage.Store, name string) (agentconfig.AppResolution, error) {
@@ -1388,8 +1382,7 @@ func resolveToolsAppName(ctx context.Context, store *storage.Store, name string)
 		if app.Name != name || app.State != integrationstore.ProjectAppStateActive {
 			continue
 		}
-		ref, err := publicid.Encode(publicid.KindProjectApp, app.ID)
-		return agentconfig.AppResolution{AppID: ref, AppType: app.AppType}, err
+		return agentconfig.AppResolution{AppID: app.ID, AppType: app.AppType}, nil
 	}
 	return agentconfig.AppResolution{}, storeerr.ErrNotFound
 }

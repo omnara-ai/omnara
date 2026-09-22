@@ -7,22 +7,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func LockAppsTx(ctx context.Context, tx pgx.Tx, projectID uuid.UUID, refs []string, additional ...uuid.UUID) error {
+func LockAppsTx(
+	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, referenced []uuid.UUID, additional ...uuid.UUID,
+) error {
 	// Compiled references remain readable after revocation; only additional apps
 	// supply live authority.
-	referenced := make([]uuid.UUID, 0, len(refs))
-	for _, ref := range refs {
-		id, err := publicid.Decode(publicid.KindProjectApp, ref)
-		if err != nil {
-			return storeerr.InvalidRequest(err)
-		}
-		referenced = append(referenced, id)
-	}
 	return lockProjectAppsTx(ctx, tx, projectID, referenced, additional)
 }
 

@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +21,7 @@ func TestSlackAppConfigRewritePreservesPolicyAndNullableSource(t *testing.T) {
 	require.NoError(t, err)
 	for _, format := range []string{"", "json", "yaml"} {
 		t.Run(format, func(t *testing.T) {
-			config := appCutoverConfig{definition: compiled, compiled: compiled, hash: hash}
+			config := appCutoverConfig{compiled: compiled, hash: hash}
 			if format != "" {
 				source := string(compiled)
 				if format == "yaml" {
@@ -49,11 +48,9 @@ tools:
 				require.True(t, exists)
 				require.False(t, tool.Enabled)
 				require.Equal(t, "always_allow", tool.Permission.Mode)
-				id, err := publicid.Decode(publicid.KindProjectApp, tool.AppID)
-				require.NoError(t, err)
-				require.Equal(t, app.id, id.String())
+				require.Equal(t, app.id, tool.AppID.String())
 			}
-			_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, "", updated.hash)
+			_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, updated.hash)
 			require.NoError(t, err)
 			require.Equal(t, "Keep send_integration_message as historical text.", actual.Instruction)
 			require.Empty(t, actual.InteractionHandlers)
@@ -90,15 +87,13 @@ func TestSlackSendingSuccessorPinsAppsAndPreservesPolicies(t *testing.T) {
 			for _, raw := range [][]byte{first, second} {
 				hash, err := explicitDefaultToolsConfigHash(raw)
 				require.NoError(t, err)
-				contract, err := agentconfig.RuntimeContractFromCompiled(raw, "", hash)
+				contract, err := agentconfig.RuntimeContractFromCompiled(raw, hash)
 				require.NoError(t, err)
 				require.Len(t, contract.AppTools, 1)
 				require.Empty(t, contract.InteractionHandlers)
 				tool := contract.AppTools["app__slack__post_message"]
 				require.Equal(t, "always_allow", tool.Permission.Mode)
-				id, err := publicid.Decode(publicid.KindProjectApp, tool.AppID)
-				require.NoError(t, err)
-				require.Equal(t, appID, id.String())
+				require.Equal(t, appID, tool.AppID.String())
 				if policy == `{}` {
 					require.True(t, tool.Enabled)
 				} else {
@@ -243,7 +238,7 @@ func TestSlackAppMigrationOmitsDeletedAppPoliciesFromSourceAndCanonicalConfig(t 
 				}
 				hash, err := explicitDefaultToolsConfigHash(compiled)
 				require.NoError(t, err)
-				config := appCutoverConfig{definition: compiled, compiled: compiled, hash: hash}
+				config := appCutoverConfig{compiled: compiled, hash: hash}
 				if format != "" {
 					source := strings.Replace(
 						string(
@@ -269,24 +264,20 @@ func TestSlackAppMigrationOmitsDeletedAppPoliciesFromSourceAndCanonicalConfig(t 
 				updated, changed, err := rewriteSlackAppConfig(config, apps)
 				require.NoError(t, err)
 				require.True(t, changed)
-				for _, raw := range [][]byte{updated.definition, updated.compiled} {
-					var result agentconfig.Compiled
-					require.NoError(t, json.Unmarshal(raw, &result))
-					require.NotContains(t, result.Tools, deleted.toolName())
-					require.NotContains(t, result.Tools, "send_integration_message")
-					if onlyDeleted {
-						require.Empty(t, result.Tools)
-					} else {
-						tool, exists := result.Tools[live.toolName()]
-						require.True(t, exists)
-						require.False(t, tool.Enabled)
-						require.True(t, tool.Deferred)
-						id, err := live.publicID()
-						require.NoError(t, err)
-						require.Equal(t, id, tool.AppID)
-					}
+				var result agentconfig.Compiled
+				require.NoError(t, json.Unmarshal(updated.compiled, &result))
+				require.NotContains(t, result.Tools, deleted.toolName())
+				require.NotContains(t, result.Tools, "send_integration_message")
+				if onlyDeleted {
+					require.Empty(t, result.Tools)
+				} else {
+					tool, exists := result.Tools[live.toolName()]
+					require.True(t, exists)
+					require.False(t, tool.Enabled)
+					require.True(t, tool.Deferred)
+					require.Equal(t, live.id, tool.AppID.String())
 				}
-				_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, "", updated.hash)
+				_, err = agentconfig.RuntimeContractFromCompiled(updated.compiled, updated.hash)
 				require.NoError(t, err)
 				if updated.source.Valid {
 					require.NotContains(t, updated.source.String, deleted.toolName())

@@ -11,6 +11,8 @@ import (
 
 type Kind string
 
+type ID string
+
 const (
 	KindOrganization            Kind = "organization"
 	KindInstallation            Kind = "installation"

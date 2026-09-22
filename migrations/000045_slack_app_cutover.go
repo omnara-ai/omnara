@@ -12,14 +12,12 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/pressly/goose/v3"
 	"gopkg.in/yaml.v3"
 )
 
 func newSlackAppCutoverMigration() *goose.Migration {
-	return goose.NewGoMigration(42, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
+	return goose.NewGoMigration(45, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
 }
 
 // Keep encoding local: migration replay must not depend on future config compilers.
@@ -40,7 +38,7 @@ func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 type appCutoverConfig struct {
 	id, projectID, hash        string
 	source, format, sourceHash sql.NullString
-	definition, compiled       []byte
+	compiled                   []byte
 }
 
 type slackCutoverApp struct {
@@ -49,14 +47,6 @@ type slackCutoverApp struct {
 }
 
 func (app slackCutoverApp) toolName() string { return "app__" + app.name + "__post_message" }
-
-func (app slackCutoverApp) publicID() (string, error) {
-	id, err := uuid.Parse(app.id)
-	if err != nil {
-		return "", err
-	}
-	return publicid.Encode(publicid.KindProjectApp, id)
-}
 
 func slackCutoverApps(ctx context.Context, tx *sql.Tx) (map[string][]slackCutoverApp, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT project_id::text,id::text,name,deleted_at IS NOT NULL FROM project_apps
@@ -80,7 +70,7 @@ func slackCutoverApps(ctx context.Context, tx *sql.Tx) (map[string][]slackCutove
 func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx, apps map[string][]slackCutoverApp) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id::text, project_id::text, source, source_format, source_hash,
-		       definition::text, compiled_definition::text, effective_definition_hash
+		       compiled_definition::text, effective_definition_hash
 		FROM agent_configs ORDER BY id`)
 	if err != nil {
 		return err
@@ -90,7 +80,7 @@ func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx, apps map[string][]s
 	for rows.Next() {
 		var config appCutoverConfig
 		if err := rows.Scan(&config.id, &config.projectID, &config.source, &config.format,
-			&config.sourceHash, &config.definition, &config.compiled, &config.hash); err != nil {
+			&config.sourceHash, &config.compiled, &config.hash); err != nil {
 			return err
 		}
 		updated, changed, err := rewriteSlackAppConfig(config, apps[config.projectID])
@@ -115,8 +105,8 @@ func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx, apps map[string][]s
 	}
 	for _, config := range updates {
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_configs SET source=$2, source_hash=$3,
-			definition=$4::jsonb, compiled_definition=$5::jsonb, effective_definition_hash=$6 WHERE id=$1::uuid`,
-			config.id, config.source, config.sourceHash, config.definition, config.compiled, config.hash); err != nil {
+			compiled_definition=$4::jsonb, effective_definition_hash=$5 WHERE id=$1::uuid`,
+			config.id, config.source, config.sourceHash, config.compiled, config.hash); err != nil {
 			return fmt.Errorf(
 				"rewrite Slack config %s (resolve duplicate configs before retrying if necessary): %w",
 				config.id,
@@ -129,10 +119,6 @@ func rewriteSlackAppConfigs(ctx context.Context, tx *sql.Tx, apps map[string][]s
 }
 
 func rewriteSlackAppConfig(config appCutoverConfig, apps []slackCutoverApp) (appCutoverConfig, bool, error) {
-	definition, definitionChanged, err := rewriteSlackToolsJSON(config.definition, apps, true)
-	if err != nil {
-		return config, false, err
-	}
 	compiled, compiledChanged, err := rewriteSlackToolsJSON(config.compiled, apps, true)
 	if err != nil {
 		return config, false, err
@@ -152,7 +138,7 @@ func rewriteSlackAppConfig(config appCutoverConfig, apps []slackCutoverApp) (app
 			return config, false, err
 		}
 	}
-	if !definitionChanged && !compiledChanged && !sourceChanged {
+	if !compiledChanged && !sourceChanged {
 		return config, false, nil
 	}
 	oldHash, err := explicitDefaultToolsConfigHash(config.compiled)
@@ -163,7 +149,7 @@ func rewriteSlackAppConfig(config appCutoverConfig, apps []slackCutoverApp) (app
 		(config.source.Valid && hashBytes([]byte(config.source.String)) != config.sourceHash.String) {
 		return config, false, errors.New("stored config hashes do not match content")
 	}
-	config.definition, config.compiled = definition, compiled
+	config.compiled = compiled
 	config.hash, err = explicitDefaultToolsConfigHash(compiled)
 	if sourceChanged {
 		config.source.String, config.sourceHash.String = string(source), hashBytes(source)
@@ -251,10 +237,7 @@ func rewriteSlackToolKeys(root map[string]any, apps []slackCutoverApp, compiled 
 				}
 				tool := maps.Clone(policy)
 				if compiled {
-					tool["app_id"], err = app.publicID()
-					if err != nil {
-						return false, err
-					}
+					tool["app_id"] = app.id
 				}
 				tools[app.toolName()] = tool
 			}
@@ -395,10 +378,6 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 		}
 		seen[target.appID] = target.id
 		app := slackCutoverApp{id: target.appID, name: target.appName}
-		appID, err := app.publicID()
-		if err != nil {
-			return nil, err
-		}
 		switch target.kind {
 		case "dm", "channel":
 			if !slackCutoverChannel.MatchString(target.ref) {
@@ -413,7 +392,7 @@ func slackSendingSuccessor(raw []byte, targets []slackCutoverTarget) ([]byte, er
 			return nil, fmt.Errorf("unsupported Slack target %s kind %q", target.id, target.kind)
 		}
 		sending := maps.Clone(tool)
-		sending["app_id"] = appID
+		sending["app_id"] = app.id
 		tools[app.toolName()] = sending
 	}
 	return json.Marshal(root)
@@ -447,7 +426,7 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	}
 	if unfinished {
 		return errors.New(
-			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 41)",
+			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 44)",
 		)
 	}
 	// An idle worker can still have a continuation with no model call inserted yet.
@@ -546,9 +525,9 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 		}
 		var configID string
 		err = tx.QueryRowContext(ctx, `WITH inserted AS (
-			INSERT INTO agent_configs(org_id,project_id,configured_model_id,definition,compiled_definition,
-				compiler_version,effective_definition_hash,created_at)
-			SELECT org_id,project_id,configured_model_id,$2::jsonb,$2::jsonb,compiler_version,$3,statement_timestamp()
+			INSERT INTO agent_configs(org_id,project_id,configured_model_id,compiled_definition,
+				effective_definition_hash,created_at)
+			SELECT org_id,project_id,configured_model_id,$2::jsonb,$3,statement_timestamp()
 			FROM agent_configs WHERE id=$1::uuid
 			ON CONFLICT (project_id,effective_definition_hash,source_format,source_hash) DO NOTHING RETURNING id
 		)
@@ -639,9 +618,19 @@ func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID s
 	}
 	_, err := tx.ExecContext(
 		ctx,
-		`UPDATE agents SET current_config_id=$2::uuid,updated_at=statement_timestamp() WHERE id=$1::uuid`,
+		`WITH activated AS (
+            UPDATE agents SET current_config_id=$2::uuid,updated_at=statement_timestamp()
+            WHERE id=$1::uuid RETURNING id,org_id,project_id
+        )
+        INSERT INTO event_webhook_deliveries(org_id,agent_id,event_sequence)
+        SELECT agent.org_id,agent.id,event.sequence FROM activated agent
+        JOIN agent_events event ON event.agent_id=agent.id AND event.id=$3::uuid
+        JOIN agent_configs config ON config.id=$2::uuid AND config.project_id=agent.project_id
+        WHERE coalesce(config.compiled_definition->'event_webhook'->>'url','') <> ''
+          AND config.compiled_definition->'event_webhook'->'events' @> '["agent_input"]'::jsonb`,
 		agentID,
 		configID,
+		eventID,
 	)
 	return err
 }

@@ -26,7 +26,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -295,7 +294,6 @@ func (f kernelFixture) createConfigAndProfileBookmarkWithModelOptions(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
@@ -341,7 +339,7 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedKernelAgentConfigModel(configuredModel), nil
 		},
-		ResolveMachinePoolName: func(machinePoolName string) (string, error) {
+		ResolveMachinePoolName: func(machinePoolName string) (uuid.UUID, error) {
 			machinePoolID, err := f.Store.Execution().ResolveAgentConfigMachinePoolName(
 				ctx,
 				kernelTestOrgID,
@@ -349,9 +347,9 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 				machinePoolName,
 			)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMachinePool, machinePoolID)
+			return machinePoolID, nil
 		},
 		ResolveSkillID: func(skillID string) (agentconfig.SkillResolution, error) {
 			records, _, err := f.Store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
@@ -365,7 +363,7 @@ func (f kernelFixture) compileAgentYAMLResolvedWithModelOptions(
 			if len(records) != 1 {
 				return agentconfig.SkillResolution{}, storeerr.ErrNotFound
 			}
-			return agentconfig.SkillResolution{PublicID: skillID, Name: records[0].Name}, nil
+			return agentconfig.SkillResolution{ID: records[0].ID, Name: records[0].Name}, nil
 		},
 	})
 	if err != nil {
@@ -379,7 +377,7 @@ func resolvedKernelAgentConfigModel(
 ) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }
@@ -487,11 +485,7 @@ SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }
 
 func configuredModelIDForKernelConfig(

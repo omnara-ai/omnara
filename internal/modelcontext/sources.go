@@ -64,7 +64,7 @@ type ArtifactStore interface {
 }
 
 type AppStore interface {
-	ResolveAppDefinitions(context.Context, uuid.UUID, []string) (map[string]agentconfig.AppResolution, error)
+	ResolveAppDefinitions(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]agentconfig.AppResolution, error)
 }
 
 type Store interface {
@@ -95,7 +95,7 @@ type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
 		projectID uuid.UUID,
-		publicSkillID string,
+		skillID uuid.UUID,
 	) (skillstore.SkillRecord, error)
 }
 

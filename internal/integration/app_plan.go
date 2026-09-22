@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -495,10 +494,6 @@ func deriveAppLaunch(
 	if err := scope.Validate(app.Provider); err != nil {
 		return fail(err)
 	}
-	instance, err := publicid.Encode(publicid.KindProjectApp, app.ID)
-	if err != nil {
-		return fail(err)
-	}
 	subscriptionType := "thread_messages"
 	if app.AppType == appdefinition.GitHubPR {
 		subscriptionType = "pull_request"
@@ -523,7 +518,7 @@ func deriveAppLaunch(
 			if name != app.Name {
 				return agentconfig.AppResolution{}, storeerr.ErrUnauthorized
 			}
-			return agentconfig.AppResolution{AppID: instance, AppType: app.AppType}, nil
+			return agentconfig.AppResolution{AppID: app.ID, AppType: app.AppType}, nil
 		},
 	})
 	if err != nil {

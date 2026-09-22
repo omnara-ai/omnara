@@ -19,7 +19,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -97,7 +96,6 @@ model:
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		snapshot.AgentConfig.CompiledDefinition,
-		snapshot.AgentConfig.CompilerVersion,
 		snapshot.AgentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -494,8 +492,7 @@ func attachKernelSlackHandler(
 		[]byte(config.Source),
 	)
 	require.NoError(t, err)
-	appID, err := publicid.Encode(publicid.KindProjectApp, install.ID)
-	require.NoError(t, err)
+	appID := install.ID
 	channel, thread, found := strings.Cut(providerRef, ":")
 	require.True(t, found, "runtime-message fixture requires a Slack thread")
 	if source.InteractionHandlers == nil {
@@ -526,7 +523,7 @@ func attachKernelSlackHandler(
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID: kernelTestProjectID, Source: string(raw), SourceFormat: "json",
 			ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: compiled.CanonicalJSON,
-			CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:                 agentID,
 		ExpectedCurrentConfigID: config.ID,

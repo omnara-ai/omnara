@@ -64,12 +64,16 @@ func appPlannerFixture(
 ) (*AppRouter, *appPlanExecution, *appPlanIntegrations, integrationstore.ProjectAppRecord, AppEvent) {
 	t.Helper()
 	project, org, appID := uuid.New(), uuid.New(), uuid.New()
-	publicApp, err := publicid.Encode(publicid.KindProjectApp, appID)
+	modelID := uuid.New()
+	signingSecretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
 	require.NoError(t, err)
 	disabled := false
 	source := agentconfig.AgentConfigSource{
 		Instruction: "Pinned original",
 		Model:       agentconfig.AgentConfigModelSource{ProviderConfig: "test", Name: "model"},
+		EventWebhook: &agentconfig.EventWebhook{
+			URL: "https://example.com/events", Events: []string{"model_output"}, SigningSecretID: signingSecretID,
+		},
 		Tools: map[string]agentconfig.AgentConfigToolSource{
 			toolcatalog.AppToolName("chat", "post_message"): {Enabled: &disabled},
 		},
@@ -77,8 +81,11 @@ func appPlannerFixture(
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatJSON, raw, agentconfig.CompileOptions{
+		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+			return agentconfig.ResolvedModelSelection{ConfiguredModelID: modelID}, nil
+		},
 		ResolveAppName: func(string) (agentconfig.AppResolution, error) {
-			return agentconfig.AppResolution{AppID: publicApp, AppType: appdefinition.SlackThread}, nil
+			return agentconfig.AppResolution{AppID: appID, AppType: appdefinition.SlackThread}, nil
 		},
 	})
 	require.NoError(t, err)
@@ -87,9 +94,8 @@ func appPlannerFixture(
 		OrgID:                   org,
 		ProjectID:               project,
 		Source:                  "deliberately unusable source",
-		ConfiguredModelID:       uuid.New(),
+		ConfiguredModelID:       modelID,
 		CompiledDefinition:      compiled.CanonicalJSON,
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	execution := &appPlanExecution{
@@ -144,6 +150,8 @@ func appPlannerFixture(
 
 func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 	router, execution, integrations, app, event := appPlannerFixture(t)
+	var base agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(execution.profile.CurrentConfig.CompiledDefinition, &base))
 	oldID := uuid.Must(uuid.NewV7())
 	event.ContentBlocks = json.RawMessage(
 		`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + oldID.String() + `"}]`,
@@ -172,6 +180,8 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(slot.Launch.DerivedConfig.CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
+		require.Equal(t, base.Model, compiled.Model)
+		require.Equal(t, base.EventWebhook, compiled.EventWebhook)
 		require.False(t, compiled.Tools[toolcatalog.AppToolName("chat", "post_message")].Enabled)
 		require.Len(t, slot.Launch.Subscriptions, 1)
 		subscription := slot.Launch.Subscriptions[0]
@@ -179,15 +189,23 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.Equal(t, "thread_messages", subscription.Type)
 		require.Equal(t, []string{"message"}, subscription.Events)
 		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`, string(subscription.Conversation))
-		require.NotEmpty(t, compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].AppID)
-		require.NotEmpty(t, compiled.InteractionHandlers[app.Name].AppID)
+		require.Equal(t, app.ID, compiled.Tools[toolcatalog.AppToolName(app.Name, "read")].AppID)
+		require.Equal(t, app.ID, compiled.InteractionHandlers[app.Name].AppID)
 		raw, err := json.Marshal(slot)
 		require.NoError(t, err)
+		require.NotContains(t, string(raw), "CompilerVersion")
+		require.NotContains(t, string(raw), "compiler_version")
 		var kernel executionstore.InboxLaunchSlot
 		require.NoError(t, json.Unmarshal(raw, &kernel))
 		require.Equal(t, *slot.Selection, kernel.Selection)
 		require.Equal(t, slot.AgentID, kernel.AgentID)
 		require.Equal(t, slot.Launch.Subscriptions, kernel.Launch.Subscriptions)
+		require.Equal(t, slot.Launch.DerivedConfig, kernel.Launch.DerivedConfig)
+		contract, err := agentconfig.RuntimeContractFromCompiled(
+			kernel.Launch.DerivedConfig.CompiledDefinition, kernel.Launch.DerivedConfig.EffectiveDefinitionHash,
+		)
+		require.NoError(t, err)
+		require.Equal(t, []uuid.UUID{app.ID}, contract.ReferencedAppIDs())
 	}
 	integrations.receipt.Plan, err = json.Marshal(plan)
 	require.NoError(t, err)
@@ -539,9 +557,7 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
 			definition, _ := appdefinition.Lookup(app.AppType)
 			for _, operation := range definition.Tools {
-				ref, err := publicid.Encode(publicid.KindProjectApp, app.ID)
-				require.NoError(t, err)
-				require.Equal(t, ref, compiled.Tools[toolcatalog.AppToolName(app.Name, operation)].AppID)
+				require.Equal(t, app.ID, compiled.Tools[toolcatalog.AppToolName(app.Name, operation)].AppID)
 			}
 			require.Equal(t, app.ID, subscription.AppID)
 			require.JSONEq(t, test.address, string(subscription.Conversation))
@@ -579,9 +595,7 @@ func TestAppLaunchPreservesInteractionToolOverrides(t *testing.T) {
 	base := execution.profile.CurrentConfig
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
-	appID, err := publicid.Encode(publicid.KindProjectApp, app.ID)
-	require.NoError(t, err)
-	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: appID}}
+	compiled.InteractionHandlers = map[string]agentconfig.AppCapabilityCompiled{app.Name: {AppID: app.ID}}
 	compiled.Tools[toolcatalog.ToolNameListInteractionHandlers] = agentconfig.ToolCompiled{
 		Enabled: true, Deferred: true, Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk),
 	}

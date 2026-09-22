@@ -8,7 +8,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
@@ -20,8 +19,6 @@ func TestScheduledLaunchPreservesToolsAndSavesReplyContext(t *testing.T) {
 			base, found, err := f.store.Execution().GetAgentConfig(t.Context(), f.ids.ProjectID, f.profile.CurrentConfigID)
 			require.NoError(t, err)
 			require.True(t, found)
-			appID, err := publicid.Encode(publicid.KindProjectApp, f.appID)
-			require.NoError(t, err)
 			app, err := f.store.Integrations().GetProjectApp(t.Context(), f.ids.ProjectID, f.appID)
 			require.NoError(t, err)
 			source := base.Source + `
@@ -31,16 +28,16 @@ tools:
 `
 			compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
 				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
-					return agentconfig.ResolvedModelSelection{ConfiguredModelID: base.ConfiguredModelID.String()}, nil
+					return agentconfig.ResolvedModelSelection{ConfiguredModelID: base.ConfiguredModelID}, nil
 				},
 				ResolveAppName: func(string) (agentconfig.AppResolution, error) {
-					return agentconfig.AppResolution{AppID: appID, AppType: app.AppType}, nil
+					return agentconfig.AppResolution{AppID: f.appID, AppType: app.AppType}, nil
 				},
 			})
 			require.NoError(t, err)
 			config, err := f.store.Execution().CreateAgentConfig(t.Context(), executionstore.CreateAgentConfigInput{
 				ProjectID: f.ids.ProjectID, Source: source, ConfiguredModelID: base.ConfiguredModelID,
-				CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+				CompiledDefinition:      compiled.CanonicalJSON,
 				EffectiveDefinitionHash: compiled.Hash,
 			})
 			require.NoError(t, err)

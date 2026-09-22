@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -184,7 +183,7 @@ func TestAppHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {
 			case "replacement-app":
 				replacement := f.createApp(t, "replacement")
 				handler := next["chat"]
-				handler.AppID = publicResourceID(publicid.KindProjectApp, replacement.ID)
+				handler.AppID = replacement.ID
 				next["chat"] = handler
 			}
 			config, err := f.store.Execution().
