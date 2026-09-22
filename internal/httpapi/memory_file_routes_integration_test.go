@@ -31,7 +31,7 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	id, ok := record["id"].(string)
 	require.True(t, ok)
 	base := stores + "/" + id
-	request := func(method, endpoint string, body []byte, token string, status int) *httptest.ResponseRecorder {
+	request := func(t *testing.T, method, endpoint string, body []byte, token string, status int) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, endpoint, bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -44,72 +44,94 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		return rec
 	}
 	file := func(name string) string { return base + "/file?path=" + url.QueryEscape(name) }
-	empty := request(http.MethodGet, base+"/files", nil,
+	empty := request(t, http.MethodGet, base+"/files", nil,
 		project.AdminToken, http.StatusOK)
 	require.JSONEq(t, `{"data":[],"next_cursor":null}`, empty.Body.String())
-	for _, body := range [][]byte{{}, {0, 255, 1, 2}, []byte("hello\n")} {
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "empty", body: []byte{}},
+		{name: "binary", body: []byte{0, 255, 1, 2}},
+		{name: "text", body: []byte("hello\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := tc.body
+			name := "folder/file.bin"
+			written := request(t, http.MethodPut, file(name), body,
+				project.AdminToken, http.StatusOK)
+			var result map[string]string
+			require.NoError(t, json.Unmarshal(written.Body.Bytes(), &result))
+			require.Equal(t, "/memory/notes/"+name, result["path"])
+			require.Equal(t, blobstore.ContentDigest(body), result["digest"])
+			listed := requestJSONWithHeaders(t, handler, http.MethodGet, base+"/files?path=folder",
+				"", "", http.StatusOK, authHeaders(project.AdminToken))
+			entries, ok := listed["data"].([]any)
+			require.True(t, ok)
+			require.Len(t, entries, 1)
+			entry, ok := entries[0].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, "file", entry["type"])
+			require.Equal(t, float64(len(body)), entry["size_bytes"])
+			rec := request(t, http.MethodGet, file(name), nil,
+				project.AdminToken, http.StatusOK)
+			require.True(t, bytes.Equal(body, rec.Body.Bytes()))
+			digest := rec.Header().Get("X-Omnara-File-Digest")
+			require.Equal(t, result["digest"], digest)
+			require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+			require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+			require.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
+			request(t,
+				http.MethodDelete, file(name)+"&expected_digest="+url.QueryEscape(digest), nil,
+				project.AdminToken, http.StatusNoContent,
+			)
+		})
+	}
+	t.Run("conflicts and authorization", func(t *testing.T) {
 		name := "folder/file.bin"
-		written := request(http.MethodPut, file(name), body,
-			project.AdminToken, http.StatusOK)
-		var result map[string]string
-		require.NoError(t, json.Unmarshal(written.Body.Bytes(), &result))
-		require.Equal(t, "/memory/notes/"+name, result["path"])
-		require.Equal(t, blobstore.ContentDigest(body), result["digest"])
-		listed := requestJSONWithHeaders(t, handler, http.MethodGet, base+"/files?path=folder",
-			"", "", http.StatusOK, authHeaders(project.AdminToken))
-		entries, ok := listed["data"].([]any)
-		require.True(t, ok)
-		require.Len(t, entries, 1)
-		entry, ok := entries[0].(map[string]any)
-		require.True(t, ok)
-		require.Equal(t, "file", entry["type"])
-		require.Equal(t, float64(len(body)), entry["size_bytes"])
-		rec := request(http.MethodGet, file(name), nil,
-			project.AdminToken, http.StatusOK)
-		require.True(t, bytes.Equal(body, rec.Body.Bytes()))
-		digest := rec.Header().Get("X-Omnara-File-Digest")
-		require.NotEmpty(t, digest)
-		require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
-		require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
-		require.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
-		request(http.MethodGet, file(name), nil, other.AdminToken, http.StatusNotFound)
-		conflict := request(http.MethodPut, file(name), []byte("changed"),
+		body := []byte("hello\n")
+		digest := blobstore.ContentDigest(body)
+		request(t, http.MethodPut, file(name), body, project.AdminToken, http.StatusOK)
+		request(t, http.MethodGet, file(name), nil, other.AdminToken, http.StatusNotFound)
+		conflict := request(t, http.MethodPut, file(name), []byte("changed"),
 			project.AdminToken, http.StatusConflict)
 		var conflictBody map[string]string
 		require.NoError(t, json.Unmarshal(conflict.Body.Bytes(), &conflictBody))
 		require.Equal(t, "file_content_conflict", conflictBody["code"])
 		require.Equal(t, digest, conflictBody["current_digest"])
-		request(http.MethodDelete, file(name), nil,
+		request(t, http.MethodDelete, file(name), nil,
 			project.AdminToken, http.StatusBadRequest)
-		request(
+		request(t,
 			http.MethodPut, file(name)+"&expected_digest="+url.QueryEscape(digest), []byte("changed"),
 			project.AdminToken, http.StatusOK,
 		)
-		conflict = request(
+		staleWrite := request(t,
 			http.MethodPut, file(name)+"&expected_digest="+url.QueryEscape(digest), []byte("stale replacement"),
 			project.AdminToken, http.StatusConflict,
 		)
-		require.NoError(t, json.Unmarshal(conflict.Body.Bytes(), &conflictBody))
-		require.Equal(t, "file_content_conflict", conflictBody["code"])
-		require.Equal(t, blobstore.ContentDigest([]byte("changed")), conflictBody["current_digest"])
-		conflict = request(
+		var staleWriteBody map[string]string
+		require.NoError(t, json.Unmarshal(staleWrite.Body.Bytes(), &staleWriteBody))
+		require.Equal(t, "file_content_conflict", staleWriteBody["code"])
+		require.Equal(t, blobstore.ContentDigest([]byte("changed")), staleWriteBody["current_digest"])
+		staleDelete := request(t,
 			http.MethodDelete, file(name)+"&expected_digest="+url.QueryEscape(digest), nil,
 			project.AdminToken, http.StatusConflict,
 		)
-		require.NoError(t, json.Unmarshal(conflict.Body.Bytes(), &conflictBody))
-		require.Equal(t, "file_content_conflict", conflictBody["code"])
-		require.Equal(t, blobstore.ContentDigest([]byte("changed")), conflictBody["current_digest"])
-		rec = request(http.MethodGet, file(name), nil,
+		var staleDeleteBody map[string]string
+		require.NoError(t, json.Unmarshal(staleDelete.Body.Bytes(), &staleDeleteBody))
+		require.Equal(t, "file_content_conflict", staleDeleteBody["code"])
+		require.Equal(t, blobstore.ContentDigest([]byte("changed")), staleDeleteBody["current_digest"])
+		rec := request(t, http.MethodGet, file(name), nil,
 			project.AdminToken, http.StatusOK)
 		require.Equal(t, "changed", rec.Body.String())
 		digest = rec.Header().Get("X-Omnara-File-Digest")
-		request(
+		request(t,
 			http.MethodDelete, file(name)+"&expected_digest="+url.QueryEscape(digest), nil,
 			project.AdminToken, http.StatusNoContent,
 		)
-		request(http.MethodGet, file(name), nil,
+		request(t, http.MethodGet, file(name), nil,
 			project.AdminToken, http.StatusNotFound)
-		missing := request(
+		missing := request(t,
 			http.MethodPut, file(name)+"&expected_digest="+url.QueryEscape(digest), body,
 			project.AdminToken, http.StatusConflict,
 		)
@@ -117,26 +139,26 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		require.NoError(t, json.Unmarshal(missing.Body.Bytes(), &missingBody))
 		require.Equal(t, "file_content_conflict", missingBody["code"])
 		require.NotContains(t, missingBody, "current_digest")
-		request(http.MethodPut, file(name), body, project.AdminToken, http.StatusOK)
-		request(
+		request(t, http.MethodPut, file(name), body, project.AdminToken, http.StatusOK)
+		request(t,
 			http.MethodDelete, file(name)+"&expected_digest="+url.QueryEscape(blobstore.ContentDigest(body)), nil,
 			project.AdminToken, http.StatusNoContent,
 		)
-		empty = request(http.MethodGet, base+"/files", nil,
+		empty := request(t, http.MethodGet, base+"/files", nil,
 			project.AdminToken, http.StatusOK)
 		require.JSONEq(t, `{"data":[],"next_cursor":null}`, empty.Body.String())
-	}
+	})
 	for _, name := range []string{"a.txt", "b.txt", "nested/c.txt"} {
-		request(http.MethodPut, file(name), []byte("content"),
+		request(t, http.MethodPut, file(name), []byte("content"),
 			project.AdminToken, http.StatusOK)
 	}
-	conflict := request(http.MethodPut, file("nested"), []byte("content"),
+	conflict := request(t, http.MethodPut, file("nested"), []byte("content"),
 		project.AdminToken, http.StatusConflict)
 	var conflictBody map[string]string
 	require.NoError(t, json.Unmarshal(conflict.Body.Bytes(), &conflictBody))
 	require.Equal(t, "conflict", conflictBody["code"])
 	require.NotContains(t, conflictBody, "current_digest")
-	first := request(http.MethodGet, base+"/files?limit=1", nil,
+	first := request(t, http.MethodGet, base+"/files?limit=1", nil,
 		project.AdminToken, http.StatusOK)
 	var page struct {
 		Data []struct {
@@ -152,16 +174,16 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		base + "/files?cursor=a.txt",
 		base + "/files?path=nested&cursor=" + url.QueryEscape(*page.Next),
 	} {
-		request(http.MethodGet, endpoint, nil, project.AdminToken, http.StatusBadRequest)
+		request(t, http.MethodGet, endpoint, nil, project.AdminToken, http.StatusBadRequest)
 	}
 	secondStore := requestJSONWithHeaders(
 		t, handler, http.MethodPost, stores, `{"name":"other"}`, "", http.StatusCreated, authHeaders(project.AdminToken),
 	)
 	secondID, ok := secondStore["id"].(string)
 	require.True(t, ok)
-	request(http.MethodGet, stores+"/"+secondID+"/files?cursor="+url.QueryEscape(*page.Next), nil,
+	request(t, http.MethodGet, stores+"/"+secondID+"/files?cursor="+url.QueryEscape(*page.Next), nil,
 		project.AdminToken, http.StatusBadRequest)
-	second := request(
+	second := request(t,
 		http.MethodGet, base+"/files?limit=1&cursor="+url.QueryEscape(*page.Next), nil,
 		project.AdminToken, http.StatusOK,
 	)
@@ -177,66 +199,66 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	require.Equal(t, "directory", directory["type"])
 	require.Equal(t, "nested", directory["path"])
 	require.NotContains(t, directory, "size_bytes")
-	nested := request(http.MethodGet, base+"/files?path=nested", nil,
+	nested := request(t, http.MethodGet, base+"/files?path=nested", nil,
 		project.AdminToken, http.StatusOK)
 	require.NoError(t, json.Unmarshal(nested.Body.Bytes(), &page))
 	require.Len(t, page.Data, 1)
 	require.Equal(t, "nested/c.txt", page.Data[0].Path)
 	require.Nil(t, page.Next)
 	longName := strings.Repeat("<", 255)
-	request(http.MethodPut, file(longName), []byte("content"), project.AdminToken, http.StatusOK)
-	first = request(http.MethodGet, base+"/files?limit=1", nil, project.AdminToken, http.StatusOK)
+	request(t, http.MethodPut, file(longName), []byte("content"), project.AdminToken, http.StatusOK)
+	first = request(t, http.MethodGet, base+"/files?limit=1", nil, project.AdminToken, http.StatusOK)
 	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &page))
 	require.Equal(t, longName, page.Data[0].Path)
 	require.NotNil(t, page.Next)
-	second = request(http.MethodGet, base+"/files?limit=1&cursor="+url.QueryEscape(*page.Next), nil,
+	second = request(t, http.MethodGet, base+"/files?limit=1&cursor="+url.QueryEscape(*page.Next), nil,
 		project.AdminToken, http.StatusOK)
 	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &page))
 	require.Equal(t, "a.txt", page.Data[0].Path)
-	request(http.MethodGet, base+"/files?path=missing", nil,
+	request(t, http.MethodGet, base+"/files?path=missing", nil,
 		project.AdminToken, http.StatusNotFound)
-	request(http.MethodGet, base+"/files", nil, other.AdminToken, http.StatusNotFound)
-	request(http.MethodGet, base+"/files?path=..", nil,
+	request(t, http.MethodGet, base+"/files", nil, other.AdminToken, http.StatusNotFound)
+	request(t, http.MethodGet, base+"/files?path=..", nil,
 		project.AdminToken, http.StatusBadRequest)
-	request(http.MethodPut, file("../escape"), []byte("x"),
+	request(t, http.MethodPut, file("../escape"), []byte("x"),
 		project.AdminToken, http.StatusBadRequest)
-	request(
+	request(t,
 		http.MethodPut, file("large"), bytes.Repeat([]byte("x"), daemonprotocol.MaxFileTransferBytes),
 		project.AdminToken, http.StatusOK,
 	)
-	request(
+	request(t,
 		http.MethodPut, file("too-large"), bytes.Repeat([]byte("x"), daemonprotocol.MaxFileTransferBytes+1),
 		project.AdminToken, http.StatusRequestEntityTooLarge,
 	)
-	rec := request(http.MethodGet, file("a.txt"), nil,
+	rec := request(t, http.MethodGet, file("a.txt"), nil,
 		project.AdminToken, http.StatusOK)
 	digest := rec.Header().Get("X-Omnara-File-Digest")
 	requestJSONWithHeaders(
 		t, handler, http.MethodPatch, base, `{"read_only":true}`, "", http.StatusOK, authHeaders(project.AdminToken),
 	)
-	request(http.MethodPut, file("new.txt"), []byte("x"),
+	request(t, http.MethodPut, file("new.txt"), []byte("x"),
 		project.AdminToken, http.StatusOK)
-	request(http.MethodPut, file("a.txt"), []byte("updated"),
+	request(t, http.MethodPut, file("a.txt"), []byte("updated"),
 		project.AdminToken, http.StatusConflict)
-	request(
+	request(t,
 		http.MethodPut, file("a.txt")+"&expected_digest="+url.QueryEscape(digest), []byte("updated"),
 		project.AdminToken, http.StatusOK,
 	)
-	request(
+	request(t,
 		http.MethodDelete, file("a.txt")+"&expected_digest="+url.QueryEscape(digest), nil,
 		project.AdminToken, http.StatusConflict,
 	)
-	rec = request(http.MethodGet, file("a.txt"), nil,
+	rec = request(t, http.MethodGet, file("a.txt"), nil,
 		project.AdminToken, http.StatusOK)
 	digest = rec.Header().Get("X-Omnara-File-Digest")
-	request(
+	request(t,
 		http.MethodDelete, file("a.txt")+"&expected_digest="+url.QueryEscape(digest), nil,
 		project.AdminToken, http.StatusNoContent,
 	)
-	filtered := request(http.MethodGet, stores+"?name=no*", nil,
+	filtered := request(t, http.MethodGet, stores+"?name=no*", nil,
 		project.AdminToken, http.StatusOK)
 	require.Contains(t, filtered.Body.String(), `"notes"`)
-	filtered = request(http.MethodGet, stores+"?name=missing", nil,
+	filtered = request(t, http.MethodGet, stores+"?name=missing", nil,
 		project.AdminToken, http.StatusOK)
 	require.NotContains(t, filtered.Body.String(), `"notes"`)
 }

@@ -12,12 +12,12 @@ const viewerEmail = requiredEnvironmentVariable('OMNARA_WEB_E2E_VIEWER_EMAIL')
 const memoryPath = `/projects/${projectID}/memory`
 const fileRoute = '**/memory-stores/*/file?*'
 
-async function createMemoryStore(page: Page) {
-  const failures = installFailureTracking(page, [
-    /response: (?:403|404|409) .*memory-stores/,
+async function createMemoryStore(page: Page, expectedFileStatuses: number[] = []) {
+  const ignore = [
     /^request: .*memory-stores\/mst_[a-z2-7]+(?:\/files?\?[^ ]+)? \(net::ERR_ABORTED\)$/,
     /^page: Canceled$/,
-  ])
+  ]
+  const failures = installFailureTracking(page, ignore)
   const storeName = `memory-browser-${randomUUID()}`
   await signIn(page, adminEmail, memoryPath)
   await expect(page.getByRole('link', { name: 'Memory guide' })).toHaveAttribute(
@@ -31,7 +31,15 @@ async function createMemoryStore(page: Page) {
   await dialog.getByRole('button', { name: 'Create store', exact: true }).click()
   await page.getByRole('link', { name: storeName, exact: true }).click()
   await expect(page.getByRole('heading', { name: storeName, exact: true })).toBeVisible()
-  return { failures, storeName }
+  const storeID = new URL(page.url()).pathname.split('/').at(-1)
+  for (const status of expectedFileStatuses) {
+    ignore.push(
+      new RegExp(
+        `^response: ${status} /api/v1/orgs/[^/]+/projects/${projectID}/memory-stores/${storeID}/file$`,
+      ),
+    )
+  }
+  return { failures, storeName, ignore }
 }
 
 async function createMemoryFile(page: Page, content = 'Original notes') {
@@ -53,7 +61,7 @@ async function createMemoryFile(page: Page, content = 'Original notes') {
 test('memory files preserve text bytes, guard unsaved edits, download, and delete', async ({
   page,
 }) => {
-  const { failures } = await createMemoryStore(page)
+  const { failures, ignore } = await createMemoryStore(page)
   const downloads: string[] = []
   page.on('request', (request) => {
     if (request.method() === 'GET' && /\/memory-stores\/[^/]+\/file\?/.test(request.url()))
@@ -104,6 +112,7 @@ test('memory files preserve text bytes, guard unsaved edits, download, and delet
   await page.keyboard.insertText('Unsaved before deletion')
   await expect(page.getByText('Unsaved changes', { exact: false })).toBeVisible()
   page.once('dialog', (prompt) => prompt.accept())
+  ignore.push(new RegExp(`^response: 404 ${fileURL.pathname}s$`))
   await page.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(page.getByText('This folder is empty.')).toBeVisible()
   expect(failures).toEqual([])
@@ -112,7 +121,7 @@ test('memory files preserve text bytes, guard unsaved edits, download, and delet
 test('memory uploads replace existing files without downloading and preserve editor drafts', async ({
   page,
 }) => {
-  const { failures } = await createMemoryStore(page)
+  const { failures } = await createMemoryStore(page, [409])
   const { editor } = await createMemoryFile(page)
   const dialog = page.getByRole('dialog')
   await editor.focus()
@@ -169,7 +178,7 @@ test('memory uploads replace existing files without downloading and preserve edi
 test('memory editor preserves drafts across a failed conflict refresh and retry', async ({
   page,
 }) => {
-  const { failures } = await createMemoryStore(page)
+  const { failures } = await createMemoryStore(page, [403, 409])
   const { editor } = await createMemoryFile(page)
   await editor.focus()
   await page.keyboard.press('Control+A')
@@ -213,7 +222,7 @@ for (const concurrentRecreation of [false, true]) {
   test(`memory editor recreates a deleted file${concurrentRecreation ? ' with a concurrent writer' : ''}`, async ({
     page,
   }) => {
-    const { failures } = await createMemoryStore(page)
+    const { failures } = await createMemoryStore(page, [404, 409])
     const { editor, fileURL } = await createMemoryFile(page)
     await editor.focus()
     await page.keyboard.press('Control+A')
@@ -266,7 +275,7 @@ for (const concurrentRecreation of [false, true]) {
 test('memory uploads allow empty files and distinguish quota errors from conflicts', async ({
   page,
 }) => {
-  const { failures } = await createMemoryStore(page)
+  const { failures } = await createMemoryStore(page, [409])
   const dialog = page.getByRole('dialog')
   await page.getByRole('button', { name: 'Add file', exact: true }).click()
   await dialog.getByRole('tab', { name: 'Upload file', exact: true }).click()

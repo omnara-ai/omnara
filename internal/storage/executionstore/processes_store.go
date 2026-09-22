@@ -2,7 +2,6 @@ package executionstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -22,11 +21,11 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonFileProcessScope struct {
-	OrgID     uuid.UUID
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	Path      string
-	ToolInput json.RawMessage
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	Path           string
+	ExpectedDigest *string
 }
 
 func (s *Store) GetDaemonFileProcessScope(
@@ -54,12 +53,16 @@ func (s *Store) GetDaemonFileProcessScope(
 	if err != nil {
 		return DaemonFileProcessScope{}, false, fmt.Errorf("load daemon file process scope: %w", err)
 	}
+	var expectedDigest *string
+	if record.ExpectedDigest != "" {
+		expectedDigest = &record.ExpectedDigest
+	}
 	return DaemonFileProcessScope{
-		OrgID:     orgID,
-		ProjectID: record.ProjectID,
-		AgentID:   record.AgentID,
-		Path:      record.Path,
-		ToolInput: record.ToolInput,
+		OrgID:          orgID,
+		ProjectID:      record.ProjectID,
+		AgentID:        record.AgentID,
+		Path:           record.Path,
+		ExpectedDigest: expectedDigest,
 	}, true, nil
 }
 

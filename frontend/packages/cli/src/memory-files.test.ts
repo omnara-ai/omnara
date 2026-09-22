@@ -227,15 +227,16 @@ describe('memory file commands', () => {
   it.each([Buffer.from([0, 255, 128, 10]), Buffer.alloc(0)])(
     'uploads exact bytes',
     async (bytes) => {
+      const path = 'notes/a #%.bin'
       const file = join(dir, 'input.bin')
       writeFileSync(file, bytes)
-      const command = cli(() => Response.json({ path: '/memory/engineering/notes/a.bin', digest }))
+      const command = cli(() => Response.json({ path: `/memory/engineering/${path}`, digest }))
       await command.run(
         'files',
         'upload',
         storeID,
         '--path',
-        'notes/a #?.bin',
+        path,
         '--file',
         file,
         '--expected-digest',
@@ -246,7 +247,7 @@ describe('memory file commands', () => {
       expect(request.method).toBe('PUT')
       expect(request.headers.get('content-type')).toBe('application/octet-stream')
       expect(Object.fromEntries(new URL(request.url).searchParams)).toEqual({
-        path: 'notes/a #?.bin',
+        path,
         expected_digest: digest,
       })
       expect(Buffer.from(await request.arrayBuffer())).toEqual(bytes)

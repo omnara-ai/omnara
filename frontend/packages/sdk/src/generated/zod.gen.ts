@@ -3602,7 +3602,7 @@ export const zListMemoryStoresPath = z.object({
 export const zListMemoryStoresQuery = z.object({
     limit: z.int().gte(1).lte(100).optional().default(50),
     name: z.string().min(1).max(200).optional(),
-    cursor: z.string().optional()
+    cursor: z.string().max(1024).optional()
 });
 
 /**

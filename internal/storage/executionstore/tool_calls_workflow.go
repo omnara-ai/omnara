@@ -252,22 +252,7 @@ func isUploadArtifactToolCall(call ToolCallRecord) bool {
 }
 
 func uploadMemoryToolResult(input, result json.RawMessage) (ToolResultOutcome, json.RawMessage, error) {
-	var request struct {
-		Path string `json:"path"`
-	}
-	var observed struct {
-		Output    string `json:"output"`
-		Truncated bool   `json:"truncated"`
-	}
-	var uploaded struct {
-		Path   string `json:"path"`
-		Digest string `json:"digest"`
-	}
-	if json.Unmarshal(input, &request) == nil &&
-		json.Unmarshal(result, &observed) == nil && !observed.Truncated &&
-		json.Unmarshal([]byte(observed.Output), &uploaded) == nil &&
-		uploaded.Path != "" && uploaded.Path == request.Path &&
-		daemonprotocol.ValidateFileDigest(uploaded.Digest) == nil {
+	if uploaded, ok := decodeMemoryUploadMetadata(input, result); ok {
 		metadata, err := marshalJSON(uploaded)
 		return ToolResultOutcomeSucceeded, metadata, err
 	}
@@ -278,6 +263,41 @@ func uploadMemoryToolResult(input, result json.RawMessage) (ToolResultOutcome, j
 	failure["error"] = "upload completed without valid file metadata"
 	metadata, err := marshalJSON(failure)
 	return ToolResultOutcomeFailed, metadata, err
+}
+
+type memoryUploadMetadata struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+}
+
+func decodeMemoryUploadMetadata(input, result json.RawMessage) (memoryUploadMetadata, bool) {
+	var request struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &request); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	var observed struct {
+		Output    string `json:"output"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal(result, &observed); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	if observed.Truncated {
+		return memoryUploadMetadata{}, false
+	}
+	var uploaded memoryUploadMetadata
+	if err := json.Unmarshal([]byte(observed.Output), &uploaded); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	if uploaded.Path == "" || uploaded.Path != request.Path {
+		return memoryUploadMetadata{}, false
+	}
+	if err := daemonprotocol.ValidateFileDigest(uploaded.Digest); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	return uploaded, true
 }
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {

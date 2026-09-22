@@ -202,6 +202,8 @@ func TestEditFileTextLimits(t *testing.T) {
 		{name: "extended regex", script: "s/a+/é/g", input: "aaa\n", want: "é\n"},
 		{name: "empty input", script: "s/a/b/"},
 		{name: "delete", script: "d", input: "abc\n"},
+		{name: "syntax error", script: "s/a/b", input: "a", failure: "char 5: unterminated"},
+		{name: "empty diagnostic", script: "Q1", input: "a", failure: "script execution failed: exit status 1"},
 		{name: "sandbox read", script: "r /etc/passwd", input: "x", failure: "sandbox"},
 		{name: "sandbox write", script: "w /tmp/forbidden", input: "x", failure: "sandbox"},
 		{name: "sandbox execute", script: "e id", input: "x", failure: "sandbox"},
@@ -216,6 +218,9 @@ func TestEditFileTextLimits(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), test.failure) || got != nil {
 					t.Fatalf("output = %q, error = %v", got, err)
 				}
+				if test.name == "syntax error" && strings.Contains(err.Error(), "\n") {
+					t.Fatalf("unexpected newline in syntax diagnostic: %v", err)
+				}
 			} else if err != nil || string(got) != test.want {
 				t.Fatalf("output = %q, error = %v, want %q", got, err, test.want)
 			}
@@ -223,7 +228,8 @@ func TestEditFileTextLimits(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
-	if _, err := editFileText(ctx, []byte("x"), ":a;ba"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := editFileText(ctx, []byte("x"), ":a;ba"); !errors.Is(err, context.DeadlineExceeded) ||
+		!strings.Contains(err.Error(), "script execution timed out:") {
 		t.Fatalf("loop timeout: %v", err)
 	}
 	ctx, stop := context.WithTimeout(t.Context(), 5*time.Second)

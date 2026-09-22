@@ -122,7 +122,7 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 	defer cancel()
 	command, err := newFileExecCommand(ctx, "sed", nil, "--sandbox", "-E", "-e", script, "--", "-")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("start script execution: %w", err)
 	}
 	command.Stdin = bytes.NewReader(content)
 	command.Env = []string{"LANG=C.UTF-8"}
@@ -131,10 +131,10 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 	command.Stderr = &stderr
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepare script execution: %w", err)
 	}
 	if err := command.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("start script execution: %w", err)
 	}
 	output, err := io.ReadAll(io.LimitReader(stdout, daemonprotocol.MaxFileTransferBytes+1))
 	if err == nil && len(output) > daemonprotocol.MaxFileTransferBytes {
@@ -148,11 +148,17 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("script execution timed out: %w", ctx.Err())
+	}
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, fmt.Errorf("script execution canceled: %w", ctx.Err())
 	}
 	if waitErr != nil {
-		return nil, fmt.Errorf("sed: %s (%w)", string(stderr.data), waitErr)
+		if diagnostic := strings.TrimSpace(string(stderr.data)); diagnostic != "" {
+			return nil, fmt.Errorf("script execution failed: %s (%w)", diagnostic, waitErr)
+		}
+		return nil, fmt.Errorf("script execution failed: %w", waitErr)
 	}
 	if !utf8.Valid(output) || bytes.IndexByte(output, 0) >= 0 {
 		return nil, errors.New("result must be UTF-8 text without NUL bytes")

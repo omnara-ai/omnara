@@ -523,7 +523,7 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 const getDaemonFileProcessScope = `-- name: GetDaemonFileProcessScope :one
 SELECT process.project_id,
        process.agent_id,
-       tool_call.input AS tool_input,
+       COALESCE(tool_call.input->>'expected_digest', '')::text AS expected_digest,
        COALESCE(tool_call.input->>'path', '')::text AS path
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
@@ -545,10 +545,10 @@ type GetDaemonFileProcessScopeParams struct {
 }
 
 type GetDaemonFileProcessScopeRow struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	ToolInput json.RawMessage
-	Path      string
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	ExpectedDigest string
+	Path           string
 }
 
 func (q *Queries) GetDaemonFileProcessScope(ctx context.Context, arg GetDaemonFileProcessScopeParams) (GetDaemonFileProcessScopeRow, error) {
@@ -562,7 +562,7 @@ func (q *Queries) GetDaemonFileProcessScope(ctx context.Context, arg GetDaemonFi
 	err := row.Scan(
 		&i.ProjectID,
 		&i.AgentID,
-		&i.ToolInput,
+		&i.ExpectedDigest,
 		&i.Path,
 	)
 	return i, err

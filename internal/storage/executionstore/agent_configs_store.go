@@ -1,6 +1,7 @@
 package executionstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -660,7 +661,9 @@ func validateMemoryStoresTx(
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return fmt.Errorf("validate memory stores: %w", err)
 	}
-	sort.Slice(config.Stores, func(i, j int) bool { return config.Stores[i].ID.String() < config.Stores[j].ID.String() })
+	sort.Slice(config.Stores, func(i, j int) bool {
+		return bytes.Compare(config.Stores[i].ID[:], config.Stores[j].ID[:]) < 0
+	})
 	for _, store := range config.Stores {
 		if store.Access != agentconfig.MemoryStoreAccessReadOnly && store.Access != agentconfig.MemoryStoreAccessReadWrite {
 			return storeerr.InvalidRequest(errors.New("invalid memory store access"))

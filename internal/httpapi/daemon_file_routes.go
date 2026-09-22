@@ -3,7 +3,6 @@ package httpapi
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -107,19 +106,13 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	var input struct {
-		ExpectedDigest *string `json:"expected_digest"`
-	}
-	if err := json.Unmarshal(process.ToolInput, &input); err != nil {
-		return nil, apierror.ProjectScoped(fmt.Errorf("resolve memory transfer: %w", err))
-	}
 	body, err := readMemoryContent(req.Body)
 	if err != nil {
 		return nil, err
 	}
 	result, err := s.server.store.Memories().Write(ctx, memorystore.WriteInput{
 		Scope: target.Scope, StoreID: target.StoreID, Path: target.Path, Content: body,
-		ExpectedDigest: input.ExpectedDigest,
+		ExpectedDigest: process.ExpectedDigest,
 	})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)

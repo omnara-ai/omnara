@@ -6797,6 +6797,9 @@ export type ListMemoryStoresData = {
          * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
          */
         name?: string;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
         cursor?: string;
     };
     url: '/orgs/{orgID}/projects/{projectID}/memory-stores';

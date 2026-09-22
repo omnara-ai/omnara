@@ -50,12 +50,20 @@ func compileTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
 	return compiled, nil
 }
 
+func isToolSourceField(name string) bool {
+	switch name {
+	case "tools", "machine_sources", "skills", "memory_stores", "subagents", "mcp":
+		return true
+	default:
+		return false
+	}
+}
+
 var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, error) {
 	schema := agentConfigSourceSchema()
 	schema.Required = nil
 	for name := range *schema.Properties {
-		if name != "tools" && name != "machine_sources" && name != "skills" &&
-			name != "memory_stores" && name != "subagents" && name != "mcp" {
+		if !isToolSourceField(name) {
 			delete(*schema.Properties, name)
 		}
 	}
@@ -79,8 +87,7 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 		return nil, fmt.Errorf("agent config source must be an object")
 	}
 	for name := range fields {
-		if name != "tools" && name != "machine_sources" && name != "skills" &&
-			name != "memory_stores" && name != "subagents" && name != "mcp" {
+		if !isToolSourceField(name) {
 			delete(fields, name)
 		}
 	}

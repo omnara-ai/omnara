@@ -492,7 +492,7 @@ func (s *Service) deleteProjectOnce(
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
 	if err := s.memoryFS.RemoveScope(orgID, &projectID); err != nil {
-		logent.MemoryCleanupFailed(ctx, "delete_project", orgID, projectID, uuid.Nil, err)
+		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteProject, orgID, projectID, uuid.Nil, err)
 	}
 	return machines, nil
 }
@@ -664,7 +664,7 @@ func (s *Service) deleteOrganizationOnce(
 	}
 	skillops.Purge(ctx, s.blobs, skillArchives)
 	if err := s.memoryFS.RemoveScope(orgID, nil); err != nil {
-		logent.MemoryCleanupFailed(ctx, "delete_organization", orgID, uuid.Nil, uuid.Nil, err)
+		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteOrganization, orgID, uuid.Nil, uuid.Nil, err)
 	}
 	return machines, nil
 }
