@@ -42,13 +42,11 @@ ready custom calls, following pagination to find the tool-call ID. Completed
 or canceled calls are skipped. Other lifecycle states are acknowledged
 without executing anything.
 
-Concurrent notifications for the same tool call share one in-flight promise.
 The receiver acknowledges only after result submission; API failures return
 `500` so Omnara can retry. If another receiver already submitted a result or
 the call stopped being ready, the API returns `409`, which is acknowledged.
 
-The in-flight map is process-local, not durable deduplication. Restarts or
-multiple receivers can repeat the calculation, which is safe because this
+Duplicate deliveries can repeat the calculation, which is safe because this
 tool has no external side effects. For a tool that changes external state,
 use its tool-call ID as an idempotency key in that system. Keep synchronous
 work within Omnara's five-second delivery timeout; longer work needs a

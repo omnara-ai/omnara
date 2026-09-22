@@ -1,4 +1,4 @@
-package main
+package maintenance
 
 import (
 	"context"
@@ -18,7 +18,7 @@ const (
 	eventWebhookCleanupTimeout         = 5 * time.Second
 )
 
-type coreMaintenanceResult struct {
+type CoreResult struct {
 	ReapedRuntimeLocks      int64
 	ReapRuntimeLocksErr     error
 	ExpiredDaemonRuntimes   int
@@ -31,8 +31,8 @@ type coreMaintenanceResult struct {
 	AuthCleanupErr          error
 }
 
-func runCoreMaintenance(ctx context.Context, store *storage.Store) coreMaintenanceResult {
-	var result coreMaintenanceResult
+func RunCore(ctx context.Context, store *storage.Store) CoreResult {
+	var result CoreResult
 	var tasks sync.WaitGroup
 	tasks.Go(func() {
 		defer recoverMaintenanceTask("reap runtime locks", &result.ReapRuntimeLocksErr)

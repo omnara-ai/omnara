@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.14",
     "@omnara/sdk": "link:../../frontend/packages/sdk",
+    "hono": "^4.12.27",
     "standardwebhooks": "1.1.1"
   },
   "devDependencies": {
@@ -21,6 +23,8 @@
     "typescript": "^5.6.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

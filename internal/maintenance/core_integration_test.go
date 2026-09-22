@@ -1,6 +1,6 @@
 //go:build integration
 
-package main
+package maintenance
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func TestRunCoreMaintenanceCleansUpDespiteAnotherTaskFailure(t *testing.T) {
 	pool, store := seedMaintenanceWebhook(t)
 	_, err := pool.Exec(ctx, "DROP TABLE user_auth_tokens")
 	require.NoError(t, err)
-	result := runCoreMaintenance(ctx, store)
+	result := RunCore(ctx, store)
 	require.ErrorContains(t, result.AuthCleanupErr, "delete inactive auth tokens")
 	require.NoError(t, result.WebhookCleanupErr)
 	require.NoError(t, result.ReapRuntimeLocksErr)
@@ -42,8 +42,8 @@ func TestRunCoreMaintenanceParallelTasksAndCancellation(t *testing.T) {
 	require.NoError(t, err)
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	done := make(chan coreMaintenanceResult, 1)
-	go func() { done <- runCoreMaintenance(runCtx, store) }()
+	done := make(chan CoreResult, 1)
+	go func() { done <- RunCore(runCtx, store) }()
 	require.Eventually(t, func() bool {
 		var count int
 		err := pool.QueryRow(ctx, "SELECT count(*) FROM event_webhook_deliveries").Scan(&count)

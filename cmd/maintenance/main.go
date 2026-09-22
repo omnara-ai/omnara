@@ -19,6 +19,7 @@ import (
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
+	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -368,11 +369,11 @@ func runCoreMaintenanceTick(
 			logpkg.Attach(ctx, logpkg.Fields{"error.stack": string(debug.Stack())})
 		}
 	}()
-	result := runCoreMaintenance(ctx, store)
+	result := maintenance.RunCore(ctx, store)
 	reportCoreMaintenanceResult(ctx, log, result)
 }
 
-func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result coreMaintenanceResult) {
+func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result maintenance.CoreResult) {
 	reapRuntimeLocksOutcome := completedMaintenanceOutcome(ctx, result.ReapRuntimeLocksErr)
 	expireDaemonRuntimesOutcome := completedMaintenanceOutcome(ctx, result.ExpireDaemonRuntimesErr)
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)

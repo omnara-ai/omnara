@@ -35,7 +35,7 @@ INTEGRATION_HTTPAPI_PACKAGES := \
 	./internal/httpapi \
 	./internal/httpapi/auth
 INTEGRATION_RUNTIME_PACKAGES := \
-	./cmd/maintenance \
+	./internal/maintenance \
 	./internal/harness/kernel \
 	./internal/harness/tools \
 	./internal/harness/worker \

@@ -1,18 +1,19 @@
-import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 
+import { serve } from '@hono/node-server'
 import { ApiError, bearerToken, createOmnaraClient, sdk, type OmnaraClient } from '@omnara/sdk'
 import { zEventWebhookPayload } from '@omnara/sdk/zod'
+import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { Webhook } from 'standardwebhooks'
 
-export function createWebhookServer(options: {
+export function createWebhookApp(options: {
   client: OmnaraClient
   orgID: string
   projectID: string
   signingSecret: string
 }) {
   const verifier = new Webhook(options.signingSecret)
-  const inFlight = new Map<string, Promise<void>>()
 
   async function execute(agentID: string, toolCallID: string) {
     const path = {
@@ -61,57 +62,23 @@ export function createWebhookServer(options: {
     } while (cursor)
   }
 
-  return createServer(async (request, response) => {
-    if (request.method !== 'POST' || request.url !== '/webhook') {
-      response.writeHead(404).end()
-      return
-    }
+  const app = new Hono()
+  app.post('/webhook', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+    let payload
     try {
-      const chunks: Buffer[] = []
-      let size = 0
-      for await (const chunk of request) {
-        size += chunk.length
-        if (size > 64 * 1024) {
-          response.writeHead(413).end()
-          return
-        }
-        chunks.push(chunk)
-      }
-      let payload
-      try {
-        const verified = verifier.verify(Buffer.concat(chunks), {
-          'webhook-id': String(request.headers['webhook-id'] ?? ''),
-          'webhook-timestamp': String(request.headers['webhook-timestamp'] ?? ''),
-          'webhook-signature': String(request.headers['webhook-signature'] ?? ''),
-        })
-        payload = zEventWebhookPayload.parse(verified)
-      } catch {
-        response.writeHead(400).end('invalid webhook')
-        return
-      }
-      if (payload.event === 'tool_call_update' && payload.data.state === 'ready') {
-        const { agent_id: agentID, tool_call_id: toolCallID } = payload.data
-        if (!agentID) {
-          response.writeHead(400).end('missing agent_id')
-          return
-        }
-        let work = inFlight.get(toolCallID)
-        if (!work) {
-          work = execute(agentID, toolCallID)
-          inFlight.set(toolCallID, work)
-        }
-        try {
-          await work
-        } finally {
-          inFlight.delete(toolCallID)
-        }
-      }
-      response.writeHead(204).end()
-    } catch (error) {
-      console.error('webhook handling failed', error)
-      response.writeHead(500).end()
+      const verified = verifier.verify(await c.req.text(), c.req.header())
+      payload = zEventWebhookPayload.parse(verified)
+    } catch {
+      return c.text('invalid webhook', 400)
     }
+    if (payload.event === 'tool_call_update' && payload.data.state === 'ready') {
+      const { agent_id: agentID, tool_call_id: toolCallID } = payload.data
+      if (!agentID) return c.text('missing agent_id', 400)
+      await execute(agentID, toolCallID)
+    }
+    return c.body(null, 204)
   })
+  return app
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -120,7 +87,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!value) throw new Error(`set ${name} in .env`)
     return value
   }
-  const server = createWebhookServer({
+  const app = createWebhookApp({
     client: createOmnaraClient({
       baseUrl: process.env.OMNARA_API_URL ?? 'https://api.omnara.com/v1',
       auth: bearerToken(required('OMNARA_API_KEY')),
@@ -129,7 +96,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     projectID: required('OMNARA_PROJECT_ID'),
     signingSecret: required('WEBHOOK_SIGNING_SECRET'),
   })
-  server.listen(Number(process.env.PORT ?? 3000), '127.0.0.1', () => {
-    console.log('webhook receiver listening', server.address())
-  })
+  serve(
+    { fetch: app.fetch, port: Number(process.env.PORT ?? 3000), hostname: '127.0.0.1' },
+    (info) => {
+      console.log(`webhook receiver listening on http://127.0.0.1:${info.port}/webhook`)
+    },
+  )
 }

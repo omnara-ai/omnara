@@ -1,4 +1,4 @@
-package main
+package maintenance
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestRunCoreMaintenanceRecoversEachTaskPanic(t *testing.T) {
-	result := runCoreMaintenance(t.Context(), &storage.Store{})
+	result := RunCore(t.Context(), &storage.Store{})
 	for _, err := range []error{
 		result.ReapRuntimeLocksErr, result.ExpireDaemonRuntimesErr, result.ExpireProcessToolsErr,
 		result.WebhookCleanupErr, result.AuthCleanupErr,
