@@ -865,17 +865,168 @@ export const zAgentConfigModel = z.object({
     output_modalities: z.array(z.string())
 });
 
+export const zCompiledEventWebhook = z.object({
+    url: z.string(),
+    events: z.array(z.enum([
+        'agent_input',
+        'model_output',
+        'tool_result',
+        'context_checkpoint',
+        'tool_call_update'
+    ])).min(1),
+    signing_secret_id: zSecretId.optional()
+});
+
+export const zCompiledModelReasoning = z.object({
+    effort: z.string()
+});
+
+export const zCompiledAgentModel = z.object({
+    configured_model_id: zConfiguredModelId,
+    context_window_tokens: z.int().optional(),
+    default_max_output_tokens: z.int().optional(),
+    cache_retention: zModelCacheRetention.optional(),
+    reasoning: zCompiledModelReasoning.optional()
+});
+
+export const zCompiledMachineSource = z.object({
+    machine_id: zMachineId.optional(),
+    machine_pool_id: zMachinePoolId.optional(),
+    max_machines: z.int().optional(),
+    initial_num_machines: z.int().optional(),
+    delete_after_idle_minutes: z.int().optional(),
+    cwd: z.string().optional(),
+    machine_cpu: z.int().optional(),
+    machine_memory_mb: z.int().optional(),
+    env_overlay: z.record(z.string(), z.string().nullable()).optional(),
+    secret_env_overlay: z.record(z.string(), zSecretId.nullable()).optional(),
+    machine_provider_options_overlay: z.record(z.string(), z.unknown()).optional(),
+    description: z.string().optional()
+});
+
+export const zCompiledTool = z.object({
+    enabled: z.boolean(),
+    type: z.enum(['built_in', 'custom']).optional(),
+    permission: zToolPermissionSelection,
+    deferred: z.boolean().optional(),
+    description: z.string().optional(),
+    input_schema: z.record(z.string(), z.unknown()).optional()
+});
+
+export const zCompiledMcpAuthBearer = z.object({
+    type: z.enum(['bearer']),
+    secret_id: zSecretId
+});
+
+export const zCompiledMcpAuthOAuth = z.object({
+    type: z.enum(['oauth']),
+    secret_id: zSecretId
+});
+
+export const zCompiledMcpAuthSigV4 = z.object({
+    type: z.enum(['sigv4']),
+    secret_id: zSecretId,
+    service: z.string().min(1),
+    region: z.string().min(1)
+});
+
+export const zCompiledMcpAuth = z.discriminatedUnion('type', [
+    zCompiledMcpAuthBearer.extend({ type: z.literal('bearer') }),
+    zCompiledMcpAuthOAuth.extend({ type: z.literal('oauth') }),
+    zCompiledMcpAuthSigV4.extend({ type: z.literal('sigv4') })
+]);
+
+export const zCompiledMcpTool = z.object({
+    enabled: z.boolean().optional(),
+    permission: zToolPermissionSelection.optional(),
+    deferred: z.boolean().optional()
+});
+
+export const zCompiledMcpServer = z.object({
+    url: z.string(),
+    auth: zCompiledMcpAuth.optional(),
+    default_enabled: z.boolean(),
+    permission: zToolPermissionSelection,
+    deferred: z.boolean().optional(),
+    tools: z.record(z.string(), zCompiledMcpTool).optional()
+});
+
+export const zCompiledSkill = z.object({
+    id: zSkillId
+});
+
+export const zCompiledSubagentModel = z.object({
+    configured_model_id: zConfiguredModelId.optional(),
+    context_window_tokens: z.int().optional(),
+    default_max_output_tokens: z.int().optional(),
+    cache_retention: zModelCacheRetention.optional(),
+    reasoning: zCompiledModelReasoning.optional()
+});
+
+export const zCompiledSelfSubagent = z.object({
+    type: z.enum(['self']),
+    description: z.string().optional(),
+    model: zCompiledSubagentModel.optional(),
+    instruction_append: z.string().optional(),
+    max_instances: z.int().optional(),
+    archive_after_idle_minutes: z.int().optional()
+});
+
+export const zCompiledProfileSubagent = z.object({
+    type: z.enum(['profile']),
+    profile_id: zAgentProfileId,
+    description: z.string().optional(),
+    model: zCompiledSubagentModel.optional(),
+    instruction_append: z.string().optional(),
+    max_instances: z.int().optional(),
+    archive_after_idle_minutes: z.int().optional()
+});
+
+export const zCompiledSubagent = z.discriminatedUnion('type', [
+    zCompiledSelfSubagent.extend({ type: z.literal('self') }),
+    zCompiledProfileSubagent.extend({ type: z.literal('profile') })
+]);
+
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export const zCompiledAgentConfig = z.object({
+    version: z.string().optional(),
+    instruction: z.string(),
+    model: zCompiledAgentModel,
+    machine_sources: z.array(zCompiledMachineSource).optional(),
+    tools: z.record(z.string(), zCompiledTool).optional(),
+    mcp: z.record(z.string(), zCompiledMcpServer).optional(),
+    event_webhook: zCompiledEventWebhook.optional(),
+    skills: z.array(zCompiledSkill).optional(),
+    subagents: z.record(z.string(), zCompiledSubagent).optional(),
+    max_subagents: z.int().optional(),
+    max_depth: z.int().optional()
+});
+
+export const zAgentConfigSummary = z.object({
+    id: zAgentConfigId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    source: z.string().optional(),
+    source_format: z.enum(['yaml', 'json']).optional(),
+    effective_definition_hash: z.string(),
+    model: zAgentConfigModel,
+    instruction_hash: z.string().optional(),
+    created_at: zTimestamp
+});
+
 export const zAgentConfig = z.object({
     id: zAgentConfigId,
     org_id: zOrganizationId,
     project_id: zProjectId,
     source: z.string().optional(),
     source_format: z.enum(['yaml', 'json']).optional(),
-    compiler_version: z.string().optional(),
     effective_definition_hash: z.string(),
     model: zAgentConfigModel,
     instruction_hash: z.string().optional(),
-    created_at: zTimestamp
+    created_at: zTimestamp,
+    compiled_definition: zCompiledAgentConfig
 });
 
 export const zCreateAgentProfileRequest = z.object({
@@ -892,6 +1043,18 @@ export const zRenameAgentProfileRequest = z.object({
     name: zResourceName
 });
 
+export const zAgentProfileSummary = z.object({
+    id: zAgentProfileId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    current_config_id: zAgentConfigId,
+    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    current_config: zAgentConfigSummary
+});
+
 export const zAgentProfile = z.object({
     id: zAgentProfileId,
     org_id: zOrganizationId,
@@ -899,13 +1062,13 @@ export const zAgentProfile = z.object({
     name: zResourceName,
     current_config_id: zAgentConfigId,
     current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    current_config: zAgentConfig,
     created_at: zTimestamp,
-    updated_at: zTimestamp
+    updated_at: zTimestamp,
+    current_config: zAgentConfig
 });
 
 export const zListAgentProfilesResponse = z.object({
-    data: z.array(zAgentProfile),
+    data: z.array(zAgentProfileSummary),
     next_cursor: z.string().nullable()
 });
 
@@ -2630,7 +2793,7 @@ export const zListProjectsResponse = z.object({
 export const zOrgOverviewResponse = z.object({
     projects: z.array(zVisibleProject),
     recent_agents: z.array(zAgent),
-    recent_agent_profiles: z.array(zAgentProfile)
+    recent_agent_profiles: z.array(zAgentProfileSummary)
 });
 
 /**

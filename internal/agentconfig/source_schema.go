@@ -418,6 +418,10 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				return def
 			}(),
 			"AgentConfigSubagentModelSource": kjsonschema.Object(
+				kjsonschema.DependentRequired(map[string][]string{
+					"provider_config": {"name"},
+					"name":            {"provider_config"},
+				}),
 				kjsonschema.Prop("provider_config", resourceNameReferenceSchema()),
 				kjsonschema.Prop("name", resourceNameReferenceSchema()),
 				kjsonschema.Prop("context_window_tokens", kjsonschema.Integer(kjsonschema.Min(1))),

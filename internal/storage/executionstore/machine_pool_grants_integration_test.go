@@ -331,7 +331,7 @@ func TestUpdateMachinePoolRejectsUnknownDefaultMachineSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create machine pool: %v", err)
 	}
-	missingSecretID := secretPublicIDForTest(t, testID("missing-default-machine-config-secret"))
+	missingSecretID := testID("missing-default-machine-config-secret").String()
 	_, err = store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
 			OrgID: testOrgID,
@@ -699,7 +699,7 @@ func TestUpdateMachinePoolMutatesConfigAndKeepsProvider(t *testing.T) {
 	clusterDeleteAfterIdleMinutes := 30
 	clusterSecretEnv := json.RawMessage(fmt.Sprintf(
 		`{"TOKEN":%q}`,
-		secretPublicIDForTest(t, rotatedProviderAuthSecretID),
+		rotatedProviderAuthSecretID.String(),
 	))
 	updatedDefaultPool, err := store.Execution().UpdateMachinePool(ctx, machinePoolUpdateInputWithDefaultMachineForTest(
 		executionstore.UpdateMachinePoolInput{
@@ -944,7 +944,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash)
 
 	if err == nil || !strings.Contains(err.Error(), "env cannot set reserved OMNARA_ key OMNARA_FUTURE_SETTING") {
@@ -998,9 +997,9 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project secret: %v", err)
 	}
-	orgSecretID := secretPublicIDForTest(t, orgSecret.ID)
-	ungrantedOrgSecretID := secretPublicIDForTest(t, ungrantedOrgSecret.ID)
-	projectSecretID := secretPublicIDForTest(t, projectSecret.ID)
+	orgSecretID := orgSecret.ID.String()
+	ungrantedOrgSecretID := ungrantedOrgSecret.ID.String()
+	projectSecretID := projectSecret.ID.String()
 
 	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForTest(
 		executionstore.CreateMachinePoolInput{
@@ -1092,14 +1091,14 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 		t.Fatalf("get launch pool grant: %v", err)
 	}
 	agentPlainValue := "agent-plain"
-	agentSecretRef := orgSecretID
+	agentSecretRef := orgSecret.ID
 	resolvedMachine, err := store.Execution().ResolvePoolMachineTx(
 		ctx,
 		store.q,
 		poolGrant,
 		agentconfig.RuntimeMachine{
 			EnvOverlay:       map[string]*string{"AGENT_PLAIN": &agentPlainValue},
-			SecretEnvOverlay: map[string]*string{"AGENT_SECRET": &agentSecretRef},
+			SecretEnvOverlay: map[string]*uuid.UUID{"AGENT_SECRET": &agentSecretRef},
 		},
 	)
 	if err != nil {
@@ -1450,7 +1449,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	)
 	if err == nil || !strings.Contains(err.Error(), "cpu is below min_machine_cpu") {

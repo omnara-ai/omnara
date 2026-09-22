@@ -21,7 +21,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -1894,7 +1893,6 @@ func createWorkerAgentFromSource(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseWorkerConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {
@@ -1947,12 +1945,12 @@ func compileWorkerAgentYAMLResolved(
 		) (agentconfig.ResolvedModelSelection, error) {
 			return resolvedWorkerAgentConfigModel(configuredModel), nil
 		},
-		ResolveMachineName: func(machineName string) (string, error) {
+		ResolveMachineName: func(machineName string) (uuid.UUID, error) {
 			machineID, err := store.Execution().ResolveAgentConfigMachineName(ctx, projectID, machineName)
 			if err != nil {
-				return "", err
+				return uuid.Nil, err
 			}
-			return publicid.Encode(publicid.KindMachine, machineID)
+			return machineID, nil
 		},
 	})
 	if err != nil {
@@ -1966,18 +1964,14 @@ func resolvedWorkerAgentConfigModel(
 ) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }
 
 func parseWorkerConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }
 
 func createWorkerInput(

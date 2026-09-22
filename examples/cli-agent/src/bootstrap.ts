@@ -4,8 +4,8 @@ import os from 'node:os'
 import type {
   Agent,
   AgentConfig,
-  AgentProfile,
-  LaunchAgentResponse,
+  AgentProfileSummary,
+  CreateAgentResponse,
   MachinePool,
   OmnaraClient,
   ProjectMachinePoolGrant,
@@ -502,7 +502,7 @@ export async function ensureAgentProfile(
   projectId: string,
   profileName: string,
   profileSource: AgentProfileSource,
-): Promise<{ profile: AgentProfile; config: AgentConfig }> {
+): Promise<{ profile: AgentProfileSummary; config: AgentConfig }> {
   progress('agent config', 'Compiling...')
   const { data: config } = await sdk.createAgentConfig({
     client,
@@ -547,8 +547,8 @@ export async function launchAgent(
   client: OmnaraClient,
   orgId: string,
   projectId: string,
-  profile: AgentProfile,
-): Promise<LaunchAgentResponse> {
+  profile: AgentProfileSummary,
+): Promise<CreateAgentResponse> {
   progress('agent', 'Launching...')
   const { data } = await sdk.createAgent({
     client,

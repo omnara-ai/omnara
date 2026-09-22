@@ -81,45 +81,37 @@ func parseMCPServerAuth(input openapi.MCPServerAuth) (*agentconfig.RuntimeMCPAut
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid auth")
 		return nil, &apiErr
 	}
+	result := &agentconfig.RuntimeMCPAuth{Type: authType}
+	var secretRef string
 	switch authType {
 	case "none":
 		return nil, nil
 	case agentconfig.MCPAuthTypeBearer:
-		auth, err := input.AsMCPServerAuthBearer()
-		if err != nil {
-			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid bearer auth")
-			return nil, &apiErr
-		}
-		return &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: auth.SecretId}, nil
+		auth, decodeErr := input.AsMCPServerAuthBearer()
+		err, secretRef = decodeErr, auth.SecretId
 	case agentconfig.MCPAuthTypeOAuth:
-		auth, err := input.AsMCPServerAuthOAuth()
-		if err != nil {
-			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid oauth auth")
-			return nil, &apiErr
-		}
-		return &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeOAuth, SecretID: auth.SecretId}, nil
+		auth, decodeErr := input.AsMCPServerAuthOAuth()
+		err, secretRef = decodeErr, auth.SecretId
 	case agentconfig.MCPAuthTypeSigV4:
-		auth, err := input.AsMCPServerAuthSigV4()
-		if err != nil {
-			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid sigv4 auth")
-			return nil, &apiErr
-		}
-		service := strings.TrimSpace(auth.Service)
-		region := strings.TrimSpace(auth.Region)
-		if service == "" || region == "" {
+		auth, decodeErr := input.AsMCPServerAuthSigV4()
+		err, secretRef = decodeErr, auth.SecretId
+		result.Service, result.Region = strings.TrimSpace(auth.Service), strings.TrimSpace(auth.Region)
+		if result.Service == "" || result.Region == "" {
 			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "auth.service and auth.region are required for sigv4")
 			return nil, &apiErr
 		}
-		return &agentconfig.RuntimeMCPAuth{
-			Type:     agentconfig.MCPAuthTypeSigV4,
-			SecretID: auth.SecretId,
-			Service:  service,
-			Region:   region,
-		}, nil
 	default:
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, fmt.Sprintf("unsupported auth type %q", authType))
 		return nil, &apiErr
 	}
+	if err == nil {
+		result.SecretID, err = publicid.Decode(publicid.KindSecret, secretRef)
+	}
+	if err != nil {
+		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "auth.secret_id must be a secret public id")
+		return nil, &apiErr
+	}
+	return result, nil
 }
 
 func (s strictOpenAPIServer) validateMCPServerAuthSecret(
@@ -127,11 +119,6 @@ func (s strictOpenAPIServer) validateMCPServerAuthSecret(
 	scope projectScopeRecord,
 	auth *agentconfig.RuntimeMCPAuth,
 ) *apierror.ResponseError {
-	secretID, err := publicid.Decode(publicid.KindSecret, auth.SecretID)
-	if err != nil {
-		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "auth.secret_id must be a secret public id")
-		return &apiErr
-	}
 	expectedKind, err := mcpServerAuthSecretKind(auth.Type)
 	if err != nil {
 		apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
@@ -141,7 +128,7 @@ func (s strictOpenAPIServer) validateMCPServerAuthSecret(
 		ctx,
 		scope.org.ID,
 		scope.project.ID,
-		secretID,
+		auth.SecretID,
 		expectedKind,
 	)
 	switch {

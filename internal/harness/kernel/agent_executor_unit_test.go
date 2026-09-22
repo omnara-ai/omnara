@@ -33,7 +33,7 @@ type kernelSkillStoreStub struct{}
 func (*kernelSkillStoreStub) GetSkillForDispatch(
 	context.Context,
 	uuid.UUID,
-	string,
+	uuid.UUID,
 ) (skillstore.SkillRecord, error) {
 	return skillstore.SkillRecord{}, nil
 }

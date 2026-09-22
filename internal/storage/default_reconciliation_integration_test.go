@@ -15,7 +15,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -214,7 +213,6 @@ model:
 			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       model.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		})
 		if err != nil {
@@ -293,7 +291,7 @@ model:
 		t.Fatalf("create machine environment secret: %v", err)
 	}
 	organizationSecretEnv := mustTestRawJSON(t, map[string]string{
-		"ORG_SECRET": secretPublicIDForTest(t, machineSecret.ID),
+		"ORG_SECRET": machineSecret.ID.String(),
 	})
 	if _, err := pool.Exec(ctx, `
 		UPDATE machine_pools
@@ -339,7 +337,7 @@ model:
 	desiredPool.Description = "new pool"
 	desiredPool.DefaultMachineEnv = json.RawMessage(`{"NEW":"value"}`)
 	desiredPool.DefaultMachineSecretEnv = mustTestRawJSON(t, map[string]string{
-		"TEMPLATE_SECRET": secretPublicIDForTest(t, machineSecret.ID),
+		"TEMPLATE_SECRET": machineSecret.ID.String(),
 	})
 	desiredPool.DefaultMachineProviderOptions = json.RawMessage(`{"image":"new","sleep_after_ms":30000}`)
 	desiredPool.RuntimeProtectionEnabled = true
@@ -1105,8 +1103,8 @@ func TestReconcileDefaultsSerializesModelBeforePoolForAgentWorkflows(t *testing.
 				ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 					return resolvedTestModelSelection(configuredModel), nil
 				},
-				ResolveMachinePoolName: func(string) (string, error) {
-					return publicid.Encode(publicid.KindMachinePool, poolRow.ID)
+				ResolveMachinePoolName: func(string) (uuid.UUID, error) {
+					return poolRow.ID, nil
 				},
 			},
 		)
@@ -1127,7 +1125,6 @@ model:
 		Source:                  initialSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(initialCompiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: initialCompiled.Hash,
 	})
 	if err != nil {
@@ -1157,7 +1154,6 @@ machine_sources:
 		Source:                  nextSource,
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(nextCompiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: nextCompiled.Hash,
 	}
 	nextConfig, err := store.Execution().CreateAgentConfig(ctx, nextConfigInput)

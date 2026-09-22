@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -131,17 +130,13 @@ func ensureTestConfiguredModelForSource(
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }
 
 func resolvedTestModelSelection(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }
@@ -352,15 +347,6 @@ func defaultMachinePoolTemplateWithDefaultMachineForTest(
 	return template
 }
 
-func secretPublicIDForTest(t *testing.T, id uuid.UUID) string {
-	t.Helper()
-	encoded, err := publicid.Encode(publicid.KindSecret, id)
-	if err != nil {
-		t.Fatalf("encode secret public id: %v", err)
-	}
-	return encoded
-}
-
 func completeMachinePoolCreateInputForTest(
 	t *testing.T,
 	ctx context.Context,
@@ -497,7 +483,6 @@ func changeInputFromRecord(record executionstore.AgentConfigRecord) executionsto
 		Source:                  record.Source,
 		ConfiguredModelID:       record.ConfiguredModelID,
 		CompiledDefinition:      record.CompiledDefinition,
-		CompilerVersion:         record.CompilerVersion,
 		EffectiveDefinitionHash: record.EffectiveDefinitionHash,
 	}
 }

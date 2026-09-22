@@ -20,11 +20,10 @@ event_webhook:
   events: [tool_call_update]
 `)), CompileOptions{})
 	require.NoError(t, err)
-	require.Equal(t, &EventWebhook{
+	require.Equal(t, &EventWebhookCompiled{
 		URL: "https://example.com/events?source=agent", Events: []string{"tool_call_update"},
 	}, result.Compiled.EventWebhook)
-	child, err := SubagentCompiledFrom(result.Compiled, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{}, nil)
-	require.NoError(t, err)
+	child := SubagentCompiledFrom(result.Compiled, SubagentCompiled{Type: SubagentTypeSelf}, SubagentDepth{})
 	require.Equal(t, result.Compiled.EventWebhook, child.EventWebhook)
 }
 
@@ -67,23 +66,24 @@ func TestEventWebhookRejectsInvalidURLs(t *testing.T) {
 }
 
 func TestEventWebhookValidatesSigningSecretReference(t *testing.T) {
-	secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
+	id := uuid.New()
+	secretID, err := publicid.Encode(publicid.KindSecret, id)
 	require.NoError(t, err)
 	source := []byte(validAgentSource(
 		"event_webhook:\n  url: https://example.com/events\n  events: [tool_call_update]\n  signing_secret_id: " + secretID + "\n",
 	))
 	called := false
-	opts := CompileOptions{ValidateSecretID: func(id string, kind secrets.Kind) error {
+	opts := CompileOptions{ValidateSecretID: func(resolvedID uuid.UUID, kind secrets.Kind) error {
 		called = true
-		require.Equal(t, secretID, id)
+		require.Equal(t, id, resolvedID)
 		require.Equal(t, secrets.KindGeneric, kind)
 		return nil
 	}}
 	result, err := Compile(SourceFormatYAML, source, opts)
 	require.NoError(t, err)
 	require.True(t, called)
-	require.Equal(t, secretID, result.Compiled.EventWebhook.SigningSecretID)
-	opts.ValidateSecretID = func(string, secrets.Kind) error { return errors.New("secret unavailable") }
+	require.Equal(t, id, result.Compiled.EventWebhook.SigningSecretID)
+	opts.ValidateSecretID = func(uuid.UUID, secrets.Kind) error { return errors.New("secret unavailable") }
 	_, err = Compile(SourceFormatYAML, source, opts)
 	require.ErrorContains(t, err, "secret unavailable")
 	invalid := []byte(validAgentSource(

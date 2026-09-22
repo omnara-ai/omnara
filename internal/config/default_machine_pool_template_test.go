@@ -1,6 +1,9 @@
 package config
 
 import (
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +11,9 @@ import (
 )
 
 func TestLoadDefaultMachinePoolTemplate(t *testing.T) {
+	secretID := uuid.New()
+	secretRef, err := publicid.Encode(publicid.KindSecret, secretID)
+	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "default-pool.yaml")
 	if err := os.WriteFile(path, []byte(`
 pools:
@@ -18,6 +24,7 @@ pools:
     runtime_protection_enabled: true
     default_machine_cpu: 1
     default_machine_memory_mb: 1024
+    default_machine_secret_env: {TOKEN: `+secretRef+`}
     default_machine_provider_options:
         image: registry.example.com/agent:latest
         metro: sfo
@@ -76,6 +83,7 @@ pools:
 		*cfg.DefaultMachinePools[0].MinMachineMemoryMB != 1024 {
 		t.Fatalf("minimum machine resources = %+v", cfg.DefaultMachinePools[0])
 	}
+	require.JSONEq(t, `{"TOKEN":"`+secretID.String()+`"}`, string(cfg.DefaultMachinePools[0].DefaultMachineSecretEnv))
 	wantProviderOptions := `{"image":"registry.example.com/agent:latest","metro":"sfo"}`
 	if got := string(cfg.DefaultMachinePools[0].DefaultMachineProviderOptions); got != wantProviderOptions {
 		t.Fatalf("default machine provider options = %s", got)

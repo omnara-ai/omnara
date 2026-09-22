@@ -896,7 +896,6 @@ model:
 			Source:                  updatedYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:        launch.Agent.ID,
@@ -957,7 +956,6 @@ model:
 			Source:                  secondYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, secondCompiled),
 			CompiledDefinition:      json.RawMessage(secondCompiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: secondCompiled.Hash,
 		},
 		AgentID:        launch.Agent.ID,
@@ -1058,7 +1056,6 @@ model:
 		Source:                  updatedYAML,
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
@@ -1086,7 +1083,6 @@ model:
 			Source:                  staleYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, staleCompiled),
 			CompiledDefinition:      json.RawMessage(staleCompiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: staleCompiled.Hash,
 		},
 		AgentID:                 launch.Agent.ID,
@@ -1395,7 +1391,6 @@ mcp:
 			Source:                  yaml,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:        launch.Agent.ID,
@@ -1423,7 +1418,6 @@ mcp:
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		currentConfig.CompiledDefinition,
-		currentConfig.CompilerVersion,
 		currentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -1545,7 +1539,6 @@ tools:
 		ctx,
 		testProjectID,
 		invalidConfig.CompiledDefinition,
-		invalidConfig.CompilerVersion,
 		invalidConfig.EffectiveDefinitionHash,
 	); err == nil || !strings.Contains(err.Error(), "env and secret_env cannot both set key BASE") {
 		t.Fatalf("invalid machine source validation error = %v", err)
@@ -1649,7 +1642,7 @@ tools:
 		t.Fatalf("reconciled bindings = first %+v second %+v", firstBinding, secondBinding)
 	}
 	if !sameJSON(firstBinding.EnvOverlay, json.RawMessage(`{"APP":"changed","Base":null,"UNUSED":null}`)) ||
-		!sameJSON(firstBinding.SecretEnvOverlay, json.RawMessage(`{"BASE":"`+secretPublicIDForTest(t, secret.ID)+`"}`)) {
+		!sameJSON(firstBinding.SecretEnvOverlay, json.RawMessage(`{"BASE":"`+secret.ID.String()+`"}`)) {
 		t.Fatalf("reconciled first binding environment = %s / %s", firstBinding.EnvOverlay, firstBinding.SecretEnvOverlay)
 	}
 	reorderedYAML := `
@@ -1926,7 +1919,6 @@ instruction: test
 		Source:                  sourceA,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledA.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiledA.Hash,
 	})
 	if err != nil {
@@ -1937,7 +1929,6 @@ instruction: test
 		Source:                  sourceB,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledB.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiledB.Hash,
 	})
 	if err != nil {
@@ -1958,7 +1949,6 @@ instruction: test
 		Source:                  sourceA,
 		ConfiguredModelID:       equivalentModelID,
 		CompiledDefinition:      json.RawMessage(compiledA.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiledA.Hash,
 	})
 	if err != nil {
@@ -2032,7 +2022,6 @@ func changeInputFromRecord(record executionstore.AgentConfigRecord) executionsto
 		Source:                  record.Source,
 		ConfiguredModelID:       record.ConfiguredModelID,
 		CompiledDefinition:      record.CompiledDefinition,
-		CompilerVersion:         record.CompilerVersion,
 		EffectiveDefinitionHash: record.EffectiveDefinitionHash,
 	}
 }
@@ -2086,7 +2075,7 @@ func TestEventWebhookTargetFollowsCurrentConfig(t *testing.T) {
 			CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 				ProjectID: testProjectID, Source: updated, SourceFormat: "yaml",
 				ConfiguredModelID: parseConfiguredModelID(t, compiled), CompiledDefinition: compiled.CanonicalJSON,
-				CompilerVersion: agentconfig.CompilerVersion, EffectiveDefinitionHash: compiled.Hash,
+				EffectiveDefinitionHash: compiled.Hash,
 			},
 			AgentID: launch.Agent.ID, ActorType: identitystore.PrincipalTypeUser, ActorID: user.ID, Reason: "user_update",
 		})

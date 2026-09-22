@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -601,13 +600,13 @@ FROM generate_series(1, $5::integer) AS n
 	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO agent_configs(
-  org_id, project_id, configured_model_id, definition, source, source_format,
-  source_hash, compiled_definition, compiler_version, effective_definition_hash,
+  org_id, project_id, configured_model_id, source, source_format,
+  source_hash, compiled_definition, effective_definition_hash,
   created_at
 )
-SELECT org_id, project_id, configured_model_id, definition,
+SELECT org_id, project_id, configured_model_id,
        source || n, source_format, source_hash || n, compiled_definition,
-       compiler_version, effective_definition_hash || n, $2
+       effective_definition_hash || n, $2
 FROM agent_configs
 CROSS JOIN generate_series(1, $3::bigint) AS n
 WHERE id = $1
@@ -626,7 +625,6 @@ model:
 		Source:                  sourceYAML,
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("agent config over limit error = %v, want ErrConflict", err)

@@ -294,6 +294,14 @@
     },
     "AgentConfigSubagentModelSource": {
       "additionalProperties": false,
+      "dependentRequired": {
+        "name": [
+          "provider_config"
+        ],
+        "provider_config": [
+          "name"
+        ]
+      },
       "properties": {
         "cache_retention": {
           "enum": [

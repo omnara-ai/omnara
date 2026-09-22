@@ -1,11 +1,35 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+func secretIDsFromPointer[T openapi.SecretID | *openapi.SecretID](value *map[string]T) (json.RawMessage, error) {
+	raw, err := rawJSONFromPointer(value)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := publicid.DecodeMapJSON(publicid.KindSecret, raw)
+	if err != nil {
+		return nil, apierror.FromError(fmt.Errorf("%w: secret_env: %w", storeerr.ErrInvalidRequest, err))
+	}
+	return decoded, nil
+}
+
+func publicSecretIDs[T openapi.SecretID | *openapi.SecretID](raw json.RawMessage, dest *map[string]T) error {
+	encoded, err := publicid.EncodeMapJSON(publicid.KindSecret, raw)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(encoded, dest)
+}
 
 func publicID(kind publicid.Kind, id uuid.UUID) (string, error) {
 	encoded, err := publicid.Encode(kind, id)

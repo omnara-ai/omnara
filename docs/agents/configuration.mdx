@@ -210,6 +210,7 @@ subagents:
     profile: research-agent
     description: Read-only codebase investigation.
     model:
+      provider_config: openai-prod
       name: gpt-5.6-mini
     instruction:
       append: Report findings as a bullet list.
@@ -229,7 +230,7 @@ max_depth: 2
 | `type` | `profile` launches from the named profile's current config. `self` launches from a copy of this agent's own config. |
 | `profile` | Profile name; required for `type: profile`, rejected for `type: self`. |
 | `description` | Shown to the model when it chooses a subagent key. |
-| `model` | Partial override merged onto the launched config's model block. |
+| `model` | Set both `provider_config` and `name` to select a model at compilation. Omit both to inherit the parent's model for `self` or the profile's current model for `profile`. Reasoning and token-limit overrides can be set independently. |
 | `instruction.append` | Text appended to the launched config's instruction. |
 | `max_instances` | Cap on active subagents spawned from this key. |
 | `archive_after_idle_minutes` | Archive subagents from this key once they have been idle this long. |

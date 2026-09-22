@@ -69,14 +69,13 @@ func (s *Store) GetVisibleSkill(
 func (s *Store) GetSkillForDispatch(
 	ctx context.Context,
 	projectID uuid.UUID,
-	publicSkillID string,
+	id uuid.UUID,
 ) (SkillRecord, error) {
 	if projectID == uuid.Nil {
 		return SkillRecord{}, errors.New("project id is required")
 	}
-	id, err := publicid.Decode(publicid.KindSkill, publicSkillID)
-	if err != nil {
-		return SkillRecord{}, fmt.Errorf("decode skill id: %w", err)
+	if id == uuid.Nil {
+		return SkillRecord{}, errors.New("skill id is required")
 	}
 	row, err := s.q.GetSkillForDispatch(ctx, dbsqlc.GetSkillForDispatchParams{ProjectID: projectID, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {

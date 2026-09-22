@@ -101,7 +101,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		snapshot.AgentConfig.CompiledDefinition,
-		snapshot.AgentConfig.CompilerVersion,
 		snapshot.AgentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -301,12 +300,12 @@ func loadSkillCatalog(
 	}
 	records := make([]skillstore.SkillRecord, 0, len(contract.Skills))
 	for _, skill := range contract.Skills {
-		record, err := store.GetSkillForDispatch(ctx, projectID, skill.PublicID)
+		record, err := store.GetSkillForDispatch(ctx, projectID, skill.ID)
 		if storeerr.IsNotFound(err) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("resolve skill %s for catalog: %w", skill.PublicID, err)
+			return nil, fmt.Errorf("resolve skill %s for catalog: %w", skill.ID, err)
 		}
 		records = append(records, record)
 	}

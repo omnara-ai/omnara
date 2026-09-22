@@ -7,5 +7,6 @@ func GoMigrations() []*goose.Migration {
 		newAgentConfigNameMigration(),
 		newFileToolCutoverMigration(),
 		newExplicitDefaultToolsMigration(),
+		newInternalConfigIDsMigration(),
 	}
 }

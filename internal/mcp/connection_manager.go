@@ -13,7 +13,6 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/ssrf"
@@ -393,10 +392,7 @@ func (m Manager) connection(
 	if auth == nil {
 		return wireConn, identity, nil
 	}
-	secretID, err := publicid.Decode(publicid.KindSecret, auth.SecretID)
-	if err != nil {
-		return Conn{}, identity, fmt.Errorf("decode mcp auth secret id for %q: %w", serverKey, err)
-	}
+	secretID := auth.SecretID
 	kind, err := mcpAuthSecretKind(auth.Type)
 	if err != nil {
 		return Conn{}, identity, fmt.Errorf("resolve mcp auth secret kind for %q: %w", serverKey, err)

@@ -49,12 +49,8 @@ func Delete(
 	if err := Lock(ctx, q, orgID, skillID); err != nil {
 		return nil, err
 	}
-	publicSkillID, err := publicid.Encode(publicid.KindSkill, skillID)
-	if err != nil {
-		return nil, fmt.Errorf("encode skill public id: %w", err)
-	}
 	referenced, err := q.SkillHasActiveAgentReferences(ctx, dbsqlc.SkillHasActiveAgentReferencesParams{
-		OrgID: orgID, SkillPublicID: publicSkillID,
+		OrgID: orgID, SkillID: skillID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("check skill agent references: %w", err)
