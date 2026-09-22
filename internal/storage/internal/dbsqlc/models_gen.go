@@ -90,7 +90,7 @@ type AgentMcpConnection struct {
 	ServerCapabilities json.RawMessage
 	ServerInfo         json.RawMessage
 	ToolsSnapshot      json.RawMessage
-	InitializeError    string
+	InitializeError    *string
 	Generation         int64
 	RequestSequence    int64
 	CreatedAt          time.Time

@@ -2,6 +2,7 @@ import { useToolCatalog } from '@omnara/react'
 
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
+import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
@@ -26,7 +27,7 @@ export function AgentConfigBasicForm({
   const toolCatalog = useToolCatalog()
 
   return (
-    <FieldGroup className="gap-8">
+    <FieldGroup className="gap-5">
       <Field>
         <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
           Instructions
@@ -62,16 +63,17 @@ export function AgentConfigBasicForm({
             onToolsChange={form.setTools}
           />
           {Object.keys(form.interactionHandlers).length > 0 && (
-            <div className="rounded-md border p-3 text-sm">
-              <p className="font-medium">App capabilities</p>
-              <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
-              <p className="text-muted-foreground">
-                Edit interaction settings in YAML. Sending tools are configured separately.
-              </p>
-            </div>
+            <AgentConfigSectionCard title="App capabilities" action={null}>
+              <div className="space-y-2 px-4 pb-4 text-sm sm:px-5">
+                <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
+                <p className="text-muted-foreground">
+                  Edit interaction settings in YAML. Sending tools are configured separately.
+                </p>
+              </div>
+            </AgentConfigSectionCard>
           )}
           {form.toolsPending && (
-            <p className="text-muted-foreground text-sm">Loading other tools…</p>
+            <p className="text-muted-foreground text-sm">Loading built-in tools…</p>
           )}
           {form.toolsError && (
             <p className="text-destructive text-sm" role="alert">

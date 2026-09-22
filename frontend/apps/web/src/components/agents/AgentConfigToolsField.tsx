@@ -6,6 +6,11 @@ import {
   permissionSelection,
 } from '@/components/agents/agentConfigBasicExtract'
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
+import { PermissionModeGroup } from '@/components/agents/PermissionModeGroup'
+import {
+  disabledPermissionOption,
+  permissionModeOptions,
+} from '@/components/agents/permissionModeOptions'
 import { ChevronDownIcon, PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -15,13 +20,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface BasicTool {
@@ -118,7 +116,7 @@ export function AgentConfigToolsField({
       }
     >
       {visibleTools.length > 0 ? (
-        <div className="divide-y">
+        <div>
           {visibleTools.map((tool) => {
             const entry = catalogByName.get(tool.name)
             return (
@@ -128,14 +126,9 @@ export function AgentConfigToolsField({
               >
                 <ToolName name={tool.name} entry={entry} />
                 <PermissionModeSelect
-                  toolName={tool.name}
+                  tool={tool}
                   entry={entry}
                   allowDisable={tool.enabled === false}
-                  value={
-                    tool.enabled === false
-                      ? 'disabled'
-                      : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
-                  }
                   onChange={(mode) => {
                     onToolsChange(
                       tools.map((currentTool) =>
@@ -197,12 +190,12 @@ function AgentConfigIncludedTools({
   const catalogByName = new Map(catalog?.built_in_tools.map((entry) => [entry.name, entry]))
 
   return (
-    <Collapsible className="border-t first:border-t-0">
+    <Collapsible>
       <Tooltip>
         <CollapsibleTrigger asChild>
           <TooltipTrigger className="text-muted-foreground group flex w-fit items-center gap-2 px-4 py-3 text-left text-sm sm:px-5">
             <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-            Other tools
+            Built-in tools
           </TooltipTrigger>
         </CollapsibleTrigger>
         <TooltipContent
@@ -212,7 +205,7 @@ function AgentConfigIncludedTools({
           Tools added automatically based on the agent&apos;s configuration.
         </TooltipContent>
       </Tooltip>
-      <CollapsibleContent className="divide-y">
+      <CollapsibleContent className="collapsible-animate-height">
         {tools.map((tool) => {
           const { name } = tool
           const entry = catalogByName.get(name)
@@ -220,14 +213,9 @@ function AgentConfigIncludedTools({
             <div key={name} className="flex flex-wrap items-center gap-2 px-4 py-2 sm:px-5">
               <ToolName name={name} entry={entry} />
               <PermissionModeSelect
-                toolName={name}
+                tool={tool}
                 entry={entry}
                 allowDisable
-                value={
-                  tool.enabled === false
-                    ? 'disabled'
-                    : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
-                }
                 onChange={(mode) => {
                   onToolChange({
                     ...tool,
@@ -245,44 +233,26 @@ function AgentConfigIncludedTools({
 }
 
 function PermissionModeSelect({
-  toolName,
+  tool,
   entry,
-  value,
   allowDisable = false,
   onChange,
 }: {
-  toolName: string
+  tool: BasicTool
   entry?: ToolCatalogEntry
-  value: string
   allowDisable?: boolean
   onChange: (mode: string) => void
 }) {
+  const permissionMode = tool.permission?.mode ?? entry?.default_permission.mode ?? ''
+  const options = permissionModeOptions(entry?.permission_modes, permissionMode)
   return (
-    <Select
-      value={value}
-      onValueChange={(mode) => {
-        if (mode !== '') onChange(mode)
-      }}
-      disabled={entry == null || (!allowDisable && entry.permission_modes.length === 1)}
-    >
-      <SelectTrigger
-        size="sm"
-        className="min-w-0 flex-1 sm:w-36 sm:flex-none"
-        aria-label={`${toolName} permission`}
-      >
-        <SelectValue>
-          {allowDisable && value === 'disabled' ? 'Disabled' : permissionModeLabel(entry, value)}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        {entry?.permission_modes.map((mode) => (
-          <SelectItem key={mode.name} value={mode.name}>
-            {mode.label}
-          </SelectItem>
-        ))}
-        {allowDisable && <SelectItem value="disabled">Disabled</SelectItem>}
-      </SelectContent>
-    </Select>
+    <PermissionModeGroup
+      label={`${tool.name} permission`}
+      options={allowDisable ? [...options, disabledPermissionOption] : options}
+      value={tool.enabled === false ? 'disabled' : permissionMode}
+      disabled={entry == null || (!allowDisable && options.length === 1)}
+      onChange={onChange}
+    />
   )
 }
 
@@ -325,8 +295,4 @@ function ToolName({ name, entry }: { name: string; entry?: ToolCatalogEntry }) {
       )}
     </div>
   )
-}
-
-function permissionModeLabel(entry: ToolCatalogEntry | undefined, value: string) {
-  return entry?.permission_modes.find((mode) => mode.name === value)?.label ?? value
 }

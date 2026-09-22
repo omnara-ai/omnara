@@ -19,10 +19,10 @@ import (
 )
 
 func newSlackAppCutoverMigration() *goose.Migration {
-	return goose.NewGoMigration(41, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
+	return goose.NewGoMigration(42, &goose.GoFunc{RunTx: upSlackAppCutover}, nil)
 }
 
-// SQL40 preserves install IDs as app IDs and retains conversation attribution. This
+// SQL41 preserves install IDs as app IDs and retains conversation attribution. This
 // migration runs before any new release writers start. Keep its data encoding
 // local: replay must not depend on a future config compiler or provider client.
 func upSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
@@ -460,7 +460,7 @@ func preflightSlackAppCutover(ctx context.Context, tx *sql.Tx) error {
 	}
 	if unfinished {
 		return errors.New(
-			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 40)",
+			"slack app cutover requires the documented maintenance window: unfinished work remains; stay in maintenance and follow the cutover recovery runbook (the old release cannot run on schema 41)",
 		)
 	}
 	// A model continuation can exist before its next call is inserted. Match the

@@ -1,7 +1,7 @@
 -- +goose Up
 
 -- Refuse before renaming anything: the old release must remain usable to stop
--- unfinished work. Go41 repeats these checks under its rewrite lock because
+-- unfinished work. Go42 repeats these checks under its rewrite lock because
 -- Goose commits each numbered migration separately. All writers must be stopped.
 -- +goose StatementBegin
 DO $$
@@ -39,7 +39,7 @@ BEGIN
     IF unsupported_install IS NOT NULL THEN
         RAISE EXCEPTION 'install % is not a profile-bound Slack webhook setup; review and repair before app cutover', unsupported_install;
     END IF;
-    -- Frozen released send-policy grammar, matching Go41. Refuse policies that
+    -- Frozen released send-policy grammar, matching Go42. Refuse policies that
     -- cannot be translated while the old table/config contract still exists.
     SELECT config.id, config.project_id INTO policy_config, policy_project
     FROM agent_configs config
@@ -406,7 +406,7 @@ LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.i
 WHERE orgs.deleted_at IS NULL;
 
 -- Legacy target pointers do not grant handler authority. Keep the attribution
--- targets: migration 41 derives send successors through their agent_id, not this
+-- targets: migration 42 derives send successors through their agent_id, not this
 -- mutable selection pointer.
 UPDATE agents SET integration_target_id = NULL WHERE integration_target_id IS NOT NULL;
 

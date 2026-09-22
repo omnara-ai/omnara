@@ -56,5 +56,5 @@ export function useAgentBuilderTools(
     error instanceof ApiError
       ? error.issues.map((issue) => `${issue.path}: ${issue.message}`).join('; ') || error.message
       : ''
-  return { ...query, errorMessage: `Couldn’t load other tools${detail ? ': ' + detail : '.'}` }
+  return { ...query, errorMessage: `Couldn’t load built-in tools${detail ? ': ' + detail : '.'}` }
 }

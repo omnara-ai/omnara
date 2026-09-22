@@ -120,6 +120,63 @@ RETURNING client_id
 	}
 }
 
+func TestPostgresNullableMCPInitializeError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := integrationdb.OpenUnmigratedPool(t, ctx)
+	db := stdlib.OpenDBFromPool(pool)
+	defer func() { _ = db.Close() }()
+	_, err := db.ExecContext(ctx, `
+CREATE TABLE agent_mcp_connections (
+    id integer PRIMARY KEY,
+    state text NOT NULL,
+    initialize_error text NOT NULL DEFAULT ''
+);
+INSERT INTO agent_mcp_connections VALUES
+    (1, 'ready', ''), (2, 'ready', 'stale error'),
+    (3, 'initializing', ''), (4, 'initializing', 'stale error'),
+    (5, 'failed', ''), (6, 'failed', 'upstream unavailable'),
+    (7, 'expired', ''), (8, 'expired', 'upstream unavailable');
+`)
+	require.NoError(t, err)
+	const name = "000040_nullable_mcp_initialize_error.sql"
+	data, err := os.ReadFile(filepath.Join("../../migrations", name))
+	require.NoError(t, err)
+	provider, err := goose.NewProvider(goose.DialectPostgres, db,
+		fstest.MapFS{name: &fstest.MapFile{Data: data}}, goose.WithDisableGlobalRegistry(true))
+	require.NoError(t, err)
+	_, err = provider.Up(ctx)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO agent_mcp_connections(id, state) VALUES (9, 'initializing')`)
+	require.NoError(t, err)
+	var errorRows string
+	var preservedErrors int
+	var defaultIsNull bool
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT string_agg(id::text, ',' ORDER BY id) FROM agent_mcp_connections
+		 WHERE initialize_error IS NOT NULL`).Scan(&errorRows))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT count(*) FROM agent_mcp_connections
+		 WHERE initialize_error = 'upstream unavailable'`).Scan(&preservedErrors))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT initialize_error IS NULL FROM agent_mcp_connections WHERE id = 9`).Scan(&defaultIsNull))
+	require.Equal(t, "6,8", errorRows)
+	require.Equal(t, 2, preservedErrors)
+	require.True(t, defaultIsNull)
+	for _, state := range []string{"initializing", "ready", "failed", "expired"} {
+		for _, value := range []sql.NullString{{}, {String: "", Valid: true}, {String: "failure", Valid: true}} {
+			_, err := db.ExecContext(ctx,
+				`UPDATE agent_mcp_connections SET state = $1, initialize_error = $2 WHERE id = 9`, state, value)
+			if !value.Valid || (value.String != "" && (state == "failed" || state == "expired")) {
+				require.NoError(t, err, "state=%s error=%+v", state, value)
+			} else {
+				require.ErrorContains(t, err, "agent_mcp_connections_initialize_error_state_check",
+					"state=%s error=%+v", state, value)
+			}
+		}
+	}
+}
+
 func TestPostgresNameStoragePolicies(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

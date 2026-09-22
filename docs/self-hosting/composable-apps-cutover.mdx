@@ -1,16 +1,16 @@
 ---
 title: Composable apps cutover
-description: Coordinated downtime for schema 39 to SQL40 and Go41
+description: Coordinated downtime for schema 40 to SQL41 and Go42
 ---
 
 This is a downtime upgrade: stop all cluster writers, apply
-[SQL40](https://github.com/omnara-ai/omnara/blob/main/migrations/000040_composable_apps.sql) and the frozen
-[Go41 migration](https://github.com/omnara-ai/omnara/blob/main/migrations/000041_slack_app_cutover.go), then start the
-matching release. SQL40 checks unfinished work, the exact continuation frontier
+[SQL41](https://github.com/omnara-ai/omnara/blob/main/migrations/000041_composable_apps.sql) and the frozen
+[Go42 migration](https://github.com/omnara-ai/omnara/blob/main/migrations/000042_slack_app_cutover.go), then start the
+matching release. SQL41 checks unfinished work, the exact continuation frontier
 and custom/built-in name collisions **before any rename**; failure leaves schema
-39 usable by the old release. Go41 repeats those checks under its config rewrite
-lock. The two migrations commit separately: **a later Go41 failure leaves schema
-40 applied; the old API, worker and maintenance must stay stopped.**
+40 usable by the old release. Go42 repeats those checks under its config rewrite
+lock. The two migrations commit separately: **a later Go42 failure leaves schema
+41 applied; the old API, worker and maintenance must stay stopped.**
 
 Inventory your deployment before scheduling. Set the window from a restored-copy
 rehearsal with the exact release artifacts, allowing time for recovery. Local
@@ -23,7 +23,7 @@ fixture tests establish neither production readiness nor a fixed completion time
   tombstones. Deleted installations become disconnected. Launcher settings retain
   the installed profile and workspace.
   Migrated Slack apps use `app_type: slack_thread`.
-- History, attribution targets and provider messages survive. Go41 replaces the
+- History, attribution targets and provider messages survive. Go42 replaces the
   old global send policy with qualified app tools and replaces
   `set_integration_target` with `set_interaction_handler`. Message text is unchanged.
 - Eligible old agents receive compiled-only successor configs with pinned app tools
@@ -95,7 +95,7 @@ that validate or switch on cron target types before creating app schedules.
    and [cluster release workflow](https://github.com/omnara-ai/omnara/blob/main/.github/workflows/cluster-release.yaml).
    The workflow publishes images; map the shutdown/startup steps below to the
    actual deployment's replica and scheduler controls before the window.
-2. Confirm the starting schema is 39 on the PostgreSQL writer. Inventory every
+2. Confirm the starting schema is 40 on the PostgreSQL writer. Inventory every
    gate below with read-only queries during preparation, retaining the queries
    for an identical check after the freeze. Retain IDs/counts and logs, not
    credentials or config/prompt bodies. Successful query execution alone does
@@ -105,7 +105,7 @@ that validate or switch on cron target types before creating app schedules.
    release artifacts. Keep provider egress disabled or use an authorized test
    workspace. Verify backup completeness, restore access and the existing secret
    key ring/blob storage references. Read-only SQL cannot validate YAML,
-   config hashes, rewritten-config uniqueness or runtime decoding; Go41 and the
+   config hashes, rewritten-config uniqueness or runtime decoding; Go42 and the
    restored-copy checks must succeed too. Repair historical custom-name
    collisions before the window through a reviewed migration/repair; merely
    changing a current profile leaves the historical blocker intact.
@@ -125,32 +125,32 @@ BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SELECT current_database(), pg_is_in_recovery(),
        max(version_id) FILTER (WHERE is_applied) AS applied_version
 FROM goose_db_version;
--- Require the intended database, pg_is_in_recovery = false, version = 39.
+-- Require the intended database, pg_is_in_recovery = false, version = 40.
 -- Run the reviewed SELECT queries for every gate below in this snapshot.
 ROLLBACK;
 ```
 
-| Gate | Required result before SQL40 |
+| Gate | Required result before SQL41 |
 | --- | --- |
-| Raw work, across the whole database | No `agent_runtime_locks` with `lease_expires_at > statement_timestamp()`, no `model_call_contexts.state = 'started'`, no `tool_calls.state <> 'completed'`, no `agent_interactions.state = 'open'`. SQL40 checks before renaming; Go41 rechecks under lock. |
+| Raw work, across the whole database | No `agent_runtime_locks` with `lease_expires_at > statement_timestamp()`, no `model_call_contexts.state = 'started'`, no `tool_calls.state <> 'completed'`, no `agent_interactions.state = 'open'`. SQL41 checks before renaming; Go42 rechecks under lock. |
 | Derived work, for every agent with a latest turn | No `agent_continuable_model_contexts` or `agent_next_model_work` row for that latest turn (greatest `agent_turns.turn_sequence`), and `agent_has_incomplete_tool_batch(project_id, agent_id)` is false. Pass the same project/agent IDs to both frontier functions. An idle worker is insufficient. Historical failed/retry contexts superseded by success or stop are not themselves blockers. |
-| Stored configs | No custom tool using `app__` or the new handler tool names. Compiled legacy send policy must be an object containing only boolean `enabled`/`deferred` and optional `always_allow` permission with empty parameters. Source may also include `type: built_in` and nullable `enabled`; the migration normalizes these released forms. A disabled policy needs a known Slack app in its project. SQL40 rejects unmappable compiled policy before renaming. Go41 also validates source parsing, hashes and rewrite uniqueness. |
-| Old setup and addresses | Installs must be Slack webhook setups with a profile, not an agent destination. A live active setup requires credentials. Eligible targets must use a valid Slack channel, DM or channel-and-timestamp thread address. SQL40 checks these before renaming. |
-| Multiple targets through one app | No eligible agent may have more than one live target through the same Slack install. SQL40 reports the agent and target IDs before renaming. Review those destinations on the schema-39 copy and arrange an explicit repair before cutover; the migration does not choose a destination or broaden access. Multiple targets through different apps are supported. |
-| Quota and writer freeze | The new default of 10 million configs, or an explicit org override, must cover all existing configs plus at most one successor per eligible agent. SQL40 checks this conservative budget. Stop every writer and rerun preflight after freezing. |
+| Stored configs | No custom tool using `app__` or the new handler tool names. Compiled legacy send policy must be an object containing only boolean `enabled`/`deferred` and optional `always_allow` permission with empty parameters. Source may also include `type: built_in` and nullable `enabled`; the migration normalizes these released forms. A disabled policy needs a known Slack app in its project. SQL41 rejects unmappable compiled policy before renaming. Go42 also validates source parsing, hashes and rewrite uniqueness. |
+| Old setup and addresses | Installs must be Slack webhook setups with a profile, not an agent destination. A live active setup requires credentials. Eligible targets must use a valid Slack channel, DM or channel-and-timestamp thread address. SQL41 checks these before renaming. |
+| Multiple targets through one app | No eligible agent may have more than one live target through the same Slack install. SQL41 reports the agent and target IDs before renaming. Review those destinations on the schema-40 copy and arrange an explicit repair before cutover; the migration does not choose a destination or broaden access. Multiple targets through different apps are supported. |
+| Quota and writer freeze | The new default of 10 million configs, or an explicit org override, must cover all existing configs plus at most one successor per eligible agent. SQL41 checks this conservative budget. Stop every writer and rerun preflight after freezing. |
 
 
 Eligible agents have a current config, an undeleted org/project, and an undeleted
 Slack target/app. Do not exclude archived agents, subagents, agents with
 no previous turn or disconnected apps. Count each eligible agent once for
-quota, even when it has targets through several different apps. SQL40/Go41 are the final gates; do not
+quota, even when it has targets through several different apps. SQL41/Go42 are the final gates; do not
 bypass their checks if preparation missed a blocker.
 
-The [39 → 40 → 41 fixture test](https://github.com/omnara-ai/omnara/blob/main/internal/dbmigrate/slack_app_cutover_integration_test.go)
+The [40 → 41 → 42 fixture test](https://github.com/omnara-ai/omnara/blob/main/internal/dbmigrate/slack_app_cutover_integration_test.go)
 checks scoped successors, historical config reads, strict runtime decoding, no
 subscriptions or new runnable work, and later public input. A real continuable retry
-fails at **39**; historical failures superseded by success/stop are allowed. An
-injected Go41 failure leaves **40**, and rerunning succeeds after the injected
+fails at **40**; historical failures superseded by success/stop are allowed. An
+injected Go42 failure leaves **41**, and rerunning succeeds after the injected
 cause is removed. This is not a snapshot-restore test or live Slack rehearsal.
 Run against the final release code using local test services:
 
@@ -192,14 +192,14 @@ OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmod
    and [cancellation implementation](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/agent_runtime_cancellation_store.go).
    Cancellation supplies neither approval nor an answer, and closes the same
    interaction shown in the dashboard. Do not archive agents or edit terminal
-   states with SQL. Go41's gates are global: clear all reported work, not only
+   states with SQL. Go42's gates are global: clear all reported work, not only
    agents with a currently selected Slack target.
 4. Confirm cancellation settled, including tool results and runtime release.
    `runtime_cancel_requested` is not proof of drain. CancelAgent preserves queued
    backlog; cancel unwanted queued inputs through the old API, or deliberately
    retain them for reopening while preventing readmission during drain. Let the
    old release finish recovery and best-effort Slack prompt dismissal. If any
-   gate remains blocked, resolve it while still on schema 39 or postpone.
+   gate remains blocked, resolve it while still on schema 40 or postpone.
 5. Gracefully stop **every replica** of old worker, maintenance and API, plus web
    and any other service/job with database or admission access; close existing
    sockets and prevent replacements. The maintenance service is a writer too.
@@ -211,8 +211,8 @@ OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmod
    their external activity if needed rather than assuming a cluster stop kills
    them or deleting daemon state.
 6. **Rerun the identical read-only preflight now, after the freeze.** All blocker
-   sections must be empty and headroom reviewed. Capture the final schema-39
-   snapshot/backup and verify its restore procedure before applying SQL40.
+   sections must be empty and headroom reviewed. Capture the final schema-40
+   snapshot/backup and verify its restore procedure before applying SQL41.
 
 Maintenance responses do not queue requests. Provider retry windows are limited;
 Slack documents bounded [Events API retries](https://docs.slack.dev/apis/events-api/#retries).
@@ -229,9 +229,9 @@ actually persisted by the new service.
    `OMNARA_DATABASE_URL`, `OMNARA_MIGRATIONS_DIR` and
    `OMNARA_MIGRATION_TIMEOUT` as in
    [database configuration](/self-hosting/configuration#database-and-redis).
-   Do not use a plain SQL-only Goose invocation: Go41 must execute. Capture exit
-   status and complete logs; start no service between 40 and 41.
-2. Require successful completion through 41 and check the migration version on
+   Do not use a plain SQL-only Goose invocation: Go42 must execute. Capture exit
+   status and complete logs; start no service between 41 and 42.
+2. Require successful completion through 42 and check the migration version on
    the writer. Before starting writers, compare the rehearsal/backup inventory:
    existing agents/history/targets and credential references remain; Slack app
    setup has qualified tools with immutable app references; eligible agents have isolated
@@ -328,14 +328,14 @@ stored by Omnara.
 
 | Failure point | Recovery while maintenance remains active |
 | --- | --- |
-| Before SQL40, or SQL40 failed and version is still 39 | Its early work/frontier/custom-name guards leave the old schema usable. Resolve work using the old release privately; obtain reviewed historical-config repair for collisions, or postpone. Confirm the actual version and old-release health before reopening. |
-| Go41 failed; version is 40 | Source parsing, content hashes and post-rewrite uniqueness can still fail after SQL40 commits; the repeated work, policy, address and quota guards can also catch a broken freeze. Go41 rolls back its own rewrites/successors. **Never restart old services on schema 40.** Preserve diagnostics; use a reviewed schema-40 SQL repair and rerun the same release migrator, or restore the pre-40 snapshot and old release. Do not copy the test's synthetic retry/trigger manipulation into operations. |
-| Version 41, validation fails before customer traffic | Keep ingress blocked; stop all newly started writers. Use reviewed forward repair, or restore the pre-40 snapshot and old images/configuration. Account for any controlled smoke-test side effects: restoring Postgres does not unsend a Slack message or undo a machine command. |
+| Before SQL41, or SQL41 failed and version is still 40 | Its early work/frontier/custom-name guards leave the old schema usable. Resolve work using the old release privately; obtain reviewed historical-config repair for collisions, or postpone. Confirm the actual version and old-release health before reopening. |
+| Go42 failed; version is 41 | Source parsing, content hashes and post-rewrite uniqueness can still fail after SQL41 commits; the repeated work, policy, address and quota guards can also catch a broken freeze. Go42 rolls back its own rewrites/successors. **Never restart old services on schema 41.** Preserve diagnostics; use a reviewed schema-41 SQL repair and rerun the same release migrator, or restore the pre-41 snapshot and old release. Do not copy the test's synthetic retry/trigger manipulation into operations. |
+| Version 42, validation fails before customer traffic | Keep ingress blocked; stop all newly started writers. Use reviewed forward repair, or restore the pre-41 snapshot and old images/configuration. Account for any controlled smoke-test side effects: restoring Postgres does not unsend a Slack message or undo a machine command. |
 | Customer traffic or retained customer work has resumed | Prefer forward repair. Restoring the old snapshot loses post-snapshot work and requires a separate, explicit recovery decision and reconciliation. |
 
-Rollback means **restore the verified schema-39 snapshot**, point the stopped
+Rollback means **restore the verified schema-40 snapshot**, point the stopped
 deployment at the restored database with its matching keys/blob references, then
-start and privately validate the old images before reopening. SQL40/Go41 are
+start and privately validate the old images before reopening. SQL41/Go42 are
 forward-only; Goose down, deleting migration-version rows or merely rolling back
 images is not a restore. The freeze and 503 responses stay in place throughout
 repair or restore, including any repeat preflight and migration attempt.

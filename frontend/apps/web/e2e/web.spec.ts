@@ -483,16 +483,17 @@ test('deletes a profile from its detail page', async ({ page }) => {
   const profileName = uniqueName('Deleted Profile E2E')
   await createProfile(page, profileName, 'Delete this profile from its detail page.')
 
-  const agentListLoaded = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith(`/projects/${projectID}/agents`),
-  )
   page.once('dialog', (dialog) => void dialog.accept())
+  const agentsListed = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname.endsWith(`/projects/${projectID}/agents`) && response.ok(),
+  )
   await page.getByRole('button', { name: 'Delete profile' }).click()
 
   await expect(page).toHaveURL(`/projects/${projectID}/agents`)
   await expect(page.getByRole('heading', { name: 'Agent profiles' })).toBeVisible()
   await expect(page.getByText(profileName)).toHaveCount(0)
-  await (await agentListLoaded).finished()
+  await (await agentsListed).finished()
 
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Something went wrong' })).toBeVisible()
@@ -729,7 +730,7 @@ for (const appType of ['github_pr', 'discord_thread'] as const) {
     expect(tools).toContainEqual(expect.objectContaining({ name: selectedTool, enabled: true }))
     const excludedTool = appType === 'github_pr' ? 'discussion_comment' : 'post_message'
     expect(tools.map((tool) => tool.name)).not.toContain(`app__${app.name}__${excludedTool}`)
-    await page.getByRole('button', { name: 'Other tools', exact: true }).click()
+    await page.getByRole('button', { name: 'Built-in tools', exact: true }).click()
     await expect(page.getByText(selectedTool, { exact: true }).first()).toBeVisible()
     const savedRevision = page.waitForResponse(
       (response) =>

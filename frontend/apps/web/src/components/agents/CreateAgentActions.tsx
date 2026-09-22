@@ -28,7 +28,7 @@ export function CreateAgentActions({
   const errorMessage = statusError(status)
 
   return (
-    <div className="bg-sidebar -mx-4 -mb-4 flex flex-col gap-3 border-t px-4 py-3.5 sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-8">
+    <div className="bg-sidebar -mx-4 -mb-4 -mt-3 flex flex-col gap-3 px-4 pb-3.5 pt-[1.625rem] sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-8">
       <Button
         type="button"
         variant="ghost"

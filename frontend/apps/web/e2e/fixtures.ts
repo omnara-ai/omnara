@@ -298,10 +298,9 @@ export async function expectInteractionToolMenu(page: Page) {
     await page.getByRole('button', { name: 'Add tools', exact: true }).click()
     await expect(page.getByRole('menuitem', { name: 'ask_question', exact: true })).toBeVisible()
     await page.getByRole('menuitem', { name, exact: true }).click()
-    const permission = page.getByRole('combobox', { name: `${name} permission`, exact: true })
-    await expect(permission).toContainText('Always allow')
-    await permission.click()
-    await page.getByRole('option', { name: 'Always ask', exact: true }).click()
-    await expect(permission).toContainText('Always ask')
+    const permission = page.getByRole('radiogroup', { name: `${name} permission`, exact: true })
+    await expect(permission.getByRole('radio', { name: 'Always allow', exact: true })).toBeChecked()
+    await permission.getByRole('radio', { name: 'Always ask', exact: true }).click()
+    await expect(permission.getByRole('radio', { name: 'Always ask', exact: true })).toBeChecked()
   }
 }

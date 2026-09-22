@@ -63,6 +63,7 @@ export function AgentProfileConfigEditor({
   return (
     <form
       noValidate
+      className="mx-auto w-full max-w-3xl"
       onSubmit={(event) => {
         void submit(event)
       }}

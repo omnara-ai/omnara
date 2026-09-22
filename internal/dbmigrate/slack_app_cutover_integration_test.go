@@ -38,7 +38,7 @@ func TestSlackAppCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 39))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
 			ids := storagefixture.ProjectIDs{
 				OrgID:                   uuid.New(),
 				ProjectID:               uuid.New(),
@@ -427,8 +427,8 @@ tools:
 					want = "needs additional config quota"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(39), currentPostgresMigrationVersion(t, ctx, db))
-				// The complete SQL40 transaction rolled back, leaving the old release usable.
+				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				// The complete SQL41 transaction rolled back, leaving the old release usable.
 				var oldConnections int
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_installs WHERE id=$1`, appID).Scan(&oldConnections))
@@ -508,9 +508,9 @@ tools:
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
-				// Independently exercise Go41's defensive checks and transaction
-				// rollback even if maintenance preflight was bypassed after SQL40.
-				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 40))
+				// Independently exercise Go42's defensive checks and transaction
+				// rollback even if maintenance preflight was bypassed after SQL41.
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 41))
 				if scenario == "config_limit" {
 					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
 				}
@@ -519,8 +519,8 @@ tools:
 				}
 				expectedConfigs := 1
 				if scenario == "invalid_policy" {
-					// Inject after SQL40 so this remains a Go41 defense test when
-					// SQL40 also rejects unmappable policies before its rename.
+					// Inject after SQL41 so this remains a Go42 defense test when
+					// SQL41 also rejects unmappable policies before its rename.
 					legacySendPolicy["permission"] = map[string]any{"mode": "always_ask", "parameters": map[string]any{}}
 					invalid, err := json.Marshal(compiledObject)
 					require.NoError(t, err)
@@ -563,7 +563,7 @@ tools:
 					want = "exceeds project config limit"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var count int
@@ -590,7 +590,7 @@ tools:
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected rewrite failure")
-				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				require.JSONEq(t, before, history())
 				var active, configs int
@@ -634,7 +634,7 @@ tools:
                  FOR EACH ROW EXECUTE FUNCTION reject_cutover_config_event()`)
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected cutover failure")
-				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(41), currentPostgresMigrationVersion(t, ctx, db))
 				assertContextRollback()
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
@@ -646,7 +646,7 @@ tools:
 			if scenario == "continuable_retry" {
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "still has continuable work")
-				require.Equal(t, int64(39), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(40), currentPostgresMigrationVersion(t, ctx, db))
 				var turnID uuid.UUID
 				require.NoError(
 					t,
