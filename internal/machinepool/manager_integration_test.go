@@ -2339,3 +2339,13 @@ type wakeNotificationRecorder struct{ count int }
 func (p *wakeNotificationRecorder) PublishPostCommit(context.Context, notifications.PostCommitIntent) {
 	p.count++
 }
+
+func (machinePoolProviderTestResolvers) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}
+
+func (*testProviderDefinition) ResourcePolicy() providers.MachineResourcePolicy {
+	return providers.MachineResourcePolicy{}
+}

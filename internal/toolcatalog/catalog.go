@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 
@@ -247,7 +248,11 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameCreateMachine,
 		createMachineToolDescription,
 		nil,
-		map[string]any{"machine_pool_name": machinePoolName},
+		map[string]any{
+			"machine_pool_name": machinePoolName,
+			"cpu":               map[string]any{"type": "integer", "minimum": 1, "maximum": math.MaxInt32, "description": "vCPU count for this machine. Omit to inherit the pool's effective default; must be supported and within pool limits."},
+			"memory_mb":         map[string]any{"type": "integer", "minimum": 1, "maximum": math.MaxInt32, "description": "Memory in MB for this machine. Omit to inherit the pool's effective default; must be supported and within pool limits."},
+		},
 	); err != nil {
 		return Catalog{}, err
 	}

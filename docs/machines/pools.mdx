@@ -114,6 +114,8 @@ machine_sources:
 
 By default, Omnara creates one machine at launch and allows one machine in total. Use `initial_num_machines` to control how many are created at launch and `max_machines` to set the total limit. The agent can call [`create_machine`](/tools/built-in#create_machine) until it reaches that limit.
 
+`machine_cpu` and `machine_memory_mb` set the default size; where supported, the agent can override `cpu` and `memory_mb` per `create_machine` call within pool and project limits.
+
 <Info>
 Full schema and playground: [Create machine pool](/api-reference/endpoints/machine-pools/create-machine-pool) · [Update machine pool](/api-reference/endpoints/machine-pools/update-machine-pool) · [Pool grants](/api-reference/endpoints/machine-pools/create-project-machine-pool-grant).
 </Info>

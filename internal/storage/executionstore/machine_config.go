@@ -89,7 +89,13 @@ type machinePoolDefaults struct {
 	Environment  MachineEnvironment
 }
 
+type ConfigurableMachineResources struct {
+	CPU      bool
+	MemoryMB bool
+}
+
 type MachinePoolProviders interface {
+	ConfigurableMachineResources(provider string) (ConfigurableMachineResources, error)
 	ValidatePool(
 		provider string,
 		policy MachinePoolProviderPolicy,
@@ -113,18 +119,12 @@ func (s *Store) ResolveMachineProvisioning(
 	projectOverlay, agentOverlay MachineProvisioningOverlay,
 ) (MachineProvisioningConfig, error) {
 	machineProvisioning := policy.DefaultProvisioning
-	if projectOverlay.CPU != nil {
-		machineProvisioning.CPU = projectOverlay.CPU
-	}
-	if projectOverlay.MemoryMB != nil {
-		machineProvisioning.MemoryMB = projectOverlay.MemoryMB
-	}
-	if agentOverlay.CPU != nil {
-		machineProvisioning.CPU = agentOverlay.CPU
-	}
-	if agentOverlay.MemoryMB != nil {
-		machineProvisioning.MemoryMB = agentOverlay.MemoryMB
-	}
+	machineProvisioning.CPU = effectiveMachineResourceDefault(
+		machineProvisioning.CPU, projectOverlay.CPU, agentOverlay.CPU,
+	)
+	machineProvisioning.MemoryMB = effectiveMachineResourceDefault(
+		machineProvisioning.MemoryMB, projectOverlay.MemoryMB, agentOverlay.MemoryMB,
+	)
 	providerOptions, err := s.machinePoolProviders.ResolveMachineProviderOptions(
 		provider,
 		policy.DefaultProvisioning.ProviderOptions,
@@ -905,4 +905,14 @@ func resolveProcessCwd(machineCwd, bindingCwd, requestedCwd string) string {
 		return strings.TrimSuffix(base, "/") + "/" + requestedCwd
 	}
 	return path.Join(base, requestedCwd)
+}
+
+func effectiveMachineResourceDefault(pool, project, agent *int) *int {
+	if agent != nil {
+		return agent
+	}
+	if project != nil {
+		return project
+	}
+	return pool
 }

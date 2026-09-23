@@ -23,9 +23,16 @@ type PoolMachineRecord struct {
 }
 
 type MachinePoolSourceRecord struct {
-	MachinePoolID   uuid.UUID `json:"-"`
-	MachinePoolName string    `json:"machine_pool_name"`
-	Description     string    `json:"description,omitempty"`
+	MachinePoolID      uuid.UUID `json:"-"`
+	MachinePoolName    string    `json:"machine_pool_name"`
+	Description        string    `json:"description,omitempty"`
+	SupportedOverrides []string  `json:"supported_overrides"`
+	DefaultCPU         *int      `json:"default_cpu,omitempty"`
+	DefaultMemoryMB    *int      `json:"default_memory_mb,omitempty"`
+	MinCPU             *int      `json:"min_cpu,omitempty"`
+	MaxCPU             *int      `json:"max_cpu,omitempty"`
+	MinMemoryMB        *int      `json:"min_memory_mb,omitempty"`
+	MaxMemoryMB        *int      `json:"max_memory_mb,omitempty"`
 }
 
 func validateRuntimeMachineSources(sources []agentconfig.RuntimeMachine) error {
@@ -39,6 +46,8 @@ func validateRuntimeMachineSources(sources []agentconfig.RuntimeMachine) error {
 
 type CreatePoolMachineInput struct {
 	MachinePoolID uuid.UUID
+	CPU           *int
+	MemoryMB      *int
 }
 
 type CreatePoolMachineResult struct {
@@ -191,9 +200,30 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
+	machineConfig := currentSource
+	if input.CPU != nil || input.MemoryMB != nil {
+		support, err := t.store.machinePoolProviders.ConfigurableMachineResources(poolGrant.Provider)
+		if err != nil {
+			return CreatePoolMachineResult{}, storeerr.InvalidRequest(err)
+		}
+		if input.CPU != nil {
+			if !support.CPU {
+				return CreatePoolMachineResult{}, storeerr.InvalidRequest(errors.New("machine pool does not support cpu overrides"))
+			}
+			machineConfig.MachineCPU = input.CPU
+		}
+		if input.MemoryMB != nil {
+			if !support.MemoryMB {
+				return CreatePoolMachineResult{}, storeerr.InvalidRequest(
+					errors.New("machine pool does not support memory_mb overrides"),
+				)
+			}
+			machineConfig.MachineMemoryMB = input.MemoryMB
+		}
+	}
 	resolvedMachine, err := t.store.ResolvePoolMachine(
 		poolGrant,
-		currentSource,
+		machineConfig,
 	)
 	if err != nil {
 		return CreatePoolMachineResult{}, fmt.Errorf("machine source configuration: %w", err)
@@ -382,7 +412,7 @@ func (s *Store) ListMachinePoolSources(
 	if projectID == uuid.Nil || agentID == uuid.Nil || agentConfigID == uuid.Nil {
 		return nil, errors.New("project, agent, and agent config are required")
 	}
-	return listMachinePoolSources(ctx, s.q, projectID, agentID, agentConfigID)
+	return s.listMachinePoolSources(ctx, s.q, projectID, agentID, agentConfigID)
 }
 
 func (r *ToolCallReader) ListMachinePoolSources(
@@ -393,7 +423,7 @@ func (r *ToolCallReader) ListMachinePoolSources(
 		return nil, errors.New("agent config is required")
 	}
 	t := r.transaction
-	return listMachinePoolSources(
+	return t.store.listMachinePoolSources(
 		ctx,
 		t.q,
 		t.input.ProjectID,
@@ -402,7 +432,7 @@ func (r *ToolCallReader) ListMachinePoolSources(
 	)
 }
 
-func listMachinePoolSources(
+func (s *Store) listMachinePoolSources(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, agentID, agentConfigID uuid.UUID,
@@ -445,11 +475,41 @@ func listMachinePoolSources(
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, MachinePoolSourceRecord{
-			MachinePoolID:   source.MachinePoolID,
-			MachinePoolName: grant.PoolName,
-			Description:     source.Description,
-		})
+		support, err := s.machinePoolProviders.ConfigurableMachineResources(grant.PoolProvider)
+		if err != nil {
+			return nil, err
+		}
+		record := MachinePoolSourceRecord{
+			MachinePoolID:      source.MachinePoolID,
+			MachinePoolName:    grant.PoolName,
+			Description:        source.Description,
+			SupportedOverrides: []string{},
+		}
+		if support.CPU {
+			record.SupportedOverrides = append(record.SupportedOverrides, "cpu")
+			record.DefaultCPU = effectiveMachineResourceDefault(
+				storeutil.IntPtr(grant.PoolDefaultMachineCpu),
+				storeutil.IntPtr(grant.DefaultMachineCpu),
+				source.MachineCPU,
+			)
+			record.MinCPU = effectivePoolGrantMinimum(
+				storeutil.IntPtr(grant.PoolMinMachineCpu), storeutil.IntPtr(grant.MinMachineCpu),
+			)
+			record.MaxCPU = effectiveOptionalPoolGrantCap(grant.PoolMaxMachineCpu, grant.MaxMachineCpu)
+		}
+		if support.MemoryMB {
+			record.SupportedOverrides = append(record.SupportedOverrides, "memory_mb")
+			record.DefaultMemoryMB = effectiveMachineResourceDefault(
+				storeutil.IntPtr(grant.PoolDefaultMachineMemoryMb),
+				storeutil.IntPtr(grant.DefaultMachineMemoryMb),
+				source.MachineMemoryMB,
+			)
+			record.MinMemoryMB = effectivePoolGrantMinimum(
+				storeutil.IntPtr(grant.PoolMinMachineMemoryMb), storeutil.IntPtr(grant.MinMachineMemoryMb),
+			)
+			record.MaxMemoryMB = effectiveOptionalPoolGrantCap(grant.PoolMaxMachineMemoryMb, grant.MaxMachineMemoryMb)
+		}
+		out = append(out, record)
 	}
 	return out, nil
 }

@@ -146,8 +146,15 @@ type IntegrationTargetRef struct {
 }
 
 type MachinePoolRef struct {
-	MachinePoolName string `json:"machine_pool_name"`
-	Description     string `json:"description,omitempty"`
+	MachinePoolName    string   `json:"machine_pool_name"`
+	Description        string   `json:"description,omitempty"`
+	SupportedOverrides []string `json:"supported_overrides"`
+	DefaultCPU         *int     `json:"default_cpu,omitempty"`
+	DefaultMemoryMB    *int     `json:"default_memory_mb,omitempty"`
+	MinCPU             *int     `json:"min_cpu,omitempty"`
+	MaxCPU             *int     `json:"max_cpu,omitempty"`
+	MinMemoryMB        *int     `json:"min_memory_mb,omitempty"`
+	MaxMemoryMB        *int     `json:"max_memory_mb,omitempty"`
 }
 
 type CheckpointRef struct {

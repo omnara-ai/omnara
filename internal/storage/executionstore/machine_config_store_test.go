@@ -561,3 +561,11 @@ func assertMachineCwdLengthLimit(t *testing.T, length int, err error) {
 		t.Fatalf("oversized cwd: %v", err)
 	}
 }
+
+func (mergingMachinePoolProviders) ConfigurableMachineResources(string) (ConfigurableMachineResources, error) {
+	return ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}
+
+func (*captureMachinePoolProviders) ConfigurableMachineResources(string) (ConfigurableMachineResources, error) {
+	return ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}

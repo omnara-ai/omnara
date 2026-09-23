@@ -83,7 +83,14 @@ func (q *Queries) DeleteProjectMachinePoolGrant(ctx context.Context, arg DeleteP
 }
 
 const getActiveProjectMachinePoolGrantForMachinePool = `-- name: GetActiveProjectMachinePoolGrantForMachinePool :one
-SELECT pmpg.id, pmpg.org_id, pmpg.project_id, pmpg.machine_pool_id, pmpg.description, pmpg.default_machine_cpu, pmpg.default_machine_memory_mb, pmpg.default_machine_env_overlay, pmpg.default_machine_secret_env_overlay, pmpg.default_machine_provider_options_overlay, pmpg.default_cwd, pmpg.max_total_machines, pmpg.max_total_cpu, pmpg.max_total_memory_mb, pmpg.min_machine_cpu, pmpg.min_machine_memory_mb, pmpg.max_machine_cpu, pmpg.max_machine_memory_mb, pmpg.delete_after_idle_minutes, coalesce(pmpg.idempotency_key, '') AS idempotency_key, pmpg.metadata, pmpg.created_at, pmpg.updated_at, pool.name AS pool_name
+SELECT pmpg.id, pmpg.org_id, pmpg.project_id, pmpg.machine_pool_id, pmpg.description, pmpg.default_machine_cpu, pmpg.default_machine_memory_mb, pmpg.default_machine_env_overlay, pmpg.default_machine_secret_env_overlay, pmpg.default_machine_provider_options_overlay, pmpg.default_cwd, pmpg.max_total_machines, pmpg.max_total_cpu, pmpg.max_total_memory_mb, pmpg.min_machine_cpu, pmpg.min_machine_memory_mb, pmpg.max_machine_cpu, pmpg.max_machine_memory_mb, pmpg.delete_after_idle_minutes, coalesce(pmpg.idempotency_key, '') AS idempotency_key, pmpg.metadata, pmpg.created_at, pmpg.updated_at, pool.name AS pool_name,
+ pool.provider AS pool_provider,
+ pool.default_machine_cpu AS pool_default_machine_cpu,
+ pool.default_machine_memory_mb AS pool_default_machine_memory_mb,
+ pool.min_machine_cpu AS pool_min_machine_cpu,
+ pool.max_machine_cpu AS pool_max_machine_cpu,
+ pool.min_machine_memory_mb AS pool_min_machine_memory_mb,
+ pool.max_machine_memory_mb AS pool_max_machine_memory_mb
 FROM project_machine_pool_grants pmpg
 JOIN machine_pools pool ON pool.org_id = pmpg.org_id AND pool.id = pmpg.machine_pool_id AND pool.deleted_at IS NULL
 WHERE pmpg.project_id = $1 AND pmpg.machine_pool_id = $2
@@ -119,6 +126,13 @@ type GetActiveProjectMachinePoolGrantForMachinePoolRow struct {
 	CreatedAt                            time.Time
 	UpdatedAt                            time.Time
 	PoolName                             string
+	PoolProvider                         string
+	PoolDefaultMachineCpu                *int32
+	PoolDefaultMachineMemoryMb           *int32
+	PoolMinMachineCpu                    *int32
+	PoolMaxMachineCpu                    *int32
+	PoolMinMachineMemoryMb               *int32
+	PoolMaxMachineMemoryMb               *int32
 }
 
 func (q *Queries) GetActiveProjectMachinePoolGrantForMachinePool(ctx context.Context, arg GetActiveProjectMachinePoolGrantForMachinePoolParams) (GetActiveProjectMachinePoolGrantForMachinePoolRow, error) {
@@ -149,6 +163,13 @@ func (q *Queries) GetActiveProjectMachinePoolGrantForMachinePool(ctx context.Con
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PoolName,
+		&i.PoolProvider,
+		&i.PoolDefaultMachineCpu,
+		&i.PoolDefaultMachineMemoryMb,
+		&i.PoolMinMachineCpu,
+		&i.PoolMaxMachineCpu,
+		&i.PoolMinMachineMemoryMb,
+		&i.PoolMaxMachineMemoryMb,
 	)
 	return i, err
 }

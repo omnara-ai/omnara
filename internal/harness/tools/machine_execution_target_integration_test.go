@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/management"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -844,10 +845,68 @@ func TestProcessToolMachineSelectionFailureKeepsStructuredPayload(t *testing.T) 
 	}
 }
 
+func TestCreateMachineRejectsInvalidOverridesBeforeApproval(t *testing.T) {
+	ctx := context.Background()
+	fixture := newMachineDispatchFixture(t, ctx, "create-approval-sizing")
+	calls := []model.ToolCall{
+		{ID: "cpu-too-large", Name: "create_machine", Input: json.RawMessage(`{"cpu":2}`)},
+		{ID: "memory-too-large", Name: "create_machine", Input: json.RawMessage(`{"memory_mb":2048}`)},
+		{ID: "valid-size", Name: "create_machine", Input: json.RawMessage(`{"cpu":1,"memory_mb":1024}`)},
+	}
+	toolCalls, lock, admitted, contextRecord := recordMachineToolCallsForDirectStoreTest(
+		t, ctx, fixture.Store, fixture.Launch.Agent.ID, fixture.UserID, fixture.Config.ID,
+		"create-approval-sizing", calls, fixture.Now.Add(5*time.Second),
+	)
+	turn := Turn{
+		ProjectID: toolsTestProjectID, AgentID: fixture.Launch.Agent.ID,
+		SourceEventID: admitted.Events[0].ID, RuntimeLockID: lock.ID, ModelCallContextID: contextRecord.ID,
+		Tools: map[string]ToolSpec{
+			"create_machine": {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)},
+		},
+	}
+	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(6 * time.Second) }}
+	for i, call := range calls {
+		t.Run(call.ID, func(t *testing.T) {
+			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
+				t.Fatalf("prepare create permission: %v", err)
+			}
+			_, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
+				ctx, toolsTestProjectID, fixture.Launch.Agent.ID, toolCalls[i].ID,
+				executionstore.AgentInteractionKindPermission,
+			)
+			valid := call.ID == "valid-size"
+			if err != nil || found != valid {
+				t.Fatalf("permission interaction: found=%t want=%t err=%v", found, valid, err)
+			}
+			record, err := fixture.Store.Execution().GetToolCall(
+				ctx, toolsTestProjectID, fixture.Launch.Agent.ID, toolCalls[i].ID,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if valid {
+				if record.State != executionstore.ToolCallStateAwaitingPermission {
+					t.Fatalf("valid tool call state = %s", record.State)
+				}
+			} else if record.State != executionstore.ToolCallStateCompleted ||
+				record.Outcome != executionstore.ToolResultOutcomeFailed {
+				t.Fatalf("invalid tool call state=%s outcome=%s", record.State, record.Outcome)
+			}
+		})
+	}
+}
+
 func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 	ctx := context.Background()
 	fixture := newMachineDispatchFixture(t, ctx, "create-boundary")
-	call := model.ToolCall{ID: "call_create-boundary", Name: "create_machine", Input: json.RawMessage(`{}`)}
+	if _, err := fixture.Store.Execution().UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: toolsTestOrgID, ID: fixture.MachinePool.ID,
+		MaxMachineCPU:      patch.NullableInt{Set: true, Value: new(2)},
+		MaxMachineMemoryMB: patch.NullableInt{Set: true, Value: new(2048)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call := model.ToolCall{ID: "call_create-boundary", Name: "create_machine", Input: json.RawMessage(`{"cpu":2,"memory_mb":2048}`)}
 	badCall := model.ToolCall{
 		ID:    "call_create-boundary-invalid-pool",
 		Name:  "create_machine",
@@ -929,6 +988,9 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 		t.Fatal("create machine retained runtime ownership for reconciliation")
 	}
 	body := toolResultMapFromTestParts(t, result.ContentParts)
+	if body["cpu"] != float64(2) || body["memory_mb"] != float64(2048) {
+		t.Fatalf("machine size = %+v", body)
+	}
 	if body["lifecycle_state"] != "provisioning" ||
 		body["connection_state"] != "offline" || body["ready"] != false {
 		t.Fatalf("create machine result = %+v", body)
@@ -941,6 +1003,10 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("load provisioning machine: %v", err)
+	}
+	if machine.Machine.CPU == nil || *machine.Machine.CPU != 2 ||
+		machine.Machine.MemoryMB == nil || *machine.Machine.MemoryMB != 2048 {
+		t.Fatalf("persisted size = %+v", machine.Machine)
 	}
 	if machine.Machine.LifecycleState != "provisioning" || machine.Machine.ProvisionAttempts != 0 {
 		t.Fatalf("machine intent = %+v", machine.Machine)
@@ -2727,4 +2793,10 @@ func createExecutableBinding(
 		DaemonTokenID: token.Record.ID,
 		DisplayName:   machine.DisplayName,
 	}
+}
+
+func (toolsTestMachinePoolProviders) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
 }

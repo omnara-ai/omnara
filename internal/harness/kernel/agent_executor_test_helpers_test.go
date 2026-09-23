@@ -1359,3 +1359,9 @@ func (kernelTestMachinePoolProviders) BuildMachineProvisioningIntent(
 ) (executionstore.MachineProvisioningConfig, error) {
 	return machineProvisioning, nil
 }
+
+func (kernelTestMachinePoolProviders) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}

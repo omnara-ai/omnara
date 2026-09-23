@@ -29,7 +29,7 @@ type Definition struct{}
 
 var _ providers.RuntimeProviderDefinition = Definition{}
 
-func resourcePolicy() providers.MachineResourcePolicy {
+func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{
 			PoolDefault:  providers.MachineResourceUnsupported,
@@ -84,10 +84,12 @@ func (Definition) ResolveMachineProviderOptions(
 	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
-func (Definition) ValidatePool(
+func (definition Definition) ValidatePool(
 	policy executionstore.MachinePoolProviderPolicy,
 ) error {
-	if err := providers.ValidateMachinePoolResourcePolicy(providers.Blaxel, policy, resourcePolicy()); err != nil {
+	if err := providers.ValidateMachinePoolResourcePolicy(
+		providers.Blaxel, policy, definition.ResourcePolicy(),
+	); err != nil {
 		return err
 	}
 	defaultOptions, err := providerOptionsFromProvisioning(policy.DefaultProvisioning)
@@ -126,7 +128,7 @@ func (definition Definition) ValidateMachineProvisioning(
 	if err := providers.ValidateMachineProvisioningResourcePolicy(
 		providers.Blaxel,
 		machineProvisioning,
-		resourcePolicy(),
+		definition.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
