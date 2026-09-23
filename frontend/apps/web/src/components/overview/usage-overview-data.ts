@@ -1,21 +1,16 @@
-import type { OrgOverviewUsageResponse, UsageTotals } from '@omnara/sdk'
-import { startOfDay, subDays } from 'date-fns'
+import type { OrgOverviewUsage, UsageTotals } from '@omnara/sdk'
 
 import { formatCompactCount, formatCount, formatUsd } from '@/lib/format'
 
-export const usageWindowDays = 30
-export const usageSeriesLimit = 8
 export const otherSeriesKey = 'other'
 export const noProfileSeriesKey = 'no-profile'
 
-const seriesColors = Array.from(
-  { length: usageSeriesLimit },
-  (_, index) => `var(--chart-${index + 1})`,
-)
+const seriesColors = Array.from({ length: 8 }, (_, index) => `var(--chart-${index + 1})`)
 const otherSeriesColor = 'var(--muted-foreground)'
 const residualTolerance = 1e-9
 const maxTickSteps = 5
 
+export type UsageBreakdown = 'model' | 'profile'
 export type UsageMeasure = 'tokens' | 'cost' | 'calls'
 
 export interface UsageSeries {
@@ -36,10 +31,6 @@ export interface UsageChartData {
   columns: UsageColumn[]
 }
 
-export function usageWindowSince(now: Date) {
-  return startOfDay(subDays(now, usageWindowDays - 1))
-}
-
 export function usageMeasureValue(totals: UsageTotals, measure: UsageMeasure) {
   if (measure === 'cost') return Number(totals.cost.provider_reported_usd)
   if (measure === 'calls') return totals.model_calls
@@ -50,10 +41,39 @@ function tokens(totals: UsageTotals) {
   return usageMeasureValue(totals, 'tokens')
 }
 
-export function usageChartData(usage: OrgOverviewUsageResponse): UsageChartData {
-  const named = usage.groups.map((group, index) => ({
-    key: group.id ?? noProfileSeriesKey,
-    name: group.name ?? 'No profile',
+function breakdownGroups(usage: OrgOverviewUsage, breakdown: UsageBreakdown) {
+  if (breakdown === 'model') {
+    return {
+      groups: usage.models.map((model) => ({
+        key: model.id,
+        name: model.name,
+        totals: model.totals,
+      })),
+      days: usage.days.map((day) =>
+        day.models.map((model) => ({ key: model.id, tokens: model.tokens })),
+      ),
+    }
+  }
+  return {
+    groups: usage.profiles.map((profile) => ({
+      key: profile.id ?? noProfileSeriesKey,
+      name: profile.name ?? 'No profile',
+      totals: profile.totals,
+    })),
+    days: usage.days.map((day) =>
+      day.profiles.map((profile) => ({
+        key: profile.id ?? noProfileSeriesKey,
+        tokens: profile.tokens,
+      })),
+    ),
+  }
+}
+
+export function usageChartData(usage: OrgOverviewUsage, breakdown: UsageBreakdown): UsageChartData {
+  const { groups, days } = breakdownGroups(usage, breakdown)
+  const named = groups.map((group, index) => ({
+    key: group.key,
+    name: group.name,
     color: seriesColors[index] ?? otherSeriesColor,
     total: tokens(group.totals),
   }))
@@ -65,17 +85,17 @@ export function usageChartData(usage: OrgOverviewUsageResponse): UsageChartData 
           { key: otherSeriesKey, name: 'Other', color: otherSeriesColor, total: otherTotal },
         ]
       : named
-  const columns = usage.intervals.map((interval) => {
+  const columns = usage.days.map((day, index) => {
     const values = new Map<string, number>()
-    for (const group of interval.groups) {
-      values.set(group.id ?? noProfileSeriesKey, tokens(group.totals))
+    for (const group of days[index] ?? []) {
+      values.set(group.key, group.tokens)
     }
-    const columnTotal = tokens(interval.totals)
+    const columnTotal = tokens(day.totals)
     const grouped = [...values.values()].reduce((sum, value) => sum + value, 0)
     if (columnTotal - grouped > residualTolerance) {
       values.set(otherSeriesKey, columnTotal - grouped)
     }
-    return { start: new Date(interval.start), total: columnTotal, values }
+    return { start: new Date(day.start), total: columnTotal, values }
   })
   return { series, columns }
 }

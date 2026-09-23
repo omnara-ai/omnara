@@ -21,7 +21,6 @@ WHERE context.org_id = $1
   AND context.project_id = ANY($2::uuid[])
   AND agent.parent_agent_id IS NULL
   AND context.created_at >= $3::timestamptz
-  AND ($4::timestamptz IS NULL OR context.created_at < $4::timestamptz)
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL
@@ -33,25 +32,21 @@ type CountAgentsWithModelCallsParams struct {
 	OrgID      uuid.UUID
 	ProjectIds []uuid.UUID
 	Since      time.Time
-	Until      *time.Time
 }
 
 func (q *Queries) CountAgentsWithModelCalls(ctx context.Context, arg CountAgentsWithModelCallsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAgentsWithModelCalls,
-		arg.OrgID,
-		arg.ProjectIds,
-		arg.Since,
-		arg.Until,
-	)
+	row := q.db.QueryRow(ctx, countAgentsWithModelCalls, arg.OrgID, arg.ProjectIds, arg.Since)
 	var agent_count int64
 	err := row.Scan(&agent_count)
 	return agent_count, err
 }
 
-const sumModelCallUsageByIntervalAndModel = `-- name: SumModelCallUsageByIntervalAndModel :many
-SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS interval_number,
-       revision.configured_model_id AS group_id,
-       configured_model.name AS group_name,
+const sumModelCallUsageByDay = `-- name: SumModelCallUsageByDay :many
+SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS day_number,
+       revision.configured_model_id,
+       configured_model.name AS configured_model_name,
+       agent.agent_profile_id,
+       coalesce(profile.name, '')::text AS agent_profile_name,
        count(*)::bigint AS model_calls,
        count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
        coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
@@ -66,96 +61,6 @@ JOIN configured_model_revisions revision ON revision.org_id = context.org_id
   AND revision.id = context.configured_model_revision_id
 JOIN configured_models configured_model ON configured_model.org_id = revision.org_id
   AND configured_model.id = revision.configured_model_id
-WHERE context.org_id = $2
-  AND context.project_id = ANY($3::uuid[])
-  AND context.created_at >= $4::timestamptz
-  AND ($5::timestamptz IS NULL OR context.created_at < $5::timestamptz)
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
-GROUP BY interval_number, revision.configured_model_id, configured_model.name
-ORDER BY interval_number, revision.configured_model_id
-`
-
-type SumModelCallUsageByIntervalAndModelParams struct {
-	IntervalStarts []time.Time
-	OrgID          uuid.UUID
-	ProjectIds     []uuid.UUID
-	Since          time.Time
-	Until          *time.Time
-}
-
-type SumModelCallUsageByIntervalAndModelRow struct {
-	IntervalNumber             int32
-	GroupID                    uuid.UUID
-	GroupName                  string
-	ModelCalls                 int64
-	ModelCallsWithReportedCost int64
-	InputTokensTotal           int64
-	UncachedInputTokens        int64
-	CacheReadInputTokens       int64
-	CacheWriteInputTokens      int64
-	OutputTokensTotal          int64
-	ReasoningOutputTokens      int64
-	ProviderReportedCostUsd    string
-}
-
-// @sqlc-vet-disable configured-models-deleted-at
-func (q *Queries) SumModelCallUsageByIntervalAndModel(ctx context.Context, arg SumModelCallUsageByIntervalAndModelParams) ([]SumModelCallUsageByIntervalAndModelRow, error) {
-	rows, err := q.db.Query(ctx, sumModelCallUsageByIntervalAndModel,
-		arg.IntervalStarts,
-		arg.OrgID,
-		arg.ProjectIds,
-		arg.Since,
-		arg.Until,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SumModelCallUsageByIntervalAndModelRow{}
-	for rows.Next() {
-		var i SumModelCallUsageByIntervalAndModelRow
-		if err := rows.Scan(
-			&i.IntervalNumber,
-			&i.GroupID,
-			&i.GroupName,
-			&i.ModelCalls,
-			&i.ModelCallsWithReportedCost,
-			&i.InputTokensTotal,
-			&i.UncachedInputTokens,
-			&i.CacheReadInputTokens,
-			&i.CacheWriteInputTokens,
-			&i.OutputTokensTotal,
-			&i.ReasoningOutputTokens,
-			&i.ProviderReportedCostUsd,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const sumModelCallUsageByIntervalAndProfile = `-- name: SumModelCallUsageByIntervalAndProfile :many
-SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS interval_number,
-       agent.agent_profile_id AS group_id,
-       coalesce(profile.name, '')::text AS group_name,
-       count(*)::bigint AS model_calls,
-       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
-FROM model_call_contexts context
 JOIN agents agent ON agent.project_id = context.project_id
   AND agent.id = context.agent_id
 LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
@@ -163,28 +68,28 @@ LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
 WHERE context.org_id = $2
   AND context.project_id = ANY($3::uuid[])
   AND context.created_at >= $4::timestamptz
-  AND ($5::timestamptz IS NULL OR context.created_at < $5::timestamptz)
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL
     OR context.provider_reported_cost_usd IS NOT NULL
   )
-GROUP BY interval_number, agent.agent_profile_id, profile.name
-ORDER BY interval_number, agent.agent_profile_id
+GROUP BY day_number, revision.configured_model_id, configured_model.name, agent.agent_profile_id, profile.name
+ORDER BY day_number, revision.configured_model_id, agent.agent_profile_id
 `
 
-type SumModelCallUsageByIntervalAndProfileParams struct {
-	IntervalStarts []time.Time
-	OrgID          uuid.UUID
-	ProjectIds     []uuid.UUID
-	Since          time.Time
-	Until          *time.Time
+type SumModelCallUsageByDayParams struct {
+	DayStarts  []time.Time
+	OrgID      uuid.UUID
+	ProjectIds []uuid.UUID
+	Since      time.Time
 }
 
-type SumModelCallUsageByIntervalAndProfileRow struct {
-	IntervalNumber             int32
-	GroupID                    *uuid.UUID
-	GroupName                  string
+type SumModelCallUsageByDayRow struct {
+	DayNumber                  int32
+	ConfiguredModelID          uuid.UUID
+	ConfiguredModelName        string
+	AgentProfileID             *uuid.UUID
+	AgentProfileName           string
 	ModelCalls                 int64
 	ModelCallsWithReportedCost int64
 	InputTokensTotal           int64
@@ -196,118 +101,28 @@ type SumModelCallUsageByIntervalAndProfileRow struct {
 	ProviderReportedCostUsd    string
 }
 
-// @sqlc-vet-disable agent-profiles-deleted-at
-func (q *Queries) SumModelCallUsageByIntervalAndProfile(ctx context.Context, arg SumModelCallUsageByIntervalAndProfileParams) ([]SumModelCallUsageByIntervalAndProfileRow, error) {
-	rows, err := q.db.Query(ctx, sumModelCallUsageByIntervalAndProfile,
-		arg.IntervalStarts,
+// @sqlc-vet-disable configured-models-deleted-at agent-profiles-deleted-at
+// Usage must still resolve when the configured model or agent profile is soft deleted.
+func (q *Queries) SumModelCallUsageByDay(ctx context.Context, arg SumModelCallUsageByDayParams) ([]SumModelCallUsageByDayRow, error) {
+	rows, err := q.db.Query(ctx, sumModelCallUsageByDay,
+		arg.DayStarts,
 		arg.OrgID,
 		arg.ProjectIds,
 		arg.Since,
-		arg.Until,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SumModelCallUsageByIntervalAndProfileRow{}
+	items := []SumModelCallUsageByDayRow{}
 	for rows.Next() {
-		var i SumModelCallUsageByIntervalAndProfileRow
+		var i SumModelCallUsageByDayRow
 		if err := rows.Scan(
-			&i.IntervalNumber,
-			&i.GroupID,
-			&i.GroupName,
-			&i.ModelCalls,
-			&i.ModelCallsWithReportedCost,
-			&i.InputTokensTotal,
-			&i.UncachedInputTokens,
-			&i.CacheReadInputTokens,
-			&i.CacheWriteInputTokens,
-			&i.OutputTokensTotal,
-			&i.ReasoningOutputTokens,
-			&i.ProviderReportedCostUsd,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const sumModelCallUsageByIntervalAndProject = `-- name: SumModelCallUsageByIntervalAndProject :many
-SELECT width_bucket(context.created_at, $1::timestamptz[])::integer AS interval_number,
-       project.id AS group_id,
-       project.name AS group_name,
-       count(*)::bigint AS model_calls,
-       count(context.provider_reported_cost_usd)::bigint AS model_calls_with_reported_cost,
-       coalesce(sum(context.input_tokens_total), 0)::bigint AS input_tokens_total,
-       coalesce(sum(context.uncached_input_tokens), 0)::bigint AS uncached_input_tokens,
-       coalesce(sum(context.cache_read_input_tokens), 0)::bigint AS cache_read_input_tokens,
-       coalesce(sum(context.cache_write_input_tokens), 0)::bigint AS cache_write_input_tokens,
-       coalesce(sum(context.output_tokens_total), 0)::bigint AS output_tokens_total,
-       coalesce(sum(context.reasoning_output_tokens), 0)::bigint AS reasoning_output_tokens,
-       coalesce(sum(context.provider_reported_cost_usd), 0)::text AS provider_reported_cost_usd
-FROM model_call_contexts context
-JOIN projects project ON project.org_id = context.org_id
-  AND project.id = context.project_id
-WHERE context.org_id = $2
-  AND context.project_id = ANY($3::uuid[])
-  AND project.deleted_at IS NULL
-  AND context.created_at >= $4::timestamptz
-  AND ($5::timestamptz IS NULL OR context.created_at < $5::timestamptz)
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
-GROUP BY interval_number, project.id, project.name
-ORDER BY interval_number, project.id
-`
-
-type SumModelCallUsageByIntervalAndProjectParams struct {
-	IntervalStarts []time.Time
-	OrgID          uuid.UUID
-	ProjectIds     []uuid.UUID
-	Since          time.Time
-	Until          *time.Time
-}
-
-type SumModelCallUsageByIntervalAndProjectRow struct {
-	IntervalNumber             int32
-	GroupID                    uuid.UUID
-	GroupName                  string
-	ModelCalls                 int64
-	ModelCallsWithReportedCost int64
-	InputTokensTotal           int64
-	UncachedInputTokens        int64
-	CacheReadInputTokens       int64
-	CacheWriteInputTokens      int64
-	OutputTokensTotal          int64
-	ReasoningOutputTokens      int64
-	ProviderReportedCostUsd    string
-}
-
-func (q *Queries) SumModelCallUsageByIntervalAndProject(ctx context.Context, arg SumModelCallUsageByIntervalAndProjectParams) ([]SumModelCallUsageByIntervalAndProjectRow, error) {
-	rows, err := q.db.Query(ctx, sumModelCallUsageByIntervalAndProject,
-		arg.IntervalStarts,
-		arg.OrgID,
-		arg.ProjectIds,
-		arg.Since,
-		arg.Until,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SumModelCallUsageByIntervalAndProjectRow{}
-	for rows.Next() {
-		var i SumModelCallUsageByIntervalAndProjectRow
-		if err := rows.Scan(
-			&i.IntervalNumber,
-			&i.GroupID,
-			&i.GroupName,
+			&i.DayNumber,
+			&i.ConfiguredModelID,
+			&i.ConfiguredModelName,
+			&i.AgentProfileID,
+			&i.AgentProfileName,
 			&i.ModelCalls,
 			&i.ModelCallsWithReportedCost,
 			&i.InputTokensTotal,

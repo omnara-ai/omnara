@@ -173,7 +173,6 @@ export {
   useOrgInvitations,
   useOrgMembers,
   useOrgOverview,
-  useOrgOverviewActivity,
 } from './domains/orgs'
 export { cursorPaginated } from './domains/pagination'
 export {
@@ -252,12 +251,10 @@ export {
 export { useToolCatalog } from './domains/tool-catalog'
 export {
   type AgentProfileUsageFilters,
-  type OrgOverviewUsageFilters,
   type OrgUsageFilters,
   type UsageWindow,
   useAgentProfileUsage,
   useAgentUsage,
-  useOrgOverviewUsage,
   useOrgUsage,
   useProjectUsage,
 } from './domains/usage'

@@ -3349,6 +3349,8 @@ export type OrgOverviewResponse = {
      * The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
      */
     referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
+    today: OrgOverviewToday;
+    usage: OrgOverviewUsage;
 };
 
 export type OrgOverviewAgentProfileReference = {
@@ -3360,74 +3362,100 @@ export type OrgOverviewAgentProfileReference = {
     agent_count: number;
 };
 
-export type OrgOverviewActivityResponse = {
+/**
+ * Activity since the start of today in `timezone`, across the readable projects in `projects`.
+ */
+export type OrgOverviewToday = {
     /**
-     * Agents created in the window, not counting subagents.
+     * Agents created today, not counting subagents.
      */
     agents_created: number;
     /**
-     * Messages sent to agents in the window, not counting messages to subagents.
+     * Messages sent to agents today, not counting messages to or from subagents.
      */
     messages_sent: number;
-    /**
-     * Input and output tokens across model calls started in the window.
-     */
-    tokens_used: number;
 };
 
-export type OrgOverviewUsageResponse = {
-    /**
-     * Usage across the whole requested window.
-     */
+/**
+ * Model usage over the last 30 days in `timezone`, today included, across the readable projects in `projects`.
+ */
+export type OrgOverviewUsage = {
     totals: UsageTotals;
     /**
-     * Agents, not counting subagents, that made at least one model call in the window.
+     * Agents, not counting subagents, that made at least one model call.
      */
     active_agents: number;
     /**
-     * Usage over the same length of time immediately before `since`, for period-over-period comparison.
+     * The configured models with the most tokens, most first, up to eight. Usage from any other model still counts toward every total.
      */
-    previous_totals: UsageTotals;
+    models: Array<OrgOverviewUsageModel>;
     /**
-     * The groups with the most tokens in the window, most first, up to `limit`. Usage from any other group still counts toward every total.
+     * The agent profiles with the most tokens, most first, up to eight. Usage from a subagent counts toward the subagent's own profile.
      */
-    groups: Array<OrgOverviewUsageGroup>;
+    profiles: Array<OrgOverviewUsageProfile>;
     /**
-     * One entry per interval, oldest first, from the interval containing `since` through the interval containing `until`, including intervals without usage.
+     * One entry per day, oldest first and ending today, including days without usage.
      */
-    intervals: Array<OrgOverviewUsageInterval>;
+    days: Array<OrgOverviewUsageDay>;
 };
 
-export type OrgOverviewUsageGroup = {
+export type OrgOverviewUsageModel = {
+    id: ConfiguredModelId;
     /**
-     * Configured model, project, or agent profile ID, matching `group_by`. Omitted for usage from agents launched without a profile.
+     * Configured model name, resolved even if the model has since been deleted.
      */
-    id?: string;
+    name: ResourceName;
+    totals: UsageTotals;
+};
+
+export type OrgOverviewUsageProfile = {
     /**
-     * Configured model, project, or agent profile name, resolved even if the model or profile has since been deleted. Omitted along with `id`.
+     * Omitted for usage from agents launched without a profile.
+     */
+    id?: AgentProfileId;
+    /**
+     * Agent profile name, resolved even if the profile has since been deleted. Omitted along with `id`.
      */
     name?: ResourceName;
     totals: UsageTotals;
 };
 
-export type OrgOverviewUsageInterval = {
+export type OrgOverviewUsageDay = {
+    /**
+     * Start of the day in `timezone`.
+     */
     start: Timestamp;
     /**
-     * All usage in the interval, including groups outside `groups`.
+     * All usage in the day, including models and profiles missing from `models` and `profiles`.
      */
     totals: UsageTotals;
     /**
-     * Usage in the interval for each returned group that has any, in `groups` order.
+     * Tokens in the day for each model in `models` that has any, in `models` order.
      */
-    groups: Array<OrgOverviewUsageIntervalGroup>;
+    models: Array<OrgOverviewUsageDayModel>;
+    /**
+     * Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
+     */
+    profiles: Array<OrgOverviewUsageDayProfile>;
 };
 
-export type OrgOverviewUsageIntervalGroup = {
+export type OrgOverviewUsageDayModel = {
+    id: ConfiguredModelId;
     /**
-     * The group's `id`, omitted for the group of agents launched without a profile.
+     * Input plus output tokens.
      */
-    id?: string;
-    totals: UsageTotals;
+    tokens: number;
+};
+
+export type OrgOverviewUsageDayProfile = {
+    /**
+     * Omitted for usage from agents launched without a profile.
+     */
+    id?: AgentProfileId;
+    /**
+     * Input plus output tokens.
+     */
+    tokens: number;
 };
 
 /**
@@ -4524,11 +4552,20 @@ export type GetOrgOverviewData = {
     path: {
         orgID: OrganizationId;
     };
-    query?: never;
+    query?: {
+        /**
+         * IANA time zone that decides where today and each day of `usage` start.
+         */
+        timezone?: string;
+    };
     url: '/orgs/{orgID}/overview';
 };
 
 export type GetOrgOverviewErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
     /**
      * Authentication is required or invalid.
      */
@@ -4577,170 +4614,6 @@ export type GetOrgOverviewResponses = {
 };
 
 export type GetOrgOverviewResponse = GetOrgOverviewResponses[keyof GetOrgOverviewResponses];
-
-export type GetOrgOverviewActivityData = {
-    body?: never;
-    path: {
-        orgID: OrganizationId;
-    };
-    query: {
-        /**
-         * Only count activity at or after this instant.
-         */
-        since: string;
-        /**
-         * Only count activity before this instant. Must be later than `since`. Omit to count activity up to now.
-         */
-        until?: string;
-    };
-    url: '/orgs/{orgID}/overview/activity';
-};
-
-export type GetOrgOverviewActivityErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type GetOrgOverviewActivityError = GetOrgOverviewActivityErrors[keyof GetOrgOverviewActivityErrors];
-
-export type GetOrgOverviewActivityResponses = {
-    /**
-     * Activity counts for the organization.
-     */
-    200: OrgOverviewActivityResponse;
-};
-
-export type GetOrgOverviewActivityResponse = GetOrgOverviewActivityResponses[keyof GetOrgOverviewActivityResponses];
-
-export type GetOrgOverviewUsageData = {
-    body?: never;
-    path: {
-        orgID: OrganizationId;
-    };
-    query: {
-        /**
-         * Only tally model calls started at or after this instant.
-         */
-        since: string;
-        /**
-         * Only tally model calls started before this instant. Must be later than `since`. Omit to include calls up to now.
-         */
-        until?: string;
-        /**
-         * Length of each interval. Intervals start on hour or midnight boundaries in `timezone`, and the series may hold at most 366 of them.
-         */
-        interval?: 'hour' | 'day';
-        /**
-         * IANA time zone that interval boundaries follow.
-         */
-        timezone?: string;
-        /**
-         * Whether to break usage down by configured model, by project, or by agent profile. Usage from a subagent counts toward the subagent's own profile.
-         */
-        group_by?: 'model' | 'project' | 'profile';
-        /**
-         * Maximum number of groups to break usage down into.
-         */
-        limit?: number;
-        /**
-         * Only tally model calls from these projects. Projects the caller cannot read contribute nothing.
-         */
-        project_ids?: Array<ProjectId>;
-    };
-    url: '/orgs/{orgID}/overview/usage';
-};
-
-export type GetOrgOverviewUsageErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type GetOrgOverviewUsageError = GetOrgOverviewUsageErrors[keyof GetOrgOverviewUsageErrors];
-
-export type GetOrgOverviewUsageResponses = {
-    /**
-     * Usage series for the organization.
-     */
-    200: OrgOverviewUsageResponse;
-};
-
-export type GetOrgOverviewUsageResponse = GetOrgOverviewUsageResponses[keyof GetOrgOverviewUsageResponses];
 
 export type GetOrgUsageData = {
     body?: never;

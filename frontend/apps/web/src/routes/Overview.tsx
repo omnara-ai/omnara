@@ -5,8 +5,10 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
 import { OverviewSummary } from '@/components/overview/OverviewSummary'
 import { UsageOverview } from '@/components/overview/UsageOverview'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { canManageOrg } from '@/lib/permissions'
+import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function Overview() {
@@ -47,18 +49,26 @@ export function Overview() {
             project={manageableProject}
           />
         </div>
-      ) : (
+      ) : overview ? (
         <>
-          <OverviewSummary
-            orgId={activeOrg.id}
-            overview={overview}
-            overviewError={overviewQuery.error}
-            onRetry={() => {
+          <OverviewSummary overview={overview} />
+          <UsageOverview usage={overview.usage} canViewReport={canManageOrg(activeOrg.role)} />
+        </>
+      ) : (
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-destructive text-sm" role="alert">
+            {errorMessage(overviewQuery.error, 'Could not load the overview.')}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
               void overviewQuery.refetch()
             }}
-          />
-          <UsageOverview orgId={activeOrg.id} canViewReport={canManageOrg(activeOrg.role)} />
-        </>
+          >
+            Retry
+          </Button>
+        </div>
       )}
     </div>
   )

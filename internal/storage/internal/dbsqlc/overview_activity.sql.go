@@ -12,83 +12,43 @@ import (
 	"github.com/google/uuid"
 )
 
-const countAgentsCreated = `-- name: CountAgentsCreated :one
-SELECT count(*)::bigint AS agent_count
-FROM agents agent
-WHERE agent.project_id = ANY($1::uuid[])
-  AND agent.parent_agent_id IS NULL
-  AND agent.created_at >= $2::timestamptz
-  AND ($3::timestamptz IS NULL OR agent.created_at < $3::timestamptz)
+const countOrgActivity = `-- name: CountOrgActivity :one
+SELECT (
+         SELECT count(*)
+         FROM agents agent
+         WHERE agent.project_id = ANY($1::uuid[])
+           AND agent.parent_agent_id IS NULL
+           AND agent.created_at >= $2::timestamptz
+           AND ($3::timestamptz IS NULL OR agent.created_at < $3::timestamptz)
+       )::bigint AS agents_created,
+       (
+         SELECT count(*)
+         FROM agent_inputs input
+         JOIN agents agent ON agent.project_id = input.project_id
+           AND agent.id = input.agent_id
+         WHERE input.project_id = ANY($1::uuid[])
+           AND input.input_kind = 'content'
+           AND input.idempotency_scope IS DISTINCT FROM 'subagent_message'
+           AND agent.parent_agent_id IS NULL
+           AND input.queued_at >= $2::timestamptz
+           AND ($3::timestamptz IS NULL OR input.queued_at < $3::timestamptz)
+       )::bigint AS messages_sent
 `
 
-type CountAgentsCreatedParams struct {
+type CountOrgActivityParams struct {
 	ProjectIds []uuid.UUID
 	Since      time.Time
 	Until      *time.Time
 }
 
-func (q *Queries) CountAgentsCreated(ctx context.Context, arg CountAgentsCreatedParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAgentsCreated, arg.ProjectIds, arg.Since, arg.Until)
-	var agent_count int64
-	err := row.Scan(&agent_count)
-	return agent_count, err
+type CountOrgActivityRow struct {
+	AgentsCreated int64
+	MessagesSent  int64
 }
 
-const countContentInputs = `-- name: CountContentInputs :one
-SELECT count(*)::bigint AS input_count
-FROM agent_inputs input
-JOIN agents agent ON agent.project_id = input.project_id
-  AND agent.id = input.agent_id
-WHERE input.project_id = ANY($1::uuid[])
-  AND input.input_kind = 'content'
-  AND agent.parent_agent_id IS NULL
-  AND input.queued_at >= $2::timestamptz
-  AND ($3::timestamptz IS NULL OR input.queued_at < $3::timestamptz)
-`
-
-type CountContentInputsParams struct {
-	ProjectIds []uuid.UUID
-	Since      time.Time
-	Until      *time.Time
-}
-
-func (q *Queries) CountContentInputs(ctx context.Context, arg CountContentInputsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countContentInputs, arg.ProjectIds, arg.Since, arg.Until)
-	var input_count int64
-	err := row.Scan(&input_count)
-	return input_count, err
-}
-
-const sumTokensUsed = `-- name: SumTokensUsed :one
-SELECT (coalesce(sum(context.input_tokens_total), 0) + coalesce(sum(context.output_tokens_total), 0))::bigint
-         AS tokens_used
-FROM model_call_contexts context
-WHERE context.org_id = $1
-  AND context.project_id = ANY($2::uuid[])
-  AND context.created_at >= $3::timestamptz
-  AND ($4::timestamptz IS NULL OR context.created_at < $4::timestamptz)
-  AND (
-    context.input_tokens_total IS NOT NULL
-    OR context.output_tokens_total IS NOT NULL
-    OR context.provider_reported_cost_usd IS NOT NULL
-  )
-`
-
-type SumTokensUsedParams struct {
-	OrgID      uuid.UUID
-	ProjectIds []uuid.UUID
-	Since      time.Time
-	Until      *time.Time
-}
-
-func (q *Queries) SumTokensUsed(ctx context.Context, arg SumTokensUsedParams) (int64, error) {
-	row := q.db.QueryRow(ctx, sumTokensUsed,
-		arg.OrgID,
-		arg.ProjectIds,
-		arg.Since,
-		arg.Until,
-	)
-	var tokens_used int64
-	err := row.Scan(&tokens_used)
-	return tokens_used, err
+func (q *Queries) CountOrgActivity(ctx context.Context, arg CountOrgActivityParams) (CountOrgActivityRow, error) {
+	row := q.db.QueryRow(ctx, countOrgActivity, arg.ProjectIds, arg.Since, arg.Until)
+	var i CountOrgActivityRow
+	err := row.Scan(&i.AgentsCreated, &i.MessagesSent)
+	return i, err
 }

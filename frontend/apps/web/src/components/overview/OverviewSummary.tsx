@@ -1,83 +1,50 @@
-import { useOrgOverviewActivity } from '@omnara/react'
 import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
-import { startOfDay } from 'date-fns'
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHeader'
-import { Button } from '@/components/ui/button'
+import { usageMeasureValue } from '@/components/overview/usage-overview-data'
 import { Card } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { formatCompactCount, formatCount } from '@/lib/format'
-import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
 
 const recentLimit = 5
 const rowLinkClass = 'group flex h-full min-w-0 items-center gap-3 text-sm'
 const rowMetaClass = 'text-muted-foreground shrink-0 text-xs tabular-nums'
 
-export function OverviewSummary({
-  orgId,
-  overview,
-  overviewError,
-  onRetry,
-}: {
-  orgId: string
-  overview: OrgOverviewResponse | undefined
-  overviewError: unknown
-  onRetry: () => void
-}) {
+export function OverviewSummary({ overview }: { overview: OrgOverviewResponse }) {
   return (
     <section className="flex flex-col gap-6">
       <OverviewSectionHeader title="Overview" />
       <div className="grid gap-4 md:grid-cols-3">
-        <TodayColumn orgId={orgId} />
-        {overview ? (
-          <>
-            <EditedProfilesColumn overview={overview} />
-            <LatestAgentsColumn overview={overview} />
-          </>
-        ) : (
-          <Card className="items-start gap-3 p-5 md:col-span-2">
-            <p className="text-destructive text-sm" role="alert">
-              {errorMessage(overviewError, 'Could not load agents and profiles.')}
-            </p>
-            <Button size="sm" variant="outline" onClick={onRetry}>
-              Retry
-            </Button>
-          </Card>
-        )}
+        <TodayColumn overview={overview} />
+        <EditedProfilesColumn overview={overview} />
+        <LatestAgentsColumn overview={overview} />
       </div>
     </section>
   )
 }
 
-function TodayColumn({ orgId }: { orgId: string }) {
-  const [since] = useState(() => startOfDay(new Date()).toISOString())
-  const query = useOrgOverviewActivity(orgId, since)
+function TodayColumn({ overview }: { overview: OrgOverviewResponse }) {
+  const todayUsage = overview.usage.days.at(-1)
   const stats = [
-    { label: 'Agents created', value: query.data && formatCount(query.data.agents_created) },
-    { label: 'Messages sent', value: query.data && formatCount(query.data.messages_sent) },
-    { label: 'Tokens used', value: query.data && formatCompactCount(query.data.tokens_used) },
+    { label: 'Agents created', value: formatCount(overview.today.agents_created) },
+    { label: 'Messages sent', value: formatCount(overview.today.messages_sent) },
+    {
+      label: 'Tokens used',
+      value: formatCompactCount(todayUsage ? usageMeasureValue(todayUsage.totals, 'tokens') : 0),
+    },
   ]
   return (
     <OverviewColumn title="Today">
-      {query.isError ? (
-        <p className="text-destructive text-sm" role="alert">
-          {errorMessage(query.error, 'Could not load today’s activity.')}
-        </p>
-      ) : (
-        <dl className="flex flex-1 flex-col justify-between gap-3">
-          {stats.map((stat) => (
-            <div key={stat.label} className="flex flex-col gap-0.5">
-              <dt className="text-muted-foreground text-sm">{stat.label}</dt>
-              <dd className="text-2xl leading-8 tracking-[-0.02em]">
-                {stat.value ?? <Skeleton className="h-8 w-16" />}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <dl className="flex flex-1 flex-col justify-between gap-3">
+        {stats.map((stat) => (
+          <div key={stat.label} className="flex flex-col gap-0.5">
+            <dt className="text-muted-foreground text-sm">{stat.label}</dt>
+            <dd className="text-2xl leading-8 tracking-[-0.02em]">{stat.value}</dd>
+          </div>
+        ))}
+      </dl>
     </OverviewColumn>
   )
 }

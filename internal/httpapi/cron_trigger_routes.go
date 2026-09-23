@@ -346,7 +346,7 @@ func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi
 			return openapi.CronTriggerTarget{}, err
 		}
 		if err := response.FromAgentProfileCronTriggerTarget(openapi.AgentProfileCronTriggerTarget{
-			Type:           openapi.AgentProfileCronTriggerTargetTypeProfile,
+			Type:           openapi.Profile,
 			AgentProfileId: profileID,
 		}); err != nil {
 			return openapi.CronTriggerTarget{}, err

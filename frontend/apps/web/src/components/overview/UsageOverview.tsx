@@ -1,5 +1,4 @@
-import { useOrgOverviewUsage } from '@omnara/react'
-import type { OrgOverviewUsageResponse } from '@omnara/sdk'
+import type { OrgOverviewUsage } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
 
@@ -8,38 +7,29 @@ import { panelHintClass, tabTriggerClass } from '@/components/overview/CodeBlock
 import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHeader'
 import {
   formatUsageValue,
+  type UsageBreakdown,
   usageChartData,
   usageMeasureValue,
-  usageSeriesLimit,
-  usageWindowDays,
-  usageWindowSince,
 } from '@/components/overview/usage-overview-data'
 import { UsageChart } from '@/components/overview/UsageChart'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ReportedCost } from '@/components/usage/ReportedCost'
 import { formatCount } from '@/lib/format'
-import { errorMessage } from '@/lib/submit-status'
 import { cn } from '@/lib/utils'
-
-type UsageBreakdown = 'model' | 'profile'
 
 const breakdowns: { value: UsageBreakdown; label: string }[] = [
   { value: 'model', label: 'Model' },
   { value: 'profile', label: 'Profile' },
 ]
 
-export function UsageOverview({ orgId, canViewReport }: { orgId: string; canViewReport: boolean }) {
-  const [since] = useState(() => usageWindowSince(new Date()).toISOString())
-  const [timezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+export function UsageOverview({
+  usage,
+  canViewReport,
+}: {
+  usage: OrgOverviewUsage
+  canViewReport: boolean
+}) {
   const [breakdown, setBreakdown] = useState<UsageBreakdown>('model')
-  const query = useOrgOverviewUsage(orgId, {
-    since,
-    interval: 'day',
-    timezone,
-    groupBy: breakdown,
-    limit: usageSeriesLimit,
-  })
 
   return (
     <section>
@@ -52,7 +42,8 @@ export function UsageOverview({ orgId, canViewReport }: { orgId: string; canView
         className="gap-6"
       >
         <OverviewSectionHeader
-          title="Monthly usage"
+          title="Usage"
+          subtitle={`Last ${usage.days.length} days`}
           action={
             <div className="flex items-center gap-4">
               <TabsList variant="line" aria-label="Break usage down by" className="gap-1 p-0">
@@ -72,33 +63,18 @@ export function UsageOverview({ orgId, canViewReport }: { orgId: string; canView
           }
         />
         <TabsContent value={breakdown} className="flex flex-col gap-6">
-          {query.isPending ? (
-            <UsageSkeleton />
-          ) : query.isError ? (
-            <p className="text-destructive text-sm" role="alert">
-              {errorMessage(query.error, 'Could not load usage.')}
-            </p>
-          ) : (
-            <>
-              <UsageFigures usage={query.data} />
-              <div
-                aria-busy={query.isPlaceholderData}
-                className={cn('transition-opacity', query.isPlaceholderData && 'opacity-50')}
-              >
-                <UsageChart
-                  data={usageChartData(query.data)}
-                  label={`Tokens per day by ${breakdown} over the last ${usageWindowDays} days`}
-                />
-              </div>
-            </>
-          )}
+          <UsageFigures usage={usage} />
+          <UsageChart
+            data={usageChartData(usage, breakdown)}
+            label={`Tokens per day by ${breakdown} over the last ${usage.days.length} days`}
+          />
         </TabsContent>
       </Tabs>
     </section>
   )
 }
 
-function UsageFigures({ usage }: { usage: OrgOverviewUsageResponse }) {
+function UsageFigures({ usage }: { usage: OrgOverviewUsage }) {
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-3 pb-3 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-10">
       <UsageFigure
@@ -127,14 +103,5 @@ function UsageFigure({ value, label }: { value: ReactNode; label: string }) {
       <span className="text-xl font-semibold tracking-[-0.03em] sm:text-3xl">{value}</span>
       <span className="text-muted-foreground text-sm">{label}</span>
     </p>
-  )
-}
-
-function UsageSkeleton() {
-  return (
-    <div className="flex flex-col gap-6">
-      <Skeleton className="h-9 w-full max-w-2xl" />
-      <Skeleton className="h-56 sm:h-72" />
-    </div>
   )
 }

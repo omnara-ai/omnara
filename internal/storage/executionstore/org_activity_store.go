@@ -10,7 +10,6 @@ import (
 )
 
 type CountOrgActivityInput struct {
-	OrgID      uuid.UUID
 	ProjectIDs []uuid.UUID
 	Window     UsageWindow
 }
@@ -18,13 +17,9 @@ type CountOrgActivityInput struct {
 type OrgActivity struct {
 	AgentsCreated int64
 	MessagesSent  int64
-	TokensUsed    int64
 }
 
 func (s *Store) CountOrgActivity(ctx context.Context, input CountOrgActivityInput) (OrgActivity, error) {
-	if input.OrgID == uuid.Nil {
-		return OrgActivity{}, errors.New("org is required")
-	}
 	if input.Window.Since == nil {
 		return OrgActivity{}, errors.New("activity since is required")
 	}
@@ -34,30 +29,13 @@ func (s *Store) CountOrgActivity(ctx context.Context, input CountOrgActivityInpu
 	if len(input.ProjectIDs) == 0 {
 		return OrgActivity{}, nil
 	}
-	agents, err := s.q.CountAgentsCreated(ctx, dbsqlc.CountAgentsCreatedParams{
+	row, err := s.q.CountOrgActivity(ctx, dbsqlc.CountOrgActivityParams{
 		ProjectIds: input.ProjectIDs,
 		Since:      *input.Window.Since,
 		Until:      input.Window.Until,
 	})
 	if err != nil {
-		return OrgActivity{}, fmt.Errorf("count agents created: %w", err)
+		return OrgActivity{}, fmt.Errorf("count org activity: %w", err)
 	}
-	messages, err := s.q.CountContentInputs(ctx, dbsqlc.CountContentInputsParams{
-		ProjectIds: input.ProjectIDs,
-		Since:      *input.Window.Since,
-		Until:      input.Window.Until,
-	})
-	if err != nil {
-		return OrgActivity{}, fmt.Errorf("count messages sent: %w", err)
-	}
-	tokens, err := s.q.SumTokensUsed(ctx, dbsqlc.SumTokensUsedParams{
-		OrgID:      input.OrgID,
-		ProjectIds: input.ProjectIDs,
-		Since:      *input.Window.Since,
-		Until:      input.Window.Until,
-	})
-	if err != nil {
-		return OrgActivity{}, fmt.Errorf("sum tokens used: %w", err)
-	}
-	return OrgActivity{AgentsCreated: agents, MessagesSent: messages, TokensUsed: tokens}, nil
+	return OrgActivity{AgentsCreated: row.AgentsCreated, MessagesSent: row.MessagesSent}, nil
 }
