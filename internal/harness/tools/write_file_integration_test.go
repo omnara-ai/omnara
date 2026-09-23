@@ -240,7 +240,7 @@ func TestEditFileTextLimits(t *testing.T) {
 			if output != nil || !errors.Is(err, test.cause) || !strings.Contains(err.Error(), "script execution timed out:") {
 				t.Fatalf("loop output = %q, error = %v", output, err)
 			}
-			if test.cause != context.DeadlineExceeded &&
+			if !errors.Is(test.cause, context.DeadlineExceeded) &&
 				(errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
 				t.Fatalf("tool timeout reported as interrupted: %v", err)
 			}

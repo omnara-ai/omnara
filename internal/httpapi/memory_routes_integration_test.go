@@ -249,7 +249,10 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	call(download, http.MethodPost, content, http.StatusNotFound)
 	replacementContent := []byte("updated content")
 	call(upload, http.MethodPost, replacementContent, http.StatusConflict)
-	digest := uploaded["digest"].(string)
+	digest, ok := uploaded["digest"].(string)
+	if !ok {
+		t.Fatalf("upload response is missing a string digest: %v", uploaded)
+	}
 	replacement := makeFixture("memory-replacement", "upload_file", &digest)
 	replaced := call(replacement, http.MethodPost, replacementContent, http.StatusCreated)
 	if replaced["digest"] != fmt.Sprintf("sha256:%x", sha256.Sum256(replacementContent)) {
