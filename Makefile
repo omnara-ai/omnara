@@ -332,8 +332,8 @@ tagged-packages-check:
 		$(GO) test -c -tags=blackbox -o "$$tmp_dir/blackbox.test" ./internal/blackbox
 
 db-up:
-	POSTGRES_HOST_PORT=$(POSTGRES_HOST_PORT) REDIS_HOST_PORT=$(REDIS_HOST_PORT) docker compose up -d --wait postgres redis minio
-	docker compose run --rm minio-init
+	POSTGRES_HOST_PORT=$(POSTGRES_HOST_PORT) REDIS_HOST_PORT=$(REDIS_HOST_PORT) docker compose up -d --wait postgres redis rustfs
+	docker compose run --rm rustfs-init
 
 db-down:
 	docker compose down

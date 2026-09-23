@@ -116,11 +116,11 @@ Artifact content lives in S3-compatible object storage; a bucket is required.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose MinIO bucket `omnara` | Yes |
+| `OMNARA_BLOB_S3_BUCKET` | Bucket for artifact content | *dev:* Compose RustFS bucket `omnara` | Yes |
 | `OMNARA_BLOB_S3_REGION` | Bucket region | — | No |
-| `OMNARA_BLOB_S3_ENDPOINT` | Custom endpoint for MinIO or other S3-compatible stores; HTTPS outside localhost | — | No |
+| `OMNARA_BLOB_S3_ENDPOINT` | Custom endpoint for S3-compatible stores; HTTPS outside localhost | — | No |
 | `OMNARA_BLOB_S3_ACCESS_KEY_ID` / `OMNARA_BLOB_S3_SECRET_ACCESS_KEY` | Static credentials; set both or neither. Leave empty to use the AWS default credential chain. | — | No |
-| `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (MinIO) | `0` | No |
+| `OMNARA_BLOB_S3_USE_PATH_STYLE` | `1` for path-style addressing (RustFS) | `0` | No |
 
 ## Machine daemon and pools
 

@@ -11,7 +11,7 @@ x-app-env: &app-env
 x-blob-env: &blob-env
   OMNARA_BLOB_S3_BUCKET: ${OMNARA_BLOB_S3_BUCKET:-omnara}
   OMNARA_BLOB_S3_REGION: ${OMNARA_BLOB_S3_REGION:-us-east-1}
-  OMNARA_BLOB_S3_ENDPOINT: ${OMNARA_BLOB_S3_ENDPOINT:-http://minio:9000}
+  OMNARA_BLOB_S3_ENDPOINT: ${OMNARA_BLOB_S3_ENDPOINT:-http://rustfs:9000}
   OMNARA_BLOB_S3_ACCESS_KEY_ID: ${OMNARA_BLOB_S3_ACCESS_KEY_ID:-omnara}
   OMNARA_BLOB_S3_SECRET_ACCESS_KEY: ${OMNARA_BLOB_S3_SECRET_ACCESS_KEY:-omnara-blobs}
   OMNARA_BLOB_S3_USE_PATH_STYLE: ${OMNARA_BLOB_S3_USE_PATH_STYLE:-1}
@@ -43,33 +43,35 @@ services:
     volumes:
       - postgres18-data:/var/lib/postgresql
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
-    command: server /data
+  rustfs:
+    image: rustfs/rustfs:1.0.0
+    command: /data
     environment:
-      MINIO_ROOT_USER: omnara
-      MINIO_ROOT_PASSWORD: omnara-blobs
+      RUSTFS_ACCESS_KEY: omnara
+      RUSTFS_SECRET_KEY: omnara-blobs
     ports:
-      - "59000:9000"
+      - "127.0.0.1:59000:9000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/health/ready"]
       interval: 2s
       timeout: 2s
       retries: 20
     volumes:
-      - minio-data:/data
+      - rustfs-data:/data
 
   # One-shot bucket provisioning: the application assumes buckets exist.
-  minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+  rustfs-init:
+    image: rustfs/rustfs:1.0.0
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 omnara omnara-blobs &&
-      mc mb --ignore-existing local/omnara local/omnara-test
-      "
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        curl -fsS -o /dev/null -X PUT --aws-sigv4 'aws:amz:us-east-1:s3' --user 'omnara:omnara-blobs' http://rustfs:9000/omnara
+        curl -fsS -o /dev/null -X PUT --aws-sigv4 'aws:amz:us-east-1:s3' --user 'omnara:omnara-blobs' http://rustfs:9000/omnara-test
+    command: []
     restart: "no"
 
   # One-shot schema migration: app services depend on its successful exit and
@@ -108,7 +110,7 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-      minio-init:
+      rustfs-init:
         condition: service_completed_successfully
     restart: unless-stopped
 
@@ -128,7 +130,7 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-      minio-init:
+      rustfs-init:
         condition: service_completed_successfully
     restart: unless-stopped
 
@@ -166,7 +168,7 @@ services:
 
 volumes:
   postgres18-data:
-  minio-data:
+  rustfs-data:
 
 networks:
   default:
