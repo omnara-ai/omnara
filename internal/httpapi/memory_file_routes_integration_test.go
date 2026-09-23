@@ -19,7 +19,6 @@ import (
 )
 
 func TestMemoryFileManagementAPI(t *testing.T) {
-	t.Parallel()
 	pool := openIntegrationDB(t, context.Background())
 	handler := newIntegrationServerWithStoreOptions(pool, []storage.Option{memoryFileOption(t)})
 	project := bootstrapPublicHTTPProject(t, handler, "memory-files")
@@ -31,7 +30,9 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	id, ok := record["id"].(string)
 	require.True(t, ok)
 	base := stores + "/" + id
-	request := func(t *testing.T, method, endpoint string, body []byte, token string, status int) *httptest.ResponseRecorder {
+	request := func(
+		t *testing.T, method, endpoint string, body []byte, token string, status int,
+	) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, endpoint, bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -160,7 +161,8 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 	}
 	notDirectory := request(t, http.MethodGet, base+"/files?path=a.txt", nil,
 		project.AdminToken, http.StatusBadRequest)
-	require.JSONEq(t, `{"code":"invalid_request","error":"invalid request: path must identify a directory"}`, notDirectory.Body.String())
+	require.JSONEq(t,
+		`{"code":"invalid_request","error":"invalid request: path must identify a directory"}`, notDirectory.Body.String())
 	request(t, http.MethodGet, file("missing.txt"), nil, project.AdminToken, http.StatusNotFound)
 	conflict := request(t, http.MethodPut, file("nested"), []byte("content"),
 		project.AdminToken, http.StatusConflict)

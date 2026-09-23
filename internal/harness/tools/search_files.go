@@ -444,7 +444,8 @@ func (s *searchStream) consume(data []byte) error {
 		if err != nil || !ok {
 			return err
 		}
-		if output.result.MatchCount >= output.input.Limit || output.used+len(path)+searchEntryOverheadBytes > toolcatalog.FilePageBytes {
+		if output.result.MatchCount >= output.input.Limit ||
+			output.used+len(path)+searchEntryOverheadBytes > toolcatalog.FilePageBytes {
 			return errSearchResultLimit
 		}
 		output.result.Files = append(output.result.Files, searchFileResult{Path: path, Count: count})

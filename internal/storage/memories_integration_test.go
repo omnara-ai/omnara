@@ -526,7 +526,10 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 			"weird[1]%_文.md", "folder.md/child.txt", "prefix/\U0001f600.md"},
 		"a-b": {"next.md"}, "z": {"last.md", "last.txt"}, "unattached": {"hidden.md"},
 	}
-	all := []listing.FileEntry{{Path: "/artifacts", Type: listing.FileTypeDirectory}, {Path: "/memory", Type: listing.FileTypeDirectory}}
+	all := []listing.FileEntry{
+		{Path: "/artifacts", Type: listing.FileTypeDirectory},
+		{Path: "/memory", Type: listing.FileTypeDirectory},
+	}
 	for _, name := range []string{"a", "a-b", "z", "unattached"} {
 		for _, path := range fixtures[name] {
 			if _, err := store.Memories().Write(ctx, memorystore.WriteInput{
