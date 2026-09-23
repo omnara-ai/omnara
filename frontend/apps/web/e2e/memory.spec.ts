@@ -265,7 +265,9 @@ for (const concurrentRecreation of [false, true]) {
     await page.getByRole('button', { name: 'Save changes', exact: true }).click()
     const recreate = page.getByRole('button', { name: 'Recreate file', exact: true })
     await expect(recreate).toBeEnabled()
-    await expect(page.getByRole('alert')).toHaveText('This file no longer exists. Check latest')
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'This file no longer exists.' }),
+    ).toHaveText('This file no longer exists. Check latest')
     const missing = page.waitForResponse(
       (response) => response.url() === fileURL.toString() && response.status() === 404,
     )
