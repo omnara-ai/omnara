@@ -1318,19 +1318,7 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if string(request.Authorization.Input) != string(wantAuth) {
 				t.Fatalf("authorization = %s, want %s", request.Authorization.Input, wantAuth)
 			}
-			actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(fixture.User.ID))
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = fixture.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
-				ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID, ID: interaction.ID, Actor: actor,
-				Resolution: interactionform.Resolution{
-					Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
-				},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), interaction, fixture.User.ID)
 			wakes = 0
 			result, err := executor.Dispatch(ctx, turn, call)
 			if err != nil {

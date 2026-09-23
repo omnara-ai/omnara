@@ -253,7 +253,6 @@ func machineListPage(
 			return false, nil
 		}
 		entryBytes = nextBytes
-		page.NextCursor = nextCursor
 		return true, nil
 	}
 	finish := func() (transactionalPhaseResult, error) {
@@ -293,6 +292,7 @@ func machineListPage(
 				return finish()
 			}
 			page.MachinePools = append(page.MachinePools, entry)
+			page.NextCursor = nextCursor
 		}
 	}
 	for index, machine := range machines {
@@ -312,7 +312,7 @@ func machineListPage(
 			return nil, err
 		}
 		if !fits {
-			if len(page.Machines)+len(page.MachinePools) == 0 {
+			if len(page.Machines) == 0 && len(page.MachinePools) == 0 {
 				return failMachineTransaction("machine_details_too_large", fmt.Errorf(
 					"details for machine %s exceed the list_machines size limit; use inspect_machine for details, or call list_machines with cursor %q to continue",
 					observation.MachineID, observation.MachineID,
@@ -321,6 +321,7 @@ func machineListPage(
 			break
 		}
 		page.Machines = append(page.Machines, observation)
+		page.NextCursor = nextCursor
 	}
 	return finish()
 }

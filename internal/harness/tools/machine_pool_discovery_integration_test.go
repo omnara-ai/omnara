@@ -8,28 +8,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	ctx := context.Background()
-	fixture := newMachineDispatchFixture(t, ctx, "pool-discovery")
+	fixture := newMachineDispatchEnvironment(t, ctx, "pool-discovery", management.Tenant)
 	store := fixture.Store.Execution()
-	first := fixture.MachinePool
-	second, err := store.CreateMachinePool(ctx, executionstore.CreateMachinePoolInput{
-		OrgID: toolsTestOrgID, Name: "Second pool", Provider: first.Provider,
-		ProviderAuthSecretID: first.ProviderAuthSecretID,
-		DefaultMachineCPU:    first.DefaultMachineCPU, DefaultMachineMemoryMB: first.DefaultMachineMemoryMB,
-		DefaultMachineProviderOptions: first.DefaultMachineProviderOptions, MaxTotalMachines: 2,
+	selectedPool := fixture.MachinePool
+	otherPool, err := store.CreateMachinePool(ctx, executionstore.CreateMachinePoolInput{
+		OrgID: toolsTestOrgID, Name: "Second pool", Provider: selectedPool.Provider,
+		ProviderAuthSecretID: selectedPool.ProviderAuthSecretID,
+		DefaultMachineCPU:    selectedPool.DefaultMachineCPU, DefaultMachineMemoryMB: selectedPool.DefaultMachineMemoryMB,
+		DefaultMachineProviderOptions: selectedPool.DefaultMachineProviderOptions, MaxTotalMachines: 2,
 	})
 	require.NoError(t, err)
-	secondGrant, err := store.CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, MachinePoolID: second.ID, IdempotencyKey: "second-pool",
+	otherPoolGrant, err := store.CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, MachinePoolID: otherPool.ID, IdempotencyKey: "second-pool",
 	})
 	require.NoError(t, err)
 
@@ -37,7 +38,7 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	require.NoError(t, json.Unmarshal(fixture.Config.CompiledDefinition, &definition))
 	definition.MachineSources[0].Description = "Build workers"
 	definition.MachineSources = append(definition.MachineSources, agentconfig.MachineSourceCompiled{
-		MachinePoolID: poolPublicIDForTest(t, second.ID), MaxMachines: 1, Description: "Test workers",
+		MachinePoolID: poolPublicIDForTest(t, otherPool.ID), MaxMachines: 1, Description: "Test workers",
 	})
 	createTool := definition.Tools["create_machine"]
 	createTool.Permission = toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
@@ -53,20 +54,23 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 		LaunchedBy: toolsTestUserPrincipal(fixture.UserID), IdempotencyKey: "pool-discovery-derived",
 	})
 	require.NoError(t, err)
-	poolID := poolPublicIDForTest(t, first.ID)
-	calls := []model.ToolCall{
-		{ID: "list-empty", Name: "list_machines", Input: json.RawMessage(`{}`)},
-		{ID: "create-selected", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"` + poolID + `"}`)},
-		{ID: "list-created", Name: "list_machines", Input: json.RawMessage(`{}`)},
-		{ID: "inspect-created", Name: "inspect_machine", Input: json.RawMessage(`{}`)},
-		{ID: "list-after-revoke", Name: "list_machines", Input: json.RawMessage(`{}`)},
+	poolID := poolPublicIDForTest(t, selectedPool.ID)
+	listEmptyCall := model.ToolCall{ID: "list-empty", Name: "list_machines", Input: json.RawMessage(`{}`)}
+	createCall := model.ToolCall{
+		ID: "create-selected", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"` + poolID + `"}`),
 	}
+	listCreatedCall := model.ToolCall{ID: "list-created", Name: "list_machines", Input: json.RawMessage(`{}`)}
+	inspectCall := model.ToolCall{ID: "inspect-created", Name: "inspect_machine", Input: json.RawMessage(`{}`)}
+	listAfterRevokeCall := model.ToolCall{ID: "list-after-revoke", Name: "list_machines", Input: json.RawMessage(`{}`)}
 	records, lock, admitted, modelContext := recordMachineToolCallsForDirectStoreTest(
 		t, ctx, fixture.Store, launch.Agent.ID, fixture.UserID, config.ID,
-		"pool-discovery", calls, fixture.Now.Add(time.Second),
+		"pool-discovery", []model.ToolCall{listEmptyCall, createCall, listCreatedCall, inspectCall, listAfterRevokeCall},
+		fixture.Now.Add(time.Second),
 	)
+	var createToolCallID uuid.UUID
 	for _, record := range records {
-		if record.Name == "create_machine" {
+		if record.ProviderCallID == createCall.ID {
+			createToolCallID = record.ID
 			continue
 		}
 		_, err := store.MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
@@ -91,75 +95,62 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 		require.Equal(t, DispatchCompleted, result.Disposition)
 		return toolResultMapFromTestParts(t, result.ContentParts)
 	}
-	listed := dispatch(calls[0])
+	renamePool := func(id uuid.UUID, name string) {
+		t.Helper()
+		_, err := store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+			OrgID: toolsTestOrgID, ID: id, Name: &name,
+		})
+		require.NoError(t, err)
+	}
+	listed := dispatch(listEmptyCall)
 	require.Empty(t, listed["machines"])
 	require.ElementsMatch(t, []any{
-		map[string]any{"machine_pool_id": poolID, "machine_pool_name": first.Name, "description": "Build workers"},
+		map[string]any{"machine_pool_id": poolID, "machine_pool_name": selectedPool.Name, "description": "Build workers"},
 		map[string]any{
-			"machine_pool_id":   poolPublicIDForTest(t, second.ID),
-			"machine_pool_name": second.Name, "description": "Test workers",
+			"machine_pool_id":   poolPublicIDForTest(t, otherPool.ID),
+			"machine_pool_name": otherPool.Name, "description": "Test workers",
 		},
 	}, listed["machine_pools"])
 
-	_, err = store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID: toolsTestOrgID, ID: first.ID, Name: new("Temporary pool"),
-	})
-	require.NoError(t, err)
-	_, err = store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID: toolsTestOrgID, ID: second.ID, Name: &first.Name,
-	})
-	require.NoError(t, err)
-	_, err = store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID: toolsTestOrgID, ID: first.ID, Name: &second.Name,
-	})
-	require.NoError(t, err)
-	require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, calls[1]))
+	renamePool(selectedPool.ID, "Temporary pool")
+	renamePool(otherPool.ID, selectedPool.Name)
+	renamePool(selectedPool.ID, otherPool.Name)
+	require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, createCall))
 	interaction, found, err := store.GetAgentInteractionByToolCallKind(
-		ctx, toolsTestProjectID, launch.Agent.ID, records[1].ID, "permission",
+		ctx, toolsTestProjectID, launch.Agent.ID, createToolCallID, executionstore.AgentInteractionKindPermission,
 	)
 	require.NoError(t, err)
 	require.True(t, found)
 	var request toolpermission.Request
 	require.NoError(t, json.Unmarshal(interaction.Request, &request))
-	require.JSONEq(t, string(calls[1].Input), string(request.Authorization.Input))
+	require.JSONEq(t, string(createCall.Input), string(request.Authorization.Input))
 	requestBody, err := json.Marshal(request.Form)
 	require.NoError(t, err)
-	require.Contains(t, string(requestBody), second.Name)
+	require.Contains(t, string(requestBody), otherPool.Name)
 	require.Contains(t, string(requestBody), poolID)
-	actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(fixture.UserID))
-	require.NoError(t, err)
-	_, err = store.ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
-		ProjectID: toolsTestProjectID, AgentID: launch.Agent.ID, ID: interaction.ID, Actor: actor,
-		Resolution: interactionform.Resolution{
-			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
-		},
-	})
-	require.NoError(t, err)
+	approveToolPermissionForTest(t, ctx, store, interaction, fixture.UserID)
 
 	renamed := "Renamed build pool"
-	_, err = store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
-		OrgID: toolsTestOrgID, ID: first.ID, Name: &renamed,
-	})
-	require.NoError(t, err)
-	created := dispatch(calls[1])
+	renamePool(selectedPool.ID, renamed)
+	created := dispatch(createCall)
 	require.Equal(t, poolID, created["machine_pool_id"])
 	require.Equal(t, renamed, created["machine_pool_name"])
-	machine, err := store.GetPoolMachineByCreateToolCall(ctx, toolsTestProjectID, launch.Agent.ID, records[1].ID)
+	machine, err := store.GetPoolMachineByCreateToolCall(ctx, toolsTestProjectID, launch.Agent.ID, createToolCallID)
 	require.NoError(t, err)
-	require.Equal(t, first.ID, machine.Machine.MachinePoolID)
-	listed = dispatch(calls[2])
+	require.Equal(t, selectedPool.ID, machine.Machine.MachinePoolID)
+	listed = dispatch(listCreatedCall)
 	machines, ok := listed["machines"].([]any)
 	require.True(t, ok)
 	require.Len(t, machines, 1)
 	listedMachine, ok := machines[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, poolID, listedMachine["machine_pool_id"])
-	inspected := dispatch(calls[3])
+	inspected := dispatch(inspectCall)
 	require.Equal(t, poolID, inspected["machine_pool_id"])
 
-	_, err = store.DeleteProjectMachinePoolGrant(ctx, toolsTestOrgID, toolsTestProjectID, secondGrant.ID)
+	_, err = store.DeleteProjectMachinePoolGrant(ctx, toolsTestOrgID, toolsTestProjectID, otherPoolGrant.ID)
 	require.NoError(t, err)
-	listed = dispatch(calls[4])
+	listed = dispatch(listAfterRevokeCall)
 	require.Equal(t, []any{
 		map[string]any{"machine_pool_id": poolID, "machine_pool_name": renamed, "description": "Build workers"},
 	}, listed["machine_pools"])
