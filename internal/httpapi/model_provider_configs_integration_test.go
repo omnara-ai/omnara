@@ -127,6 +127,20 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
+	deletedSecretHeader := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
+		"",
+		http.StatusNotFound,
+		authHeaders(project.AdminToken),
+	)
+	deletedMessage, _ := deletedSecretHeader["error"].(string)
+	if !strings.Contains(deletedMessage, "the secret for header X-Gateway-Key no longer exists") {
+		t.Fatalf("deleted secret header error = %q", deletedMessage)
+	}
 	replacedHeadersConfig := requestJSONWithHeaders(
 		t,
 		handler,

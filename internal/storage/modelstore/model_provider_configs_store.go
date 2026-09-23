@@ -289,7 +289,10 @@ func validateModelProviderHeaderSecretsTx(
 		field := "secret_headers." + name
 		secret, err := secretops.GetFacts(ctx, qtx, orgID, secretID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%s secret is not found or not org-owned: %w", field, storeerr.ErrNotFound)
+			return storeerr.Tag(storeerr.ErrNotFound, fmt.Errorf(
+				"the secret for header %s no longer exists; remove the header or choose another secret",
+				name,
+			))
 		}
 		if err != nil {
 			return err
