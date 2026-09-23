@@ -7728,7 +7728,8 @@ components:
         code:
           type: string
           description: Stable error code for programmatic handling.
-          enum:
+          x-go-type: ErrorCode
+          x-extensible-enum:
             - invalid_request
             - unauthorized
             - forbidden
@@ -7752,10 +7753,37 @@ components:
             - validation_failed
             - csrf_check_failed
             - authentication_unavailable
+    ErrorCode:
+      type: string
+      description: Known error codes.
+      enum:
+        - invalid_request
+        - unauthorized
+        - forbidden
+        - not_found
+        - conflict
+        - file_content_conflict
+        - gone
+        - request_too_large
+        - unsupported_media_type
+        - unprocessable
+        - rate_limited
+        - internal_error
+        - upstream_error
+        - service_unavailable
+        - idempotency_key_conflict
+        - state_transition_conflict
+        - managed_work_admission_denied
+        - pending_work
+        - not_wake_capable
+        - daemon_runtime_unregistered
+        - validation_failed
+        - csrf_check_failed
+        - authentication_unavailable
     ClientErrorCode:
       type: string
       description: Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
-      enum:
+      x-extensible-enum:
         - invalid_request
         - validation_failed
         - unauthorized
@@ -7777,7 +7805,7 @@ components:
     ServerErrorCode:
       type: string
       description: Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
-      enum:
+      x-extensible-enum:
         - internal_error
         - upstream_error
         - service_unavailable

@@ -1,11 +1,11 @@
 import * as z from 'zod'
 
-import type { AgentConfigErrorIssue, Error as ApiErrorBody } from './generated/types.gen'
+import type { AgentConfigErrorIssue, ErrorCode } from './generated/types.gen'
 import { zError } from './generated/zod.gen'
 import { type JsonBody, zJsonBody, zJsonText } from './json-body'
 import { relaxedSchema } from './validate-response'
 
-export type ApiErrorCode = ApiErrorBody['code']
+export type ApiErrorCode = ErrorCode | (string & {})
 
 const zErrorBody = zJsonText.pipe(zJsonBody)
 

@@ -55,66 +55,47 @@ export const zError = z.object({
     error: z.string(),
     current_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
     issues: z.array(zAgentConfigErrorIssue).optional(),
-    code: z.enum([
-        'invalid_request',
-        'unauthorized',
-        'forbidden',
-        'not_found',
-        'conflict',
-        'file_content_conflict',
-        'gone',
-        'request_too_large',
-        'unsupported_media_type',
-        'unprocessable',
-        'rate_limited',
-        'internal_error',
-        'upstream_error',
-        'service_unavailable',
-        'idempotency_key_conflict',
-        'state_transition_conflict',
-        'managed_work_admission_denied',
-        'pending_work',
-        'not_wake_capable',
-        'daemon_runtime_unregistered',
-        'validation_failed',
-        'csrf_check_failed',
-        'authentication_unavailable'
-    ])
+    code: z.string()
 });
+
+/**
+ * Known error codes.
+ */
+export const zErrorCode = z.enum([
+    'invalid_request',
+    'unauthorized',
+    'forbidden',
+    'not_found',
+    'conflict',
+    'file_content_conflict',
+    'gone',
+    'request_too_large',
+    'unsupported_media_type',
+    'unprocessable',
+    'rate_limited',
+    'internal_error',
+    'upstream_error',
+    'service_unavailable',
+    'idempotency_key_conflict',
+    'state_transition_conflict',
+    'managed_work_admission_denied',
+    'pending_work',
+    'not_wake_capable',
+    'daemon_runtime_unregistered',
+    'validation_failed',
+    'csrf_check_failed',
+    'authentication_unavailable'
+]);
 
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
-export const zClientErrorCode = z.enum([
-    'invalid_request',
-    'validation_failed',
-    'unauthorized',
-    'forbidden',
-    'csrf_check_failed',
-    'not_found',
-    'conflict',
-    'file_content_conflict',
-    'idempotency_key_conflict',
-    'state_transition_conflict',
-    'pending_work',
-    'not_wake_capable',
-    'gone',
-    'daemon_runtime_unregistered',
-    'request_too_large',
-    'unsupported_media_type',
-    'unprocessable',
-    'rate_limited'
-]);
+export const zClientErrorCode = z.string();
 
 /**
  * Stable error code carried by 5XX statuses. Subset of the Error code enum whose statuses are server errors.
  */
-export const zServerErrorCode = z.enum([
-    'internal_error',
-    'upstream_error',
-    'service_unavailable',
-    'authentication_unavailable'
-]);
+export const zServerErrorCode = z.string();
 
 /**
  * Lifecycle owner. Tenant-managed resources can be changed through tenant APIs. Cluster-managed resources are installed and lifecycle-managed by the control plane; individual APIs may explicitly expose tenant-editable settings.

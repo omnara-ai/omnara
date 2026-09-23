@@ -437,7 +437,7 @@ func TestServiceE2EDeterministicCompactionKeepsToolGroupRaw(t *testing.T) {
 		"service-e2e-local",
 		serviceE2EConfiguredModelOptionsByIdentity{
 			{ProviderConfigName: "openai-prod", ConfiguredModelName: "service-e2e-local"}: {
-				ContextWindowTokens:    2100,
+				ContextWindowTokens:    2500,
 				MaxOutputTokens:        512,
 				DefaultMaxOutputTokens: 64,
 			},
