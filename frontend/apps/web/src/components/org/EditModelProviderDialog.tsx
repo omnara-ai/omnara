@@ -2,6 +2,17 @@ import { useUpdateModelProvider } from '@omnara/react'
 import { type ModelProviderConfig } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
+import { CombinedEnvOverlayEditor } from '@/components/machines/MachineOverrideFields'
+import {
+  envFromRows,
+  type EnvOverlayRow,
+  envOverlayRowsValid,
+  envRowsFromRecord,
+  secretEnvFromRows,
+  type SecretEnvOverlayRow,
+  secretEnvOverlayRowsValid,
+  secretEnvRowsFromRecord,
+} from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -23,6 +34,8 @@ interface EditModelProviderState {
   timeout: string
   idleTimeout: string
   region: string
+  headerRows: EnvOverlayRow[]
+  secretHeaderRows: SecretEnvOverlayRow[]
   status: SubmitStatus
 }
 
@@ -44,6 +57,8 @@ export function EditModelProviderDialog({
     timeout: String(provider.request_timeout_ms),
     idleTimeout: String(provider.idle_timeout_ms),
     region: provider.auth_options.region ?? '',
+    headerRows: envRowsFromRecord(provider.headers),
+    secretHeaderRows: secretEnvRowsFromRecord(provider.secret_headers),
     status: idle,
   })
   const errorMessage = statusError(state.status)
@@ -65,6 +80,8 @@ export function EditModelProviderDialog({
                 region: state.region.trim(),
               }
             : undefined,
+        headers: envFromRows(state.headerRows) ?? {},
+        secret_headers: secretEnvFromRows(state.secretHeaderRows) ?? {},
       })
       onOpenChange(false)
     } catch (err) {
@@ -78,7 +95,7 @@ export function EditModelProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit {provider.name}</DialogTitle>
         </DialogHeader>
@@ -152,6 +169,22 @@ export function EditModelProviderDialog({
                 />
               </Field>
             )}
+            <CombinedEnvOverlayEditor
+              orgId={orgId}
+              enabled={open}
+              label="Headers"
+              itemLabel="Header"
+              keyPlaceholder="Header-Name"
+              envRows={state.headerRows}
+              secretEnvRows={state.secretHeaderRows}
+              onChange={({ envRows, secretEnvRows }) => {
+                setState((prev) => ({
+                  ...prev,
+                  headerRows: envRows,
+                  secretHeaderRows: secretEnvRows,
+                }))
+              }}
+            />
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
             <DialogFooter>
               <Button
@@ -159,7 +192,9 @@ export function EditModelProviderDialog({
                 disabled={
                   mutation.isPending ||
                   state.baseUrl.trim() === '' ||
-                  (provider.auth_kind === 'sigv4' && !awsRegionPattern.test(state.region.trim()))
+                  (provider.auth_kind === 'sigv4' && !awsRegionPattern.test(state.region.trim())) ||
+                  !envOverlayRowsValid(state.headerRows) ||
+                  !secretEnvOverlayRowsValid(state.secretHeaderRows)
                 }
                 loading={mutation.isPending}
               >

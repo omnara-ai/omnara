@@ -4,8 +4,7 @@ import {
   envFromRows,
   type EnvOverlayRow,
   envOverlayRowsValid,
-  newEnvOverlayRow,
-  newSecretEnvOverlayRow,
+  envRowsFromRecord,
   numberDraft,
   optionalInt,
   optionalIntOrNull,
@@ -15,6 +14,7 @@ import {
   secretEnvFromRows,
   type SecretEnvOverlayRow,
   secretEnvOverlayRowsValid,
+  secretEnvRowsFromRecord,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
 import {
@@ -494,18 +494,6 @@ function clusterMachinePoolUpdateRequest(
         max_machine_memory_mb: memoryMb,
       }
   }
-}
-
-function envRowsFromRecord(values: Record<string, string>): EnvOverlayRow[] {
-  return Object.entries(values)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => ({ ...newEnvOverlayRow(), key, value }))
-}
-
-function secretEnvRowsFromRecord(values: Record<string, string>): SecretEnvOverlayRow[] {
-  return Object.entries(values)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, secretId]) => ({ ...newSecretEnvOverlayRow(), key, secretId }))
 }
 
 function memoryMbFromDraft(value: string, originalMemoryMb: number | null) {

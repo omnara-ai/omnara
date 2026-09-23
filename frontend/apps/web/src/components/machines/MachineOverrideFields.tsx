@@ -141,6 +141,9 @@ export function CombinedEnvOverlayEditor({
   orgId,
   projectId,
   enabled,
+  label = 'Environment variables',
+  itemLabel = 'Variable',
+  keyPlaceholder = 'NAME',
   envRows,
   secretEnvRows,
   onChange,
@@ -148,6 +151,9 @@ export function CombinedEnvOverlayEditor({
   orgId: string
   projectId?: string
   enabled: boolean
+  label?: string
+  itemLabel?: string
+  keyPlaceholder?: string
   envRows: EnvOverlayRow[]
   secretEnvRows: SecretEnvOverlayRow[]
   onChange: (rows: { envRows: EnvOverlayRow[]; secretEnvRows: SecretEnvOverlayRow[] }) => void
@@ -200,7 +206,7 @@ export function CombinedEnvOverlayEditor({
   return (
     <Field>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Environment variables</FieldLabel>
+        <FieldLabel>{label}</FieldLabel>
         <Button
           type="button"
           size="sm"
@@ -211,7 +217,7 @@ export function CombinedEnvOverlayEditor({
           }}
         >
           <PlusIcon />
-          Add variable
+          Add {itemLabel.toLowerCase()}
         </Button>
       </div>
       <div className="overflow-hidden rounded-xl border">
@@ -234,7 +240,7 @@ export function CombinedEnvOverlayEditor({
                     colSpan={4}
                     className="text-muted-foreground block whitespace-normal px-4 py-3 text-center sm:table-cell"
                   >
-                    No environment variables
+                    No {label.toLowerCase()}
                   </TableCell>
                 </TableRow>
               )}
@@ -261,8 +267,8 @@ export function CombinedEnvOverlayEditor({
                       <Input
                         value={row.key}
                         autoComplete="off"
-                        placeholder="NAME"
-                        aria-label="Variable name"
+                        placeholder={keyPlaceholder}
+                        aria-label={`${itemLabel} name`}
                         className="font-mono"
                         onChange={(event) => {
                           if (row.kind === 'text') {
@@ -279,7 +285,7 @@ export function CombinedEnvOverlayEditor({
                           value={row.value ?? ''}
                           autoComplete="off"
                           placeholder={unset ? 'unset — removes the pool value' : 'value'}
-                          aria-label="Variable value"
+                          aria-label={`${itemLabel} value`}
                           onChange={(event) => {
                             updateEnvRow(row.id, { value: event.target.value })
                           }}
@@ -289,7 +295,7 @@ export function CombinedEnvOverlayEditor({
                           disabled
                           value=""
                           placeholder="unset — removes the pool value"
-                          aria-label="Variable value"
+                          aria-label={`${itemLabel} value`}
                         />
                       ) : (
                         <SecretSelect
@@ -313,7 +319,7 @@ export function CombinedEnvOverlayEditor({
                         size="icon"
                         variant="ghost"
                         className="text-muted-foreground size-10 sm:size-8"
-                        aria-label="Remove variable"
+                        aria-label={`Remove ${itemLabel.toLowerCase()}`}
                         onClick={() => {
                           removeRow(row)
                         }}

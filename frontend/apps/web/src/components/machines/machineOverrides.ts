@@ -37,6 +37,18 @@ export function newSecretEnvOverlayRow(): SecretEnvOverlayRow {
   return { id: crypto.randomUUID(), key: '', secretId: '' }
 }
 
+export function envRowsFromRecord(values: Record<string, string>): EnvOverlayRow[] {
+  return Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => ({ ...newEnvOverlayRow(), key, value }))
+}
+
+export function secretEnvRowsFromRecord(values: Record<string, string>): SecretEnvOverlayRow[] {
+  return Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, secretId]) => ({ ...newSecretEnvOverlayRow(), key, secretId }))
+}
+
 function overlayKeysValid(rows: { key: string }[]) {
   const keys = rows.map((row) => row.key.trim())
   return keys.every((key) => key !== '') && new Set(keys).size === keys.length
