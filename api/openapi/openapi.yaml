@@ -2082,7 +2082,7 @@ paths:
       summary: Delete secret
       description: >-
         Deletes the secret and permanently destroys all of its versions and project grants; the
-        ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a
+        ciphertext cannot be recovered. Deletion is blocked while the secret is the credential of a
         model provider config, machine pool, or integration install.
       security:
         - bearerAuth: []
@@ -7428,6 +7428,16 @@ components:
               maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
+        headers:
+          type: object
+          description: Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens.
+          additionalProperties:
+            type: string
+        secret_headers:
+          type: object
+          description: Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references.
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
     UpdateModelProviderConfigRequest:
       type: object
       description: Update a provider config. Omitted fields keep their current values.
@@ -7474,10 +7484,20 @@ components:
               maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
+        headers:
+          type: object
+          description: Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens. Replaces all headers when provided.
+          additionalProperties:
+            type: string
+        secret_headers:
+          type: object
+          description: Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references. Replaces all secret headers when provided.
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
     ModelProviderConfig:
       type: object
       additionalProperties: false
-      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, created_at, updated_at]
+      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, headers, secret_headers, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ModelProviderConfigID'
@@ -7522,6 +7542,16 @@ components:
               maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
+        headers:
+          type: object
+          description: Extra HTTP headers sent with every request to this provider.
+          additionalProperties:
+            type: string
+        secret_headers:
+          type: object
+          description: Extra HTTP headers whose values come from the referenced secrets.
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:

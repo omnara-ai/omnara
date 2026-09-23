@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -52,6 +53,43 @@ func TestModelProviderAPIKeyHeaderRejectsTransportReplayHeaders(t *testing.T) {
 			if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 				t.Fatalf("header %q error = %v, want storeerr.ErrInvalidModelProviderConfig", headerName, err)
 			}
+		})
+	}
+}
+
+func TestModelProviderHeadersFromColumns(t *testing.T) {
+	secretID := uuid.New()
+	parsed, err := ModelProviderHeadersFromColumns(
+		json.RawMessage(`{"X-Team":"core"}`),
+		json.RawMessage(`{"X-Gateway-Key":"`+secretID.String()+`"}`),
+	)
+	require.NoError(t, err)
+	require.Equal(t, ModelProviderHeaders{
+		Headers:       map[string]string{"X-Team": "core"},
+		SecretHeaders: map[string]uuid.UUID{"X-Gateway-Key": secretID},
+	}, parsed)
+
+	maxPlainHeaders := make(map[string]string, maxModelProviderHeaders)
+	for i := range maxModelProviderHeaders {
+		maxPlainHeaders[fmt.Sprintf("X-Header-%d", i)] = "v"
+	}
+	maxPlainHeadersJSON, err := json.Marshal(maxPlainHeaders)
+	require.NoError(t, err)
+
+	for name, input := range map[string][2]string{
+		"reserved":               {`{"Authorization":"Bearer x"}`, `{}`},
+		"reserved accept":        {`{"accept":"text/plain"}`, `{}`},
+		"invalid name":           {`{"X Team":"core"}`, `{}`},
+		"invalid value":          {`{"X-Team":"a\nb"}`, `{}`},
+		"non-string value":       {`{"X-Team":1}`, `{}`},
+		"duplicate across maps":  {`{"x-gateway-key":"a"}`, `{"X-Gateway-Key":"` + secretID.String() + `"}`},
+		"invalid secret id":      {`{}`, `{"X-Gateway-Key":"not-a-uuid"}`},
+		"secret headers not map": {`{}`, `[]`},
+		"too many headers":       {string(maxPlainHeadersJSON), `{"X-Gateway-Key":"` + secretID.String() + `"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ModelProviderHeadersFromColumns(json.RawMessage(input[0]), json.RawMessage(input[1]))
+			require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
 		})
 	}
 }

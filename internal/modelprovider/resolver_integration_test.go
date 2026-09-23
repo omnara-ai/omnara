@@ -852,3 +852,117 @@ func TestResolverMaterializesConfiguredModelRevisionAndCredential(t *testing.T) 
 		t.Fatalf("resolve revision under archived provider config error = %v, want not found", err)
 	}
 }
+
+func TestResolverAppliesProviderHeaders(t *testing.T) {
+	ctx := context.Background()
+	pool := integrationdb.OpenMigratedPool(t, ctx, "../../migrations")
+
+	keyWrapper, err := secrets.NewLocalKeyWrapper(
+		"resolver-test-key",
+		map[string][]byte{"resolver-test-key": []byte("0123456789abcdef0123456789abcdef")},
+	)
+	if err != nil {
+		t.Fatalf("create key wrapper: %v", err)
+	}
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(keyWrapper))
+	user, err := storagetest.CreateVerifiedUser(
+		ctx, pool, storagetest.CreateVerifiedUserInput{DisplayName: "Header Tester", Email: "headers@example.com"},
+	)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	created, err := store.Organizations().CreateOrgForUser(ctx, orglifecycle.CreateOrgForUserInput{
+		UserID:         user.ID,
+		Name:           "Header Org",
+		IdempotencyKey: "header-org",
+	})
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	createSecret := func(name, value string) uuid.UUID {
+		secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+			OrgID:     created.Org.ID,
+			OwnerKind: secretstore.SecretOwnerOrg,
+			Name:      name,
+			Material:  secrets.GenericMaterial{Value: value},
+			Actor:     modelProviderUserPrincipal(user.ID),
+		})
+		if err != nil {
+			t.Fatalf("create secret %s: %v", name, err)
+		}
+		return secret.ID
+	}
+	credentialID := createSecret("openai-key", "sk-provider")
+	gatewayKeyID := createSecret("gateway-key", "gw-secret")
+	providerConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID:              created.Org.ID,
+		Name:               "gateway",
+		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		BaseURL:            "https://gateway.example.test/v1",
+		CredentialSecretID: credentialID,
+		Headers:            json.RawMessage(`{"X-Team":"core"}`),
+		SecretHeaders:      json.RawMessage(`{"X-Gateway-Key":"` + gatewayKeyID.String() + `"}`),
+	})
+	if err != nil {
+		t.Fatalf("create provider config: %v", err)
+	}
+	configuredModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                 created.Org.ID,
+		ModelProviderConfigID: providerConfig.ID,
+		Name:                  "gateway-model",
+		ProviderModelSlug:     "gpt-gateway",
+		ContextWindowTokens:   128000,
+		MaxOutputTokens:       new(8192),
+	})
+	if err != nil {
+		t.Fatalf("create configured model: %v", err)
+	}
+	if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID:             created.Org.ID,
+		ProjectID:         created.Project.ID,
+		ConfiguredModelID: configuredModel.ID,
+	}); err != nil {
+		t.Fatalf("grant configured model: %v", err)
+	}
+	requestHeaders := func() http.Header {
+		resolved, err := integrationResolver(store).Resolve(ctx, model.Selection{
+			OrgID:                     created.Org.ID.String(),
+			ProjectID:                 created.Project.ID.String(),
+			ConfiguredModelRevisionID: configuredModel.CurrentRevisionID.String(),
+		})
+		if err != nil {
+			t.Fatalf("resolve model: %v", err)
+		}
+		request, err := http.NewRequest(http.MethodPost, "https://gateway.example.test/v1/responses", nil)
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		client, ok := resolved.Client.(openairesponses.Client)
+		if !ok {
+			t.Fatalf("resolved client type = %T, want openairesponses.Client", resolved.Client)
+		}
+		if err := client.Auth.Apply(request); err != nil {
+			t.Fatalf("apply auth: %v", err)
+		}
+		return request.Header
+	}
+
+	headers := requestHeaders()
+	if headers.Get("X-Team") != "core" || headers.Get("X-Gateway-Key") != "gw-secret" ||
+		headers.Get("Authorization") != "Bearer sk-provider" {
+		t.Fatalf("request headers = %v", headers)
+	}
+
+	if _, err := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID:    created.Org.ID,
+		SecretID: gatewayKeyID,
+		Actor:    modelProviderUserPrincipal(user.ID),
+	}); err != nil {
+		t.Fatalf("delete header secret: %v", err)
+	}
+	headers = requestHeaders()
+	if headers.Get("X-Team") != "core" || headers.Get("X-Gateway-Key") != "" ||
+		headers.Get("Authorization") != "Bearer sk-provider" {
+		t.Fatalf("request headers after header secret deletion = %v", headers)
+	}
+}

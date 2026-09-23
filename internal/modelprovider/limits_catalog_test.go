@@ -181,7 +181,7 @@ func TestNewDiscovererEnrichesProviderModels(t *testing.T) {
 		modelstore.ModelProviderAuthKindBearerToken,
 		`{}`,
 	)
-	models, err := NewDiscoverer(catalog)(context.Background(), config, "sk", true)
+	models, err := NewDiscoverer(catalog)(context.Background(), config, "sk", nil, true)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}

@@ -1295,7 +1295,7 @@ export const startSecretMcpoAuthMutation = (options?: Partial<Options<StartSecre
 /**
  * Delete secret
  *
- * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a model provider config, machine pool, or integration install.
+ * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is the credential of a model provider config, machine pool, or integration install.
  */
 export const deleteSecretMutation = (options?: Partial<Options<DeleteSecretData>>): UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> => {
     const mutationOptions: UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> = {

@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"golang.org/x/net/http/httpguts"
 )
 
 var sigV4ScopeComponentPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -445,56 +446,97 @@ func validateModelProviderAuthHeaderName(headerName string) error {
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
-	if !validHTTPHeaderFieldName(headerName) {
+	if !httpguts.ValidHeaderFieldName(headerName) {
 		return fmt.Errorf("auth_options.header_name is invalid: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
-	switch strings.ToLower(headerName) {
-	case "authorization",
-		"content-type",
-		"content-length",
-		"host",
-		"connection",
-		"transfer-encoding",
-		"idempotency-key",
-		"x-idempotency-key":
+	if reservedModelProviderHeaderName(headerName) {
 		return fmt.Errorf(
 			"auth_options.header_name %q is reserved for transport or auth headers: %w",
 			headerName,
 			storeerr.ErrInvalidModelProviderConfig,
 		)
+	}
+	return nil
+}
+
+func reservedModelProviderHeaderName(headerName string) bool {
+	switch strings.ToLower(headerName) {
+	case "authorization",
+		"accept",
+		"accept-encoding",
+		"content-type",
+		"content-length",
+		"host",
+		"connection",
+		"transfer-encoding",
+		"upgrade",
+		"idempotency-key",
+		"x-idempotency-key":
+		return true
 	default:
+		return false
+	}
+}
+
+func ModelProviderHeadersFromColumns(headers, secretHeaders json.RawMessage) (ModelProviderHeaders, error) {
+	var parsed ModelProviderHeaders
+	if err := json.Unmarshal(storeutil.NormalizeJSON(headers), &parsed.Headers); err != nil || parsed.Headers == nil {
+		return ModelProviderHeaders{}, fmt.Errorf(
+			"headers must be an object of strings: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	if err := json.Unmarshal(storeutil.NormalizeJSON(secretHeaders), &parsed.SecretHeaders); err != nil ||
+		parsed.SecretHeaders == nil {
+		return ModelProviderHeaders{}, fmt.Errorf(
+			"secret_headers must be an object of secret ids: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	if len(parsed.Headers)+len(parsed.SecretHeaders) > maxModelProviderHeaders {
+		return ModelProviderHeaders{}, fmt.Errorf(
+			"headers and secret_headers may contain at most %d entries combined: %w",
+			maxModelProviderHeaders,
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	seen := make(map[string]bool, len(parsed.Headers)+len(parsed.SecretHeaders))
+	validateName := func(field, name string) error {
+		lower := strings.ToLower(name)
+		switch {
+		case !httpguts.ValidHeaderFieldName(name):
+			return fmt.Errorf("%s has an invalid header name %q: %w", field, name, storeerr.ErrInvalidModelProviderConfig)
+		case reservedModelProviderHeaderName(name):
+			return fmt.Errorf(
+				"%s.%s is reserved for transport or auth headers: %w",
+				field,
+				name,
+				storeerr.ErrInvalidModelProviderConfig,
+			)
+		case seen[lower]:
+			return fmt.Errorf("header %s is set more than once: %w", name, storeerr.ErrInvalidModelProviderConfig)
+		}
+		seen[lower] = true
 		return nil
 	}
-}
-
-func validHTTPHeaderFieldName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for i := range len(name) {
-		if !isHTTPTokenChar(name[i]) {
-			return false
+	for name, value := range parsed.Headers {
+		if err := validateName("headers", name); err != nil {
+			return ModelProviderHeaders{}, err
+		}
+		if !httpguts.ValidHeaderFieldValue(value) {
+			return ModelProviderHeaders{}, fmt.Errorf(
+				"headers.%s has an invalid value: %w",
+				name,
+				storeerr.ErrInvalidModelProviderConfig,
+			)
 		}
 	}
-	return true
-}
-
-func isHTTPTokenChar(value byte) bool {
-	if value >= '0' && value <= '9' {
-		return true
+	for name := range parsed.SecretHeaders {
+		if err := validateName("secret_headers", name); err != nil {
+			return ModelProviderHeaders{}, err
+		}
 	}
-	if value >= 'a' && value <= 'z' {
-		return true
-	}
-	if value >= 'A' && value <= 'Z' {
-		return true
-	}
-	switch value {
-	case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
-		return true
-	default:
-		return false
-	}
+	return parsed, nil
 }
 
 // On a cluster-managed OpenRouter provider a tenant may only use what shapes or bills their own

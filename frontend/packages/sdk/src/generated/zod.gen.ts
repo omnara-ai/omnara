@@ -336,7 +336,9 @@ export const zCreateModelProviderConfigRequest = z.object({
         service: z.string().min(1).max(64).optional(),
         region: z.string().min(1).max(64).optional()
     }).optional(),
-    credential_secret_id: zSecretId
+    credential_secret_id: zSecretId,
+    headers: z.record(z.string(), z.string()).optional(),
+    secret_headers: z.record(z.string(), zSecretId).optional()
 });
 
 /**
@@ -353,7 +355,9 @@ export const zUpdateModelProviderConfigRequest = z.object({
         service: z.string().min(1).max(64).optional(),
         region: z.string().min(1).max(64).optional()
     }).optional(),
-    credential_secret_id: zSecretId.optional()
+    credential_secret_id: zSecretId.optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    secret_headers: z.record(z.string(), zSecretId).optional()
 });
 
 export const zSecretGrantId = z.string().regex(/^sgr_[a-z2-7]{26}$/);
@@ -388,6 +392,8 @@ export const zModelProviderConfig = z.object({
         region: z.string().min(1).max(64).optional()
     }),
     credential_secret_id: zSecretId,
+    headers: z.record(z.string(), z.string()),
+    secret_headers: z.record(z.string(), zSecretId),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });

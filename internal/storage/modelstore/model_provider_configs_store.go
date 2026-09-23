@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/resourcename"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
@@ -137,6 +138,15 @@ func (s *Store) createModelProviderConfigTx(
 	); err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
+	input.Headers = storeutil.NormalizeJSON(input.Headers)
+	input.SecretHeaders = storeutil.NormalizeJSON(input.SecretHeaders)
+	headers, err := ModelProviderHeadersFromColumns(input.Headers, input.SecretHeaders)
+	if err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
+	if err := validateModelProviderHeaderSecretsTx(ctx, qtx, input.OrgID, input.managementKind, headers); err != nil {
+		return ModelProviderConfigRecord{}, err
+	}
 	row, err := qtx.InsertModelProviderConfig(
 		ctx,
 		dbsqlc.InsertModelProviderConfigParams{
@@ -152,6 +162,8 @@ func (s *Store) createModelProviderConfigTx(
 			AuthKind:           input.AuthKind,
 			AuthOptions:        input.AuthOptions,
 			CredentialSecretID: &input.CredentialSecretID,
+			Headers:            input.Headers,
+			SecretHeaders:      input.SecretHeaders,
 		},
 	)
 	if err != nil {
@@ -259,32 +271,58 @@ func validateModelProviderCredentialTx(
 	if err != nil {
 		return err
 	}
-	return validateModelProviderCredentialRecord(credential, managementKind, authKind)
-}
-
-func validateModelProviderCredentialRecord(
-	credential secretops.Facts,
-	managementKind management.Kind,
-	authKind string,
-) error {
-	if credential.OwnerKind != secretstore.SecretOwnerOrg {
-		return fmt.Errorf("model provider credential secret must be org-owned: %w", storeerr.ErrNotFound)
-	}
-	expectedKind, err := ModelProviderCredentialSecretKind(authKind)
+	kind, err := ModelProviderCredentialSecretKind(authKind)
 	if err != nil {
 		return err
 	}
-	if credential.Kind != expectedKind {
+	return validateModelProviderSecret("credential_secret_id", credential, managementKind, kind)
+}
+
+func validateModelProviderHeaderSecretsTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	orgID uuid.UUID,
+	managementKind management.Kind,
+	headers ModelProviderHeaders,
+) error {
+	for name, secretID := range headers.SecretHeaders {
+		field := "secret_headers." + name
+		secret, err := secretops.GetFacts(ctx, qtx, orgID, secretID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%s secret is not found or not org-owned: %w", field, storeerr.ErrNotFound)
+		}
+		if err != nil {
+			return err
+		}
+		if err := validateModelProviderSecret(field, secret, managementKind, secrets.KindGeneric); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateModelProviderSecret(
+	field string,
+	secret secretops.Facts,
+	managementKind management.Kind,
+	kind secrets.Kind,
+) error {
+	if secret.OwnerKind != secretstore.SecretOwnerOrg {
+		return fmt.Errorf("%s secret is not found or not org-owned: %w", field, storeerr.ErrNotFound)
+	}
+	if secret.Kind != kind {
 		return fmt.Errorf(
-			"model provider credential secret kind %q does not match required kind %q: %w",
-			credential.Kind,
-			expectedKind,
+			"%s secret kind %q does not match required kind %q: %w",
+			field,
+			secret.Kind,
+			kind,
 			storeerr.ErrInvalidSecretRequest,
 		)
 	}
-	if credential.ManagementKind != managementKind {
+	if secret.ManagementKind != managementKind {
 		return fmt.Errorf(
-			"model provider and credential secret must have the same management kind: %w",
+			"%s secret must have the same management kind as the model provider: %w",
+			field,
 			storeerr.ErrInvalidSecretRequest,
 		)
 	}
@@ -326,6 +364,17 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
+	if input.Headers != nil || input.SecretHeaders != nil {
+		headers, err := ModelProviderHeadersFromColumns(update.Headers, update.SecretHeaders)
+		if err != nil {
+			return ModelProviderConfigRecord{}, err
+		}
+		if input.SecretHeaders != nil {
+			if err := validateModelProviderHeaderSecretsTx(ctx, qtx, input.OrgID, management.Tenant, headers); err != nil {
+				return ModelProviderConfigRecord{}, err
+			}
+		}
+	}
 	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
@@ -373,6 +422,8 @@ func updateModelProviderConfigTx(
 			AuthKind:           update.AuthKind,
 			AuthOptions:        update.AuthOptions,
 			CredentialSecretID: &update.CredentialSecretID,
+			Headers:            update.Headers,
+			SecretHeaders:      update.SecretHeaders,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -413,6 +464,8 @@ func normalizeModelProviderConfigUpdate(
 	if err := ValidateModelProviderAuth(input.AuthKind, input.AuthOptions); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
+	input.Headers = storeutil.NormalizeJSON(input.Headers)
+	input.SecretHeaders = storeutil.NormalizeJSON(input.SecretHeaders)
 	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}
@@ -447,6 +500,8 @@ func updateModelProviderConfigInputFromCurrent(
 		AuthKind:           current.AuthKind,
 		AuthOptions:        current.AuthOptions,
 		CredentialSecretID: current.CredentialSecretID,
+		Headers:            current.Headers,
+		SecretHeaders:      current.SecretHeaders,
 		APIFormat:          current.APIFormat,
 		APIVariant:         current.APIVariant,
 	}
@@ -479,6 +534,12 @@ func applyModelProviderConfigPatch(
 	}
 	if patch.CredentialSecretID != nil {
 		update.CredentialSecretID = *patch.CredentialSecretID
+	}
+	if patch.Headers != nil {
+		update.Headers = *patch.Headers
+	}
+	if patch.SecretHeaders != nil {
+		update.SecretHeaders = *patch.SecretHeaders
 	}
 }
 
@@ -549,6 +610,8 @@ func modelProviderConfigRecordFromSQLC(row dbsqlc.ModelProviderConfig) ModelProv
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
 		CredentialSecretID: storeutil.IDFromPtr(row.CredentialSecretID),
+		Headers:            storeutil.NormalizeJSON(row.Headers),
+		SecretHeaders:      storeutil.NormalizeJSON(row.SecretHeaders),
 		DeletedAt:          row.DeletedAt,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
@@ -570,6 +633,8 @@ func modelProviderConfigRecordFromListSQLC(row dbsqlc.ListModelProviderConfigsRo
 		AuthKind:           row.AuthKind,
 		AuthOptions:        storeutil.NormalizeJSON(row.AuthOptions),
 		CredentialSecretID: storeutil.IDFromPtr(row.CredentialSecretID),
+		Headers:            storeutil.NormalizeJSON(row.Headers),
+		SecretHeaders:      storeutil.NormalizeJSON(row.SecretHeaders),
 		DeletedAt:          row.DeletedAt,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,

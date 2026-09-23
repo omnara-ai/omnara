@@ -349,6 +349,8 @@ type ModelProviderConfig struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	IdleTimeoutMs      int32
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
 }
 
 type OrgApiKey struct {
