@@ -240,8 +240,7 @@ func normalizeProjectApp(input SaveProjectAppInput) (SaveProjectAppInput, error)
 	canonical.ScopeKind, canonical.ScopeRef = kind, ref
 	input.Settings.Launcher = &canonical
 	launcher = &canonical
-	if launcher.Trigger != "mention" &&
-		!(definition.Provider == appdefinition.ProviderGitHub && launcher.Trigger == "pull_request_opened") {
+	if !definition.SupportsLaunchTrigger(launcher.Trigger) {
 		return input, errors.New("unsupported app launch trigger")
 	}
 	if len(launcher.Slots) == 0 || len(launcher.Slots) > MaxAppLaunchSlots {

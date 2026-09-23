@@ -27,7 +27,7 @@ type appToolAccess struct {
 	CredentialVersion uuid.UUID
 }
 
-func (e Executor) resolveAppToolScope(
+func (e Executor) resolveAppToolAuthority(
 	ctx context.Context,
 	turn Turn,
 	tool executionstore.ToolCallRecord,
@@ -78,19 +78,6 @@ func (e Executor) resolveAppToolScope(
 	if err != nil {
 		return appToolAccess{}, appToolPreparationFailure(fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err))
 	}
-	target, found, err := e.Store.Integrations().GetAgentAppToolContext(ctx, turn.ProjectID, turn.AgentID, app.ID)
-	if err != nil {
-		return appToolAccess{}, err
-	}
-	if !found {
-		return appToolAccess{}, appToolPreparationFailure(fmt.Errorf(
-			"app %q has no assigned conversation for this agent; its tools require an agent launched by this app", app.Name,
-		))
-	}
-	conversation, err := appdefinition.ParseConversation(app.Provider, target.ProviderRefKind, target.ProviderRef)
-	if err != nil {
-		return appToolAccess{}, appToolPreparationFailure(err)
-	}
 	entry, err := authority.Definition.Prepare(tool.Name)
 	if err != nil {
 		return appToolAccess{}, err
@@ -100,7 +87,6 @@ func (e Executor) resolveAppToolScope(
 	}
 	access := appToolAccess{
 		Authority:        authority,
-		Conversation:     conversation,
 		OriginalContract: original,
 		CurrentConfigID:  agent.CurrentConfigID,
 		App:              app,
@@ -108,15 +94,52 @@ func (e Executor) resolveAppToolScope(
 	return access, nil
 }
 
+func (e Executor) appToolConversation(
+	ctx context.Context, turn Turn, access appToolAccess,
+) (appdefinition.Scope, error) {
+	switch access.Authority.Definition.Scope {
+	case toolcatalog.AppToolScopeApp:
+		return appdefinition.Scope{}, nil
+	case toolcatalog.AppToolScopeConversation:
+	default:
+		return appdefinition.Scope{}, errors.New("app tool requires an explicit scope")
+	}
+	target, found, err := e.Store.Integrations().GetAgentAppToolContext(ctx, turn.ProjectID, turn.AgentID, access.App.ID)
+	if err != nil {
+		return appdefinition.Scope{}, err
+	}
+	if !found {
+		return appdefinition.Scope{}, appToolPreparationFailure(fmt.Errorf(
+			"app %q has no assigned conversation for this agent; this tool requires an assigned conversation", access.App.Name,
+		))
+	}
+	conversation, err := appdefinition.ParseConversation(access.App.Provider, target.ProviderRefKind, target.ProviderRef)
+	if err != nil {
+		return appdefinition.Scope{}, appToolPreparationFailure(err)
+	}
+	return conversation, nil
+}
+
 func (e Executor) resolveAppToolAccess(
 	ctx context.Context,
 	turn Turn,
 	tool executionstore.ToolCallRecord,
 ) (appToolAccess, error) {
-	access, err := e.resolveAppToolScope(ctx, turn, tool)
+	access, err := e.resolveAppToolAuthority(ctx, turn, tool)
 	if err != nil {
 		return appToolAccess{}, err
 	}
+	return e.prepareAppToolAccess(ctx, turn, tool, access)
+}
+
+func (e Executor) prepareAppToolAccess(
+	ctx context.Context, turn Turn, tool executionstore.ToolCallRecord, access appToolAccess,
+) (appToolAccess, error) {
+	conversation, err := e.appToolConversation(ctx, turn, access)
+	if err != nil {
+		return appToolAccess{}, err
+	}
+	access.Conversation = conversation
 	kind, err := integrationstore.ProjectAppCredentialKind(access.App.Provider)
 	if err != nil {
 		return appToolAccess{}, err

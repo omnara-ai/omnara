@@ -68,6 +68,33 @@ func TestAppTypesPartitionRegisteredTransports(t *testing.T) {
 	}
 }
 
+func TestAppLaunchDeclarations(t *testing.T) {
+	events := []Event{
+		{Scope: Scope{Slack: &SlackScope{ChannelID: "C123"}}, Kind: "message", Mentioned: true},
+		{
+			Scope: Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456"}},
+			Kind:  "message", Mentioned: true,
+		},
+		{
+			Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}},
+			Kind:  "discussion_comment", Mentioned: true,
+		},
+		{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"},
+	}
+	for _, definition := range All() {
+		t.Run(string(definition.AppType), func(t *testing.T) {
+			if definition.InitialSubscription != "" {
+				require.Contains(t, definition.Subscriptions, definition.InitialSubscription)
+			}
+			for _, trigger := range definition.LaunchTriggers {
+				require.True(t, slices.ContainsFunc(events, func(event Event) bool {
+					return definition.MatchesLauncher(event, trigger)
+				}), "declared trigger %q must match a supported provider event", trigger)
+			}
+		})
+	}
+}
+
 func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
 	for _, test := range []struct {
 		appType                       Type

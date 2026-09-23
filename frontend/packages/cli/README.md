@@ -105,10 +105,11 @@ agent slots. One profile launches immediately; several offer a selection menu.
 Select tools and interaction handlers independently in agent configurations:
 tools use keys such as `app__engineering__post_message`, and interaction handlers
 use `engineering: {}`. Tool entries accept permissions, enabled state and deferral.
-Runtime destinations come from the app-agent conversation context assigned by
-provider/scheduled launches. App tools fail without that context; tool arguments
-cannot choose another destination. Handler selection always supplies a complete
-destination independently.
+For the shipped thread and PR tools, destinations come from the app-agent
+conversation context assigned by provider/scheduled launches. These tools fail
+without that context; their arguments cannot choose another destination. Apps can
+also define standalone tools that use their credentials without a conversation.
+Handler selection always supplies a complete destination independently.
 Incoming subscriptions belong to the app and are attached via
 launch requests or the app subscriptions API; configs have no `listeners` block.
 `apps get` and `apps definitions` show `capabilities.subscriptions`, whose local

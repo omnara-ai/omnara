@@ -56,6 +56,7 @@ func TestSlackInboxRoutesBeforeExpansion(t *testing.T) {
 }
 
 func TestSlackInboxBroadcastUsesOriginalThreadAndMessageIdentity(t *testing.T) {
+	definition, _ := appdefinition.Lookup(appdefinition.SlackThread)
 	app := slackInboxTestApp()
 	event := slack.Event{Type: "message", Subtype: "thread_broadcast", Channel: "C123",
 		TS: "2.0", ThreadTS: "1.0", User: "U123", Text: "ordinary reply"}
@@ -63,7 +64,7 @@ func TestSlackInboxBroadcastUsesOriginalThreadAndMessageIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.0"}, broadcast.Event.Scope.Slack)
-	require.False(t, broadcast.Event.MatchesLauncher("mention"))
+	require.False(t, definition.MatchesLauncher(broadcast.Event, "mention"))
 	event.Subtype = ""
 	ordinary, ok, err := NormalizeSlackAppEvent(app, slackInboxTestPayload(t, event))
 	require.NoError(t, err)
@@ -95,6 +96,7 @@ func slackInboxTestPayload(t *testing.T, event slack.Event) []byte {
 }
 
 func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
+	definition, _ := appdefinition.Lookup(appdefinition.SlackThread)
 	appSetup := slackInboxTestApp()
 	message := slack.Event{
 		Type:        "message",
@@ -130,7 +132,7 @@ func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 	root, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.False(t, root.Event.MatchesLauncher("mention"))
+	require.False(t, definition.MatchesLauncher(root.Event, "mention"))
 	message.ThreadTS = "1.0"
 	reply, ok, err := NormalizeSlackAppEvent(appSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
@@ -172,6 +174,7 @@ func TestSlackInboxRejectsIdentityAndIgnoresBotOrMutation(t *testing.T) {
 }
 
 func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
+	definition, _ := appdefinition.Lookup(appdefinition.SlackThread)
 	for _, tc := range []struct {
 		name, channel, channelType, text, thread, kind, ref string
 		mentioned                                           bool
@@ -195,7 +198,7 @@ func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.kind, kind)
 			require.Equal(t, tc.ref, ref)
-			require.Equal(t, tc.mentioned, normalized.Event.MatchesLauncher("mention"))
+			require.Equal(t, tc.mentioned, definition.MatchesLauncher(normalized.Event, "mention"))
 			require.Equal(t, executionstore.DeliveryModeSteering, normalized.DeliveryMode)
 			require.True(t, normalized.CancelOpenInteractions)
 		})

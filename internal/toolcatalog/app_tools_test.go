@@ -20,6 +20,7 @@ func TestConversationBoundAppToolActionSchemas(t *testing.T) {
 			t.Run(string(definition.AppType)+"/"+operation, func(t *testing.T) {
 				tool, ok := LookupAppTool(definition.AppType, operation)
 				require.True(t, ok)
+				require.Equal(t, AppToolScopeConversation, tool.Scope)
 				action := `{}`
 				switch operation {
 				case AppOperationPostMessage:
@@ -50,6 +51,34 @@ func TestConversationBoundAppToolActionSchemas(t *testing.T) {
 				if operation != AppOperationRead {
 					require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(`{}`)), "action fields are required")
 				}
+			})
+		}
+	}
+}
+
+func TestAppToolScopeDeclaration(t *testing.T) {
+	tool := AppToolDefinition{AppType: appdefinition.SlackThread, Operation: "lookup", Description: "Look up a user."}
+	for _, scope := range []AppToolScope{AppToolScopeApp, AppToolScopeConversation, "", "unknown"} {
+		t.Run(string(scope), func(t *testing.T) {
+			tool.Scope = scope
+			_, err := tool.Prepare(AppToolName("support", "lookup"))
+			if scope == AppToolScopeApp || scope == AppToolScopeConversation {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "explicit scope")
+			}
+		})
+	}
+}
+
+func TestDeclaredAppToolsHaveValidSchemas(t *testing.T) {
+	for _, app := range appdefinition.All() {
+		for _, operation := range app.Tools {
+			t.Run(string(app.AppType)+"/"+operation, func(t *testing.T) {
+				tool, found := LookupAppTool(app.AppType, operation)
+				require.True(t, found)
+				_, err := tool.Prepare(AppToolName("example", operation))
+				require.NoError(t, err)
 			})
 		}
 	}

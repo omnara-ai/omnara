@@ -85,8 +85,8 @@ interaction_handlers:
 
 Tools use `app__<app-name>__<operation>`, with one entry per app and operation.
 Tool entries select enabled state, deferred loading and permissions. Handler entries
-are empty objects. Interaction handlers take destination arguments; tools use the
-conversation assigned at launch.
+are empty objects. Interaction handlers take destination arguments; the shipped
+thread and PR tools use the conversation assigned at launch.
 The catalog exposes the static argument schema in
 `capabilities.tools[operation].input_schema` and
 `capabilities.interaction_handler.input_schema`.
@@ -94,9 +94,13 @@ The catalog exposes the static argument schema in
 A provider or scheduled launch records one immutable conversation for that app
 and agent. Slack and Discord tools use that conversation; GitHub tools use that pull
 request. Calls contain only the action and pagination arguments, such as
-`{"text":"Update"}` or `{"section":"files","page":2}`. Tools fail before contacting
+`{"text":"Update"}` or `{"section":"files","page":2}`. These tools fail before contacting
 the provider if the agent has no assigned conversation. Adding a subscription or
 selecting an interaction handler does not establish or change sending context.
+
+Apps can also define standalone tools that use the app's credentials without a
+launcher, subscription or assigned conversation. The tool's implementation defines
+which resources it can access; ordinary tool permissions still apply.
 
 The app's credential permissions remain the provider access boundary; Omnara also
 checks project ownership, current app status and ordinary

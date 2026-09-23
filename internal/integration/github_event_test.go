@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -65,6 +66,7 @@ func githubEventJSON(t *testing.T, value any) []byte {
 
 func TestGitHubNormalizeAppEvents(t *testing.T) {
 	t.Parallel()
+	definition, _ := appdefinition.Lookup(appdefinition.GitHubPR)
 	for _, tc := range []struct {
 		eventType string
 		kind      string
@@ -89,8 +91,8 @@ func TestGitHubNormalizeAppEvents(t *testing.T) {
 			if event.Event.Scope.GitHub.RepositoryID != 1001 || event.Event.Scope.GitHub.PullRequest != 42 {
 				t.Fatalf("scope: %+v", event.Event.Scope)
 			}
-			if event.Event.MatchesLauncher("mention") != tc.steering ||
-				event.Event.MatchesLauncher("pull_request_opened") == tc.steering {
+			if definition.MatchesLauncher(event.Event, "mention") != tc.steering ||
+				definition.MatchesLauncher(event.Event, "pull_request_opened") == tc.steering {
 				t.Fatalf("trigger: %+v", event.Event)
 			}
 			mode := executionstore.DeliveryModeQueued

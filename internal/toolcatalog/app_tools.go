@@ -16,9 +16,17 @@ const (
 	AppOperationReply             = "reply"
 )
 
+type AppToolScope string
+
+const (
+	AppToolScopeApp          AppToolScope = "app"
+	AppToolScopeConversation AppToolScope = "conversation"
+)
+
 type AppToolDefinition struct {
 	Operation   string
 	AppType     appdefinition.Type
+	Scope       AppToolScope
 	Description string
 	required    []string
 	properties  map[string]any
@@ -43,6 +51,9 @@ func (d AppToolDefinition) Prepare(name string) (Entry, error) {
 	_, operation, ok := SplitAppToolName(name)
 	if !ok || operation != d.Operation {
 		return Entry{}, fmt.Errorf("invalid qualified app operation %q", name)
+	}
+	if d.Scope != AppToolScopeApp && d.Scope != AppToolScopeConversation {
+		return Entry{}, fmt.Errorf("app tool %q requires an explicit scope", name)
 	}
 	entry, err := toolEntry(name, d.Description, d.required, d.properties)
 	if err != nil {
@@ -70,11 +81,11 @@ func buildAppToolDefinitions() []AppToolDefinition {
 		}
 	}
 	return []AppToolDefinition{
-		{Operation: AppOperationRead, AppType: appdefinition.SlackThread,
+		{Operation: AppOperationRead, AppType: appdefinition.SlackThread, Scope: AppToolScopeConversation,
 			Description: "Read messages from this agent's assigned Slack conversation.",
 			properties:  map[string]any{"cursor": text(), "limit": limit()}},
 		{
-			Operation: AppOperationPostMessage, AppType: appdefinition.SlackThread,
+			Operation: AppOperationPostMessage, AppType: appdefinition.SlackThread, Scope: AppToolScopeConversation,
 			Description: "Post a message to this agent's assigned Slack conversation.",
 			required:    []string{"text"},
 			properties: map[string]any{
@@ -83,7 +94,7 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			},
 		},
 		{
-			Operation: AppOperationRead, AppType: appdefinition.GitHubPR,
+			Operation: AppOperationRead, AppType: appdefinition.GitHubPR, Scope: AppToolScopeConversation,
 			Description: "Read the selected GitHub pull request. section defaults to pull_request; " +
 				"comment and file sections are paginated with page and limit. " +
 				"Diff/file patches can be incomplete for very large or binary changes.",
@@ -97,13 +108,13 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			},
 		},
 		{
-			Operation: AppOperationDiscussionComment, AppType: appdefinition.GitHubPR,
+			Operation: AppOperationDiscussionComment, AppType: appdefinition.GitHubPR, Scope: AppToolScopeConversation,
 			Description: "Post a discussion comment on the selected GitHub pull request.",
 			required:    []string{"body"},
 			properties:  map[string]any{"body": text()},
 		},
 		{
-			Operation: AppOperationInlineComment, AppType: appdefinition.GitHubPR,
+			Operation: AppOperationInlineComment, AppType: appdefinition.GitHubPR, Scope: AppToolScopeConversation,
 			Description: "Post a review comment on a diff in the selected GitHub pull request. " +
 				"Use start_line and start_side together for a multiline comment.",
 			required: []string{"body", "commit_id", "path", "line", "side"},
@@ -118,16 +129,16 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			},
 		},
 		{
-			Operation: AppOperationReply, AppType: appdefinition.GitHubPR,
+			Operation: AppOperationReply, AppType: appdefinition.GitHubPR, Scope: AppToolScopeConversation,
 			Description: "Reply to a review comment in the selected GitHub pull request.",
 			required:    []string{"comment_id", "body"},
 			properties:  map[string]any{"comment_id": positive(), "body": text()},
 		},
-		{Operation: AppOperationRead, AppType: appdefinition.DiscordThread,
+		{Operation: AppOperationRead, AppType: appdefinition.DiscordThread, Scope: AppToolScopeConversation,
 			Description: "Read messages from this agent's assigned Discord thread.",
 			properties:  map[string]any{"before": text(), "limit": limit()}},
 		{
-			Operation: AppOperationPostMessage, AppType: appdefinition.DiscordThread,
+			Operation: AppOperationPostMessage, AppType: appdefinition.DiscordThread, Scope: AppToolScopeConversation,
 			Description: "Post a message to this agent's assigned Discord thread. Content must be at most 2000 characters.",
 			required:    []string{"content"},
 			properties: map[string]any{

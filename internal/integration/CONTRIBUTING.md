@@ -53,10 +53,22 @@ Reuse the common app-tool access checks: pending calls must remain authorized by
 both their original and current configs, and provider requests recheck live app
 setup and credential access.
 
+Each tool declares its `AppToolDefinition.Scope` in code. `AppToolScopeApp` uses
+the project's app credentials without requiring a launcher or subscription.
+`AppToolScopeConversation` additionally requires the agent's assigned conversation.
+Scope cannot be changed through config or model arguments. Both use the same
+config, permission, credential and live-app authorization checks. App-scoped tools
+can reach anything their implementation permits within those credentials; review
+any target arguments accordingly. Approval summaries include a destination only
+for conversation-scoped tools.
+
 The shipped apps assign one immutable sending conversation per agent/app during
-launch. Their tools take action arguments, not destinations. A missing or retired
-context never grants unrestricted sending. This is app behavior, not a schema
-restriction on future tools or receiving conversations.
+launch. All their current tools are conversation-scoped and take action arguments,
+not destinations. A missing or retired context never grants unrestricted sending.
+Their executors require that conversation; a future standalone operation must be
+dispatched before that requirement. GitHub PR tools also narrow their installation
+token to the assigned repository; standalone operations must choose their own
+appropriate token scope. Adding a subscription does not assign a tool destination.
 
 Subscriptions independently forward selected events from a conversation to an
 agent. Tool removal, config changes and posting do not alter subscriptions.
@@ -84,6 +96,13 @@ borrowing a sibling app's credentials. GitHub requires explicit redelivery for
 failures before durable intake; see the [operational guide](../../docs/integrations/github.mdx).
 Signature verification and receipt insertion do not form an atomic credential
 rotation fence: a just-replaced key can still admit an already-verified request.
+
+Declare supported launch triggers and the initial subscription in the app
+definition. An empty initial subscription means launches do not subscribe to
+replies. Launchers still add the app's declared tools and handler, preserving
+explicit config choices; tool scope does not change that composition policy.
+Provider event matching and a custom launcher must agree with the declaration,
+because early routing can discard events before the launcher runs.
 
 Normalize provider events outside database transactions. Launcher policy decides
 which profiles or agents to select; the router freezes those decisions and config

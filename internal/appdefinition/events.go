@@ -2,6 +2,7 @@ package appdefinition
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 )
 
@@ -34,8 +35,12 @@ func (e Event) Validate() error {
 	return fmt.Errorf("unsupported hosted app event %q", e.Kind)
 }
 
-func (e Event) MatchesLauncher(trigger string) bool {
-	if e.Validate() != nil {
+func (d Definition) SupportsLaunchTrigger(trigger string) bool {
+	return slices.Contains(d.LaunchTriggers, trigger)
+}
+
+func (d Definition) MatchesLauncher(e Event, trigger string) bool {
+	if !d.SupportsLaunchTrigger(trigger) || e.Scope.Provider() != d.Provider || e.Validate() != nil {
 		return false
 	}
 	if e.Scope.Discord != nil && e.Scope.Discord.GuildID == "" {

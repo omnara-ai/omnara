@@ -524,16 +524,18 @@ func TestAppLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 	encoded, err := agentconfig.EncodeCompiled(compiled)
 	require.NoError(t, err)
 	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
-	derived, subscription, err := deriveAppLaunch(base, app, event.Event.Scope)
+	derived, subscriptions, err := deriveAppLaunch(base, app, event.Event.Scope)
 	require.NoError(t, err)
-	require.Equal(t, "thread_messages", subscription.Type)
-	other, otherSubscription, err := deriveAppLaunch(base, app, appdefinition.Scope{
+	require.Len(t, subscriptions, 1)
+	require.Equal(t, "thread_messages", subscriptions[0].Type)
+	other, otherSubscriptions, err := deriveAppLaunch(base, app, appdefinition.Scope{
 		Slack: &appdefinition.SlackScope{ChannelID: "C456", ThreadTS: "7.8"},
 	})
 	require.NoError(t, err)
+	require.Len(t, otherSubscriptions, 1)
 	require.Equal(t, derived.EffectiveDefinitionHash, other.EffectiveDefinitionHash,
 		"different conversations reuse the same app capability config")
-	require.NotEqual(t, subscription.Conversation, otherSubscription.Conversation)
+	require.NotEqual(t, subscriptions[0].Conversation, otherSubscriptions[0].Conversation)
 
 	var actual agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
@@ -569,8 +571,10 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			_, execution, _, app, _ := appPlannerFixture(t)
 			base := execution.profile.CurrentConfig
 			app.Provider, app.AppType, app.Name = test.provider, test.appType, "receiver"
-			derived, subscription, err := deriveAppLaunch(base, app, test.scope)
+			derived, subscriptions, err := deriveAppLaunch(base, app, test.scope)
 			require.NoError(t, err)
+			require.Len(t, subscriptions, 1)
+			subscription := subscriptions[0]
 			require.Equal(t, test.subscriptionType, subscription.Type)
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
@@ -607,6 +611,39 @@ func TestAppLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 			require.Contains(t, blocks[1].Text, test.address)
 		})
 	}
+}
+
+func TestAppLaunchSubscriptionsFollowDefinition(t *testing.T) {
+	appID := uuid.New()
+	scope := appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}
+	definition := appdefinition.Definition{
+		Provider: appdefinition.ProviderSlack,
+		Subscriptions: map[string]appdefinition.SubscriptionDefinition{
+			"updates": {Name: "updates", Provider: appdefinition.ProviderSlack, Events: []string{"message"}},
+		},
+		InitialSubscription: "updates",
+	}
+	subscriptions, err := appLaunchSubscriptions(appID, definition, scope)
+	require.NoError(t, err)
+	require.Equal(t, []integrationstore.AppSubscriptionAttachment{{
+		AppID: appID, Type: "updates", Events: []string{"message"},
+		Conversation: json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`),
+	}}, subscriptions)
+
+	definition.InitialSubscription = ""
+	subscriptions, err = appLaunchSubscriptions(appID, definition, scope)
+	require.NoError(t, err)
+	require.Empty(t, subscriptions, "exported subscriptions do not imply a launch attachment")
+	definition.Subscriptions = nil
+	subscriptions, err = appLaunchSubscriptions(appID, definition, scope)
+	require.NoError(t, err)
+	require.Empty(t, subscriptions, "launches need not export any subscription")
+	_, err = appLaunchSubscriptions(appID, definition, appdefinition.Scope{})
+	require.Error(t, err, "a launch still requires a valid event scope without subscriptions")
+
+	definition.InitialSubscription = "missing"
+	_, err = appLaunchSubscriptions(appID, definition, scope)
+	require.EqualError(t, err, `app initial subscription "missing" is not defined`)
 }
 
 func TestAppLaunchPreservesInteractionToolOverrides(t *testing.T) {

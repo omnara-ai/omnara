@@ -169,7 +169,8 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if profileID != launch.ProfileID {
 		return storeerr.ErrUnauthorized
 	}
-	subscription, err := appLaunchSubscription(app, root)
+	definition, _ := appdefinition.Lookup(app.AppType)
+	subscriptions, err := appLaunchSubscriptions(app.ID, definition, root)
 	if err != nil {
 		return err
 	}
@@ -197,7 +198,7 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
 	frozenLaunch := executionstore.InboxLaunchPlan{
 		ProfileID: profileID, AgentConfigID: configID, DerivedBaseConfigID: baseConfigID,
-		Subscriptions: []integrationstore.AppSubscriptionAttachment{subscription},
+		Subscriptions: subscriptions,
 	}
 	frozenLaunch.LaunchedBy = executionstore.InboxLaunchPrincipal{
 		Type: identitystore.PrincipalTypeSystem, ID: event.TriggerID,

@@ -56,6 +56,7 @@ func discordInboxPayload(t *testing.T, message discord.Message) []byte {
 
 func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	t.Parallel()
+	definition, _ := appdefinition.Lookup(appdefinition.DiscordThread)
 	appSetup := discordInboxApp()
 	message := discordInboxMessageFixture()
 	channel := discord.Channel{ID: "300", GuildID: "100", Type: 0, Name: "help"}
@@ -64,7 +65,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
 	want := appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}
-	if *root.Event.Scope.Discord != want || !root.Event.MatchesLauncher("mention") ||
+	if *root.Event.Scope.Discord != want || !definition.MatchesLauncher(root.Event, "mention") ||
 		root.DeliveryMode != executionstore.DeliveryModeSteering || !root.CancelOpenInteractions ||
 		root.Actor.Provider != executionstore.ActorProviderApp ||
 		root.Actor.ProviderTenantID != appTestActor(t, appSetup.ID, "").ProviderTenantID ||

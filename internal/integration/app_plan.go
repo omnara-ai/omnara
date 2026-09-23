@@ -337,7 +337,7 @@ func (r *AppRouter) buildAppPlan(
 				}
 				profiles[profileID] = profile
 			}
-			derived, subscription, err := deriveAppLaunch(profile.CurrentConfig, app, event.Event.Scope)
+			derived, subscriptions, err := deriveAppLaunch(profile.CurrentConfig, app, event.Event.Scope)
 			if err != nil {
 				return nil, err
 			}
@@ -366,7 +366,7 @@ func (r *AppRouter) buildAppPlan(
 				},
 				AgentConfigID:       savedConfig.ID,
 				DerivedBaseConfigID: profile.CurrentConfig.ID,
-				Subscriptions:       []integrationstore.AppSubscriptionAttachment{subscription},
+				Subscriptions:       subscriptions,
 				IdempotencyKey:      "app:" + receipt.ID.String() + ":" + key,
 				InitialInput: &executionstore.LaunchInitialInput{
 					ContentBlocks:          content,
@@ -392,10 +392,12 @@ func (r *AppRouter) buildAppPlan(
 				Files:       files,
 				ArtifactIDs: appArtifactIDs(files),
 			}
-			planned = append(planned, integrationstore.AppSubscriptionRecord{
-				AppID: subscription.AppID, AgentID: agentID, Type: subscription.Type,
-				Address: request.address, Events: subscription.Events,
-			})
+			for _, subscription := range subscriptions {
+				planned = append(planned, integrationstore.AppSubscriptionRecord{
+					AppID: subscription.AppID, AgentID: agentID, Type: subscription.Type,
+					Address: request.address, Events: subscription.Events,
+				})
+			}
 			selected[identity] = selectedRecipient{agentID, request.order}
 		}
 		for agentID, subscription := range recipients {
@@ -482,13 +484,14 @@ func resolveAppLaunchIntent(
 
 func deriveAppLaunch(
 	base executionstore.AgentConfigRecord, app integrationstore.ProjectAppRecord, scope appdefinition.Scope,
-) (executionstore.CreateAgentConfigInput, integrationstore.AppSubscriptionAttachment, error) {
+) (executionstore.CreateAgentConfigInput, []integrationstore.AppSubscriptionAttachment, error) {
 	derived, err := deriveAppLaunchConfig(base, app)
 	if err != nil {
-		return executionstore.CreateAgentConfigInput{}, integrationstore.AppSubscriptionAttachment{}, err
+		return executionstore.CreateAgentConfigInput{}, nil, err
 	}
-	subscription, err := appLaunchSubscription(app, scope)
-	return derived, subscription, err
+	definition, _ := appdefinition.Lookup(app.AppType)
+	subscriptions, err := appLaunchSubscriptions(app.ID, definition, scope)
+	return derived, subscriptions, err
 }
 
 func deriveAppLaunchConfig(
@@ -521,35 +524,31 @@ func deriveAppLaunchConfig(
 	})
 }
 
-func appLaunchSubscription(
-	app integrationstore.ProjectAppRecord, scope appdefinition.Scope,
-) (integrationstore.AppSubscriptionAttachment, error) {
-	if err := scope.Validate(app.Provider); err != nil {
-		return integrationstore.AppSubscriptionAttachment{}, err
+func appLaunchSubscriptions(
+	appID uuid.UUID, definition appdefinition.Definition, scope appdefinition.Scope,
+) ([]integrationstore.AppSubscriptionAttachment, error) {
+	if err := scope.Validate(definition.Provider); err != nil {
+		return nil, err
 	}
-	definition, found := appdefinition.Lookup(app.AppType)
-	if !found {
-		return integrationstore.AppSubscriptionAttachment{}, fmt.Errorf("invalid launcher app definition")
+	if definition.InitialSubscription == "" {
+		return nil, nil
 	}
-	subscriptionType := "thread_messages"
-	if app.AppType == appdefinition.GitHubPR {
-		subscriptionType = "pull_request"
-	}
+	subscriptionType := definition.InitialSubscription
 	subscription, exists := definition.Subscriptions[subscriptionType]
 	if !exists {
-		return integrationstore.AppSubscriptionAttachment{}, fmt.Errorf("app has no launch subscription")
+		return nil, fmt.Errorf("app initial subscription %q is not defined", subscriptionType)
 	}
 	conversation, err := scope.ConversationJSON()
 	if err != nil {
-		return integrationstore.AppSubscriptionAttachment{}, err
+		return nil, err
 	}
 	prepared, err := subscription.Prepare(conversation, nil)
 	if err != nil {
-		return integrationstore.AppSubscriptionAttachment{}, err
+		return nil, err
 	}
-	return integrationstore.AppSubscriptionAttachment{
-		AppID: app.ID, Type: subscriptionType, Conversation: conversation, Events: slices.Clone(prepared.Events),
-	}, nil
+	return []integrationstore.AppSubscriptionAttachment{{
+		AppID: appID, Type: subscriptionType, Conversation: conversation, Events: slices.Clone(prepared.Events),
+	}}, nil
 }
 
 func appPlanKey(parts ...string) string {

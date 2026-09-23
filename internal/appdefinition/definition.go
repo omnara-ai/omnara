@@ -19,12 +19,14 @@ const (
 )
 
 type Definition struct {
-	AppType            Type
-	Provider           string
-	Tools              []string
-	Subscriptions      map[string]SubscriptionDefinition
-	InteractionHandler *InteractionHandlerDefinition
-	Schedule           *ScheduleDefinition
+	AppType             Type
+	Provider            string
+	Tools               []string
+	Subscriptions       map[string]SubscriptionDefinition
+	LaunchTriggers      []string
+	InitialSubscription string
+	InteractionHandler  *InteractionHandlerDefinition
+	Schedule            *ScheduleDefinition
 }
 
 func All() []Definition {
@@ -47,8 +49,10 @@ func Lookup(id Type) (Definition, bool) {
 			Subscriptions: map[string]SubscriptionDefinition{
 				"thread_messages": {Name: "thread_messages", Provider: ProviderSlack, Events: []string{"message"}},
 			},
-			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
-			Schedule:           slackThreadSchedule,
+			LaunchTriggers:      []string{"mention"},
+			InitialSubscription: "thread_messages",
+			InteractionHandler:  &InteractionHandlerDefinition{Provider: ProviderSlack},
+			Schedule:            slackThreadSchedule,
 		}
 	case DiscordThread:
 		d = Definition{
@@ -58,8 +62,10 @@ func Lookup(id Type) (Definition, bool) {
 			Subscriptions: map[string]SubscriptionDefinition{
 				"thread_messages": {Name: "thread_messages", Provider: ProviderDiscord, Events: []string{"message"}},
 			},
-			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
-			Schedule:           discordThreadSchedule,
+			LaunchTriggers:      []string{"mention"},
+			InitialSubscription: "thread_messages",
+			InteractionHandler:  &InteractionHandlerDefinition{Provider: ProviderDiscord},
+			Schedule:            discordThreadSchedule,
 		}
 	case GitHubPR:
 		d = Definition{
@@ -73,6 +79,8 @@ func Lookup(id Type) (Definition, bool) {
 					Events:   []string{"discussion_comment", "review_comment", "commit"},
 				},
 			},
+			LaunchTriggers:      []string{"mention", "pull_request_opened"},
+			InitialSubscription: "pull_request",
 		}
 	default:
 		return Definition{}, false

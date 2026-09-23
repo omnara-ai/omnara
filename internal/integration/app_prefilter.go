@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
@@ -43,8 +44,11 @@ func (r *AppRouter) freezeEmptyIfUnrouted(
 				return nil
 			}
 			if app := candidates.Launcher; app != nil && app.State == integrationstore.ProjectAppStateActive &&
-				app.Settings.Launcher != nil && event.Event.MatchesLauncher(app.Settings.Launcher.Trigger) {
-				return nil
+				app.Settings.Launcher != nil {
+				definition, _ := appdefinition.Lookup(app.AppType)
+				if definition.MatchesLauncher(event.Event, app.Settings.Launcher.Trigger) {
+					return nil
+				}
 			}
 			if err := work.CheckNoUnsettledAppSelection(ctx, request.address); err != nil {
 				return err

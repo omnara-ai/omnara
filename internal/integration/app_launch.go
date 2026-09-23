@@ -13,6 +13,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
+// AppLauncher must use the app definition's trigger matching: the inbox prefilter
+// may discard other events before invoking the launcher.
 type AppLauncher func(context.Context, AppLaunchContext) ([]AppLaunchIntent, error)
 
 type AppLaunchContext struct {
@@ -113,8 +115,9 @@ func (w *AppLaunchWorkflow) Decide(
 
 func EverySlotAppLauncher(_ context.Context, input AppLaunchContext) ([]AppLaunchIntent, error) {
 	launcher := input.App.Settings.Launcher
+	definition, _ := appdefinition.Lookup(input.App.AppType)
 	if input.App.State != integrationstore.ProjectAppStateActive || launcher == nil ||
-		!input.Event.Event.MatchesLauncher(launcher.Trigger) {
+		!definition.MatchesLauncher(input.Event.Event, launcher.Trigger) {
 		return nil, nil
 	}
 	profilesSelected := false

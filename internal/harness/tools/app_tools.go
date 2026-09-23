@@ -68,20 +68,36 @@ func appPermissionChallenge(
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	access, err := e.resolveAppToolScope(ctx, turn, record)
+	access, err := e.resolveAppToolAuthority(ctx, turn, record)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	destination, err := access.Conversation.ConversationJSON()
+	access.Conversation, err = e.appToolConversation(ctx, turn, access)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
-	summary, err := json.Marshal(struct {
-		Destination json.RawMessage `json:"destination"`
-		Arguments   json.RawMessage `json:"arguments"`
-	}{destination, call.Input})
+	summary, err := appToolPermissionSummary(access, call.Input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}
 	return permissionChallenge(call, mode, summary)
+}
+
+func appToolPermissionSummary(access appToolAccess, input json.RawMessage) (json.RawMessage, error) {
+	var destination json.RawMessage
+	switch access.Authority.Definition.Scope {
+	case toolcatalog.AppToolScopeApp:
+	case toolcatalog.AppToolScopeConversation:
+		var err error
+		destination, err = access.Conversation.ConversationJSON()
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("app tool requires an explicit scope")
+	}
+	return json.Marshal(struct {
+		Destination json.RawMessage `json:"destination,omitempty"`
+		Arguments   json.RawMessage `json:"arguments"`
+	}{destination, input})
 }
