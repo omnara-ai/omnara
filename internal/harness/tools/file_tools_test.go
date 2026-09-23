@@ -79,15 +79,18 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 		want string
 	}{
 		{name: "trailing slash",
-			raw: `{"path":"/artifacts/","destination":"a"}`, want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
-		{name: "artifact root", raw: `{"path":"/artifacts"}`, want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
+			raw:  `{"path":"/artifacts/","destination":"a"}`,
+			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
+		{name: "artifact root", raw: `{"path":"/artifacts"}`,
+			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
 		{name: "artifact destination", raw: `{"path":"/artifacts/` + artifactID + `"}`, want: "destination is required"},
 		{
 			name: "unsupported root", raw: `{"path":"/skills/deploy","destination":"deploy"}`,
 			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>",
 		},
 		{name: "invalid artifact",
-			raw: `{"path":"/artifacts/not-an-id","destination":"a"}`, want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
+			raw:  `{"path":"/artifacts/not-an-id","destination":"a"}`,
+			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
 		{
 			name: "nested artifact",
 			raw:  `{"path":"/artifacts/` + artifactID + `/file","destination":"a"}`,
