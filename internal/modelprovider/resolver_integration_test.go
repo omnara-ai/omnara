@@ -897,10 +897,11 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 	providerConfig, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              created.Org.ID,
 		Name:               "gateway",
-		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		APIFormat:          modelprotocol.APIFormatOpenAIChatCompletions,
+		APIVariant:         modelprotocol.APIVariantOpenRouter,
 		BaseURL:            "https://gateway.example.test/v1",
 		CredentialSecretID: credentialID,
-		Headers:            json.RawMessage(`{"X-Team":"core"}`),
+		Headers:            json.RawMessage(`{"X-Team":"core","HTTP-Referer":"https://gateway.example.test"}`),
 		SecretHeaders:      json.RawMessage(`{"X-Gateway-Key":"` + gatewayKeyID.String() + `"}`),
 	})
 	if err != nil {
@@ -924,8 +925,10 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("grant configured model: %v", err)
 	}
+	resolver := integrationResolver(store)
+	resolver.OpenRouterAttribution = OpenRouterAttribution{SiteURL: "https://omnara.com", AppTitle: "Omnara"}
 	requestHeaders := func() http.Header {
-		resolved, err := integrationResolver(store).Resolve(ctx, model.Selection{
+		resolved, err := resolver.Resolve(ctx, model.Selection{
 			OrgID:                     created.Org.ID.String(),
 			ProjectID:                 created.Project.ID.String(),
 			ConfiguredModelRevisionID: configuredModel.CurrentRevisionID.String(),
@@ -933,13 +936,13 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve model: %v", err)
 		}
-		request, err := http.NewRequest(http.MethodPost, "https://gateway.example.test/v1/responses", nil)
+		request, err := http.NewRequest(http.MethodPost, "https://gateway.example.test/v1/chat/completions", nil)
 		if err != nil {
 			t.Fatalf("build request: %v", err)
 		}
-		client, ok := resolved.Client.(openairesponses.Client)
+		client, ok := resolved.Client.(openaichatcompletions.Client)
 		if !ok {
-			t.Fatalf("resolved client type = %T, want openairesponses.Client", resolved.Client)
+			t.Fatalf("resolved client type = %T, want openaichatcompletions.Client", resolved.Client)
 		}
 		if err := client.Auth.Apply(request); err != nil {
 			t.Fatalf("apply auth: %v", err)
@@ -949,7 +952,9 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 
 	headers := requestHeaders()
 	if headers.Get("X-Team") != "core" || headers.Get("X-Gateway-Key") != "gw-secret" ||
-		headers.Get("Authorization") != "Bearer sk-provider" {
+		headers.Get("Authorization") != "Bearer sk-provider" ||
+		headers.Get("Http-Referer") != "https://gateway.example.test" ||
+		headers.Get("X-Openrouter-Title") != "Omnara" {
 		t.Fatalf("request headers = %v", headers)
 	}
 

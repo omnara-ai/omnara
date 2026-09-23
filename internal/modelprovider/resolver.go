@@ -211,7 +211,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 		auth = route.Chain{route.Headers(customHeaders), auth}
 	}
 	if headers := r.routeHeadersForProviderConfig(providerConfig); len(headers) > 0 {
-		auth = route.Chain{auth, route.Headers(headers)}
+		auth = route.Chain{route.Headers(headers), auth}
 	}
 	capabilities := capabilitiesForRevision(effectiveRevision)
 	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages &&
