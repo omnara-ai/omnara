@@ -191,9 +191,7 @@ func (t *toolCallTransaction) createPoolMachine(
 	if err != nil {
 		return CreatePoolMachineResult{}, err
 	}
-	resolvedMachine, err := t.store.ResolvePoolMachineTx(
-		ctx,
-		t.q,
+	resolvedMachine, err := t.store.ResolvePoolMachine(
 		poolGrant,
 		currentSource,
 	)

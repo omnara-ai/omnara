@@ -224,12 +224,16 @@ func TestAnnotationsDeriveFromMethod(t *testing.T) {
 		readOnly    bool
 		idempotent  bool
 		destructive bool
+		openWorld   bool
 	}{
 		{name: "agents_list", readOnly: true, idempotent: true},
-		{name: "agents_launch"},
+		{name: "agents_launch", openWorld: true},
+		{name: "agents_input", openWorld: true},
+		{name: "agents_interactions_resolve", openWorld: true},
 		{name: "grant_skills_add"},
 		{name: "secrets_update", destructive: true},
-		{name: "crons_update", destructive: true},
+		{name: "crons_create", openWorld: true},
+		{name: "crons_update", destructive: true, openWorld: true},
 		{name: "pools_update", idempotent: true, destructive: true},
 		{name: "agents_update", destructive: true},
 		{name: "profiles_update", destructive: true},
@@ -245,6 +249,9 @@ func TestAnnotationsDeriveFromMethod(t *testing.T) {
 		}
 		if annotations.DestructiveHint == nil || *annotations.DestructiveHint != tc.destructive {
 			t.Errorf("%s destructiveHint=%v, want %v", tc.name, annotations.DestructiveHint, tc.destructive)
+		}
+		if annotations.OpenWorldHint == nil || *annotations.OpenWorldHint != tc.openWorld {
+			t.Errorf("%s openWorldHint=%v, want %v", tc.name, annotations.OpenWorldHint, tc.openWorld)
 		}
 	}
 }

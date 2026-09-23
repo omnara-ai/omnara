@@ -182,7 +182,6 @@ func (s *Store) changeAgentConfigOnce(
 		if err := s.resolveLaunchExplicitMachineSourcesTx(
 			ctx,
 			qtx,
-			project.OrgID,
 			input.ProjectID,
 			nextSources,
 		); err != nil {
@@ -217,7 +216,6 @@ func (s *Store) changeAgentConfigOnce(
 				txNotifications,
 				tx,
 				qtx,
-				project.OrgID,
 				input.ProjectID,
 				input.AgentID,
 				currentContract,

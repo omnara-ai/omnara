@@ -6,6 +6,7 @@ type Tool struct {
 	OperationID string
 	Description string
 	Destructive bool
+	OpenWorld   bool
 }
 
 var Tools = []Tool{
@@ -20,17 +21,22 @@ var Tools = []Tool{
 
 	{Name: "agents_list", Title: "List agents", OperationID: "listAgents"},
 	{Name: "agents_get", Title: "Get agent", OperationID: "getAgent"},
-	{Name: "agents_launch", Title: "Launch agent", OperationID: "createAgent"},
+	{Name: "agents_launch", Title: "Launch agent", OperationID: "createAgent", OpenWorld: true},
 	{Name: "agents_update", Title: "Update agent config", OperationID: "updateAgentConfig", Destructive: true},
 
 	{Name: "configs_get", Title: "Get agent config", OperationID: "getAgentConfig"},
 	{Name: "configs_create", Title: "Create agent config", OperationID: "createAgentConfig"},
-	{Name: "agents_input", Title: "Send agent input", OperationID: "createAgentInput"},
+	{Name: "agents_input", Title: "Send agent input", OperationID: "createAgentInput", OpenWorld: true},
 	{Name: "agents_cancel", Title: "Cancel agent", OperationID: "cancelAgent", Destructive: true},
 	{Name: "agents_archive", Title: "Archive agent", OperationID: "archiveAgent", Destructive: true},
 	{Name: "agents_events_list", Title: "List agent events", OperationID: "listEvents"},
 	{Name: "agents_interactions_list", Title: "List agent interactions", OperationID: "listAgentInteractions"},
-	{Name: "agents_interactions_resolve", Title: "Resolve agent interaction", OperationID: "resolveAgentInteraction"},
+	{
+		Name:        "agents_interactions_resolve",
+		Title:       "Resolve agent interaction",
+		OperationID: "resolveAgentInteraction",
+		OpenWorld:   true,
+	},
 
 	{Name: "machines_list", Title: "List machines", OperationID: "listVisibleMachines"},
 	{Name: "machines_get", Title: "Get machine", OperationID: "getMachine"},
@@ -81,11 +87,12 @@ var Tools = []Tool{
 	{Name: "profiles_update", Title: "Update agent profile", OperationID: "updateAgentProfile", Destructive: true},
 	{Name: "profiles_rename", Title: "Rename agent profile", OperationID: "renameAgentProfile"},
 	{Name: "profiles_delete", Title: "Delete agent profile", OperationID: "deleteAgentProfile"},
+	{Name: "tools_catalog", Title: "Get tool catalog", OperationID: "getToolCatalog"},
 
 	{Name: "crons_list", Title: "List cron triggers", OperationID: "listCronTriggers"},
 	{Name: "crons_get", Title: "Get cron trigger", OperationID: "getCronTrigger"},
-	{Name: "crons_create", Title: "Create cron trigger", OperationID: "createCronTrigger"},
-	{Name: "crons_update", Title: "Update cron trigger", OperationID: "updateCronTrigger"},
+	{Name: "crons_create", Title: "Create cron trigger", OperationID: "createCronTrigger", OpenWorld: true},
+	{Name: "crons_update", Title: "Update cron trigger", OperationID: "updateCronTrigger", OpenWorld: true},
 	{Name: "crons_delete", Title: "Delete cron trigger", OperationID: "deleteCronTrigger"},
 
 	{Name: "grant_skills_list", Title: "List skill grants", OperationID: "listSkillGrants"},

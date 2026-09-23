@@ -355,6 +355,110 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 	}
 }
 
+func TestLaunchAndCreatePoolMachineAfterEnvironmentSecretDeletion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "deleted_machine_secret")
+	store := newIntegrationStore(fixture.Store.pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "deleted-machine-secret@example.com", "Secret Tester")
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:          testOrgID,
+		OwnerKind:      secretstore.SecretOwnerProject,
+		OwnerProjectID: testProjectID,
+		Name:           "deleted-machine-env",
+		Material:       secrets.GenericMaterial{Value: "secret-value"},
+		Actor:          userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	secretRef := secretPublicIDForTest(t, secret.ID)
+	machinePool := createLaunchTestMachinePool(t, ctx, store, "Deleted Secret Pool", "test.provider",
+		defaultMachineFieldsForTest{
+			DefaultMachineCPU:             1,
+			DefaultMachineMemoryMB:        1024,
+			DefaultMachineEnv:             json.RawMessage(`{"PLAIN":"plain"}`),
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test"}`),
+		}, 2, fixture.Now)
+	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID,
+		},
+		defaultMachineOverlayFieldsForTest{
+			DefaultMachineSecretEnvOverlay: json.RawMessage(`{"GRANT_SECRET":"` + secret.ID.String() + `"}`),
+		},
+	)); err != nil {
+		t.Fatalf("grant machine pool: %v", err)
+	}
+	machine, err := store.Execution().GetMachine(ctx, testOrgID, fixture.MachineID)
+	if err != nil {
+		t.Fatalf("get explicit machine: %v", err)
+	}
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, fmt.Sprintf(`
+instruction: Use machines.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+machine_sources:
+  - machine_name: %q
+    secret_env_overlay:
+      AGENT_SECRET: %s
+  - machine_pool_name: %q
+    max_machines: 2
+    initial_num_machines: 1
+    secret_env_overlay:
+      AGENT_SECRET: %s
+tools:
+  create_machine:
+    type: built_in
+`, machine.DisplayName, secretRef, machinePool.Name, secretRef))
+	if _, err := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(user.ID),
+	}); err != nil {
+		t.Fatalf("delete environment secret: %v", err)
+	}
+	if err := store.Execution().ValidateAgentConfigMachineSources(ctx, testProjectID,
+		config.CompiledDefinition, config.EffectiveDefinitionHash,
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("validate new config with deleted secret = %v, want not found", err)
+	}
+	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, AgentConfigID: config.ID, LaunchedBy: userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("launch saved config after secret deletion: %v", err)
+	}
+	if len(launch.MachineBindings) != 2 || len(launch.ProvisionMachineIDs) != 1 {
+		t.Fatalf("launch did not create explicit and pool bindings: %+v", launch)
+	}
+	lock, err := store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, launch.Agent.ID,
+		testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+	if err != nil {
+		t.Fatalf("acquire agent runtime: %v", err)
+	}
+	toolCalls := createPoolMachineToolCalls(t, ctx, store, launch.Agent.ID, user.ID, config.ID, lock,
+		"deleted_secret", []poolMachineToolCallSpec{{Label: "create", Name: "create_machine", Input: json.RawMessage(`{}`)}})
+	created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
+		ProjectID: testProjectID, AgentID: launch.Agent.ID, ToolCallID: toolCalls["create"], RuntimeLockID: lock.ID,
+	}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID})
+	if err != nil {
+		t.Fatalf("agent creates additional machine after secret deletion: %v", err)
+	}
+	for _, machineID := range []uuid.UUID{launch.ProvisionMachineIDs[0], created.Machine.Machine.ID} {
+		claim, found, err := store.Execution().ClaimPoolMachineForProvisioning(ctx, testOrgID, machineID)
+		if err != nil || !found {
+			t.Fatalf("claim machine %s: found=%v err=%v", machineID, found, err)
+		}
+		env, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, claim)
+		if err != nil {
+			t.Fatalf("resolve provisioning environment: %v", err)
+		}
+		if len(env) != 1 || env["PLAIN"] != "plain" {
+			t.Fatalf("provisioning environment = %+v, want literal variable only", env)
+		}
+	}
+}
+
 func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
