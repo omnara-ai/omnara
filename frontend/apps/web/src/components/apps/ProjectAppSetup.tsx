@@ -1,16 +1,14 @@
 import { useConfigureProjectApp, useCreateSecret } from '@omnara/react'
 import type { AppType, ProjectApp } from '@omnara/sdk'
 import { type ReactNode, type SyntheticEvent, useEffect, useRef } from 'react'
-import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { FieldGroup } from '@/components/ui/field'
 
 import { projectAppFormError } from './projectAppFormState'
 import { ProjectAppNameField } from './ProjectAppNameField'
-import { ProjectAppPortalSetup } from './ProjectAppPortalSetup'
 import { ProjectAppSetupCredentials } from './ProjectAppSetupCredentials'
+import { DiscordSetupDetails, GitHubSetupDetails } from './ProjectAppSetupDetails'
 import { ProjectAppSetupGroup } from './ProjectAppSetupGroup'
 import { submitProjectAppSetup } from './projectAppSetupSubmission'
 import { useProjectAppDraft } from './useProjectAppDraft'
@@ -59,13 +57,11 @@ export function ProjectAppSetupForm({
     account,
     setAccount,
     error,
-    setError,
     busy,
-    setBusy,
+    run,
   } = state
-  const setup = useConfigureProjectApp(orgId, projectId)
+  const configure = useConfigureProjectApp(orgId, projectId)
   const createSecret = useCreateSecret(orgId)
-  const submitting = useRef(false)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -73,41 +69,47 @@ export function ProjectAppSetupForm({
       mounted.current = false
     }
   }, [])
-  async function submit(event: SyntheticEvent<HTMLFormElement>) {
+  function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (submitting.current) return
-    submitting.current = true
-    setBusy(true)
-    setError('')
     const form = new FormData(event.currentTarget)
-    await ensureApp()
-      .then(async (draft) => {
+    void run(
+      async () => {
         const saved = await submitProjectAppSetup(
-          { form, projectId, app: draft, savedSecret, newCredential },
+          { form, projectId, app: await ensureApp(), savedSecret, newCredential },
           {
             createSecret: createSecret.mutateAsync,
-            configureApp: setup.mutateAsync,
+            configureApp: configure.mutateAsync,
             onSecretSaved: setSavedSecret,
           },
         )
         if (mounted.current) onSaved(saved)
-      })
-      .catch((cause: unknown) => {
-        if (mounted.current)
-          setError(cause instanceof Error ? projectAppFormError(cause) : 'Could not connect app.')
-      })
-      .finally(() => {
-        submitting.current = false
-        setBusy(false)
-      })
+      },
+      (cause) => projectAppFormError(cause, 'Could not connect app.'),
+    )
   }
   const github = appType === 'github_pr'
   const provider = github ? 'GitHub' : 'Discord'
-  const providerTenant = app?.provider_tenant_id ?? ''
-  const providerAccount = app?.provider_account_ref ?? ''
-  const reconnect = Boolean(providerTenant)
+  const reconnect = Boolean(app?.provider_tenant_id)
+  const credentials = (
+    <ProjectAppSetupCredentials
+      orgId={orgId}
+      projectId={projectId}
+      appType={appType}
+      name={name}
+      credentialSecretId={app?.credential_secret_id}
+      savedSecret={savedSecret}
+      selectedSecret={selectedSecret}
+      onSelectedSecretChange={setSelectedSecret}
+      newCredential={newCredential}
+      onNewCredentialChange={setNewCredential}
+      onChooseCredentials={() => {
+        setSavedSecret('')
+        setNewCredential(false)
+      }}
+    />
+  )
   return (
-    <form onSubmit={(event) => void submit(event)} autoComplete="off">
+    <form onSubmit={submit} autoComplete="off">
       <FieldGroup className="gap-8 text-sm">
         <div className="flex flex-col gap-2">
           <h2 className="font-medium">
@@ -144,99 +146,26 @@ export function ProjectAppSetupForm({
               <ProjectAppNameField name={name} onChange={setName} saved={app} />
             </ProjectAppSetupGroup>
           )}
-          <ProjectAppSetupGroup
-            title={github ? 'App identity' : '1. Application details'}
-            hint={
-              github
-                ? 'The App ID is on the app’s settings page. The Installation ID is a different number, at the end of its installation URL.'
-                : 'Copy both values from General Information.'
-            }
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="provider-tenant">
-                  {github ? 'GitHub App ID' : 'Discord Application ID'}
-                </FieldLabel>
-                <Input
-                  key={app?.provider_tenant_id ?? ''}
-                  id="provider-tenant"
-                  name="tenant"
-                  inputMode="numeric"
-                  defaultValue={providerTenant !== '' ? providerTenant : tenant}
-                  readOnly={Boolean(providerTenant || savedSecret)}
-                  required
-                  pattern="[1-9][0-9]*"
-                  onChange={(event) => {
-                    setTenant(event.target.value.trim())
-                  }}
-                />
-              </Field>
-              {github && (
-                <Field>
-                  <FieldLabel htmlFor="provider-account">Installation ID</FieldLabel>
-                  <Input
-                    key={providerAccount}
-                    id="provider-account"
-                    name="account"
-                    inputMode="numeric"
-                    defaultValue={providerAccount !== '' ? providerAccount : account}
-                    readOnly={Boolean(providerAccount)}
-                    required
-                    pattern="[1-9][0-9]*"
-                    onChange={(event) => {
-                      setAccount(event.target.value.trim())
-                    }}
-                  />
-                </Field>
-              )}
-              {!github && (
-                <Field>
-                  <FieldLabel htmlFor="discord-public-key">Public key</FieldLabel>
-                  <Input
-                    id="discord-public-key"
-                    name="publicKey"
-                    className="font-mono"
-                    spellCheck={false}
-                    defaultValue={z.string().catch('').parse(app?.provider_config.public_key)}
-                    pattern="[a-fA-F0-9]{64}"
-                    required
-                  />
-                </Field>
-              )}
-            </div>
-          </ProjectAppSetupGroup>
-          <ProjectAppSetupGroup
-            title={github ? 'Credentials' : '2. Bot token'}
-            hint={
-              github
-                ? 'The private key lets Omnara act as the app. The webhook secret verifies what GitHub sends.'
-                : 'On the Bot page, copy your token (or use Reset Token to create one). Enable Message Content Intent so agents can read replies.'
-            }
-          >
-            <ProjectAppSetupCredentials
-              orgId={orgId}
-              projectId={projectId}
-              appType={appType}
-              name={name}
-              credentialSecretId={app?.credential_secret_id}
+          {github ? (
+            <GitHubSetupDetails
+              app={app}
+              tenant={tenant}
+              onTenantChange={setTenant}
+              account={account}
+              onAccountChange={setAccount}
               savedSecret={savedSecret}
-              selectedSecret={selectedSecret}
-              onSelectedSecretChange={setSelectedSecret}
-              newCredential={newCredential}
-              onNewCredentialChange={setNewCredential}
-              onChooseCredentials={() => {
-                setSavedSecret('')
-                setNewCredential(false)
-              }}
-            />
-          </ProjectAppSetupGroup>
-          {github && (
-            <ProjectAppSetupGroup
-              title="Then, in GitHub"
-              hint="Connect here first, then finish setup in your GitHub App’s settings."
             >
-              <ProjectAppPortalSetup appType="github_pr" providerId={providerTenant || tenant} />
-            </ProjectAppSetupGroup>
+              {credentials}
+            </GitHubSetupDetails>
+          ) : (
+            <DiscordSetupDetails
+              app={app}
+              tenant={tenant}
+              onTenantChange={setTenant}
+              savedSecret={savedSecret}
+            >
+              {credentials}
+            </DiscordSetupDetails>
           )}
         </fieldset>
         {error && (

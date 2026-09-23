@@ -2,6 +2,20 @@ import { schemas } from '@omnara/sdk'
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 
+const returnKeys = [
+  'github_setup',
+  'github_setup_error',
+  'credentials_secret_ref',
+  'installation_id',
+  'setup_action',
+  'state',
+]
+
+export function hasGitHubSetupReturn() {
+  const params = new URLSearchParams(window.location.search)
+  return returnKeys.some((key) => params.has(key))
+}
+
 function readReturn() {
   const params = new URLSearchParams(window.location.search)
   // Installation state carries a public credential selection hint, not OAuth authorization.
@@ -45,17 +59,9 @@ function readReturn() {
 export function useGitHubSetupReturn() {
   const [outcome] = useState(readReturn)
   useEffect(() => {
+    if (!hasGitHubSetupReturn()) return
     const url = new URL(window.location.href)
-    const keys = [
-      'github_setup',
-      'github_setup_error',
-      'credentials_secret_ref',
-      'installation_id',
-      'setup_action',
-      'state',
-    ]
-    if (!keys.some((key) => url.searchParams.has(key))) return
-    for (const key of keys) url.searchParams.delete(key)
+    for (const key of returnKeys) url.searchParams.delete(key)
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
   }, [])
   return outcome

@@ -612,6 +612,26 @@ it.each([401, 403, 404])(
   },
 )
 
+it.each([
+  ['slack_thread', 'Use an existing Slack app'],
+  ['github_pr', 'GitHub App owner'],
+  ['discord_thread', 'Bot token'],
+] as const)('creates a %s app through its connection form', async (appType, control) => {
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: `${projectPath}/app-definitions`,
+      respond: () => Response.json({ data: [appDefinition(appType)] }),
+    },
+  ])
+  render(api, <ProjectAppCreateSetup orgId={orgId} projectId={projectId} appType={appType} />)
+  await waitForUI(() => {
+    expect(container.querySelector('[aria-label="Connection"]')?.textContent).toContain(control)
+  })
+  expect(container.querySelector('#app-name')).not.toBeNull()
+  expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
+})
+
 it('keeps creation fields mounted when refreshing app definitions fails', async () => {
   let failing = false
   const api = fakeApi([

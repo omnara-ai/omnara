@@ -85,7 +85,6 @@ function GitHubLaunchTrigger({
       <FieldLabel htmlFor="app-trigger">Launch when</FieldLabel>
       <select
         id="app-trigger"
-        aria-label="Launch when"
         className={selectClass}
         value={value}
         onChange={(event) => {
@@ -140,7 +139,6 @@ function ProjectAppLauncherScopeFields({
         <FieldLabel htmlFor="app-launch-scope">Respond to mentions in</FieldLabel>
         <select
           id="app-launch-scope"
-          aria-label="Respond to mentions in"
           className={selectClass}
           value={values.scopeKind}
           onChange={(event) => {

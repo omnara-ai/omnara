@@ -8,6 +8,7 @@ import {
   cronPath,
   orgId,
   path,
+  profileRoutes,
   projectId,
   render,
   submit,
@@ -182,3 +183,48 @@ it.each(['nested schema', 'additional saved settings'])(
     })
   },
 )
+
+it('blocks saving until the app schedule schema loads and retries it from the dialog', async () => {
+  const app = projectApp({ state: 'active' })
+  const saved = trigger()
+  let available = false
+  const api = fakeApi([
+    ...profileRoutes,
+    {
+      method: 'GET',
+      path: path + '/apps/' + app.id,
+      respond: () =>
+        available ? Response.json(app) : jsonResponse({ code: 'unavailable', error: 'Later' }, 503),
+    },
+    {
+      method: 'PATCH',
+      path: cronPath + '/' + saved.id,
+      respond: ({ body }) =>
+        Response.json({ ...saved, ...schemas.zUpdateCronTriggerRequest.parse(body) }),
+    },
+  ])
+  render(
+    api,
+    <EditCronTriggerDialog
+      open
+      onOpenChange={vi.fn()}
+      orgId={orgId}
+      projectId={projectId}
+      trigger={saved}
+    />,
+  )
+  await waitForUI(() => {
+    expect(document.body.textContent).toContain('Could not load schedule settings.')
+  })
+  expect(button('Save changes').disabled).toBe(true)
+  await submit()
+  expect(api.requestsTo('PATCH', cronPath + '/' + saved.id)).toHaveLength(0)
+  available = true
+  act(() => {
+    button('Retry settings').click()
+  })
+  await waitForUI(() => {
+    expect(field('Channel ID').value).toBe('C123')
+  })
+  expect(button('Save changes').disabled).toBe(false)
+})

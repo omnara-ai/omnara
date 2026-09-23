@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, projectApp } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { enter, waitForUI } from '@/test/secret-editor'
+import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
 import { ConnectSlackForm } from './ConnectSlackForm'
 
@@ -32,6 +32,7 @@ afterEach(() => {
   window.history.replaceState(null, '', '/')
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 it.each(['changed', 'deleted'] as const)(
@@ -238,3 +239,120 @@ it.each(['complete', 'invalidate'] as const)(
     expect(reads).toBe(2)
   },
 )
+
+it('explains an app creation conflict before creating the Slack app', async () => {
+  const orgId = fakeId('org'),
+    projectId = fakeId('proj')
+  const projectPath = `/api/v1/orgs/${orgId}/projects/${projectId}`
+  const api = fakeApi([
+    {
+      method: 'POST',
+      path: projectPath + '/apps',
+      respond: () => jsonResponse({ code: 'conflict', error: 'App name already exists' }, 409),
+    },
+  ])
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  act(() => {
+    root.render(
+      <OmnaraClientProvider client={client}>
+        <QueryClientProvider client={cache}>
+          <ConnectSlackForm orgId={orgId} projectId={projectId} />
+        </QueryClientProvider>
+      </OmnaraClientProvider>,
+    )
+  })
+  await enter('App configuration token', 'config-token')
+  await act(async () => {
+    document
+      .querySelector('form')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await Promise.resolve()
+  })
+  await waitForUI(() => {
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      'App name already exists. If you started setup earlier, open it from Apps to continue.',
+    )
+  })
+  expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(1)
+})
+
+it('keeps each Slack setup method draft, including the icon, when switching methods', async () => {
+  vi.stubGlobal(
+    'createImageBitmap',
+    vi.fn().mockResolvedValue({ width: 512, height: 512, close: vi.fn() }),
+  )
+  const orgId = fakeId('org'),
+    projectId = fakeId('proj')
+  const app = projectApp()
+  const path = `/api/v1/orgs/${orgId}/projects/${projectId}/apps/${app.id}`
+  const api = fakeApi([
+    {
+      method: 'POST',
+      path: path + '/slack-setup',
+      respond: () =>
+        jsonResponse(
+          {
+            app_id: app.id,
+            setup_revision: app.setup_revision,
+            provider: 'slack',
+            slack_app_id: 'A123',
+            flow_id: fakeId('ioaf'),
+            oauth_url: 'https://slack.com/oauth/v2/authorize',
+            redirect_uri: 'https://omnara.test/callback',
+            events_url: 'https://omnara.test/events',
+            actions_url: 'https://omnara.test/actions',
+            expires_at: new Date(Date.now() + 600_000).toISOString(),
+          },
+          201,
+        ),
+    },
+  ])
+  const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  act(() => {
+    root.render(
+      <OmnaraClientProvider client={client}>
+        <QueryClientProvider client={cache}>
+          <ConnectSlackForm app={app} orgId={orgId} projectId={projectId} />
+        </QueryClientProvider>
+      </OmnaraClientProvider>,
+    )
+  })
+  function toggleExistingApp() {
+    act(() => {
+      field('Use an existing Slack app').click()
+    })
+  }
+  await enter('Name in Slack', 'Reviewer')
+  await enter('App configuration token', 'config-token')
+  act(() => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(['image'], 'icon.png', { type: 'image/png' }))
+    const input = field('Slack app icon (optional)')
+    if (!(input instanceof HTMLInputElement)) throw new Error('Expected file input')
+    input.files = transfer.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await waitForUI(() => {
+    expect(container.textContent).toContain('icon.png')
+  })
+  toggleExistingApp()
+  await enter('Client ID', 'client')
+  toggleExistingApp()
+  expect(field('Name in Slack').value).toBe('Reviewer')
+  expect(field('App configuration token').value).toBe('config-token')
+  expect(container.textContent).toContain('icon.png')
+  toggleExistingApp()
+  expect(field('Client ID').value).toBe('client')
+  toggleExistingApp()
+  act(() => {
+    button('Connect app').click()
+  })
+  await waitForUI(() => {
+    expect(api.requestsTo('POST', path + '/slack-setup')).toHaveLength(1)
+  })
+  expect(api.requestsTo('POST', path + '/slack-setup')[0]?.body).toMatchObject({
+    app_name: 'Reviewer',
+    app_configuration_token: 'config-token',
+    icon: { filename: 'icon.png', data_base64: 'aW1hZ2U=' },
+  })
+})

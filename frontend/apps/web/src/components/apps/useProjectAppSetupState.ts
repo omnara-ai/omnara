@@ -1,5 +1,5 @@
 import type { ProjectApp } from '@omnara/sdk'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 export function useProjectAppSetupState(
   existing?: ProjectApp,
@@ -13,6 +13,21 @@ export function useProjectAppSetupState(
   const [account, setAccount] = useState(existing?.provider_account_ref ?? '')
   const [error, setError] = useState(initial.error ?? '')
   const [busy, setBusy] = useState(false)
+  const running = useRef(false)
+  async function run(step: () => Promise<void>, onError: (cause: unknown) => string) {
+    if (running.current) return
+    running.current = true
+    setBusy(true)
+    setError('')
+    try {
+      await step()
+    } catch (cause) {
+      setError(onError(cause))
+    } finally {
+      running.current = false
+      setBusy(false)
+    }
+  }
   return {
     newCredential,
     setNewCredential,
@@ -27,6 +42,6 @@ export function useProjectAppSetupState(
     error,
     setError,
     busy,
-    setBusy,
+    run,
   }
 }

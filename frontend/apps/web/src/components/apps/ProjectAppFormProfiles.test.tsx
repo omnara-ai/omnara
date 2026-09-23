@@ -450,10 +450,12 @@ it.each(['saved channel', 'new launcher'] as const)(
     )
     function selectScope(value: string) {
       act(() => {
-        const select = container.querySelector<HTMLSelectElement>(
-          'select[aria-label="Respond to mentions in"]',
+        const label = [...container.querySelectorAll('label')].find(
+          (item) => item.textContent === 'Respond to mentions in',
         )
-        if (!select) throw new Error('Missing launcher scope selector')
+        const select = label && document.getElementById(label.htmlFor)
+        if (!(select instanceof HTMLSelectElement))
+          throw new Error('Missing launcher scope selector')
         select.value = value
         select.dispatchEvent(new Event('change', { bubbles: true }))
       })

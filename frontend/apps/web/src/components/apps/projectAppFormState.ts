@@ -132,10 +132,9 @@ export function projectAppFormRequest(
   return request
 }
 
-export function projectAppFormError(error: Error) {
-  return error instanceof z.ZodError
-    ? (error.issues[0]?.message ?? 'Check the app settings.')
-    : error.message
+export function projectAppFormError(cause: unknown, fallback: string) {
+  if (cause instanceof z.ZodError) return cause.issues[0]?.message ?? fallback
+  return cause instanceof Error ? cause.message : fallback
 }
 
 export function validateProjectAppForm(
@@ -148,7 +147,7 @@ export function validateProjectAppForm(
     return { error: '', slotCount: request.settings.launcher?.slots.length ?? 0 }
   } catch (cause) {
     return {
-      error: cause instanceof Error ? projectAppFormError(cause) : 'Check the app settings.',
+      error: projectAppFormError(cause, 'Check the app settings.'),
       slotCount: null,
     }
   }

@@ -1,5 +1,6 @@
 import { useCreateCronTrigger, useUpdateCronTrigger } from '@omnara/react'
 import {
+  type AppCronTriggerTarget,
   type CreateCronTriggerRequest,
   type CronTrigger,
   type CronTriggerDeliveryMode,
@@ -16,6 +17,7 @@ import {
   cronTriggerDeliveryModeOptions,
 } from '@/components/agents/cron-trigger-delivery-mode'
 import { AppCronTriggerFields } from '@/components/apps/AppCronTriggerFields'
+import { useAppScheduleSettings } from '@/components/apps/useAppScheduleSettings'
 import { Button } from '@/components/ui/button'
 import {
   Combobox,
@@ -85,12 +87,17 @@ function cronDescription(expression: string) {
   }
 }
 
-function cronTriggerFormValid(value: CronTriggerFormValues, appSettingsValid: boolean) {
+function cronTriggerFormValid(
+  value: CronTriggerFormValues,
+  appSettingsValid: (settings: AppCronTriggerTarget['settings']) => boolean,
+) {
   return (
     resourceNameValid(value.name) &&
     value.cron.trim() !== '' &&
     value.timezone.trim() !== '' &&
-    (value.appTarget ? appSettingsValid : value.messageTemplate.trim() !== '')
+    (value.appTarget
+      ? appSettingsValid(value.appTarget.settings)
+      : value.messageTemplate.trim() !== '')
   )
 }
 
@@ -131,11 +138,15 @@ function CronTriggerFormDialog({
   projectId: string
 }) {
   const [error, setError] = useState('')
-  const [appSettingsValid, setAppSettingsValid] = useState(false)
+  const appSchedule = useAppScheduleSettings(
+    orgId,
+    projectId,
+    target.type === 'app' ? target.app_id : '',
+  )
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      if (!cronTriggerFormValid(value, appSettingsValid)) return
+      if (!cronTriggerFormValid(value, appSchedule.valid)) return
       setError('')
       try {
         await onSubmit(value)
@@ -192,9 +203,9 @@ function CronTriggerFormDialog({
                     <AppCronTriggerFields
                       orgId={orgId}
                       projectId={projectId}
+                      schedule={appSchedule}
                       value={field.state.value}
                       onChange={field.handleChange}
-                      onValidityChange={setAppSettingsValid}
                     />
                   )
                 }
@@ -311,7 +322,7 @@ function CronTriggerFormDialog({
               <form.Subscribe
                 selector={(state) =>
                   [
-                    cronTriggerFormValid(state.values, appSettingsValid),
+                    cronTriggerFormValid(state.values, appSchedule.valid),
                     state.isSubmitting,
                   ] as const
                 }

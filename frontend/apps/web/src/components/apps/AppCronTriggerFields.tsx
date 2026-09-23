@@ -1,50 +1,32 @@
-import { useProjectApp } from '@omnara/react'
-import { type CronTriggerTarget, zJsonText } from '@omnara/sdk'
-import { useEffect, useState } from 'react'
+import type { CronTriggerTarget } from '@omnara/sdk'
 
 import {
+  appScheduleEditor,
   appScheduleFieldError,
-  appScheduleFields,
-  appScheduleSettings,
+  appScheduleJson,
 } from '@/components/apps/app-schedule-schema'
 import { ProjectAppProfilePicker } from '@/components/apps/ProjectAppProfilePicker'
+import type { useAppScheduleSettings } from '@/components/apps/useAppScheduleSettings'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
+type AppTarget = Extract<CronTriggerTarget, { type: 'app' }>
+
 export function AppCronTriggerFields({
   orgId,
   projectId,
+  schedule: { app, jsonDraft, setJsonDraft },
   value,
   onChange,
-  onValidityChange,
 }: {
   orgId: string
   projectId: string
-  value: Extract<CronTriggerTarget, { type: 'app' }>
-  onChange: (value: Extract<CronTriggerTarget, { type: 'app' }>) => void
-  onValidityChange: (valid: boolean) => void
+  schedule: ReturnType<typeof useAppScheduleSettings>
+  value: AppTarget
+  onChange: (value: AppTarget) => void
 }) {
-  const app = useProjectApp(orgId, projectId, value.app_id)
-  const schema = app.data?.capabilities.schedule?.input_schema
-  const [jsonDraft, setJsonDraft] = useState<string>()
-  const fields =
-    schema && jsonDraft === undefined ? appScheduleFields(schema, value.settings) : null
-  const json = jsonDraft ?? JSON.stringify(value.settings, null, 2)
-  const jsonSettings = zJsonText.pipe(appScheduleSettings).safeParse(json)
-  const valid = Boolean(
-    schema &&
-    (fields
-      ? fields.every(
-          ({ value, property, required }) => !appScheduleFieldError(value, property, required),
-        )
-      : jsonSettings.success),
-  )
-  useEffect(() => {
-    onValidityChange(valid)
-  }, [onValidityChange, valid])
-
   if (!app.data)
     return (
       <div role="status" className="text-muted-foreground text-sm">
@@ -60,7 +42,13 @@ export function AppCronTriggerFields({
         )}
       </div>
     )
-  if (!schema) return <p role="alert">This app does not support schedules.</p>
+  const capability = app.data.capabilities.schedule
+  if (!capability) return <p role="alert">This app does not support schedules.</p>
+  const { fields, json, jsonValid } = appScheduleEditor(
+    capability.input_schema,
+    value.settings,
+    jsonDraft,
+  )
   if (!fields)
     return (
       <Field>
@@ -70,19 +58,18 @@ export function AppCronTriggerFields({
           className="font-mono"
           rows={8}
           value={json}
-          aria-invalid={!jsonSettings.success}
+          aria-invalid={!jsonValid}
           onChange={(event) => {
             const next = event.target.value
             setJsonDraft(next)
-            const parsed = zJsonText.pipe(appScheduleSettings).safeParse(next)
+            const parsed = appScheduleJson.safeParse(next)
             if (parsed.success) onChange({ ...value, settings: parsed.data })
           }}
         />
         <FieldDescription>
-          {app.data.capabilities.schedule?.description ??
-            'Enter the settings for this scheduled action.'}
+          {capability.description ?? 'Enter the settings for this scheduled action.'}
         </FieldDescription>
-        {!jsonSettings.success && (
+        {!jsonValid && (
           <p role="alert" className="text-destructive text-sm">
             Enter a JSON object.
           </p>
@@ -90,7 +77,7 @@ export function AppCronTriggerFields({
         <details className="text-muted-foreground text-sm">
           <summary>Settings schema</summary>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap">
-            {JSON.stringify(schema, null, 2)}
+            {JSON.stringify(capability.input_schema, null, 2)}
           </pre>
         </details>
       </Field>

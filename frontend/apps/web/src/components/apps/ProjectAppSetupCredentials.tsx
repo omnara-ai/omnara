@@ -107,7 +107,6 @@ export function ProjectAppCredentialPicker({
       <FieldLabel htmlFor="saved-secret">Saved credential</FieldLabel>
       <select
         id="saved-secret"
-        aria-label="Saved credential"
         name="secret"
         required
         value={value}

@@ -144,6 +144,7 @@ export function useCreateProjectAppOAuthSetup(orgID: string, projectID: string) 
 
 export function useCreateProjectAppSlackSetup(orgID: string, projectID: string) {
   const client = useOmnaraClient()
+  // eslint-disable-next-line react-doctor/query-mutation-missing-invalidation -- Only starts OAuth; the app changes when OAuth completes.
   return useMutation({
     mutationFn: async ({ appID, ...body }: CreateSlackSetupRequest & { appID: string }) => {
       const { data } = await sdk.createProjectAppSlackSetup({
@@ -178,6 +179,7 @@ export function useCreateProjectAppGitHubSetup(orgID: string, projectID: string)
 
 export function useInspectProjectAppGitHubInstallations(orgID: string, projectID: string) {
   const client = useOmnaraClient()
+  // eslint-disable-next-line react-doctor/query-mutation-missing-invalidation -- Reads GitHub; no Omnara state changes.
   return useMutation({
     mutationFn: async ({
       appID,

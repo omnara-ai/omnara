@@ -1,4 +1,4 @@
-import type { ProjectApp } from '@omnara/sdk'
+import type { AppType, ProjectApp } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { ConnectGitHubForm } from './ConnectGitHubForm'
@@ -8,6 +8,7 @@ import { ProjectAppSetup } from './ProjectAppSetup'
 export function ProjectAppConnection({
   orgId,
   projectId,
+  appType,
   app,
   onConnected,
   onCancel,
@@ -16,7 +17,8 @@ export function ProjectAppConnection({
 }: {
   orgId: string
   projectId: string
-  app: ProjectApp
+  appType: AppType
+  app?: ProjectApp
   onConnected: (app: ProjectApp) => void
   onCancel?: () => void
   footerAction?: ReactNode
@@ -25,7 +27,7 @@ export function ProjectAppConnection({
   return (
     <section aria-label="Connection" className="flex flex-col gap-4 text-sm">
       <fieldset disabled={disabled} className="min-w-0">
-        {app.app_type === 'slack_thread' ? (
+        {appType === 'slack_thread' ? (
           <ConnectSlackForm
             orgId={orgId}
             projectId={projectId}
@@ -34,7 +36,7 @@ export function ProjectAppConnection({
             onCancel={onCancel}
             footerAction={footerAction}
           />
-        ) : app.app_type === 'github_pr' ? (
+        ) : appType === 'github_pr' ? (
           <ConnectGitHubForm
             orgId={orgId}
             projectId={projectId}
@@ -48,7 +50,7 @@ export function ProjectAppConnection({
             orgId={orgId}
             projectId={projectId}
             app={app}
-            appType={app.app_type}
+            appType={appType}
             onSaved={onConnected}
             onCancel={onCancel}
             footerAction={footerAction}

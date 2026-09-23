@@ -204,6 +204,79 @@ it('keeps fresh app connection controls unavailable to readers', async () => {
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
+it('keeps a reconnect draft through refresh failures and external activation until canceled', async () => {
+  const app = projectApp({
+    app_type: 'discord_thread',
+    provider_tenant_id: '111',
+    provider_config: { public_key: 'ab'.repeat(32) },
+  })
+  const detailPath = `${projectPath}/apps/${app.id}`
+  let current = app
+  let unavailable = false
+  const api = fakeApi([
+    {
+      method: 'GET',
+      path: detailPath,
+      respond: () =>
+        unavailable
+          ? jsonResponse({ code: 'internal_error', error: 'Temporary failure' }, 500)
+          : Response.json(current),
+    },
+    ...['secrets', 'agent-profiles', 'cron-triggers', `apps/${app.id}/subscriptions`].map(
+      (suffix) => ({
+        method: 'GET',
+        path: `${projectPath}/${suffix}`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      }),
+    ),
+  ])
+  const { cache, client } = render(
+    api,
+    <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />,
+  )
+  await waitForUI(() => {
+    expect(button('Reconnect account')).toBeDefined()
+  })
+  act(() => {
+    button('Reconnect account').click()
+  })
+  await enter('Bot token', 'draft-token')
+  const form = container.querySelector('form')
+  expect(form).not.toBeNull()
+  expect([...(form?.querySelectorAll('button') ?? [])]).toContain(button('Delete app'))
+  const queryKey = getProjectAppQueryKey({
+    path: { orgID: orgId, projectID: projectId, appID: app.id },
+    client,
+  })
+  unavailable = true
+  await act(async () => {
+    await cache.invalidateQueries({ queryKey })
+  })
+  await waitForUI(() => {
+    expect(container.textContent).toContain('Could not refresh this app.')
+  })
+  expect(container.querySelector('form')).toBe(form)
+  expect(container.querySelector<HTMLInputElement>('[name="botToken"]')?.value).toBe('draft-token')
+  unavailable = false
+  current = { ...app, state: 'active', setup_revision: app.setup_revision + 1 }
+  act(() => {
+    button('Retry refresh').click()
+  })
+  await waitForUI(() => {
+    expect(container.querySelector('header')?.textContent).toContain('Connected')
+  })
+  expect(container.querySelector('form')).toBe(form)
+  expect(container.querySelector<HTMLInputElement>('[name="botToken"]')?.value).toBe('draft-token')
+  expect(container.textContent).not.toContain('Account connected.')
+  act(() => {
+    button('Cancel').click()
+  })
+  expect(container.querySelector('form')).toBeNull()
+  expect(button('Delete app').closest('form')).toBeNull()
+  expect(button('Choose profiles')).toBeDefined()
+  expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
+})
+
 it.each([true, false])(
   'opens profiles only for this app’s Slack success callback without a modal (matching=%s)',
   async (matching) => {

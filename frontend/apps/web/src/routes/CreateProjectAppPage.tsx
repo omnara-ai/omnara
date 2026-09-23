@@ -6,11 +6,9 @@ import { useState } from 'react'
 import { AppCatalog } from '@/components/apps/AppCatalog'
 import { appCatalog } from '@/components/apps/appDefinitions'
 import { AppIcon } from '@/components/apps/AppIcon'
-import { ConnectGitHubForm } from '@/components/apps/ConnectGitHubForm'
-import { ConnectSlackForm } from '@/components/apps/ConnectSlackForm'
+import { ProjectAppConnection } from '@/components/apps/ProjectAppConnection'
 import { ProjectAppForm } from '@/components/apps/ProjectAppForm'
 import { ProjectAppPortalSetup } from '@/components/apps/ProjectAppPortalSetup'
-import { ProjectAppSetup } from '@/components/apps/ProjectAppSetup'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -148,16 +146,12 @@ export function ProjectAppCreateSetup({
             cancelLabel="Skip for now"
           />
         </section>
-      ) : appType === 'slack_thread' ? (
-        <ConnectSlackForm orgId={orgId} projectId={projectId} onConnected={setConnected} />
-      ) : appType === 'github_pr' ? (
-        <ConnectGitHubForm orgId={orgId} projectId={projectId} onConnected={setConnected} />
       ) : (
-        <ProjectAppSetup
+        <ProjectAppConnection
           orgId={orgId}
           projectId={projectId}
           appType={appType}
-          onSaved={setConnected}
+          onConnected={setConnected}
         />
       )}
     </div>

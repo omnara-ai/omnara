@@ -1,7 +1,8 @@
-import type { AppCapabilityDefinition, AppCronTriggerTarget } from '@omnara/sdk'
+import { type AppCapabilityDefinition, type AppCronTriggerTarget, zJsonText } from '@omnara/sdk'
 import { z } from 'zod'
 
-export const appScheduleSettings = z.record(z.string(), z.json())
+const appScheduleSettings = z.record(z.string(), z.json())
+export const appScheduleJson = zJsonText.pipe(appScheduleSettings)
 
 const stringField = z.strictObject({
   type: z.literal('string'),
@@ -53,17 +54,34 @@ export function appScheduleFields(
   const { properties, required, 'x-omnara-field-order': order } = parsed.data
   if ([...Object.keys(settings), ...required].some((key) => !Object.hasOwn(properties, key)))
     return null
+  const requiredKeys = new Set(required)
   return Object.entries(properties)
     .map(([key, property]) => ({
       key,
       property,
-      required: required.includes(key),
+      required: requiredKeys.has(key),
       value: strings.data[key],
     }))
     .sort((a, b) => {
       const index = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length)
       return index(a.key) - index(b.key)
     })
+}
+
+export function appScheduleEditor(
+  schema: AppCapabilityDefinition['input_schema'],
+  settings: AppCronTriggerTarget['settings'],
+  jsonDraft: string | undefined,
+) {
+  const fields = jsonDraft === undefined ? appScheduleFields(schema, settings) : null
+  const json = jsonDraft ?? JSON.stringify(settings, null, 2)
+  const jsonValid = appScheduleJson.safeParse(json).success
+  const valid = fields
+    ? fields.every(
+        ({ value, property, required }) => !appScheduleFieldError(value, property, required),
+      )
+    : jsonValid
+  return { fields, json, jsonValid, valid }
 }
 
 export function appScheduleFieldError(
