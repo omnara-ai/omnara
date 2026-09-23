@@ -150,6 +150,7 @@ func annotationsFor(tool Tool, method string) *mcp.ToolAnnotations {
 		ReadOnlyHint:    readOnly,
 		IdempotentHint:  readOnly || method == http.MethodPut || method == http.MethodDelete,
 		DestructiveHint: &destructive,
+		OpenWorldHint:   &tool.OpenWorld,
 	}
 }
 
