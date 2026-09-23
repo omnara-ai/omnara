@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -122,12 +123,9 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 func editFileText(ctx context.Context, content []byte, script string) ([]byte, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	command, err := newFileExecCommand(ctx, "sed", nil, "--sandbox", "-E", "-e", script, "--", "-")
-	if err != nil {
-		return nil, fmt.Errorf("start script execution: %w", err)
-	}
+	command := exec.CommandContext(ctx, "omnara-file-edit", script)
 	command.Stdin = bytes.NewReader(content)
-	command.Env = []string{"LANG=C.UTF-8"}
+	command.Env = []string{}
 	command.WaitDelay = time.Second
 	var stderr boundedStderrBuffer
 	command.Stderr = &stderr

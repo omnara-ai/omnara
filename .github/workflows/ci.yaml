@@ -196,9 +196,11 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-
 
-      - name: Install ripgrep
+      - name: Install file tools
         if: matrix.target == 'test-integration-runtime'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
+          make install-file-edit
 
       - uses: ./.github/actions/setup-test-db
 
