@@ -141,21 +141,23 @@ func TestGeneratedOpenAPISpecMatchesServedSpec(t *testing.T) {
 	}
 }
 
-func TestOpenAPIAppSetupIDsUseSharedSchemas(t *testing.T) {
+func TestOpenAPIAppIDsUseSharedSchemas(t *testing.T) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
 		t.Fatalf("load generated openapi spec: %v", err)
 	}
-	for _, suffix := range []string{"oauth/setup", "slack-setup", "github-setup", "github-setup/installations"} {
-		t.Run(suffix, func(t *testing.T) {
-			path := "/orgs/{orgID}/projects/{projectID}/apps/{appID}/" + suffix
-			item := spec.Paths.Value(path)
-			if item == nil {
-				t.Fatalf("missing app setup path %s", path)
-			}
+	for path, item := range spec.Paths.Map() {
+		if !strings.HasPrefix(path, "/orgs/{orgID}/projects/{projectID}/apps") {
+			continue
+		}
+		t.Run(path, func(t *testing.T) {
 			for name, schema := range map[string]string{
 				"orgID": "OrganizationID", "projectID": "ProjectID", "appID": "ProjectAppID",
+				"subscriptionID": "AppSubscriptionID",
 			} {
+				if !strings.Contains(path, "{"+name+"}") {
+					continue
+				}
 				var parameter *openapi3.Parameter
 				for _, ref := range item.Parameters {
 					if ref.Value != nil && ref.Value.In == openapi3.ParameterInPath && ref.Value.Name == name {

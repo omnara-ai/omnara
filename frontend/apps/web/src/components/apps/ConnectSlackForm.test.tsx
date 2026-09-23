@@ -276,7 +276,7 @@ it('explains an app creation conflict before creating the Slack app', async () =
   expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(1)
 })
 
-it('keeps each Slack setup method draft, including the icon, when switching methods', async () => {
+it('keeps focus and each Slack setup draft, including the icon, when switching methods', async () => {
   vi.stubGlobal(
     'createImageBitmap',
     vi.fn().mockResolvedValue({ width: 512, height: 512, close: vi.fn() }),
@@ -317,10 +317,14 @@ it('keeps each Slack setup method draft, including the icon, when switching meth
       </OmnaraClientProvider>,
     )
   })
+  const methodToggle = field('Use an existing Slack app')
   function toggleExistingApp() {
+    methodToggle.focus()
     act(() => {
-      field('Use an existing Slack app').click()
+      methodToggle.click()
     })
+    expect(field('Use an existing Slack app')).toBe(methodToggle)
+    expect(document.activeElement).toBe(methodToggle)
   }
   await enter('Name in Slack', 'Reviewer')
   await enter('App configuration token', 'config-token')

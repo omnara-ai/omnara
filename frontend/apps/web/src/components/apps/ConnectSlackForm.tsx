@@ -84,35 +84,37 @@ export function ConnectSlackForm({
     onSubmit: async ({ value }) => {
       if (!slackSetupValid(existingApp, value)) return
       setError('')
-      try {
-        const icon = existingApp ? undefined : await slackAppIconPayload(value.appIcon)
-        const draft = await ensureApp()
-        const returnTo = `/projects/${projectId}/apps/${draft.id}`
-        const setup = existingApp
-          ? await createOAuthSetup.mutateAsync({
-              appID: draft.id,
-              client_id: value.clientId.trim(),
-              client_secret: value.clientSecret.trim(),
-              signing_secret: value.signingSecret.trim(),
-              return_to: returnTo,
-            })
-          : await createSlackSetup.mutateAsync({
-              appID: draft.id,
-              app_name: value.appName.trim(),
-              app_configuration_token: value.appConfigurationToken.trim(),
-              icon,
-              return_to: returnTo,
-            })
-        if (setup.app_id !== draft.id) {
-          setError('Authorization returned a different app. Please try again.')
-        } else {
-          authorization.start(setup)
-        }
-      } catch (err) {
-        setError(projectAppFormError(err, 'Could not start integration setup'))
-      }
+      await startSetup(value).catch((cause: unknown) => {
+        setError(projectAppFormError(cause, 'Could not start integration setup'))
+      })
     },
   })
+  async function startSetup(value: typeof slackSetupForm.defaultValues) {
+    const icon = existingApp ? undefined : await slackAppIconPayload(value.appIcon)
+    const draft = await ensureApp()
+    const returnTo = `/projects/${projectId}/apps/${draft.id}`
+    const setup = existingApp
+      ? await createOAuthSetup.mutateAsync({
+          appID: draft.id,
+          client_id: value.clientId.trim(),
+          client_secret: value.clientSecret.trim(),
+          signing_secret: value.signingSecret.trim(),
+          return_to: returnTo,
+        })
+      : await createSlackSetup.mutateAsync({
+          appID: draft.id,
+          app_name: value.appName.trim(),
+          app_configuration_token: value.appConfigurationToken.trim(),
+          icon,
+          return_to: returnTo,
+        })
+    if (setup.app_id !== draft.id) {
+      setError('Authorization returned a different app. Please try again.')
+    } else {
+      authorization.start(setup)
+    }
+  }
+
   const methodToggle = reconnect ? null : (
     <CheckboxField
       label="Use an existing Slack app"
@@ -165,13 +167,9 @@ export function ConnectSlackForm({
                   )}
                 </form.Subscribe>
               )}
-              {existingApp ? (
-                <ExistingSlackAppFields form={form} reconnect={reconnect}>
-                  {methodToggle}
-                </ExistingSlackAppFields>
-              ) : (
-                <NewSlackAppFields form={form}>{methodToggle}</NewSlackAppFields>
-              )}
+              <SlackSetupFields form={form} reconnect={reconnect} existingApp={existingApp}>
+                {methodToggle}
+              </SlackSetupFields>
             </div>
             {(error || authorization.failure) && (
               <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
@@ -212,87 +210,10 @@ export function ConnectSlackForm({
   )
 }
 
-const NewSlackAppFields = withForm({
+const SlackSetupFields = withForm({
   ...slackSetupForm,
-  render: function Render({ form, children }) {
-    return (
-      <>
-        <ProjectAppSetupGroup
-          title="Slack app"
-          hint="Use an existing Slack app, or let Omnara create one for you."
-        >
-          {children}
-          <form.Field name="appName">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor="slack-app-name">Name in Slack</FieldLabel>
-                <Input
-                  id="slack-app-name"
-                  required
-                  value={field.state.value}
-                  onChange={(event) => {
-                    field.handleChange(event.target.value)
-                  }}
-                />
-                {Array.from(field.state.value.trim()).length > slackAppNameMaxLength && (
-                  <FieldDescription className="text-destructive">
-                    App name must be 35 characters or fewer.
-                  </FieldDescription>
-                )}
-              </Field>
-            )}
-          </form.Field>
-          <form.Field name="appIcon">
-            {(field) => (
-              <SlackAppIconField value={field.state.value} onChange={field.handleChange} />
-            )}
-          </form.Field>
-        </ProjectAppSetupGroup>
-        <ProjectAppSetupGroup
-          title="Credentials"
-          hint="An app configuration token lets Omnara create and configure your Slack app."
-        >
-          <form.Field name="appConfigurationToken">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor="slack-app-configuration-token">
-                  App configuration token
-                </FieldLabel>
-                <Input
-                  id="slack-app-configuration-token"
-                  required
-                  type="password"
-                  value={field.state.value}
-                  onChange={(event) => {
-                    field.handleChange(event.target.value)
-                  }}
-                />
-                <FieldDescription>
-                  Open{' '}
-                  <a
-                    href="https://api.slack.com/apps"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline underline-offset-2"
-                  >
-                    Slack app settings
-                  </a>
-                  , click Generate Token, and select a workspace. Copy only the Access Token and
-                  paste it here.
-                </FieldDescription>
-              </Field>
-            )}
-          </form.Field>
-        </ProjectAppSetupGroup>
-      </>
-    )
-  },
-})
-
-const ExistingSlackAppFields = withForm({
-  ...slackSetupForm,
-  props: { reconnect: false },
-  render: function Render({ form, reconnect, children }) {
+  props: { reconnect: false, existingApp: false },
+  render: function Render({ form, reconnect, existingApp, children }) {
     return (
       <>
         <ProjectAppSetupGroup
@@ -304,53 +225,121 @@ const ExistingSlackAppFields = withForm({
           }
         >
           {children}
-          <form.Field name="clientId">
-            {(field) => (
-              <Field>
-                <FieldLabel htmlFor="clientId">Client ID</FieldLabel>
-                <Input
-                  id="clientId"
-                  required
-                  value={field.state.value}
-                  onChange={(event) => {
-                    field.handleChange(event.target.value)
-                  }}
-                />
-              </Field>
-            )}
-          </form.Field>
-        </ProjectAppSetupGroup>
-        <ProjectAppSetupGroup
-          title="Credentials"
-          hint="Find these in Basic Information in your Slack app settings."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            {(
-              [
-                ['clientSecret', 'Client secret'],
-                ['signingSecret', 'Signing secret'],
-              ] as const
-            ).map(([name, label]) => (
-              <form.Field key={name} name={name}>
+          {existingApp ? (
+            <form.Field name="clientId">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor="clientId">Client ID</FieldLabel>
+                  <Input
+                    id="clientId"
+                    required
+                    value={field.state.value}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value)
+                    }}
+                  />
+                </Field>
+              )}
+            </form.Field>
+          ) : (
+            <>
+              <form.Field name="appName">
                 {(field) => (
                   <Field>
-                    <FieldLabel htmlFor={name}>{label}</FieldLabel>
+                    <FieldLabel htmlFor="slack-app-name">Name in Slack</FieldLabel>
                     <Input
-                      id={name}
+                      id="slack-app-name"
                       required
-                      type="password"
                       value={field.state.value}
                       onChange={(event) => {
                         field.handleChange(event.target.value)
                       }}
                     />
+                    {Array.from(field.state.value.trim()).length > slackAppNameMaxLength && (
+                      <FieldDescription className="text-destructive">
+                        App name must be 35 characters or fewer.
+                      </FieldDescription>
+                    )}
                   </Field>
                 )}
               </form.Field>
-            ))}
-          </div>
+              <form.Field name="appIcon">
+                {(field) => (
+                  <SlackAppIconField value={field.state.value} onChange={field.handleChange} />
+                )}
+              </form.Field>
+            </>
+          )}
         </ProjectAppSetupGroup>
-        <SlackAppUrls />
+        <ProjectAppSetupGroup
+          title="Credentials"
+          hint={
+            existingApp
+              ? 'Find these in Basic Information in your Slack app settings.'
+              : 'An app configuration token lets Omnara create and configure your Slack app.'
+          }
+        >
+          {existingApp ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {(
+                [
+                  ['clientSecret', 'Client secret'],
+                  ['signingSecret', 'Signing secret'],
+                ] as const
+              ).map(([name, label]) => (
+                <form.Field key={name} name={name}>
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor={name}>{label}</FieldLabel>
+                      <Input
+                        id={name}
+                        required
+                        type="password"
+                        value={field.state.value}
+                        onChange={(event) => {
+                          field.handleChange(event.target.value)
+                        }}
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+              ))}
+            </div>
+          ) : (
+            <form.Field name="appConfigurationToken">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor="slack-app-configuration-token">
+                    App configuration token
+                  </FieldLabel>
+                  <Input
+                    id="slack-app-configuration-token"
+                    required
+                    type="password"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value)
+                    }}
+                  />
+                  <FieldDescription>
+                    Open{' '}
+                    <a
+                      href="https://api.slack.com/apps"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-foreground underline underline-offset-2"
+                    >
+                      Slack app settings
+                    </a>
+                    , click Generate Token, and select a workspace. Copy only the Access Token and
+                    paste it here.
+                  </FieldDescription>
+                </Field>
+              )}
+            </form.Field>
+          )}
+        </ProjectAppSetupGroup>
+        {existingApp && <SlackAppUrls />}
       </>
     )
   },
