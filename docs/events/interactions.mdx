@@ -86,16 +86,6 @@ You never delete an interaction; it cancels when the work it guarded goes away:
 
 Canceled interactions keep their `request` and stay listable, so audit trails show what was asked even when nobody answered.
 
-## Delivery through Slack and Discord
-
-When an interaction has a Slack or Discord destination, Omnara schedules its
-notification independently of the waiting agent. Notifications that have not yet
-started survive a full worker queue or a restart. Sending uses bounded safe
-retries; if a send may already have succeeded, Omnara does not automatically post
-another copy. A crash after delivery starts can therefore leave the notification
-missing or unconfirmed. The interaction remains available in the dashboard and
-API regardless of notification delivery.
-
 ## Present interactions in your own app
 
 Your application decides where to display questions and approvals. Read the
@@ -104,15 +94,17 @@ project-authorized API. The dashboard remains available if delivery fails.
 Reconcile the interaction list on reconnect and periodically while connected;
 stream hints alone are insufficient.
 
-When a built-in Slack or Discord handler presents the interaction, list and
-resolve responses include its captured `destination`. Its `app_id` and `integration_target_id`
+For an interaction routed to an app handler, list and resolve responses include
+its captured `destination`. Its `app_id` and `integration_target_id`
 are public IDs; `handler_key` identifies the handler and `args` contains the complete
 provider destination. Sending context does not restrict handler selection.
 This snapshot stays fixed when the agent's current
 destination changes. Optional `presentation_receipt` contains recorded provider
-message metadata. These fields describe built-in delivery; your application can
-present interactions without them. See
-[Custom integrations](/integrations/custom-integrations#present-and-resolve-interactions).
+message metadata. These fields describe app delivery; your application can
+present interactions without them. See [Apps](/integrations/apps) for handler
+configuration and app-specific behavior, or
+[Custom integrations](/integrations/custom-integrations#present-and-resolve-interactions)
+for presenting interactions through your own service.
 
 ## Next
 

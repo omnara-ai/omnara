@@ -49,11 +49,10 @@ A permission mode applies to every call. Changing it requires creating a new con
 <Note>
 Provider tools such as `app__engineering__post_message` use the ordinary permission modes.
 They use the named project [app](/integrations/apps) and its provider credentials.
-Hosted launches save a sending conversation independently of config. The shipped
-app tools always use that conversation and fail before provider I/O if none is
-assigned. Approval prompts show the destination alongside the action. Interaction
-handlers are independent: an agent can request approval in Slack without having a
-Slack sending tool.
+The app's guide describes any required conversation context. Approval prompts
+show the destination alongside the action. Interaction
+handlers are independent: an agent can request approval through a handler without
+having that app's sending tools.
 </Note>
 
 ## What an `always_ask` call looks like

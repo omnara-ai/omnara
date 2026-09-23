@@ -141,6 +141,13 @@ presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration. A bot used only for messages with one
 profile can omit the public key.
 
+Discord interaction notifications run independently of the waiting agent. Queued
+notifications survive a busy worker queue or a restart before delivery starts.
+Omnara retries only safe failures, with a bounded retry budget. If delivery may
+have succeeded, it does not automatically post another copy; a crash during
+sending can leave a prompt missing or unconfirmed. The interaction remains
+answerable in the [dashboard and API](/events/interactions) regardless of delivery.
+
 ## Restarts and deployments
 
 A worker saves its Discord session and last committed event sequence in Postgres.
