@@ -23,6 +23,19 @@ type Actor struct {
 	UpdatedAt        time.Time
 }
 
+type AgentConfig struct {
+	ID                      uuid.UUID
+	OrgID                   uuid.UUID
+	ProjectID               uuid.UUID
+	ConfiguredModelID       uuid.UUID
+	Source                  *string
+	SourceFormat            *string
+	SourceHash              *string
+	CompiledDefinition      json.RawMessage
+	EffectiveDefinitionHash string
+	CreatedAt               time.Time
+}
+
 type AgentEventReadProjection struct {
 	ID                             uuid.UUID
 	OrgID                          uuid.UUID
@@ -88,7 +101,7 @@ type AgentMcpConnection struct {
 	ServerCapabilities json.RawMessage
 	ServerInfo         json.RawMessage
 	ToolsSnapshot      json.RawMessage
-	InitializeError    string
+	InitializeError    *string
 	Generation         int64
 	RequestSequence    int64
 	CreatedAt          time.Time

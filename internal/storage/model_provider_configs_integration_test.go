@@ -731,7 +731,6 @@ model:
 		SourceFormat:            string(agentconfig.SourceFormatYAML),
 		ConfiguredModelID:       referencedModel.ID,
 		CompiledDefinition:      json.RawMessage(referencedCompiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: referencedCompiled.Hash,
 	})
 	if err != nil {
@@ -1158,7 +1157,6 @@ DROP FUNCTION IF EXISTS test_pause_agent_config_insert();
 			SourceFormat:            string(agentconfig.SourceFormatYAML),
 			ConfiguredModelID:       configuredModel.ID,
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		})
 		createDone <- createErr
@@ -1303,7 +1301,6 @@ tools:
 		SourceFormat:            string(agentconfig.SourceFormatYAML),
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
@@ -1804,7 +1801,6 @@ model:
 		SourceFormat:            string(agentconfig.SourceFormatYAML),
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

@@ -453,16 +453,8 @@ func createAgentMCPConnectionsTx(
 }
 
 func launchableRuntimeContract(config AgentConfigRecord) (agentconfig.RuntimeContract, error) {
-	if config.CompilerVersion != agentconfig.CompilerVersion {
-		return agentconfig.RuntimeContract{}, fmt.Errorf(
-			"agent config compiler contract %q is not launchable: %w",
-			config.CompilerVersion,
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
-		config.CompilerVersion,
 		config.EffectiveDefinitionHash,
 	)
 	if err != nil {

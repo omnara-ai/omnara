@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -786,4 +787,20 @@ func publicJSONValue(
 		return nil, nil //nolint:nilnil // A nil blob is the JSON null representation.
 	}
 	return json.RawMessage(bytes.Clone(trimmed)), nil
+}
+
+func ToolCallUpdate(update notifications.ToolCallUpdatedCommitted) (openapi.ToolCallUpdate, error) {
+	state := openapi.ToolCallState(update.State)
+	if !state.Valid() {
+		return openapi.ToolCallUpdate{}, fmt.Errorf("invalid tool call state %q", update.State)
+	}
+	toolCallID, err := publicID(publicid.KindToolCall, update.ToolCallID)
+	if err != nil {
+		return openapi.ToolCallUpdate{}, err
+	}
+	agentID, err := publicID(publicid.KindAgent, update.AgentID)
+	if err != nil {
+		return openapi.ToolCallUpdate{}, err
+	}
+	return openapi.ToolCallUpdate{ToolCallId: toolCallID, AgentId: &agentID, State: state}, nil
 }

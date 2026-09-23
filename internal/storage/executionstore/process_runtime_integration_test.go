@@ -412,6 +412,119 @@ func TestSupersededDaemonRuntimeCannotReportGrantedProcessAtStorageBoundary(
 	}
 }
 
+func TestStartProcessOmitsUnavailableEnvironmentSecrets(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"deleted_before_creation", "deleted_after_creation", "grant_revoked"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := newProcessDaemonFixture(t, ctx, "unavailable_secret_"+scenario)
+			user := mustCreateProjectDeveloperUser(t, ctx, fixture.Store, "unavailable-secret@example.com", "Secret Tester")
+			secretIDs := make(map[string]uuid.UUID)
+			secretRefs := make(map[string]string)
+			var grantID uuid.UUID
+			for _, name := range []string{"unavailable", "retained"} {
+				input := secretstore.CreateSecretInput{
+					OrgID:          testOrgID,
+					OwnerKind:      secretstore.SecretOwnerProject,
+					OwnerProjectID: testProjectID,
+					Name:           name,
+					Material:       secrets.GenericMaterial{Value: name + "-value"},
+					Actor:          userPrincipal(user.ID),
+				}
+				if scenario == "grant_revoked" && name == "unavailable" {
+					input.OwnerKind = secretstore.SecretOwnerUser
+					input.OwnerProjectID = uuid.Nil
+					input.OwnerUserID = user.ID
+				}
+				secret, _, err := fixture.Store.Secrets().CreateSecret(ctx, input)
+				if err != nil {
+					t.Fatalf("create %s secret: %v", name, err)
+				}
+				if input.OwnerKind == secretstore.SecretOwnerUser {
+					grant, err := fixture.Store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+						OrgID:           testOrgID,
+						SecretID:        secret.ID,
+						TargetProjectID: testProjectID,
+						Actor:           userPrincipal(user.ID),
+					})
+					if err != nil {
+						t.Fatalf("grant secret to project: %v", err)
+					}
+					grantID = grant.ID
+				}
+				secretIDs[name] = secret.ID
+				secretRefs[name] = secret.ID.String()
+			}
+			if _, err := fixture.Store.pool.Exec(ctx, `
+				UPDATE agent_machine_bindings
+				SET env_overlay = '{"APP_ENV":"test"}'::jsonb,
+				    secret_env_overlay = jsonb_build_object(
+				        'UNAVAILABLE', $1::text, 'UNAVAILABLE_COPY', $1::text, 'RETAINED', $2::text)
+				WHERE id = $3
+			`, secretRefs["unavailable"], secretRefs["retained"], fixture.BindingID); err != nil {
+				t.Fatalf("set binding environment: %v", err)
+			}
+			removeAccess := func() {
+				t.Helper()
+				var err error
+				if scenario == "grant_revoked" {
+					_, err = fixture.Store.Secrets().DeleteSecretGrant(ctx, secretstore.DeleteSecretGrantInput{
+						OrgID:    testOrgID,
+						SecretID: secretIDs["unavailable"],
+						GrantID:  grantID,
+						Actor:    userPrincipal(user.ID),
+					})
+				} else {
+					_, err = fixture.Store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+						OrgID:    testOrgID,
+						SecretID: secretIDs["unavailable"],
+						Actor:    userPrincipal(user.ID),
+					})
+				}
+				if err != nil {
+					t.Fatalf("remove secret access: %v", err)
+				}
+			}
+			if scenario != "deleted_after_creation" {
+				removeAccess()
+			}
+			process, err := startProcessForTest(ctx, fixture.Store, executionstore.ExecuteToolCallInput{
+				ProjectID:     testProjectID,
+				AgentID:       fixture.AgentID,
+				ToolCallID:    createToolCallForProcessTest(t, ctx, fixture, "unavailable_secret_process", "run_command"),
+				RuntimeLockID: fixture.Lock.ID,
+			}, executionstore.CreateProcessInput{
+				AgentMachineBindingID: fixture.BindingID,
+				Command:               "echo ok",
+			})
+			if err != nil {
+				t.Fatalf("start process: %v", err)
+			}
+			if scenario == "deleted_after_creation" {
+				removeAccess()
+			}
+			offers, err := fixture.Store.Execution().ListDaemonProcessOffers(ctx, executionstore.DaemonWorkInput{
+				Authority: fixture.authority(),
+				Limit:     10,
+			})
+			if err != nil {
+				t.Fatalf("list process offers: %v", err)
+			}
+			if len(offers) != 1 || offers[0].Process.ID != process.ID {
+				t.Fatalf("process offers = %+v, want process %s", offers, process.ID)
+			}
+			offer := offers[0]
+			if offer.PreparationError != "" || offer.RetryError != nil {
+				t.Fatalf("process preparation failed: %q, %v", offer.PreparationError, offer.RetryError)
+			}
+			if len(offer.Env) != 2 || offer.Env["APP_ENV"] != "test" || offer.Env["RETAINED"] != "retained-value" {
+				t.Fatalf("process environment = %+v, want literal and retained secret only", offer.Env)
+			}
+		})
+	}
+}
+
 func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -434,10 +547,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create process environment secret: %v", err)
 	}
-	secretID, err := publicid.Encode(publicid.KindSecret, secret.ID)
-	if err != nil {
-		t.Fatalf("encode process environment secret: %v", err)
-	}
+	secretID := secret.ID.String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET env_overlay = '{"APP_ENV":"test"}'::jsonb,
@@ -516,10 +626,7 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create NUL process environment secret: %v", err)
 	}
-	nulSecretID, err := publicid.Encode(publicid.KindSecret, nulSecret.ID)
-	if err != nil {
-		t.Fatalf("encode NUL process environment secret: %v", err)
-	}
+	nulSecretID := nulSecret.ID.String()
 	if _, err := fixture.Store.pool.Exec(ctx, `
 		UPDATE agent_machine_bindings
 		SET secret_env_overlay = jsonb_build_object('API_TOKEN', $1::text)
@@ -555,28 +662,6 @@ func TestStartProcessSnapshotsExecutionConfig(t *testing.T) {
 	if len(offers) != 1 || offers[0].Process.ID != process.ID ||
 		offers[0].PreparationError != "process environment could not be resolved" || offers[0].Env != nil {
 		t.Fatalf("process offers with NUL environment secret = %+v", offers)
-	}
-	missingSecretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-	if err != nil {
-		t.Fatalf("encode missing process environment secret: %v", err)
-	}
-	if _, err := fixture.Store.pool.Exec(ctx, `
-		UPDATE processes
-		SET secret_env = jsonb_build_object('API_TOKEN', $1::text)
-		WHERE id = $2
-	`, missingSecretID, process.ID); err != nil {
-		t.Fatalf("set unavailable process environment secret: %v", err)
-	}
-	offers, err = fixture.Store.Execution().ListDaemonProcessOffers(ctx, executionstore.DaemonWorkInput{
-		Authority: fixture.authority(),
-		Limit:     10,
-	})
-	if err != nil {
-		t.Fatalf("list process offers with unavailable environment secret: %v", err)
-	}
-	if len(offers) != 1 || offers[0].Process.ID != process.ID ||
-		offers[0].PreparationError != "process environment could not be resolved" || offers[0].Env != nil {
-		t.Fatalf("process offers with unavailable environment secret = %+v", offers)
 	}
 	accept, found, err := acceptDaemonProcessForTest(
 		ctx,

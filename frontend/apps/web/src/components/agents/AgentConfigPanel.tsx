@@ -2,6 +2,7 @@ import { useAgentConfig, useUpdateAgentConfig } from '@omnara/react'
 import { type Agent, type AgentConfig, ApiError } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
+import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
@@ -41,6 +42,7 @@ export function AgentConfigPanel({
         <>
           <h2 className="type-card-title">Agent configuration</h2>
           <p className="text-muted-foreground text-sm">This derived configuration is read-only.</p>
+          <AgentCompiledConfig definition={snapshot.compiled_definition} collapsible={false} />
           <Button type="button" variant="ghost" onClick={onClose}>
             Close
           </Button>
@@ -53,6 +55,7 @@ export function AgentConfigPanel({
           agentId={agent.id}
           configId={snapshot.id}
           source={snapshot.source ?? ''}
+          compiledDefinition={snapshot.compiled_definition}
           canManage={canManage}
           preferredMode={preferredMode}
           onModeChange={setPreferredMode}
@@ -101,6 +104,7 @@ function AgentConfigPanelEditor({
   agentId,
   configId,
   source,
+  compiledDefinition,
   canManage,
   preferredMode,
   onModeChange,
@@ -113,6 +117,7 @@ function AgentConfigPanelEditor({
   agentId: string
   configId: string
   source: string
+  compiledDefinition: AgentConfig['compiled_definition']
   canManage: boolean
   preferredMode: AgentConfigMode
   onModeChange: (mode: AgentConfigMode) => void
@@ -173,6 +178,7 @@ function AgentConfigPanelEditor({
           yamlFieldClassName="h-[24rem]"
           issues={error.issues}
         />
+        {editor.mode.mode === 'yaml' && <AgentCompiledConfig definition={compiledDefinition} />}
       </FieldGroup>
       <div className="bg-background sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <Button

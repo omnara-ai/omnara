@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,6 +43,15 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	providerAuthSecretField := `,"provider_auth_secret_id":"` + providerAuthSecretID + `"`
 	poolBody := `{"name":"default","provider":"unikraft","default_machine_memory_mb":1024,"default_machine_cpu":1,"default_machine_env":{"SECRET_THING":"pool-value","machine_id":"pool-machine"},"default_machine_secret_env":{"API_TOKEN":"` + providerAuthSecretID + `","storage_key":"` + providerAuthSecretID + `"},"default_machine_provider_options":{"image":"test","metro":"sfo","startup_script":"echo setup"},"default_cwd":"/pool","provider_config":{"api_base_url":"https://api.custom.example"}` + providerAuthSecretField + `,"max_total_machines":2,"max_total_cpu":4,"max_total_memory_mb":8192,"min_machine_cpu":1,"min_machine_memory_mb":1024,"max_machine_cpu":2,"max_machine_memory_mb":4096}`
 	requiredPoolCaps := `,"max_total_cpu":2,"max_total_memory_mb":4096,"max_machine_cpu":2,"max_machine_memory_mb":4096`
+	invalidSecret := requestJSONWithHeaders(
+		t, handler, http.MethodPost, "/api/v1/orgs/"+project.OrgID+"/machine-pools",
+		strings.Replace(poolBody, `"API_TOKEN":"`+providerAuthSecretID+`"`,
+			`"API_TOKEN":"sec_aaaaaaaaaaaaaaaaaaaaaaaaaa"`, 1),
+		"", http.StatusBadRequest, authHeaders(project.AdminToken),
+	)
+	if invalidSecret["code"] != "invalid_request" {
+		t.Fatalf("invalid secret response = %+v, want invalid_request", invalidSecret)
+	}
 	machinePool := requestJSONWithHeaders(
 		t,
 		handler,
@@ -1114,9 +1124,9 @@ func TestPublicMachinePoolSetupLaunchFlow(t *testing.T) {
 	if err := json.Unmarshal(machine.SecretEnv, &storedSecretEnv); err != nil {
 		t.Fatalf("decode launched machine secret env: %v", err)
 	}
-	if storedSecretEnv["API_TOKEN"] != providerAuthSecretID ||
-		storedSecretEnv["storage_key"] != providerAuthSecretID ||
-		storedSecretEnv["process_id"] != providerAuthSecretID {
+	if storedSecretEnv["API_TOKEN"] != uuid.Must(publicid.Decode(publicid.KindSecret, providerAuthSecretID)).String() ||
+		storedSecretEnv["storage_key"] != uuid.Must(publicid.Decode(publicid.KindSecret, providerAuthSecretID)).String() ||
+		storedSecretEnv["process_id"] != uuid.Must(publicid.Decode(publicid.KindSecret, providerAuthSecretID)).String() {
 		t.Fatalf("launched machine did not snapshot pool and grant secret env: %+v", storedSecretEnv)
 	}
 	requestJSONWithHeaders(

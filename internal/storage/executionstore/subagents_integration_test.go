@@ -14,12 +14,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
@@ -44,8 +46,8 @@ func TestSubagentConfigChangesAreRejected(t *testing.T) {
 	for _, source := range []string{subagentParentYAML, ""} {
 		config := executionstore.CreateAgentConfigInput{
 			ProjectID: testProjectID, Source: source,
-			ConfiguredModelID:  parseConfiguredModelID(t, compiled),
-			CompiledDefinition: compiled.CanonicalJSON, CompilerVersion: compiled.CompilerVersion,
+			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
+			CompiledDefinition:      compiled.CanonicalJSON,
 			EffectiveDefinitionHash: compiled.Hash,
 		}
 		child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil,
@@ -266,16 +268,11 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	compiled := storagefixture.SeedModelAndCompileAgentYAML(
 		t, ctx, store.Models(), store.Execution(), testOrgID, testProjectID, derivedYAML,
 	)
-	modelID, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse configured model id: %v", err)
-	}
 	derived := executionstore.CreateAgentConfigInput{
 		ProjectID:               testProjectID,
 		Source:                  derivedYAML,
-		ConfiguredModelID:       modelID,
+		ConfiguredModelID:       compiled.Compiled.Model.ConfiguredModelID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	child, err := spawnSubagentForTest(
@@ -309,6 +306,77 @@ func TestLaunchSubagentWithDerivedConfigKeepsProfileAttribution(t *testing.T) {
 	)
 	if !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("existing config outside the profile history: err = %v, want not found", err)
+	}
+}
+
+func TestLaunchSubagentValidatesSelectedModel(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{"tool-free leaf", "tools unsupported", "grant revoked"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool)
+			user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-model@example.com", "Subagent Model")
+			rootModel := ensureTestConfiguredModelForSource(t, ctx, store, subagentParentYAML)
+			modelInput := storagefixture.DefaultModelInput(testOrgID, rootModel.ModelProviderConfigID, "child-model")
+			modelInput.SupportsTools = new(false)
+			childModel := storagefixture.EnsureModelAccess(t, ctx, store.Models(), testProjectID, modelInput)
+			source := strings.Replace(subagentParentYAML, "    type: self", `    type: self
+    model: {provider_config: openai-prod, name: child-model}`, 1) + `
+tools:
+  read_agent: {enabled: false}
+  send_agent_message: {enabled: false}
+  stop_agent: {enabled: false}
+  list_agents: {enabled: false}
+  read_file: {enabled: false}
+  search_files: {enabled: false}
+`
+			if scenario == "tools unsupported" {
+				source += "  run_command: {}\n"
+			}
+			body, err := agentconfigcompile.Compile(ctx, store.Store, testOrgID, testProjectID,
+				agentconfig.CompileOptions{}, agentconfig.SourceFormatYAML, source)
+			require.NoError(t, err)
+			base, err := store.Execution().CreateAgentConfig(ctx, body.CreateInput(testProjectID))
+			require.NoError(t, err)
+			parent, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+				ProjectID: testProjectID, AgentConfigID: base.ID,
+				LaunchedBy: userPrincipal(user.ID), IdempotencyKey: "model-parent",
+			})
+			require.NoError(t, err)
+			_, err = store.Models().PatchConfiguredModel(ctx, modelstore.PatchConfiguredModelInput{
+				OrgID: testOrgID, ModelProviderConfigID: childModel.ModelProviderConfigID,
+				ID: childModel.ID, Name: new("renamed-child"),
+			})
+			require.NoError(t, err)
+			if scenario == "grant revoked" {
+				grant, err := store.Models().GetActiveProjectModelGrantForConfiguredModel(
+					ctx, testOrgID, testProjectID, childModel.ID)
+				require.NoError(t, err)
+				_, err = store.Models().DeleteProjectModelGrant(ctx, testOrgID, testProjectID, grant.ID)
+				require.NoError(t, err)
+			}
+			var compiled agentconfig.Compiled
+			require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+			derived, err := agentconfigcompile.DeriveSubagentConfig(
+				base, compiled.Subagents["fork"], agentconfig.SubagentDepth{Depth: 1},
+			)
+			require.NoError(t, err)
+			input := derived.CreateInput(testProjectID)
+			child, err := spawnSubagentForTest(t, ctx, store, parent.Agent, uuid.Nil, "child", "model-child", nil,
+				func(launch *executionstore.LaunchAgentInput) { launch.DerivedConfig = &input })
+			switch scenario {
+			case "tool-free leaf":
+				require.NoError(t, err)
+				require.Equal(t, childModel.ID, child.AgentConfig.ConfiguredModelID)
+			case "tools unsupported":
+				require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+			case "grant revoked":
+				require.ErrorIs(t, err, storeerr.ErrNotFound)
+			}
+		})
 	}
 }
 

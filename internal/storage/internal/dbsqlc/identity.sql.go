@@ -255,7 +255,7 @@ func (q *Queries) AuthenticateBrowserSession(ctx context.Context, arg Authentica
 
 const authenticateOAuthAccessToken = `-- name: AuthenticateOAuthAccessToken :one
 WITH authenticated AS MATERIALIZED (
-  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource
+  SELECT t.user_id, t.id AS oauth_access_token_id, t.resource, t.scope
   FROM oauth_access_tokens t
   WHERE t.token_hash = $1
     AND t.revoked_at IS NULL
@@ -272,7 +272,7 @@ WITH authenticated AS MATERIALIZED (
     )
   RETURNING token.id
 )
-SELECT user_id, oauth_access_token_id, resource
+SELECT user_id, oauth_access_token_id, resource, scope
 FROM authenticated
 `
 
@@ -285,12 +285,18 @@ type AuthenticateOAuthAccessTokenRow struct {
 	UserID             uuid.UUID
 	OauthAccessTokenID uuid.UUID
 	Resource           string
+	Scope              string
 }
 
 func (q *Queries) AuthenticateOAuthAccessToken(ctx context.Context, arg AuthenticateOAuthAccessTokenParams) (AuthenticateOAuthAccessTokenRow, error) {
 	row := q.db.QueryRow(ctx, authenticateOAuthAccessToken, arg.TokenHash, arg.TouchIntervalSeconds)
 	var i AuthenticateOAuthAccessTokenRow
-	err := row.Scan(&i.UserID, &i.OauthAccessTokenID, &i.Resource)
+	err := row.Scan(
+		&i.UserID,
+		&i.OauthAccessTokenID,
+		&i.Resource,
+		&i.Scope,
+	)
 	return i, err
 }
 
@@ -361,7 +367,7 @@ SET consumed_at = transaction_timestamp()
 WHERE code_hash = $1
   AND consumed_at IS NULL
   AND expires_at > transaction_timestamp()
-RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource
+RETURNING id, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce
 `
 
 type ConsumeOAuthAuthorizationCodeParams struct {
@@ -376,6 +382,8 @@ type ConsumeOAuthAuthorizationCodeRow struct {
 	RedirectUri   string
 	CodeChallenge string
 	Resource      string
+	Scope         string
+	Nonce         string
 }
 
 func (q *Queries) ConsumeOAuthAuthorizationCode(ctx context.Context, arg ConsumeOAuthAuthorizationCodeParams) (ConsumeOAuthAuthorizationCodeRow, error) {
@@ -389,6 +397,8 @@ func (q *Queries) ConsumeOAuthAuthorizationCode(ctx context.Context, arg Consume
 		&i.RedirectUri,
 		&i.CodeChallenge,
 		&i.Resource,
+		&i.Scope,
+		&i.Nonce,
 	)
 	return i, err
 }
@@ -697,17 +707,19 @@ func (q *Queries) CreateBrowserSession(ctx context.Context, arg CreateBrowserSes
 }
 
 const createOAuthAccessToken = `-- name: CreateOAuthAccessToken :one
-INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
+INSERT INTO oauth_access_tokens(user_id, client_id, client_name, resource, granted_scope, scope, token_hash, refresh_token_hash, created_at, expires_at, refresh_expires_at)
 VALUES (
   $1,
   $2,
   $3,
   $4,
   $5,
+  $5,
   $6,
+  $7,
   transaction_timestamp(),
-  transaction_timestamp() + ($7::bigint * interval '1 second'),
-  transaction_timestamp() + ($8::bigint * interval '1 second')
+  transaction_timestamp() + ($8::bigint * interval '1 second'),
+  transaction_timestamp() + ($9::bigint * interval '1 second')
 )
 RETURNING id
 `
@@ -717,6 +729,7 @@ type CreateOAuthAccessTokenParams struct {
 	ClientID          string
 	ClientName        string
 	Resource          string
+	Scope             string
 	TokenHash         string
 	RefreshTokenHash  string
 	AccessTtlSeconds  int64
@@ -729,6 +742,7 @@ func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAcc
 		arg.ClientID,
 		arg.ClientName,
 		arg.Resource,
+		arg.Scope,
 		arg.TokenHash,
 		arg.RefreshTokenHash,
 		arg.AccessTtlSeconds,
@@ -740,7 +754,7 @@ func (q *Queries) CreateOAuthAccessToken(ctx context.Context, arg CreateOAuthAcc
 }
 
 const createOAuthAuthorizationCode = `-- name: CreateOAuthAuthorizationCode :one
-INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, created_at, expires_at)
+INSERT INTO oauth_authorization_codes(code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, resource, scope, nonce, created_at, expires_at)
 VALUES (
   $1,
   $2,
@@ -749,8 +763,10 @@ VALUES (
   $5,
   $6,
   $7,
+  $8,
+  $9,
   transaction_timestamp(),
-  transaction_timestamp() + ($8::bigint * interval '1 second')
+  transaction_timestamp() + ($10::bigint * interval '1 second')
 )
 RETURNING id
 `
@@ -763,6 +779,8 @@ type CreateOAuthAuthorizationCodeParams struct {
 	RedirectUri   string
 	CodeChallenge string
 	Resource      string
+	Scope         string
+	Nonce         string
 	TtlSeconds    int64
 }
 
@@ -775,11 +793,28 @@ func (q *Queries) CreateOAuthAuthorizationCode(ctx context.Context, arg CreateOA
 		arg.RedirectUri,
 		arg.CodeChallenge,
 		arg.Resource,
+		arg.Scope,
+		arg.Nonce,
 		arg.TtlSeconds,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const createOIDCSigningKey = `-- name: CreateOIDCSigningKey :exec
+INSERT INTO oidc_signing_keys(id, encrypted_private_key)
+VALUES ('default', $1)
+ON CONFLICT (id) DO NOTHING
+`
+
+type CreateOIDCSigningKeyParams struct {
+	EncryptedPrivateKey json.RawMessage
+}
+
+func (q *Queries) CreateOIDCSigningKey(ctx context.Context, arg CreateOIDCSigningKeyParams) error {
+	_, err := q.db.Exec(ctx, createOIDCSigningKey, arg.EncryptedPrivateKey)
+	return err
 }
 
 const createOrg = `-- name: CreateOrg :one
@@ -2484,8 +2519,8 @@ func (q *Queries) GetInstallationID(ctx context.Context) (uuid.UUID, error) {
 	return id, err
 }
 
-const getOAuthAccessTokenUserByRefreshToken = `-- name: GetOAuthAccessTokenUserByRefreshToken :one
-SELECT token.user_id
+const getOAuthAccessTokenGrantByRefreshToken = `-- name: GetOAuthAccessTokenGrantByRefreshToken :one
+SELECT token.user_id, token.granted_scope
 FROM oauth_access_tokens token
 LEFT JOIN oauth_retired_refresh_tokens retired ON retired.oauth_access_token_id = token.id
 WHERE token.refresh_token_hash = $1::text
@@ -2493,15 +2528,31 @@ WHERE token.refresh_token_hash = $1::text
 LIMIT 1
 `
 
-type GetOAuthAccessTokenUserByRefreshTokenParams struct {
+type GetOAuthAccessTokenGrantByRefreshTokenParams struct {
 	PresentedRefreshTokenHash string
 }
 
-func (q *Queries) GetOAuthAccessTokenUserByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenUserByRefreshTokenParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getOAuthAccessTokenUserByRefreshToken, arg.PresentedRefreshTokenHash)
-	var user_id uuid.UUID
-	err := row.Scan(&user_id)
-	return user_id, err
+type GetOAuthAccessTokenGrantByRefreshTokenRow struct {
+	UserID       uuid.UUID
+	GrantedScope string
+}
+
+func (q *Queries) GetOAuthAccessTokenGrantByRefreshToken(ctx context.Context, arg GetOAuthAccessTokenGrantByRefreshTokenParams) (GetOAuthAccessTokenGrantByRefreshTokenRow, error) {
+	row := q.db.QueryRow(ctx, getOAuthAccessTokenGrantByRefreshToken, arg.PresentedRefreshTokenHash)
+	var i GetOAuthAccessTokenGrantByRefreshTokenRow
+	err := row.Scan(&i.UserID, &i.GrantedScope)
+	return i, err
+}
+
+const getOIDCSigningKey = `-- name: GetOIDCSigningKey :one
+SELECT encrypted_private_key FROM oidc_signing_keys WHERE id = 'default'
+`
+
+func (q *Queries) GetOIDCSigningKey(ctx context.Context) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, getOIDCSigningKey)
+	var encrypted_private_key json.RawMessage
+	err := row.Scan(&encrypted_private_key)
+	return encrypted_private_key, err
 }
 
 const getOrg = `-- name: GetOrg :one
@@ -4613,13 +4664,14 @@ WITH presented AS (
     )
 ), rotated AS (
   UPDATE oauth_access_tokens token
-  SET token_hash = $4,
-      refresh_token_hash = $5,
-      expires_at = transaction_timestamp() + ($6::bigint * interval '1 second'),
-      refresh_expires_at = transaction_timestamp() + ($7::bigint * interval '1 second')
+  SET scope = CASE WHEN $4::text = '' THEN token.granted_scope ELSE $4::text END,
+      token_hash = $5,
+      refresh_token_hash = $6,
+      expires_at = transaction_timestamp() + ($7::bigint * interval '1 second'),
+      refresh_expires_at = transaction_timestamp() + ($8::bigint * interval '1 second')
   FROM presented
   WHERE token.id = presented.id
-  RETURNING token.id, token.user_id, token.resource
+  RETURNING token.id, token.user_id, token.resource, token.scope
 ), retired AS (
   INSERT INTO oauth_retired_refresh_tokens(refresh_token_hash, oauth_access_token_id, retired_at)
   SELECT old.refresh_token_hash, rotated.id, transaction_timestamp()
@@ -4627,7 +4679,7 @@ WITH presented AS (
   JOIN oauth_access_tokens old ON old.id = rotated.id
   ON CONFLICT (refresh_token_hash) DO NOTHING
 )
-SELECT id, user_id, resource
+SELECT id, user_id, resource, scope
 FROM rotated
 `
 
@@ -4635,6 +4687,7 @@ type RotateOAuthAccessTokenParams struct {
 	ClientID                  string
 	PresentedRefreshTokenHash string
 	ReuseGraceSeconds         int64
+	Scope                     string
 	TokenHash                 string
 	RefreshTokenHash          string
 	AccessTtlSeconds          int64
@@ -4645,6 +4698,7 @@ type RotateOAuthAccessTokenRow struct {
 	ID       uuid.UUID
 	UserID   uuid.UUID
 	Resource string
+	Scope    string
 }
 
 func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAccessTokenParams) (RotateOAuthAccessTokenRow, error) {
@@ -4652,13 +4706,19 @@ func (q *Queries) RotateOAuthAccessToken(ctx context.Context, arg RotateOAuthAcc
 		arg.ClientID,
 		arg.PresentedRefreshTokenHash,
 		arg.ReuseGraceSeconds,
+		arg.Scope,
 		arg.TokenHash,
 		arg.RefreshTokenHash,
 		arg.AccessTtlSeconds,
 		arg.RefreshTtlSeconds,
 	)
 	var i RotateOAuthAccessTokenRow
-	err := row.Scan(&i.ID, &i.UserID, &i.Resource)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Resource,
+		&i.Scope,
+	)
 	return i, err
 }
 

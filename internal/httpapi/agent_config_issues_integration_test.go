@@ -4,10 +4,17 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateAgentConfigReportsFieldLevelIssues(t *testing.T) {
@@ -80,5 +87,36 @@ func TestCreateAgentConfigReportsFieldLevelIssues(t *testing.T) {
 	syntaxIssue := testutil.RequireType[map[string]any](t, syntaxIssues[0])
 	if syntaxIssue["path"] != "" || syntaxIssue["line"] != float64(4) {
 		t.Fatalf("syntax issue = %v, want root issue on line 4", syntaxIssue)
+	}
+}
+
+func TestCreateAgentConfigValidatesWebhookSigningSecretValue(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	handler := newIntegrationServer(openIntegrationDB(t, ctx))
+	project := bootstrapPublicHTTPProject(t, handler, "webhook-secret")
+	for i, value := range []string{"invalid", base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))} {
+		secret, _, err := project.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+			OrgID: project.OrgUUID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: project.ProjectUUID,
+			Name: fmt.Sprintf("webhook-key-%d", i), Material: secrets.GenericMaterial{Value: value},
+			Actor: httpUserPrincipal(project.AdminUserUUID),
+		})
+		require.NoError(t, err)
+		id := testPublicID(t, publicid.KindSecret, secret.ID)
+		source := "instruction: Help.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n" +
+			"event_webhook:\n  url: https://example.com/events\n  events: [tool_call_update]\n  signing_secret_id: " + id + "\n"
+		status := http.StatusCreated
+		if i == 0 {
+			status = http.StatusBadRequest
+		}
+		response := createPublicHTTPAgentConfig(
+			t, handler, project, "webhook-secret", "yaml", source, project.AdminToken, status,
+		)
+		if i == 0 {
+			issues := testutil.RequireType[[]any](t, response["issues"])
+			require.Len(t, issues, 1)
+			issue := testutil.RequireType[map[string]any](t, issues[0])
+			require.Equal(t, "/event_webhook/signing_secret_id", issue["path"])
+		}
 	}
 }

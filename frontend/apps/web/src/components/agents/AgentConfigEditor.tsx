@@ -49,7 +49,7 @@ export function AgentConfigEditorFields({
         </div>
       )}
       {builderSession != null && (
-        <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
+        <div className={showBuilder ? 'flex flex-col gap-5' : 'hidden'}>
           <AgentConfigModelField
             orgId={orgId}
             projectId={projectId}

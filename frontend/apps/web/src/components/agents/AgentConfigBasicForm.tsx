@@ -1,11 +1,14 @@
 import { useToolCatalog } from '@omnara/react'
 
+import { AgentConfigEventWebhookField } from '@/components/agents/AgentConfigEventWebhookField'
 import { AgentConfigMachineSourcesField } from '@/components/agents/AgentConfigMachineSourcesField'
 import { AgentConfigMcpServersField } from '@/components/agents/AgentConfigMcpServersField'
 import { AgentConfigSkillsField } from '@/components/agents/AgentConfigSkillsField'
 import { AgentConfigSubagentsField } from '@/components/agents/AgentConfigSubagentsField'
 import { AgentConfigToolsField } from '@/components/agents/AgentConfigToolsField'
 import type { AgentBuilderForm } from '@/components/agents/useAgentBuilderForm'
+import { ChevronRightIcon } from '@/components/icons'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldGroup, RequiredFieldLabel } from '@/components/ui/field'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,7 +29,7 @@ export function AgentConfigBasicForm({
   const toolCatalog = useToolCatalog()
 
   return (
-    <FieldGroup className="gap-8">
+    <FieldGroup className="gap-5">
       <Field>
         <RequiredFieldLabel htmlFor="agent-config-basic-instruction">
           Instructions
@@ -62,11 +65,11 @@ export function AgentConfigBasicForm({
             onToolsChange={form.setTools}
           />
           {form.toolsPending && (
-            <p className="text-muted-foreground text-sm">Loading other tools…</p>
+            <p className="text-muted-foreground text-sm">Loading built-in tools…</p>
           )}
           {form.toolsError && (
             <p className="text-destructive text-sm" role="alert">
-              Couldn’t load other tools.{' '}
+              Couldn’t load built-in tools.{' '}
               <button type="button" className="underline" onClick={form.retryTools}>
                 Retry
               </button>
@@ -99,6 +102,26 @@ export function AgentConfigBasicForm({
             agentName={agentName}
             onBeforeOAuthRedirect={onBeforeOAuthRedirect}
           />
+          <Collapsible className="pt-2">
+            <CollapsibleTrigger className="text-muted-foreground hover:text-foreground focus-visible:ring-ring group flex items-center gap-1.5 rounded-sm py-1 text-left text-sm focus-visible:ring-2 focus-visible:ring-offset-2">
+              <ChevronRightIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+              Advanced
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-4">
+              <FieldGroup className="bg-card rounded-xl border px-4 py-4 sm:px-5">
+                <AgentConfigEventWebhookField
+                  orgId={orgId}
+                  projectId={projectId}
+                  events={form.eventWebhookEvents}
+                  onEventsChange={form.setEventWebhookEvents}
+                  url={form.eventWebhookUrl}
+                  signingSecretId={form.eventWebhookSigningSecretId}
+                  onUrlChange={form.setEventWebhookUrl}
+                  onSigningSecretIdChange={form.setEventWebhookSigningSecretId}
+                />
+              </FieldGroup>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </div>
     </FieldGroup>

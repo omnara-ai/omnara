@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -793,7 +792,6 @@ func (f kernelFixture) kernelAgentConfigInput(
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 }
@@ -838,7 +836,6 @@ tools:
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

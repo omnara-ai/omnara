@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
 
-import { OmnaraClientProvider } from '@omnara/react'
+import { OmnaraClientProvider, useAgentConfigTools } from '@omnara/react'
 import { createOmnaraClient, schemas } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -9,7 +9,7 @@ import {
   createRouter,
   RouterContextProvider,
 } from '@tanstack/react-router'
-import { act, type ReactNode } from 'react'
+import { act, type ReactNode, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
@@ -69,7 +69,11 @@ function testProviders(routes: FakeRoute[]) {
 
 async function renderAndFlush(node: ReactNode) {
   await act(async () => {
-    root.render(<Providers>{node}</Providers>)
+    root.render(
+      <Providers>
+        <StrictMode>{node}</StrictMode>
+      </Providers>,
+    )
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
@@ -189,7 +193,7 @@ function SubagentPreviewHarness({ source }: { source: string }) {
               ...row,
               instructionAppend: `${row.instructionAppend} More detail.`,
               description: 'Updated description',
-              modelOverride: { name: 'another-model' },
+              modelOverride: { provider_config: 'anthropic', name: 'another-model' },
             })),
           )
         }}
@@ -233,4 +237,109 @@ it('does not refetch tool previews for subagent instruction, description, or mod
     'subagents.worker.instruction.append',
     ' More detail. More detail.',
   )
+})
+
+function ToolPreviewHarness({ source }: { source: string }) {
+  const query = useAgentConfigTools('org-test', 'project-test', {
+    source_format: 'yaml',
+    source,
+  })
+  return (
+    <output data-status={query.status} data-fetching={query.isFetching}>
+      {query.data?.tools.map((tool) => tool.name).join(',')}
+    </output>
+  )
+}
+
+function previewResponse(names: string[]) {
+  return jsonResponse({
+    tools: names.map((name) => ({
+      name,
+      enabled: true,
+      permission: { mode: 'always_allow', parameters: {} },
+    })),
+  })
+}
+
+it('does not seed a new editor from another editor in the same project', async () => {
+  const original = 'machine_sources: [{machine_pool_name: pool}]'
+  Providers = testProviders([
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: ({ body }) =>
+        schemas.zResolveAgentConfigToolsRequest.parse(body).source === original
+          ? previewResponse(['run_command'])
+          : jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500),
+    },
+  ])
+  await renderAndFlush(<ToolPreviewHarness key="first" source={original} />)
+  await vi.waitFor(() => {
+    expect(container.textContent).toBe('run_command')
+  })
+  await renderAndFlush(<ToolPreviewHarness key="second" source="tools: {}" />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-status')).toBe('error')
+  })
+  expect(container.textContent).toBe('')
+})
+
+it('replaces obsolete fallback entries while retaining fetched previews and the displayed order', async () => {
+  const original = 'tools: {}'
+  const failed = 'machine_sources: [{machine_pool_name: pool}]'
+  const updated = `${failed}\ntools: {run_command: {permission: {mode: always_ask}}}`
+  const next = 'tools: {web_search: {}}'
+  const requests: string[] = []
+  let release: (response: Response) => void = () => undefined
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  let fail = true
+  Providers = testProviders([
+    {
+      method: 'POST',
+      path: '/api/v1/orgs/org-test/projects/project-test/agent-configs/tools',
+      respond: ({ body }) => {
+        const { source } = schemas.zResolveAgentConfigToolsRequest.parse(body)
+        requests.push(source)
+        if (source === original) return previewResponse(['read_file'])
+        if (source === updated) return previewResponse(['read_file', 'run_command'])
+        if (source === failed && fail) {
+          return jsonResponse({ code: 'internal_error', message: 'Unavailable' }, 500)
+        }
+        return pending.then((response) => response.clone())
+      },
+    },
+  ])
+  await renderAndFlush(<ToolPreviewHarness source={original} />)
+  await vi.waitFor(() => {
+    expect(container.textContent).toBe('read_file')
+  })
+  await renderAndFlush(<ToolPreviewHarness source={failed} />)
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-status')).toBe('error')
+  })
+  expect(container.textContent).toBe('read_file')
+  await renderAndFlush(<ToolPreviewHarness source={updated} />)
+  await vi.waitFor(() => {
+    expect(container.textContent).toBe('read_file,run_command')
+  })
+  fail = false
+  await renderAndFlush(<ToolPreviewHarness source={failed} />)
+  expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('true')
+  expect(container.textContent).toBe('read_file,run_command')
+  await renderAndFlush(<ToolPreviewHarness source={original} />)
+  expect(container.textContent).toBe('read_file')
+  expect(requests.filter((source) => source === original)).toHaveLength(1)
+  await renderAndFlush(<ToolPreviewHarness source={next} />)
+  expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('true')
+  expect(container.textContent).toBe('read_file')
+  await act(async () => {
+    release(previewResponse([]))
+    await pending
+  })
+  await vi.waitFor(() => {
+    expect(container.querySelector('output')?.getAttribute('data-fetching')).toBe('false')
+    expect(container.textContent).toBe('')
+  })
 })

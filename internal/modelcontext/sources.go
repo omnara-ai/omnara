@@ -90,7 +90,7 @@ type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
 		projectID uuid.UUID,
-		publicSkillID string,
+		skillID uuid.UUID,
 	) (skillstore.SkillRecord, error)
 }
 

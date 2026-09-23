@@ -78,6 +78,9 @@ export function agentTemplateBasicConfig(
 ): BasicConfig {
   return {
     mcpServers: [],
+    eventWebhookEvents: ['tool_call_update'],
+    eventWebhookUrl: '',
+    eventWebhookSigningSecretId: '',
     skillIds: [],
     subagents: [],
     maxSubagents: '',
@@ -97,16 +100,15 @@ export function defaultAgentTools(catalog?: ToolCatalog): BasicTool[] {
 }
 
 export function defaultAgentMachineSources(pool?: MachinePoolSummary) {
-  return pool
-    ? [
-        {
-          ...newMachineSource('pool'),
-          name: pool.name,
-          provider: pool.provider,
-          managementKind: pool.management_kind,
-        },
-      ]
-    : []
+  if (!pool) return []
+  return [
+    {
+      ...newMachineSource('pool'),
+      name: pool.name,
+      provider: pool.provider,
+      managementKind: pool.management_kind,
+    },
+  ]
 }
 
 function catalogTools(catalog: ToolCatalog | undefined, names: readonly string[]): BasicTool[] {

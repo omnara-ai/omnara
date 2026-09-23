@@ -20,6 +20,8 @@ func TestMachineToolInputValidation(t *testing.T) {
 	valid := []model.ToolCall{
 		{Name: "create_machine", Input: json.RawMessage(`{}`)},
 		{Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
+		{Name: "create_machine", Input: json.RawMessage(`{"cpu":4,"memory_mb":8192}`)},
+		{Name: "create_machine", Input: json.RawMessage(`{"memory_mb":1024}`)},
 		{Name: "delete_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{}`)},
 		{Name: "inspect_machine", Input: json.RawMessage(`{"machine_id":"mch_aaaaaaaaaaaaaaaaaaaaaaaaae"}`)},
@@ -77,6 +79,17 @@ func TestMachineToolInputValidation(t *testing.T) {
 	}
 }
 
+func TestCreateMachineRejectsInvalidSizes(t *testing.T) {
+	for _, input := range []string{
+		`{"cpu":null}`, `{"memory_mb":null}`, `{"cpu":0}`, `{"memory_mb":-1}`,
+		`{"cpu":1.5}`, `{"memory_mb":"8192"}`, `{"cpu":2147483648}`, `{"memory_mb":2147483648}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			require.Error(t, validateRegisteredToolInput("create_machine", json.RawMessage(input)))
+		})
+	}
+}
+
 func TestSelectCreateMachinePool(t *testing.T) {
 	first := executionstore.MachinePoolSourceRecord{MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Build Pool"}
 	second := executionstore.MachinePoolSourceRecord{MachinePoolID: uuid.UUID{15: 2}, MachinePoolName: "Test Pool"}
@@ -130,13 +143,64 @@ func TestSelectCreateMachinePool(t *testing.T) {
 	}
 }
 
+func TestSelectCreateMachinePoolValidatesOverrides(t *testing.T) {
+	source := executionstore.MachinePoolSourceRecord{
+		MachinePoolID: uuid.UUID{15: 1}, MachinePoolName: "Build Pool", SupportedOverrides: []string{"cpu", "memory_mb"},
+		MinCPU: new(2), MaxCPU: new(4), MinMemoryMB: new(2048), MaxMemoryMB: new(8192),
+	}
+	for _, test := range []struct {
+		name    string
+		input   createMachineRequest
+		wantErr string
+	}{
+		{name: "omitted"},
+		{name: "minimum", input: createMachineRequest{CPU: new(2), MemoryMB: new(2048)}},
+		{name: "maximum", input: createMachineRequest{CPU: new(4), MemoryMB: new(8192)}},
+		{name: "cpu below minimum", input: createMachineRequest{CPU: new(1)}, wantErr: "cpu must be at least 2"},
+		{name: "cpu above maximum", input: createMachineRequest{CPU: new(5)}, wantErr: "cpu must be at most 4"},
+		{
+			name: "memory below minimum", input: createMachineRequest{MemoryMB: new(1024)},
+			wantErr: "memory_mb must be at least 2048",
+		},
+		{
+			name: "memory above maximum", input: createMachineRequest{MemoryMB: new(16384)},
+			wantErr: "memory_mb must be at most 8192",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, poolID := range []string{"", poolPublicIDForTest(t, source.MachinePoolID)} {
+				input := test.input
+				input.MachinePoolID = poolID
+				_, err := selectPoolForMachineCreate([]executionstore.MachinePoolSourceRecord{source}, input)
+				if test.wantErr != "" {
+					require.ErrorContains(t, err, test.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		})
+	}
+	for _, test := range []struct {
+		input createMachineRequest
+		field string
+	}{
+		{createMachineRequest{CPU: new(2)}, "cpu"},
+		{createMachineRequest{MemoryMB: new(2048)}, "memory_mb"},
+	} {
+		t.Run("unsupported "+test.field, func(t *testing.T) {
+			_, err := selectPoolForMachineCreate([]executionstore.MachinePoolSourceRecord{{}}, test.input)
+			require.ErrorContains(t, err, "does not support "+test.field+" overrides")
+		})
+	}
+}
+
 func TestCreateMachineApprovalPinsPoolID(t *testing.T) {
 	poolID := uuid.New()
 	call := model.ToolCall{ID: "create", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"` + poolPublicIDForTest(t, poolID) + `"}`)}
 	selection := toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
 	descriptor, ok := toolpermission.FindMode(toolpermission.CommonModeDescriptors(), selection.Mode)
 	require.True(t, ok)
-	approvedInput, err := machineCreateAuthorizationInput(poolID)
+	approvedInput, err := machineCreateAuthorizationInput(poolID, createMachineRequest{})
 	require.NoError(t, err)
 	request, err := permissionChallenge(
 		call, permissionModeContext{descriptor: descriptor, selection: selection}, approvedInput,
@@ -148,9 +212,14 @@ func TestCreateMachineApprovalPinsPoolID(t *testing.T) {
 		ProviderCallID: call.ID, InteractionKind: executionstore.AgentInteractionKindPermission, Request: requestJSON,
 	}
 	require.True(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, approvedInput))
-	otherPool, err := machineCreateAuthorizationInput(uuid.New())
+	otherPool, err := machineCreateAuthorizationInput(uuid.New(), createMachineRequest{})
 	require.NoError(t, err)
 	require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, otherPool))
+	for _, input := range []createMachineRequest{{CPU: new(4)}, {MemoryMB: new(8192)}} {
+		resized, err := machineCreateAuthorizationInput(poolID, input)
+		require.NoError(t, err)
+		require.False(t, toolCallAuthorizationMatches(action, call, uuid.Nil, selection, resized))
+	}
 }
 
 func TestSelectOnlyMachine(t *testing.T) {
@@ -263,6 +332,8 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 		DisplayName:            "Developer laptop",
 		MachinePoolName:        "Private pool",
 		MachinePoolID:          integrationToolTestID("private-pool"),
+		CPU:                    new(4),
+		MemoryMB:               new(8192),
 		LifecycleState:         executionstore.MachineLifecycleStateActive,
 		ConnectionState:        executionstore.MachineConnectionStateOnline,
 		ConnectionStateReason:  "connected",
@@ -295,6 +366,8 @@ func TestAgentMachineObservationRedactsMachineWithoutProjectGrant(t *testing.T) 
 		"machine_pool_id",
 		"connection_state_reason",
 		"failure_report",
+		"cpu",
+		"memory_mb",
 	} {
 		if _, ok := got[field]; ok {
 			t.Fatalf("ungranted machine observation exposed %s: %s", field, encoded)
@@ -583,7 +656,47 @@ func TestCreateMachineRequiresPublicPoolID(t *testing.T) {
 		"", "Build", uuid.NewString(), "mpo_invalid", "mpo_aaaaaaaaaaaaaaaaaaaaaaaaaa", "mch_aaaaaaaaaaaaaaaaaaaaaaaaae",
 	} {
 		t.Run(id, func(t *testing.T) {
-			require.Error(t, validateCreateMachineInput(json.RawMessage(`{"machine_pool_id":"`+id+`"}`)))
+			require.Error(t, validateRegisteredToolInput("create_machine", json.RawMessage(`{"machine_pool_id":"`+id+`"}`)))
 		})
+	}
+}
+
+func TestMachineResultsExposeSizes(t *testing.T) {
+	record := executionstore.PoolMachineRecord{
+		Machine: executionstore.MachineRecord{ID: uuid.New(), CPU: new(4), MemoryMB: new(8192)},
+	}
+	created, err := machineProvisioningAcceptedResult(record)
+	require.NoError(t, err)
+	parts, err := created.contentParts()
+	require.NoError(t, err)
+	require.Contains(t, string(parts), `"cpu":4`)
+	require.Contains(t, string(parts), `"memory_mb":8192`)
+	deleted, err := machineDeletionAcceptedResult(record)
+	require.NoError(t, err)
+	parts, err = deleted.contentParts()
+	require.NoError(t, err)
+	require.NotContains(t, string(parts), `"cpu"`)
+	require.NotContains(t, string(parts), `"memory_mb"`)
+	for _, known := range []bool{false, true} {
+		observation := executionstore.AgentMachineObservationRecord{MachineID: record.Machine.ID}
+		if known {
+			observation.CPU = record.Machine.CPU
+			observation.MemoryMB = record.Machine.MemoryMB
+		}
+		listed, err := agentMachineObservation(observation)
+		require.NoError(t, err)
+		inspected, err := agentMachineInspection(observation)
+		require.NoError(t, err)
+		for _, payload := range []any{listed, inspected} {
+			raw, err := json.Marshal(payload)
+			require.NoError(t, err)
+			if known {
+				require.Contains(t, string(raw), `"cpu":4`)
+				require.Contains(t, string(raw), `"memory_mb":8192`)
+			} else {
+				require.NotContains(t, string(raw), `"cpu"`)
+				require.NotContains(t, string(raw), `"memory_mb"`)
+			}
+		}
 	}
 }

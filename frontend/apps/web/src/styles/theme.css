@@ -24,7 +24,7 @@
   --warning: oklch(0.55 0.17 40);
   --overlay: oklch(0 0 0 / 50%);
   --border: rgb(var(--palette-light-line));
-  --input: rgb(var(--palette-light-line-strong));
+  --input: rgb(var(--palette-light-line) / 0.7);
   --ring: var(--link);
   --chart-1: var(--primary);
   --chart-2: var(--link-hover);
@@ -56,7 +56,7 @@
   --success: rgb(var(--palette-dark-success));
   --warning: oklch(0.72 0.16 45);
   --border: rgb(var(--palette-dark-line));
-  --input: rgb(var(--palette-dark-line-strong));
+  --input: rgb(var(--palette-dark-line) / 0.7);
   --chart-4: rgb(var(--palette-dark-accent-soft));
   --sidebar: rgb(var(--palette-dark-sidebar));
   --sidebar-accent: color-mix(in oklab, var(--primary) 13%, var(--sidebar));

@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/management"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +23,12 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	fixture := newMachineDispatchEnvironment(t, ctx, "pool-discovery", management.Tenant)
 	store := fixture.Store.Execution()
 	selectedPool := fixture.MachinePool
+	_, err := store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
+		OrgID: toolsTestOrgID, ID: selectedPool.ID,
+		MaxMachineCPU:      patch.NullableInt{Set: true, Value: new(2)},
+		MaxMachineMemoryMB: patch.NullableInt{Set: true, Value: new(2048)},
+	})
+	require.NoError(t, err)
 	otherPool, err := store.CreateMachinePool(ctx, executionstore.CreateMachinePoolInput{
 		OrgID: toolsTestOrgID, Name: "Second pool", Provider: selectedPool.Provider,
 		ProviderAuthSecretID: selectedPool.ProviderAuthSecretID,
@@ -38,7 +45,7 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	require.NoError(t, json.Unmarshal(fixture.Config.CompiledDefinition, &definition))
 	definition.MachineSources[0].Description = "Build workers"
 	definition.MachineSources = append(definition.MachineSources, agentconfig.MachineSourceCompiled{
-		MachinePoolID: poolPublicIDForTest(t, otherPool.ID), MaxMachines: 1, Description: "Test workers",
+		MachinePoolID: otherPool.ID, MaxMachines: 1, Description: "Test workers",
 	})
 	createTool := definition.Tools["create_machine"]
 	createTool.Permission = toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)
@@ -57,7 +64,7 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	poolID := poolPublicIDForTest(t, selectedPool.ID)
 	listEmptyCall := model.ToolCall{ID: "list-empty", Name: "list_machines", Input: json.RawMessage(`{}`)}
 	createCall := model.ToolCall{
-		ID: "create-selected", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"` + poolID + `"}`),
+		ID: "create-selected", Name: "create_machine", Input: json.RawMessage(`{"machine_pool_id":"` + poolID + `","cpu":2,"memory_mb":2048}`),
 	}
 	listCreatedCall := model.ToolCall{ID: "list-created", Name: "list_machines", Input: json.RawMessage(`{}`)}
 	inspectCall := model.ToolCall{ID: "inspect-created", Name: "inspect_machine", Input: json.RawMessage(`{}`)}
@@ -105,10 +112,17 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	listed := dispatch(listEmptyCall)
 	require.Empty(t, listed["machines"])
 	require.ElementsMatch(t, []any{
-		map[string]any{"machine_pool_id": poolID, "machine_pool_name": selectedPool.Name, "description": "Build workers"},
+		map[string]any{
+			"machine_pool_id": poolID, "machine_pool_name": selectedPool.Name, "description": "Build workers",
+			"supported_overrides": []any{"cpu", "memory_mb"},
+			"default_cpu":         float64(1), "default_memory_mb": float64(1024),
+			"max_cpu": float64(2), "max_memory_mb": float64(2048),
+		},
 		map[string]any{
 			"machine_pool_id":   poolPublicIDForTest(t, otherPool.ID),
 			"machine_pool_name": otherPool.Name, "description": "Test workers",
+			"supported_overrides": []any{"cpu", "memory_mb"},
+			"default_cpu":         float64(1), "default_memory_mb": float64(1024),
 		},
 	}, listed["machine_pools"])
 
@@ -128,6 +142,8 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(requestBody), otherPool.Name)
 	require.Contains(t, string(requestBody), poolID)
+	require.Contains(t, string(requestBody), `"label":"CPU","value":"2"`)
+	require.Contains(t, string(requestBody), `"label":"Memory (MB)","value":"2048"`)
 	approveToolPermissionForTest(t, ctx, store, interaction, fixture.UserID)
 
 	renamed := "Renamed build pool"
@@ -138,6 +154,8 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	machine, err := store.GetPoolMachineByCreateToolCall(ctx, toolsTestProjectID, launch.Agent.ID, createToolCallID)
 	require.NoError(t, err)
 	require.Equal(t, selectedPool.ID, machine.Machine.MachinePoolID)
+	require.Equal(t, new(2), machine.Machine.CPU)
+	require.Equal(t, new(2048), machine.Machine.MemoryMB)
 	listed = dispatch(listCreatedCall)
 	machines, ok := listed["machines"].([]any)
 	require.True(t, ok)
@@ -152,6 +170,11 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	require.NoError(t, err)
 	listed = dispatch(listAfterRevokeCall)
 	require.Equal(t, []any{
-		map[string]any{"machine_pool_id": poolID, "machine_pool_name": renamed, "description": "Build workers"},
+		map[string]any{
+			"machine_pool_id": poolID, "machine_pool_name": renamed, "description": "Build workers",
+			"supported_overrides": []any{"cpu", "memory_mb"},
+			"default_cpu":         float64(1), "default_memory_mb": float64(1024),
+			"max_cpu": float64(2), "max_memory_mb": float64(2048),
+		},
 	}, listed["machine_pools"])
 }

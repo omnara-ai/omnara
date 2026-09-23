@@ -119,9 +119,10 @@ func NewServer(spec *openapi3.T, tools []Tool, options Options) (*mcp.Server, er
 		}
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        tool.Name,
+			Title:       tool.Title,
 			Description: description,
 			InputSchema: inputSchema,
-			Annotations: annotationsFor(compiled.method, tool.Destructive),
+			Annotations: annotationsFor(tool, compiled.method),
 		}, compiled.handle)
 	}
 	if options.Grants != nil {
@@ -141,20 +142,16 @@ func NewHandler(server *mcp.Server) http.Handler {
 	)
 }
 
-func annotationsFor(method string, destructive bool) *mcp.ToolAnnotations {
+func annotationsFor(tool Tool, method string) *mcp.ToolAnnotations {
 	readOnly := method == http.MethodGet
-	idempotent := readOnly || method == http.MethodPut || method == http.MethodDelete
-	annotations := &mcp.ToolAnnotations{
-		ReadOnlyHint:   readOnly,
-		IdempotentHint: idempotent,
+	destructive := !readOnly && (tool.Destructive || method != http.MethodPost)
+	return &mcp.ToolAnnotations{
+		Title:           tool.Title,
+		ReadOnlyHint:    readOnly,
+		IdempotentHint:  readOnly || method == http.MethodPut || method == http.MethodDelete,
+		DestructiveHint: &destructive,
+		OpenWorldHint:   &tool.OpenWorld,
 	}
-	switch {
-	case readOnly:
-		annotations.DestructiveHint = new(false)
-	case destructive || method == http.MethodDelete:
-		annotations.DestructiveHint = new(true)
-	}
-	return annotations
 }
 
 func specVersion(spec *openapi3.T) string {
@@ -245,7 +242,7 @@ func compileOperation(
 		default:
 			return nil, nil, fmt.Errorf(unsupportedParameter, parameter.Name, tool.OperationID, parameter.In)
 		}
-		schema, err := parameterSchemaJSON(parameter)
+		schema, err := parameterSchemaJSON(spec, parameter)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -259,7 +256,7 @@ func compileOperation(
 		if isFlatObjectSchema(bodySchema) {
 			compiled.bodyFlattened = true
 			for name, property := range bodySchema.Properties {
-				schema, err := property.MarshalJSON()
+				schema, err := inlinedSchemaJSON(spec, property)
 				if err != nil {
 					return nil, nil, fmt.Errorf("marshal body property %q: %w", name, err)
 				}
@@ -269,7 +266,7 @@ func compileOperation(
 				compiled.bodyKeys = append(compiled.bodyKeys, name)
 			}
 		} else {
-			schema, err := body.MarshalJSON()
+			schema, err := inlinedSchemaJSON(spec, body)
 			if err != nil {
 				return nil, nil, fmt.Errorf("marshal request body schema: %w", err)
 			}
@@ -291,11 +288,11 @@ func isArrayParameter(parameter *openapi3.Parameter) bool {
 	return parameter.Schema != nil && parameter.Schema.Value != nil && parameter.Schema.Value.Type.Is(openapi3.TypeArray)
 }
 
-func parameterSchemaJSON(parameter *openapi3.Parameter) (json.RawMessage, error) {
+func parameterSchemaJSON(spec *openapi3.T, parameter *openapi3.Parameter) (json.RawMessage, error) {
 	if parameter.Schema == nil {
 		return json.RawMessage(`{"type":"string"}`), nil
 	}
-	schema, err := parameter.Schema.MarshalJSON()
+	schema, err := inlinedSchemaJSON(spec, parameter.Schema)
 	if err != nil {
 		return nil, fmt.Errorf("marshal parameter %q schema: %w", parameter.Name, err)
 	}
@@ -305,19 +302,111 @@ func parameterSchemaJSON(parameter *openapi3.Parameter) (json.RawMessage, error)
 	return withDescription(schema, parameter.Description)
 }
 
+func inlinedSchemaJSON(spec *openapi3.T, ref *openapi3.SchemaRef) (json.RawMessage, error) {
+	encoded, err := ref.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return nil, err
+	}
+	name, ok := soleComponentReference(decoded)
+	if !ok {
+		return encoded, nil
+	}
+	component, ok := spec.Components.Schemas[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown component schema %q", name)
+	}
+	inlined, err := component.Value.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("marshal component schema %q: %w", name, err)
+	}
+	inlined, err = withInferredObjectType(spec, inlined)
+	if err != nil {
+		return nil, err
+	}
+	description, ok := decoded["description"].(string)
+	if !ok || description == "" {
+		return inlined, nil
+	}
+	return withDescription(inlined, description)
+}
+
+func soleComponentReference(decoded map[string]any) (string, bool) {
+	target := decoded
+	if allOf, ok := decoded["allOf"].([]any); ok {
+		if len(allOf) != 1 || !hasOnlyKeys(decoded, "allOf", "description") {
+			return "", false
+		}
+		member, ok := allOf[0].(map[string]any)
+		if !ok {
+			return "", false
+		}
+		target = member
+	}
+	ref, ok := target["$ref"].(string)
+	if !ok || len(target) != 1 || !strings.HasPrefix(ref, componentSchemaRef) {
+		return "", false
+	}
+	return strings.TrimPrefix(ref, componentSchemaRef), true
+}
+
+func hasOnlyKeys(decoded map[string]any, allowed ...string) bool {
+	for key := range decoded {
+		if !slices.Contains(allowed, key) {
+			return false
+		}
+	}
+	return true
+}
+
 func withDescription(schema json.RawMessage, description string) (json.RawMessage, error) {
 	var decoded map[string]any
 	if err := json.Unmarshal(schema, &decoded); err != nil {
 		return nil, err
 	}
-	if _, has := decoded["description"]; has {
-		return schema, nil
-	}
-	if _, isRef := decoded["$ref"]; isRef {
-		return json.Marshal(map[string]any{"allOf": []any{decoded}, "description": description})
-	}
 	decoded["description"] = description
 	return json.Marshal(decoded)
+}
+
+func withInferredObjectType(spec *openapi3.T, schema json.RawMessage) (json.RawMessage, error) {
+	var decoded map[string]any
+	if err := json.Unmarshal(schema, &decoded); err != nil {
+		return nil, err
+	}
+	if _, typed := decoded["type"]; typed || !isObjectComposition(spec, decoded) {
+		return schema, nil
+	}
+	decoded["type"] = openapi3.TypeObject
+	return json.Marshal(decoded)
+}
+
+func isObjectComposition(spec *openapi3.T, decoded map[string]any) bool {
+	if ref, ok := decoded["$ref"].(string); ok {
+		component, found := spec.Components.Schemas[strings.TrimPrefix(ref, componentSchemaRef)]
+		return found && component.Value != nil && component.Value.Type.Is(openapi3.TypeObject)
+	}
+	if typed, ok := decoded["type"].(string); ok {
+		return typed == openapi3.TypeObject
+	}
+	branches := make([]any, 0)
+	for _, keyword := range []string{"allOf", "oneOf"} {
+		if members, ok := decoded[keyword].([]any); ok {
+			branches = append(branches, members...)
+		}
+	}
+	if len(branches) == 0 {
+		return false
+	}
+	for _, branch := range branches {
+		member, ok := branch.(map[string]any)
+		if !ok || !isObjectComposition(spec, member) {
+			return false
+		}
+	}
+	return true
 }
 
 func jsonRequestBody(op *openapi3.Operation) *openapi3.SchemaRef {

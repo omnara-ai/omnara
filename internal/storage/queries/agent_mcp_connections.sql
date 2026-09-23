@@ -38,7 +38,7 @@ SET endpoint_url = EXCLUDED.endpoint_url,
     END,
     initialize_error = CASE
       WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.initialize_error
-      ELSE ''
+      ELSE NULL
     END,
     generation = CASE
       WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.generation
@@ -105,7 +105,7 @@ SET state = 'ready',
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
     catalog_id = sqlc.arg(catalog_id)::uuid,
-    initialize_error = '',
+    initialize_error = NULL,
     updated_at = transaction_timestamp()
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -127,7 +127,7 @@ UPDATE agent_mcp_connections connection
 SET state = 'initializing',
     protocol_version = CASE WHEN connection.state IN ('failed', 'expired') THEN '' ELSE connection.protocol_version END,
     mcp_session_id = CASE WHEN connection.state IN ('failed', 'expired') THEN '' ELSE connection.mcp_session_id END,
-    initialize_error = '',
+    initialize_error = NULL,
     updated_at = transaction_timestamp()
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)
@@ -156,7 +156,7 @@ SET state = 'failed',
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
     catalog_id = NULL,
-    initialize_error = sqlc.arg(initialize_error),
+    initialize_error = NULLIF(sqlc.arg(initialize_error)::text, ''),
     updated_at = transaction_timestamp()
 FROM agents agent
 WHERE agent.project_id = sqlc.arg(project_id)

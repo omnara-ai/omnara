@@ -18,7 +18,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -226,7 +225,7 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 	if err != nil {
 		t.Fatalf("create machine secret: %v", err)
 	}
-	machineSecretID := secretPublicIDForManagerTest(t, machineSecret.ID)
+	machineSecretID := machineSecret.ID.String()
 	maxCPU, maxMemoryMB := 100, 1024*1024
 	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
 		t,
@@ -715,146 +714,165 @@ func TestManagerValidatesPoolPolicyBeforeProvisioning(t *testing.T) {
 	}
 }
 
-func TestManagerDeletesMachineWhenMachineEnvIsPermanentlyUnresolvable(t *testing.T) {
-	ctx := context.Background()
-	pool := openManagerIntegrationDB(t, ctx)
+func TestManagerProvisioningEnvironmentSecrets(t *testing.T) {
+	for _, scenario := range []string{"deleted", "grant_revoked", "invalid_value"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			pool := openManagerIntegrationDB(t, ctx)
 
-	store := storage.NewStore(
-		pool,
-		storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
-		storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
-	)
-	now := time.Date(2026, 6, 2, 9, 30, 0, 0, time.UTC)
-	orgID := seedManagerOrg(t, ctx, pool, "secret-resolution-failure", now)
-	projectID, actorID := seedManagerProjectActor(
-		t,
-		ctx,
-		pool,
-		store,
-		orgID,
-		"secret-resolution-project",
-		"secret-resolution@example.com",
-		now,
-	)
-	providerAuthSecretID := createProviderAuthSecretForManagerTest(
-		t,
-		ctx,
-		pool,
-		store,
-		orgID,
-		"secret-resolution-provider-auth",
-		"pool-token",
-	)
-	machineSecret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID:     orgID,
-		OwnerKind: secretstore.SecretOwnerOrg,
-		Name:      "runtime-env-secret",
-		Material:  secrets.GenericMaterial{Value: "runtime-secret"},
-		Actor:     managerUserPrincipal(actorID),
-	})
-	if err != nil {
-		t.Fatalf("create machine secret: %v", err)
-	}
-	machineSecretID := secretPublicIDForManagerTest(t, machineSecret.ID)
-	machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
-		t,
-		executionstore.CreateMachinePoolInput{
-			OrgID:                orgID,
-			Name:                 "Secret Resolution Pool",
-			Provider:             "capture",
-			ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
-			ProviderAuthSecretID: providerAuthSecretID,
-			MaxTotalMachines:     1,
-			MaxTotalCPU:          new(100),
-			MaxTotalMemoryMB:     new(1024 * 1024),
-			MaxMachineCPU:        new(100),
-			MaxMachineMemoryMB:   new(1024 * 1024),
-		},
-		1,
-		1024,
-		nil,
-		map[string]string{"API_TOKEN": machineSecretID},
-		map[string]any{},
-	))
+			store := storage.NewStore(
+				pool,
+				storage.WithSecretKeyWrapper(managerIntegrationKeyWrapper(t)),
+				storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
+			)
+			now := time.Date(2026, 6, 2, 9, 30, 0, 0, time.UTC)
+			orgID := seedManagerOrg(t, ctx, pool, "secret-resolution-failure", now)
+			projectID, actorID := seedManagerProjectActor(
+				t,
+				ctx,
+				pool,
+				store,
+				orgID,
+				"secret-resolution-project",
+				"secret-resolution@example.com",
+				now,
+			)
+			providerAuthSecretID := createProviderAuthSecretForManagerTest(
+				t,
+				ctx,
+				pool,
+				store,
+				orgID,
+				"secret-resolution-provider-auth",
+				"pool-token",
+			)
+			machineSecret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+				OrgID:     orgID,
+				OwnerKind: secretstore.SecretOwnerOrg,
+				Name:      "runtime-env-secret",
+				Material:  secrets.GenericMaterial{Value: "runtime-secret"},
+				Actor:     managerUserPrincipal(actorID),
+			})
+			if err != nil {
+				t.Fatalf("create machine secret: %v", err)
+			}
+			machineSecretID := machineSecret.ID.String()
+			machinePool, err := store.Execution().CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(
+				t,
+				executionstore.CreateMachinePoolInput{
+					OrgID:                orgID,
+					Name:                 "Secret Resolution Pool",
+					Provider:             "capture",
+					ProviderConfig:       json.RawMessage(`{"mode":"provision"}`),
+					ProviderAuthSecretID: providerAuthSecretID,
+					MaxTotalMachines:     1,
+					MaxTotalCPU:          new(100),
+					MaxTotalMemoryMB:     new(1024 * 1024),
+					MaxMachineCPU:        new(100),
+					MaxMachineMemoryMB:   new(1024 * 1024),
+				},
+				1,
+				1024,
+				map[string]string{"PLAIN": "plain"},
+				map[string]string{"API_TOKEN": machineSecretID},
+				map[string]any{},
+			))
 
-	if err != nil {
-		t.Fatalf("create machine pool: %v", err)
-	}
-	secretGrant, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
-		OrgID:           orgID,
-		SecretID:        machineSecret.ID,
-		TargetProjectID: projectID,
-		Actor:           managerUserPrincipal(actorID),
-	})
-	if err != nil {
-		t.Fatalf("grant machine secret: %v", err)
-	}
-	poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
-		ctx,
-		executionstore.CreateProjectMachinePoolGrantInput{
-			OrgID:         orgID,
-			ProjectID:     projectID,
-			MachinePoolID: machinePool.ID,
-		},
-	)
+			if err != nil {
+				t.Fatalf("create machine pool: %v", err)
+			}
+			secretGrant, err := store.Secrets().CreateSecretGrant(ctx, secretstore.CreateSecretGrantInput{
+				OrgID:           orgID,
+				SecretID:        machineSecret.ID,
+				TargetProjectID: projectID,
+				Actor:           managerUserPrincipal(actorID),
+			})
+			if err != nil {
+				t.Fatalf("grant machine secret: %v", err)
+			}
+			poolGrant, err := store.Execution().CreateProjectMachinePoolGrant(
+				ctx,
+				executionstore.CreateProjectMachinePoolGrantInput{
+					OrgID:         orgID,
+					ProjectID:     projectID,
+					MachinePoolID: machinePool.ID,
+				},
+			)
 
-	if err != nil {
-		t.Fatalf("create project pool grant: %v", err)
-	}
-	machineID := insertPoolMachineForManagerTest(t, ctx, pool, machinePool, "provisioning", "", now)
-	if _, err := pool.Exec(
-		ctx,
-		`INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, 'pool', $4, 'secret resolution machine', '{}'::jsonb, $5, $5)`,
-		orgID,
-		projectID,
-		machineID,
-		poolGrant.ID,
-		now,
-	); err != nil {
-		t.Fatalf("insert project machine grant: %v", err)
-	}
-	if _, err := store.Secrets().DeleteSecretGrant(
-		ctx,
-		secretstore.DeleteSecretGrantInput{
-			OrgID: orgID, SecretID: secretGrant.SecretID,
-			GrantID: secretGrant.ID, Actor: managerUserPrincipal(actorID),
-		},
-	); err != nil {
-		t.Fatalf("revoke machine secret grant: %v", err)
-	}
-	provider := &captureProvider{provisionResourceID: "resource-1"}
-	definition := &testProviderDefinition{provider: provider}
-	manager := Manager{
-		Execution:    store.Execution(),
-		Identity:     store.Identity(),
-		Catalog:      testProviderCatalog(definition),
-		PublicAPIURL: "https://api.omnara.test/v1",
-	}
+			if err != nil {
+				t.Fatalf("create project pool grant: %v", err)
+			}
+			machineID := insertPoolMachineForManagerTest(t, ctx, pool, machinePool, "provisioning", "", now)
+			if _, err := pool.Exec(
+				ctx,
+				`INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, 'pool', $4, 'secret resolution machine', '{}'::jsonb, $5, $5)`,
+				orgID,
+				projectID,
+				machineID,
+				poolGrant.ID,
+				now,
+			); err != nil {
+				t.Fatalf("insert project machine grant: %v", err)
+			}
+			switch scenario {
+			case "deleted":
+				_, err = store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+					OrgID: orgID, SecretID: machineSecret.ID, Actor: managerUserPrincipal(actorID),
+				})
+			case "grant_revoked":
+				_, err = store.Secrets().DeleteSecretGrant(ctx, secretstore.DeleteSecretGrantInput{
+					OrgID: orgID, SecretID: secretGrant.SecretID,
+					GrantID: secretGrant.ID, Actor: managerUserPrincipal(actorID),
+				})
+			case "invalid_value":
+				_, _, err = store.Secrets().CreateSecretVersion(ctx, secretstore.CreateSecretVersionInput{
+					OrgID: orgID, SecretID: machineSecret.ID,
+					Material: secrets.GenericMaterial{Value: "invalid\x00value"}, Actor: managerUserPrincipal(actorID),
+				})
+			}
+			if err != nil {
+				t.Fatalf("change environment secret: %v", err)
+			}
+			provider := &captureProvider{provisionResourceID: "resource-1"}
+			definition := &testProviderDefinition{provider: provider}
+			manager := Manager{
+				Execution:    store.Execution(),
+				Identity:     store.Identity(),
+				Catalog:      testProviderCatalog(definition),
+				PublicAPIURL: "https://api.omnara.test/v1",
+			}
 
-	err = manager.ProvisionMachine(ctx, orgID, machineID)
-	if err == nil || !strings.Contains(err.Error(), "secret_env.API_TOKEN") ||
-		!errors.Is(err, storeerr.ErrPermanentEnvironment) {
-		t.Fatalf("provision machine error = %v, want permanent unresolvable secret_env failure", err)
-	}
-	machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
-	if err != nil {
-		t.Fatalf("get machine: %v", err)
-	}
-	if machine.LifecycleState != "deleted" || machine.DeletedAt == nil {
-		t.Fatalf(
-			"machine lifecycle = %q deleted_at %v, want machine deleted without provisioning retries",
-			machine.LifecycleState,
-			machine.DeletedAt,
-		)
-	}
-	if machine.ProvisionAttempts != 1 {
-		t.Fatalf("provision attempts = %d, want 1", machine.ProvisionAttempts)
-	}
-	if machine.ProviderProvisionAttemptedAt != nil {
-		t.Fatalf("provider provision attempted at = %v, want no provider attempt", machine.ProviderProvisionAttemptedAt)
-	}
-	if provider.provisioning != nil {
-		t.Fatalf("provider machine provisioning = %+v, want provider not called", provider.provisioning)
+			err = manager.ProvisionMachine(ctx, orgID, machineID)
+			if scenario == "invalid_value" {
+				if !errors.Is(err, storeerr.ErrPermanentEnvironment) || !strings.Contains(err.Error(), "secret_env.API_TOKEN") {
+					t.Fatalf("provision machine error = %v, want permanent environment failure", err)
+				}
+			} else if err != nil {
+				t.Fatalf("provision machine with unavailable secret: %v", err)
+			}
+			machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
+			if err != nil {
+				t.Fatalf("get machine: %v", err)
+			}
+			if machine.ProvisionAttempts != 1 {
+				t.Fatalf("provision attempts = %d, want 1", machine.ProvisionAttempts)
+			}
+			if scenario == "invalid_value" {
+				if machine.LifecycleState != "deleted" || machine.DeletedAt == nil ||
+					machine.ProviderProvisionAttemptedAt != nil || provider.provisioning != nil {
+					t.Fatalf("invalid environment was not rejected before provisioning: machine=%+v provider=%+v",
+						machine, provider.provisioning)
+				}
+				return
+			}
+			if machine.LifecycleState != "active" || machine.DeletedAt != nil ||
+				machine.ProviderProvisionAttemptedAt == nil || provider.provisioning == nil {
+				t.Fatalf("machine was not provisioned: machine=%+v provider=%+v", machine, provider.provisioning)
+			}
+			if len(provider.machineEnv) != 1 || provider.machineEnv["PLAIN"] != "plain" {
+				t.Fatalf("provider environment = %+v, want literal variable only", provider.machineEnv)
+			}
+		})
 	}
 }
 
@@ -2071,13 +2089,12 @@ FROM configured_model
 `, configuredModelID, orgID, providerConfigID, configuredModelRevisionID, now)
 
 	exec("insert cleanup agent config", `
-INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, definition, source, source_format, source_hash,
-    compiled_definition, compiler_version, effective_definition_hash, created_at)
+INSERT INTO agent_configs(id, org_id, project_id, configured_model_id, source, source_format, source_hash,
+    compiled_definition, effective_definition_hash, created_at)
 VALUES ($1, $2, $3, $4,
+    'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash',
     '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
-    ::jsonb, 'name: manager cleanup', 'yaml', 'manager-cleanup-source-hash',
-    '{"name":"manager cleanup","model":{"provider_config":"manager-cleanup-provider","name":"manager-cleanup-model"}}'
-    ::jsonb, 'test', 'manager-cleanup-effective-hash', $5)
+    ::jsonb, 'manager-cleanup-effective-hash', $5)
 `, configID, orgID, projectID, configuredModelID, now)
 
 	exec("insert cleanup agent", `
@@ -2106,15 +2123,6 @@ VALUES ($1, $2, $3, $4, $5, 'pool', 'attached', '{}'::jsonb, $6, $6)
 		t.Fatalf("commit seed pool machine cleanup binding: %v", err)
 	}
 	return bindingID, grantID
-}
-
-func secretPublicIDForManagerTest(t *testing.T, id uuid.UUID) string {
-	t.Helper()
-	value, err := publicid.Encode(publicid.KindSecret, id)
-	if err != nil {
-		t.Fatalf("encode secret public id: %v", err)
-	}
-	return value
 }
 
 type machinePoolProviderTestResolvers struct{}
@@ -2330,4 +2338,14 @@ type wakeNotificationRecorder struct{ count int }
 
 func (p *wakeNotificationRecorder) PublishPostCommit(context.Context, notifications.PostCommitIntent) {
 	p.count++
+}
+
+func (machinePoolProviderTestResolvers) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}
+
+func (*testProviderDefinition) ResourcePolicy() providers.MachineResourcePolicy {
+	return providers.MachineResourcePolicy{}
 }

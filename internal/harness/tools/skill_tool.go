@@ -81,7 +81,7 @@ func runSkillTool(
 		record, err := skillStore.GetSkillForDispatch(
 			ctx,
 			call.Turn.ProjectID,
-			attached.PublicID,
+			attached.ID,
 		)
 		if storeerr.IsNotFound(err) {
 			continue
@@ -89,7 +89,7 @@ func runSkillTool(
 		if err != nil {
 			return nil, fmt.Errorf(
 				"resolve skill %s for dispatch: %w",
-				attached.PublicID,
+				attached.ID,
 				err,
 			)
 		}

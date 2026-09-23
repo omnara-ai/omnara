@@ -90,6 +90,7 @@
             "pages": [
               "events/sending-input",
               "events/streaming",
+              "events/webhooks",
               "events/interactions",
               "events/artifacts"
             ]

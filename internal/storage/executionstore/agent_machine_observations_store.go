@@ -21,6 +21,8 @@ type AgentMachineObservationRecord struct {
 	DisplayName            string                   `json:"display_name"`
 	MachinePoolID          uuid.UUID                `json:"machine_pool_id"`
 	MachinePoolName        string                   `json:"machine_pool_name,omitempty"`
+	CPU                    *int                     `json:"cpu,omitempty"`
+	MemoryMB               *int                     `json:"memory_mb,omitempty"`
 	LifecycleState         MachineLifecycleState    `json:"lifecycle_state"`
 	ConnectionState        MachineConnectionState   `json:"connection_state"`
 	ConnectionStateReason  string                   `json:"connection_state_reason,omitempty"`
@@ -119,6 +121,8 @@ func selectAgentMachineObservations(
 	records := make([]AgentMachineObservationRecord, 0, len(rows))
 	for _, row := range rows {
 		records = append(records, AgentMachineObservationRecord{
+			CPU:                    storeutil.IntPtr(row.Cpu),
+			MemoryMB:               storeutil.IntPtr(row.MemoryMb),
 			MachineID:              row.MachineID,
 			SourceKind:             MachineSourceKind(row.SourceKind),
 			BindingKind:            AgentMachineBindingKind(row.BindingKind),

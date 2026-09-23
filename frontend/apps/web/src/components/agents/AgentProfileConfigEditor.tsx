@@ -2,6 +2,7 @@ import { useCreateAgentConfig, useUpdateAgentProfile } from '@omnara/react'
 import type { AgentProfile } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
+import { AgentCompiledConfig } from '@/components/agents/AgentCompiledConfig'
 import { AgentConfigEditorFields } from '@/components/agents/AgentConfigEditor'
 import { type AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import { useAgentConfigEditor } from '@/components/agents/useAgentConfigEditor'
@@ -63,6 +64,7 @@ export function AgentProfileConfigEditor({
   return (
     <form
       noValidate
+      className="mx-auto w-full max-w-3xl"
       onSubmit={(event) => {
         void submit(event)
       }}
@@ -76,6 +78,9 @@ export function AgentProfileConfigEditor({
           yamlFieldClassName="h-[28rem]"
           issues={error.issues}
         />
+        {editor.mode.mode === 'yaml' && (
+          <AgentCompiledConfig definition={profile.current_config.compiled_definition} />
+        )}
         {profile.current_config.source === undefined && editor.yaml.trim() === '' && (
           <p className="text-muted-foreground text-sm">
             The current source is unavailable. Paste the replacement YAML configuration.

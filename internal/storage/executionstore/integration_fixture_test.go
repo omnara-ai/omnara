@@ -263,17 +263,13 @@ func ensureTestConfiguredModelForSource(
 
 func parseConfiguredModelID(t *testing.T, compiled agentconfig.Result) uuid.UUID {
 	t.Helper()
-	id, err := uuid.Parse(compiled.Compiled.Model.ConfiguredModelID)
-	if err != nil {
-		t.Fatalf("parse compiled configured model id: %v", err)
-	}
-	return id
+	return compiled.Compiled.Model.ConfiguredModelID
 }
 
 func resolvedTestModelSelection(configuredModel modelstore.ConfiguredModelRecord) agentconfig.ResolvedModelSelection {
 	supportsTools := configuredModel.SupportsTools
 	return agentconfig.ResolvedModelSelection{
-		ConfiguredModelID: configuredModel.ID.String(),
+		ConfiguredModelID: configuredModel.ID,
 		SupportsTools:     &supportsTools,
 	}
 }

@@ -1,5 +1,5 @@
 import { useCreateSkill } from '@omnara/react'
-import type { SkillOwnerInput } from '@omnara/sdk'
+import type { Skill, SkillOwnerInput } from '@omnara/sdk'
 import { type SyntheticEvent, useId, useState } from 'react'
 
 import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
@@ -20,11 +20,13 @@ export function CreateSkillDialog({
   onOpenChange,
   orgId,
   owner,
+  onCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   owner: SkillOwnerInput
+  onCreated?: (skill: Skill) => void
 }) {
   const inputId = useId()
   const createSkill = useCreateSkill(orgId)
@@ -47,8 +49,9 @@ export function CreateSkillDialog({
     createSkill.mutate(
       { owner, archive },
       {
-        onSuccess: () => {
+        onSuccess: (skill) => {
           handleOpenChange(false)
+          onCreated?.(skill)
         },
       },
     )

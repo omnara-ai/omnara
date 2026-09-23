@@ -109,14 +109,18 @@ export type ToolEntry = z.infer<typeof toolEntry>
 
 const optionalText = z.string().nullable().optional()
 
-const subagentModelEntry = z.strictObject({
-  provider_config: z.string().optional(),
-  name: z.string().optional(),
-  context_window_tokens: positiveCount,
-  default_max_output_tokens: positiveCount,
-  cache_retention: z.string().optional(),
-  reasoning: z.strictObject({ effort: z.string() }).optional(),
-})
+const subagentModelEntry = z
+  .strictObject({
+    provider_config: z.string().optional(),
+    name: z.string().optional(),
+    context_window_tokens: positiveCount,
+    default_max_output_tokens: positiveCount,
+    cache_retention: z.string().optional(),
+    reasoning: z.strictObject({ effort: z.string() }).optional(),
+  })
+  .refine((model) => (model.provider_config === undefined) === (model.name === undefined), {
+    message: 'Model provider_config and name must be provided together.',
+  })
 export type SubagentModelEntry = z.infer<typeof subagentModelEntry>
 
 const subagentEntry = z.strictObject({
@@ -138,6 +142,13 @@ const basicDocument = z.looseObject({
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
+  event_webhook: z
+    .strictObject({
+      url: z.string(),
+      signing_secret_id: z.string().optional(),
+      events: z.array(z.string()).optional(),
+    })
+    .optional(),
   subagents: z.record(z.string(), subagentEntry).optional(),
   max_subagents: positiveCount,
   max_depth: positiveCount,
@@ -180,6 +191,9 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
+    eventWebhookEvents: doc.event_webhook ? (doc.event_webhook.events ?? []) : ['tool_call_update'],
+    eventWebhookUrl: doc.event_webhook?.url ?? '',
+    eventWebhookSigningSecretId: doc.event_webhook?.signing_secret_id ?? '',
     skillIds: doc.skills ?? [],
     subagents: Object.entries(doc.subagents ?? {}).map(([key, entry]) => subagentDraft(key, entry)),
     maxSubagents: countDraft(doc.max_subagents),
