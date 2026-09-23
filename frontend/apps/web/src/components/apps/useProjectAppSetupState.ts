@@ -19,14 +19,15 @@ export function useProjectAppSetupState(
     running.current = true
     setBusy(true)
     setError('')
-    try {
-      await step()
-    } catch (cause) {
-      setError(onError(cause))
-    } finally {
-      running.current = false
-      setBusy(false)
-    }
+    await Promise.resolve()
+      .then(step)
+      .catch((cause: unknown) => {
+        setError(onError(cause))
+      })
+      .finally(() => {
+        running.current = false
+        setBusy(false)
+      })
   }
   return {
     newCredential,

@@ -5,8 +5,8 @@ import { useCallback, useState } from 'react'
 
 import { appCatalog } from '@/components/apps/appDefinitions'
 import { ProjectAppAdvanced } from '@/components/apps/ProjectAppAdvanced'
-import { ProjectAppDetailLayout } from '@/components/apps/ProjectAppDetailLayout'
 import { ProjectAppConversations } from '@/components/apps/ProjectAppConversations'
+import { ProjectAppDetailLayout } from '@/components/apps/ProjectAppDetailLayout'
 import { ProjectAppLaunch } from '@/components/apps/ProjectAppLaunch'
 import { ProjectAppSchedules } from '@/components/apps/ProjectAppSchedules'
 import {
