@@ -113,3 +113,25 @@ func assertJSONEqual(t *testing.T, got, want json.RawMessage) {
 		t.Fatalf("JSON value mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestCatalogConfigurableMachineResources(t *testing.T) {
+	for _, test := range []struct {
+		provider    string
+		cpu, memory bool
+	}{
+		{"unikraft", true, true}, {"modal", true, true}, {"blaxel", false, true}, {"daytona", false, false},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.CPU != test.cpu || got.MemoryMB != test.memory {
+				t.Fatalf("sizing support = %+v", got)
+			}
+		})
+	}
+	if _, err := DefaultCatalog().ConfigurableMachineResources("unknown"); err == nil {
+		t.Fatal("unknown provider accepted")
+	}
+}

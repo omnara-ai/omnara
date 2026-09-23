@@ -257,7 +257,7 @@ func createMachinePermissionChallenge(
 		}
 		return toolpermission.Request{}, newToolCallPreparationError(content, err)
 	}
-	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolID, source.MachinePoolName)
+	authorizationInput, err := machineCreateAuthorizationInput(source.MachinePoolID, source.MachinePoolName, input)
 	if err != nil {
 		return toolpermission.Request{}, err
 	}

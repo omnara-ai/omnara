@@ -1030,6 +1030,8 @@ SELECT binding.machine_id,
        binding.created_at,
        binding.updated_at,
        machine.source_kind,
+       machine.cpu,
+       machine.memory_mb,
        machine.display_name,
        machine.lifecycle_state,
        machine.failure_report,
@@ -1090,6 +1092,8 @@ type SelectAgentMachineObservationsRow struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	SourceKind             string
+	Cpu                    *int32
+	MemoryMb               *int32
 	DisplayName            string
 	LifecycleState         string
 	FailureReport          *json.RawMessage
@@ -1125,6 +1129,8 @@ func (q *Queries) SelectAgentMachineObservations(ctx context.Context, arg Select
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SourceKind,
+			&i.Cpu,
+			&i.MemoryMb,
 			&i.DisplayName,
 			&i.LifecycleState,
 			&i.FailureReport,
