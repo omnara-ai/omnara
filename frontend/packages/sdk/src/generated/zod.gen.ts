@@ -2790,10 +2790,23 @@ export const zListProjectsResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
+export const zOrgOverviewAgentProfileReference = z.object({
+    id: zAgentProfileId,
+    name: zResourceName,
+    agent_count: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
+});
+
 export const zOrgOverviewResponse = z.object({
     projects: z.array(zVisibleProject),
     recent_agents: z.array(zAgent),
-    recent_agent_profiles: z.array(zAgentProfileSummary)
+    recent_agent_profiles: z.array(zAgentProfileSummary),
+    referenced_agent_profiles: z.array(zOrgOverviewAgentProfileReference)
+});
+
+export const zOrgOverviewActivityResponse = z.object({
+    agents_created: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    messages_sent: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    tokens_used: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' })
 });
 
 /**
@@ -2817,6 +2830,31 @@ export const zUsageTotals = z.object({
     model_calls: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
     tokens: zUsageTokenTotals,
     cost: zUsageCostTotals
+});
+
+export const zOrgOverviewUsageGroup = z.object({
+    id: z.string().regex(/^(mdl|proj|aprf)_[a-z2-7]{26}$/).optional(),
+    name: zResourceName.optional(),
+    totals: zUsageTotals
+});
+
+export const zOrgOverviewUsageIntervalGroup = z.object({
+    id: z.string().regex(/^(mdl|proj|aprf)_[a-z2-7]{26}$/).optional(),
+    totals: zUsageTotals
+});
+
+export const zOrgOverviewUsageInterval = z.object({
+    start: zTimestamp,
+    totals: zUsageTotals,
+    groups: z.array(zOrgOverviewUsageIntervalGroup)
+});
+
+export const zOrgOverviewUsageResponse = z.object({
+    totals: zUsageTotals,
+    active_agents: z.coerce.bigint().gte(BigInt(0)).max(BigInt('9223372036854775807'), { error: 'Invalid value: Expected int64 to be <= 9223372036854775807' }),
+    previous_totals: zUsageTotals,
+    groups: z.array(zOrgOverviewUsageGroup),
+    intervals: z.array(zOrgOverviewUsageInterval)
 });
 
 export const zUsageModel = z.object({
@@ -3130,6 +3168,43 @@ export const zGetOrgOverviewPath = z.object({
  * Overview data for the organization.
  */
 export const zGetOrgOverviewResponse = zOrgOverviewResponse;
+
+export const zGetOrgOverviewActivityPath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgOverviewActivityQuery = z.object({
+    since: z.iso.datetime({ offset: true }),
+    until: z.iso.datetime({ offset: true }).optional()
+});
+
+/**
+ * Activity counts for the organization.
+ */
+export const zGetOrgOverviewActivityResponse = zOrgOverviewActivityResponse;
+
+export const zGetOrgOverviewUsagePath = z.object({
+    orgID: zOrganizationId
+});
+
+export const zGetOrgOverviewUsageQuery = z.object({
+    since: z.iso.datetime({ offset: true }),
+    until: z.iso.datetime({ offset: true }).optional(),
+    interval: z.enum(['hour', 'day']).optional().default('day'),
+    timezone: z.string().max(64).optional().default('UTC'),
+    group_by: z.enum([
+        'model',
+        'project',
+        'profile'
+    ]).optional().default('model'),
+    limit: z.int().gte(1).lte(10).optional().default(5),
+    project_ids: z.array(zProjectId).min(1).max(100).optional()
+});
+
+/**
+ * Usage series for the organization.
+ */
+export const zGetOrgOverviewUsageResponse = zOrgOverviewUsageResponse;
 
 export const zGetOrgUsagePath = z.object({
     orgID: zOrganizationId

@@ -1,6 +1,8 @@
+import type { GetOrgOverviewUsageData } from '@omnara/sdk'
 import {
   getAgentProfileUsageOptions,
   getAgentUsageOptions,
+  getOrgOverviewUsageOptions,
   getOrgUsageOptions,
   getProjectUsageOptions,
 } from '@omnara/sdk/tanstack'
@@ -17,6 +19,16 @@ export interface UsageWindow {
 export interface OrgUsageFilters extends UsageWindow {
   includeProjectIDs?: string[]
   excludeProjectIDs?: string[]
+}
+
+type OrgOverviewUsageQuery = GetOrgOverviewUsageData['query']
+
+export interface OrgOverviewUsageFilters {
+  since: string
+  interval: NonNullable<OrgOverviewUsageQuery['interval']>
+  timezone: string
+  groupBy: NonNullable<OrgOverviewUsageQuery['group_by']>
+  limit?: number
 }
 
 export interface AgentProfileUsageFilters extends UsageWindow {
@@ -37,6 +49,24 @@ export function useOrgUsage(orgID: string, filters: OrgUsageFilters = {}) {
         until: filters.until,
         include_project_ids: nonEmpty(filters.includeProjectIDs),
         exclude_project_ids: nonEmpty(filters.excludeProjectIDs),
+      },
+      client,
+    }),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useOrgOverviewUsage(orgID: string, filters: OrgOverviewUsageFilters) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getOrgOverviewUsageOptions({
+      path: { orgID },
+      query: {
+        since: filters.since,
+        interval: filters.interval,
+        timezone: filters.timezone,
+        group_by: filters.groupBy,
+        limit: filters.limit,
       },
       client,
     }),

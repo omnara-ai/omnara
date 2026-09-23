@@ -589,6 +589,165 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/overview/activity:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgOverviewActivity
+      x-hidden: true
+      tags: [Organizations and Projects]
+      summary: Get org overview activity
+      description: >-
+        Returns the activity counts backing the web app's overview page: agents
+        created, messages sent, and tokens used across every project whose
+        agents the caller can read. Internal to the web app and subject to
+        change without notice.
+      parameters:
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Only count activity at or after this instant.
+        - name: until
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >-
+            Only count activity before this instant. Must be later than `since`.
+            Omit to count activity up to now.
+      responses:
+        '200':
+          description: Activity counts for the organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgOverviewActivityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/overview/usage:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: getOrgOverviewUsage
+      x-hidden: true
+      tags: [Organizations and Projects]
+      summary: Get org overview usage
+      description: >-
+        Returns the usage series backing the web app's overview page: model usage
+        across every project the caller can read, split into hourly or daily
+        intervals and broken down by model, project, or agent profile. Internal to
+        the web app and subject to change without notice.
+      parameters:
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Only tally model calls started at or after this instant.
+        - name: until
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >-
+            Only tally model calls started before this instant. Must be later than
+            `since`. Omit to include calls up to now.
+        - name: interval
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [hour, day]
+            default: day
+          description: >-
+            Length of each interval. Intervals start on hour or midnight boundaries
+            in `timezone`, and the series may hold at most 366 of them.
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            default: UTC
+            maxLength: 64
+          description: IANA time zone that interval boundaries follow.
+        - name: group_by
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [model, project, profile]
+            default: model
+          description: >-
+            Whether to break usage down by configured model, by project, or by agent
+            profile. Usage from a subagent counts toward the subagent's own profile.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 5
+          description: Maximum number of groups to break usage down into.
+        - name: project_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/ProjectID'
+          description: >-
+            Only tally model calls from these projects. Projects the caller cannot
+            read contribute nothing.
+      responses:
+        '200':
+          description: Usage series for the organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgOverviewUsageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/usage:
     parameters:
       - name: orgID
@@ -13019,7 +13178,7 @@ components:
     OrgOverviewResponse:
       type: object
       additionalProperties: false
-      required: [projects, recent_agents, recent_agent_profiles]
+      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles]
       properties:
         projects:
           type: array
@@ -13040,6 +13199,127 @@ components:
             projects, ordered by updated_at descending.
           items:
             $ref: '#/components/schemas/AgentProfileSummary'
+        referenced_agent_profiles:
+          type: array
+          description: >-
+            The agent profiles that recent_agents and recent_agent_profiles
+            reference, with how many agents were launched from each. Profiles
+            since deleted are omitted.
+          items:
+            $ref: '#/components/schemas/OrgOverviewAgentProfileReference'
+    OrgOverviewAgentProfileReference:
+      type: object
+      additionalProperties: false
+      required: [id, name, agent_count]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentProfileID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        agent_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Agents, not counting subagents, launched from the profile, including archived ones.
+    OrgOverviewActivityResponse:
+      type: object
+      additionalProperties: false
+      required: [agents_created, messages_sent, tokens_used]
+      properties:
+        agents_created:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Agents created in the window, not counting subagents.
+        messages_sent:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Messages sent to agents in the window, not counting messages to subagents.
+        tokens_used:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Input and output tokens across model calls started in the window.
+    OrgOverviewUsageResponse:
+      type: object
+      additionalProperties: false
+      required: [totals, previous_totals, active_agents, groups, intervals]
+      properties:
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+          description: Usage across the whole requested window.
+        active_agents:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Agents, not counting subagents, that made at least one model call in
+            the window.
+        previous_totals:
+          $ref: '#/components/schemas/UsageTotals'
+          description: >-
+            Usage over the same length of time immediately before `since`, for
+            period-over-period comparison.
+        groups:
+          type: array
+          description: >-
+            The groups with the most tokens in the window, most first, up to
+            `limit`. Usage from any other group still counts toward every total.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageGroup'
+        intervals:
+          type: array
+          description: >-
+            One entry per interval, oldest first, from the interval containing
+            `since` through the interval containing `until`, including intervals
+            without usage.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageInterval'
+    OrgOverviewUsageGroup:
+      type: object
+      additionalProperties: false
+      required: [totals]
+      properties:
+        id:
+          type: string
+          pattern: '^(mdl|proj|aprf)_[a-z2-7]{26}$'
+          description: >-
+            Configured model, project, or agent profile ID, matching `group_by`.
+            Omitted for usage from agents launched without a profile.
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          description: >-
+            Configured model, project, or agent profile name, resolved even if the
+            model or profile has since been deleted. Omitted along with `id`.
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+    OrgOverviewUsageInterval:
+      type: object
+      additionalProperties: false
+      required: [start, totals, groups]
+      properties:
+        start:
+          $ref: '#/components/schemas/Timestamp'
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+          description: All usage in the interval, including groups outside `groups`.
+        groups:
+          type: array
+          description: Usage in the interval for each returned group that has any, in `groups` order.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageIntervalGroup'
+    OrgOverviewUsageIntervalGroup:
+      type: object
+      additionalProperties: false
+      required: [totals]
+      properties:
+        id:
+          type: string
+          pattern: '^(mdl|proj|aprf)_[a-z2-7]{26}$'
+          description: The group's `id`, omitted for the group of agents launched without a profile.
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
     UsageTokenTotals:
       type: object
       additionalProperties: false

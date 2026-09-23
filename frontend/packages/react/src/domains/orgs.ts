@@ -6,6 +6,7 @@ import {
 } from '@omnara/sdk'
 import {
   getCurrentUserQueryKey,
+  getOrgOverviewActivityOptions,
   getOrgOverviewOptions,
   listOrgInvitationsInfiniteOptions,
   listOrgInvitationsQueryKey,
@@ -57,6 +58,11 @@ export function useOrgOverview(
     ...getOrgOverviewOptions({ path: { orgID }, client }),
     refetchInterval: options?.refetchInterval,
   })
+}
+
+export function useOrgOverviewActivity(orgID: string, since: string) {
+  const client = useOmnaraClient()
+  return useQuery(getOrgOverviewActivityOptions({ path: { orgID }, query: { since }, client }))
 }
 
 export function useInviteMember(orgID: string) {

@@ -3,8 +3,10 @@ import { useState } from 'react'
 
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
-import { RecentAgentsSection } from '@/components/overview/RecentAgents'
+import { OverviewSummary } from '@/components/overview/OverviewSummary'
+import { UsageOverview } from '@/components/overview/UsageOverview'
 import { Skeleton } from '@/components/ui/skeleton'
+import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function Overview() {
@@ -27,7 +29,7 @@ export function Overview() {
     overview != null && manageableProject != null && (needsOnboarding || profileSeen)
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-8">
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-12">
       <PageBreadcrumb
         items={[
           { id: 'organization', label: activeOrg.name },
@@ -46,13 +48,17 @@ export function Overview() {
           />
         </div>
       ) : (
-        <RecentAgentsSection
-          overview={overview}
-          isError={overviewQuery.isError}
-          onRetry={() => {
-            void overviewQuery.refetch()
-          }}
-        />
+        <>
+          <OverviewSummary
+            orgId={activeOrg.id}
+            overview={overview}
+            overviewError={overviewQuery.error}
+            onRetry={() => {
+              void overviewQuery.refetch()
+            }}
+          />
+          <UsageOverview orgId={activeOrg.id} canViewReport={canManageOrg(activeOrg.role)} />
+        </>
       )}
     </div>
   )
