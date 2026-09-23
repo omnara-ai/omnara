@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -17,8 +18,32 @@ import (
 type InboxLaunchSlot struct {
 	Selection   integrationstore.InboxAppSelection `json:"selection"`
 	AgentID     uuid.UUID                          `json:"agent_id"`
-	Launch      LaunchAgentInput                   `json:"launch"`
+	Launch      InboxLaunchPlan                    `json:"launch"`
 	ArtifactIDs []uuid.UUID                        `json:"artifact_ids,omitempty"`
+}
+
+type InboxLaunchPrincipal struct {
+	Type string    `json:"type"`
+	ID   uuid.UUID `json:"id"`
+}
+
+type InboxLaunchPlan struct {
+	ProfileID           uuid.UUID                                    `json:"profile_id"`
+	AgentConfigID       uuid.UUID                                    `json:"agent_config_id"`
+	DerivedBaseConfigID uuid.UUID                                    `json:"derived_base_config_id"`
+	LaunchedBy          InboxLaunchPrincipal                         `json:"launched_by"`
+	IdempotencyKey      string                                       `json:"idempotency_key"`
+	InitialInput        *LaunchInitialInput                          `json:"initial_input"`
+	Subscriptions       []integrationstore.AppSubscriptionAttachment `json:"subscriptions"`
+}
+
+func (p InboxLaunchPlan) launchInput(projectID uuid.UUID) LaunchAgentInput {
+	return LaunchAgentInput{
+		ProjectID: projectID, ProfileID: p.ProfileID, AgentConfigID: p.AgentConfigID,
+		DerivedBaseConfigID: p.DerivedBaseConfigID,
+		LaunchedBy:          identitystore.PrincipalRecord{Type: p.LaunchedBy.Type, ID: p.LaunchedBy.ID},
+		IdempotencyKey:      p.IdempotencyKey, InitialInput: p.InitialInput, Subscriptions: p.Subscriptions,
+	}
 }
 
 type InboxLaunchPreparation struct {
@@ -73,7 +98,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	resources, err := launchAppIDsTx(ctx, q, slot.Launch)
+	resources, err := launchAppIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID))
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -134,7 +159,8 @@ func (s *Store) admitInboxLaunchSlotOnce(
 			return LaunchAgentResult{}, err
 		}
 	}
-	slot.Launch.admission = &launchAdmission{
+	launch := slot.Launch.launchInput(lease.ProjectID)
+	launch.admission = &launchAdmission{
 		Scheduled:     scheduled,
 		AgentID:       slot.AgentID,
 		AppID:         selection.AppID,
@@ -142,7 +168,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		Artifacts:     artifacts,
 	}
 	txNotifications := s.newTxNotifications()
-	result, err := s.launchAgentTx(ctx, tx, q, txNotifications, slot.Launch)
+	result, err := s.launchAgentTx(ctx, tx, q, txNotifications, launch)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -192,19 +218,15 @@ func decodeInboxLaunchSlot(
 	if selection.AppID == uuid.Nil || selection.AppID != receipt.AppID || selection.Slot == "" {
 		return fail("launch selection must belong to the receipt app and name an app slot")
 	}
-	if slot.Launch.ProjectID == uuid.Nil {
-		slot.Launch.ProjectID = receipt.ProjectID
+	if slot.Launch.ProfileID == uuid.Nil || slot.Launch.AgentConfigID == uuid.Nil ||
+		slot.Launch.DerivedBaseConfigID == uuid.Nil || slot.Launch.IdempotencyKey == "" {
+		return fail("inbox launch requires profile, derived and base config identities and an idempotency key")
 	}
-	if slot.Launch.ProjectID != receipt.ProjectID || slot.Launch.ProfileID == uuid.Nil || slot.Launch.Subagent != nil ||
-		slot.Launch.IdempotencyKey == "" {
-		return fail("inbox launch requires a same-project profile launch and a frozen idempotency key")
-	}
-	var err error
-	slot.Launch, err = validateLaunchAgentInput(slot.Launch)
+	launch, err := validateLaunchAgentInput(slot.Launch.launchInput(receipt.ProjectID))
 	if err != nil {
 		return slot, progress, err
 	}
-	initial, _, err := prepareLaunchInitialInput(slot.Launch)
+	initial, _, err := prepareLaunchInitialInput(launch)
 	if err != nil {
 		return slot, progress, err
 	}
@@ -228,7 +250,7 @@ func validateInboxLaunchPreparation(
 	slot InboxLaunchSlot,
 	prepared *InboxLaunchPreparation,
 ) ([]artifactstore.PreparedArtifact, error) {
-	_, blocks, err := prepareLaunchInitialInput(slot.Launch)
+	_, blocks, err := prepareLaunchInitialInput(LaunchAgentInput{InitialInput: slot.Launch.InitialInput})
 	if err != nil {
 		return nil, err
 	}

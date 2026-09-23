@@ -9,10 +9,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+// ErrInboxRecipientSettled means this slot needs no further provider preparation.
+// It does not grant authority for other recipients in the same conversation.
+var ErrInboxRecipientSettled = errors.New("inbox recipient is already settled")
+
+// CheckInboxConversationAuthority also durably settles archived input recipients
+// before provider preparation, returning ErrInboxRecipientSettled on success.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -24,7 +29,7 @@ func (s *Store) CheckInboxConversationAuthority(
 		return err
 	}
 	var slots map[string]struct {
-		Launch *LaunchAgentInput `json:"launch"`
+		Launch *InboxLaunchPlan `json:"launch"`
 	}
 	if json.Unmarshal(snapshot.Plan, &slots) != nil {
 		return storeerr.ErrInvalidRequest
@@ -41,10 +46,13 @@ func (s *Store) CheckInboxConversationAuthority(
 		if err != nil {
 			return err
 		}
-		if progress.Committed != nil || slot.Selection.Address != address {
+		if slot.Selection.Address != address {
 			return storeerr.ErrUnauthorized
 		}
-		resources, err = launchAppIDsTx(ctx, q, slot.Launch)
+		if progress.Committed != nil {
+			return ErrInboxRecipientSettled
+		}
+		resources, err = launchAppIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID))
 		if err != nil {
 			return err
 		}
@@ -80,28 +88,16 @@ func (s *Store) CheckInboxConversationAuthority(
 			return err
 		}
 		if progress.Committed != nil {
-			return storeerr.ErrUnauthorized
+			return ErrInboxRecipientSettled
 		}
 		if _, err := lockAgentProfileTx(ctx, q, lease.ProjectID, slot.Launch.ProfileID); err != nil {
 			return err
 		}
-		var config AgentConfigRecord
-		if slot.Launch.DerivedConfig != nil {
-			project, err := loadProjectTx(ctx, q, lease.ProjectID)
-			if err != nil {
-				return err
-			}
-			config = AgentConfigRecord{
-				OrgID:             project.OrgID,
-				ConfiguredModelID: slot.Launch.DerivedConfig.ConfiguredModelID,
-			}
-		} else {
-			config, err = loadAgentConfigTx(ctx, q, lease.ProjectID, slot.Launch.AgentConfigID)
-			if err != nil {
-				return err
-			}
+		config, err := loadAgentConfigTx(ctx, q, lease.ProjectID, slot.Launch.AgentConfigID)
+		if err != nil {
+			return err
 		}
-		if err := lockAgentConfigModelForUseTx(ctx, q, config); err != nil {
+		if err := validateSavedAgentConfigModelContractTx(ctx, q, config); err != nil {
 			return err
 		}
 	} else {
@@ -109,22 +105,21 @@ func (s *Store) CheckInboxConversationAuthority(
 		if err != nil {
 			return err
 		}
-		if progress.Committed != nil || slot.Input.Origin.Address != address {
+		if slot.Input.Origin.Address != address {
 			return storeerr.ErrUnauthorized
 		}
-		if err := lifecyclelock.Agents(
-			ctx,
-			tx,
-			[]lifecyclelock.AgentRef{{ProjectID: lease.ProjectID, AgentID: slot.AgentID}},
-		); err != nil {
-			return err
+		if progress.Committed != nil {
+			return ErrInboxRecipientSettled
 		}
-		agent, err := loadAgentInProjectTx(ctx, tx, lease.ProjectID, slot.AgentID)
+		settled, err := s.settleArchivedInboxInputTx(ctx, tx, work, key, slot)
 		if err != nil {
 			return err
 		}
-		if agent.State == AgentStateArchived {
-			return storeerr.ErrUnauthorized
+		if settled != nil {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			return ErrInboxRecipientSettled
 		}
 		if slot.Subscription != nil {
 			if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {

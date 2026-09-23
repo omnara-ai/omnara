@@ -145,7 +145,8 @@ func TestGitHubAppReadSections(t *testing.T) {
 				if tt.collection != "" {
 					assert.Equal(t, "2", r.URL.Query().Get("page"))
 					assert.Equal(t, "1", r.URL.Query().Get("per_page"))
-					w.Header().Set("Link", "<https://api.github.com"+tt.path+`?page=3&per_page=1>; rel="next"`)
+					path := "/repositories/123" + strings.TrimPrefix(tt.path, "/repos/octo/renamed")
+					w.Header().Set("Link", "<https://api.github.com"+path+`?per_page=1&page=3>; rel="next"`)
 				} else {
 					assert.Equal(t, "application/vnd.github.diff", r.Header.Get("Accept"))
 				}
@@ -277,16 +278,24 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 	}{
 		{"rate-limit", "rate_limited", http.StatusTooManyRequests},
 		{"uncertain-publication", "delivery_unknown", http.StatusInternalServerError},
+		{"invalid-inline-comment", "permanent_failure", http.StatusUnprocessableEntity},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
+			operation, input := "discussion_comment", `{"body":"Review"}`
+			path := "/repos/octo/renamed/issues/7/comments"
+			if tt.status == http.StatusUnprocessableEntity {
+				operation = "inline_comment"
+				input = `{"body":"Review","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`
+				path = "/repos/octo/renamed/pulls/7/comments"
+			}
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-failure", toolFixtureOptions{
 				withGitHubApp: true, withToolContext: true,
 			})
 			var posts atomic.Int32
 			server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
-				assert.Equal(t, "/repos/octo/renamed/issues/7/comments", r.URL.Path)
+				assert.Equal(t, path, r.URL.Path)
 				posts.Add(1)
 				if tt.status == http.StatusTooManyRequests {
 					w.Header().Set("Retry-After", "23")
@@ -294,7 +303,7 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 				w.WriteHeader(tt.status)
 				writeToolTestJSON(w, map[string]any{"message": "private-provider-details"})
 			})
-			call := f.recordToolCall(t, ctx, "comment", "app__chat__discussion_comment", `{"body":"Review"}`, f.Now)
+			call := f.recordToolCall(t, ctx, "comment", toolcatalog.AppToolName("chat", operation), input, f.Now)
 			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
@@ -302,6 +311,9 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 			require.Equal(t, tt.code, body["code"])
 			if tt.status == http.StatusTooManyRequests {
 				require.Equal(t, float64(23), body["retry_after_seconds"])
+			} else if tt.status == http.StatusUnprocessableEntity {
+				require.Contains(t, body["message"], "commit_id")
+				require.Contains(t, body["message"], "pull request diff")
 			} else {
 				require.Contains(t, body["message"], "Read the PR before deciding whether to resend")
 			}

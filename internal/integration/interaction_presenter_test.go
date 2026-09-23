@@ -1,15 +1,24 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -75,4 +84,57 @@ func TestInteractionPromptTextDependsOnKind(t *testing.T) {
 			require.True(t, stored.Questions[0].Options[1].AllowsText, "presentation must preserve the canonical form")
 		})
 	}
+}
+
+func TestInteractionPreflightRetryBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		err   error
+		retry bool
+	}{
+		{"database connection", fmt.Errorf("read secret: %w", &pgconn.PgError{Code: "08006"}), true},
+		{"database restart", &pgconn.PgError{Code: "57P01"}, true},
+		{"connection closed", io.EOF, true},
+		{"Slack auth timeout", &slack.APIError{Result: slack.APIResult{DeliveryUnknown: true}}, true},
+		{"short throttle", &slack.APIError{Result: slack.APIResult{RateLimited: true, RetryAfter: time.Second}}, true},
+		{"long throttle", &slack.APIError{Result: slack.APIResult{RateLimited: true, RetryAfter: time.Minute}}, false},
+		{"revoked", errors.Join(storeerr.ErrUnauthorized, io.EOF), false},
+		{"closed interaction", storeerr.ErrStateTransitionConflict, false},
+		{"bad credentials", &slack.APIError{Result: slack.APIResult{PermanentFailure: true}}, false},
+		{"schema error", &pgconn.PgError{Code: "42703"}, false},
+		{"invalid data", errors.New("invalid credential payload"), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				calls := 0
+				err := retryInteractionPreflight(t.Context(), func() error { calls++; return test.err })
+				require.ErrorIs(t, err, test.err)
+				want := 1
+				if test.retry {
+					want = 3
+				}
+				require.Equal(t, want, calls)
+			})
+		})
+	}
+}
+
+func TestInteractionPreflightRecoversAndHonorsDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		calls := 0
+		require.NoError(t, retryInteractionPreflight(t.Context(), func() error {
+			calls++
+			if calls == 1 {
+				return io.EOF
+			}
+			return nil
+		}))
+		require.Equal(t, 2, calls)
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		calls = 0
+		err := retryInteractionPreflight(ctx, func() error { calls++; return io.EOF })
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, 1, calls)
+	})
 }

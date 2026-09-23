@@ -97,16 +97,18 @@ omnara apps profiles "$SLACK_APP_ID" --profile-ids "$PROFILE_ID" --profile-ids "
 
 Slack workspace scopes must match the connected workspace. GitHub launchers can use
 `repository` with a numeric repository ID and `mention` or `pull_request_opened`.
-Discord launchers use `channel` with a numeric channel ID and `mention`.
+Discord launchers use `mention` with `scope_kind` and `scope_ref` omitted;
+they have no configured server or channel filter.
 `apps profiles` edits offered Slack or Discord profiles while preserving existing
 agent slots. One profile launches immediately; several offer a selection menu.
 
 Select tools and interaction handlers independently in agent configurations:
 tools use keys such as `app__engineering__post_message`, and interaction handlers
 use `engineering: {}`. Tool entries accept permissions, enabled state and deferral.
-Runtime destinations come from app-agent context for provider/scheduled launches
-or explicit tool arguments when unbound. Handler selection always supplies a
-complete destination independently.
+Runtime destinations come from the app-agent conversation context assigned by
+provider/scheduled launches. App tools fail without that context; tool arguments
+cannot choose another destination. Handler selection always supplies a complete
+destination independently.
 Incoming subscriptions belong to the app and are attached via
 launch requests or the app subscriptions API; configs have no `listeners` block.
 `apps get` and `apps definitions` show `capabilities.subscriptions`, whose local

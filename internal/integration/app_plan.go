@@ -341,6 +341,10 @@ func (r *AppRouter) buildAppPlan(
 			if err != nil {
 				return nil, err
 			}
+			savedConfig, err := r.execution.CreateAgentConfig(ctx, derived)
+			if err != nil {
+				return nil, err
+			}
 			agentID, err := uuid.NewV7()
 			if err != nil {
 				return nil, err
@@ -355,11 +359,12 @@ func (r *AppRouter) buildAppPlan(
 				Address: request.address,
 				Slot:    intent.Slot,
 			}
-			launch := &executionstore.LaunchAgentInput{
-				ProjectID:           receipt.ProjectID,
-				ProfileID:           profileID,
-				LaunchedBy:          identitystore.NewUserPrincipal(appSetup.InstalledByUserID),
-				DerivedConfig:       &derived,
+			launch := &executionstore.InboxLaunchPlan{
+				ProfileID: profileID,
+				LaunchedBy: executionstore.InboxLaunchPrincipal{
+					Type: identitystore.PrincipalTypeUser, ID: appSetup.InstalledByUserID,
+				},
+				AgentConfigID:       savedConfig.ID,
 				DerivedBaseConfigID: profile.CurrentConfig.ID,
 				Subscriptions:       []integrationstore.AppSubscriptionAttachment{subscription},
 				IdempotencyKey:      "app:" + receipt.ID.String() + ":" + key,
@@ -378,15 +383,14 @@ func (r *AppRouter) buildAppPlan(
 				},
 			}
 			plan[key] = AppInboxSlot{
-				Sibling:      event.Sibling,
-				Scope:        event.Event.Scope,
-				EventOrder:   request.order,
-				Selection:    selection,
-				AgentID:      agentID,
-				Launch:       launch,
-				Files:        files,
-				ArtifactIDs:  appArtifactIDs(files),
-				BaseConfigID: profile.CurrentConfig.ID,
+				Sibling:     event.Sibling,
+				Scope:       event.Event.Scope,
+				EventOrder:  request.order,
+				Selection:   selection,
+				AgentID:     agentID,
+				Launch:      launch,
+				Files:       files,
+				ArtifactIDs: appArtifactIDs(files),
 			}
 			planned = append(planned, integrationstore.AppSubscriptionRecord{
 				AppID: subscription.AppID, AgentID: agentID, Type: subscription.Type,
@@ -477,32 +481,26 @@ func resolveAppLaunchIntent(
 }
 
 func deriveAppLaunch(
-	base executionstore.AgentConfigRecord,
-	app integrationstore.ProjectAppRecord,
-	scope appdefinition.Scope,
+	base executionstore.AgentConfigRecord, app integrationstore.ProjectAppRecord, scope appdefinition.Scope,
 ) (executionstore.CreateAgentConfigInput, integrationstore.AppSubscriptionAttachment, error) {
-	fail := func(err error) (executionstore.CreateAgentConfigInput, integrationstore.AppSubscriptionAttachment, error) {
+	derived, err := deriveAppLaunchConfig(base, app)
+	if err != nil {
 		return executionstore.CreateAgentConfigInput{}, integrationstore.AppSubscriptionAttachment{}, err
 	}
+	subscription, err := appLaunchSubscription(app, scope)
+	return derived, subscription, err
+}
+
+func deriveAppLaunchConfig(
+	base executionstore.AgentConfigRecord, app integrationstore.ProjectAppRecord,
+) (executionstore.CreateAgentConfigInput, error) {
 	if base.ProjectID != app.ProjectID || app.State != integrationstore.ProjectAppStateActive {
-		return fail(storeerr.ErrUnauthorized)
+		return executionstore.CreateAgentConfigInput{}, storeerr.ErrUnauthorized
 	}
 	definition, found := appdefinition.Lookup(app.AppType)
 	if !found {
-		return fail(fmt.Errorf("invalid launcher app definition"))
+		return executionstore.CreateAgentConfigInput{}, fmt.Errorf("invalid launcher app definition")
 	}
-	if err := scope.Validate(app.Provider); err != nil {
-		return fail(err)
-	}
-	subscriptionType := "thread_messages"
-	if app.AppType == appdefinition.GitHubPR {
-		subscriptionType = "pull_request"
-	}
-	subscription, exists := definition.Subscriptions[subscriptionType]
-	if !exists {
-		return fail(fmt.Errorf("app has no launch subscription"))
-	}
-
 	additions := agentconfig.AppCapabilitiesSource{Tools: map[string]agentconfig.AgentConfigToolSource{}}
 	for _, operation := range definition.Tools {
 		additions.Tools[toolcatalog.AppToolName(app.Name, operation)] = agentconfig.AgentConfigToolSource{}
@@ -513,7 +511,7 @@ func deriveAppLaunch(
 			additions.Tools[name] = agentconfig.AgentConfigToolSource{}
 		}
 	}
-	derived, err := DeriveAppProfileConfig(base, additions, agentconfig.CompileOptions{
+	return DeriveAppProfileConfig(base, additions, agentconfig.CompileOptions{
 		ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
 			if name != app.Name {
 				return agentconfig.AppResolution{}, storeerr.ErrUnauthorized
@@ -521,18 +519,35 @@ func deriveAppLaunch(
 			return agentconfig.AppResolution{AppID: app.ID, AppType: app.AppType}, nil
 		},
 	})
-	if err != nil {
-		return fail(err)
+}
+
+func appLaunchSubscription(
+	app integrationstore.ProjectAppRecord, scope appdefinition.Scope,
+) (integrationstore.AppSubscriptionAttachment, error) {
+	if err := scope.Validate(app.Provider); err != nil {
+		return integrationstore.AppSubscriptionAttachment{}, err
+	}
+	definition, found := appdefinition.Lookup(app.AppType)
+	if !found {
+		return integrationstore.AppSubscriptionAttachment{}, fmt.Errorf("invalid launcher app definition")
+	}
+	subscriptionType := "thread_messages"
+	if app.AppType == appdefinition.GitHubPR {
+		subscriptionType = "pull_request"
+	}
+	subscription, exists := definition.Subscriptions[subscriptionType]
+	if !exists {
+		return integrationstore.AppSubscriptionAttachment{}, fmt.Errorf("app has no launch subscription")
 	}
 	conversation, err := scope.ConversationJSON()
 	if err != nil {
-		return fail(err)
+		return integrationstore.AppSubscriptionAttachment{}, err
 	}
 	prepared, err := subscription.Prepare(conversation, nil)
 	if err != nil {
-		return fail(err)
+		return integrationstore.AppSubscriptionAttachment{}, err
 	}
-	return derived, integrationstore.AppSubscriptionAttachment{
+	return integrationstore.AppSubscriptionAttachment{
 		AppID: app.ID, Type: subscriptionType, Conversation: conversation, Events: slices.Clone(prepared.Events),
 	}, nil
 }

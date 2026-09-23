@@ -75,11 +75,23 @@ func (h *ThreadAppScheduledHandler) Handle(
 		if err := authority(ctx); err != nil {
 			return nil, err
 		}
+		profile, err := h.router.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID)
+		if err != nil {
+			return nil, err
+		}
+		derived, err := deriveAppLaunchConfig(profile.CurrentConfig, app)
+		if err != nil {
+			return nil, err
+		}
+		saved, err := h.router.execution.CreateAgentConfig(ctx, derived)
+		if err != nil {
+			return nil, err
+		}
 		root, err := h.provider.PublishScheduledRoot(ctx, app, launch, receipt.ID, authority)
 		if err != nil {
 			return nil, err
 		}
-		freezeErr := h.router.FreezeScheduledLaunch(ctx, lease, root)
+		freezeErr := h.router.FreezeScheduledLaunch(ctx, lease, root, profile.ID, saved.ID, profile.CurrentConfigID)
 		receipt, err = h.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if freezeErr != nil && (err != nil || len(receipt.Plan) == 0) {
 			// Retrying without a saved plan can duplicate the published heading.
@@ -127,6 +139,7 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	root appdefinition.Scope,
+	profileID, configID, baseConfigID uuid.UUID,
 ) error {
 	receipt, err := r.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
@@ -150,18 +163,13 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	if err != nil {
 		return err
 	}
-	profile, err := r.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID)
-	if err != nil {
+	if _, err := r.execution.GetAgentProfile(ctx, receipt.ProjectID, launch.ProfileID); err != nil {
 		return err
 	}
-	base, found, err := r.execution.GetAgentConfig(ctx, receipt.ProjectID, profile.CurrentConfigID)
-	if err != nil {
-		return err
+	if profileID != launch.ProfileID {
+		return storeerr.ErrUnauthorized
 	}
-	if !found {
-		return storeerr.ErrNotFound
-	}
-	derived, subscription, err := deriveAppLaunch(base, app, root)
+	subscription, err := appLaunchSubscription(app, root)
 	if err != nil {
 		return err
 	}
@@ -187,21 +195,22 @@ func (r *AppRouter) FreezeScheduledLaunch(
 	}
 	key := "scheduled"
 	address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
+	frozenLaunch := executionstore.InboxLaunchPlan{
+		ProfileID: profileID, AgentConfigID: configID, DerivedBaseConfigID: baseConfigID,
+		Subscriptions: []integrationstore.AppSubscriptionAttachment{subscription},
+	}
+	frozenLaunch.LaunchedBy = executionstore.InboxLaunchPrincipal{
+		Type: identitystore.PrincipalTypeSystem, ID: event.TriggerID,
+	}
+	frozenLaunch.IdempotencyKey = "app:" + receipt.ID.String() + ":" + key
+	frozenLaunch.InitialInput = &executionstore.LaunchInitialInput{
+		ContentBlocks: content, Actor: actor, SemanticEventKey: receipt.ReceiptKey,
+		Origin: &executionstore.LaunchInputOrigin{AppID: app.ID, Address: address, DisplayName: event.Occurrence.Name},
+	}
 	plan := AppInboxPlan{key: {
 		Scope: root, AgentID: agentID,
-		Selection:    &integrationstore.InboxAppSelection{AppID: app.ID, Address: address, Slot: key},
-		BaseConfigID: base.ID,
-		Launch: &executionstore.LaunchAgentInput{
-			ProjectID: receipt.ProjectID, ProfileID: launch.ProfileID,
-			DerivedConfig: &derived, DerivedBaseConfigID: base.ID,
-			Subscriptions:  []integrationstore.AppSubscriptionAttachment{subscription},
-			LaunchedBy:     identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: event.TriggerID},
-			IdempotencyKey: "app:" + receipt.ID.String() + ":" + key,
-			InitialInput: &executionstore.LaunchInitialInput{
-				ContentBlocks: content, Actor: actor, SemanticEventKey: receipt.ReceiptKey,
-				Origin: &executionstore.LaunchInputOrigin{AppID: app.ID, Address: address, DisplayName: event.Occurrence.Name},
-			},
-		},
+		Selection: &integrationstore.InboxAppSelection{AppID: app.ID, Address: address, Slot: key},
+		Launch:    &frozenLaunch,
 	}}
 	raw, err := json.Marshal(plan)
 	if err != nil {

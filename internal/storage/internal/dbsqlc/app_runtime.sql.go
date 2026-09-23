@@ -128,6 +128,45 @@ func (q *Queries) ClaimAppRuntime(ctx context.Context, arg ClaimAppRuntimeParams
 	return i, err
 }
 
+const getAppRuntimeFailure = `-- name: GetAppRuntimeFailure :one
+SELECT coalesce(runtime.last_error, '') AS message, runtime.available_at AS retry_at
+FROM app_runtime runtime
+JOIN project_apps app ON app.project_id = runtime.project_id AND app.id = runtime.app_id
+JOIN projects project ON project.id = app.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = app.org_id AND org.deleted_at IS NULL
+JOIN secrets secret ON secret.org_id = app.org_id AND secret.id = app.credential_secret_id
+    AND secret.deleted_at IS NULL AND secret.management_kind = 'tenant'
+    AND secret.current_version_id = runtime.credential_version_id
+WHERE app.project_id = $1 AND app.id = $2
+  AND app.state = 'active' AND app.deleted_at IS NULL
+  AND app.setup_revision = $3 AND runtime.setup_revision = app.setup_revision
+  AND runtime.last_error IS NOT NULL AND runtime.last_error <> ''
+  AND ((secret.owner_kind = 'project' AND secret.owner_project_id = app.project_id)
+       OR EXISTS (SELECT 1 FROM secret_grants grant_row
+           WHERE grant_row.org_id = app.org_id AND grant_row.secret_id = secret.id
+             AND grant_row.target_project_id = app.project_id))
+ORDER BY runtime.updated_at DESC, runtime.runtime_key
+LIMIT 1
+`
+
+type GetAppRuntimeFailureParams struct {
+	ProjectID     uuid.UUID
+	AppID         uuid.UUID
+	SetupRevision int64
+}
+
+type GetAppRuntimeFailureRow struct {
+	Message string
+	RetryAt time.Time
+}
+
+func (q *Queries) GetAppRuntimeFailure(ctx context.Context, arg GetAppRuntimeFailureParams) (GetAppRuntimeFailureRow, error) {
+	row := q.db.QueryRow(ctx, getAppRuntimeFailure, arg.ProjectID, arg.AppID, arg.SetupRevision)
+	var i GetAppRuntimeFailureRow
+	err := row.Scan(&i.Message, &i.RetryAt)
+	return i, err
+}
+
 const listPersistentApps = `-- name: ListPersistentApps :many
 WITH app_types AS (
     SELECT DISTINCT unnest($3::text[]) AS app_type

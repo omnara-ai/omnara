@@ -23,6 +23,7 @@ type AgentInputOrigin struct {
 }
 
 type InboxInputResult struct {
+	Skipped                InboxInputSkipReason
 	AgentInput             AgentInputRecord
 	ContentBlocks          json.RawMessage
 	IntegrationTarget      integrationstore.IntegrationTargetRecord

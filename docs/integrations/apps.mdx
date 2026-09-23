@@ -46,31 +46,14 @@ menus, agents or replies are possible.
 The detail page shows setup state, launch settings, available capabilities and a
 paginated **Conversations** list with each destination agent.
 Changing offered profiles affects future launches. Disconnecting stops provider
-access and pauses subscription delivery. Its conversations remain visible and can
-still be removed while disconnected. Deleting an app removes its schedules and
+access and conversation forwarding. It does not queue incoming events for replay
+after reconnection. Its conversations remain visible and can still be removed
+while disconnected. Deleting an app removes its schedules and
 subscriptions and releases its credential reference. Neither action removes agents, their history, or messages already
 posted in the provider. Agents remain usable through the dashboard and API.
 
-## Connect GitHub
-
-Choose whether the GitHub App belongs to your personal account or an organization,
-then select **Continue to GitHub**. GitHub handles registration and installation;
-Omnara fills in the required webhook, events and permissions. The new GitHub App
-is private by default. To install it outside its owning account, change its
-visibility in GitHub's App settings.
-
-After registration, install the App on GitHub and select which repositories it
-can access. Return to Omnara, select the verified installation and connect it.
-Credentials are saved before installation, so you can finish later if an
-organization must approve the installation. **Use an existing App** remains
-available for an App you have already registered or for manual reconnection.
-
-Choose the agent profile and whether a mention or opening a PR starts an agent.
-New launchers apply to the repositories granted to that installation. Manage
-repository access in GitHub; Omnara does not maintain another repository allowlist
-in this setup flow. Existing saved repository restrictions are preserved when
-editing a launcher. Repository checkout and machine credentials remain separate
-from the App's PR comment permissions.
+See the [Slack](/integrations/slack), [Discord](/integrations/discord) and
+[GitHub](/integrations/github) guides for connection steps and provider permissions.
 
 ## Select capabilities independently
 
@@ -203,15 +186,16 @@ sending context.
 The create-agent API accepts `tools` and `interaction_handlers` when deriving a
 config from a pinned config or profile, plus independent `subscriptions`
 attachments. Config authoring and app management require project management permission. App credential setup requires a
-user session or personal access token; organization API keys can perform ordinary
-runtime work. App capabilities and runtime subscriptions are not inherited by subagents.
+user session or personal access token, except guided GitHub registration and
+installation discovery, which require a browser session. Organization API keys
+can perform ordinary runtime work. App capabilities and runtime subscriptions are not inherited by subagents.
 
 Ordinary model output stays in Omnara. Posting externally requires an app tool.
 
 ## Start a new thread on a schedule
 
-Open a Slack or Discord app from the project's **Apps** page and choose **Add
-schedule**. Select one profile, the parent channel, the schedule and timezone,
+Open an app that supports scheduled threads from the project's **Apps** page and
+choose **Add schedule**. Select one profile, the parent channel, the schedule and timezone,
 an opening-message template, and the task to give the agent. Mention launches
 and schedules are independent; the same app can use either or both.
 
@@ -224,9 +208,12 @@ agent, while Tuesday's run creates a new thread and agent.
 
 Both templates support the existing cron variables. `{{.trigger.local_date}}`
 is the occurrence's scheduled date in its timezone, formatted `YYYY-MM-DD`.
-The opening message is limited to 2,000 characters. Slack schedules require a
-channel the bot has already joined, not a DM; Discord schedules require a server
-text or announcement channel.
+The task's `message_template` source and rendered message each have a 65,536
+UTF-8 byte limit. Variables can expand, so runtime validation remains authoritative
+even when the source fits the published schema's `maxLength`.
+See the provider guide for opening-message limits and supported destinations:
+[Slack scheduled threads](/integrations/slack#scheduled-threads) or
+[Discord scheduled threads](/integrations/discord#scheduled-threads).
 
 Schedules use the ordinary cron API with an app target. The app catalog publishes
 the schema for `settings`; cron does not interpret those fields:
@@ -272,9 +259,9 @@ dashboard if provider delivery fails.
 
 ## Route questions and approvals
 
-Slack and Discord launchers add `list_interaction_handlers` and
-`set_interaction_handler` along with their app's handler. GitHub does not add them;
-all launchers preserve tools and handlers already configured in the profile,
+When an app exports an interaction handler, its launcher adds that handler and
+the `list_interaction_handlers` and `set_interaction_handler` tools. Launchers
+preserve tools and handlers already configured in the profile,
 including explicit tool permissions and disabled entries. Manual configs can add
 these built-ins under `tools`. Ordinary configs receive neither automatically.
 Destinations can change at runtime without changing the config. The list is
@@ -295,6 +282,8 @@ A handler may use another conversation accessible to the app; it is not restrict
 to the sending context. Anyone able to respond in that provider conversation can
 answer its questions and approvals; they do not need an Omnara account. Choose a
 destination whose audience you trust to make those decisions.
+Use explicit tool permissions to restrict or disable `set_interaction_handler`
+when the model should not choose another destination.
 
 A newly accepted provider input selects a unique matching handler with the complete
 origin address for future interactions, including the initial launch input. No

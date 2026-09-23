@@ -50,6 +50,12 @@ including in different projects, but duplicated sessions consume provider capaci
 Overlapping launch behavior can create duplicate responses. Omnara does not merge
 these independently configured apps.
 
+Omnara looks up the channel for each eligible incoming message before deciding
+whether an agent needs it. Unrelated traffic visible to the bot therefore uses
+inbox capacity and shares the bot's [REST quota](https://docs.discord.com/developers/topics/rate-limits)
+with replies. Limit the bot's channel visibility in Discord to where it is needed.
+Identity checks and attachment downloads happen only after routing finds a recipient.
+
 ## Launch from mentions
 
 Choose **Profiles for mentions** in the app's settings. Mentions work in every
@@ -76,6 +82,9 @@ Selecting profiles enables mention launches without a separate enable switch.
 An empty selection leaves schedules and existing conversations available.
 
 ## Scheduled threads
+
+Choose a server text or announcement channel. The opening-message template is
+limited to 2,000 characters.
 
 Use **Add schedule** on the app page to post a template opening message and launch
 one profile in its new thread. Each schedule selects its own profile and destination
@@ -149,6 +158,15 @@ sending can leave a prompt missing or unconfirmed. The interaction remains
 answerable in the [dashboard and API](/events/interactions) regardless of delivery.
 
 ## Restarts and deployments
+
+An app can retain its verified credentials while its Gateway connection is failing.
+The app detail page shows the latest connection error and earliest retry time for
+the current setup and credential version. **Refresh status** rereads the recorded
+failure; it does not start a retry. The failure remains until a new attempt starts.
+After correcting the Discord settings, reconnect the app to make it eligible for
+a new attempt without waiting for the old retry time. A missing error does not
+prove the Gateway is connected. The list and setup responses do not include
+this runtime status; API clients read the optional `runtime_failure` from **Get app**.
 
 A worker saves its Discord session and last committed event sequence in Postgres.
 The event receipt and sequence are saved together. When another worker takes over,

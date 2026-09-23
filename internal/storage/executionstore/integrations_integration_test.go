@@ -21,6 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -274,7 +275,6 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 
 	install := mustCreateProjectApp(t, ctx, store, installInput)
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C_ARCHIVE:target"}
-	lease := prepareIntegrationOrigin(t, ctx, store, agent.ID, install.ID, address)
 
 	blockingTx := integrationdb.BeginTx(t, ctx, pool)
 	if _, err := dbsqlc.New(blockingTx).LockAgentInProject(
@@ -296,8 +296,34 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	targetDone := integrationdb.RunAsyncError(func() error {
-		_, targetErr := store.Execution().AdmitInboxInputSlot(context.Background(), lease, "recipient")
-		return targetErr
+		// Exercise the target mutation directly: inbox admission has a distinct
+		// successful, durable skip outcome when the recipient was archived.
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := lifecyclelock.EnterActiveProject(ctx, tx, testOrgID, testProjectID); err != nil {
+			return err
+		}
+		if err := integrationstore.LockAppsTx(ctx, tx, testProjectID, nil, install.ID); err != nil {
+			return err
+		}
+		if err := integrationstore.LockConversationTx(ctx, tx, testProjectID, install.ID, address); err != nil {
+			return err
+		}
+		if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+			ProjectID: testProjectID, AgentID: agent.ID,
+		}}); err != nil {
+			return err
+		}
+		_, err = store.Integrations().EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: testProjectID, AgentID: agent.ID, AppID: install.ID, Address: address,
+		})
+		if err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
 	if err := blockingTx.Commit(ctx); err != nil {

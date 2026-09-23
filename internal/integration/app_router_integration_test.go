@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	store := storage.NewStore(pool)
 	integrations := store.Integrations()
 	router := NewAppRouter(store.Execution(), integrations)
+	instruction := strings.Repeat("Review carefully. ", 18000) + "End."
 	base := storagefixture.SeedAgentConfig(
 		t,
 		ctx,
@@ -49,7 +51,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 		store.Execution(),
 		ids.OrgID,
 		ids.ProjectID,
-		"instruction: original profile\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
+		"instruction: "+instruction+"\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
 	)
 	profile, err := store.Execution().
 		CreateAgentProfile(
@@ -147,6 +149,14 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	require.ErrorIs(t, failures[1-winner], integrationstore.ErrAppSelectionReserved)
 	plan, receipt := plans[winner], receipts[winner]
 	require.Len(t, plan, 2)
+	frozen, err := integrations.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.Less(t, len(frozen.Plan), 16*1024, "large profile definitions must not be copied into receipt plans")
+	var savedConfigIDs []uuid.UUID
+	for _, slot := range plan {
+		savedConfigIDs = append(savedConfigIDs, slot.Launch.AgentConfigID)
+	}
+	require.Equal(t, savedConfigIDs[0], savedConfigIDs[1], "equivalent derivations reuse an immutable config")
 	setup.Settings.Launcher.Slots[1].Key = "c"
 	_, err = store.Integrations().UpdateProjectApp(ctx, app.ID, setup)
 	require.NoError(t, err)
@@ -240,7 +250,7 @@ func TestAppRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 		require.NoError(t, err)
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(config.CompiledDefinition, &compiled))
-		require.Equal(t, "original profile", compiled.Instruction)
+		require.Equal(t, instruction, compiled.Instruction)
 	}
 	require.NoError(
 		t,

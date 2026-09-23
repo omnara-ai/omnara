@@ -306,6 +306,22 @@ func TestGitHubReviewAndCommitPolicies(t *testing.T) {
 		{"empty approval", "pull_request_review", func(p *githubEventPayload) {
 			p.Review.State, p.Review.Body = "approved", ""
 		}, true, false},
+		{"empty changes requested", "pull_request_review", func(p *githubEventPayload) {
+			p.Review.State, p.Review.Body = "changes_requested", ""
+		}, true, false},
+		{"empty commented", "pull_request_review", func(p *githubEventPayload) {
+			p.Review.State, p.Review.Body = "commented", ""
+		}, false, false},
+		{"whitespace commented", "pull_request_review", func(p *githubEventPayload) {
+			p.Review.State, p.Review.Body = "commented", " \n\t\r"
+		}, false, false},
+		{"commented with body", "pull_request_review", func(p *githubEventPayload) {
+			p.Review.State = "commented"
+		}, true, false},
+		{"blank review wrong sender", "pull_request_review", func(p *githubEventPayload) {
+			p.Review.State, p.Review.Body = "commented", ""
+			p.Sender.ID++
+		}, false, true},
 		{"pending review", "pull_request_review", func(p *githubEventPayload) {
 			p.Action, p.Review.State = "edited", "pending"
 		}, false, false},
@@ -333,8 +349,11 @@ func TestGitHubReviewAndCommitPolicies(t *testing.T) {
 			if ok != tc.wantEvent || (err != nil) != tc.wantError {
 				t.Fatalf("policy: event=%+v ok=%v err=%v", event, ok, err)
 			}
-			if tc.name == "empty approval" && !strings.Contains(string(event.ContentBlocks), "Review approved:") {
-				t.Fatalf("approval lacks useful content: %s", event.ContentBlocks)
+			if tc.wantEvent && tc.eventType == "pull_request_review" {
+				if !strings.Contains(string(event.ContentBlocks), "Review "+payload.Review.State+":") ||
+					event.DeliveryMode != executionstore.DeliveryModeSteering || !event.CancelOpenInteractions {
+					t.Fatalf("review lacks useful steering content: %+v", event)
+				}
 			}
 		})
 	}

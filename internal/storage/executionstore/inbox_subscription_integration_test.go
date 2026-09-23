@@ -52,6 +52,9 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 	)
 	_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, revoked.Lease(), "recipient")
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+	pending, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, revoked.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(pending.Progress), "revocation leaves the frozen slot retryable")
 	var count int
 	require.NoError(
 		t,
@@ -214,8 +217,16 @@ func TestSubagentExplicitSubscriptionReceivesAndArchiveCleansUp(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, f.subscriptions(t, child.Agent.ID))
 	require.Len(t, f.subscriptions(t, parent.Agent.ID), 1, "child archival leaves its parent's attachment intact")
-	_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient")
-	require.Error(t, err, "archived subagent cannot receive the frozen follow-up")
+	skipped, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient")
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InboxInputSkipAgentArchived, skipped.Skipped)
+	require.False(t, skipped.Created)
+	require.Equal(t, uuid.Nil, skipped.AgentInput.ID)
+	require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, pending.Lease(),
+		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Complete(f.ctx) }))
+	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient")
+	require.NoError(t, err)
+	require.Equal(t, skipped, replayed, "an archived recipient durably settles the slot")
 	_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AgentID: child.Agent.ID, AppID: attachment.AppID,
 		Type: attachment.Type, Conversation: attachment.Conversation,

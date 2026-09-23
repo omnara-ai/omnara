@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,9 +21,7 @@ const (
 	readbackPageLimit    = 100
 	readbackMaxPages     = 8
 
-	MessageMarkerEventType     = "omnara_integration_message"
-	AgentRequestFailureMessage = "I couldn't complete this request. " +
-		"Please try again later or contact this bot's owner."
+	MessageMarkerEventType = "omnara_integration_message"
 )
 
 type MessageTarget struct {
@@ -44,6 +43,22 @@ type APIResult struct {
 	DeliveryUnknown  bool
 	Message          string
 }
+
+type APIError struct {
+	Result APIResult
+}
+
+func (e *APIError) Error() string {
+	if e.Result.Message != "" {
+		return e.Result.Message
+	}
+	if e.Result.Code != "" {
+		return "slack " + e.Result.Code
+	}
+	return "slack request failed"
+}
+
+func (e *APIError) RetryDelay() time.Duration { return e.Result.RetryAfter }
 
 type postMessageResponse struct {
 	OK      bool   `json:"ok"`
@@ -300,6 +315,9 @@ func doRequest(client *http.Client, req *http.Request, out any) (result APIResul
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			result.StatusCode = resp.StatusCode
 		}
+		if result.RateLimited || result.TransientFailure || result.DeliveryUnknown {
+			result.RetryAfter = max(result.RetryAfter, retryAfter(resp.Header.Get("Retry-After")))
+		}
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode == http.StatusTooManyRequests {
@@ -351,11 +369,11 @@ func endpointURL(apiURL, method string) string {
 }
 
 func retryAfter(raw string) time.Duration {
-	seconds, err := strconv.Atoi(strings.TrimSpace(raw))
+	seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || seconds <= 0 {
 		return 0
 	}
-	return time.Duration(seconds) * time.Second
+	return time.Duration(min(seconds, math.MaxInt64/int64(time.Second))) * time.Second
 }
 
 func slackTimestamp(t time.Time) string {

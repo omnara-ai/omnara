@@ -53,11 +53,15 @@ func (p InteractionPresenter) EnqueuePending(ctx context.Context, runner interac
 }
 
 func (p InteractionPresenter) RunPending(ctx context.Context, runner interactionRunner) {
+	log := p.Log
+	if log == nil {
+		log = slog.Default()
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		if err := p.EnqueuePending(ctx, runner); err != nil && ctx.Err() == nil {
-			slog.WarnContext(ctx, "discover pending interaction presentations", "error", err)
+			log.WarnContext(ctx, "discover pending interaction presentations", "error", err)
 		}
 		select {
 		case <-ctx.Done():

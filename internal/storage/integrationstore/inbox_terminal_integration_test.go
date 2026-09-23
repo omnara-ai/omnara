@@ -45,7 +45,7 @@ func freezeInboxSelection(
 				uuid.NewV7(),
 			),
 			"selection": selection,
-			"launch":    map[string]any{"ProfileID": profileID},
+			"launch":    map[string]any{"profile_id": profileID},
 		}},
 	)
 	require.NoError(t, err)

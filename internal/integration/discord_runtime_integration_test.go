@@ -3,6 +3,8 @@
 package integration
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +17,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -178,6 +181,16 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 				checkpoint,
 			),
 		)
+		for i, data := range []string{
+			`{"id":"792","channel_id":"100","author":{"id":"102"},"content":"direct message"}`,
+			`{"id":"793","channel_id":"100","guild_id":"101","author":{"id":"102"},"type":18}`,
+			`{"id":"794","channel_id":"100","guild_id":"101","author":{"id":"103","bot":true}}`,
+		} {
+			checkpoint.Sequence = int64(4 + i)
+			require.NoError(t, commit(ctx, discord.Dispatch{
+				Type: "MESSAGE_CREATE", Sequence: checkpoint.Sequence, Data: json.RawMessage(data),
+			}, checkpoint))
+		}
 		return &discord.GatewayError{RetryAfter: time.Second}
 	}
 	r.run(ctx, appSetup, claim, time.Now(), slog.Default())
@@ -215,15 +228,15 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 			)
 		require.NoError(t, err)
 		require.ErrorIs(t, config.BeforeConnect(ctx), integrationstore.ErrAppRuntimeLeaseLost)
-		checkpoint.Sequence = 4
+		checkpoint.Sequence++
 		require.ErrorIs(
 			t,
 			commit(
 				ctx,
 				discord.Dispatch{
 					Type:     "MESSAGE_CREATE",
-					Sequence: 4,
-					Data:     json.RawMessage(`{"id":"791","channel_id":"100","author":{"id":"102"}}`),
+					Sequence: checkpoint.Sequence,
+					Data:     json.RawMessage(`{"id":"791","channel_id":"100","guild_id":"101","author":{"id":"102"}}`),
 				},
 				checkpoint,
 			),
@@ -237,6 +250,64 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 		pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox WHERE app_id=$1`, appSetup.ID).Scan(&count),
 	)
 	require.Equal(t, 1, count, "revoked runtime never publishes input")
+}
+
+func TestDiscordRuntimePersistsOnlySafeFailureMessage(t *testing.T) {
+	untrusted := "private upstream token=do-not-expose\x00" + strings.Repeat("界", 2000)
+	for _, cause := range []error{
+		errors.New(untrusted),
+		fmt.Errorf("%s: %w", untrusted, &discord.APIError{
+			Code: discord.PermanentFailure, StatusCode: http.StatusUnauthorized,
+		}),
+		fmt.Errorf("%s: %w", untrusted, &discord.GatewayError{CloseCode: 4014, Fatal: true}),
+	} {
+		f := newDiscordRuntimeFixture(t)
+		ctx := t.Context()
+		claim, found, err := f.store.Integrations().ClaimAppRuntime(ctx, integrationstore.AppRuntimeRevision{
+			ProjectID: f.appSetup.ProjectID, AppID: f.appSetup.ID,
+			Key: "discord/shard/0", SetupRevision: f.appSetup.SetupRevision, CredentialVersionID: f.version,
+		}, discordRuntimeLease)
+		require.NoError(t, err)
+		require.True(t, found)
+		r := DiscordRuntime{
+			Integrations: f.store.Integrations(), Secrets: f.store.Secrets(),
+			HTTPClient: &http.Client{Transport: discordRuntimeTransport(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
+					Body: io.NopCloser(strings.NewReader(`{"url":"wss://gateway.discord.gg","shards":1,
+						"session_start_limit":{"max_concurrency":1}}`))}, nil
+			})},
+			runShard: func(context.Context, discord.ShardConfig, *discord.Checkpoint, discord.CommitDispatch) error {
+				return cause
+			},
+		}
+		var logs bytes.Buffer
+		log := slog.New(slog.NewJSONHandler(&logs, nil))
+		log.Info("unrelated runtime diagnostic")
+		r.run(ctx, f.appSetup, claim, time.Now(), log)
+		failure, err := f.store.Integrations().GetAppRuntimeFailure(ctx,
+			f.appSetup.ProjectID, f.appSetup.ID, f.appSetup.SetupRevision)
+		require.NoError(t, err, "untrusted text must not prevent recording a safe connection failure")
+		require.Equal(t, discordRuntimeFailureMessage(cause), failure.Message)
+		require.True(t, utf8.ValidString(failure.Message))
+		require.LessOrEqual(t, len(failure.Message), 256)
+		require.NotContains(t, failure.Message, "private")
+		require.NotContains(t, failure.Message, "\x00")
+		foundStopped := false
+		lines := bufio.NewScanner(&logs)
+		for lines.Scan() {
+			var entry struct {
+				Message string `json:"msg"`
+				Error   string `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(lines.Bytes(), &entry))
+			if entry.Message == "Discord connection stopped" {
+				foundStopped = true
+				require.Equal(t, cause.Error(), entry.Error, "internal logs retain the full diagnostic")
+			}
+		}
+		require.NoError(t, lines.Err())
+		require.True(t, foundStopped, "runtime must log the connection failure")
+	}
 }
 
 type discordRuntimeTransport func(*http.Request) (*http.Response, error)
@@ -253,6 +324,7 @@ func TestDiscordReconnectDelayHonorsProviderFailures(t *testing.T) {
 	}{
 		{"revoked token", &discord.APIError{Code: discord.PermanentFailure, StatusCode: 401}, time.Hour},
 		{"missing permissions", &discord.APIError{Code: discord.PermanentFailure, StatusCode: 403}, time.Hour},
+		{"READY identity mismatch", &discord.APIError{Code: discord.ScopeMismatch}, time.Hour},
 		{"rate limit", &discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour}, 2 * time.Hour},
 		{"disabled intent", &discord.GatewayError{Fatal: true}, time.Hour},
 		{"session budget", discordIdentifyWaitError{After: 20 * time.Hour}, 20 * time.Hour},

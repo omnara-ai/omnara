@@ -15,6 +15,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/modelstore"
+	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
@@ -270,7 +272,7 @@ func newInboxLaunchFixtureForApp(
 		}
 		slot := executionstore.InboxLaunchSlot{
 			AgentID: plannedID,
-			Launch:  launch,
+			Launch:  f.freezeLaunch(t, launch),
 			Selection: integrationstore.InboxAppSelection{
 				AppID:   f.app.ID,
 				Address: launch.InitialInput.Origin.Address,
@@ -329,6 +331,19 @@ func (f inboxLaunchFixture) prepare(t *testing.T, key string) {
 	)
 }
 
+func (f appActivationFixture) freezeLaunch(
+	t *testing.T, launch executionstore.LaunchAgentInput,
+) executionstore.InboxLaunchPlan {
+	t.Helper()
+	config, err := f.store.Execution().CreateAgentConfig(f.ctx, *launch.DerivedConfig)
+	require.NoError(t, err)
+	return executionstore.InboxLaunchPlan{
+		ProfileID: launch.ProfileID, AgentConfigID: config.ID, DerivedBaseConfigID: launch.DerivedBaseConfigID,
+		LaunchedBy:     executionstore.InboxLaunchPrincipal{Type: launch.LaunchedBy.Type, ID: launch.LaunchedBy.ID},
+		IdempotencyKey: launch.IdempotencyKey, InitialInput: launch.InitialInput, Subscriptions: launch.Subscriptions,
+	}
+}
+
 func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 	t.Helper()
 	slot := f.slots[key]
@@ -337,10 +352,6 @@ func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 		arg   any
 	}{
 		{`SELECT count(*) FROM agents WHERE id=$1`, slot.AgentID},
-		{
-			`SELECT count(*) FROM agent_configs WHERE effective_definition_hash=$1`,
-			slot.Launch.DerivedConfig.EffectiveDefinitionHash,
-		},
 		{`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM app_subscriptions WHERE agent_id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, slot.AgentID},
@@ -495,8 +506,8 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 	require.Equal(t, f.slots["a"].AgentID, admitted.Agent.ID)
 	require.Equal(
 		t,
-		f.slots["a"].Launch.DerivedConfig.EffectiveDefinitionHash,
-		admitted.AgentConfig.EffectiveDefinitionHash,
+		f.slots["a"].Launch.AgentConfigID,
+		admitted.AgentConfig.ID,
 	)
 	require.Len(t, admitted.Artifacts, 1)
 	require.Equal(t, f.slots["a"].ArtifactIDs[0], admitted.Artifacts[0].ID)
@@ -565,8 +576,8 @@ func TestInboxLaunchRetainsFrozenMembershipAcrossAppEdit(t *testing.T) {
 	require.Equal(t, f.slots["b"].AgentID, second.Agent.ID)
 	require.Equal(
 		t,
-		f.slots["b"].Launch.DerivedConfig.EffectiveDefinitionHash,
-		second.AgentConfig.EffectiveDefinitionHash,
+		f.slots["b"].Launch.AgentConfigID,
+		second.AgentConfig.ID,
 	)
 	require.NotEqual(t, first.Agent.ID, second.Agent.ID)
 	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "c")
@@ -611,7 +622,9 @@ func TestInboxLaunchLocksSecondaryAppBeforeReceipt(t *testing.T) {
 	origin.Address = slot.Selection.Address
 	initial.Origin, initial.SemanticEventKey = &origin, "message:789.012"
 	slot.Launch.InitialInput = &initial
-	slot.Launch.DerivedConfig = &definition
+	saved, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
+	require.NoError(t, err)
+	slot.Launch.AgentConfigID = saved.ID
 	primary := f.attachment()
 	primary.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
 	primary.Events = []string{"message"}
@@ -711,4 +724,122 @@ func TestLaunchSubscriptionConversationLocksPrecedeLaunchKey(t *testing.T) {
 	require.True(t, result.Created)
 	require.Equal(t, f.profile.CurrentConfigID, result.Agent.CurrentConfigID)
 	require.Len(t, f.subscriptions(t, result.Agent.ID), 2)
+}
+
+func TestSavedDerivedLaunchRetainsProfileAuthority(t *testing.T) {
+	t.Parallel()
+	f := newAppActivationFixture(t)
+	config, err := f.store.Execution().CreateAgentConfig(f.ctx, f.definition(t, "Saved derived capabilities"))
+	require.NoError(t, err)
+	input := f.launchInput(config.ID, "saved-derived")
+	input.ProfileID = f.profile.ID
+	input.DerivedBaseConfigID = config.ID
+	_, err = f.store.Execution().LaunchAgent(f.ctx, input)
+	require.ErrorIs(t, err, storeerr.ErrNotFound, "a derived config cannot claim to be a version of the profile")
+	input.DerivedBaseConfigID = f.profile.CurrentConfigID
+	result, err := f.store.Execution().LaunchAgent(f.ctx, input)
+	require.NoError(t, err)
+	require.True(t, result.Created)
+	require.Equal(t, config.ID, result.Agent.CurrentConfigID)
+	require.Equal(t, f.profile.ID, result.Agent.AgentProfileID)
+}
+
+func TestSavedDerivedLaunchRejectsForeignProjectConfig(t *testing.T) {
+	t.Parallel()
+	f := newAppActivationFixture(t)
+	foreign := seedAdditionalProjectForTest(t, f.ctx, f.store.pool, "derived-config")
+	definition := f.definition(t, "Foreign config")
+	definition.ProjectID = foreign
+	_, err := f.store.Models().CreateProjectModelGrant(f.ctx, modelstore.CreateProjectModelGrantInput{
+		OrgID: testOrgID, ProjectID: foreign, ConfiguredModelID: definition.ConfiguredModelID,
+	})
+	require.NoError(t, err)
+	config, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
+	require.NoError(t, err)
+	input := f.launchInput(config.ID, "foreign-derived")
+	input.ProfileID, input.DerivedBaseConfigID = f.profile.ID, f.profile.CurrentConfigID
+	_, err = f.store.Execution().LaunchAgent(f.ctx, input)
+	require.True(t, storeerr.IsNotFound(err), "%v", err)
+}
+
+func TestInboxConversationAuthorityRechecksSavedModel(t *testing.T) {
+	t.Parallel()
+	f := newInboxLaunchFixture(t, false, time.Minute, "a")
+	slot := f.slots["a"]
+	require.NoError(t, f.store.Execution().CheckInboxConversationAuthority(
+		f.ctx, f.receipt.Lease(), "a", slot.Selection.Address,
+	))
+	modelID := f.profile.CurrentConfig.ConfiguredModelID
+	grant, err := f.store.Models().GetActiveProjectModelGrantForConfiguredModel(f.ctx, testOrgID, testProjectID, modelID)
+	require.NoError(t, err)
+	_, err = f.store.Models().DeleteProjectModelGrant(f.ctx, testOrgID, testProjectID, grant.ID)
+	require.NoError(t, err)
+	_, err = f.store.Models().DeleteConfiguredModel(f.ctx, testOrgID, modelID)
+	require.NoError(t, err)
+	err = f.store.Execution().CheckInboxConversationAuthority(f.ctx, f.receipt.Lease(), "a", slot.Selection.Address)
+	require.True(t, storeerr.IsNotFound(err), "%v", err)
+	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+	require.True(t, storeerr.IsNotFound(err), "%v", err)
+	f.assertAbsent(t, "a")
+}
+
+func TestInboxSavedConfigRechecksModelGrantAndRecovers(t *testing.T) {
+	t.Parallel()
+	for _, revoke := range []bool{true, false} {
+		name := "tools_disabled"
+		if revoke {
+			name = "grant_revoked"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newInboxLaunchFixture(t, false, time.Minute, "a")
+			slot := f.slots["a"]
+			modelID := f.profile.CurrentConfig.ConfiguredModelID
+			grant, err := f.store.Models().GetActiveProjectModelGrantForConfiguredModel(
+				f.ctx, testOrgID, testProjectID, modelID,
+			)
+			require.NoError(t, err)
+			if revoke {
+				_, err = f.store.Models().DeleteProjectModelGrant(f.ctx, testOrgID, testProjectID, grant.ID)
+			} else {
+				disabled := false
+				_, err = f.store.Models().UpdateProjectModelGrant(f.ctx, modelstore.UpdateProjectModelGrantInput{
+					OrgID: testOrgID, ProjectID: testProjectID, ID: grant.ID,
+					SupportsTools: patch.NullableBool{Set: true, Value: &disabled},
+				})
+			}
+			require.NoError(t, err)
+			require.Error(t, f.store.Execution().CheckInboxConversationAuthority(
+				f.ctx, f.receipt.Lease(), "a", slot.Selection.Address,
+			))
+			_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+			require.Error(t, err)
+			f.assertAbsent(t, "a")
+			if revoke {
+				_, err = f.store.Models().CreateProjectModelGrant(f.ctx, modelstore.CreateProjectModelGrantInput{
+					OrgID: testOrgID, ProjectID: testProjectID, ConfiguredModelID: modelID,
+				})
+			} else {
+				_, err = f.store.Models().UpdateProjectModelGrant(f.ctx, modelstore.UpdateProjectModelGrantInput{
+					OrgID: testOrgID, ProjectID: testProjectID, ID: grant.ID, SupportsTools: patch.NullableBool{Set: true},
+				})
+			}
+			require.NoError(t, err)
+			require.NoError(t, f.store.Execution().CheckInboxConversationAuthority(
+				f.ctx, f.receipt.Lease(), "a", slot.Selection.Address,
+			))
+			result, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+			require.NoError(t, err)
+			require.True(t, result.Created)
+			restored, err := f.store.Models().GetActiveProjectModelGrantForConfiguredModel(
+				f.ctx, testOrgID, testProjectID, modelID,
+			)
+			require.NoError(t, err)
+			_, err = f.store.Models().DeleteProjectModelGrant(f.ctx, testOrgID, testProjectID, restored.ID)
+			require.NoError(t, err)
+			replay, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+			require.NoError(t, err)
+			require.Equal(t, result.Agent.ID, replay.Agent.ID)
+		})
+	}
 }

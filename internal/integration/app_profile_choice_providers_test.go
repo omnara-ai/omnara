@@ -123,6 +123,54 @@ func TestAppProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(t *testi
 	require.Empty(t, requests)
 }
 
+func TestAppProfileChoiceSlackProviderPreservesRetryHint(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"post", "update"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			appSetup := slackInboxTestApp()
+			access := &slackInboxTestAccess{appSetup: appSetup, version: uuid.New()}
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/auth.test" {
+					_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+					return
+				}
+				path := "/chat.postMessage"
+				if operation == "update" {
+					path = "/chat.update"
+				}
+				assert.Equal(t, path, r.URL.Path)
+				attempts.Add(1)
+				w.Header().Set("Retry-After", "900")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"ok":false,"error":"ratelimited"}`))
+			}))
+			t.Cleanup(server.Close)
+			provider := NewSlackAppInboxProvider(slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()},
+				access, access, nil)
+			choice := providerProfileChoice(t)
+			choice.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+			var err error
+			if operation == "post" {
+				var channel, message string
+				channel, message, err = provider.PresentProfileChoice(t.Context(), appSetup, choice, nil)
+				require.Empty(t, channel)
+				require.Empty(t, message)
+			} else {
+				choice.MessageChannelID, choice.MessageID = "C123", "2.3"
+				err = provider.DismissProfileChoice(t.Context(), appSetup, choice, "Selected Reviewer.")
+			}
+			var apiErr *slack.APIError
+			require.ErrorAs(t, err, &apiErr)
+			require.True(t, apiErr.Result.RateLimited)
+			require.Equal(t, 15*time.Minute, apiErr.RetryDelay())
+			require.Equal(t, 15*time.Minute, appInboxRetryDelay(1, err))
+			require.EqualValues(t, 1, attempts.Load(), "long provider throttles must return to the durable worker")
+		})
+	}
+}
+
 func TestAppProfileChoiceSlackProviderPostsAndClearsNativeMenu(t *testing.T) {
 	t.Parallel()
 	appSetup := slackInboxTestApp()

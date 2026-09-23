@@ -48,6 +48,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.EventWebhookPerOrgConcurrency != 128 {
 		t.Fatalf("expected default per-org event webhook concurrency 128, got %d", cfg.EventWebhookPerOrgConcurrency)
 	}
+	if cfg.WorkerDiscordCapacity != 64 {
+		t.Fatalf("expected default Discord capacity 64, got %d", cfg.WorkerDiscordCapacity)
+	}
 	if cfg.WorkerInboxCapacity != 4 {
 		t.Fatalf("expected default worker inbox capacity 4, got %d", cfg.WorkerInboxCapacity)
 	}
@@ -1344,6 +1347,25 @@ func TestWorkerInboxCapacity(t *testing.T) {
 			}
 			if valid && fmt.Sprint(cfg.WorkerInboxCapacity) != value {
 				t.Fatalf("capacity = %d, want %s", cfg.WorkerInboxCapacity, value)
+			}
+		})
+	}
+}
+
+func TestWorkerDiscordCapacity(t *testing.T) {
+	for _, value := range []string{"0", "1", "128"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_WORKER_DISCORD_CAPACITY", value)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.ValidateWorker(); (err != nil) != (value == "0") {
+				t.Fatalf("capacity %s: %v", value, err)
+			}
+			if fmt.Sprint(cfg.WorkerDiscordCapacity) != value {
+				t.Fatalf("capacity = %d, want %s", cfg.WorkerDiscordCapacity, value)
 			}
 		})
 	}

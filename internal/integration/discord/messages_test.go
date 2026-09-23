@@ -46,6 +46,7 @@ func TestAddReactionEncodesEmojiAndRetriesSafely(t *testing.T) {
 			case http.StatusForbidden:
 				requireAPIError(t, err, PermanentFailure)
 			case http.StatusTooManyRequests:
+				wantAttempts = 3
 				requireAPIError(t, err, RateLimited)
 			}
 			if attempts.Load() != wantAttempts {

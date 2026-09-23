@@ -638,13 +638,7 @@ func apiResultRetryable(result APIResult) bool {
 }
 
 func apiResultError(action string, result APIResult) error {
-	if result.Message != "" {
-		return fmt.Errorf("%s: %s", action, result.Message)
-	}
-	if result.Code != "" {
-		return fmt.Errorf("%s: %s", action, result.Code)
-	}
-	return fmt.Errorf("%s failed", action)
+	return fmt.Errorf("%s: %w", action, &APIError{Result: result})
 }
 
 func apiResultReason(result APIResult, fallback string) string {

@@ -198,6 +198,7 @@ func TestRepositoryResolverRejectsMissingOrAmbiguousIdentity(t *testing.T) {
 		{`{"total_count":1,"repositories":[{"id":789}]}`, "", InvalidResponse},
 		{testRepositoryListing, `<https://attacker.example/steal?page=2&per_page=100>; rel="next"`, InvalidResponse},
 		{testRepositoryListing, "next", ScopeMismatch},
+		{testRepositoryListing, `<$ORIGIN/repositories/789?per_page=100&page=2>; rel="next"`, InvalidResponse},
 	} {
 		t.Run(fixture.body+fixture.link, func(t *testing.T) {
 			var resolutions atomic.Int32
@@ -210,7 +211,7 @@ func TestRepositoryResolverRejectsMissingOrAmbiguousIdentity(t *testing.T) {
 					t.Error("followed URL or used unverified repository")
 				}
 				resolutions.Add(1)
-				link := fixture.link
+				link := strings.ReplaceAll(fixture.link, "$ORIGIN", "http://"+r.Host)
 				if link == "next" {
 					link = "<http://" + r.Host + `/installation/repositories?page=2&per_page=100>; rel="next"`
 				}

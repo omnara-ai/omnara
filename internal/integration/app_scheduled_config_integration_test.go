@@ -34,7 +34,7 @@ func (f *scheduledJourney) retargetProfile(instruction string) executionstore.Ag
 	return config
 }
 
-func TestScheduledLaunchReadsCurrentConfigWhenBuildingPlan(t *testing.T) {
+func TestScheduledLaunchPinsCurrentConfigBeforePublication(t *testing.T) {
 	for _, provider := range []string{appdefinition.ProviderSlack, appdefinition.ProviderDiscord} {
 		for _, duringPublication := range []bool{false, true} {
 			phase := "after cron handoff"
@@ -66,13 +66,20 @@ func TestScheduledLaunchReadsCurrentConfigWhenBuildingPlan(t *testing.T) {
 				plan, err := decodeAppInboxPlan(saved.Plan)
 				require.NoError(t, err)
 				require.NotEqual(t, f.profile.CurrentConfigID, edited.ID)
-				require.Equal(t, edited.ID, plan["scheduled"].BaseConfigID)
-				require.Equal(t, edited.ID, plan["scheduled"].Launch.DerivedBaseConfigID)
+				expected := edited.ID
+				if duringPublication {
+					expected = f.profile.CurrentConfigID
+				}
+				require.Equal(t, expected, plan["scheduled"].Launch.DerivedBaseConfigID)
 				config, found, err := f.store.Execution().GetAgentConfig(t.Context(), f.ids.ProjectID,
 					results[0].Launch.Agent.CurrentConfigID)
 				require.NoError(t, err)
 				require.True(t, found)
-				require.Contains(t, string(config.CompiledDefinition), "Use the config selected before plan construction")
+				if duringPublication {
+					require.NotContains(t, string(config.CompiledDefinition), "Use the config selected before plan construction")
+				} else {
+					require.Contains(t, string(config.CompiledDefinition), "Use the config selected before plan construction")
+				}
 				require.Equal(t, 1, f.provider.posts)
 			})
 		}
@@ -93,7 +100,7 @@ func TestScheduledLaunchRetryReusesConfigFrozenBeforeProfileEdit(t *testing.T) {
 			require.Equal(t, integrationstore.IntegrationInboxPending, frozen.State)
 			plan, err := decodeAppInboxPlan(frozen.Plan)
 			require.NoError(t, err)
-			require.Equal(t, before.ID, plan["scheduled"].BaseConfigID)
+			require.Equal(t, before.ID, plan["scheduled"].Launch.DerivedBaseConfigID)
 			after := f.retargetProfile("This later edit must not change the frozen launch")
 			require.NotEqual(t, before.ID, after.ID)
 			f.provider.ensure = nil
@@ -181,6 +188,33 @@ func TestScheduledLaunchRejectsForeignProjectProfileBeforePublication(t *testing
 			require.NoError(t, f.pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
 			require.Zero(t, agents)
+		})
+	}
+}
+
+func TestScheduledLaunchConfigFailurePrecedesPublication(t *testing.T) {
+	for _, provider := range []string{appdefinition.ProviderSlack, appdefinition.ProviderDiscord} {
+		t.Run(provider, func(t *testing.T) {
+			f := newScheduledProviderJourney(t, provider)
+			receipt := f.fire()
+			_, err := f.pool.Exec(t.Context(),
+				`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, f.ids.OrgID,
+			)
+			require.NoError(t, err)
+			_, err = f.consumer.Consume(t.Context(), receipt.Lease())
+			require.ErrorContains(t, err, "agent configs")
+			require.Zero(t, f.provider.posts)
+			require.Zero(t, f.provider.ensures)
+			saved, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
+			require.NoError(t, err)
+			require.Empty(t, saved.Plan)
+			_, err = f.pool.Exec(t.Context(), `DELETE FROM org_resource_limit_overrides WHERE org_id=$1`, f.ids.OrgID)
+			require.NoError(t, err)
+			results, err := f.consumer.Consume(t.Context(), receipt.Lease())
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			require.True(t, results[0].Launch.Created)
+			require.Equal(t, 1, f.provider.posts)
 		})
 	}
 }

@@ -128,10 +128,10 @@ func buildAppToolDefinitions() []AppToolDefinition {
 			properties:  map[string]any{"before": text(), "limit": limit()}},
 		{
 			Operation: AppOperationPostMessage, AppType: appdefinition.DiscordThread,
-			Description: "Post a message to this agent's assigned Discord thread.",
+			Description: "Post a message to this agent's assigned Discord thread. Content must be at most 2000 characters.",
 			required:    []string{"content"},
 			properties: map[string]any{
-				"content":      text(),
+				"content":      map[string]any{"type": "string", "minLength": 1, "maxLength": 2000},
 				"artifact_ids": artifacts(10),
 			},
 		},

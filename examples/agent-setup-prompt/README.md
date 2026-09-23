@@ -42,9 +42,9 @@ and retry — don't skip ahead.
         and run code on your machine when analysis helps. Cite your
         sources."
    - ordinary built-in tools except create_machine and delete_machine —
-     list them from GET /tool-catalog. The compiler supplies
-     list_interaction_handlers and set_interaction_handler by default. If I
-     chose Slack, its app launcher below supplies namespaced read/send tools,
+     list them from GET /tool-catalog. Select list_interaction_handlers and
+     set_interaction_handler explicitly if configuring handlers manually. If I
+     chose Slack, its app launcher below supplies these tools, namespaced read/send tools,
      an app-owned thread subscription and an interaction handler to agents it launches;
      leave app tools out of the base profile. Tell the agent to use the
      available app__<app-name>__post_message tool for answers and updates

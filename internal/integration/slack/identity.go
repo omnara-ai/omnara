@@ -3,7 +3,6 @@ package slack
 import (
 	"context"
 	"errors"
-	"fmt"
 )
 
 func CheckIdentity(ctx context.Context, config OAuthConfig, token string, expected Identity) error {
@@ -23,10 +22,10 @@ func CheckIdentity(ctx context.Context, config OAuthConfig, token string, expect
 		return err
 	}
 	if result != (APIResult{}) {
-		return fmt.Errorf("slack identity verification: %s", result.Message)
+		return apiResultError("slack identity verification", result)
 	}
 	if !response.OK {
-		return fmt.Errorf("slack identity verification: %s", ErrorResult(response.Error).Message)
+		return apiResultError("slack identity verification", ErrorResult(response.Error))
 	}
 	if response.TeamID != expected.WorkspaceID || response.UserID != expected.BotUserID || response.BotID == "" {
 		return errors.New("slack token does not match the app's workspace and bot identity")

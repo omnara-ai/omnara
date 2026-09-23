@@ -72,6 +72,7 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
+	integrationHTTPClient               *http.Client
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -221,6 +222,12 @@ func WithHostedCredentialProvisioner(provisioner modelprovider.HostedCredentialP
 func WithSlackOAuth(config SlackOAuthConfig) Option {
 	return func(s *Server) {
 		s.slackOAuth = config
+	}
+}
+
+func WithIntegrationHTTPClient(client *http.Client) Option {
+	return func(s *Server) {
+		s.integrationHTTPClient = client
 	}
 }
 

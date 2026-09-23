@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -234,6 +235,12 @@ func (c *Client) CreateInlineComment(
 	}
 	var result ReviewComment
 	_, err = c.request(ctx, pull.token, http.MethodPost, pullPath(pull.repository, pull.number)+"/comments", args, &result)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Code == PermanentFailure && apiErr.StatusCode == http.StatusUnprocessableEntity {
+		return ReviewComment{}, fmt.Errorf(
+			"GitHub rejected the inline comment; check the body and ensure commit_id, path, line, side "+
+				"and any start_line/start_side match the pull request diff: %w", err)
+	}
 	if err == nil && result.ID <= 0 {
 		err = &APIError{Code: DeliveryUnknown}
 	}

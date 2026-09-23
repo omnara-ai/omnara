@@ -18,11 +18,6 @@ config migrations committed before the app preflight runs. The original release
 must not restart against that changed schema; use matching images or restore the
 pre-upgrade backup.
 
-Development databases that ran this branch’s former app migrations 41/42 or 44/45 must be
-rebuilt from a fresh database or a pre-branch backup before using this migration
-sequence. Save any needed local data first. Those versions now identify a different
-migration sequence; changing Goose’s version records is not a conversion.
-
 Inventory your deployment before scheduling. Set the window from a restored-copy
 rehearsal with the exact release artifacts, allowing time for recovery. Local
 fixture tests establish neither production readiness nor a fixed completion time.
@@ -76,8 +71,8 @@ Slack agents retain their original thread, channel or DM destination. An agent
 without an assigned conversation cannot execute these tools. Handler selection
 still takes complete arguments independently, and accepted provider input selects
 the complete origin automatically. Subscriptions never establish sending context.
-Schedules keep `target.destination` in app setup.
-Source configs have no `listeners` block. Receive subscriptions belong to apps: use launch
+App schedules use the cron API's `target.settings` for their destination and templates.
+Receive subscriptions belong to apps: use launch
 `subscriptions` attachments or `/apps/{appID}/subscriptions` to attach existing
 agents. Their IDs use `asub_`; catalog entries expose
 `capabilities.subscriptions[type].conversation_schema` and `.events`.
@@ -129,17 +124,28 @@ that validate or switch on cron target types before creating app schedules.
    interactive callbacks for smoke tests. Record intended backlog and schedule
    disposition so restarting workers does not unexpectedly resume work.
 
-Use a read-only transaction on the explicitly selected writer for the inventory:
+Run the packaged [schema-44 preflight SQL](/self-hosting/assets/composable-apps-preflight.sql)
+from the release checkout against the explicitly selected writer:
 
-```sql
-BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
-SELECT current_database(), pg_is_in_recovery(),
-       max(version_id) FILTER (WHERE is_applied) AS applied_version
-FROM goose_db_version;
--- Require the intended database, pg_is_in_recovery = false, version = 44.
--- Run the reviewed SELECT queries for every gate below in this snapshot.
-ROLLBACK;
+```sh
+psql "$CUTOVER_DATABASE_URL" -X --set=ON_ERROR_STOP=1 \
+  --file=docs/self-hosting/assets/composable-apps-preflight.sql
 ```
+
+Set `CUTOVER_DATABASE_URL` to the intended writer using your normal credential
+handling. The script prints database identity/version, rejects a replica or a
+version other than 44, and runs all queries in one read-only, repeatable-read
+transaction. It lists every blocker instead of stopping at the first, with only
+IDs, tool names and quota counts. Each blocker result must be empty; a successful
+psql exit only means the queries ran. The script does not repair or cancel work.
+It mirrors SQL45's gates below. Go46's source parsing, hashes and rewrite uniqueness
+still require the restore-copy rehearsal; passing SQL preflight does not replace it.
+
+The report uses internal UUIDs. Work rows include the agent's org and project so
+you can locate it in the old dashboard. For API cancellation, convert those UUIDs
+with [`publicid.Encode`](https://github.com/omnara-ai/omnara/blob/main/internal/publicid/publicid.go),
+using `KindOrganization`, `KindProject` and `KindAgent` respectively. The resulting
+`org_`, `proj_` and `agt_` IDs are the API identifiers; raw UUIDs are not accepted.
 
 | Gate | Required result before SQL45 |
 | --- | --- |

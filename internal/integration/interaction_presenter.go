@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"reflect"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
@@ -29,7 +33,11 @@ import (
 type InteractionPresenter struct {
 	Store      *storage.Store
 	HTTPClient *http.Client
+	Log        *slog.Logger
 }
+
+const AgentRequestFailureMessage = "I couldn't complete this request. " +
+	"Please try again later or contact this bot's owner."
 
 type InteractionReceipt struct {
 	Provider  string `json:"provider"`
@@ -77,9 +85,6 @@ func (p InteractionPresenter) access(
 	switch appSetup.Provider {
 	case appdefinition.ProviderSlack:
 	case appdefinition.ProviderDiscord:
-		if DiscordInteractionPublicKey(appSetup.ProviderConfig) == "" {
-			return interactionAccess{}, storeerr.ErrUnauthorized
-		}
 	default:
 		return interactionAccess{}, storeerr.ErrUnauthorized
 	}
@@ -259,14 +264,21 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 		}
 		return nil
 	}
-	if err := checkAuthority(ctx); err != nil {
+	var access interactionAccess
+	if err := retryInteractionPreflight(ctx, func() error {
+		if err := checkAuthority(ctx); err != nil {
+			return err
+		}
+		var err error
+		access, err = p.access(ctx, projectID, *destination)
+		return err
+	}); err != nil {
 		return err
 	}
-	access, err := p.access(ctx, projectID, *destination)
-	if err != nil {
-		return err
+	checkOnce := func(ctx context.Context) error { return p.recheck(ctx, access, checkAuthority) }
+	check := func(ctx context.Context) error {
+		return retryInteractionPreflight(ctx, func() error { return checkOnce(ctx) })
 	}
-	check := func(ctx context.Context) error { return p.recheck(ctx, access, checkAuthority) }
 	form, err := interactionPromptForm(record)
 	if err != nil {
 		return err
@@ -278,15 +290,21 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	var receipt InteractionReceipt
 	switch access.appSetup.Provider {
 	case appdefinition.ProviderSlack:
-		client := slack.WithRequestCheck(p.HTTPClient, check)
-		target, err := access.slackTarget(ctx, client)
-		if err != nil {
+		// The outer loop owns retries for both authority reads and auth.test.
+		preflightClient := slack.WithRequestCheck(p.HTTPClient, checkOnce)
+		var target slack.MessageTarget
+		if err := retryInteractionPreflight(ctx, func() error {
+			var err error
+			target, err = access.slackTarget(ctx, preflightClient)
+			return err
+		}); err != nil {
 			return err
 		}
 		payload, err := SlackInteractionPromptPayload(*destination, agentID, record)
 		if err != nil {
 			return err
 		}
+		client := slack.WithRequestCheck(p.HTTPClient, check)
 		messageID, err := postSlackInteraction(ctx, client, target, payload, interactionID)
 		if err != nil {
 			return err
@@ -297,6 +315,9 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 			MessageID: messageID,
 		}
 	case appdefinition.ProviderDiscord:
+		if DiscordInteractionPublicKey(access.appSetup.ProviderConfig) == "" {
+			return storeerr.ErrUnauthorized
+		}
 		client, err := p.discordClient(ctx, access, check)
 		if err != nil {
 			return err
@@ -353,9 +374,60 @@ func slackPromptError(result slack.APIResult, err error) error {
 		return err
 	}
 	if result.RateLimited || result.TransientFailure || result.PermanentFailure || result.DeliveryUnknown {
-		return errors.New("slack interaction presentation failed")
+		return fmt.Errorf("slack interaction presentation: %w", &slack.APIError{Result: result})
 	}
 	return nil
+}
+
+// Only use this for reads before publication. The permanent presentation claim
+// remains owned by this attempt; neither a send nor an ambiguous send result may
+// enter this loop. Discord retries its identity/channel reads in its HTTP client.
+func retryInteractionPreflight(ctx context.Context, read func() error) error {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := read()
+		if err == nil || attempt == 2 || !transientInteractionPreflight(err) {
+			return err
+		}
+		delay := max(time.Duration(attempt+1)*100*time.Millisecond, providerRetryDelay(err))
+		if delay > time.Second {
+			return err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func transientInteractionPreflight(err error) bool {
+	if errors.Is(err, storeerr.ErrUnauthorized) || errors.Is(err, storeerr.ErrNotFound) ||
+		errors.Is(err, storeerr.ErrStateTransitionConflict) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var slackErr *slack.APIError
+	if errors.As(err, &slackErr) {
+		// auth.test is a read even though Slack uses POST and classifies network
+		// failures as DeliveryUnknown. No prompt has been sent at this stage.
+		return !slackErr.Result.PermanentFailure && (slackErr.Result.RateLimited ||
+			slackErr.Result.TransientFailure || slackErr.Result.DeliveryUnknown)
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001", "40P01", "08000", "08003", "08006", "53300", "57P01", "57P02", "57P03":
+			return true
+		}
+		return false
+	}
+	var networkErr net.Error
+	return pgconn.SafeToRetry(err) || errors.As(err, &networkErr) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func postSlackInteraction(
@@ -370,7 +442,8 @@ func postSlackInteraction(
 		if id != "" {
 			return id, nil
 		}
-		if result.RateLimited && attempt < 2 && result.RetryAfter >= 0 && slept+result.RetryAfter <= 3*time.Second {
+		if result.RateLimited && result.StatusCode < 500 && attempt < 2 &&
+			result.RetryAfter >= 0 && result.RetryAfter <= 3*time.Second-slept {
 			timer := time.NewTimer(result.RetryAfter)
 			select {
 			case <-ctx.Done():
@@ -381,7 +454,7 @@ func postSlackInteraction(
 			slept += result.RetryAfter
 			continue
 		}
-		if result.DeliveryUnknown || result.TransientFailure {
+		if result.StatusCode >= 500 || result.DeliveryUnknown || result.TransientFailure {
 			id, result, err = slack.ReconcilePromptReceipt(ctx, client, target, interactionID)
 			if err == nil && id != "" {
 				return id, nil

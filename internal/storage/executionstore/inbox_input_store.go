@@ -42,11 +42,16 @@ type InboxInputPreparation struct {
 	Artifacts []artifactstore.PreparedArtifact `json:"artifacts"`
 }
 
+type InboxInputSkipReason string
+
+const InboxInputSkipAgentArchived InboxInputSkipReason = "agent_archived"
+
 type inboxInputCommit struct {
-	IdempotencyKey   string    `json:"idempotency_key"`
-	InputID          uuid.UUID `json:"input_id"`
-	TargetID         uuid.UUID `json:"target_id"`
-	IdempotencyScope string    `json:"idempotency_scope"`
+	Skipped          InboxInputSkipReason `json:"skipped,omitempty"`
+	IdempotencyKey   string               `json:"idempotency_key"`
+	InputID          uuid.UUID            `json:"input_id"`
+	TargetID         uuid.UUID            `json:"target_id"`
+	IdempotencyScope string               `json:"idempotency_scope"`
 }
 
 type inboxInputProgress struct {
@@ -125,6 +130,16 @@ func (s *Store) admitInboxInputSlotOnce(
 	); err != nil {
 		return InboxInputResult{}, err
 	}
+	settled, err := s.settleArchivedInboxInputTx(ctx, tx, work, slotKey, slot)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	if settled != nil {
+		if err := tx.Commit(ctx); err != nil {
+			return InboxInputResult{}, err
+		}
+		return *settled, nil
+	}
 	var artifacts []artifactstore.PreparedArtifact
 	if progress.Prepared != nil {
 		artifacts = progress.Prepared.Artifacts
@@ -135,13 +150,6 @@ func (s *Store) admitInboxInputSlotOnce(
 	}
 	notifications := s.newTxNotifications()
 	if slot.Sibling != nil {
-		if err := lifecyclelock.Agents(
-			ctx,
-			tx,
-			[]lifecyclelock.AgentRef{{ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID}},
-		); err != nil {
-			return InboxInputResult{}, err
-		}
 		_, own, err := loadAgentInputByIdempotencyMaybeTx(
 			ctx,
 			tx,
@@ -214,13 +222,6 @@ func (s *Store) admitInboxInputSlotOnce(
 	}
 
 	if slot.Subscription != nil {
-		if err := lifecyclelock.Agents(
-			ctx,
-			tx,
-			[]lifecyclelock.AgentRef{{ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID}},
-		); err != nil {
-			return InboxInputResult{}, err
-		}
 		_, replay, err := loadAgentInputByIdempotencyMaybeTx(
 			ctx,
 			tx,
@@ -267,6 +268,65 @@ func (s *Store) admitInboxInputSlotOnce(
 		return InboxInputResult{}, err
 	}
 	return result, nil
+}
+
+// settleArchivedInboxInputTx runs after locking the inbox lease and conversation.
+// Holding the agent lock makes archival terminal for this slot, but a delivery
+// that won the race still replays as delivered. Missing subscriptions are not
+// terminal: restoring the same address/type/event can authorize a later retry.
+// A non-nil result has been recorded in progress; the caller must commit tx.
+func (s *Store) settleArchivedInboxInputTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	work *integrationstore.IntegrationInboxLeaseTx,
+	key string,
+	slot InboxInputSlot,
+) (*InboxInputResult, error) {
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID,
+	}}); err != nil {
+		return nil, err
+	}
+	agent, err := loadAgentInProjectTx(ctx, tx, slot.Input.ProjectID, slot.AgentID)
+	if err != nil || agent.State != AgentStateArchived {
+		return nil, err
+	}
+	slot.Input, _, err = s.resolveInputOriginTx(ctx, tx, slot.Input)
+	if err != nil {
+		return nil, err
+	}
+	result, found, err := s.originContentReplayTx(ctx, tx, slot.Input)
+	if err != nil {
+		return nil, err
+	}
+	if !found && slot.Sibling != nil && slot.Sibling.AttachmentNotice == "" {
+		companion := slot.Input
+		companion.IdempotencyKey = slot.Sibling.Key
+		result, found, err = s.originContentReplayTx(ctx, tx, companion)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var committed []byte
+	if found {
+		committed, err = json.Marshal(inboxInputCommit{
+			IdempotencyKey: result.AgentInput.InputIdempotencyKey,
+			InputID:        result.AgentInput.ID, TargetID: result.AgentInput.IntegrationTargetID,
+			IdempotencyScope: result.AgentInput.IdempotencyScope,
+		})
+	} else {
+		result = InboxInputResult{Skipped: InboxInputSkipAgentArchived}
+		committed, err = json.Marshal(struct {
+			Skipped InboxInputSkipReason `json:"skipped"`
+		}{Skipped: result.Skipped})
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := work.CommitSlot(ctx, key, committed); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func decodeInboxInputSlot(
@@ -321,6 +381,13 @@ func (s *Store) replayInboxInput(
 	slot InboxInputSlot,
 	committed inboxInputCommit,
 ) (InboxInputResult, error) {
+	if committed.Skipped != "" {
+		if committed.Skipped != InboxInputSkipAgentArchived || committed.InputID != uuid.Nil ||
+			committed.TargetID != uuid.Nil || committed.IdempotencyKey != "" || committed.IdempotencyScope != "" {
+			return InboxInputResult{}, storeerr.ErrIdempotencyConflict
+		}
+		return InboxInputResult{Skipped: committed.Skipped}, nil
+	}
 	if committed.InputID == uuid.Nil || committed.TargetID == uuid.Nil || committed.IdempotencyScope == "" {
 		return InboxInputResult{}, storeerr.ErrIdempotencyConflict
 	}

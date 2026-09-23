@@ -100,8 +100,10 @@ are not strictly FIFO. Operational timing, retention and metrics belong in
 
 Failure notices and cleanup of unreferenced prepared uploads are best effort after
 the terminal commit. Crashes or lease recovery can skip them; retained database
-receipts are not a general blob garbage collector. Cleanup must preserve committed
-slots and durable artifact references, including archived history.
+receipts are not a general blob garbage collector. A committed archived-recipient
+skip settles work without delivering it; its unused uploads can be cleaned after
+receipt completion or failure. Cleanup must preserve delivered slots and durable
+artifact references, including archived history.
 
 Use `app_states` for small workflow records keyed by app, kind and key, optionally
 indexed by conversation. A launcher can need state before an agent exists. Define

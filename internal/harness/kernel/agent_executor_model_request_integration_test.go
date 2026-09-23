@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -812,7 +812,7 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	if postCount != 1 {
 		t.Fatalf("Slack runtime message post count = %d, want 1", postCount)
 	}
-	if postedText != slack.AgentRequestFailureMessage {
+	if postedText != integration.AgentRequestFailureMessage {
 		t.Fatalf("Slack runtime message text = %q", postedText)
 	}
 	if len(modelClient.respondHadSink) != 0 {

@@ -23,6 +23,15 @@ account, and choose **Connect app**. If organization approval is pending, you ca
 return later using the saved credential. Nothing launches until you choose an
 agent profile and save the app's launch settings.
 
+<Warning>
+Any human GitHub user who can comment on a connected repository can trigger
+configured mention launches and steer subscribed PR agents. Public and fork PRs
+can trigger configured PR-open launches; authors do not need to be maintainers
+or collaborators. Choose a profile whose tools, machine access and secrets are
+appropriate for untrusted input, and review its tool permissions before enabling
+incoming work.
+</Warning>
+
 The new GitHub App is private. To install it outside its owning account, change
 its visibility in GitHub App settings. Guided registration supports GitHub.com.
 Use **Use an existing App** for a registration you already own or manual setup.
@@ -35,6 +44,11 @@ Guided discovery supports user and organization Apps and installations.
 Enterprise-owned Apps and enterprise-level installations report an unsupported
 setup instead of prompting repeated retries. Organization installations within
 GitHub Enterprise Cloud still use the ordinary organization flow.
+
+Manage repository access in GitHub. Omnara preserves existing repository-scoped
+launchers when you edit them, but the guided setup does not add another repository
+allowlist. Repository checkout and machine credentials remain separate from the
+App's PR comment permissions.
 
 ### Manual setup
 

@@ -141,13 +141,9 @@ func (r *DiscordRuntime) run(
 		cancel()
 		<-heartbeatDone
 		delay := discordReconnectDelay(runErr)
-		failure := ""
-		if runErr != nil && !errors.Is(runErr, context.Canceled) {
-			failure = runErr.Error()
+		failure := discordRuntimeFailureMessage(runErr)
+		if failure != "" {
 			log.Warn("Discord connection stopped", "app_id", appSetup.ID, "error", runErr)
-		}
-		if len(failure) > 4000 {
-			failure = failure[:4000]
 		}
 		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
 		defer releaseCancel()
@@ -162,6 +158,48 @@ func (r *DiscordRuntime) run(
 		}
 	}()
 	runErr = r.connect(ctx, appSetup, claim)
+}
+
+// Runtime failures are exposed by GET app. Persist only bounded, fixed messages;
+// provider payloads, transport URLs and internal error details belong in the log.
+func discordRuntimeFailureMessage(err error) string {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return ""
+	}
+	const credentials = "Discord rejected the bot token. Check this app's credentials."
+	const rateLimited = "Discord is limiting connection requests. Omnara will retry later."
+	var apiError *discord.APIError
+	if errors.As(err, &apiError) {
+		switch {
+		case apiError.Code == discord.ScopeMismatch:
+			return "Discord bot identity does not match this app's setup. Check the application ID, bot user ID and token."
+		case apiError.Code == discord.RateLimited:
+			return rateLimited
+		case apiError.Code == discord.PermanentFailure && apiError.StatusCode == http.StatusUnauthorized:
+			return credentials
+		case apiError.Code == discord.PermanentFailure && apiError.StatusCode == http.StatusForbidden:
+			return "Discord denied access. Check the bot's permissions and app setup."
+		}
+	}
+	var gatewayError *discord.GatewayError
+	if errors.As(err, &gatewayError) {
+		switch gatewayError.CloseCode {
+		case 4004:
+			return credentials
+		case 4008:
+			return rateLimited
+		case 4014:
+			return "Discord denied a required gateway intent. Check the bot's enabled intents in the Discord Developer Portal."
+		}
+		if gatewayError.Fatal {
+			return "Discord rejected the gateway configuration. Contact your Omnara administrator."
+		}
+	}
+	var permitWait discordIdentifyWaitError
+	if errors.As(err, &permitWait) {
+		return rateLimited
+	}
+	return "Omnara could not maintain the Discord connection. It will retry automatically."
 }
 
 func (r *DiscordRuntime) connect(
@@ -238,7 +276,7 @@ func (r *DiscordRuntime) connect(
 				if err != nil {
 					return err
 				}
-				if ok && !event.Self && !event.Automated {
+				if ok && discordConversationalMessage(event) {
 					raw, err := json.Marshal(dispatch)
 					if err != nil {
 						return err
@@ -318,7 +356,7 @@ func discordReconnectDelay(err error) time.Duration {
 		delay = max(delay, gatewayError.RetryAfter)
 	}
 	if errors.As(err, &apiError) {
-		if apiError.Code == discord.PermanentFailure {
+		if apiError.Code == discord.PermanentFailure || apiError.Code == discord.ScopeMismatch {
 			return time.Hour
 		}
 		delay = max(delay, apiError.RetryAfter)

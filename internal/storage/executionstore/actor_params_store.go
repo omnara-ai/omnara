@@ -16,11 +16,11 @@ import (
 )
 
 type ActorParams struct {
-	Provider         string
-	ProviderTenantID string
-	ProviderUserID   string
-	DisplayName      *string
-	Metadata         resourcemeta.Metadata
+	Provider         string                `json:"provider"`
+	ProviderTenantID string                `json:"provider_tenant_id"`
+	ProviderUserID   string                `json:"provider_user_id"`
+	DisplayName      *string               `json:"display_name,omitempty"`
+	Metadata         resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
 func AppActorParams(appID uuid.UUID, userID string, displayName *string) (ActorParams, error) {

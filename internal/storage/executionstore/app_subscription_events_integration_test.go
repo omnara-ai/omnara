@@ -42,7 +42,7 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 		SemanticEventKey: "launch-review",
 	}
 	slot := executionstore.InboxLaunchSlot{
-		AgentID: uuid.Must(uuid.NewV7()), Launch: launch,
+		AgentID: uuid.Must(uuid.NewV7()), Launch: f.freezeLaunch(t, launch),
 		Selection: integrationstore.InboxAppSelection{AppID: f.app.ID, Address: address, Slot: "review"},
 	}
 	_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{

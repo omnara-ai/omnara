@@ -36,6 +36,28 @@ type AppRuntimeClaim struct {
 	Checkpoint json.RawMessage
 }
 
+type AppRuntimeFailure struct {
+	Message string
+	RetryAt time.Time
+}
+
+func (s *Store) GetAppRuntimeFailure(
+	ctx context.Context,
+	projectID, appID uuid.UUID,
+	setupRevision int64,
+) (AppRuntimeFailure, error) {
+	row, err := s.q.GetAppRuntimeFailure(ctx, dbsqlc.GetAppRuntimeFailureParams{
+		ProjectID: projectID, AppID: appID, SetupRevision: setupRevision,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AppRuntimeFailure{}, storeerr.ErrNotFound
+	}
+	if err != nil {
+		return AppRuntimeFailure{}, err
+	}
+	return AppRuntimeFailure{Message: row.Message, RetryAt: row.RetryAt}, nil
+}
+
 func (r AppRuntimeRevision) validate() error {
 	if r.ProjectID == uuid.Nil || r.AppID == uuid.Nil || r.CredentialVersionID == uuid.Nil ||
 		r.SetupRevision <= 0 ||

@@ -35,7 +35,7 @@ func (p *SlackAppInboxProvider) PublishScheduledRoot(
 			"%w: Slack opening publication could not be confirmed", ErrScheduledActionFailed,
 		)
 	case result.RateLimited:
-		return appdefinition.Scope{}, fmt.Errorf("scheduled Slack opening was rate limited")
+		return appdefinition.Scope{}, fmt.Errorf("scheduled Slack opening: %w", &slack.APIError{Result: result})
 	case result.PermanentFailure:
 		return appdefinition.Scope{}, fmt.Errorf("%w: Slack rejected the opening message", ErrScheduledActionFailed)
 	}

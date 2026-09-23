@@ -37,7 +37,7 @@ func (p *SlackAppInboxProvider) PresentProfileChoice(
 		return "", "", err
 	}
 	if result.RateLimited || result.TransientFailure || result.PermanentFailure || result.DeliveryUnknown {
-		return "", "", fmt.Errorf("post Slack profile choice: %s", result.Message)
+		return "", "", fmt.Errorf("post Slack profile choice: %w", &slack.APIError{Result: result})
 	}
 	return channel, message, nil
 }
@@ -56,7 +56,7 @@ func (p *SlackAppInboxProvider) DismissProfileChoice(
 		return err
 	}
 	if result.RateLimited || result.TransientFailure || result.PermanentFailure || result.DeliveryUnknown {
-		return fmt.Errorf("update Slack profile choice: %s", result.Message)
+		return fmt.Errorf("update Slack profile choice: %w", &slack.APIError{Result: result})
 	}
 	return nil
 }

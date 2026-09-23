@@ -231,7 +231,7 @@ func main() {
 	presentationsDone := make(chan struct{})
 	go func() {
 		defer close(presentationsDone)
-		presenter := integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient}
+		presenter := integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log}
 		presenter.RunPending(ctx, backgroundRunner)
 	}()
 	workerErr := make(chan error, 1)
@@ -245,6 +245,7 @@ func main() {
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
 	discordRuntime := integration.DiscordRuntime{
+		Capacity:     cfg.WorkerDiscordCapacity,
 		Integrations: store.Integrations(),
 		Secrets:      store.Secrets(),
 		Redis:        redisClient,
@@ -283,12 +284,13 @@ func main() {
 		appdefinition.DiscordThread: chatLauncher.Decide,
 		appdefinition.GitHubPR:      integration.EverySlotAppLauncher,
 	})
+	appLaunchers.Log = log
 	appConsumer := integration.NewAppInboxConsumer(
 		appRouter,
 		store.Integrations(),
 		store.Artifacts(),
 		appProviders,
-		integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient},
+		integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log},
 		appLaunchers,
 		integration.WithAppScheduledHandlers(map[appdefinition.Type]integration.AppScheduledHandler{
 			appdefinition.SlackThread: integration.NewThreadAppScheduledHandler(
@@ -299,6 +301,7 @@ func main() {
 			).Handle,
 		}),
 	)
+	appConsumer.Log = log
 	appWorker := integration.NewAppInboxWorker(store.Integrations(), appConsumer, integration.AppInboxWorkerOptions{
 		Log: log, MachinePools: machinePoolManager, Capacity: cfg.WorkerInboxCapacity,
 		Metrics: metrics.NewAppInboxRecorder(metricSet),

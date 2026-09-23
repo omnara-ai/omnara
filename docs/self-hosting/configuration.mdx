@@ -29,6 +29,7 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY` | Soft cap on concurrent event webhook deliveries per org across workers; use the same value on every worker | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
 | `OMNARA_WORKER_INBOX_CAPACITY` | Maximum app inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
+| `OMNARA_WORKER_DISCORD_CAPACITY` | Maximum concurrent Discord app Gateway sessions per worker process; positive integer | `64` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
@@ -57,7 +58,7 @@ budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget
 exhaustion retries after one second; drained queues return to 30-second polling.
 The lag query has its own one-second deadline and runs at most once per 30 seconds.
 
-Inbox retention runs last in each core maintenance tick. Completed/failed receipts
+Inbox retention runs concurrently with the other core maintenance tasks. Completed/failed receipts
 become eligible for deletion seven days after finishing, measured by the database
 clock. Locks or cleanup backlogs can delay deletion. Deleting the app, project or
 organization can purge receipts earlier; disconnecting an app preserves normal
@@ -65,7 +66,8 @@ retention.
 Terminal and deleted-scope cleanup each drain 100-row transactions with a 250 ms
 soft budget checked between batches. The current batch may finish beyond that
 budget without cancellation. Each cleanup pass has a five-second hard deadline,
-so two stalled passes can delay the next core tick by about ten seconds. Hard
+and the two passes run concurrently, so their deadlines overlap. The next core
+tick waits for all tasks; these deadlines do not bound the entire tick. Hard
 timeouts are logged as errors. Each batch is atomic, but cancellation can race
 commit, so a failed call may have an uncertain result. Logged counts include only
 confirmed deletions; the next tick safely continues from remaining rows.

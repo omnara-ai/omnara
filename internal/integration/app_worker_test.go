@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -505,4 +508,28 @@ func TestAppInboxWorkerRecoveryHardDeadlineAndParentCancellation(t *testing.T) {
 		require.ErrorIs(t, worker.recoverDue(ctx), context.Canceled)
 		require.Equal(t, 1, store.recovered, "parent cancellation must prevent another batch")
 	})
+}
+
+func TestAppInboxRetryDelayHonorsProviderHints(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		attempt int
+		err     error
+		want    time.Duration
+	}{
+		{"initial", 1, nil, 5 * time.Second},
+		{"local wins", 6, &discord.APIError{RetryAfter: time.Second}, 160 * time.Second},
+		{"local cap", 100, nil, 5 * time.Minute},
+		{"wrapped discord", 1, fmt.Errorf("prepare: %w", &discord.APIError{RetryAfter: time.Hour}), time.Hour},
+		{"joined max", 1, errors.Join(&discord.APIError{RetryAfter: time.Minute},
+			fmt.Errorf("Slack: %w", &slack.APIError{Result: slack.APIResult{RetryAfter: 2 * time.Hour}})), 2 * time.Hour},
+		{"nested GitHub max", 1, errors.Join(&discord.APIError{RetryAfter: time.Minute},
+			errors.Join(&slack.APIError{Result: slack.APIResult{RetryAfter: 2 * time.Hour}},
+				fmt.Errorf("GitHub: %w", &github.APIError{Code: github.RateLimited, RetryAfter: 3 * time.Hour}))),
+			3 * time.Hour},
+		{"negative ignored", 1, &discord.APIError{RetryAfter: -time.Hour}, 5 * time.Second},
+		{"storage bound", 1, &discord.APIError{RetryAfter: 48 * time.Hour}, 24 * time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) { require.Equal(t, test.want, appInboxRetryDelay(test.attempt, test.err)) })
+	}
 }

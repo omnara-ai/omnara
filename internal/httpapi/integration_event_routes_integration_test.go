@@ -3597,6 +3597,7 @@ func newSlackEventsIntegrationFixture(
 		pool,
 		[]storage.Option{storage.WithBlobStore(integrationblob.MustOpen(t, ctx))},
 		WithPublicURL("https://omnara.test"),
+		WithIntegrationHTTPClient(client),
 		WithSlackOAuth(
 			SlackOAuthConfig{
 				AccessURL:  slackServer.URL + "/oauth.v2.access",

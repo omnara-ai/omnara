@@ -233,6 +233,7 @@ const SlackSetupFields = withForm({
                   <Input
                     id="clientId"
                     required
+                    autoComplete="off"
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
@@ -295,6 +296,7 @@ const SlackSetupFields = withForm({
                         id={name}
                         required
                         type="password"
+                        autoComplete="new-password"
                         value={field.state.value}
                         onChange={(event) => {
                           field.handleChange(event.target.value)
@@ -316,6 +318,7 @@ const SlackSetupFields = withForm({
                     id="slack-app-configuration-token"
                     required
                     type="password"
+                    autoComplete="new-password"
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)

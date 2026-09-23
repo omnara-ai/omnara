@@ -3018,6 +3018,14 @@ export const zProjectAppSettings = z.object({
     launcher: zAppLauncher.optional()
 });
 
+/**
+ * Most recent connection failure for the active app's current setup and credential version. Returned only by Get app, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+ */
+export const zProjectAppRuntimeFailure = z.object({
+    message: z.string(),
+    retry_at: zTimestamp
+});
+
 export const zConfigAgentToolInputSchema = z.object({
     properties: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
     required: z.array(z.string().min(1)).optional(),
@@ -3142,6 +3150,7 @@ export const zProjectApp = z.object({
     state: zProjectAppState,
     setup_revision: z.int().gte(1),
     last_oauth_flow_id: zIntegrationOAuthFlowId.optional(),
+    runtime_failure: zProjectAppRuntimeFailure.optional(),
     settings: zProjectAppSettings,
     provider_tenant_id: z.string(),
     provider_account_ref: z.string(),

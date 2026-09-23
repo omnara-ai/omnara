@@ -163,7 +163,7 @@ func (c *SetupClient) ListInstallations(ctx context.Context, options PageOptions
 		installation.Installation.Account = installation.Account.User
 		output = append(output, installation.Installation)
 	}
-	next, err := c.nextPage(header.Values("Link"), path, options)
+	next, err := c.nextPage(header.Values("Link"), options, path)
 	if err != nil {
 		return InstallationsPage{}, err
 	}

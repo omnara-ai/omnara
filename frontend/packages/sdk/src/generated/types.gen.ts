@@ -3718,6 +3718,7 @@ export type ProjectApp = {
      */
     setup_revision: number;
     last_oauth_flow_id?: IntegrationOAuthFlowId;
+    runtime_failure?: ProjectAppRuntimeFailure;
     settings: ProjectAppSettings;
     provider_tenant_id: string;
     provider_account_ref: string;
@@ -3727,6 +3728,20 @@ export type ProjectApp = {
     capabilities: AppCapabilities;
     created_at: Timestamp;
     updated_at: Timestamp;
+};
+
+/**
+ * Most recent connection failure for the active app's current setup and credential version. Returned only by Get app, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+ */
+export type ProjectAppRuntimeFailure = {
+    /**
+     * Connection failure recorded by the app runtime.
+     */
+    message: string;
+    /**
+     * Earliest time the runtime may retry. A retry can start later.
+     */
+    retry_at: Timestamp;
 };
 
 export type ListProjectAppsResponse = {

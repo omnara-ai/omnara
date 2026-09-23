@@ -48,18 +48,17 @@ type AppInboxSlot struct {
 	EventOrder   int                                          `json:"event_order"`
 	Selection    *integrationstore.InboxAppSelection          `json:"selection,omitempty"`
 	AgentID      uuid.UUID                                    `json:"agent_id"`
-	Launch       *executionstore.LaunchAgentInput             `json:"launch,omitempty"`
+	Launch       *executionstore.InboxLaunchPlan              `json:"launch,omitempty"`
 	Input        *executionstore.CreateAgentContentInputInput `json:"input,omitempty"`
 	ArtifactIDs  []uuid.UUID                                  `json:"artifact_ids,omitempty"`
 	Files        []AppPlannedFile                             `json:"files,omitempty"`
-	BaseConfigID uuid.UUID                                    `json:"base_config_id,omitempty"`
 	Subscription *executionstore.InboxSubscriptionAuthority   `json:"subscription,omitempty"`
 }
 
 type AppInboxPlan map[string]AppInboxSlot
 
 type AppExecutionStore interface {
-	GetAgentConfig(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentConfigRecord, bool, error)
+	CreateAgentConfig(context.Context, executionstore.CreateAgentConfigInput) (executionstore.AgentConfigRecord, error)
 	GetAgentInProject(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentRecord, error)
 	CheckInboxConversationAuthority(
 		context.Context,

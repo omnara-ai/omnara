@@ -308,6 +308,143 @@ it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
   },
 )
 
+it.each(['active', 'disconnected'] as const)(
+  'shows current connection failures only for an active app and refreshes status (%s)',
+  async (state) => {
+    let failing = true
+    const app = projectApp({
+      app_type: 'discord_thread',
+      state,
+      provider_tenant_id: '111',
+      provider_account_ref: '222',
+    })
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: `${projectPath}/apps/${app.id}/subscriptions`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      },
+      {
+        method: 'GET',
+        path: `${projectPath}/apps/${app.id}`,
+        respond: () =>
+          Response.json({
+            ...app,
+            runtime_failure: failing
+              ? {
+                  message: 'Discord Gateway closed: 4014',
+                  retry_at: '2026-09-23T12:00:00Z',
+                }
+              : undefined,
+          }),
+      },
+    ])
+    render(
+      api,
+      <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage={false} />,
+    )
+    await waitForUI(() => {
+      expect(container.querySelector('h1')?.textContent).toBe(app.name)
+    })
+    if (state === 'disconnected') {
+      expect(container.textContent).not.toContain('Connection failed:')
+      expect(container.textContent).toContain('not queued for replay')
+      return
+    }
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Discord Gateway closed: 4014',
+    )
+    expect(container.querySelector('time')?.dateTime).toBe('2026-09-23T12:00:00Z')
+    failing = false
+    act(() => {
+      button('Refresh status').click()
+    })
+    await waitForUI(() => {
+      expect(container.textContent).not.toContain('Connection failed:')
+    })
+    expect(api.requestsTo('GET', `${projectPath}/apps/${app.id}`)).toHaveLength(2)
+  },
+)
+
+it.each([true, false])(
+  'keeps runtime failures while saving until GET reports the current failure (still failing: %s)',
+  async (stillFailing) => {
+    const failure = {
+      message: 'Discord Gateway closed: 4014',
+      retry_at: '2026-09-23T12:00:00Z',
+    }
+    const app = projectApp({
+      app_type: 'discord_thread',
+      state: 'active',
+      provider_tenant_id: '111',
+      provider_account_ref: '222',
+    })
+    const appPath = `${projectPath}/apps/${app.id}`
+    const updated = { ...app, updated_at: '2026-09-23T11:00:00Z' }
+    let saved = false
+    let release!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    const api = fakeApi([
+      {
+        method: 'GET',
+        path: appPath,
+        respond: () => (saved ? pending : Response.json({ ...app, runtime_failure: failure })),
+      },
+      {
+        method: 'PUT',
+        path: appPath,
+        respond: () => {
+          saved = true
+          return Response.json(updated)
+        },
+      },
+      ...['agent-profiles', 'cron-triggers', `apps/${app.id}/subscriptions`].map((resource) => ({
+        method: 'GET',
+        path: `${projectPath}/${resource}`,
+        respond: () => Response.json({ data: [], next_cursor: null }),
+      })),
+    ])
+    const { cache, client } = render(
+      api,
+      <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />,
+    )
+    await waitForUI(() => {
+      expect(container.textContent).toContain(`Connection failed: ${failure.message}`)
+    })
+    act(() => {
+      button('Choose profiles').click()
+    })
+    act(() => {
+      button('Save changes').click()
+    })
+    await waitForUI(() => {
+      expect(api.requestsTo('PUT', appPath)).toHaveLength(1)
+      expect(api.requestsTo('GET', appPath)).toHaveLength(2)
+    })
+    const queryKey = getProjectAppQueryKey({
+      path: { orgID: orgId, projectID: projectId, appID: app.id },
+      client,
+    })
+    expect(cache.getQueryData(queryKey)).toMatchObject({ runtime_failure: failure })
+    expect(container.textContent).toContain(`Connection failed: ${failure.message}`)
+    act(() => {
+      release(Response.json({ ...updated, runtime_failure: stillFailing ? failure : undefined }))
+    })
+    await waitForUI(() => {
+      expect(button('Choose profiles')).toBeDefined()
+      expect(cache.getQueryData(queryKey)).toEqual({
+        ...updated,
+        runtime_failure: stillFailing ? failure : undefined,
+      })
+      expect(container.textContent.includes(`Connection failed: ${failure.message}`)).toBe(
+        stillFailing,
+      )
+    })
+  },
+)
+
 it('keeps an edit draft mounted through a failed background refresh', async () => {
   let unavailable = false
   const api = fakeApi([

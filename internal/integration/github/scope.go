@@ -48,7 +48,7 @@ func (c *Client) preparePull(ctx context.Context, scope Scope, write bool) (prep
 		len(listing.Repositories) > 100 {
 		return preparedPull{}, &APIError{Code: InvalidResponse}
 	}
-	next, err := c.nextPage(header.Values("Link"), "/installation/repositories", PageOptions{Page: 1, PerPage: 100})
+	next, err := c.nextPage(header.Values("Link"), PageOptions{Page: 1, PerPage: 100}, "/installation/repositories")
 	if err != nil {
 		return preparedPull{}, err
 	}

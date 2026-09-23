@@ -194,5 +194,5 @@ func scheduledPlanLaunch(
 	require.NoError(t, err)
 	content, err := appdefinition.AppendInputContext(app.Name, root, raw)
 	require.NoError(t, err)
-	return map[string]any{"ProfileID": launch.ProfileID, "InitialInput": map[string]any{"content_blocks": content}}
+	return map[string]any{"profile_id": launch.ProfileID, "initial_input": map[string]any{"content_blocks": content}}
 }

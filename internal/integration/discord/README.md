@@ -38,6 +38,14 @@ the client and require intervention; it is never silently skipped. Only Guild
 Messages and Message Content intents are requested, avoiding unused guild snapshots.
 Changing intents takes effect on the next IDENTIFY, not a resumed session.
 
+`MESSAGE_CREATE` identifies a thread without its parent channel. Each eligible
+message therefore requires `GetChannel` before the indexed routing check can
+resolve the stored `parent:thread` address. Unrelated visible traffic still costs
+an inbox receipt, database work and a REST lookup, sharing the bot's quota with
+replies. The routing check includes pending launch reservations; absence of a
+subscription alone cannot safely discard a message. Identity and attachment
+requests run only after this check finds a recipient.
+
 ## Threads and sends
 
 A [thread started from a message](https://docs.discord.com/developers/resources/channel#start-thread-from-message)
@@ -50,8 +58,12 @@ Message creation uses the same logical-send nonce and payload for bounded retrie
 with `enforce_nonce`. Discord's nonce deduplication window is short; a final unknown
 result does not authorize a fresh retry later. See
 [Create Message](https://docs.discord.com/developers/resources/message#create-message).
-Rate limits surface `RetryAfter` and `Global` to the caller; there is no bot-wide
-REST scheduler. See
+Reads and safely repeatable sends retry short 429 responses (at most one second
+per wait) within the existing three-attempt limit, rechecking authority before
+each request. Rate limits retain `RetryAfter` and `Global` for the caller. Durable
+inbox retries use the larger of local backoff and the provider hint, capped at
+24 hours, without extending the attempt budget. There is no bot-wide REST
+scheduler. See
 [Discord rate limits](https://docs.discord.com/developers/topics/rate-limits).
 
 Attachment downloads refresh scoped message metadata, validate membership and CDN
@@ -77,3 +89,5 @@ two-second intake context that leaves room for Discord's three-second deadline.
 Opening a modal is not an answer; replay must reproduce it without resolving the
 interaction. Any verified participant in the captured conversation may answer.
 Provider presentation failure leaves the dashboard/API interaction available.
+Plain runtime notices use live bot credentials and destination authority without
+requiring the callback verification key needed to publish interactive prompts.

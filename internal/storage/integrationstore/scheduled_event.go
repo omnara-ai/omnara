@@ -111,10 +111,10 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(app ProjectAppRecord, plan
 		Scope     appdefinition.Scope `json:"scope"`
 		Selection *InboxAppSelection  `json:"selection"`
 		Launch    *struct {
-			ProfileID    uuid.UUID
+			ProfileID    uuid.UUID `json:"profile_id"`
 			InitialInput *struct {
 				ContentBlocks json.RawMessage `json:"content_blocks"`
-			}
+			} `json:"initial_input"`
 		} `json:"launch"`
 	}
 	if err := json.Unmarshal(plan, &slots); err != nil || slots == nil {

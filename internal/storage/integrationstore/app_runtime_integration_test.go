@@ -5,6 +5,7 @@ package integrationstore_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
@@ -137,6 +139,101 @@ func newAppRuntimeFixture(
 	require.NoError(t, err)
 	f.appID = app.ID
 	return f, secretStore, app, version.ID
+}
+
+func TestAppRuntimeFailureUsesCurrentSetupAndCredential(t *testing.T) {
+	for _, scenario := range []string{
+		"failed", "retry_due", "reclaimed", "stale_response", "setup_changed", "rotated",
+		"secret_deleted", "credential_unavailable", "disconnected", "app_deleted", "project_deleted", "org_deleted",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			f, secretStore, app, versionID := newAppRuntimeFixture(t)
+			if scenario == "credential_unavailable" {
+				secret, version, err := secretStore.CreateSecret(f.ctx, secretstore.CreateSecretInput{
+					OrgID: f.org, OwnerKind: secretstore.SecretOwnerOrg, Name: "shared-runtime",
+					Actor: identitystore.NewUserPrincipal(f.user), Material: secrets.GenericMaterial{Value: "bot-token"},
+				})
+				require.NoError(t, err)
+				f.exec(t, `INSERT INTO secret_grants(org_id,secret_id,target_project_id,created_at)
+                    VALUES($1,$2,$3,now())`, f.org, secret.ID, f.project)
+				app, err = f.store.ConfigureProjectApp(f.ctx, integrationstore.ConfigureProjectAppInput{
+					OrgID: f.org, ProjectID: f.project, AppID: app.ID, InstalledByUserID: f.user,
+					Provider: app.Provider, ProviderTenantID: app.ProviderTenantID, ProviderAccountRef: app.ProviderAccountRef,
+					CredentialSecretID: secret.ID, CredentialVersionID: version.ID, ExpectedSetupRevision: app.SetupRevision,
+				})
+				require.NoError(t, err)
+				versionID = version.ID
+			}
+			read := func() *integrationstore.AppRuntimeFailure {
+				t.Helper()
+				failure, err := f.store.GetAppRuntimeFailure(f.ctx, f.project, app.ID, app.SetupRevision)
+				if errors.Is(err, storeerr.ErrNotFound) {
+					return nil
+				}
+				require.NoError(t, err)
+				return &failure
+			}
+			require.Nil(t, read())
+			revision := integrationstore.AppRuntimeRevision{
+				ProjectID: f.project, AppID: app.ID, Key: "discord/shard/0",
+				SetupRevision: app.SetupRevision, CredentialVersionID: versionID,
+			}
+			claim, found, err := f.store.ClaimAppRuntime(f.ctx, revision, 30*time.Second)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Nil(t, read(), "a lease does not report a provider connection state")
+			started := time.Now()
+			require.NoError(t, f.store.ReleaseAppRuntime(f.ctx, claim.Lease, time.Hour, "Discord Gateway closed: 4014"))
+			failure := read()
+			require.NotNil(t, failure)
+			require.Equal(t, "Discord Gateway closed: 4014", failure.Message)
+			require.WithinDuration(t, started.Add(time.Hour), failure.RetryAt, 5*time.Second)
+			wrongProject, err := f.store.GetAppRuntimeFailure(f.ctx, uuid.New(), app.ID, app.SetupRevision)
+			require.ErrorIs(t, err, storeerr.ErrNotFound)
+			require.Zero(t, wrongProject)
+			switch scenario {
+			case "retry_due", "reclaimed":
+				f.exec(t, `UPDATE app_runtime SET available_at=now()-interval '1 second' WHERE app_id=$1`, app.ID)
+				if scenario == "reclaimed" {
+					_, found, err := f.store.ClaimAppRuntime(f.ctx, revision, 30*time.Second)
+					require.NoError(t, err)
+					require.True(t, found)
+				}
+			case "stale_response", "setup_changed":
+				f.exec(t, `UPDATE project_apps SET setup_revision=setup_revision+1 WHERE id=$1`, app.ID)
+				if scenario == "setup_changed" {
+					app.SetupRevision++
+				}
+			case "rotated":
+				_, _, err := secretStore.CreateSecretVersion(f.ctx, secretstore.CreateSecretVersionInput{
+					OrgID: f.org, SecretID: app.CredentialSecretID,
+					Actor: identitystore.NewUserPrincipal(f.user), Material: secrets.GenericMaterial{Value: "rotated"},
+				})
+				require.NoError(t, err)
+			case "secret_deleted":
+				f.exec(t, `UPDATE secrets SET deleted_at=now() WHERE id=$1`, app.CredentialSecretID)
+			case "credential_unavailable":
+				f.exec(t, `DELETE FROM secret_grants WHERE secret_id=$1 AND target_project_id=$2`,
+					app.CredentialSecretID, f.project)
+			case "disconnected":
+				_, err := f.store.DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{
+					ProjectID: f.project, AppID: app.ID, ExpectedSetupRevision: &app.SetupRevision,
+				})
+				require.NoError(t, err)
+			case "app_deleted":
+				f.exec(t, `UPDATE project_apps SET deleted_at=now() WHERE id=$1`, app.ID)
+			case "project_deleted":
+				f.exec(t, `UPDATE projects SET deleted_at=now() WHERE id=$1`, f.project)
+			case "org_deleted":
+				f.exec(t, `UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.org)
+			}
+			if scenario == "failed" || scenario == "retry_due" {
+				require.NotNil(t, read(), "failure remains visible until the next attempt")
+			} else {
+				require.Nil(t, read(), "stale or unavailable setup must not report a failure")
+			}
+		})
+	}
 }
 
 func TestAppRuntimeFencesOwnershipAndCommitsReceiptWithCheckpoint(t *testing.T) {

@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -68,6 +69,8 @@ type DiscordEventFile struct {
 	Count  int    `json:"count,omitempty"`
 }
 
+var errDiscordChannelUnroutable = fmt.Errorf("unsupported Discord message channel: %w", storeerr.ErrInvalidRequest)
+
 func NormalizeDiscordAppEvent(
 	appSetup integrationstore.ProjectAppRecord, raw []byte, channel discord.Channel,
 ) (AppEvent, bool, error) {
@@ -76,6 +79,9 @@ func NormalizeDiscordAppEvent(
 		return AppEvent{}, ok, err
 	}
 	scope, err := discordInboxMessageScope(message.Message, channel)
+	if errors.Is(err, errDiscordChannelUnroutable) {
+		return AppEvent{}, false, nil
+	}
 	if err != nil {
 		return AppEvent{}, false, err
 	}
@@ -144,11 +150,15 @@ func discordInboxMessage(
 	if err != nil || !ok {
 		return message, ok, err
 	}
-	if message.Self || message.Automated || (message.Message.Type != 0 && message.Message.Type != 19) ||
-		message.Message.GuildID == "" {
+	if !discordConversationalMessage(message) {
 		return discord.MessageEvent{}, false, nil
 	}
 	return message, true, nil
+}
+
+func discordConversationalMessage(message discord.MessageEvent) bool {
+	return !message.Self && !message.Automated && (message.Message.Type == 0 || message.Message.Type == 19) &&
+		message.Message.GuildID != ""
 }
 
 func discordInboxID(value string) bool {
@@ -167,12 +177,25 @@ func discordInboxMessageScope(message discord.Message, channel discord.Channel) 
 		}
 		scope.ChannelID, scope.ThreadID = channel.ParentID, channel.ID
 	} else if channel.Type != 0 && channel.Type != 5 {
-		return discord.Scope{}, &discord.APIError{Code: discord.ScopeMismatch}
+		return discord.Scope{}, errDiscordChannelUnroutable
 	}
 	return scope, nil
 }
 
 func (p *DiscordAppInboxProvider) requestAccess(
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, authority func(context.Context) error,
+) (*discord.Client, func(context.Context) error, error) {
+	client, check, err := p.requestClient(ctx, appSetup, authority)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := client.CheckIdentity(ctx); err != nil {
+		return nil, nil, err
+	}
+	return client, check, nil
+}
+
+func (p *DiscordAppInboxProvider) requestClient(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, authority func(context.Context) error,
 ) (*discord.Client, func(context.Context) error, error) {
 	if p.secrets == nil || p.apps == nil {
@@ -240,14 +263,18 @@ func (p *DiscordAppInboxProvider) requestAccess(
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := client.CheckIdentity(ctx); err != nil {
-		return nil, nil, err
-	}
 	return client, check, nil
 }
 
 func (p *DiscordAppInboxProvider) Expand(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
+) (AppInboxExpansion, error) {
+	return p.ExpandRouted(ctx, appSetup, raw, nil)
+}
+
+func (p *DiscordAppInboxProvider) ExpandRouted(
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
+	routeEvent func(AppEvent) (bool, error),
 ) (AppInboxExpansion, error) {
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
 	defer cancel()
@@ -255,16 +282,36 @@ func (p *DiscordAppInboxProvider) Expand(
 	if err != nil || !ok {
 		return AppInboxExpansion{}, err
 	}
-	client, check, err := p.requestAccess(ctx, appSetup, nil)
+	client, check, err := p.requestClient(ctx, appSetup, nil)
 	if err != nil {
 		return AppInboxExpansion{}, err
 	}
 	channel, err := client.GetChannel(ctx, message.Message.ChannelID)
 	if err != nil {
+		var apiErr *discord.APIError
+		if errors.As(err, &apiErr) &&
+			(apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound) {
+			// Only a recognized Discord error proves the target is inaccessible;
+			// an unclassified edge response must retain the retry window.
+			switch apiErr.ProviderCode {
+			case 10003, 50001, 50013: // Unknown Channel, Missing Access, Missing Permissions.
+				return AppInboxExpansion{}, fmt.Errorf("%w: get Discord inbound channel: %w", ErrAppInboundPermanent, err)
+			}
+		}
 		return AppInboxExpansion{}, err
 	}
 	event, ok, err := NormalizeDiscordAppEvent(appSetup, raw, channel)
 	if err != nil || !ok {
+		return AppInboxExpansion{}, err
+	}
+	// MESSAGE_CREATE carries the channel ID, not a thread's parent. Resolve only
+	// that transport fact before the indexed routing check and expensive expansion.
+	if routeEvent != nil {
+		if routed, err := routeEvent(event); err != nil || !routed {
+			return AppInboxExpansion{}, err
+		}
+	}
+	if err := client.CheckIdentity(ctx); err != nil {
 		return AppInboxExpansion{}, err
 	}
 	scope, err := discordInboxMessageScope(message.Message, channel)
@@ -435,8 +482,12 @@ func (p *DiscordAppInboxProvider) acknowledge(
 
 func (p *DiscordAppInboxProvider) PrepareConversation(
 	ctx context.Context, appSetup integrationstore.ProjectAppRecord, raw []byte,
-	frozenScope appdefinition.DiscordScope, authority func(context.Context) error,
+	frozen appdefinition.Scope, authority func(context.Context) error,
 ) error {
+	if err := frozen.Validate(appdefinition.ProviderDiscord); err != nil {
+		return err
+	}
+	frozenScope := *frozen.Discord
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
 	defer cancel()
 	message, ok, err := discordInboxMessage(appSetup, raw)

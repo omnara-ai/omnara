@@ -16,7 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -370,7 +370,7 @@ model:
 	}
 	if postedMessage.Channel != "CUNAVAILABLEGRANT" ||
 		postedMessage.ThreadTS != "1.0" ||
-		postedMessage.Text != slack.AgentRequestFailureMessage {
+		postedMessage.Text != integration.AgentRequestFailureMessage {
 		t.Fatalf("Slack runtime message = %+v", postedMessage)
 	}
 	assertDurableModelErrorForKernelTest(

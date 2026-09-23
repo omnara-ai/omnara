@@ -4,11 +4,16 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,4 +62,107 @@ func TestAppLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx,
 		`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
 	require.Zero(t, agents)
+}
+
+func TestAppLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *testing.T) {
+	for _, archiveBeforeDecision := range []bool{true, false} {
+		name := "after freeze"
+		if archiveBeforeDecision {
+			name = "before decision"
+		}
+		t.Run(name, func(t *testing.T) {
+			pool, store, ids, appID := appWorkerFixture(t)
+			ctx := t.Context()
+			_, err := pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at)
+				VALUES($1,$2,'owner',now()) ON CONFLICT DO NOTHING`, ids.OrgID, ids.ProviderAdminUserID)
+			require.NoError(t, err)
+			principal := identitystore.NewUserPrincipal(ids.ProviderAdminUserID)
+			base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+				"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+			agentIDs := make([]uuid.UUID, 2)
+			var slots []integrationstore.AppLaunchSlot
+			for i, key := range []string{"archived", "active"} {
+				launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+					ProjectID: ids.ProjectID, AgentConfigID: base.ID, LaunchedBy: principal,
+				})
+				require.NoError(t, err)
+				agentIDs[i] = launched.Agent.ID
+				slots = append(slots, integrationstore.AppLaunchSlot{Key: key, AgentID: &agentIDs[i]})
+			}
+			inbox := store.Integrations()
+			_, err = inbox.UpdateProjectApp(ctx, appID, integrationstore.SaveProjectAppInput{
+				OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", AppType: appdefinition.SlackThread,
+				Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
+					Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123", Slots: slots,
+				}},
+			})
+			require.NoError(t, err)
+			archive := func() {
+				_, _, err := store.Execution().ArchiveAgent(ctx, ids.ProjectID, agentIDs[0], principal)
+				require.NoError(t, err)
+			}
+			if archiveBeforeDecision {
+				archive()
+			}
+			_, _, err = inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+				ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "archived-recipient", Payload: []byte(`{}`),
+			})
+			require.NoError(t, err)
+			receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+				ProjectID: ids.ProjectID, AppID: appID, LeaseDuration: time.Minute,
+			})
+			require.NoError(t, err)
+			require.True(t, found)
+			event := AppEvent{
+				Event: appdefinition.Event{
+					Scope: appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
+					Kind:  "message", Mentioned: true,
+				},
+				SemanticKey: "message:archive", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
+				Actor: appTestActor(t, appID, "U123"),
+			}
+			router := NewAppRouter(store.Execution(), inbox)
+			plan, err := freezeTestAppEvents(ctx, router, receipt.Lease(), []AppEvent{event})
+			require.NoError(t, err)
+			if archiveBeforeDecision {
+				require.Len(t, plan, 1, "known archived destinations are omitted")
+				for _, slot := range plan {
+					require.Equal(t, agentIDs[1], slot.AgentID)
+				}
+			} else {
+				require.Len(t, plan, 2)
+				archive()
+			}
+			admitted, err := router.Admit(ctx, receipt.Lease())
+			require.NoError(t, err)
+			require.Len(t, admitted, len(plan))
+			var delivered uuid.UUID
+			for _, result := range admitted {
+				require.NotNil(t, result.Input)
+				if plan[result.Slot].AgentID == agentIDs[0] {
+					require.Equal(t, executionstore.InboxInputSkipAgentArchived, result.Input.Skipped)
+					require.False(t, result.Input.Created)
+				} else {
+					require.True(t, result.Input.Created)
+					delivered = result.Input.AgentInput.ID
+				}
+			}
+			require.NotEqual(t, uuid.Nil, delivered)
+			saved, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+			require.NoError(t, err)
+			require.Equal(t, integrationstore.IntegrationInboxCompleted, saved.State)
+			replayed, err := router.Admit(ctx, receipt.Lease())
+			require.NoError(t, err)
+			for _, result := range replayed {
+				require.False(t, result.Input.Created)
+				if plan[result.Slot].AgentID == agentIDs[1] {
+					require.Equal(t, delivered, result.Input.AgentInput.ID)
+				}
+			}
+			var count int
+			require.NoError(t, pool.QueryRow(ctx,
+				`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content'`, ids.ProjectID).Scan(&count))
+			require.Equal(t, 1, count, "the live sibling receives exactly one input across replay")
+		})
+	}
 }

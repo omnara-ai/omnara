@@ -64,7 +64,14 @@ export default {
       });
     }
 
-    const response = await fetch(request);
+    let upstream = request;
+    if (MODE === "banner" && request.method === "GET"
+        && (request.headers.get("Accept") || "").includes("text/html")) {
+      upstream = new Request(request);
+      upstream.headers.delete("If-None-Match");
+      upstream.headers.delete("If-Modified-Since");
+    }
+    const response = await fetch(upstream);
     if (MODE !== "banner" || request.method !== "GET" || response.status !== 200
         || !(response.headers.get("Content-Type") || "").includes("text/html")) {
       return response;

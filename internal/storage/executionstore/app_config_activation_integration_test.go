@@ -651,11 +651,13 @@ func TestAppCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *testing.T) {
 			slot.Launch.InitialInput.Origin.Address = slot.Selection.Address
 			slot.Launch.InitialInput.SemanticEventKey = "message:789.012"
 			slot.Launch.IdempotencyKey = "unavailable-secondary"
-			slot.Launch.DerivedConfig = &definition
+			saved, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
+			require.NoError(t, err)
+			slot.Launch.AgentConfigID = saved.ID
 			attachment := f.attachment()
 			attachment.Conversation, attachment.Events = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`), []string{"message"}
 			slot.Launch.Subscriptions = []integrationstore.AppSubscriptionAttachment{attachment}
-			_, _, err := f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+			_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 				ProjectID: testProjectID, AppID: f.app.ID, ReceiptKey: "unavailable-secondary", Payload: []byte(`{}`),
 			})
 			require.NoError(t, err)

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
@@ -10,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func (s strictOpenAPIServer) CreateProjectApp(
@@ -81,6 +83,15 @@ func (s strictOpenAPIServer) GetProjectApp(
 	response, err := projectAppResponse(app)
 	if err != nil {
 		return nil, err
+	}
+	failure, err := s.server.store.Integrations().GetAppRuntimeFailure(ctx, app.ProjectID, app.ID, app.SetupRevision)
+	if err != nil && !errors.Is(err, storeerr.ErrNotFound) {
+		return nil, apierror.ProjectScoped(err)
+	}
+	if err == nil {
+		response.RuntimeFailure = &openapi.ProjectAppRuntimeFailure{
+			Message: failure.Message, RetryAt: failure.RetryAt,
+		}
 	}
 	return openapi.GetProjectApp200JSONResponse(response), nil
 }

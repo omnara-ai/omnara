@@ -20,43 +20,44 @@ func (c *AppInboxConsumer) FinalizeFailure(ctx context.Context, projectID, recei
 		return storeerr.ErrStateTransitionConflict
 	}
 	message := inboxFailureMessage
+	unfinished := true
+	var plan AppInboxPlan
 	if len(receipt.Plan) != 0 {
-		plan, err := decodeAppInboxPlan(receipt.Plan)
+		plan, err = decodeAppInboxPlan(receipt.Plan)
 		if err != nil {
 			return err
 		}
-		var progress map[string]map[string]json.RawMessage
+		var progress map[string]appInboxSlotProgress
 		if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
 			return err
 		}
-		unfinished := false
+		unfinished = false
 		for key := range plan {
-			if _, committed := progress[key]["committed"]; !committed {
+			if progress[key].Committed == nil {
 				unfinished = true
-			} else {
+			} else if progress[key].delivered() {
 				message = "I couldn't deliver this request to every agent. Some agents have already received it."
 			}
 		}
-		if !unfinished {
-			return nil
-		}
 	}
 	var failures []error
-	noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	app, err := c.inbox.GetProjectAppByID(noticeCtx, receipt.AppID)
-	if err == nil {
-		if provider, ok := c.providers[app.Provider].(interface {
-			NotifyInboxFailure(
-				context.Context, integrationstore.ProjectAppRecord, integrationstore.IntegrationInboxRecord, string,
-			) error
-		}); ok {
-			err = provider.NotifyInboxFailure(noticeCtx, app, receipt, message)
+	if unfinished {
+		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		app, err := c.inbox.GetProjectAppByID(noticeCtx, receipt.AppID)
+		if err == nil {
+			if provider, ok := c.providers[app.Provider].(interface {
+				NotifyInboxFailure(
+					context.Context, integrationstore.ProjectAppRecord, integrationstore.IntegrationInboxRecord, string,
+				) error
+			}); ok {
+				err = provider.NotifyInboxFailure(noticeCtx, app, receipt, message)
+			}
 		}
+		cancel()
+		failures = append(failures, err)
 	}
-	cancel()
-	failures = append(failures, err)
-	if artifacts, ok := c.artifacts.(FailedAppArtifactCleaner); ok {
-		failures = append(failures, CleanupFailedAppInboxArtifacts(ctx, c.inbox, artifacts, projectID, receiptID))
+	if artifacts, ok := c.artifacts.(AppInboxArtifactCleaner); ok && appInboxPlanHasArtifacts(plan) {
+		failures = append(failures, CleanupTerminalAppInboxArtifacts(ctx, c.inbox, artifacts, projectID, receiptID))
 	}
 	return errors.Join(failures...)
 }

@@ -37,6 +37,8 @@ func (e *APIError) Error() string {
 }
 func (e *APIError) Unwrap() error { return e.cause }
 
+func (e *APIError) RetryDelay() time.Duration { return e.RetryAfter }
+
 func contextCause(err error) error {
 	if errors.Is(err, context.Canceled) {
 		return context.Canceled

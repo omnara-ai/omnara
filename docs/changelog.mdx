@@ -19,10 +19,13 @@ Manage them from the app’s paginated Conversations list or subscriptions API.
 This release replaces native Slack setup with project-owned apps. Tool names now
 include the app name, such as `app__engineering__post_message`; interaction-handler
 configs refer to that app as well. Subscription attachments use app IDs. Existing Slack data and
-configs are migrated during a coordinated maintenance window. Open Slack prompts
-are canceled, while agents, conversation history and provider messages remain.
-Self-hosted operators must follow the [cutover playbook](/self-hosting/composable-apps-cutover),
-including draining work and stopping cluster writers before migration.
+configs are migrated during a coordinated maintenance window. Operators must drain
+or cancel outstanding work and open interactions across the entire deployment,
+then stop cluster writers. The migration rejects outstanding work; it does not
+cancel it. Agents, conversation history and provider messages remain, but plain
+replies in old Slack threads no longer resume their agents automatically. Use the
+dashboard/API or explicitly attach a subscription to resume those conversations.
+Self-hosted operators must follow the [cutover playbook](/self-hosting/composable-apps-cutover).
 
 The public setup API now creates an app before verifying its credentials. Update
 clients using the old integration setup or destination APIs together with the

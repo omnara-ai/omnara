@@ -30,7 +30,7 @@ func feedbackPlan(t *testing.T, scope appdefinition.Scope) json.RawMessage {
 	t.Helper()
 	return githubEventJSON(t, AppInboxPlan{"scheduled": {
 		Scope: scope, AgentID: uuid.New(), Selection: &integrationstore.InboxAppSelection{},
-		Launch: &executionstore.LaunchAgentInput{},
+		Launch: &executionstore.InboxLaunchPlan{},
 	}})
 }
 

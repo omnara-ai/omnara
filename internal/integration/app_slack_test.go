@@ -38,6 +38,44 @@ func slackInboxTestApp() integrationstore.ProjectAppRecord {
 	}
 }
 
+func TestSlackInboxRoutesBeforeExpansion(t *testing.T) {
+	for _, routeErr := range []error{nil, integrationstore.ErrAppSelectionReserved} {
+		provider := &SlackAppInboxProvider{}
+		called := false
+		expansion, err := provider.ExpandRouted(t.Context(), slackInboxTestApp(), slackInboxTestPayload(t,
+			slack.Event{Type: "message", Channel: "C123", TS: "2.0", ThreadTS: "1.0", User: "U123", Text: "reply"}),
+			func(event AppEvent) (bool, error) {
+				called = true
+				require.Equal(t, "1.0", event.Event.Scope.Slack.ThreadTS)
+				return false, routeErr
+			})
+		require.True(t, called)
+		require.ErrorIs(t, err, routeErr)
+		require.Empty(t, expansion.Events)
+	}
+}
+
+func TestSlackInboxBroadcastUsesOriginalThreadAndMessageIdentity(t *testing.T) {
+	app := slackInboxTestApp()
+	event := slack.Event{Type: "message", Subtype: "thread_broadcast", Channel: "C123",
+		TS: "2.0", ThreadTS: "1.0", User: "U123", Text: "ordinary reply"}
+	broadcast, ok, err := NormalizeSlackAppEvent(app, slackInboxTestPayload(t, event))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, &appdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.0"}, broadcast.Event.Scope.Slack)
+	require.False(t, broadcast.Event.MatchesLauncher("mention"))
+	event.Subtype = ""
+	ordinary, ok, err := NormalizeSlackAppEvent(app, slackInboxTestPayload(t, event))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, ordinary.SemanticKey, broadcast.SemanticKey)
+	require.Equal(t, ordinary.Sibling, broadcast.Sibling)
+	event.Subtype, event.ThreadTS, event.Text = "thread_broadcast", "", "<@UBOT> malformed broadcast"
+	_, ok, err = NormalizeSlackAppEvent(app, slackInboxTestPayload(t, event))
+	require.NoError(t, err)
+	require.False(t, ok, "a broadcast without its thread must not turn into a root mention")
+}
+
 func slackInboxTestPayload(t *testing.T, event slack.Event) []byte {
 	t.Helper()
 	raw, err := json.Marshal(event)

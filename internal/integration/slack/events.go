@@ -338,6 +338,21 @@ func BotOrSelfEvent(botUserID string, event Event) bool {
 		event.Subtype == "bot_message"
 }
 
+func ConversationalMessage(event Event) bool {
+	if event.Type != "message" && event.Type != "app_mention" {
+		return false
+	}
+	switch event.Subtype {
+	case "", "file_share":
+		return true
+	case "thread_broadcast":
+		// A broadcast is the same reply in its original thread, never a new root.
+		return event.Type == "message" && event.ThreadTS != "" && event.ThreadTS != event.TS
+	default:
+		return false
+	}
+}
+
 func DisabledInstallEvent(botUserID string, event Event) bool {
 	return event.Type == "app_uninstalled" || revokedInstallToken(botUserID, event)
 }

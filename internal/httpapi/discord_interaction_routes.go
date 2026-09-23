@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
@@ -295,18 +294,4 @@ func (s *Server) resolveDiscordInteraction(
 	}
 	s.dismissInteractionAsync(ctx, resolved)
 	return response, nil
-}
-
-func (s *Server) dismissInteractionAsync(ctx context.Context, record executionstore.AgentInteractionRecord) {
-	if len(record.PresentationReceipt) == 0 {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		presenter := integration.InteractionPresenter{Store: s.store, HTTPClient: s.slackOAuth.HTTPClient}
-		if err := presenter.Dismiss(ctx, record); err != nil {
-			s.log.Warn("interaction dismissal failed", "interaction_id", record.ID, "error", err)
-		}
-	}()
 }

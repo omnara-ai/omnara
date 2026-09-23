@@ -179,9 +179,12 @@ func (c *Client) CreateMessage(ctx context.Context, scope Scope, args MessageArg
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	if args.Nonce == "" || len(args.Nonce) > 25 || !asciiToken(args.Nonce) ||
-		!utf8.ValidString(args.Content) || utf8.RuneCountInString(args.Content) > 2000 ||
+		!utf8.ValidString(args.Content) ||
 		(args.Content == "" && len(args.Files) == 0 && len(args.Components) == 0) {
 		return Message{}, errors.New("invalid discord message or nonce")
+	}
+	if utf8.RuneCountInString(args.Content) > 2000 {
+		return Message{}, errors.New("discord message content must be at most 2000 characters; shorten the message")
 	}
 	if err := validateRows(args.Components, false); err != nil {
 		return Message{}, err
@@ -221,8 +224,11 @@ func (c *Client) EditMessage(ctx context.Context, scope Scope, messageID, conten
 ) (Message, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
-	if !validID(messageID) || !utf8.ValidString(content) || utf8.RuneCountInString(content) > 2000 {
+	if !validID(messageID) || !utf8.ValidString(content) {
 		return Message{}, errors.New("invalid discord message edit")
+	}
+	if utf8.RuneCountInString(content) > 2000 {
+		return Message{}, errors.New("discord message content must be at most 2000 characters; shorten the message")
 	}
 	if err := validateRows(components, false); err != nil {
 		return Message{}, err

@@ -42,10 +42,18 @@ export function ConnectGitHubForm({
   const [manual, setManual] = useState(
     returned.recoverManually || (Boolean(existing?.provider_tenant_id) && !returned.secretId),
   )
+  const trustNotice = (
+    <p className="text-muted-foreground text-sm">
+      Anyone who can comment on a connected repository can trigger configured mention launches and
+      steer subscribed PR agents. Public and fork PRs can trigger configured PR-open launches.
+      Choose a profile whose tools and secrets are appropriate for untrusted input.
+    </p>
+  )
 
   if (manual)
     return (
       <div className="flex flex-col gap-4">
+        {trustNotice}
         {!draft.app?.provider_tenant_id && (
           <Button
             type="button"
@@ -75,20 +83,23 @@ export function ConnectGitHubForm({
     )
 
   return (
-    <GitHubGuidedSetup
-      orgId={orgId}
-      projectId={projectId}
-      existing={existing}
-      draft={draft}
-      guided={guided}
-      busy={session.busy}
-      error={session.error}
-      onUseExistingApp={() => {
-        guided.handOffToManual()
-        setManual(true)
-      }}
-      onCancel={onCancel}
-      footerAction={footerAction}
-    />
+    <div className="flex flex-col gap-4">
+      {trustNotice}
+      <GitHubGuidedSetup
+        orgId={orgId}
+        projectId={projectId}
+        existing={existing}
+        draft={draft}
+        guided={guided}
+        busy={session.busy}
+        error={session.error}
+        onUseExistingApp={() => {
+          guided.handOffToManual()
+          setManual(true)
+        }}
+        onCancel={onCancel}
+        footerAction={footerAction}
+      />
+    </div>
   )
 }

@@ -77,9 +77,6 @@ func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) 
 	if (input.AgentConfigID == uuid.Nil) == (input.DerivedConfig == nil) {
 		return LaunchAgentInput{}, errors.New("exactly one of agent config or derived config is required")
 	}
-	if input.DerivedBaseConfigID != uuid.Nil && input.DerivedConfig == nil {
-		return LaunchAgentInput{}, storeerr.InvalidRequest(errors.New("derived base requires a derived config"))
-	}
 	if input.DerivedConfig != nil && input.ProfileID != uuid.Nil &&
 		input.Subagent == nil && input.DerivedBaseConfigID == uuid.Nil {
 		return LaunchAgentInput{}, storeerr.InvalidRequest(
@@ -218,19 +215,19 @@ func (s *Store) launchAgentTx(
 	}
 	agentName := launchAgentName(input.Name, profile)
 	configID := input.AgentConfigID
-	if input.DerivedConfig != nil {
-		if input.DerivedBaseConfigID != uuid.Nil {
-			if _, _, err := launchConfigTx(
-				ctx,
-				qtx,
-				input.ProjectID,
-				profile,
-				input.DerivedBaseConfigID,
-				false,
-			); err != nil {
-				return LaunchAgentResult{}, err
-			}
+	if input.DerivedBaseConfigID != uuid.Nil {
+		if _, _, err := launchConfigTx(
+			ctx,
+			qtx,
+			input.ProjectID,
+			profile,
+			input.DerivedBaseConfigID,
+			false,
+		); err != nil {
+			return LaunchAgentResult{}, err
 		}
+	}
+	if input.DerivedConfig != nil {
 		derived := *input.DerivedConfig
 		derived.OrgID = project.OrgID
 		derived.ProjectID = input.ProjectID
@@ -240,11 +237,17 @@ func (s *Store) launchAgentTx(
 		}
 		configID = created.ID
 	}
-	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, configID, input.DerivedConfig != nil)
+	derivedConfig := input.DerivedConfig != nil || input.DerivedBaseConfigID != uuid.Nil
+	config, contract, err := launchConfigTx(ctx, qtx, input.ProjectID, profile, configID, derivedConfig)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	if err := lockAgentConfigModelForUseTx(ctx, qtx, config); err != nil {
+	if input.DerivedBaseConfigID != uuid.Nil {
+		err = validateSavedAgentConfigModelContractTx(ctx, qtx, config)
+	} else {
+		err = lockAgentConfigModelForUseTx(ctx, qtx, config)
+	}
+	if err != nil {
 		return LaunchAgentResult{}, err
 	}
 	machineSources, err := decodeLaunchMachineSources(contract)

@@ -53,7 +53,22 @@ export function ProjectAppConnectionStatus({
           Slack setup didn’t finish. {oauth.description}
         </p>
       )}
-      {justConnected && (
+      {app.state === 'active' && app.runtime_failure && (
+        <div role="alert" className="flex flex-col items-start gap-2 text-sm">
+          <p>Connection failed: {app.runtime_failure.message}</p>
+          <p>
+            Retry available after{' '}
+            <time dateTime={app.runtime_failure.retry_at}>
+              {new Date(app.runtime_failure.retry_at).toLocaleString()}
+            </time>
+            .
+          </p>
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            Refresh status
+          </Button>
+        </div>
+      )}
+      {justConnected && !app.runtime_failure && (
         <ConnectedNotice app={app} chooseNext={canSetUp && !app.settings.launcher} />
       )}
       {app.state === 'disconnected' && (
@@ -85,7 +100,8 @@ function DisconnectedNotice({
     <div className="flex flex-col items-start gap-3 text-sm">
       <p className="text-muted-foreground">
         This app is disconnected. {chat ? 'Mentions, schedules' : 'Launches'} and conversation
-        forwarding are paused; settings, agents and history are kept.
+        forwarding are stopped; settings, agents and history are kept. Events received while
+        disconnected are not queued for replay after reconnection.
       </p>
       {onReconnect && <Button onClick={onReconnect}>Reconnect account</Button>}
     </div>

@@ -54,9 +54,9 @@ func scheduledAuthorityFixture(t *testing.T) (
 			AppID: app.ID, Slot: "scheduled",
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 		},
-		Launch: LaunchAgentInput{
-			ProjectID: app.ProjectID, ProfileID: profileID, DerivedBaseConfigID: uuid.New(),
-			LaunchedBy: identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
+		Launch: InboxLaunchPlan{
+			AgentConfigID: uuid.New(), ProfileID: profileID, DerivedBaseConfigID: uuid.New(),
+			LaunchedBy: InboxLaunchPrincipal{Type: identitystore.PrincipalTypeSystem, ID: launch.TriggerID},
 			InitialInput: &LaunchInitialInput{
 				ContentBlocks: json.RawMessage(`[
                     { "text": "Review the queue.", "type": "text" },

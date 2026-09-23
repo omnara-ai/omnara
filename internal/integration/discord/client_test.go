@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -158,6 +159,8 @@ func TestErrorsRateLimitsAndRetryBounds(t *testing.T) {
 		calls    int32
 	}{
 		{"read transient", 503, "private body", false, TransientFailure, 3},
+		{"short read throttle", 429, `{"retry_after":0.001}`, false, RateLimited, 3},
+		{"short nonce throttle", 429, `{"retry_after":0.001}`, true, RateLimited, 3},
 		{"nonce send transient", 503, "private body", true, DeliveryUnknown, 3},
 		{"read forbidden", 403, `{"code":50013,"message":"test-token"}`, false, PermanentFailure, 1},
 		{"rate limited", 429, `{"retry_after":72.5,"global":true}`, true, RateLimited, 1},
@@ -179,7 +182,7 @@ func TestErrorsRateLimitsAndRetryBounds(t *testing.T) {
 				_, err = client.ListMessages(ctx, scope(), PageOptions{})
 			}
 			apiErr := requireAPIError(t, err, test.code)
-			if test.code == RateLimited && (apiErr.RetryAfter != 72500*time.Millisecond || !apiErr.Global) {
+			if test.name == "rate limited" && (apiErr.RetryDelay() != 72500*time.Millisecond || !apiErr.Global) {
 				t.Fatalf("lost rate limit facts: %+v", apiErr)
 			}
 			if ctx.Err() != nil || requests.Load() != test.calls || strings.Contains(err.Error(), "test-token") ||
@@ -315,4 +318,97 @@ func TestDiscoverIdentityFromCustomerBotToken(t *testing.T) {
 	config.Credentials.BotToken = "invalid token"
 	_, err = DiscoverIdentity(t.Context(), config)
 	requireAPIError(t, err, PermanentFailure)
+}
+
+func TestShortRateLimitRecoversWithoutChangingSend(t *testing.T) {
+	for _, mutation := range []bool{false, true} {
+		t.Run(fmt.Sprint(mutation), func(t *testing.T) {
+			var calls atomic.Int32
+			var first []byte
+			client, _ := testClient(t, prepared(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				if calls.Add(1) == 1 {
+					first = body
+					w.WriteHeader(http.StatusTooManyRequests)
+					fmt.Fprint(w, `{"retry_after":0.001}`)
+					return
+				}
+				if string(first) != string(body) {
+					t.Error("retry changed request body")
+				}
+				if mutation {
+					fmt.Fprint(w, messageJSON)
+				} else {
+					fmt.Fprint(w, `[]`)
+				}
+			}))
+			var err error
+			if mutation {
+				_, err = client.CreateMessage(t.Context(), scope(), MessageArgs{Content: "hi", Nonce: "send_1"})
+			} else {
+				_, err = client.ListMessages(t.Context(), scope(), PageOptions{})
+			}
+			if err != nil || calls.Load() != 2 {
+				t.Fatalf("calls=%d error=%v", calls.Load(), err)
+			}
+		})
+	}
+}
+
+func TestShortRateLimitRechecksAuthority(t *testing.T) {
+	var calls atomic.Int32
+	client, _ := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"retry_after":0.001}`)
+	})
+	denied := errors.New("authority revoked")
+	client.beforeRequest = func(context.Context) error {
+		if calls.Load() > 0 {
+			return denied
+		}
+		return nil
+	}
+	_, err := client.GetChannel(t.Context(), "555")
+	if !errors.Is(err, denied) || calls.Load() != 1 {
+		t.Fatalf("calls=%d error=%v", calls.Load(), err)
+	}
+}
+
+func TestMessageLengthErrorBeforeNetwork(t *testing.T) {
+	var calls atomic.Int32
+	client, _ := testClient(t, prepared(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		fmt.Fprint(w, messageJSON)
+	}))
+	_, err := client.CreateMessage(t.Context(), scope(), MessageArgs{Content: strings.Repeat("🙂", 2001), Nonce: "send_1"})
+	if err == nil || !strings.Contains(err.Error(), "2000 characters") || calls.Load() != 0 {
+		t.Fatalf("calls=%d error=%v", calls.Load(), err)
+	}
+	_, err = client.CreateMessage(t.Context(), scope(), MessageArgs{Content: strings.Repeat("🙂", 2000), Nonce: "send_1"})
+	if err != nil || calls.Load() != 1 {
+		t.Fatalf("calls=%d error=%v", calls.Load(), err)
+	}
+}
+
+func TestShortRateLimitWaitHonorsCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		calls := 0
+		client, err := NewClient(Config{Credentials: credentials(), HTTPClient: &http.Client{
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{},
+					Body: io.NopCloser(strings.NewReader(`{"retry_after":1}`)), Request: r}, nil
+			}),
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		_, err = client.GetChannel(ctx, "555")
+		if !errors.Is(err, context.DeadlineExceeded) || calls != 1 {
+			t.Fatalf("calls=%d error=%v", calls, err)
+		}
+	})
 }

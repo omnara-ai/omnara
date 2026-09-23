@@ -28,6 +28,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -148,7 +149,8 @@ func newCapturedHTTPFixtureWithDismiss(
 	require.NoError(t, err)
 	client := &http.Client{Transport: capturedTestTransport{base: server.Client().Transport, target: target}}
 	pool := openIntegrationDB(t, ctx)
-	handler := newIntegrationServer(pool, WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}))
+	handler := newIntegrationServer(pool,
+		WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}), WithIntegrationHTTPClient(client))
 	project := bootstrapPublicHTTPProject(t, handler, "captured-"+provider+"-"+kind)
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -1058,4 +1060,67 @@ func TestCapturedSlackRotatedTokenIdentityBeforeProviderIO(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestCapturedDiscordRuntimeMessageWithoutInteractionKey(t *testing.T) {
+	var requests, sends atomic.Int32
+	f := newCapturedHTTPFixtureWithDismiss(t, "discord", "question", nil, capturedHTTPFixtureOptions{
+		prepareOnly: true,
+		providerOverride: func(_ http.ResponseWriter, r *http.Request) bool {
+			requests.Add(1)
+			if r.Method == http.MethodPost {
+				sends.Add(1)
+			}
+			return false
+		},
+	})
+	_, err := f.pool.Exec(t.Context(), `UPDATE project_apps SET provider_config='{}' WHERE id=$1`, f.app.ID)
+	require.NoError(t, err)
+	p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+	require.ErrorIs(t, p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID), storeerr.ErrUnauthorized)
+	require.Zero(t, requests.Load(), "a missing callback key must reject prompts before any provider request")
+	require.NoError(t, p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID,
+		f.runtimeLockID(t), integration.AgentRequestFailureMessage))
+	require.EqualValues(t, 1, sends.Load(), "plain text needs bot authority, not a callback verification key")
+	payload := <-f.prompts
+	require.Equal(t, integration.AgentRequestFailureMessage, payload["content"])
+	require.Empty(t, payload["components"])
+}
+
+func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
+	var dismissals atomic.Int32
+	f := newCapturedHTTPFixtureWithDismiss(t, "discord", "question", nil, capturedHTTPFixtureOptions{
+		providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
+			if r.Method != http.MethodPatch {
+				return false
+			}
+			assert.Equal(t, "/api/v10/channels/300/messages/400", r.URL.Path)
+			var payload map[string]any
+			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
+				w.WriteHeader(http.StatusBadRequest)
+				return true
+			}
+			assert.Equal(t, "This interaction is closed.", payload["content"])
+			assert.Equal(t, []any{}, payload["components"], "dismissal must clear the original buttons")
+			dismissals.Add(1)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id": "400", "channel_id": "300", "author": map[string]any{"id": "200"},
+			})
+			return true
+		},
+	})
+	_, err := f.pool.Exec(t.Context(), `UPDATE project_apps SET provider_config='{}' WHERE id=$1`, f.app.ID)
+	require.NoError(t, err)
+	_, err = f.project.Store.Execution().CancelAgent(t.Context(), executionstore.CancelAgentInput{
+		ProjectID: f.app.ProjectID, AgentID: f.record.AgentID,
+	})
+	require.NoError(t, err)
+	closed, found, err := f.project.Store.Execution().
+		GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentInteractionStateCanceled, closed.State)
+	p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+	require.NoError(t, p.Dismiss(t.Context(), closed))
+	require.EqualValues(t, 1, dismissals.Load())
 }

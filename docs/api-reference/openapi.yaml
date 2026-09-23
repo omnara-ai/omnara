@@ -38,6 +38,11 @@ tags:
     externalDocs:
       description: Guide
       url: https://docs.omnara.com/agents/configuration
+  - name: Integrations
+    description: Connect project apps, route conversations, and manage launch settings.
+    externalDocs:
+      description: Guide
+      url: https://docs.omnara.com/integrations/apps
   - name: Models
     description: Configure model providers and models, and grant projects access to them.
     externalDocs:
@@ -14071,6 +14076,8 @@ components:
           description: Credential and transport revision. Launcher edits leave this value unchanged.
         last_oauth_flow_id:
           $ref: '#/components/schemas/IntegrationOAuthFlowID'
+        runtime_failure:
+          $ref: '#/components/schemas/ProjectAppRuntimeFailure'
         settings:
           $ref: '#/components/schemas/ProjectAppSettings'
         provider_tenant_id:
@@ -14089,6 +14096,22 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    ProjectAppRuntimeFailure:
+      type: object
+      additionalProperties: false
+      required: [message, retry_at]
+      description: >-
+        Most recent connection failure for the active app's current setup and credential
+        version. Returned only by Get app, not list or mutation responses. Omission does
+        not establish provider connectivity; a runtime lease is not a connection check.
+      properties:
+        message:
+          type: string
+          description: Connection failure recorded by the app runtime.
+        retry_at:
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          description: Earliest time the runtime may retry. A retry can start later.
     ListProjectAppsResponse:
       type: object
       additionalProperties: false

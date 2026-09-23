@@ -27,7 +27,7 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	require.NoError(t, err)
 	trigger, err := publicid.Encode(publicid.KindCronTrigger, triggerID)
 	require.NoError(t, err)
-	slot.Launch.LaunchedBy = identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeSystem, ID: triggerID}
+	slot.Launch.LaunchedBy = executionstore.InboxLaunchPrincipal{Type: identitystore.PrincipalTypeSystem, ID: triggerID}
 	slot.Launch.InitialInput.Actor = &executionstore.ActorParams{
 		Provider: executionstore.ActorProviderOmnara, ProviderTenantID: tenant, ProviderUserID: trigger,
 		DisplayName: new("Daily review"),

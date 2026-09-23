@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -37,7 +38,8 @@ func readPage[T any](
 	if output == nil || len(output) > options.PerPage {
 		return nil, 0, &APIError{Code: InvalidResponse}
 	}
-	next, err := c.nextPage(header.Values("Link"), path, options)
+	idPath := "/repositories/" + strconv.FormatInt(pull.repository.ID, 10) + suffix
+	next, err := c.nextPage(header.Values("Link"), options, path, idPath)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -63,7 +65,7 @@ func (c *appClient) sameEndpoint(u *url.URL, path string) bool {
 		strings.EqualFold(u.EscapedPath(), path)
 }
 
-func (c *appClient) nextPage(headers []string, path string, options PageOptions) (int, error) {
+func (c *appClient) nextPage(headers []string, options PageOptions, paths ...string) (int, error) {
 	next := 0
 	for _, header := range headers {
 		for _, link := range strings.Split(header, ",") {
@@ -85,7 +87,7 @@ func (c *appClient) nextPage(headers []string, path string, options PageOptions)
 				return 0, &APIError{Code: InvalidResponse}
 			}
 			u, err := url.Parse(raw[1 : len(raw)-1])
-			if err != nil || !c.sameEndpoint(u, path) {
+			if err != nil || !slices.ContainsFunc(paths, func(path string) bool { return c.sameEndpoint(u, path) }) {
 				return 0, &APIError{Code: InvalidResponse}
 			}
 			query, err := url.ParseQuery(u.RawQuery)

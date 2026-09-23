@@ -23,10 +23,24 @@ func TestReadPagesAndDiff(t *testing.T) {
 			fmt.Fprint(w, "diff --git a/file b/file\n+new line\n")
 			return
 		}
-		if r.URL.Query().Get("per_page") != "1" || r.URL.Query().Get("page") != "1" {
+		if r.URL.Query().Get("per_page") != "1" {
 			t.Error("incorrect page bounds")
 		}
-		w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?page=2&per_page=1>; rel="next"`, r.Host, r.URL.Path))
+		switch r.URL.Query().Get("page") {
+		case "1":
+			path := "/repositories/789" + strings.TrimPrefix(r.URL.Path, repoPath(testRepository()))
+			w.Header().Set("Link", fmt.Sprintf(
+				`<http://%s%s?per_page=1&page=2>; rel="next", <http://%s%s?per_page=1&page=2>; rel="last"`,
+				r.Host, path, r.Host, path))
+		case "2":
+			if r.URL.Path != pullPath(testRepository(), 42)+"/files" {
+				t.Error("next page did not use the resolved repository path")
+			}
+			fmt.Fprint(w, `[]`)
+			return
+		default:
+			t.Error("incorrect page bounds")
+		}
 		switch r.URL.Path {
 		case pullPath(testRepository(), 42) + "/files":
 			fmt.Fprint(w, `[{"filename":"a b/#?.go","patch":"@@ -1 +1 @@\n-old\n+new"}]`)
@@ -44,6 +58,10 @@ func TestReadPagesAndDiff(t *testing.T) {
 	if err != nil || files.NextPage != 2 || len(files.Files) != 1 || files.Files[0].Patch == nil {
 		t.Fatalf("files = %+v, err = %v", files, err)
 	}
+	lastFiles, err := client.ListFiles(t.Context(), testScope(), PageOptions{Page: files.NextPage, PerPage: 1})
+	if err != nil || lastFiles.NextPage != 0 || len(lastFiles.Files) != 0 {
+		t.Fatalf("last files = %+v, err = %v", lastFiles, err)
+	}
 	comments, err := client.ListDiscussionComments(t.Context(), testScope(), options)
 	if err != nil || comments.NextPage != 2 || len(comments.Comments) != 1 || comments.Comments[0].User.Login != "author" {
 		t.Fatalf("discussion = %+v, err = %v", comments, err)
@@ -54,7 +72,7 @@ func TestReadPagesAndDiff(t *testing.T) {
 		t.Fatalf("reviews = %+v, err = %v", reviews, err)
 	}
 	diff, err := client.GetDiff(t.Context(), testScope())
-	if err != nil || !strings.HasPrefix(diff.Text, "diff --git") || requests.Load() != 4 {
+	if err != nil || !strings.HasPrefix(diff.Text, "diff --git") || requests.Load() != 5 {
 		t.Fatalf("diff = %+v, err = %v, requests = %d", diff, err, requests.Load())
 	}
 }
@@ -67,40 +85,51 @@ func TestPaginationCannotChangeScope(t *testing.T) {
 		w.Header().Set("Link", link)
 		fmt.Fprint(w, `[]`)
 	}))
-	path := pullPath(testRepository(), 42) + "/comments"
-	for _, next := range []string{
-		"https://attacker.example" + path + "?page=2&per_page=30",
-		server.URL + "/repos/other/repo/pulls/42/comments?page=2&per_page=30",
-		server.URL + strings.Replace(path, "/42/", "/43/", 1) + "?page=2&per_page=30",
-		server.URL + strings.Replace(path, "octo-org", "octo-org%2frepo", 1) + "?page=2&per_page=30",
-		strings.Replace(server.URL, "http://", "http://token@", 1) + path + "?page=2&per_page=30",
-		server.URL + path + "?page=2&per_page=100",
-		server.URL + path + "?page=2&page=3&per_page=30",
-		server.URL + path + "?page=2&per_page=30&extra=scope",
-		server.URL + path + "?page=1&per_page=30",
-		server.URL + path + "?page=3&per_page=30",
-		server.URL + path + "?page=-1&per_page=30",
-		server.URL + path + "?page=9223372036854775808&per_page=30",
-		server.URL + path + "?page=2&per_page=30#fragment",
-		"//attacker.example" + path + "?page=2&per_page=30",
-	} {
-		link = "<" + next + `>; rel="next"`
-		before := calls.Load()
+	for _, path := range []string{pullPath(testRepository(), 42) + "/comments", "/repositories/789/pulls/42/comments"} {
+		for _, next := range []string{
+			"https://attacker.example" + path + "?page=2&per_page=30",
+			server.URL + "/repos/other/repo/pulls/42/comments?page=2&per_page=30",
+			server.URL + "/repositories/790/pulls/42/comments?page=2&per_page=30",
+			server.URL + "/repositories/0789/pulls/42/comments?page=2&per_page=30",
+			server.URL + "/repositories/789/issues/42/comments?page=2&per_page=30",
+			server.URL + "/repositories/789/pulls/42/files?page=2&per_page=30",
+			server.URL + "/installation/repositories?page=2&per_page=30",
+			server.URL + strings.Replace(path, "/42/", "/43/", 1) + "?page=2&per_page=30",
+			server.URL + strings.Replace(path, "/pulls/", "/%70ulls/", 1) + "?page=2&per_page=30",
+			strings.Replace(server.URL, "http://", "http://token@", 1) + path + "?page=2&per_page=30",
+			server.URL + path + "?page=2&per_page=100",
+			server.URL + path + "?page=2&page=3&per_page=30",
+			server.URL + path + "?page=2&per_page=30&per_page=30",
+			server.URL + path + "?page=2&per_page=30&extra=scope",
+			server.URL + path + "?page=1&per_page=30",
+			server.URL + path + "?page=3&per_page=30",
+			server.URL + path + "?page=-1&per_page=30",
+			server.URL + path + "?page=9223372036854775808&per_page=30",
+			server.URL + path + "?page=2&per_page=30#fragment",
+			"//attacker.example" + path + "?page=2&per_page=30",
+		} {
+			link = "<" + next + `>; rel="next"`
+			before := calls.Load()
+			_, err := client.ListReviewComments(t.Context(), testScope(), PageOptions{})
+			requireAPIError(t, err, InvalidResponse)
+			if calls.Load() != before+1 {
+				t.Fatal("followed provider URL")
+			}
+		}
+		valid := "<" + server.URL + path + `?page=2&per_page=30>; rel="next"`
+		link = valid + ", " + valid
 		_, err := client.ListReviewComments(t.Context(), testScope(), PageOptions{})
 		requireAPIError(t, err, InvalidResponse)
-		if calls.Load() != before+1 {
-			t.Fatal("followed provider URL")
+		link = valid
+		page, err := client.ListReviewComments(t.Context(), testScope(), PageOptions{})
+		if err != nil || page.NextPage != 2 {
+			t.Fatalf("valid pagination rejected: %v", err)
 		}
 	}
-	valid := "<" + server.URL + path + `?page=2&per_page=30>; rel="next"`
-	link = valid + ", " + valid
+	link = "<" + server.URL + pullPath(testRepository(), 42) + `/comments?per_page=30&page=2>; rel="next", <` +
+		server.URL + `/repositories/789/pulls/42/comments?per_page=30&page=2>; rel="next"`
 	_, err := client.ListReviewComments(t.Context(), testScope(), PageOptions{})
 	requireAPIError(t, err, InvalidResponse)
-	link = valid
-	page, err := client.ListReviewComments(t.Context(), testScope(), PageOptions{})
-	if err != nil || page.NextPage != 2 {
-		t.Fatalf("valid pagination rejected: %v", err)
-	}
 }
 
 func TestScopesAndPageBoundsRejectedBeforeIO(t *testing.T) {
@@ -278,5 +307,30 @@ func TestReplyChecksScopeAndNormalizesRoot(t *testing.T) {
 				t.Fatal("unsafe reply was posted")
 			}
 		})
+	}
+}
+
+func TestInlineCommentValidationFailureGuidesCorrection(t *testing.T) {
+	var posts atomic.Int32
+	client, _ := testClient(t, withPreparedPull(func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		fmt.Fprint(w, `{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment",`+
+			`"field":"line","code":"invalid","message":"private-comment installation-token"}]}`)
+	}))
+	_, err := client.CreateInlineComment(t.Context(), testScope(), InlineCommentArgs{
+		Body: "comment", CommitID: "commit", Path: "file.go", Line: 5, Side: "RIGHT",
+	})
+	apiErr := requireAPIError(t, err, PermanentFailure)
+	if apiErr.StatusCode != http.StatusUnprocessableEntity || posts.Load() != 1 {
+		t.Fatalf("validation failure = %v, posts = %d", err, posts.Load())
+	}
+	for _, text := range []string{"body", "commit_id", "path", "line", "side", "pull request diff"} {
+		if !strings.Contains(err.Error(), text) {
+			t.Errorf("missing guidance %q: %v", text, err)
+		}
+	}
+	if strings.Contains(err.Error(), "private-comment") || strings.Contains(err.Error(), "installation-token") {
+		t.Fatalf("validation error exposed provider details: %v", err)
 	}
 }

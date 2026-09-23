@@ -21,6 +21,26 @@ type appPlanExecution struct {
 	AppExecutionStore
 	profile executionstore.AgentProfileRecord
 	reads   int
+	configs map[uuid.UUID]executionstore.AgentConfigRecord
+}
+
+func (s *appPlanExecution) CreateAgentConfig(
+	_ context.Context, input executionstore.CreateAgentConfigInput,
+) (executionstore.AgentConfigRecord, error) {
+	if s.configs == nil {
+		s.configs = map[uuid.UUID]executionstore.AgentConfigRecord{}
+	}
+	for _, config := range s.configs {
+		if config.EffectiveDefinitionHash == input.EffectiveDefinitionHash {
+			return config, nil
+		}
+	}
+	config := executionstore.AgentConfigRecord{
+		ID: uuid.New(), ProjectID: input.ProjectID, Source: input.Source,
+		CompiledDefinition: input.CompiledDefinition, EffectiveDefinitionHash: input.EffectiveDefinitionHash,
+	}
+	s.configs[config.ID] = config
+	return config, nil
 }
 
 func (s *appPlanExecution) GetAgentInProject(
@@ -170,15 +190,15 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.Equal(t, uuid.Version(7), slot.AgentID.Version())
 		require.False(t, agents[slot.AgentID])
 		agents[slot.AgentID] = true
-		require.Equal(t, execution.profile.CurrentConfig.ID, slot.BaseConfigID)
-		require.Empty(t, slot.Launch.DerivedConfig.Source)
+		require.Equal(t, execution.profile.CurrentConfig.ID, slot.Launch.DerivedBaseConfigID)
+		require.Empty(t, execution.configs[slot.Launch.AgentConfigID].Source)
 		require.Nil(t, slot.Input)
 		require.Len(t, slot.Files, 1)
 		require.False(t, artifacts[slot.Files[0].ArtifactID])
 		artifacts[slot.Files[0].ArtifactID] = true
 		require.NotEqual(t, oldID, slot.Files[0].ArtifactID)
 		var compiled agentconfig.Compiled
-		require.NoError(t, json.Unmarshal(slot.Launch.DerivedConfig.CompiledDefinition, &compiled))
+		require.NoError(t, json.Unmarshal(execution.configs[slot.Launch.AgentConfigID].CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
 		require.Equal(t, base.Model, compiled.Model)
 		require.Equal(t, base.EventWebhook, compiled.EventWebhook)
@@ -193,16 +213,15 @@ func TestAppPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T) {
 		require.Equal(t, app.ID, compiled.InteractionHandlers[app.Name].AppID)
 		raw, err := json.Marshal(slot)
 		require.NoError(t, err)
-		require.NotContains(t, string(raw), "CompilerVersion")
-		require.NotContains(t, string(raw), "compiler_version")
 		var kernel executionstore.InboxLaunchSlot
 		require.NoError(t, json.Unmarshal(raw, &kernel))
 		require.Equal(t, *slot.Selection, kernel.Selection)
 		require.Equal(t, slot.AgentID, kernel.AgentID)
 		require.Equal(t, slot.Launch.Subscriptions, kernel.Launch.Subscriptions)
-		require.Equal(t, slot.Launch.DerivedConfig, kernel.Launch.DerivedConfig)
+		require.Equal(t, execution.configs[slot.Launch.AgentConfigID], execution.configs[kernel.Launch.AgentConfigID])
 		contract, err := agentconfig.RuntimeContractFromCompiled(
-			kernel.Launch.DerivedConfig.CompiledDefinition, kernel.Launch.DerivedConfig.EffectiveDefinitionHash,
+			execution.configs[kernel.Launch.AgentConfigID].CompiledDefinition,
+			execution.configs[kernel.Launch.AgentConfigID].EffectiveDefinitionHash,
 		)
 		require.NoError(t, err)
 		require.Equal(t, []uuid.UUID{app.ID}, contract.ReferencedAppIDs())

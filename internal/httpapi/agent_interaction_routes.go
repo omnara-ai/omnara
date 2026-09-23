@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -330,4 +331,18 @@ func timePtrFromZero(value time.Time) *time.Time {
 		return nil
 	}
 	return &value
+}
+
+func (s *Server) dismissInteractionAsync(ctx context.Context, record executionstore.AgentInteractionRecord) {
+	if len(record.PresentationReceipt) == 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		presenter := integration.InteractionPresenter{Store: s.store, HTTPClient: s.integrationHTTPClient, Log: s.log}
+		if err := presenter.Dismiss(ctx, record); err != nil {
+			s.log.Warn("interaction dismissal failed", "interaction_id", record.ID, "error", err)
+		}
+	}()
 }

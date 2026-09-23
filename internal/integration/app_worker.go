@@ -288,7 +288,7 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 	}
 	outcome := "lease_lost"
 	terminal := (len(receipt.Events) != 0 && errors.Is(err, ErrAppLaunchUnavailable)) ||
-		errors.Is(err, ErrScheduledActionFailed)
+		errors.Is(err, ErrScheduledActionFailed) || errors.Is(err, ErrAppInboundPermanent)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
 		retryCtx, retryCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer retryCancel()
@@ -299,7 +299,7 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 				if terminal {
 					return work.Fail(retryCtx, err.Error())
 				}
-				return work.Retry(retryCtx, appInboxRetryDelay(receipt.AttemptCount), err.Error())
+				return work.Retry(retryCtx, appInboxRetryDelay(receipt.AttemptCount, err), err.Error())
 			},
 		)
 		outcome = "retry_scheduled"
@@ -351,10 +351,25 @@ func (w *AppInboxWorker) consume(ctx context.Context, receipt integrationstore.I
 	)
 }
 
-func appInboxRetryDelay(attempt int) time.Duration {
+func appInboxRetryDelay(attempt int, err error) time.Duration {
 	delay := 5 * time.Second
 	for range min(max(attempt-1, 0), 6) {
 		delay *= 2
 	}
-	return min(delay, 5*time.Minute)
+	return min(max(min(delay, 5*time.Minute), providerRetryDelay(err)), integrationstore.IntegrationInboxMaxRetryDelay)
+}
+
+func providerRetryDelay(err error) time.Duration {
+	var delay time.Duration
+	if hint, ok := err.(interface{ RetryDelay() time.Duration }); ok {
+		delay = max(delay, hint.RetryDelay())
+	}
+	if wrapped, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, cause := range wrapped.Unwrap() {
+			delay = max(delay, providerRetryDelay(cause))
+		}
+	} else if cause := errors.Unwrap(err); cause != nil {
+		delay = max(delay, providerRetryDelay(cause))
+	}
+	return delay
 }

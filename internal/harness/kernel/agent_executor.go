@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -118,7 +118,7 @@ func (e AgentExecutor) postIntegrationRuntimeError(
 	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
 		postCtx,
 		toToolTurn(input),
-		slack.AgentRequestFailureMessage,
+		integration.AgentRequestFailureMessage,
 	)
 }
 

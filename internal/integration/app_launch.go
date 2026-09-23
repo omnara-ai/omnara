@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
@@ -22,6 +24,8 @@ type AppLaunchContext struct {
 }
 
 type AppLaunchWorkflow struct {
+	Log *slog.Logger
+
 	router    *AppRouter
 	launchers map[appdefinition.Type]AppLauncher
 }
@@ -41,6 +45,10 @@ func (w *AppLaunchWorkflow) Decide(
 	appSetup integrationstore.ProjectAppRecord,
 	events []AppEvent,
 ) ([]AppEvent, error) {
+	log := w.Log
+	if log == nil {
+		log = slog.Default()
+	}
 	requests, err := prepareAppEvents(events, appSetup)
 	if err != nil {
 		return nil, err
@@ -76,7 +84,7 @@ func (w *AppLaunchWorkflow) Decide(
 			})
 			if err != nil {
 				if errors.Is(err, ErrAppLaunchUnavailable) {
-					slog.WarnContext(ctx, "app launcher unavailable", "app_id", app.ID, "receipt_id", receipt.ID, "error", err)
+					log.WarnContext(ctx, "app launcher unavailable", "app_id", app.ID, "receipt_id", receipt.ID, "error", err)
 				} else {
 					return nil, err
 				}
@@ -85,8 +93,19 @@ func (w *AppLaunchWorkflow) Decide(
 				if intent.AppID != app.ID {
 					return nil, fmt.Errorf("launcher for app %s returned an intent for another app", app.ID)
 				}
+				if intent.AgentID != uuid.Nil {
+					agent, err := w.router.execution.GetAgentInProject(ctx, receipt.ProjectID, intent.AgentID)
+					if err != nil {
+						return nil, err
+					}
+					if agent.State == executionstore.AgentStateArchived {
+						log.WarnContext(ctx, "skip archived app launcher recipient",
+							"app_id", app.ID, "receipt_id", receipt.ID, "agent_id", intent.AgentID, "slot", intent.Slot)
+						continue
+					}
+				}
+				event.Launches = append(event.Launches, intent)
 			}
-			event.Launches = append(event.Launches, intents...)
 		}
 	}
 	return result, nil

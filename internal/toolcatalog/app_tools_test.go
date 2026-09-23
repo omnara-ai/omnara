@@ -2,6 +2,7 @@ package toolcatalog
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
@@ -81,5 +82,22 @@ func TestAppToolPreparationKeepsCachedDefinitionsIsolated(t *testing.T) {
 			require.Equal(t, schema, string(another.InputSchema))
 			require.Equal(t, prepared.Description, another.Description)
 		})
+	}
+}
+
+func TestDiscordMessageContentLengthSchema(t *testing.T) {
+	tool, ok := LookupAppTool(appdefinition.DiscordThread, AppOperationPostMessage)
+	require.True(t, ok)
+	entry, err := tool.Prepare(AppToolName("chat", AppOperationPostMessage))
+	require.NoError(t, err)
+	for _, size := range []int{2000, 2001} {
+		raw, err := json.Marshal(map[string]string{"content": strings.Repeat("🙂", size)})
+		require.NoError(t, err)
+		err = jsonschema.Validate(entry.InputSchema, raw)
+		if size == 2000 {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
 	}
 }

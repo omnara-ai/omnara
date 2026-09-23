@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -32,6 +33,19 @@ type AppInboxProvider interface {
 	DownloadFile(context.Context, integrationstore.ProjectAppRecord, []byte, string) (AppInboxFile, error)
 }
 
+// ErrAppInboundPermanent marks a provider-confirmed inaccessible inbound target
+// before routing is frozen. It does not classify stored app or recipient authority.
+var ErrAppInboundPermanent = errors.New("permanent app inbound failure")
+
+// AppInboxRoutingProvider checks a single conversational event before fetching
+// identity, context or files. The callback freezes an empty plan for an unrouted
+// event; implementations must stop expansion when it returns false or an error.
+type AppInboxRoutingProvider interface {
+	ExpandRouted(
+		context.Context, integrationstore.ProjectAppRecord, []byte, func(AppEvent) (bool, error),
+	) (AppInboxExpansion, error)
+}
+
 type AppArtifactUploader interface {
 	PreparedArtifactUploaded(context.Context, uuid.UUID, artifactstore.PreparedArtifact) (bool, error)
 	UploadPreparedArtifact(context.Context, uuid.UUID, artifactstore.PreparedArtifact, []byte) error
@@ -42,6 +56,8 @@ type AppCanceledInteractionPresenter interface {
 }
 
 type AppInboxConsumer struct {
+	Log *slog.Logger
+
 	presenter AppCanceledInteractionPresenter
 	router    *AppRouter
 	inbox     AppRoutingStore
@@ -77,11 +93,33 @@ func (c *AppInboxConsumer) Consume(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 ) ([]AppSlotAdmission, error) {
+	log := c.Log
+	if log == nil {
+		log = slog.Default()
+	}
 	receipt, err := c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return nil, err
 	}
+	var plan AppInboxPlan
+	if artifacts, ok := c.artifacts.(AppInboxArtifactCleaner); ok {
+		defer func() {
+			if !appInboxPlanHasArtifacts(plan) {
+				return
+			}
+			if err := CleanupTerminalAppInboxArtifacts(
+				context.WithoutCancel(ctx), c.inbox, artifacts, lease.ProjectID, lease.ReceiptID,
+			); err != nil {
+				log.WarnContext(ctx, "App inbox artifact cleanup failed",
+					"receipt_id", lease.ReceiptID, "app_id", receipt.AppID, "error", err)
+			}
+		}()
+	}
 	if receipt.State == integrationstore.IntegrationInboxCompleted {
+		plan, err = decodeAppInboxPlan(receipt.Plan)
+		if err != nil {
+			return nil, err
+		}
 		return c.router.Admit(ctx, lease)
 	}
 	err = c.inbox.WithIntegrationInboxLease(
@@ -109,29 +147,26 @@ func (c *AppInboxConsumer) Consume(
 		if adapter == nil {
 			return nil, fmt.Errorf("no inbox consumer for provider %s", appSetup.Provider)
 		}
-		if _, ok := adapter.(*SlackAppInboxProvider); ok && len(receipt.Events) == 0 {
-			event, eligible, err := NormalizeSlackAppEvent(appSetup, receipt.Payload)
-			if err != nil {
-				return nil, err
-			}
-			if eligible {
-				empty, err := c.router.freezeEmptyIfUnrouted(ctx, lease, appSetup, event)
-				if err != nil {
-					return nil, err
-				}
-				if empty {
-					return c.router.Admit(ctx, lease)
-				}
-			}
-		}
 		if len(receipt.Events) != 0 {
 			if err := json.Unmarshal(receipt.Events, &expansion.Events); err != nil {
 				return nil, fmt.Errorf("decode decided app events: %w", err)
 			}
 		} else {
-			expansion, err = adapter.Expand(ctx, appSetup, receipt.Payload)
+			unrouted := false
+			if provider, ok := adapter.(AppInboxRoutingProvider); ok {
+				expansion, err = provider.ExpandRouted(ctx, appSetup, receipt.Payload, func(event AppEvent) (bool, error) {
+					var err error
+					unrouted, err = c.router.freezeEmptyIfUnrouted(ctx, lease, appSetup, event)
+					return !unrouted, err
+				})
+			} else {
+				expansion, err = adapter.Expand(ctx, appSetup, receipt.Payload)
+			}
 			if err != nil {
 				return nil, err
+			}
+			if unrouted {
+				return c.router.Admit(ctx, lease)
 			}
 			if c.launchers == nil {
 				return nil, fmt.Errorf("app launcher workflow is required")
@@ -149,14 +184,11 @@ func (c *AppInboxConsumer) Consume(
 			return nil, err
 		}
 	}
-	plan, err := decodeAppInboxPlan(receipt.Plan)
+	plan, err = decodeAppInboxPlan(receipt.Plan)
 	if err != nil {
 		return nil, err
 	}
-	var progress map[string]struct {
-		Prepared  json.RawMessage `json:"prepared"`
-		Committed json.RawMessage `json:"committed"`
-	}
+	var progress map[string]appInboxSlotProgress
 	if err = json.Unmarshal(receipt.Progress, &progress); err != nil {
 		return nil, err
 	}
@@ -170,54 +202,85 @@ func (c *AppInboxConsumer) Consume(
 			context.Context,
 			integrationstore.ProjectAppRecord,
 			[]byte,
-			appdefinition.DiscordScope,
+			appdefinition.Scope,
 			func(context.Context) error,
 		) error
 	}); ok {
-		scopes := map[appdefinition.DiscordScope][]string{}
+		type conversation struct {
+			scope      appdefinition.Scope
+			recipients []string
+		}
+		conversations := map[integrationstore.ConversationAddress]conversation{}
 		for _, key := range keys {
-			if len(progress[key].Committed) != 0 {
+			if progress[key].Committed != nil {
 				continue
 			}
 			scope := plan[key].Scope
-			if scope.Discord == nil {
-				return nil, fmt.Errorf("discord plan lacks frozen conversation scope")
-			}
-			if err := scope.Validate(appdefinition.ProviderDiscord); err != nil {
+			if err := scope.Validate(appSetup.Provider); err != nil {
 				return nil, err
 			}
-			scopes[*scope.Discord] = append(scopes[*scope.Discord], key)
-		}
-		for scope, recipients := range scopes {
-			kind, ref, err := (appdefinition.Scope{Discord: &scope}).Conversation()
+			kind, ref, err := scope.Conversation()
 			if err != nil {
 				return nil, err
 			}
 			address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
-			authority := func(ctx context.Context) error {
+			group := conversations[address]
+			group.scope = scope
+			group.recipients = append(group.recipients, key)
+			conversations[address] = group
+		}
+		for address, group := range conversations {
+			checkRecipients := func(ctx context.Context, settleAll bool) error {
+				authorized := false
 				var failures []error
-				for _, key := range recipients {
+				for _, key := range group.recipients {
 					if err := c.router.execution.CheckInboxConversationAuthority(ctx, lease, key, address); err == nil {
-						return nil
-					} else {
+						if !settleAll {
+							return nil
+						}
+						authorized = true
+					} else if !errors.Is(err, executionstore.ErrInboxRecipientSettled) {
 						failures = append(failures, err)
 					}
 				}
+				if authorized {
+					return nil
+				}
+				if len(failures) == 0 {
+					return executionstore.ErrInboxRecipientSettled
+				}
 				return errors.Join(failures...)
 			}
-			if err := preparer.PrepareConversation(ctx, appSetup, receipt.Payload, scope, authority); err != nil {
+			// Settle every archived recipient once before per-request authority checks.
+			if err := checkRecipients(ctx, true); err != nil {
+				if errors.Is(err, executionstore.ErrInboxRecipientSettled) {
+					continue
+				}
 				return nil, err
 			}
+			authority := func(ctx context.Context) error { return checkRecipients(ctx, false) }
+			if err := preparer.PrepareConversation(ctx, appSetup, receipt.Payload, group.scope, authority); err != nil &&
+				!errors.Is(err, executionstore.ErrInboxRecipientSettled) {
+				return nil, err
+			}
+		}
+		// Authority checks may settle archived recipients while preparing siblings.
+		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
+			return nil, err
 		}
 	}
 	cache := expansion.Files
 	if cache == nil {
 		cache = map[string]AppInboxFile{}
 	}
-	var failures []error
+	preparationFailures := make(map[string]error)
 	for _, key := range keys {
 		slot := plan[key]
-		if len(slot.Files) == 0 || len(progress[key].Prepared) != 0 || len(progress[key].Committed) != 0 {
+		if len(slot.Files) == 0 || len(progress[key].Prepared) != 0 || progress[key].Committed != nil {
 			continue
 		}
 		prepared, err := c.prepareFiles(ctx, adapter, appSetup, receipt.Payload, slot, cache)
@@ -225,10 +288,21 @@ func (c *AppInboxConsumer) Consume(
 			err = c.router.Prepare(ctx, lease, key, prepared)
 		}
 		if err != nil {
-			failures = append(failures, fmt.Errorf("prepare slot %s: %w", key, err))
+			preparationFailures[key] = err
 		}
 	}
 	results, err := c.router.Admit(ctx, lease)
+	for _, result := range results {
+		if result.Input != nil && result.Input.Skipped == executionstore.InboxInputSkipAgentArchived {
+			delete(preparationFailures, result.Slot)
+		}
+	}
+	var failures []error
+	for _, key := range keys {
+		if prepareErr := preparationFailures[key]; prepareErr != nil {
+			failures = append(failures, fmt.Errorf("prepare slot %s: %w", key, prepareErr))
+		}
+	}
 	if err != nil {
 		failures = append(failures, err)
 	}
@@ -239,7 +313,7 @@ func (c *AppInboxConsumer) Consume(
 		acknowledge(context.Context, integrationstore.ProjectAppRecord, []byte) error
 	}); ok && created {
 		if feedbackErr := acknowledger.acknowledge(ctx, appSetup, receipt.Payload); feedbackErr != nil {
-			slog.WarnContext(
+			log.WarnContext(
 				ctx,
 				"App input acknowledgement failed",
 				"receipt_id",
@@ -260,7 +334,7 @@ func (c *AppInboxConsumer) Consume(
 					plan[result.Slot].AgentID,
 					result.Input.CanceledInteractionIDs,
 				); dismissErr != nil {
-					slog.WarnContext(
+					log.WarnContext(
 						ctx,
 						"Canceled interaction dismissal failed",
 						"receipt_id",

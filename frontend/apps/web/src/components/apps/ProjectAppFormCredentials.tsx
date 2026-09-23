@@ -10,7 +10,13 @@ export function AppCredentialFields({ appType }: { appType: AppType }) {
       <>
         <Field>
           <FieldLabel htmlFor="webhook-secret">Webhook secret</FieldLabel>
-          <Input id="webhook-secret" name="webhookSecret" type="password" required />
+          <Input
+            id="webhook-secret"
+            name="webhookSecret"
+            type="password"
+            autoComplete="new-password"
+            required
+          />
         </Field>
         <Field className="sm:col-span-2">
           <FieldLabel htmlFor="private-key">RSA private key (PEM)</FieldLabel>
@@ -28,7 +34,7 @@ export function AppCredentialFields({ appType }: { appType: AppType }) {
   return (
     <Field>
       <FieldLabel htmlFor="bot-token">Bot token</FieldLabel>
-      <Input id="bot-token" name="botToken" type="password" required />
+      <Input id="bot-token" name="botToken" type="password" autoComplete="new-password" required />
     </Field>
   )
 }

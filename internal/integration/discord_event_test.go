@@ -93,6 +93,114 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	}
 }
 
+func TestDiscordInboxRoutesBeforeIdentityAndAttachments(t *testing.T) {
+	t.Parallel()
+	for _, routeErr := range []error{nil, integrationstore.ErrAppSelectionReserved} {
+		t.Run(fmt.Sprint(routeErr), func(t *testing.T) {
+			t.Parallel()
+			f, p := newDiscordInboxFixture(t)
+			f.message.ChannelID, f.message.Mentions = "400", nil
+			f.message.Attachments = []discord.Attachment{{ID: "600", Size: 4, Filename: "note.txt"}}
+			called := false
+			expansion, err := p.ExpandRouted(t.Context(), f.appSetup, discordInboxPayload(t, f.message),
+				func(event AppEvent) (bool, error) {
+					called = true
+					want := appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "400"}
+					if *event.Event.Scope.Discord != want || event.Event.Mentioned {
+						t.Fatalf("incorrect routing facts: %+v", event)
+					}
+					return false, routeErr
+				})
+			if !called || !errors.Is(err, routeErr) || len(expansion.Events) != 0 ||
+				len(f.requests) != 1 || f.requests[0] != "GET /api/v10/channels/400" {
+				t.Fatalf("preflight: called=%v err=%v events=%v requests=%v", called, err, expansion.Events, f.requests)
+			}
+		})
+	}
+}
+
+func TestDiscordInboxIgnoresUnsupportedChannelBeforeIdentity(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []int{2, 4, 13, 15, 16} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			t.Parallel()
+			f, p := newDiscordInboxFixture(t)
+			f.channels["300"] = discord.Channel{ID: "300", GuildID: "100", Type: kind}
+			expansion, err := p.ExpandRouted(t.Context(), f.appSetup, discordInboxPayload(t, f.message),
+				func(AppEvent) (bool, error) { t.Fatal("unsupported channel reached routing"); return true, nil })
+			if err != nil || len(expansion.Events) != 0 || len(f.requests) != 1 || f.posts != 0 {
+				t.Fatalf("unsupported channel: err=%v requests=%v", err, f.requests)
+			}
+		})
+	}
+}
+
+func TestDiscordInboxChannelFailuresClassifyOnlyInaccessibleTargets(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		status       int
+		providerCode int
+		permanent    bool
+	}{
+		{"unknown channel", http.StatusNotFound, 10003, true},
+		{"missing access", http.StatusForbidden, 50001, true},
+		{"missing permissions", http.StatusForbidden, 50013, true},
+		{"code-less forbidden", http.StatusForbidden, 0, false},
+		{"code-less not found", http.StatusNotFound, 0, false},
+		{"Cloudflare block", http.StatusForbidden, 40333, false},
+		{"unrecognized forbidden", http.StatusForbidden, 50035, false},
+		{"unrecognized not found", http.StatusNotFound, 10004, false},
+		{"unauthorized", http.StatusUnauthorized, 0, false},
+		{"rate limited", http.StatusTooManyRequests, 0, false},
+		{"server error", http.StatusInternalServerError, 0, false},
+		{"recognized code on server error", http.StatusInternalServerError, 50013, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f, p := newDiscordInboxFixture(t)
+			f.override = func(w http.ResponseWriter, r *http.Request) bool {
+				if r.URL.Path != "/api/v10/channels/300" {
+					return false
+				}
+				w.Header().Set("Retry-After", "60")
+				w.WriteHeader(test.status)
+				body := map[string]any{"message": "unavailable"}
+				if test.providerCode != 0 {
+					body["code"] = test.providerCode
+				}
+				_ = json.NewEncoder(w).Encode(body)
+				return true
+			}
+			expansion, err := p.ExpandRouted(t.Context(), f.appSetup, discordInboxPayload(t, f.message),
+				func(AppEvent) (bool, error) { t.Fatal("failed channel lookup reached routing"); return true, nil })
+			var apiErr *discord.APIError
+			if errors.Is(err, ErrAppInboundPermanent) != test.permanent || !errors.As(err, &apiErr) ||
+				apiErr.StatusCode != test.status || apiErr.ProviderCode != test.providerCode ||
+				len(expansion.Events) != 0 || len(f.requests) != 1 {
+				t.Fatalf("channel failure: status=%d err=%v requests=%v", test.status, err, f.requests)
+			}
+			if test.permanent {
+				err := p.PrepareConversation(t.Context(), f.appSetup, discordInboxPayload(t, f.message),
+					appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}},
+					func(context.Context) error { return nil })
+				if errors.Is(err, ErrAppInboundPermanent) || !errors.As(err, &apiErr) || apiErr.StatusCode != test.status {
+					t.Fatalf("frozen conversation must retain recovery: %v", err)
+				}
+			}
+		})
+	}
+	t.Run("stored authority remains retryable", func(t *testing.T) {
+		t.Parallel()
+		f, p := newDiscordInboxFixture(t)
+		f.revoked = true
+		_, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
+		if !errors.Is(err, storeerr.ErrUnauthorized) || errors.Is(err, ErrAppInboundPermanent) || len(f.requests) != 0 {
+			t.Fatalf("stored authority: err=%v requests=%v", err, f.requests)
+		}
+	})
+}
+
 func TestDiscordInboxIgnoresNonConversationalEvents(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -132,7 +240,6 @@ func TestDiscordInboxRejectsUnprovenScope(t *testing.T) {
 		{ID: "300", GuildID: "100", Type: 11},
 		{ID: "300", GuildID: "100", ParentID: "300", Type: 11},
 		{ID: "300", GuildID: "100", ParentID: "../400", Type: 11},
-		{ID: "300", GuildID: "100", Type: 2},
 	} {
 		if _, ok, err := NormalizeDiscordAppEvent(discordInboxApp(),
 			discordInboxPayload(t, discordInboxMessageFixture()), channel); err == nil || ok {
@@ -385,7 +492,7 @@ func TestDiscordInboxWrongTokenIdentityAndRetryFence(t *testing.T) {
 		f.identity.ApplicationID = "999"
 		_, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
 		var apiErr *discord.APIError
-		if !errors.As(err, &apiErr) || apiErr.Code != discord.ScopeMismatch || len(f.requests) != 2 {
+		if !errors.As(err, &apiErr) || apiErr.Code != discord.ScopeMismatch || len(f.requests) != 3 {
 			t.Fatalf("token identity: %v requests=%v", err, f.requests)
 		}
 	})
@@ -401,7 +508,7 @@ func TestDiscordInboxWrongTokenIdentityAndRetryFence(t *testing.T) {
 			return true
 		}
 		_, err := p.Expand(t.Context(), f.appSetup, discordInboxPayload(t, f.message))
-		if !errors.Is(err, storeerr.ErrUnauthorized) || len(f.requests) != 3 {
+		if !errors.Is(err, storeerr.ErrUnauthorized) || len(f.requests) != 1 {
 			t.Fatalf("retry fence: %v requests=%v", err, f.requests)
 		}
 	})
@@ -412,13 +519,15 @@ func TestDiscordInboxPrepareCreatesOneThreadOnlyAfterAuthority(t *testing.T) {
 	f, p := newDiscordInboxFixture(t)
 	raw := discordInboxPayload(t, f.message)
 	scope := appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}
-	if err := p.PrepareConversation(t.Context(), f.appSetup, raw, scope, nil); err == nil || len(f.requests) != 0 {
+	if err := p.PrepareConversation(t.Context(), f.appSetup, raw,
+		appdefinition.Scope{Discord: &scope}, nil); err == nil || len(f.requests) != 0 {
 		t.Fatalf("missing authority: %v requests=%v", err, f.requests)
 	}
 	var checks atomic.Int32
 	authority := func(context.Context) error { checks.Add(1); return nil }
 	for range 2 {
-		if err := p.PrepareConversation(t.Context(), f.appSetup, raw, scope, authority); err != nil {
+		if err := p.PrepareConversation(t.Context(), f.appSetup, raw,
+			appdefinition.Scope{Discord: &scope}, authority); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -427,7 +536,7 @@ func TestDiscordInboxPrepareCreatesOneThreadOnlyAfterAuthority(t *testing.T) {
 	}
 	wrong := scope
 	wrong.ThreadID = "600"
-	err := p.PrepareConversation(t.Context(), f.appSetup, raw, wrong, authority)
+	err := p.PrepareConversation(t.Context(), f.appSetup, raw, appdefinition.Scope{Discord: &wrong}, authority)
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("frozen scope mismatch: %v", err)
 	}
@@ -448,7 +557,7 @@ func TestDiscordInboxPrepareRevocationCancelsMutation(t *testing.T) {
 	}
 	sentinel := errors.New("frozen recipient lost authority")
 	err := p.PrepareConversation(t.Context(), f.appSetup, discordInboxPayload(t, f.message),
-		appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
+		appdefinition.Scope{Discord: &appdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}},
 		func(context.Context) error {
 			if revoked.Load() {
 				return sentinel
@@ -657,7 +766,7 @@ func TestDiscordInboxThreadPreparationDoesNotMutateReplies(t *testing.T) {
 	if err != nil || len(expansion.Events) != 1 {
 		t.Fatalf("thread reply: %+v %v", expansion, err)
 	}
-	if err := p.PrepareConversation(t.Context(), f.appSetup, raw, *expansion.Events[0].Event.Scope.Discord,
+	if err := p.PrepareConversation(t.Context(), f.appSetup, raw, expansion.Events[0].Event.Scope,
 		func(context.Context) error { return nil }); err != nil || f.posts != 0 {
 		t.Fatalf("reply preparation: err=%v posts=%d", err, f.posts)
 	}

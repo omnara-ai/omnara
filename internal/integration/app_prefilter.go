@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
@@ -36,7 +37,9 @@ func (r *AppRouter) freezeEmptyIfUnrouted(
 			if err != nil {
 				return err
 			}
-			if len(candidates.Subscriptions) > 0 {
+			if slices.ContainsFunc(candidates.Subscriptions, func(subscription integrationstore.AppSubscriptionRecord) bool {
+				return request.matchesSubscriptionAddress(subscription.Address)
+			}) {
 				return nil
 			}
 			if app := candidates.Launcher; app != nil && app.State == integrationstore.ProjectAppStateActive &&

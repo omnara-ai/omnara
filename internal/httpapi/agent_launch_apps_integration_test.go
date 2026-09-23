@@ -177,6 +177,34 @@ func TestPublicAppLaunchAuthorizationAndAppBoundary(t *testing.T) {
 	require.Equal(t, before[4], f.counts(t)[4], "ordinary input creates no subscription")
 }
 
+func TestPublicAppLaunchWithoutProfile(t *testing.T) {
+	t.Parallel()
+	f := newAppLaunchHTTPFixture(t, "app-launch-no-profile")
+	body := f.body()
+	delete(body, "profile")
+	encoded := projectAppHTTPJSON(t, body)
+	before := f.counts(t)
+	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		encoded, "pinned-launch", http.StatusCreated, authHeaders(f.launchToken))
+	agent := testutil.RequireType[map[string]any](t, launched["agent"])
+	config := testutil.RequireType[map[string]any](t, launched["agent_config"])
+	require.NotEqual(t, f.configID, config["id"])
+	require.Equal(t, config["id"], agent["current_config_id"])
+	agentID := mustPublicHTTPID(t, publicid.KindAgent, testutil.RequireType[string](t, agent["id"]))
+	var noProfile bool
+	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
+		`SELECT agent_profile_id IS NULL FROM agents WHERE id=$1`, agentID).Scan(&noProfile))
+	require.True(t, noProfile)
+	after := f.counts(t)
+	for _, i := range []int{0, 1, 2, 4} {
+		require.Equal(t, before[i]+1, after[i], "one config, agent, input and subscription")
+	}
+	replayed := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
+		encoded, "pinned-launch", http.StatusOK, authHeaders(f.launchToken))
+	require.Equal(t, agent["id"], testutil.RequireType[map[string]any](t, replayed["agent"])["id"])
+	require.Equal(t, after, f.counts(t))
+}
+
 func TestPublicAppLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) {
 	t.Parallel()
 	f := newAppLaunchHTTPFixture(t, "app-launch-invalid")

@@ -861,7 +861,7 @@ func TestCreateMachineRejectsInvalidOverridesBeforeApproval(t *testing.T) {
 			"create_machine": {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)},
 		},
 	}
-	executor := Executor{Store: fixture.Store, Now: func() time.Time { return fixture.Now.Add(6 * time.Second) }}
+	executor := Executor{Store: fixture.Store}
 	for i, call := range calls {
 		t.Run(call.ID, func(t *testing.T) {
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {

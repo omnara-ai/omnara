@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
@@ -83,6 +84,7 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 				assert.NotContains(t, body, "metadata")
 				if posts.Add(1) == 1 {
 					assert.Equal(t, launch.OpeningMessage, body["text"])
+					w.Header().Set("Retry-After", "120")
 					w.WriteHeader(test.status)
 					_, _ = w.Write([]byte(test.body))
 					return
@@ -101,6 +103,9 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 			if test.retry {
 				require.Error(t, err)
 				require.NotErrorIs(t, err, ErrScheduledActionFailed)
+				if test.status == http.StatusTooManyRequests {
+					require.WithinDuration(t, time.Now().Add(2*time.Minute), saved.AvailableAt, 5*time.Second)
+				}
 				require.Equal(t, integrationstore.IntegrationInboxPending, saved.State)
 			} else {
 				require.ErrorIs(t, err, ErrScheduledActionFailed)

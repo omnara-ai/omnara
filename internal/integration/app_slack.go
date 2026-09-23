@@ -219,10 +219,7 @@ func slackInboxEnvelope(
 		return envelope, identity, false, storeerr.ErrUnauthorized
 	}
 	event := envelope.Event
-	if event.Type != "message" && event.Type != "app_mention" {
-		return envelope, identity, false, nil
-	}
-	if event.Subtype != "" && event.Subtype != "file_share" {
+	if !slack.ConversationalMessage(event) {
 		return envelope, identity, false, nil
 	}
 	if slack.RemoteUserEvent(appSetup.ProviderTenantID, event) || slack.BotOrSelfEvent(identity.BotUserID, event) {
@@ -257,9 +254,21 @@ func (p *SlackAppInboxProvider) Expand(
 	appSetup integrationstore.ProjectAppRecord,
 	payload []byte,
 ) (AppInboxExpansion, error) {
+	return p.ExpandRouted(ctx, appSetup, payload, nil)
+}
+
+func (p *SlackAppInboxProvider) ExpandRouted(
+	ctx context.Context, appSetup integrationstore.ProjectAppRecord, payload []byte,
+	routeEvent func(AppEvent) (bool, error),
+) (AppInboxExpansion, error) {
 	normalized, ok, err := NormalizeSlackAppEvent(appSetup, payload)
 	if err != nil || !ok {
 		return AppInboxExpansion{}, err
+	}
+	if routeEvent != nil {
+		if routed, err := routeEvent(normalized); err != nil || !routed {
+			return AppInboxExpansion{}, err
+		}
 	}
 	envelope, identity, _, err := slackInboxEnvelope(appSetup, payload)
 	if err != nil {

@@ -186,6 +186,9 @@ func NormalizeGitHubAppEvent(
 	if humanInput && actor.ID != payload.Sender.ID {
 		return AppEvent{}, false, fmt.Errorf("GitHub comment author differs from event sender")
 	}
+	if payload.Review != nil && payload.Review.State == "commented" && strings.TrimSpace(payload.Review.Body) == "" {
+		return AppEvent{}, false, nil
+	}
 	appActor, err := executionstore.AppActorParams(appSetup.ID, strconv.FormatInt(actor.ID, 10), &actor.Login)
 	if err != nil {
 		return AppEvent{}, false, err

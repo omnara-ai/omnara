@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -14,8 +16,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
@@ -81,7 +85,7 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	transient := errors.New("recipient B temporarily unavailable")
+	transient := &discord.APIError{Code: discord.RateLimited, RetryAfter: time.Hour}
 	consumer := appWorkerConsumerFunc(
 		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
 			err := inbox.WithIntegrationInboxLease(
@@ -122,6 +126,7 @@ func TestAppInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.Contains(t, first.LastError, transient.Error())
 	require.Contains(t, string(first.Progress), "committed-a")
 	require.Zero(t, finalizations, "no failure notice during retry")
+	require.WithinDuration(t, time.Now().Add(time.Hour), first.AvailableAt, 5*time.Second)
 	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=7,available_at=now() WHERE id=$1`, receipt.ID)
 	require.NoError(t, err)
 	worked, err = worker.RunOnce(ctx)
@@ -306,4 +311,81 @@ func seedIndependentApp(
 	app, err := storage.NewStore(pool).Integrations().GetProjectApp(t.Context(), template.ProjectID, id)
 	require.NoError(t, err)
 	return app
+}
+
+func TestAppInboxWorkerOnlyMarkedInboundFailuresAreTerminal(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		cause    error
+		terminal bool
+	}{
+		{"inaccessible channel", fmt.Errorf("expand: %w: %w", ErrAppInboundPermanent,
+			&discord.APIError{Code: discord.PermanentFailure, StatusCode: http.StatusForbidden}), true},
+		{"missing channel", fmt.Errorf("expand: %w: %w", ErrAppInboundPermanent,
+			&discord.APIError{Code: discord.PermanentFailure, StatusCode: http.StatusNotFound}), true},
+		{"revoked stored authority", fmt.Errorf("recipient: %w", storeerr.ErrUnauthorized), false},
+		{"unmarked channel forbidden", &discord.APIError{
+			Code: discord.PermanentFailure, StatusCode: http.StatusForbidden,
+		}, false},
+		{"unmarked channel missing", &discord.APIError{
+			Code: discord.PermanentFailure, StatusCode: http.StatusNotFound,
+		}, false},
+		{"provider credential rejected", &discord.APIError{
+			Code: discord.PermanentFailure, StatusCode: http.StatusUnauthorized,
+		}, false},
+		{"rate limited", &discord.APIError{Code: discord.RateLimited, RetryAfter: time.Minute}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, store, ids, appID := appProviderFixture(t, "discord", "11", "22")
+			ctx := t.Context()
+			inbox := store.Integrations()
+			input := integrationstore.VerifiedIntegrationReceipt{
+				ProjectID: ids.ProjectID, AppID: appID, ReceiptKey: "disposition", Payload: []byte(`{}`),
+			}
+			receipt, _, err := inbox.AcceptIntegrationReceipt(ctx, input)
+			require.NoError(t, err)
+			attempts, finalized := 0, 0
+			consumer := appWorkerFailureConsumer{
+				appWorkerConsumerFunc: func(context.Context, integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
+					attempts++
+					return nil, test.cause
+				},
+				finalize: func(ctx context.Context, projectID, receiptID uuid.UUID) error {
+					current, err := inbox.GetIntegrationInbox(ctx, projectID, receiptID)
+					require.NoError(t, err)
+					require.Equal(t, integrationstore.IntegrationInboxFailed, current.State,
+						"finalization must run after the terminal commit")
+					require.NotNil(t, current.CompletedAt)
+					finalized++
+					return nil
+				},
+			}
+			worker := NewAppInboxWorker(inbox, consumer, AppInboxWorkerOptions{})
+			worked, err := worker.RunOnce(ctx)
+			require.True(t, worked)
+			require.ErrorIs(t, err, test.cause)
+			current, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+			require.NoError(t, err)
+			require.Equal(t, 1, current.AttemptCount)
+			require.Equal(t, 1, attempts)
+			if test.terminal {
+				require.Equal(t, integrationstore.IntegrationInboxFailed, current.State)
+				require.Equal(t, 1, finalized)
+				duplicate, created, err := inbox.AcceptIntegrationReceipt(ctx, input)
+				require.NoError(t, err)
+				require.False(t, created)
+				require.Equal(t, receipt.ID, duplicate.ID)
+				worked, err = worker.RunOnce(ctx)
+				require.NoError(t, err)
+				require.False(t, worked)
+				require.Equal(t, 1, finalized, "duplicate intake must not finalize again")
+				require.Equal(t, 1, attempts, "terminal input must not retry")
+			} else {
+				require.Equal(t, integrationstore.IntegrationInboxPending, current.State)
+				require.Nil(t, current.CompletedAt)
+				require.True(t, current.AvailableAt.After(time.Now()))
+				require.Zero(t, finalized)
+			}
+		})
+	}
 }

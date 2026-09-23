@@ -133,7 +133,10 @@ func (c *Client) do(ctx context.Context, method, target, contentType string, bod
 			return data, nil
 		}
 		uncertain = uncertain || apiErr.Code == DeliveryUnknown
-		canRetry := apiErr.Code == TransientFailure || (retrySend && apiErr.Code == DeliveryUnknown)
+		// A 429 is definitely unsent. Keep retries short; longer waits belong to
+		// the durable caller, which receives the provider's RetryAfter hint.
+		canRetry := apiErr.Code == RateLimited || apiErr.Code == TransientFailure ||
+			(retrySend && apiErr.Code == DeliveryUnknown)
 		if (!mutation || retrySend) && canRetry && attempt < 2 && ctx.Err() == nil && apiErr.RetryAfter <= time.Second {
 			delay := max(time.Duration(attempt+1)*100*time.Millisecond, apiErr.RetryAfter)
 			timer := time.NewTimer(delay)

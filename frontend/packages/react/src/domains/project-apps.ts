@@ -6,6 +6,7 @@ import {
   type CreateSlackSetupRequest,
   type InspectGitHubInstallationsRequest,
   type ListProjectAppsData,
+  type ProjectApp,
   type SaveProjectAppRequest,
   sdk,
 } from '@omnara/sdk'
@@ -67,13 +68,22 @@ export function useUpdateProjectApp(orgID: string, projectID: string) {
       })
       return data
     },
-    onSuccess: async (app) => {
-      const queryKey = getProjectAppQueryKey({ path: { orgID, projectID, appID: app.id }, client })
+    onSuccess: async (app, { appID }) => {
+      const queryKey = getProjectAppQueryKey({ path: { orgID, projectID, appID }, client })
       await queryClient.cancelQueries({ queryKey })
-      queryClient.setQueryData(queryKey, app)
-      await queryClient.invalidateQueries({
-        queryKey: listProjectAppsQueryKey({ path: { orgID, projectID }, client }),
-      })
+      queryClient.setQueryData<ProjectApp>(queryKey, (previous) =>
+        previous?.setup_revision === app.setup_revision && previous.state === app.state
+          ? { ...app, runtime_failure: previous.runtime_failure }
+          : app,
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listProjectAppsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+      ])
     },
   })
 }

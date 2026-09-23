@@ -66,7 +66,7 @@ func TestScheduledPlanKeepsAppAndConversationAuthority(t *testing.T) {
 			require.NoError(t, err)
 			slot := map[string]any{
 				"scope": root, "selection": selection,
-				"launch": map[string]any{"ProfileID": profileID, "InitialInput": map[string]any{"content_blocks": content}},
+				"launch": map[string]any{"profile_id": profileID, "initial_input": map[string]any{"content_blocks": content}},
 			}
 			plan := map[string]any{"scheduled": slot}
 			if scenario == "extra slot" {

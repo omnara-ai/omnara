@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,6 +34,7 @@ func TestCheckIdentity(t *testing.T) {
 				assert.Equal(t, "/auth.test", r.URL.Path)
 				assert.Equal(t, http.MethodPost, r.Method)
 				assert.Equal(t, "Bearer rotated-token", r.Header.Get("Authorization"))
+				w.Header().Set("Retry-After", "120")
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.response))
 			}))
@@ -43,6 +45,11 @@ func TestCheckIdentity(t *testing.T) {
 				require.NoError(t, err)
 			} else {
 				require.Error(t, err)
+				if tc.status == 429 || tc.status == 503 {
+					var apiErr *APIError
+					require.ErrorAs(t, err, &apiErr)
+					require.Equal(t, 2*time.Minute, apiErr.RetryDelay())
+				}
 			}
 		})
 	}

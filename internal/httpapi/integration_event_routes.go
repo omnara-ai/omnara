@@ -124,8 +124,7 @@ func (s *Server) acceptSlackEvent(
 		return "ignored", nil
 	}
 	event := envelope.Event
-	if (event.Type != "message" && event.Type != "app_mention") ||
-		(event.Subtype != "" && event.Subtype != "file_share") || event.Channel == "" || event.TS == "" {
+	if !slack.ConversationalMessage(event) || event.Channel == "" || event.TS == "" {
 		return "ignored", nil
 	}
 	_, _, err = s.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
