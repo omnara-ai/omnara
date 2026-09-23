@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"time"
 
@@ -423,25 +422,6 @@ func resolveCreateMachineRequest(raw json.RawMessage) (createMachineRequest, err
 	var input createMachineRequest
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return createMachineRequest{}, fmt.Errorf("parse create_machine request: %w", err)
-	}
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return createMachineRequest{}, fmt.Errorf("parse create_machine request: %w", err)
-	}
-	for field, value := range body {
-		if field != "machine_pool_name" && field != "cpu" && field != "memory_mb" {
-			return createMachineRequest{}, fmt.Errorf("create_machine request has unsupported field %q", field)
-		}
-		if string(value) == "null" {
-			return createMachineRequest{}, fmt.Errorf("create_machine %s cannot be null", field)
-		}
-	}
-	for field, value := range map[string]*int{"cpu": input.CPU, "memory_mb": input.MemoryMB} {
-		if value != nil && (*value <= 0 || *value > math.MaxInt32) {
-			return createMachineRequest{}, fmt.Errorf(
-				"create_machine %s must be an integer between 1 and %d", field, math.MaxInt32,
-			)
-		}
 	}
 	return input, nil
 }
