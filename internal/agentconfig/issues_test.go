@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func compileIssues(t *testing.T, format SourceFormat, source string, opts CompileOptions) []Issue {
@@ -123,6 +125,38 @@ machine_sources:
 	}
 	if got, wanted := describeIssues(issues), describeIssues(want); got != wanted {
 		t.Fatalf("issues = %s, want %s", got, wanted)
+	}
+}
+
+func TestCompileMemoryStoreIssuesIdentifyAttachment(t *testing.T) {
+	id := uuid.New()
+	for _, test := range []struct {
+		name    string
+		id      uuid.UUID
+		message string
+	}{
+		{name: "invalid resolved ID", message: "invalid resolved memory store"},
+		{name: "duplicate store", id: id, message: `duplicate memory store "other"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			issues := compileIssues(t, SourceFormatYAML, `instruction: x
+model:
+  provider_config: a
+  name: b
+memory_stores:
+  - {name: notes, access: read_only}
+  - {name: other, access: read_only}
+`, CompileOptions{ResolveMemoryStoreName: func(name string) (uuid.UUID, error) {
+				if name == "notes" {
+					return id, nil
+				}
+				return test.id, nil
+			}})
+			if len(issues) != 1 || issues[0].Path != "/memory_stores/1" ||
+				issues[0].Line != 7 || issues[0].Message != test.message {
+				t.Fatalf("issues = %+v, want %q at /memory_stores/1 line 7", issues, test.message)
+			}
+		})
 	}
 }
 

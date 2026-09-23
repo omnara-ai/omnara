@@ -63,11 +63,11 @@ function StoreBrowser({ scope, canManage }: { scope: MemoryScope; canManage: boo
   const folder =
     search.folder ?? (selected.includes('/') ? selected.slice(0, selected.lastIndexOf('/')) : '')
   const [dialog, setDialog] = useState<'settings' | 'file' | null>(null)
-  function select(path: string, directory: string) {
+  function select(path: string) {
     void navigate({
       to: '/projects/$projectId/memory/$storeId',
       params: { projectId: scope.projectID, storeId: scope.memoryStoreID },
-      search: { path, folder: directory || undefined },
+      search: { path },
     })
   }
   if (!query.data)
@@ -173,9 +173,7 @@ function StoreBrowser({ scope, canManage }: { scope: MemoryScope; canManage: boo
           onClose={() => {
             setDialog(null)
           }}
-          onSaved={(path) => {
-            select(path, path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
-          }}
+          onSaved={select}
         />
       )}
     </div>
@@ -191,19 +189,27 @@ function DirectoryBrowser({
   scope: MemoryScope
   folder: string
   selected: string
-  onSelect: (path: string, folder: string) => void
+  onSelect: (path: string) => void
 }) {
   const [limitDirectoryRequests] = useState(() => pLimit(4))
-  const [expansion, setExpansion] = useState<{ all?: boolean; paths: Map<string, boolean> }>({
+  const [expansion, setExpansion] = useState<{
+    folder?: string
+    all?: boolean
+    paths: Map<string, boolean>
+  }>({
     paths: new Map(),
   })
-  const isExpanded = (path: string): boolean =>
-    expansion.paths.get(path) ?? expansion.all ?? (folder === path || folder.startsWith(`${path}/`))
-  const canCollapse =
-    expansion.all === true ||
-    [...expansion.paths.values()].some(Boolean) ||
-    (folder !== '' &&
-      folder.split('/').some((_, index, parts) => isExpanded(parts.slice(0, index + 1).join('/'))))
+  if (expansion.folder !== folder) {
+    const paths = new Map(expansion.paths)
+    if (folder) {
+      folder.split('/').forEach((_, index, parts) => {
+        paths.set(parts.slice(0, index + 1).join('/'), true)
+      })
+    }
+    setExpansion({ ...expansion, folder, paths })
+  }
+  const isExpanded = (path: string): boolean => expansion.paths.get(path) ?? expansion.all ?? false
+  const canCollapse = expansion.all === true || [...expansion.paths.values()].some(Boolean)
   return (
     <aside
       aria-label="Store files"
@@ -219,7 +225,7 @@ function DirectoryBrowser({
             aria-label={canCollapse ? 'Collapse all folders' : 'Expand all folders'}
             title={canCollapse ? 'Collapse all folders' : 'Expand all folders'}
             onClick={() => {
-              setExpansion({ all: !canCollapse, paths: new Map() })
+              setExpansion({ folder, all: !canCollapse, paths: new Map() })
             }}
           >
             {canCollapse ? (
@@ -259,7 +265,7 @@ function DirectoryEntries({
   scope: MemoryScope
   folder: string
   selected: string
-  onSelect: (path: string, folder: string) => void
+  onSelect: (path: string) => void
   isExpanded: (path: string) => boolean
   onToggle: (path: string) => void
   folderToggle?: ReactNode
@@ -298,7 +304,7 @@ function DirectoryEntries({
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm ${selected === file.path ? 'bg-muted' : 'hover:bg-muted/60'}`}
                 onClick={() => {
                   if (file.type === 'directory') onToggle(file.path)
-                  else onSelect(file.path, folder)
+                  else onSelect(file.path)
                 }}
               >
                 {file.type === 'directory' ? (

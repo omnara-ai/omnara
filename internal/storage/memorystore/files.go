@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"syscall"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/blobstore"
@@ -40,21 +41,25 @@ func (s *Store) Read(ctx context.Context, scope Scope, storeID uuid.UUID, path s
 		return "", nil, storeerr.InvalidRequest(err)
 	}
 	root, err := s.openStoreForRead(ctx, scope, storeID)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil, storeerr.ErrNotFound
-	}
 	if err != nil {
-		return "", nil, err
+		return "", nil, fileReadError(err)
 	}
 	defer func() { _ = root.Close() }()
 	body, err := memoryops.Read(root, path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil, storeerr.ErrNotFound
-	}
 	if err != nil {
-		return "", nil, err
+		return "", nil, fileReadError(err)
 	}
 	return blobstore.ContentDigest(body), body, nil
+}
+
+func fileReadError(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return storeerr.ErrNotFound
+	}
+	if errors.Is(err, storeerr.ErrConflict) || errors.Is(err, syscall.ENOTDIR) {
+		return storeerr.InvalidRequest(err)
+	}
+	return err
 }
 
 func (s *Store) openStoreForRead(ctx context.Context, scope Scope, storeID uuid.UUID) (*os.Root, error) {
@@ -118,7 +123,9 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	}
 	defer func() {
 		if err := s.files.Discard(staged); err != nil {
-			logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDiscardStagedFile, input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err)
+			logent.MemoryCleanupFailed(
+				ctx, logent.MemoryCleanupDiscardStagedFile, input.Scope.OrgID, input.Scope.ProjectID, input.StoreID, err,
+			)
 		}
 	}()
 	result := WriteResult{Path: Root + "/" + ref.Name + "/" + input.Path, Digest: blobstore.ContentDigest(input.Content)}
@@ -170,7 +177,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		}
 		if *input.ExpectedDigest != currentDigest {
 			return WriteResult{}, fmt.Errorf(
-				"memory changed; download it and retry: %w",
+				"memory changed; retrieve the latest contents and retry: %w",
 				&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
 			)
 		}
@@ -267,7 +274,7 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 	}
 	if currentDigest != expectedDigest {
 		return fmt.Errorf(
-			"memory changed; reload it and retry: %w",
+			"memory changed; retrieve the latest contents and retry: %w",
 			&storeerr.FileContentConflictError{CurrentDigest: currentDigest},
 		)
 	}

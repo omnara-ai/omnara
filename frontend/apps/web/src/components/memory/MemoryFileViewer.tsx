@@ -178,7 +178,10 @@ function FileContent({
         changed={changed}
         error={error}
         pending={pending}
-        onRefresh={onRefresh}
+        onRefresh={() => {
+          remove.reset()
+          onRefresh()
+        }}
         onLoadLatest={() => {
           if (!dirty || window.confirm('Discard your edits and reload the latest file?')) {
             setDraft(null)
@@ -220,6 +223,7 @@ function TextPreview({
 }) {
   const markdown = path.toLowerCase().endsWith('.md')
   const canPreviewMarkdown = value.length <= MAX_MARKDOWN_PREVIEW_CHARS
+  const [editorOpened, setEditorOpened] = useState(!canPreviewMarkdown)
   const editor = (
     <CatchBoundary
       getResetKey={() => path}
@@ -241,12 +245,24 @@ function TextPreview({
   )
 
   return markdown ? (
-    <Tabs defaultValue={canPreviewMarkdown ? 'preview' : 'source'} className="gap-4">
+    <Tabs
+      defaultValue={canPreviewMarkdown ? 'preview' : 'source'}
+      className="gap-4"
+      onValueChange={(tab) => {
+        if (tab === 'source') setEditorOpened(true)
+      }}
+    >
       <TabsList aria-label="File view">
         <TabsTrigger value="preview">Preview</TabsTrigger>
         <TabsTrigger value="source">{canWrite ? 'Edit' : 'Source'}</TabsTrigger>
       </TabsList>
-      <TabsContent value="source">{editor}</TabsContent>
+      <TabsContent
+        value="source"
+        forceMount={editorOpened || undefined}
+        className="data-[state=inactive]:hidden"
+      >
+        {editor}
+      </TabsContent>
       <TabsContent value="preview">
         {canPreviewMarkdown ? (
           <Streamdown
@@ -281,7 +297,8 @@ function FileNotices({
   onRefresh: () => void
   onLoadLatest: () => void
 }) {
-  const currentDigest = fileContentConflict(error)?.currentDigest
+  const conflict = fileContentConflict(error)
+  const currentDigest = conflict?.currentDigest
   return (
     <>
       {changed && (
@@ -298,7 +315,11 @@ function FileNotices({
       )}
       {error && !(changed && currentDigest) && (
         <p role="alert" className="text-destructive text-sm">
-          {currentDigest ? 'This file changed. Your draft is preserved.' : error.message}{' '}
+          {conflict
+            ? currentDigest
+              ? 'This file changed.'
+              : 'This file no longer exists.'
+            : error.message}{' '}
           <button className="underline" onClick={onRefresh}>
             Check latest
           </button>

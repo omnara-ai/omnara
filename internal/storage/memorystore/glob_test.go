@@ -65,6 +65,13 @@ func TestGlobFilesystem(t *testing.T) {
 		})
 	}
 	remaining := 0
+	filesystem := globFS{root: root, checkCanceled: t.Context().Err, remaining: &remaining}
+	for _, name := range []string{"missing", "root.md/child"} {
+		file, err := filesystem.Open(name)
+		if file != nil || !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("open %s: file=%v error=%v", name, file, err)
+		}
+	}
 	if err := globFiles(
 		t.Context(), root, "dir/deep/note.md", &remaining, func(string, fs.DirEntry) error { return nil },
 	); err != nil {

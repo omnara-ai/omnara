@@ -62,7 +62,7 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 				project.AdminToken, http.StatusOK)
 			var result map[string]string
 			require.NoError(t, json.Unmarshal(written.Body.Bytes(), &result))
-			require.Equal(t, "/memory/notes/"+name, result["path"])
+			require.Equal(t, name, result["path"])
 			require.Equal(t, blobstore.ContentDigest(body), result["digest"])
 			listed := requestJSONWithHeaders(t, handler, http.MethodGet, base+"/files?path=folder",
 				"", "", http.StatusOK, authHeaders(project.AdminToken))
@@ -73,7 +73,7 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, "file", entry["type"])
 			require.Equal(t, float64(len(body)), entry["size_bytes"])
-			rec := request(t, http.MethodGet, file(name), nil,
+			rec := request(t, http.MethodGet, file(result["path"]), nil,
 				project.AdminToken, http.StatusOK)
 			require.True(t, bytes.Equal(body, rec.Body.Bytes()))
 			digest := rec.Header().Get("X-Omnara-File-Digest")
@@ -152,6 +152,16 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		request(t, http.MethodPut, file(name), []byte("content"),
 			project.AdminToken, http.StatusOK)
 	}
+	for _, endpoint := range []string{
+		file("nested"), file("a.txt/child"),
+		base + "/files?path=a.txt/child",
+	} {
+		request(t, http.MethodGet, endpoint, nil, project.AdminToken, http.StatusBadRequest)
+	}
+	notDirectory := request(t, http.MethodGet, base+"/files?path=a.txt", nil,
+		project.AdminToken, http.StatusBadRequest)
+	require.JSONEq(t, `{"code":"invalid_request","error":"invalid request: path must identify a directory"}`, notDirectory.Body.String())
+	request(t, http.MethodGet, file("missing.txt"), nil, project.AdminToken, http.StatusNotFound)
 	conflict := request(t, http.MethodPut, file("nested"), []byte("content"),
 		project.AdminToken, http.StatusConflict)
 	var conflictBody map[string]string

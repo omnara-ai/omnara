@@ -16,7 +16,12 @@ const (
 	MemoryCleanupDiscardStagedFile  MemoryCleanupOperation = "discard_staged_file"
 )
 
-func MemoryCleanupFailed(ctx context.Context, operation MemoryCleanupOperation, orgID, projectID, storeID uuid.UUID, err error) {
+func MemoryCleanupFailed(
+	ctx context.Context,
+	operation MemoryCleanupOperation,
+	orgID, projectID, storeID uuid.UUID,
+	err error,
+) {
 	event := log.NewEvent(ctx, "memory.cleanup_failed", log.Fields{
 		"memory.cleanup.operation": string(operation),
 		"org.id":                   orgID,

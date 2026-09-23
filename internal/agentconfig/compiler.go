@@ -280,10 +280,10 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 			return Compiled{}, issueOr(jsonPointer("memory_stores", i), err)
 		}
 		if id == uuid.Nil {
-			return Compiled{}, issuef(jsonPointer("memory_stores"), "invalid resolved memory store")
+			return Compiled{}, issuef(jsonPointer("memory_stores", i), "invalid resolved memory store")
 		}
 		if seenMemoryStores[id] {
-			return Compiled{}, issuef(jsonPointer("memory_stores"), "duplicate memory store %q", store.Name)
+			return Compiled{}, issuef(jsonPointer("memory_stores", i), "duplicate memory store %q", store.Name)
 		}
 		seenMemoryStores[id] = true
 		compiled.MemoryStores = append(compiled.MemoryStores, MemoryStoreCompiled{ID: id, Access: store.Access})

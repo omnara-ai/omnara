@@ -2,11 +2,14 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strconv"
 	"time"
 )
+
+const fileExecStderrLimitBytes = 4 * 1024
 
 func CheckFileToolSupport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -14,7 +17,10 @@ func CheckFileToolSupport(ctx context.Context) error {
 	if _, err := exec.LookPath("rg"); err != nil {
 		return err
 	}
-	_, err := editFileText(ctx, nil, "")
+	output, err := editFileText(ctx, []byte("é"), "s/./x/g")
+	if err == nil && string(output) != "x" {
+		return errors.New("script execution requires a working C.UTF-8 locale")
+	}
 	return err
 }
 
@@ -33,6 +39,6 @@ type boundedStderrBuffer struct{ data []byte }
 
 func (b *boundedStderrBuffer) Write(data []byte) (int, error) {
 	n := len(data)
-	b.data = append(b.data, data[:min(n, 4096-len(b.data))]...)
+	b.data = append(b.data, data[:min(n, fileExecStderrLimitBytes-len(b.data))]...)
 	return n, nil
 }
