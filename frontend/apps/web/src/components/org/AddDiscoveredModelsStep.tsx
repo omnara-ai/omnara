@@ -1,6 +1,6 @@
 import { useCreateConfiguredModel } from '@omnara/react'
 import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -46,6 +46,7 @@ export function AddDiscoveredModelsStep({
   discoveredModels: DiscoveredProviderModel[]
   onDone: () => void
 }) {
+  const inputId = useId()
   const createConfiguredModel = useCreateConfiguredModel(orgId)
   const creatableModels = discoveredModels.filter(canCreateDiscoveredModel)
   const [state, setState] = useState(initialAddModelsState)
@@ -121,8 +122,9 @@ export function AddDiscoveredModelsStep({
       </DialogHeader>
       <FieldGroup>
         <Field>
-          <FieldLabel>Detected models</FieldLabel>
+          <FieldLabel htmlFor={inputId}>Detected models</FieldLabel>
           <DiscoveredModelMultiCombobox
+            id={inputId}
             items={availableModels}
             value={availableModels.filter((model) => selectedSlugSet.has(model.slug))}
             disabled={submitting}

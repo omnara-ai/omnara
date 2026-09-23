@@ -759,4 +759,9 @@ it('preserves an inherited MCP permission when its profile loads', async () => {
 
   expect(onServersChange).not.toHaveBeenCalled()
   expect(container.textContent).toContain('Always ask')
+  click('[aria-label="Toggle server details"]')
+  const authLabel = [...container.querySelectorAll('label')].find(
+    (label) => label.textContent === 'Authentication',
+  )
+  expect(authLabel?.control?.getAttribute('role')).toBe('combobox')
 })

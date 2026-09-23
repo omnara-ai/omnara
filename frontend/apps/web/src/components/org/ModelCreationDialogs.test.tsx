@@ -14,6 +14,8 @@ import { enableReactActEnvironment } from '@/test/react-act'
 
 import { AddDiscoveredModelsStep } from './AddDiscoveredModelsStep'
 import { CreateConfiguredModelDialog } from './CreateConfiguredModelDialog'
+import { EditConfiguredModelDialog } from './EditConfiguredModelDialog'
+import { EditModelProviderDialog } from './EditModelProviderDialog'
 import { GrantConfiguredModelDialog } from './GrantConfiguredModelDialog'
 
 const timestamp = '2026-01-01T00:00:00Z'
@@ -169,6 +171,15 @@ function element(selector: string): HTMLElement {
   return match
 }
 
+function labeledControl(text: string): HTMLElement {
+  const label = [...document.querySelectorAll('label')].find(
+    (candidate) => candidate.textContent === text,
+  )
+  const control = label?.control
+  if (!(control instanceof HTMLElement)) throw new Error(`Missing labeled control: ${text}`)
+  return control
+}
+
 function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll('button')].find(
     (candidate) => candidate.textContent === label,
@@ -183,16 +194,14 @@ async function clickButton(label: string) {
   })
 }
 
-async function openCombobox(selector: string) {
+async function openCombobox(control: HTMLElement) {
   await interact(() => {
-    element(selector).dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-    )
+    control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
   })
 }
 
-async function selectOption(selector: string, label: string) {
-  await openCombobox(selector)
+async function selectOption(target: HTMLElement, label: string) {
+  await openCombobox(target)
   await interact(() => {
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
       (candidate) => candidate.textContent === label,
@@ -230,9 +239,9 @@ function ConfiguredModelDialog({ create = true }: { create?: boolean }) {
 }
 
 async function selectModelAndProjects(create = true) {
-  if (create) await selectOption('#cm-provider-model-slug', 'model-one')
+  if (create) await selectOption(element('#cm-provider-model-slug'), 'model-one')
   for (const project of projects) {
-    await selectOption('[aria-label="Search projects…"]', project.name)
+    await selectOption(labeledControl('Project grants'), project.name)
   }
 }
 
@@ -259,13 +268,13 @@ it('excludes successful bulk creations and retries only the failed selection', a
     </Dialog>,
   )
   for (const discovered of discoveredModels) {
-    await selectOption('[aria-label="Search detected models…"]', discovered.slug)
+    await selectOption(labeledControl('Detected models'), discovered.slug)
   }
   await clickButton('Create 2 models')
 
   expect(document.body.textContent).toContain('Created 1 of 2 models.')
   expect(button('Done')).toBeDefined()
-  await openCombobox('[aria-label="Search detected models…"]')
+  await openCombobox(labeledControl('Detected models'))
   expect(
     [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent),
   ).toEqual(['model-two'])
@@ -292,7 +301,7 @@ it.each([
 
     expect(document.body.textContent).toContain('2 project grants failed')
     for (const remaining of [['Beta', 'Gamma'], ['Gamma']]) {
-      await openCombobox('[aria-label="Search projects…"]')
+      await openCombobox(labeledControl('Project grants'))
       expect(
         [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent),
       ).toEqual(remaining)
@@ -332,4 +341,45 @@ it('keeps unsubmitted drafts but clears a created model when abandoning failed g
   expect(button('Add model').disabled).toBe(true)
   expect(api.requestsTo('POST', modelsPath)).toHaveLength(1)
   expect(api.requests.filter((request) => request.method === 'DELETE')).toEqual([])
+})
+
+it('labels the configured model edit controls', async () => {
+  await render(
+    creationApi(),
+    <EditConfiguredModelDialog open onOpenChange={() => undefined} orgId={orgId} model={model} />,
+  )
+  for (const [label, value] of Object.entries({
+    Name: model.name,
+    'Provider model slug': model.provider_model_slug,
+    'Context window': String(model.context_window_tokens),
+    'Maximum output': '',
+    'Default output': '',
+  })) {
+    const control = labeledControl(label)
+    if (!(control instanceof HTMLInputElement)) throw new Error(`Expected input: ${label}`)
+    expect(control.value).toBe(value)
+  }
+})
+
+it('labels the provider edit controls including AWS signing region', async () => {
+  await render(
+    creationApi(),
+    <EditModelProviderDialog
+      open
+      onOpenChange={() => undefined}
+      orgId={orgId}
+      provider={{ ...provider, auth_kind: 'sigv4', auth_options: { region: 'us-east-1' } }}
+    />,
+  )
+  for (const [label, value] of Object.entries({
+    'Base URL': provider.base_url,
+    'Endpoint path': provider.endpoint_path,
+    'Total request timeout (ms)': String(provider.request_timeout_ms),
+    'Idle timeout (ms)': String(provider.idle_timeout_ms),
+    'AWS signing region': 'us-east-1',
+  })) {
+    const control = labeledControl(label)
+    if (!(control instanceof HTMLInputElement)) throw new Error(`Expected input: ${label}`)
+    expect(control.value).toBe(value)
+  }
 })

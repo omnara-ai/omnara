@@ -1,6 +1,6 @@
 import { useCreateOrgApiKey } from '@omnara/react'
 import type { OrgApiKeyRole } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
 import { ApiTokenRevealContent } from '@/components/api-tokens/ApiTokenRevealContent'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ export function CreateOrgApiKeyDialog({
   onOpenChange: (open: boolean) => void
   orgId: string
 }) {
+  const roleTitleId = useId()
   const createKey = useCreateOrgApiKey(orgId)
   const [name, setName] = useState('')
   const [orgRole, setOrgRole] = useState<OrgApiKeyRole>('member')
@@ -92,8 +93,10 @@ export function CreateOrgApiKeyDialog({
                   <ResourceNameFieldError value={name} />
                   <FieldDescription>Describe where you plan to use this token.</FieldDescription>
                 </Field>
-                <Field>
-                  <FieldLabel>Org role</FieldLabel>
+                <Field aria-labelledby={roleTitleId}>
+                  <div id={roleTitleId} className="type-label">
+                    Org role
+                  </div>
                   <div className="flex gap-2">
                     {ORG_ROLES.map((role) => (
                       <Button
@@ -101,6 +104,7 @@ export function CreateOrgApiKeyDialog({
                         type="button"
                         variant={orgRole === role ? 'default' : 'outline'}
                         className="flex-1 capitalize"
+                        aria-pressed={orgRole === role}
                         onClick={() => {
                           setOrgRole(role)
                         }}

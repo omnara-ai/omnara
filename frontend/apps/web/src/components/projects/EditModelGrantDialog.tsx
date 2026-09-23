@@ -1,6 +1,6 @@
 import { useConfiguredModels, useUpdateProjectModelGrant } from '@omnara/react'
 import { type ConfiguredModel, type ProjectModelGrantListItem } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -54,11 +54,12 @@ function InheritableToggleField({
   inheritedValue: boolean | undefined
   onValueChange: (value: InheritableToggleDraft) => void
 }) {
+  const inputId = useId()
   const inheritLabel =
     inheritedValue == null ? 'Inherit' : `Inherit (${inheritedValue ? 'enabled' : 'disabled'})`
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
       <Select
         value={value}
         onValueChange={(next) => {
@@ -66,7 +67,7 @@ function InheritableToggleField({
           if (draft !== undefined) onValueChange(draft)
         }}
       >
-        <SelectTrigger className="w-full">
+        <SelectTrigger id={inputId} className="w-full">
           <SelectValue>
             {value === 'inherit' ? inheritLabel : value === 'enabled' ? 'Enabled' : 'Disabled'}
           </SelectValue>
@@ -164,7 +165,7 @@ export function EditModelGrantDialog({
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <Field>
-                <FieldLabel>Cache retention</FieldLabel>
+                <FieldLabel htmlFor={`${idPrefix}-cache-retention`}>Cache retention</FieldLabel>
                 <Select
                   value={draft.cacheRetention}
                   onValueChange={(value) => {
@@ -174,7 +175,7 @@ export function EditModelGrantDialog({
                     if (cacheRetention !== undefined) setDraft({ ...draft, cacheRetention })
                   }}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id={`${idPrefix}-cache-retention`} className="w-full">
                     <SelectValue>
                       {draft.cacheRetention === 'inherit'
                         ? model

@@ -1,5 +1,5 @@
 import { useConnectMachine } from '@omnara/react'
-import { type SyntheticEvent, useReducer } from 'react'
+import { type SyntheticEvent, useId, useReducer } from 'react'
 
 import { CheckIcon, CopyIcon } from '@/components/icons'
 import { ProjectGrantsField } from '@/components/projects/ProjectGrantsField'
@@ -81,6 +81,7 @@ export function ConnectMachineDialog({
   onOpenChange: (open: boolean) => void
   orgId: string
 }) {
+  const idPrefix = useId()
   const connectMachine = useConnectMachine(orgId)
   const { data: webConfig } = useWebConfig()
   const [state, dispatch] = useReducer(reducer, initialState)
@@ -173,8 +174,10 @@ export function ConnectMachineDialog({
           </form>
         ) : (
           <FieldGroup>
-            <Field>
-              <FieldLabel>Install command</FieldLabel>
+            <Field aria-labelledby={`${idPrefix}-command`}>
+              <div id={`${idPrefix}-command`} className="type-label">
+                Install command
+              </div>
               <pre className="bg-muted max-h-56 min-w-0 overflow-y-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono text-xs">
                 {installCommand}
               </pre>
@@ -194,8 +197,10 @@ export function ConnectMachineDialog({
                 {state.copied === 'command' ? 'Copied' : 'Copy command'}
               </Button>
             </Field>
-            <Field>
-              <FieldLabel>Machine token</FieldLabel>
+            <Field aria-labelledby={`${idPrefix}-token`}>
+              <div id={`${idPrefix}-token`} className="type-label">
+                Machine token
+              </div>
               <pre className="bg-muted min-w-0 overflow-y-auto whitespace-pre-wrap break-all rounded-md p-3 font-mono text-xs">
                 {state.machineToken}
               </pre>
