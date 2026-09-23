@@ -1,4 +1,4 @@
-import { sdk } from '@omnara/sdk'
+import { type MemoryFile, sdk } from '@omnara/sdk'
 import * as schemas from '@omnara/sdk/zod'
 import * as z from 'zod'
 
@@ -745,14 +745,12 @@ export const commandGroups: CommandGroup[] = [
             verb: 'list',
             summary: 'List files and directories in a memory store',
             fn: sdk.listMemoryFiles,
-            format: (response) =>
-              formatTable(['path', 'type', 'size_bytes', 'modified_at'])({
-                ...response,
-                data: response.data.map((entry) => ({
-                  ...entry,
-                  size_bytes: entry.type === 'file' ? entry.size_bytes : undefined,
-                })),
-              }),
+            format: formatTable<MemoryFile & { size_bytes?: number }>([
+              'path',
+              'type',
+              'size_bytes',
+              'modified_at',
+            ]),
             path: schemas.zListMemoryFilesPath,
             query: schemas.zListMemoryFilesQuery,
           }),

@@ -265,11 +265,15 @@ func (s *Store) Update(
 	return record(r), nil
 }
 
-func (s *Store) LoadAgentAttachments(ctx context.Context, projectID, agentID uuid.UUID) ([]agentconfig.MemoryStoreCompiled, error) {
+func (s *Store) LoadAgentAttachments(
+	ctx context.Context, projectID, agentID uuid.UUID,
+) ([]agentconfig.MemoryStoreCompiled, error) {
 	return loadAgentAttachments(ctx, s.q, projectID, agentID)
 }
 
-func loadAgentAttachments(ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID) ([]agentconfig.MemoryStoreCompiled, error) {
+func loadAgentAttachments(
+	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID,
+) ([]agentconfig.MemoryStoreCompiled, error) {
 	raw, err := q.GetAgentMemoryConfig(ctx, dbsqlc.GetAgentMemoryConfigParams{ProjectID: projectID, AgentID: agentID})
 	if err != nil {
 		return nil, mapped(err)
@@ -296,7 +300,10 @@ func (s *Store) authorizeAttachment(
 		return fmt.Errorf("authorize memory file: %w", err)
 	}
 	for _, attached := range attachments {
-		if attached.ID == storeID && (!write || attached.Access == agentconfig.MemoryStoreAccessReadWrite) {
+		if attached.ID == storeID {
+			if write && attached.Access != agentconfig.MemoryStoreAccessReadWrite {
+				return fmt.Errorf("memory store attachment is read-only: %w", storeerr.ErrConflict)
+			}
 			return nil
 		}
 	}

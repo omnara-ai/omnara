@@ -20,6 +20,11 @@ export type AgentName = string;
 export type SkillName = string;
 
 /**
+ * Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export type MemoryStoreName = string;
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export type ResourceListSort = 'name' | '-name' | '-updated_at' | 'updated_at' | '-created_at' | 'created_at';
@@ -808,7 +813,7 @@ export type ListSkillGrantsResponse = {
 
 export type MemoryStore = {
     id: MemoryStoreId;
-    name: SkillName;
+    name: MemoryStoreName;
     description: string;
     read_only: boolean;
     created_at: string;
@@ -816,7 +821,7 @@ export type MemoryStore = {
 };
 
 export type CreateMemoryStore = {
-    name: SkillName;
+    name: MemoryStoreName;
     description?: string;
     read_only?: boolean;
 };
@@ -7483,7 +7488,7 @@ export type WriteMemoryFileError = WriteMemoryFileErrors[keyof WriteMemoryFileEr
 
 export type WriteMemoryFileResponses = {
     /**
-     * Success.
+     * Returns the file's store-relative path and digest.
      */
     200: UploadFileResponse;
 };
@@ -15188,7 +15193,7 @@ export type UploadDaemonFileError = UploadDaemonFileErrors[keyof UploadDaemonFil
 
 export type UploadDaemonFileResponses = {
     /**
-     * Success.
+     * Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
      */
     201: UploadFileResponse;
 };

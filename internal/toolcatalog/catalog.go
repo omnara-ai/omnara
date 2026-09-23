@@ -31,6 +31,7 @@ const (
 	SearchMaxMatches         = 100
 	SearchMaxContextLines    = 5
 	SearchMaxPatternBytes    = 1024
+	SearchMaxArgs            = 64
 )
 
 func IsPlatformManagedToolType(toolType string) bool {
@@ -673,7 +674,7 @@ func searchFilesTool() (Entry, error) {
 			"args": map[string]any{
 				"type":        "array",
 				"minItems":    1,
-				"maxItems":    64,
+				"maxItems":    SearchMaxArgs,
 				"items":       map[string]any{"type": "string"},
 				"description": "Ripgrep arguments: -e PATTERN (repeatable), -F literal, -i ignore case, -w whole word, -x whole line, -v invert, -U multiline, -l matching paths, -c counts, and -A/-B/-C context (0–5 lines). Supply patterns with -e, totaling at most 1024 UTF-8 bytes. No other options or file operands. Example: [\"-i\", \"-C\", \"2\", \"-e\", \"deploy\"].",
 			},

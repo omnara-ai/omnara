@@ -18,6 +18,11 @@ export const zAgentName = z.string().refine(value => Array.from(value).length <=
 export const zSkillName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
 /**
+ * Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
+ */
+export const zMemoryStoreName = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+/**
  * Sort order for named resources that expose created and modified timestamps.
  */
 export const zResourceListSort = z.enum([
@@ -599,7 +604,7 @@ export const zSkillGrant = z.object({
 
 export const zMemoryStore = z.object({
     id: zMemoryStoreId,
-    name: zSkillName,
+    name: zMemoryStoreName,
     description: z.string(),
     read_only: z.boolean(),
     created_at: z.iso.datetime({ offset: true }),
@@ -607,7 +612,7 @@ export const zMemoryStore = z.object({
 });
 
 export const zCreateMemoryStore = z.object({
-    name: zSkillName,
+    name: zMemoryStoreName,
     description: z.string().optional(),
     read_only: z.boolean().optional()
 });
@@ -3719,7 +3724,7 @@ export const zWriteMemoryFileQuery = z.object({
 });
 
 /**
- * Success.
+ * Returns the file's store-relative path and digest.
  */
 export const zWriteMemoryFileResponse = zUploadFileResponse;
 
@@ -5137,6 +5142,6 @@ export const zUploadDaemonFileQuery = z.object({
 });
 
 /**
- * Success.
+ * Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
  */
 export const zUploadDaemonFileResponse = zUploadFileResponse;

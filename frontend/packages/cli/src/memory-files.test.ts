@@ -150,7 +150,7 @@ describe('memory file commands', () => {
     async (size) => {
       const file = join(dir, 'input.bin')
       writeFileSync(file, Buffer.alloc(size, 255))
-      const command = cli(() => Response.json({ path: '/memory/engineering/input.bin', digest }))
+      const command = cli(() => Response.json({ path: 'input.bin', digest }))
       await command.run('files', 'upload', storeID, '--path', 'input.bin', '--file', file)
       if (size === 10 * 1024 * 1024) {
         expect(Buffer.from(await command.request.arrayBuffer()).equals(readFileSync(file))).toBe(

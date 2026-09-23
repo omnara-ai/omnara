@@ -79,15 +79,15 @@ func TestResolveDownloadFileRequest(t *testing.T) {
 		want string
 	}{
 		{name: "trailing slash",
-			raw: `{"path":"/artifacts/","destination":"a"}`, want: "path must be /artifacts/<artifact_id>"},
-		{name: "artifact root", raw: `{"path":"/artifacts"}`, want: "path must be /artifacts/<artifact_id>"},
+			raw: `{"path":"/artifacts/","destination":"a"}`, want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
+		{name: "artifact root", raw: `{"path":"/artifacts"}`, want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
 		{name: "artifact destination", raw: `{"path":"/artifacts/` + artifactID + `"}`, want: "destination is required"},
 		{
 			name: "unsupported root", raw: `{"path":"/skills/deploy","destination":"deploy"}`,
-			want: "path must be /artifacts/<artifact_id>",
+			want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>",
 		},
 		{name: "invalid artifact",
-			raw: `{"path":"/artifacts/not-an-id","destination":"a"}`, want: "path must be /artifacts/<artifact_id>"},
+			raw: `{"path":"/artifacts/not-an-id","destination":"a"}`, want: "path must be /artifacts/<artifact_id> or /memory/<store>/<file>"},
 		{
 			name: "nested artifact",
 			raw:  `{"path":"/artifacts/` + artifactID + `/file","destination":"a"}`,
@@ -190,7 +190,7 @@ func TestUploadFileArtifactProcessInput(t *testing.T) {
 		t.Fatalf("encode tool call id: %v", err)
 	}
 	path := "screenshots/a file.png"
-	input := fileTransferProcessInput("upload", toolCallID, path, "/artifacts", fileTransferProcessTimeoutSeconds)
+	input := fileTransferProcessInput("upload", toolCallID, path, "/artifacts")
 	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
 	wantCommand := `"$OMNARA_HOME/bin/omnarad" __omnara_upload_artifact ` + toolCallID + " " + encodedPath
 	if input.Command != wantCommand ||
@@ -210,7 +210,7 @@ func TestDownloadFileArtifactProcessInput(t *testing.T) {
 	}
 	path := "downloads/a file.pdf"
 	artifactID := "art_aaaaaaaaaaaaaaaaaaaaaaaaae"
-	input := fileTransferProcessInput("download", toolCallID, path, "/artifacts/"+artifactID, 0)
+	input := fileTransferProcessInput("download", toolCallID, path, "/artifacts/"+artifactID)
 	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
 	wantCommand := `"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact ` +
 		toolCallID + " " + artifactID + " " + encodedPath
@@ -233,7 +233,7 @@ func TestMemoryTransferProcessInput(t *testing.T) {
 	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(localPath))
 	for _, direction := range []string{"upload", "download"} {
 		input := fileTransferProcessInput(
-			direction, toolCallID, localPath, "/memory/team/file.md", fileTransferProcessTimeoutSeconds,
+			direction, toolCallID, localPath, "/memory/team/file.md",
 		)
 		want := `"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer ` + direction +
 			" " + toolCallID + " " + encodedPath

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"mime"
 	"net/http"
 	"path"
 
@@ -111,7 +110,7 @@ func (s strictOpenAPIServer) DownloadMemoryFile(
 		return nil, apierror.ProjectScoped(err)
 	}
 	etag, cache, nosniff := `"`+digest+`"`, "no-store", "nosniff"
-	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(req.Params.Path)})
+	disposition := contentDisposition(path.Base(req.Params.Path))
 	return openapi.DownloadMemoryFile200ApplicationoctetStreamResponse{
 		Body: bytes.NewReader(content), ContentLength: int64(len(content)),
 		Headers: openapi.DownloadMemoryFile200ResponseHeaders{
@@ -139,7 +138,7 @@ func (s strictOpenAPIServer) WriteMemoryFile(
 		return nil, apierror.ProjectScoped(err)
 	}
 	return openapi.WriteMemoryFile200JSONResponse{
-		Path: result.Path, Digest: result.Digest,
+		Path: req.Params.Path, Digest: result.Digest,
 	}, nil
 }
 

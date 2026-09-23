@@ -36,12 +36,8 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	if err := decodeSingleStrictJSON(raw, &input, "read_file request"); err != nil {
 		return readFileRequest{}, fmt.Errorf("parse read_file request: %w", err)
 	}
-	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
-		if _, _, err := memorystore.ParsePath(input.Path); err != nil {
-			return readFileRequest{}, err
-		}
-	} else if _, err := resolveArtifactPath(input.Path); err != nil {
-		return readFileRequest{}, errors.New("path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
+	if err := validateFilePath(input.Path); err != nil {
+		return readFileRequest{}, err
 	}
 	charMode := input.OffsetChar != nil || input.LimitChars != nil
 	lineMode := input.OffsetLine != nil || input.LimitLines != nil
@@ -262,6 +258,17 @@ func completeFileTool(value any) (asyncPhaseResult, error) {
 		return nil, err
 	}
 	return completeAsynchronously(content), nil
+}
+
+func validateFilePath(path string) error {
+	if strings.HasPrefix(path, memorystore.Root+"/") {
+		_, _, err := memorystore.ParsePath(path)
+		return err
+	}
+	if _, err := resolveArtifactPath(path); err != nil {
+		return errors.New("path must be /artifacts/<artifact_id> or /memory/<store>/<file>")
+	}
+	return nil
 }
 
 func resolveArtifactPath(path string) (uuid.UUID, error) {

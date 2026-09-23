@@ -40,11 +40,8 @@ func (s *Store) ListDirectory(
 	if errors.Is(err, fs.ErrNotExist) && dir == "" {
 		return DirectoryPage{}, nil
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return DirectoryPage{}, storeerr.ErrNotFound
-	}
 	if err != nil {
-		return DirectoryPage{}, err
+		return DirectoryPage{}, fileReadError(err)
 	}
 	defer func() { _ = root.Close() }()
 	name := dir
@@ -52,20 +49,14 @@ func (s *Store) ListDirectory(
 		name = "."
 	}
 	if err := memoryops.CheckPath(root, name); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return DirectoryPage{}, storeerr.ErrNotFound
-		}
-		return DirectoryPage{}, err
+		return DirectoryPage{}, fileReadError(err)
 	}
 	entries, err := fs.ReadDir(root.FS(), name)
 	if errors.Is(err, syscall.ENOTDIR) {
 		return DirectoryPage{}, storeerr.InvalidRequest(errors.New("path must identify a directory"))
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return DirectoryPage{}, storeerr.ErrNotFound
-	}
 	if err != nil {
-		return DirectoryPage{}, err
+		return DirectoryPage{}, fileReadError(err)
 	}
 	page := DirectoryPage{}
 	for _, entry := range entries {

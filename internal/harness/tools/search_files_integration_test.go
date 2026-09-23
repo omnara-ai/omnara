@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,14 +14,69 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
+
+type blockedSearchBlobStore struct{ blobstore.Store }
+
+func (s blockedSearchBlobStore) GetBlob(ctx context.Context, _ string) ([]byte, blobstore.Metadata, error) {
+	<-ctx.Done()
+	return nil, blobstore.Metadata{}, ctx.Err()
+}
+
+func TestSearchArtifactLoadTimeout(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithMCP(t, ctx, "search-timeout", false,
+		storage.WithBlobStore(blockedSearchBlobStore{integrationblob.MustOpen(t, ctx)}))
+	artifact, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID: toolsTestProjectID, AgentID: fixture.Agent.ID,
+		ContentType: "text/plain", Content: []byte("TARGET"),
+	})
+	require.NoError(t, err)
+	id, err := publicid.Encode(publicid.KindArtifact, artifact.ID)
+	require.NoError(t, err)
+	call := asyncToolContext{Executor: Executor{Store: fixture.Store}, Turn: fixture.turn()}
+	call.Call = model.ToolCall{
+		Name:  toolcatalog.ToolNameSearchFiles,
+		Input: json.RawMessage(`{"path":"/artifacts/` + id + `","args":["-e","TARGET"]}`),
+	}
+	for _, name := range []string{"search timeout", "parent deadline", "parent cancellation"} {
+		t.Run(name, func(t *testing.T) {
+			parent := t.Context()
+			switch name {
+			case "parent deadline":
+				var cancel context.CancelFunc
+				parent, cancel = context.WithTimeout(parent, 100*time.Millisecond)
+				defer cancel()
+			case "parent cancellation":
+				var cancel context.CancelFunc
+				parent, cancel = context.WithCancel(parent)
+				cancel()
+			}
+			_, err := runSearchFilesAsync(parent, call)
+			if name == "search timeout" {
+				require.EqualError(t, err, "artifact loading timed out; retry")
+				require.NotErrorIs(t, err, context.DeadlineExceeded)
+				require.NotErrorIs(t, err, context.Canceled)
+			} else {
+				require.ErrorIs(t, err, parent.Err())
+			}
+		})
+	}
+}
 
 func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if runtime.GOOS != "linux" {

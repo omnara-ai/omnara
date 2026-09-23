@@ -28,6 +28,7 @@ const searchLineBytes = 256
 const searchInitialBufferBytes = 64 * 1024
 const searchEventBytes = 2 * 1024 * 1024
 const searchStoreBatchSize = 32
+const searchEntryOverheadBytes = 64
 
 var errSearchResultLimit = errors.New("search result limit reached")
 var searchGlobEscaper = strings.NewReplacer("[", "\\[", "]", "\\]", "{", "\\{", "}", "\\}", " ", "\\ ")
@@ -92,7 +93,7 @@ func resolveSearchFilesRequest(raw json.RawMessage) (searchFilesRequest, error) 
 func parseSearchArgs(args []string) (string, error) {
 	var mode string
 	patterns, patternBytes := 0, 0
-	if len(args) == 0 || len(args) > 64 {
+	if len(args) == 0 || len(args) > toolcatalog.SearchMaxArgs {
 		return mode, errors.New("args must contain between 1 and 64 arguments")
 	}
 	for i := 0; i < len(args); i++ {
@@ -149,7 +150,7 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	output := &searchOutput{input: input}
 	searched := false
@@ -163,11 +164,11 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 		}
 		defer closeStores()
 		searchStores := func() error {
-			err := output.search(ctx, searchSource{stores: stores})
+			err := output.search(searchCtx, searchSource{stores: stores})
 			closeStores()
 			return err
 		}
-		err = call.Executor.Store.Memories().VisitSearchStores(ctx, call.Turn.ProjectID, call.Turn.AgentID,
+		err = call.Executor.Store.Memories().VisitSearchStores(searchCtx, call.Turn.ProjectID, call.Turn.AgentID,
 			input.Path, func(store memorystore.SearchStore) error {
 				root, err := store.Root.Open(".")
 				if err != nil {
@@ -188,15 +189,18 @@ func runSearchFilesAsync(ctx context.Context, call asyncToolContext) (asyncPhase
 		}
 	} else {
 		id, _ := resolveArtifactPath(input.Path)
-		content, _, loadErr := loadArtifactContent(ctx, call, id)
+		content, _, loadErr := loadArtifactContent(searchCtx, call, id)
 		if loadErr != nil {
+			if searchCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+				return nil, errors.New("artifact loading timed out; retry")
+			}
 			return nil, loadErr
 		}
 		searched = true
-		err = output.search(ctx, searchSource{path: input.Path, content: content})
+		err = output.search(searchCtx, searchSource{path: input.Path, content: content})
 	}
 	if err == nil && !searched {
-		err = output.search(ctx, searchSource{})
+		err = output.search(searchCtx, searchSource{})
 	}
 	if errors.Is(err, errSearchResultLimit) {
 		output.result.Truncated = true
@@ -440,12 +444,12 @@ func (s *searchStream) consume(data []byte) error {
 		if err != nil || !ok {
 			return err
 		}
-		if output.result.MatchCount >= output.input.Limit || output.used+len(path)+64 > toolcatalog.FilePageBytes {
+		if output.result.MatchCount >= output.input.Limit || output.used+len(path)+searchEntryOverheadBytes > toolcatalog.FilePageBytes {
 			return errSearchResultLimit
 		}
 		output.result.Files = append(output.result.Files, searchFileResult{Path: path, Count: count})
 		output.result.MatchCount++
-		output.used += len(path) + 64
+		output.used += len(path) + searchEntryOverheadBytes
 		return nil
 	}
 	var event searchEvent
@@ -494,7 +498,7 @@ func (s *searchStream) consume(data []byte) error {
 		EndLine: eventData.LineNumber + strings.Count(text, "\n"),
 		Text:    searchSnippet(text, matchStart, matchEnd),
 		IsMatch: event.Type == "match"}
-	size := len(line.Path) + len(line.Text) + 64
+	size := len(line.Path) + len(line.Text) + searchEntryOverheadBytes
 	if output.used+size > toolcatalog.FilePageBytes {
 		return errSearchResultLimit
 	}

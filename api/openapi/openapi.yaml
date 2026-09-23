@@ -2253,7 +2253,7 @@ paths:
               format: binary
       responses:
         '200':
-          description: Success.
+          description: Returns the file's store-relative path and digest.
           content:
             application/json:
               schema:
@@ -7290,7 +7290,7 @@ paths:
               format: binary
       responses:
         "201":
-          description: Success.
+          description: Returns the full /memory/<store>/<file> or /artifacts/<artifact_id> path and digest.
           content:
             application/json:
               schema:
@@ -7669,6 +7669,12 @@ components:
       maxLength: 64
       pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
       description: Machine-readable skill identifier consisting of lowercase ASCII segments separated by single hyphens.
+    MemoryStoreName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+      description: Machine-readable memory store identifier consisting of lowercase ASCII segments separated by single hyphens.
     ResourceListSort:
       type: string
       description: Sort order for named resources that expose created and modified timestamps.
@@ -8870,7 +8876,7 @@ components:
         id:
           $ref: "#/components/schemas/MemoryStoreID"
         name:
-          $ref: "#/components/schemas/SkillName"
+          $ref: "#/components/schemas/MemoryStoreName"
         description:
           type: string
         read_only:
@@ -8888,7 +8894,7 @@ components:
         - name
       properties:
         name:
-          $ref: "#/components/schemas/SkillName"
+          $ref: "#/components/schemas/MemoryStoreName"
         description:
           type: string
         read_only:

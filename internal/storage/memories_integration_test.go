@@ -276,6 +276,26 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	if _, _, err = store.Memories().Read(ctx, agentScope, resource.ID, "a.md"); err != nil {
 		t.Fatal(err)
 	}
+	for _, test := range []struct {
+		path string
+		want error
+	}{
+		{path: "deployment", want: storeerr.ErrInvalidRequest},
+		{path: "a.md/child", want: storeerr.ErrInvalidRequest},
+		{path: "missing.md", want: storeerr.ErrNotFound},
+	} {
+		if _, _, err := store.Memories().Read(ctx, agentScope, resource.ID, test.path); !errors.Is(err, test.want) {
+			t.Fatalf("read %s: got %v, want %v", test.path, err, test.want)
+		}
+		err := store.Memories().VisitSearchStores(ctx, testProjectID, agent.ID, "/memory/engineering/"+test.path,
+			func(memorystore.SearchStore) error {
+				t.Fatal("invalid search path reached visitor")
+				return nil
+			})
+		if !errors.Is(err, test.want) {
+			t.Fatalf("search %s: got %v, want %v", test.path, err, test.want)
+		}
+	}
 	if _, err = store.Memories().Write(
 		ctx,
 		memorystore.WriteInput{
@@ -283,7 +303,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			StoreID: resource.ID,
 			Path:    "denied.md",
 			Content: []byte("no"),
-		}); !errors.Is(err, storeerr.ErrNotFound) {
+		}); !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment wrote: %v", err)
 	}
 	if err = store.Memories().Delete(ctx, scope, resource.ID); !errors.Is(err, storeerr.ErrConflict) {

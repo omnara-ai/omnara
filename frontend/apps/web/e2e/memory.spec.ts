@@ -118,6 +118,32 @@ test('memory files preserve text bytes, guard unsaved edits, download, and delet
   expect(failures).toEqual([])
 })
 
+test('memory markdown preserves the editor across preview switches', async ({ page }) => {
+  const { failures } = await createMemoryStore(page)
+  await page.getByRole('button', { name: 'Add file', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Path', { exact: true }).fill('notes.md')
+  await dialog.getByLabel('Content', { exact: true }).fill('Original notes')
+  await dialog.getByRole('button', { name: 'Create file', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  const editor = page.getByRole('textbox', { name: 'notes.md', exact: true })
+  await expect(editor).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Edit', exact: true }).click()
+  await editor.focus()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText(' edited')
+  await page.getByRole('tab', { name: 'Preview', exact: true }).click()
+  await expect(editor).toBeHidden()
+  await page.getByRole('tab', { name: 'Edit', exact: true }).click()
+  await editor.focus()
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.view-lines')).toHaveText('Original notes')
+  await page.keyboard.press('Control+Shift+z')
+  await page.keyboard.insertText('!')
+  await expect(page.locator('.view-lines')).toHaveText('Original notes edited!')
+  expect(failures).toEqual([])
+})
+
 test('memory uploads replace existing files without downloading and preserve editor drafts', async ({
   page,
 }) => {
@@ -195,7 +221,7 @@ test('memory editor preserves drafts across a failed conflict refresh and retry'
   await page.getByRole('button', { name: 'Save changes', exact: true }).click()
   const replace = page.getByRole('button', { name: 'Replace current contents', exact: true })
   const conflictAlert = page.getByRole('alert').filter({ hasText: 'This file changed.' })
-  await expect(conflictAlert).toHaveText('This file changed. Your draft is preserved. Check latest')
+  await expect(conflictAlert).toHaveText('This file changed. Check latest')
   await expect(replace).toBeEnabled()
   await page.route(
     fileRoute,
@@ -239,6 +265,7 @@ for (const concurrentRecreation of [false, true]) {
     await page.getByRole('button', { name: 'Save changes', exact: true }).click()
     const recreate = page.getByRole('button', { name: 'Recreate file', exact: true })
     await expect(recreate).toBeEnabled()
+    await expect(page.getByRole('alert')).toHaveText('This file no longer exists. Check latest')
     const missing = page.waitForResponse(
       (response) => response.url() === fileURL.toString() && response.status() === 404,
     )

@@ -140,6 +140,26 @@ func TestFileExecConfinement(t *testing.T) {
 			t.Fatalf("did not fail closed: %s, %v", output, err)
 		}
 	})
+	t.Run("UTF-8 scripts", func(t *testing.T) {
+		sed, err := exec.LookPath("sed")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range []struct {
+			input, script, want string
+		}{
+			{"é", "s/./x/g", "x"},
+			{"café “hi” — ok", `s/[éè]/e/g; s/[“”]/"/g; s/[—–]/-/g`, `cafe "hi" - ok`},
+		} {
+			command := exec.CommandContext(t.Context(), launcher, "0", sed,
+				"--sandbox", "-E", "-e", test.script, "--", "-")
+			command.Stdin = strings.NewReader(test.input)
+			output, err := command.CombinedOutput()
+			if err != nil || string(output) != test.want {
+				t.Fatalf("script %q: output=%q error=%v, want %q", test.script, output, err, test.want)
+			}
+		}
+	})
 	t.Run("GC before exec", func(t *testing.T) {
 		sed, err := exec.LookPath("sed")
 		if err != nil {

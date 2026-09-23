@@ -70,6 +70,7 @@ FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57
 WORKDIR /app
 COPY --from=file-tools /usr/bin/rg /usr/bin/sed /usr/local/bin/
 COPY --from=file-tools /usr/lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/*-linux-gnu/libacl.so.1 /usr/lib/*-linux-gnu/libselinux.so.1 /usr/lib/
+COPY --from=file-tools /usr/lib/locale/C.utf8 /usr/lib/locale/C.utf8
 COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
 COPY --from=worker-build /out/omnara-worker /out/omnara-file-exec /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/omnara-worker"]

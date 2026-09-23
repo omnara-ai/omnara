@@ -21,7 +21,6 @@ func runUploadArtifactCommand(ctx context.Context, toolCallID, encodedPath strin
 		ArtifactID string `json:"artifact_id"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
 		return fmt.Errorf("decode artifact upload response: %w", err)
 	}

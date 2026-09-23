@@ -36,7 +36,6 @@ func runFileTransfer(ctx context.Context, direction, toolCallID, encodedPath str
 		}
 		var result fileTransferResult
 		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&result); err != nil {
 			return fmt.Errorf("decode file upload response: %w", err)
 		}

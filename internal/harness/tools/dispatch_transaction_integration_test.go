@@ -1430,13 +1430,9 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := fileTransferProcessInput("upload", publicCallID, "report.pdf", serverPath, fileTransferProcessTimeoutSeconds)
+			want := fileTransferProcessInput("upload", publicCallID, "report.pdf", serverPath)
 			if name == "download_file" {
-				timeout := 0
-				if tc.memory {
-					timeout = fileTransferProcessTimeoutSeconds
-				}
-				want = fileTransferProcessInput("download", publicCallID, "report.pdf", serverPath, timeout)
+				want = fileTransferProcessInput("download", publicCallID, "report.pdf", serverPath)
 			}
 			if process.AgentMachineBindingID != bindingID || process.Command != want.Command ||
 				process.TimeoutSeconds != want.TimeoutSeconds {

@@ -37,7 +37,7 @@ func TestLegacyArtifactTransferCommands(t *testing.T) {
 			if err != nil || !bytes.Equal(body, content) {
 				t.Errorf("upload content %q: %v", body, err)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"artifact_id": artifactID})
+			_ = json.NewEncoder(w).Encode(map[string]string{"artifact_id": artifactID, "filename": "file.bin"})
 		case http.MethodGet:
 			if r.URL.Path != "/api/v1/daemon/tool-calls/"+toolID+"/artifacts/"+artifactID+"/content" {
 				t.Errorf("unexpected legacy download URL: %s", r.URL)

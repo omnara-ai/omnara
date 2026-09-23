@@ -40,7 +40,8 @@ func TestCompileFilePatternDirectoryDepth(t *testing.T) {
 }
 
 func TestFilePatternMaximumMemoryPath(t *testing.T) {
-	pattern := memorystore.Root + "/" + strings.Repeat("a", skills.MaxSkillNameChars) + "/" + strings.Repeat("b", memorystore.MaxPathBytes)
+	pattern := memorystore.Root + "/" + strings.Repeat("a", skills.MaxSkillNameChars) + "/" +
+		strings.Repeat("b", memorystore.MaxPathBytes)
 	matcher, err := CompileFilePattern(pattern)
 	if err != nil || !matcher.MatchString(pattern) {
 		t.Fatalf("maximum memory path: %v", err)

@@ -24,7 +24,12 @@ const memoryListingTraversalLimit = 10000
 var errFileListFull = errors.New("file listing is full")
 
 func (s *Store) ListFiles(
-	ctx context.Context, projectID uuid.UUID, attachments []agentconfig.MemoryStoreCompiled, pattern string, matcher *regexp.Regexp, limit int,
+	ctx context.Context,
+	projectID uuid.UUID,
+	attachments []agentconfig.MemoryStoreCompiled,
+	pattern string,
+	matcher *regexp.Regexp,
+	limit int,
 ) (listing.FileListResult, error) {
 	entries := make([]listing.FileEntry, 0, limit+1)
 	truncated := false
@@ -47,7 +52,9 @@ func (s *Store) ListFiles(
 			if row.ReadOnly {
 				mode = agentconfig.MemoryStoreAccessReadOnly
 			}
-			entries = append(entries, listing.FileEntry{Path: root, Type: listing.FileTypeDirectory, Description: row.Description, Access: string(mode)})
+			entries = append(entries, listing.FileEntry{
+				Path: root, Type: listing.FileTypeDirectory, Description: row.Description, Access: string(mode),
+			})
 		}
 		if len(entries) > limit {
 			break
@@ -124,7 +131,11 @@ func (s *Store) withStoreRoot(
 }
 
 func (s *Store) listAttachedStores(
-	ctx context.Context, projectID uuid.UUID, attachments []agentconfig.MemoryStoreCompiled, pattern, rootPattern string, limit *int32,
+	ctx context.Context,
+	projectID uuid.UUID,
+	attachments []agentconfig.MemoryStoreCompiled,
+	pattern, rootPattern string,
+	limit *int32,
 ) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]agentconfig.MemoryStoreAccess, error) {
 	ids := make([]uuid.UUID, 0, len(attachments))
 	access := make(map[uuid.UUID]agentconfig.MemoryStoreAccess, len(attachments))
@@ -181,17 +192,12 @@ func (s *Store) VisitSearchStores(
 				if err != nil {
 					return err
 				}
-				if err := memoryops.CheckPath(root, name); errors.Is(err, os.ErrNotExist) {
-					return storeerr.ErrNotFound
-				} else if err != nil {
-					return err
+				if err := memoryops.CheckPath(root, name); err != nil {
+					return fileReadError(err)
 				}
 				info, err := root.Stat(name)
-				if errors.Is(err, os.ErrNotExist) {
-					return storeerr.ErrNotFound
-				}
 				if err != nil {
-					return err
+					return fileReadError(err)
 				}
 				if !info.Mode().IsRegular() {
 					return storeerr.InvalidRequest(errors.New("memory path is not a regular file"))

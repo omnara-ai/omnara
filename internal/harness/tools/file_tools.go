@@ -44,7 +44,6 @@ type downloadFileRequest struct {
 
 type resolvedDownloadFileRequest struct {
 	Path        string
-	Memory      bool
 	Destination string
 	MachineID   uuid.UUID
 }
@@ -98,15 +97,8 @@ func resolveDownloadFileRequest(raw json.RawMessage) (resolvedDownloadFileReques
 	if err := decodeSingleStrictJSON(raw, &input, "download_file request"); err != nil {
 		return resolvedDownloadFileRequest{}, fmt.Errorf("parse download_file request: %w", err)
 	}
-	isMemory := strings.HasPrefix(input.Path, memorystore.Root+"/")
-	if isMemory {
-		if _, _, err := memorystore.ParsePath(input.Path); err != nil {
-			return resolvedDownloadFileRequest{}, err
-		}
-	} else {
-		if _, err := resolveArtifactPath(input.Path); err != nil {
-			return resolvedDownloadFileRequest{}, errors.New("path must be /artifacts/<artifact_id>")
-		}
+	if err := validateFilePath(input.Path); err != nil {
+		return resolvedDownloadFileRequest{}, err
 	}
 	if input.Destination == "" {
 		return resolvedDownloadFileRequest{}, errors.New("destination is required")
@@ -119,8 +111,7 @@ func resolveDownloadFileRequest(raw json.RawMessage) (resolvedDownloadFileReques
 		return resolvedDownloadFileRequest{}, err
 	}
 	return resolvedDownloadFileRequest{
-		Path: input.Path, Memory: isMemory,
-		Destination: input.Destination, MachineID: machineID,
+		Path: input.Path, Destination: input.Destination, MachineID: machineID,
 	}, nil
 }
 
@@ -145,7 +136,7 @@ func runUploadFile(
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorization,
-		fileTransferProcessInput("upload", toolCallID, resolved.Source, resolved.Path, fileTransferProcessTimeoutSeconds))
+		fileTransferProcessInput("upload", toolCallID, resolved.Source, resolved.Path))
 }
 
 func runDownloadFile(
@@ -168,12 +159,8 @@ func runDownloadFile(
 	if err != nil {
 		return nil, err
 	}
-	timeout := 0
-	if resolved.Memory {
-		timeout = fileTransferProcessTimeoutSeconds
-	}
 	return startProcessTool(ctx, call, binding, authorization,
-		fileTransferProcessInput("download", toolCallID, resolved.Destination, resolved.Path, timeout))
+		fileTransferProcessInput("download", toolCallID, resolved.Destination, resolved.Path))
 }
 
 func uploadFilePermissionChallenge(
@@ -245,9 +232,9 @@ func fileTransferAuthorizationInput(bindingID uuid.UUID, input json.RawMessage) 
 
 func fileTransferProcessInput(
 	direction, toolCallID, localPath, remotePath string,
-	timeoutSeconds int,
 ) executionstore.CreateProcessInput {
 	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(localPath))
+	timeoutSeconds := fileTransferProcessTimeoutSeconds
 	var command string
 	switch {
 	case strings.HasPrefix(remotePath, memorystore.Root+"/"):
@@ -258,6 +245,7 @@ func fileTransferProcessInput(
 	case direction == "upload":
 		command = fmt.Sprintf(`"$OMNARA_HOME/bin/omnarad" __omnara_upload_artifact %s %s`, toolCallID, encodedPath)
 	default:
+		timeoutSeconds = 0
 		command = fmt.Sprintf(
 			`"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact %s %s %s`,
 			toolCallID, strings.TrimPrefix(remotePath, toolcatalog.ArtifactVFSRoot+"/"), encodedPath,

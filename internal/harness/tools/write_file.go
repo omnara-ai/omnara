@@ -16,6 +16,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const maxWriteFileScriptBytes = 64 * 1024
+
 type writeFileRequest struct {
 	Path           string  `json:"path"`
 	Content        *string `json:"content,omitempty"`
@@ -51,7 +53,7 @@ func resolveWriteFileRequest(raw json.RawMessage) (writeFileRequest, error) {
 	if input.Content != nil && len(*input.Content) > daemonprotocol.MaxFileTransferBytes {
 		return input, errors.New("memory content must be at most 10 MiB")
 	}
-	if input.Script != nil && len(*input.Script) > 64*1024 {
+	if input.Script != nil && len(*input.Script) > maxWriteFileScriptBytes {
 		return input, errors.New("script must be at most 64 KiB")
 	}
 	if input.ExpectedDigest != nil {
@@ -67,7 +69,7 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeoutCause(ctx, 10*time.Second, errors.New("simplify the script and retry"))
 	defer cancel()
 	name, path, _ := memorystore.ParsePath(input.Path)
 	memories := call.Executor.Store.Memories()
@@ -91,7 +93,7 @@ func runWriteFileAsync(ctx context.Context, call asyncToolContext) (asyncPhaseRe
 		} else if input.ExpectedDigest == nil {
 			return nil, fmt.Errorf("expected_digest is required to change an existing file: %w", storeerr.ErrConflict)
 		} else if *input.ExpectedDigest != digest {
-			return nil, fmt.Errorf("memory changed; read it and retry: %w", storeerr.ErrConflict)
+			return nil, fmt.Errorf("memory changed; retrieve the latest contents and retry: %w", storeerr.ErrConflict)
 		}
 		if !utf8.Valid(current) || bytes.IndexByte(current, 0) >= 0 {
 			return nil, errors.New("file must contain UTF-8 text without NUL bytes")
@@ -149,7 +151,7 @@ func editFileText(ctx context.Context, content []byte, script string) ([]byte, e
 		return nil, err
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("script execution timed out: %w", ctx.Err())
+		return nil, fmt.Errorf("script execution timed out: %w", context.Cause(ctx))
 	}
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("script execution canceled: %w", ctx.Err())
