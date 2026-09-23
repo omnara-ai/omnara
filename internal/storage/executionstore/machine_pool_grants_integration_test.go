@@ -1092,9 +1092,7 @@ func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	}
 	agentPlainValue := "agent-plain"
 	agentSecretRef := orgSecret.ID
-	resolvedMachine, err := store.Execution().ResolvePoolMachineTx(
-		ctx,
-		store.q,
+	resolvedMachine, err := store.Execution().ResolvePoolMachine(
 		poolGrant,
 		agentconfig.RuntimeMachine{
 			EnvOverlay:       map[string]*string{"AGENT_PLAIN": &agentPlainValue},
@@ -1271,9 +1269,15 @@ VALUES ($1, $2, 'Second Secret Env Project', 'idem-pool-secret-env-second-projec
 	if ungrantedClaim.GrantProjectID != uuid.Nil {
 		t.Fatalf("ungranted claim grant project = %s, want nil", ungrantedClaim.GrantProjectID)
 	}
-	if _, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, ungrantedClaim); err == nil ||
-		!strings.Contains(err.Error(), "secret_env.PROJECT_SECRET") {
-		t.Fatalf("ungranted provisioning env error = %v, want PROJECT_SECRET rejection", err)
+	ungrantedEnv, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, ungrantedClaim)
+	if err != nil {
+		t.Fatalf("resolve ungranted provisioning env: %v", err)
+	}
+	if _, exists := ungrantedEnv["PROJECT_SECRET"]; exists {
+		t.Fatalf("ungranted provisioning env includes project secret: %+v", ungrantedEnv)
+	}
+	if ungrantedEnv["ORG_SECRET"] != "org-secret-value" || ungrantedEnv["PLAIN"] != "plain" {
+		t.Fatalf("ungranted provisioning env lost org or literal values: %+v", ungrantedEnv)
 	}
 	orgEnv, err := store.Execution().ResolveEnvironmentSecrets(
 		ctx,

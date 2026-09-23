@@ -21,7 +21,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID, agentID uuid.UUID,
+	projectID, agentID uuid.UUID,
 	currentContract, nextContract agentconfig.RuntimeContract,
 	nextSources []launchMachineSource,
 ) ([]MachineRecord, error) {
@@ -193,11 +193,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 			if err != nil {
 				return nil, fmt.Errorf("load pool machine environment: %w", err)
 			}
-			if _, err := resolveMachineEnvironmentTx(
-				ctx,
-				qtx,
-				orgID,
-				projectID,
+			if _, err := resolveMachineEnvironment(
 				machineEnvironment,
 				source.BindingConfig.EnvironmentOverlay,
 			); err != nil {

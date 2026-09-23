@@ -59,28 +59,31 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 	nonce := "DOCKER_DAEMON_PROCESS_TOOLS_" + strings.ToUpper(strings.ReplaceAll(env.seed, "-", "_"))
 	literalEnv := "literal_" + nonce
 	secretEnv := "secret_" + nonce
-	secret := env.requestJSON(
-		t,
-		ctx,
-		http.MethodPost,
-		"/api/v1/orgs/"+project.orgID+"/secrets",
-		map[string]any{
-			"owner": map[string]any{
-				"kind":       "project",
-				"project_id": project.projectID,
+	secretIDs := make(map[string]string)
+	for _, name := range []string{"daemon-process-environment", "deleted-process-environment"} {
+		secret := env.requestJSON(
+			t,
+			ctx,
+			http.MethodPost,
+			"/api/v1/orgs/"+project.orgID+"/secrets",
+			map[string]any{
+				"owner": map[string]any{
+					"kind":       "project",
+					"project_id": project.projectID,
+				},
+				"name": name,
+				"material": map[string]string{
+					"kind":  "generic",
+					"value": secretEnv,
+				},
 			},
-			"name": "daemon-process-environment",
-			"material": map[string]string{
-				"kind":  "generic",
-				"value": secretEnv,
-			},
-		},
-		"",
-		project.adminToken,
-		http.StatusCreated,
-	)
-	secretID := testutil.RequireType[string](t, secret["id"])
-	quickCommandOutput := strings.Join([]string{nonce, literalEnv, secretEnv}, "|")
+			"",
+			project.adminToken,
+			http.StatusCreated,
+		)
+		secretIDs[name] = testutil.RequireType[string](t, secret["id"])
+	}
+	quickCommandOutput := strings.Join([]string{nonce, literalEnv, secretEnv, "absent"}, "|")
 	missingCwd := "/work/missing-" + nonce
 	machine := project.bootstrapDockerMachine(t, ctx, "deterministic-byo-machine")
 	project.updateAgentProfileConfigWithMachine(
@@ -95,11 +98,21 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 			"    env_overlay:",
 			"      SERVICE_E2E_LITERAL: " + literalEnv,
 			"    secret_env_overlay:",
-			"      SERVICE_E2E_SECRET: " + secretID,
+			"      SERVICE_E2E_SECRET: " + secretIDs["daemon-process-environment"],
+			"      SERVICE_E2E_DELETED_SECRET: " + secretIDs["deleted-process-environment"],
 		},
 		processToolsRequiringApproval,
 		processToolNames...)
 	agentID := project.createAgent(t, ctx)
+	deleteRequest, err := env.newAPIRequest(ctx, http.MethodDelete,
+		"/api/v1/orgs/"+project.orgID+"/secrets/"+secretIDs["deleted-process-environment"],
+		nil)
+	require.NoError(t, err)
+	deleteRequest.Header.Set("Authorization", "Bearer "+project.adminToken)
+	deleteResponse, err := http.DefaultClient.Do(deleteRequest)
+	require.NoError(t, err)
+	require.NoError(t, deleteResponse.Body.Close())
+	require.Equal(t, http.StatusNoContent, deleteResponse.StatusCode)
 	daemon := env.startDaemonContainer(
 		t,
 		ctx,
@@ -177,7 +190,7 @@ func TestServiceE2EDockerDaemonProcessToolsDeterministic(t *testing.T) {
 				return
 			}
 			writeOpenAIFunctionCall(w, failModelRequest, "resp_run_command", "call_run_command", "run_command", map[string]any{
-				"command": fmt.Sprintf("printf '%%s|%%s|%%s\\n' '%s' \"$SERVICE_E2E_LITERAL\" \"$SERVICE_E2E_SECRET\" > quick-command.txt", nonce),
+				"command": fmt.Sprintf("printf '%%s|%%s|%%s|%%s\\n' '%s' \"$SERVICE_E2E_LITERAL\" \"$SERVICE_E2E_SECRET\" \"${SERVICE_E2E_DELETED_SECRET-absent}\" > quick-command.txt", nonce),
 				"wait_ms": 1000,
 			})
 		case 3:

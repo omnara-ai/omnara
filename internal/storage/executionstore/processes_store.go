@@ -130,15 +130,6 @@ func (t *toolCallTransaction) startProcess(
 	if err != nil {
 		return ProcessRecord{}, fmt.Errorf("resolve process environment: %w", err)
 	}
-	if err := validateMachineEnvironmentSecretsTx(
-		ctx,
-		t.q,
-		executionConfig.OrgID,
-		executionConfig.ProjectID,
-		processEnvironment,
-	); err != nil {
-		return ProcessRecord{}, fmt.Errorf("resolve process environment: %w", err)
-	}
 	if environmentByteSize(processEnvironment.Env) > MaxResolvedEnvironmentBytes {
 		return ProcessRecord{}, errors.New("process environment exceeds size limit")
 	}
