@@ -201,9 +201,6 @@ func listMachines(
 	return machineListPage(machines, pools, input.Cursor)
 }
 
-// Pools come first, then machines, with stable ID ordering within each collection.
-// The cursor's public ID kind identifies which collection to resume, even if the
-// referenced resource has since been removed.
 func decodeMachineListCursor(cursor string) (publicid.Kind, uuid.UUID, error) {
 	if cursor == "" {
 		return publicid.KindMachinePool, uuid.Nil, nil
@@ -240,7 +237,7 @@ func machineListPage(
 		}
 		nextBytes := entryBytes + len(encoded)
 		if collectionSize > 0 {
-			nextBytes++ // comma within this collection
+			nextBytes++
 		}
 		envelope, err := structuredToolResultContent(machineListResult{
 			Machines: []machineObservationPayload{}, MachinePools: []machinePoolPayload{}, NextCursor: nextCursor,

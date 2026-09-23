@@ -33,7 +33,6 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Use a source-less compiled config, as derived subagents do.
 	var definition agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(fixture.Config.CompiledDefinition, &definition))
 	definition.MachineSources[0].Description = "Build workers"
@@ -66,9 +65,9 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 		t, ctx, fixture.Store, launch.Agent.ID, fixture.UserID, config.ID,
 		"pool-discovery", calls, fixture.Now.Add(time.Second),
 	)
-	for i, record := range records {
-		if i == 1 {
-			continue // Creation must go through approval.
+	for _, record := range records {
+		if record.Name == "create_machine" {
+			continue
 		}
 		_, err := store.MarkToolCallReady(ctx, executionstore.MarkToolCallReadyInput{
 			ProjectID: toolsTestProjectID, AgentID: launch.Agent.ID, ID: record.ID, RuntimeLockID: lock.ID,
@@ -102,7 +101,6 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 		},
 	}, listed["machine_pools"])
 
-	// Rename both pools after discovery, before preparing the approval.
 	_, err = store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
 		OrgID: toolsTestOrgID, ID: first.ID, Name: new("Temporary pool"),
 	})
@@ -138,7 +136,6 @@ func TestMachinePoolDiscoveryAndCreationUseStableIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Another rename after approval still authorizes the same pool identity.
 	renamed := "Renamed build pool"
 	_, err = store.UpdateMachinePool(ctx, executionstore.UpdateMachinePoolInput{
 		OrgID: toolsTestOrgID, ID: first.ID, Name: &renamed,

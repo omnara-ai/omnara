@@ -159,11 +159,11 @@ Deletes a pool-backed machine. Requires `machine_id`.
 
 ### `list_machines` / `inspect_machine`
 
-`list_machines` returns separate `machines` and `machine_pools` collections. `machines` contains the agent's BYO and pool-backed machines. `machine_pools` contains pools from the agent's compiled config that still have an active project grant, including pools with no machines yet. Each pool includes its `machine_pool_id`, `machine_pool_name`, and configured description. Pool choices are discovered through this tool rather than injected into every model request.
+`list_machines` lists the agent's BYO and pool-backed machines, plus pools from its config that have an active project grant. Pools are included even when they have no machines yet. Each pool includes its `machine_pool_id`, `machine_pool_name`, and configured description.
 
 `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Machine results identify `source_kind` and `binding_kind`, and include `machine_pool_id` for pool-backed machines. Only pool bindings can be passed to `delete_machine`.
 
-When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call to continue listing both collections. Pools are listed first, followed by machines; a page may contain only one collection. Tool enablement remains independent: `create_machine` can be enabled with `list_machines` disabled.
+When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call to continue listing. Pools are listed first, followed by machines. If `list_machines` is disabled and multiple pools are configured, provide their IDs in the agent's instructions so it can select a pool when calling `create_machine`.
 
 ## Files
 

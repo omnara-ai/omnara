@@ -218,7 +218,8 @@ func TestMachineObservationIncludesMachinePoolIdentity(t *testing.T) {
 		t.Fatalf("pool observation identity = %+v", got)
 	}
 	if got.MachinePoolID != poolPublicIDForTest(t, record.Machine.MachinePoolID) || got.MachinePoolName != "Build Pool" {
-		t.Fatalf("machine_pool_name = %q, want Build Pool", got.MachinePoolName)
+		t.Fatalf("machine pool identity = (%q, %q), want (%q, %q)",
+			got.MachinePoolID, got.MachinePoolName, poolPublicIDForTest(t, record.Machine.MachinePoolID), "Build Pool")
 	}
 	if got.Cwd != machineCwd {
 		t.Fatalf("cwd = %q, want %s", got.Cwd, machineCwd)
@@ -379,7 +380,7 @@ func TestMachineToolsValidatePublicMachineIDs(t *testing.T) {
 	}
 }
 
-func TestMachineListPagination(t *testing.T) {
+func TestMachineListPaginationAfterCursorResourceRemoval(t *testing.T) {
 	for _, counts := range []struct{ pools, machines int }{{0, 150}, {150, 0}, {75, 75}} {
 		t.Run(fmt.Sprintf("pools=%d/machines=%d", counts.pools, counts.machines), func(t *testing.T) {
 			machines := make([]executionstore.AgentMachineObservationRecord, counts.machines)
@@ -412,7 +413,6 @@ func TestMachineListPagination(t *testing.T) {
 					break
 				}
 				require.Equal(t, cursor, page.NextCursor)
-				// A cursor must continue working after its resource disappears.
 				pools = slices.DeleteFunc(pools, func(pool executionstore.MachinePoolSourceRecord) bool {
 					return poolPublicIDForTest(t, pool.MachinePoolID) == cursor
 				})
