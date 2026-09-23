@@ -23,21 +23,44 @@ ORDER BY available_at, id
 LIMIT 1;
 
 -- name: ListReadyIntegrationInboxApps :many
-WITH frontier AS MATERIALIZED (
-  SELECT inbox.project_id, inbox.app_id
-  FROM integration_inbox inbox
-  WHERE inbox.state = 'pending' AND inbox.available_at <= statement_timestamp()
-    AND inbox.attempt_count < 8
-  ORDER BY inbox.available_at, inbox.id
-  LIMIT sqlc.arg(row_limit)
+-- Skip each app's backlog using the pending index prefix: https://wiki.postgresql.org/wiki/Loose_indexscan
+WITH RECURSIVE frontier AS (
+  (SELECT inbox.project_id, inbox.app_id, 1 AS ordinal
+   FROM integration_inbox inbox
+   WHERE inbox.state = 'pending'
+     AND (inbox.project_id, inbox.app_id) > (sqlc.arg(after_project_id)::uuid, sqlc.arg(after_app_id)::uuid)
+   ORDER BY inbox.project_id, inbox.app_id
+   LIMIT 1)
+  UNION ALL
+  SELECT next_app.project_id, next_app.app_id, previous.ordinal + 1
+  FROM frontier previous
+  CROSS JOIN LATERAL (
+    SELECT inbox.project_id, inbox.app_id
+    FROM integration_inbox inbox
+    WHERE inbox.state = 'pending'
+      AND (inbox.project_id, inbox.app_id) > (previous.project_id, previous.app_id)
+    ORDER BY inbox.project_id, inbox.app_id
+    LIMIT 1
+  ) next_app
+  WHERE previous.ordinal < sqlc.arg(row_limit)::integer
 )
-SELECT DISTINCT frontier.project_id, frontier.app_id
+SELECT frontier.project_id, frontier.app_id,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM project_apps app
+        JOIN projects project ON project.id = app.project_id
+        JOIN orgs org ON org.id = project.org_id
+        WHERE app.project_id = frontier.project_id AND app.id = frontier.app_id
+          AND app.state = 'active' AND app.deleted_at IS NULL
+          AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+    ) THEN COALESCE((
+        SELECT true FROM integration_inbox inbox
+        WHERE inbox.project_id = frontier.project_id AND inbox.app_id = frontier.app_id
+          AND inbox.state = 'pending' AND inbox.available_at <= statement_timestamp() AND inbox.attempt_count < 8
+        ORDER BY inbox.available_at, inbox.id
+        LIMIT 1
+    ), false) ELSE false END::boolean AS ready
 FROM frontier
-JOIN project_apps app ON app.project_id = frontier.project_id AND app.id = frontier.app_id
-JOIN projects project ON project.id = frontier.project_id
-JOIN orgs org ON org.id = project.org_id
-WHERE app.state = 'active' AND app.deleted_at IS NULL
-  AND project.deleted_at IS NULL AND org.deleted_at IS NULL;
+ORDER BY frontier.project_id, frontier.app_id;
 
 -- name: ClaimIntegrationInboxReceipt :one
 WITH candidate AS (

@@ -226,7 +226,7 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	}
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "OldestReadyIntegrationInboxLag", nil), 1)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxApps", map[string]any{
-		"row_limit": 100,
+		"row_limit": 100, "after_project_id": uuid.Nil, "after_app_id": uuid.Nil,
 	}), 100)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupTerminalIntegrationInboxReceipts", map[string]any{
 		"row_limit": 100, "retention_milliseconds": time.Hour.Milliseconds(),
@@ -242,7 +242,11 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 		"row_limit": 1,
 	}), 2)
 	f.exec(t, `INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload)
- VALUES($1,$2,'inactive','x'::bytea)`, f.project, disabled)
+ SELECT $1,$2,'inactive:'||n,'x'::bytea FROM generate_series(1,8000) n`, f.project, disabled)
+	f.exec(t, "ANALYZE integration_inbox")
+	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxApps", map[string]any{
+		"row_limit": 100, "after_project_id": uuid.Nil, "after_app_id": uuid.Nil,
+	}), 100)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "FailInactiveIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)

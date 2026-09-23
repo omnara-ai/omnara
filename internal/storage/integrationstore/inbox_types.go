@@ -86,3 +86,8 @@ type IntegrationInboxApp struct {
 	ProjectID uuid.UUID
 	AppID     uuid.UUID
 }
+
+type IntegrationInboxAppPage struct {
+	Apps       []IntegrationInboxApp
+	NextCursor IntegrationInboxApp
+}

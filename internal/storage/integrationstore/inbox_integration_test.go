@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -390,9 +391,9 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 	require.Equal(t, integrationstore.IntegrationInboxPending, read.State)
 	require.Nil(t, read.CompletedAt)
 	require.LessOrEqual(t, len(read.LastError), 4096)
-	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
+	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, integrationstore.IntegrationInboxApp{}, 100)
 	require.NoError(t, err)
-	require.Empty(t, ready)
+	require.Empty(t, ready.Apps)
 	_, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.project, AppID: f.appID, LeaseDuration: time.Minute,
 	})
@@ -454,9 +455,9 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 		return w.FreezePlan(f.ctx, json.RawMessage(`{}`))
 	})
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
-	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
+	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, integrationstore.IntegrationInboxApp{}, 100)
 	require.NoError(t, err)
-	require.Empty(t, ready)
+	require.Empty(t, ready.Apps)
 	n, err := f.store.RecoverIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
@@ -647,6 +648,50 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	require.Equal(t, integrationstore.IntegrationInboxCompleted, f.read(t, receipt.ID).State)
 }
 
+func TestInboxDiscoveryPagesAppsIndependentlyOfBacklog(t *testing.T) {
+	t.Parallel()
+	f, _, setup := projectAppSetupFixture(t)
+	var apps []integrationstore.IntegrationInboxApp
+	for i := range 4 {
+		app, err := f.store.CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
+			OrgID: f.org, ProjectID: f.project, Name: fmt.Sprintf("discovery-%d", i), AppType: appdefinition.SlackThread,
+		})
+		require.NoError(t, err)
+		setup.AppID, setup.ExpectedSetupRevision, setup.OAuthFlowID = app.ID, app.SetupRevision, uuid.Must(uuid.NewV7())
+		_, err = f.store.ConfigureProjectApp(f.ctx, setup)
+		require.NoError(t, err)
+		apps = append(apps, integrationstore.IntegrationInboxApp{ProjectID: f.project, AppID: app.ID})
+		fixture := f
+		fixture.appID = app.ID
+		for n := range 101 {
+			fixture.accept(t, fmt.Sprintf("receipt-%d", n))
+		}
+	}
+	f.exec(t, `UPDATE integration_inbox SET available_at=now()+interval '1 day' WHERE app_id=$1`, apps[0].AppID)
+	_, err := f.store.DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{
+		ProjectID: f.project, AppID: apps[1].AppID,
+	})
+	require.NoError(t, err)
+	var after integrationstore.IntegrationInboxApp
+	var ready []integrationstore.IntegrationInboxApp
+	for i := range apps {
+		page, err := f.store.ListReadyIntegrationInboxApps(f.ctx, after, 1)
+		require.NoError(t, err)
+		if i < len(apps)-1 {
+			require.Equal(t, apps[i], page.NextCursor)
+		} else {
+			require.Zero(t, page.NextCursor)
+		}
+		ready = append(ready, page.Apps...)
+		after = page.NextCursor
+	}
+	require.Equal(t, apps[2:], ready, "unavailable apps and a hot backlog cannot hide the next app")
+	page, err := f.store.ListReadyIntegrationInboxApps(f.ctx, after, 100)
+	require.NoError(t, err)
+	require.Equal(t, apps[2:], page.Apps, "the next round must revisit ready apps without draining either backlog")
+	require.Zero(t, page.NextCursor)
+}
+
 func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
@@ -659,9 +704,9 @@ func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
  (project_id,app_id,receipt_key,payload,state,attempt_count,claim_token,claim_expires_at)
  SELECT $1,$2,'expired:'||n,'x'::bytea,'processing',1,uuidv7(),statement_timestamp()-interval '1 hour'
  FROM generate_series(1,150) n`, f.project, f.appID)
-	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
+	ready, err := f.store.ListReadyIntegrationInboxApps(f.ctx, integrationstore.IntegrationInboxApp{}, 100)
 	require.NoError(t, err)
-	require.Empty(t, ready, "inactive receipts occupy the bounded discovery frontier")
+	require.Empty(t, ready.Apps, "expired receipts need recovery before becoming eligible")
 	count, err := f.store.RecoverIntegrationInbox(f.ctx, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 200, count, "both backlogs get an independent allowance")
@@ -677,9 +722,9 @@ func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
 	count, err = f.store.RecoverIntegrationInbox(f.ctx, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 50, count)
-	ready, err = f.store.ListReadyIntegrationInboxApps(f.ctx, 100)
+	ready, err = f.store.ListReadyIntegrationInboxApps(f.ctx, integrationstore.IntegrationInboxApp{}, 100)
 	require.NoError(t, err)
-	require.Equal(t, []integrationstore.IntegrationInboxApp{{ProjectID: f.project, AppID: f.appID}}, ready)
+	require.Equal(t, []integrationstore.IntegrationInboxApp{{ProjectID: f.project, AppID: f.appID}}, ready.Apps)
 	claimed := f.claim(t)
 	require.Equal(t, 2, claimed.AttemptCount, "recovered work resumes its original attempt budget")
 }

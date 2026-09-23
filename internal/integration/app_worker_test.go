@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -39,6 +40,7 @@ type appWorkerTestStore struct {
 	claimOrder   []uuid.UUID
 	scans        int
 	noClaim      bool
+	discover     func(integrationstore.IntegrationInboxApp) integrationstore.IntegrationInboxAppPage
 	recoverBatch func(context.Context, int) (int64, error)
 	sampleLag    func(context.Context) (time.Duration, error)
 	sampled      int
@@ -65,19 +67,27 @@ func (s *appWorkerTestStore) OldestReadyIntegrationInboxLag(ctx context.Context)
 }
 
 func (s *appWorkerTestStore) ListReadyIntegrationInboxApps(
-	context.Context,
-	int,
-) ([]integrationstore.IntegrationInboxApp, error) {
+	_ context.Context,
+	after integrationstore.IntegrationInboxApp,
+	_ int,
+) (integrationstore.IntegrationInboxAppPage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scans++
+	if s.discover != nil {
+		return s.discover(after), nil
+	}
 	if !s.ready {
-		return nil, nil
+		return integrationstore.IntegrationInboxAppPage{}, nil
 	}
 	if len(s.apps) > 0 {
-		return append([]integrationstore.IntegrationInboxApp(nil), s.apps...), nil
+		return integrationstore.IntegrationInboxAppPage{
+			Apps: append([]integrationstore.IntegrationInboxApp(nil), s.apps...),
+		}, nil
 	}
-	return []integrationstore.IntegrationInboxApp{{ProjectID: uuid.New(), AppID: uuid.New()}}, nil
+	return integrationstore.IntegrationInboxAppPage{
+		Apps: []integrationstore.IntegrationInboxApp{{ProjectID: uuid.New(), AppID: uuid.New()}},
+	}, nil
 }
 
 func (s *appWorkerTestStore) ClaimIntegrationInbox(
@@ -129,6 +139,66 @@ func TestAppInboxWorkerRotatesAppsBeforeRevisitingHotApp(t *testing.T) {
 	require.Equal(t, want, store.claimOrder)
 	require.Equal(t, 4, store.scans, "one discovery per app round, not per receipt")
 	require.Equal(t, 1, store.recovered, "receipt traffic must not multiply recovery scans")
+}
+
+func TestAppInboxWorkerAdvancesPastUnavailableAppsAndWraps(t *testing.T) {
+	first := integrationstore.IntegrationInboxApp{ProjectID: uuid.New(), AppID: uuid.New()}
+	last := integrationstore.IntegrationInboxApp{ProjectID: uuid.New(), AppID: uuid.New()}
+	var cursors []integrationstore.IntegrationInboxApp
+	store := &appWorkerTestStore{discover: func(
+		after integrationstore.IntegrationInboxApp,
+	) integrationstore.IntegrationInboxAppPage {
+		cursors = append(cursors, after)
+		if after == (integrationstore.IntegrationInboxApp{}) {
+			return integrationstore.IntegrationInboxAppPage{NextCursor: first}
+		}
+		require.Equal(t, first, after)
+		return integrationstore.IntegrationInboxAppPage{Apps: []integrationstore.IntegrationInboxApp{last}}
+	}}
+	worker := NewAppInboxWorker(store, appWorkerConsumerFunc(
+		func(context.Context, integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
+			return nil, nil
+		},
+	), AppInboxWorkerOptions{})
+	for range 2 {
+		worked, err := worker.RunOnce(t.Context())
+		require.NoError(t, err)
+		require.True(t, worked, "empty eligible pages must not cause an idle poll before ready work")
+	}
+	require.Equal(t, []integrationstore.IntegrationInboxApp{{}, first, {}, first}, cursors)
+	require.Equal(t, []uuid.UUID{last.AppID, last.AppID}, store.claimOrder)
+}
+
+func TestAppInboxWorkerBoundsUnavailableAppDiscovery(t *testing.T) {
+	for _, complete := range []bool{false, true} {
+		t.Run(fmt.Sprintf("complete=%t", complete), func(t *testing.T) {
+			store := &appWorkerTestStore{discover: func(
+				integrationstore.IntegrationInboxApp,
+			) integrationstore.IntegrationInboxAppPage {
+				if complete {
+					return integrationstore.IntegrationInboxAppPage{}
+				}
+				return integrationstore.IntegrationInboxAppPage{
+					NextCursor: integrationstore.IntegrationInboxApp{ProjectID: uuid.New(), AppID: uuid.New()},
+				}
+			}}
+			worker := NewAppInboxWorker(store, appWorkerConsumerFunc(
+				func(context.Context, integrationstore.IntegrationInboxLease) ([]AppSlotAdmission, error) {
+					t.Fatal("no ready app must not invoke consumer")
+					return nil, nil
+				},
+			), AppInboxWorkerOptions{})
+			worked, err := worker.RunOnce(t.Context())
+			require.NoError(t, err)
+			require.False(t, worked)
+			require.Zero(t, store.claimed)
+			if complete {
+				require.Equal(t, 1, store.scans, "stop when traversal wraps")
+			} else {
+				require.Equal(t, integrationstore.IntegrationInboxMaxBatch, store.scans, "bound a large traversal")
+			}
+		})
+	}
 }
 
 func TestAppInboxWorkerStaleDiscoveryDoesNotSpin(t *testing.T) {

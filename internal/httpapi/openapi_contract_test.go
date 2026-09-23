@@ -141,6 +141,39 @@ func TestGeneratedOpenAPISpecMatchesServedSpec(t *testing.T) {
 	}
 }
 
+func TestOpenAPIAppSetupIDsUseSharedSchemas(t *testing.T) {
+	spec, err := openapi.GetSpec()
+	if err != nil {
+		t.Fatalf("load generated openapi spec: %v", err)
+	}
+	for _, suffix := range []string{"oauth/setup", "slack-setup", "github-setup", "github-setup/installations"} {
+		t.Run(suffix, func(t *testing.T) {
+			path := "/orgs/{orgID}/projects/{projectID}/apps/{appID}/" + suffix
+			item := spec.Paths.Value(path)
+			if item == nil {
+				t.Fatalf("missing app setup path %s", path)
+			}
+			for name, schema := range map[string]string{
+				"orgID": "OrganizationID", "projectID": "ProjectID", "appID": "ProjectAppID",
+			} {
+				var parameter *openapi3.Parameter
+				for _, ref := range item.Parameters {
+					if ref.Value != nil && ref.Value.In == openapi3.ParameterInPath && ref.Value.Name == name {
+						parameter = ref.Value
+						break
+					}
+				}
+				if parameter == nil || !parameter.Required || parameter.Schema == nil {
+					t.Fatalf("%s must declare required path parameter %s with a schema", path, name)
+				}
+				if want := "#/components/schemas/" + schema; parameter.Schema.Ref != want {
+					t.Errorf("%s parameter %s: schema ref = %q, want %q", path, name, parameter.Schema.Ref, want)
+				}
+			}
+		})
+	}
+}
+
 func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	var doc struct {
 		Security   []any          `yaml:"security"`

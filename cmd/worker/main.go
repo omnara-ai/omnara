@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -326,7 +327,7 @@ func main() {
 	case err := <-workerErr:
 		cancel()
 		<-healthErr
-		if err != nil && signalCtx.Err() == nil {
+		if err != nil && !errors.Is(err, context.Canceled) && signalCtx.Err() == nil {
 			log.Error("kernel worker failed", "error", err)
 			exitCode = 1
 		}
@@ -336,7 +337,7 @@ func main() {
 		if err != nil {
 			log.Error("worker health and metrics server failed", "error", err)
 			exitCode = 1
-		} else if workerRunErr != nil && signalCtx.Err() == nil {
+		} else if workerRunErr != nil && !errors.Is(workerRunErr, context.Canceled) && signalCtx.Err() == nil {
 			log.Error("kernel worker failed", "error", workerRunErr)
 			exitCode = 1
 		}

@@ -4086,8 +4086,8 @@ export const zUpdateAgentProfileResponse = zAgentProfile;
 export const zCreateProjectAppOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
 
 export const zCreateProjectAppOAuthSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     appID: zProjectAppId
 });
 
@@ -4099,8 +4099,8 @@ export const zCreateProjectAppOAuthSetupResponse = zIntegrationOAuthSetup;
 export const zCreateProjectAppSlackSetupBody = zCreateSlackSetupRequest;
 
 export const zCreateProjectAppSlackSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     appID: zProjectAppId
 });
 
@@ -4112,8 +4112,8 @@ export const zCreateProjectAppSlackSetupResponse = zSlackSetup;
 export const zCreateProjectAppGitHubSetupBody = zCreateGitHubSetupRequest;
 
 export const zCreateProjectAppGitHubSetupPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     appID: zProjectAppId
 });
 
@@ -4125,8 +4125,8 @@ export const zCreateProjectAppGitHubSetupResponse = zGitHubSetup;
 export const zInspectProjectAppGitHubInstallationsBody = zInspectGitHubInstallationsRequest;
 
 export const zInspectProjectAppGitHubInstallationsPath = z.object({
-    orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
-    projectID: z.string().regex(/^proj_[a-z2-7]{26}$/),
+    orgID: zOrganizationId,
+    projectID: zProjectId,
     appID: zProjectAppId
 });
 

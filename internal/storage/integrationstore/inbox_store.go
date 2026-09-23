@@ -103,21 +103,28 @@ func (s *Store) ClaimIntegrationInbox(
 }
 
 func (s *Store) ListReadyIntegrationInboxApps(
-	ctx context.Context, limit int,
-) ([]IntegrationInboxApp, error) {
+	ctx context.Context, after IntegrationInboxApp, limit int,
+) (IntegrationInboxAppPage, error) {
 	// Expired processing receipts are absent here; recovery must also run on empty polls.
 	if err := validateInboxBatch(limit); err != nil {
-		return nil, err
+		return IntegrationInboxAppPage{}, err
 	}
 	rows, err := s.q.ListReadyIntegrationInboxApps(ctx, dbsqlc.ListReadyIntegrationInboxAppsParams{
-		RowLimit: int32(limit),
+		AfterProjectID: after.ProjectID, AfterAppID: after.AppID, RowLimit: int32(limit + 1),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list ready inbox apps: %w", err)
+		return IntegrationInboxAppPage{}, fmt.Errorf("list ready inbox apps: %w", err)
 	}
-	result := make([]IntegrationInboxApp, 0, len(rows))
+	result := IntegrationInboxAppPage{Apps: make([]IntegrationInboxApp, 0, len(rows))}
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		result.NextCursor = IntegrationInboxApp{ProjectID: last.ProjectID, AppID: last.AppID}
+	}
 	for _, row := range rows {
-		result = append(result, IntegrationInboxApp{ProjectID: row.ProjectID, AppID: row.AppID})
+		if row.Ready {
+			result.Apps = append(result.Apps, IntegrationInboxApp{ProjectID: row.ProjectID, AppID: row.AppID})
+		}
 	}
 	return result, nil
 }

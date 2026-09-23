@@ -419,34 +419,60 @@ func (q *Queries) InsertScheduledAppEventReceipt(ctx context.Context, arg Insert
 }
 
 const listReadyIntegrationInboxApps = `-- name: ListReadyIntegrationInboxApps :many
-WITH frontier AS MATERIALIZED (
-  SELECT inbox.project_id, inbox.app_id
-  FROM integration_inbox inbox
-  WHERE inbox.state = 'pending' AND inbox.available_at <= statement_timestamp()
-    AND inbox.attempt_count < 8
-  ORDER BY inbox.available_at, inbox.id
-  LIMIT $1
+WITH RECURSIVE frontier AS (
+  (SELECT inbox.project_id, inbox.app_id, 1 AS ordinal
+   FROM integration_inbox inbox
+   WHERE inbox.state = 'pending'
+     AND (inbox.project_id, inbox.app_id) > ($1::uuid, $2::uuid)
+   ORDER BY inbox.project_id, inbox.app_id
+   LIMIT 1)
+  UNION ALL
+  SELECT next_app.project_id, next_app.app_id, previous.ordinal + 1
+  FROM frontier previous
+  CROSS JOIN LATERAL (
+    SELECT inbox.project_id, inbox.app_id
+    FROM integration_inbox inbox
+    WHERE inbox.state = 'pending'
+      AND (inbox.project_id, inbox.app_id) > (previous.project_id, previous.app_id)
+    ORDER BY inbox.project_id, inbox.app_id
+    LIMIT 1
+  ) next_app
+  WHERE previous.ordinal < $3::integer
 )
-SELECT DISTINCT frontier.project_id, frontier.app_id
+SELECT frontier.project_id, frontier.app_id,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM project_apps app
+        JOIN projects project ON project.id = app.project_id
+        JOIN orgs org ON org.id = project.org_id
+        WHERE app.project_id = frontier.project_id AND app.id = frontier.app_id
+          AND app.state = 'active' AND app.deleted_at IS NULL
+          AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+    ) THEN COALESCE((
+        SELECT true FROM integration_inbox inbox
+        WHERE inbox.project_id = frontier.project_id AND inbox.app_id = frontier.app_id
+          AND inbox.state = 'pending' AND inbox.available_at <= statement_timestamp() AND inbox.attempt_count < 8
+        ORDER BY inbox.available_at, inbox.id
+        LIMIT 1
+    ), false) ELSE false END::boolean AS ready
 FROM frontier
-JOIN project_apps app ON app.project_id = frontier.project_id AND app.id = frontier.app_id
-JOIN projects project ON project.id = frontier.project_id
-JOIN orgs org ON org.id = project.org_id
-WHERE app.state = 'active' AND app.deleted_at IS NULL
-  AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+ORDER BY frontier.project_id, frontier.app_id
 `
 
 type ListReadyIntegrationInboxAppsParams struct {
-	RowLimit int32
+	AfterProjectID uuid.UUID
+	AfterAppID     uuid.UUID
+	RowLimit       int32
 }
 
 type ListReadyIntegrationInboxAppsRow struct {
 	ProjectID uuid.UUID
 	AppID     uuid.UUID
+	Ready     bool
 }
 
+// Skip each app's backlog using the pending index prefix: https://wiki.postgresql.org/wiki/Loose_indexscan
 func (q *Queries) ListReadyIntegrationInboxApps(ctx context.Context, arg ListReadyIntegrationInboxAppsParams) ([]ListReadyIntegrationInboxAppsRow, error) {
-	rows, err := q.db.Query(ctx, listReadyIntegrationInboxApps, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listReadyIntegrationInboxApps, arg.AfterProjectID, arg.AfterAppID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +480,7 @@ func (q *Queries) ListReadyIntegrationInboxApps(ctx context.Context, arg ListRea
 	items := []ListReadyIntegrationInboxAppsRow{}
 	for rows.Next() {
 		var i ListReadyIntegrationInboxAppsRow
-		if err := rows.Scan(&i.ProjectID, &i.AppID); err != nil {
+		if err := rows.Scan(&i.ProjectID, &i.AppID, &i.Ready); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

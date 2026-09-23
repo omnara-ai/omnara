@@ -9,6 +9,8 @@ import (
 	"text/template"
 	"text/template/parse"
 	"time"
+
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 )
 
 const (
@@ -196,6 +198,9 @@ func OccurrenceMessageData(
 }
 
 func ValidateMessageTemplate(messageTemplate string) error {
+	if err := dbsafe.Text(messageTemplate); err != nil {
+		return fmt.Errorf("invalid message template: %w", err)
+	}
 	_, err := RenderMessage(messageTemplate, MessageData("sample", time.Time{}, nil))
 	return err
 }
@@ -236,7 +241,11 @@ func RenderMessage(messageTemplate string, data map[string]any) (string, error) 
 	case <-timer.C:
 		return "", errors.New("invalid message template: rendering timed out")
 	}
-	return rendered.String(), nil
+	message := rendered.String()
+	if err := dbsafe.Text(message); err != nil {
+		return "", fmt.Errorf("invalid message template: rendered message %w", err)
+	}
+	return message, nil
 }
 
 // containsTemplateInvocation rejects {{template}} and {{block}} execution.

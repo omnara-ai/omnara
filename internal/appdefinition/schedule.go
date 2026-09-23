@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/cronschedule"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
@@ -40,6 +41,9 @@ func ValidateScheduleSettings(appType Type, settings json.RawMessage) (json.RawM
 	}
 	if len(settings) == 0 || len(settings) > MaxScheduleSettingsBytes {
 		return nil, fmt.Errorf("app schedule settings must contain at most %d bytes", MaxScheduleSettingsBytes)
+	}
+	if err := dbsafe.JSONStrings(settings); err != nil {
+		return nil, fmt.Errorf("app schedule settings %w", err)
 	}
 	schedule := definition.Schedule
 	if err := jsonschema.Validate(schedule.InputSchema, settings); err != nil {

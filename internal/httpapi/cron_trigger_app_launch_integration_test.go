@@ -38,6 +38,15 @@ func TestCronTriggerAppHTTP(t *testing.T) {
 	requestJSONWithHeaders(t, handler, http.MethodPost, path, projectAppHTTPJSON(t, map[string]any{
 		"name": "Missing task", "cron": "0 9 * * *", "target": map[string]any{"type": "profile", "agent_profile_id": profileID},
 	}), "", http.StatusBadRequest, headers)
+	unsafeSettings := map[string]any{}
+	for name, value := range settings {
+		unsafeSettings[name] = value
+	}
+	unsafeSettings["message_template"] = "Run\x00"
+	requestJSONWithHeaders(t, handler, http.MethodPost, path, projectAppHTTPJSON(t, map[string]any{
+		"name": "Unsafe app task", "cron": "0 9 * * *",
+		"target": map[string]any{"type": "app", "app_id": appID, "settings": unsafeSettings},
+	}), "", http.StatusBadRequest, headers)
 	created := requestJSONWithHeaders(
 		t,
 		handler,
@@ -120,17 +129,15 @@ func TestCronTriggerAppHTTP(t *testing.T) {
 		http.StatusBadRequest,
 		headers,
 	)
-	settings["opening_message_template"] = `{{printf "%1024s" "a"}}{{printf "%1024s" "b"}}`
-	requestJSONWithHeaders(
-		t,
-		handler,
-		http.MethodPatch,
-		path+"/"+id,
-		projectAppHTTPJSON(t, map[string]any{"target": target}),
-		"",
-		http.StatusBadRequest,
-		headers,
-	)
+	for _, opening := range []string{
+		`{{printf "%1024s" "a"}}{{printf "%1024s" "b"}}`, "Daily\x00", `Daily{{printf "%c" 0}}`,
+	} {
+		settings["opening_message_template"] = opening
+		requestJSONWithHeaders(t, handler, http.MethodPatch, path+"/"+id,
+			projectAppHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
+	}
+	unchanged := requestJSONWithHeaders(t, handler, http.MethodGet, path+"/"+id, "", "", http.StatusOK, headers)
+	require.Equal(t, updated["target"], unchanged["target"])
 	settings["opening_message_template"] = "Daily"
 	other := projectAppHTTPSecondProject(t, handler, project)
 	foreignProfile := createPublicHTTPAgent(t, handler, other, "foreign-profile", other.AdminToken)

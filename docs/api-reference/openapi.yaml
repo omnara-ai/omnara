@@ -2863,14 +2863,12 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
       - name: appID
         in: path
         required: true
@@ -2921,14 +2919,12 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
       - name: appID
         in: path
         required: true
@@ -2979,14 +2975,12 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
       - name: appID
         in: path
         required: true
@@ -3036,14 +3030,12 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/OrganizationID'
       - name: projectID
         in: path
         required: true
         schema:
-          type: string
-          pattern: '^proj_[a-z2-7]{26}$'
+          $ref: '#/components/schemas/ProjectID'
       - name: appID
         in: path
         required: true

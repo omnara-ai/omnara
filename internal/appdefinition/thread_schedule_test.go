@@ -59,7 +59,9 @@ func TestThreadSchedulesPublishAndValidateTheirInputs(t *testing.T) {
 				require.Error(t, err)
 			}
 			fields["agent_profile_id"] = profile
-			for _, invalid := range []string{"", strings.Repeat("🚀", 2001), `{{printf "%1024s" "a"}}{{printf "%1024s" "b"}}`} {
+			for _, invalid := range []string{
+				"", strings.Repeat("🚀", 2001), `{{printf "%1024s" "a"}}{{printf "%1024s" "b"}}`, "Daily\x00",
+			} {
 				fields["opening_message_template"] = invalid
 				_, err := ValidateScheduleSettings(app, encode())
 				require.Error(t, err)

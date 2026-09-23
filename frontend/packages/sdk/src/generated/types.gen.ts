@@ -8777,8 +8777,8 @@ export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof Updat
 export type CreateProjectAppOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         appID: ProjectAppId;
     };
     query?: never;
@@ -8846,8 +8846,8 @@ export type CreateProjectAppOAuthSetupResponse = CreateProjectAppOAuthSetupRespo
 export type CreateProjectAppSlackSetupData = {
     body: CreateSlackSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         appID: ProjectAppId;
     };
     query?: never;
@@ -8915,8 +8915,8 @@ export type CreateProjectAppSlackSetupResponse = CreateProjectAppSlackSetupRespo
 export type CreateProjectAppGitHubSetupData = {
     body: CreateGitHubSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         appID: ProjectAppId;
     };
     query?: never;
@@ -8984,8 +8984,8 @@ export type CreateProjectAppGitHubSetupResponse = CreateProjectAppGitHubSetupRes
 export type InspectProjectAppGitHubInstallationsData = {
     body: InspectGitHubInstallationsRequest;
     path: {
-        orgID: string;
-        projectID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
         appID: ProjectAppId;
     };
     query?: never;

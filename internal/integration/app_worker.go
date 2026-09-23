@@ -16,7 +16,9 @@ import (
 type AppInboxSchedulerStore interface {
 	RecoverIntegrationInbox(context.Context, int) (int64, error)
 	OldestReadyIntegrationInboxLag(context.Context) (time.Duration, error)
-	ListReadyIntegrationInboxApps(context.Context, int) ([]integrationstore.IntegrationInboxApp, error)
+	ListReadyIntegrationInboxApps(
+		context.Context, integrationstore.IntegrationInboxApp, int,
+	) (integrationstore.IntegrationInboxAppPage, error)
 	ClaimIntegrationInbox(
 		context.Context,
 		integrationstore.ClaimIntegrationInboxInput,
@@ -51,6 +53,7 @@ type AppInboxWorker struct {
 	// Share discovery so concurrent consumers cannot repeatedly favor the first ready app.
 	readyMu sync.Mutex
 	ready   []integrationstore.IntegrationInboxApp
+	after   integrationstore.IntegrationInboxApp
 
 	recoveryMu      sync.Mutex
 	recoveryRunning bool
@@ -226,17 +229,15 @@ func (w *AppInboxWorker) nextApp(
 ) (integrationstore.IntegrationInboxApp, bool, error) {
 	w.readyMu.Lock()
 	defer w.readyMu.Unlock()
-	if len(w.ready) == 0 && discover {
-		apps, err := w.inbox.ListReadyIntegrationInboxApps(ctx, integrationstore.IntegrationInboxMaxBatch)
+	for scanned := 0; discover && len(w.ready) == 0 && scanned < integrationstore.IntegrationInboxMaxBatch; scanned++ {
+		page, err := w.inbox.ListReadyIntegrationInboxApps(ctx, w.after, integrationstore.IntegrationInboxMaxBatch)
 		if err != nil {
 			return integrationstore.IntegrationInboxApp{}, false, err
 		}
-		seen := make(map[integrationstore.IntegrationInboxApp]bool, len(apps))
-		for _, appSetup := range apps {
-			if !seen[appSetup] {
-				w.ready = append(w.ready, appSetup)
-				seen[appSetup] = true
-			}
+		w.ready = page.Apps
+		w.after = page.NextCursor
+		if w.after == (integrationstore.IntegrationInboxApp{}) {
+			break
 		}
 	}
 	if len(w.ready) == 0 {
