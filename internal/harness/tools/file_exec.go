@@ -3,9 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
-	"strconv"
 	"time"
 )
 
@@ -22,17 +20,6 @@ func CheckFileToolSupport(ctx context.Context) error {
 		return errors.New("script execution requires a working C.UTF-8 locale")
 	}
 	return err
-}
-
-func newFileExecCommand(ctx context.Context, name string, roots []*os.File, args ...string) (*exec.Cmd, error) {
-	binary, err := exec.LookPath(name)
-	if err != nil {
-		return nil, err
-	}
-	command := exec.CommandContext(ctx, "omnara-file-exec",
-		append([]string{strconv.Itoa(len(roots)), binary}, args...)...)
-	command.ExtraFiles = roots
-	return command, nil
 }
 
 type boundedStderrBuffer struct{ data []byte }

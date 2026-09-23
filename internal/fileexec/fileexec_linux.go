@@ -39,7 +39,11 @@ func Run(args []string) error {
 	for i := range roots {
 		roots[i] = procFDDir + "/" + strconv.Itoa(i+3)
 	}
-	if err := os.Chdir(procFDDir); err != nil {
+	workingDir := "/"
+	if rootCount > 0 {
+		workingDir = procFDDir
+	}
+	if err := os.Chdir(workingDir); err != nil {
 		return err
 	}
 	info, err := arch.GetInfo("")

@@ -23,7 +23,6 @@ import (
 )
 
 func TestWriteMemoryWithoutMachine(t *testing.T) {
-	setupFileExec(t)
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-write", toolFixtureOptions{withMemory: true})
 	memories := fixture.Store.Memories()
@@ -191,7 +190,6 @@ func TestEditFileTextLimits(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("file scripts require Linux confinement")
 	}
-	setupFileExec(t)
 	if err := CheckFileToolSupport(t.Context()); err != nil {
 		t.Fatalf("file tool support: %v", err)
 	}
