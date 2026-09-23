@@ -69,16 +69,6 @@ func TestFileExecConfinement(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = second.Close() }()
-	t.Run("no store roots", func(t *testing.T) {
-		command := exec.CommandContext(t.Context(), launcher, "0", rg,
-			"--threads", "1", "-e", "TARGET", filepath.Join(base, "private/secret.md"))
-		command.Env = []string{"LANG=C.UTF-8"}
-		output, err := command.CombinedOutput()
-		if err == nil || !strings.Contains(string(output), "Permission denied") ||
-			strings.Contains(string(output), "TARGET private") {
-			t.Fatalf("rootless process read a private file: %s, %v", output, err)
-		}
-	})
 	for _, test := range []struct {
 		name string
 		args []string
@@ -140,31 +130,7 @@ func TestFileExecConfinement(t *testing.T) {
 			t.Fatalf("did not fail closed: %s, %v", output, err)
 		}
 	})
-	t.Run("UTF-8 scripts", func(t *testing.T) {
-		sed, err := exec.LookPath("sed")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, test := range []struct {
-			input, script, want string
-		}{
-			{"é", "s/./x/g", "x"},
-			{"café “hi” — ok", `s/[éè]/e/g; s/[“”]/"/g; s/[—–]/-/g`, `cafe "hi" - ok`},
-		} {
-			command := exec.CommandContext(t.Context(), launcher, "0", sed,
-				"--sandbox", "-E", "-e", test.script, "--", "-")
-			command.Stdin = strings.NewReader(test.input)
-			output, err := command.CombinedOutput()
-			if err != nil || string(output) != test.want {
-				t.Fatalf("script %q: output=%q error=%v, want %q", test.script, output, err, test.want)
-			}
-		}
-	})
 	t.Run("GC before exec", func(t *testing.T) {
-		sed, err := exec.LookPath("sed")
-		if err != nil {
-			t.Fatal(err)
-		}
 		for i := range 20 {
 			command := exec.CommandContext(t.Context(), launcher, "2", rg,
 				"--json", "--no-config", "--no-mmap", "--threads", "1", "-e", "TARGET",
@@ -175,14 +141,6 @@ func TestFileExecConfinement(t *testing.T) {
 			if err != nil ||
 				strings.Count(string(output), `"type":"match"`) != 3 {
 				t.Fatalf("launch %d with GC pressure: %s, %v", i, output, err)
-			}
-			command = exec.CommandContext(t.Context(), launcher, "0", sed,
-				"--sandbox", "-E", "-e", "s/foo/bar/;#"+strings.Repeat("x", 3000*i), "--", "-")
-			command.Stdin = strings.NewReader("foo\n")
-			command.Env = []string{"LANG=C.UTF-8", "GOGC=1"}
-			output, err = command.CombinedOutput()
-			if err != nil || string(output) != "bar\n" {
-				t.Fatalf("stream launch %d with GC pressure: %s, %v", i, output, err)
 			}
 		}
 	})

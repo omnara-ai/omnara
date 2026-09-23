@@ -130,7 +130,9 @@ Artifact content lives in S3-compatible object storage; a bucket is required.
 
 The directory must be writable by the service user and support case-sensitive paths, atomic rename, file/directory sync, and shared advisory locks. Memory search and scripted edits require a Linux worker with Landlock ABI 2 or newer and seccomp; on macOS, use Compose with its named volume. See [deployment](/self-hosting/deployment#memory-storage) for shared mounts and backups.
 
-Native workers need `rg`, GNU `sed`, and `omnara-file-exec` on `PATH`. The worker image includes them.
+Native workers need `rg`, `omnara-file-exec`, and `omnara-file-edit` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-file-edit` to install the editor and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup.
+
+Scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the editor helper acquires the capability; it drops it before running sed.
 
 ## Machine daemon and pools
 

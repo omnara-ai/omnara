@@ -316,7 +316,14 @@ func newSearchCommand(ctx context.Context, input searchFilesRequest, source sear
 		roots = append(roots, store.root)
 	}
 	args = append(append(args, "--"), operands...)
-	return newFileExecCommand(ctx, "rg", roots, args...)
+	binary, err := exec.LookPath("rg")
+	if err != nil {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, "omnara-file-exec",
+		append([]string{strconv.Itoa(len(roots)), binary}, args...)...)
+	command.ExtraFiles = roots
+	return command, nil
 }
 
 type searchEvent struct {
