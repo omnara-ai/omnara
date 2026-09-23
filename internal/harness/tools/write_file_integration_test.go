@@ -172,7 +172,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	call.Turn.AgentID = fixture.Agent.ID
 	if _, err := write(map[string]any{
 		"path": path, "content": "x", "expected_digest": digest,
-	}); !storeerr.IsNotFound(err) {
+	}); !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment write: %v", err)
 	}
 	call.Turn.AgentID = agent.ID
@@ -226,11 +226,25 @@ func TestEditFileTextLimits(t *testing.T) {
 			}
 		})
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
-	if _, err := editFileText(ctx, []byte("x"), ":a;ba"); !errors.Is(err, context.DeadlineExceeded) ||
-		!strings.Contains(err.Error(), "script execution timed out:") {
-		t.Fatalf("loop timeout: %v", err)
+	for _, test := range []struct {
+		name  string
+		cause error
+	}{
+		{name: "parent deadline", cause: context.DeadlineExceeded},
+		{name: "tool deadline", cause: errors.New("simplify the script and retry")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeoutCause(t.Context(), 100*time.Millisecond, test.cause)
+			defer cancel()
+			output, err := editFileText(ctx, []byte("x"), ":a;ba")
+			if output != nil || !errors.Is(err, test.cause) || !strings.Contains(err.Error(), "script execution timed out:") {
+				t.Fatalf("loop output = %q, error = %v", output, err)
+			}
+			if test.cause != context.DeadlineExceeded &&
+				(errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+				t.Fatalf("tool timeout reported as interrupted: %v", err)
+			}
+		})
 	}
 	ctx, stop := context.WithTimeout(t.Context(), 5*time.Second)
 	defer stop()

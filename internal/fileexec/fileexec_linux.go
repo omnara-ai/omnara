@@ -94,6 +94,9 @@ func Run(args []string) error {
 		landlock.ROFiles(args[0]),
 		landlock.ROFiles("/etc/ld.so.cache").IgnoreIfMissing(),
 	}
+	if rootCount == 0 {
+		rules = append(rules, landlock.PathAccess(ll.AccessFSReadFile|ll.AccessFSReadDir, "/usr/lib/locale/C.utf8"))
+	}
 	for _, dir := range []string{"/lib/" + triplet, "/usr/lib/" + triplet, "/usr/lib"} {
 		for _, name := range allowedLibraries {
 			rules = append(rules, landlock.ROFiles(filepath.Join(dir, name)).IgnoreIfMissing())

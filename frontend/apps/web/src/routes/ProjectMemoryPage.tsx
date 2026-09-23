@@ -85,6 +85,9 @@ function MemoryStores({
                   className="font-medium"
                   to="/projects/$projectId/memory/$storeId"
                   params={{ projectId, storeId: store.id }}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                  }}
                 >
                   {store.name}
                 </Link>

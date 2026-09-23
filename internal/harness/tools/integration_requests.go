@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/omnara-ai/omnara/internal/storage/memorystore"
 )
 
 var integrationTargetRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*-[a-z2-9]{4}$`)
@@ -30,14 +28,8 @@ func resolveIntegrationMessageRequest(raw json.RawMessage) (integrationMessageRe
 		return integrationMessageRequest{}, errors.New("text is required")
 	}
 	for _, filePath := range input.Paths {
-		if strings.HasPrefix(filePath, memorystore.Root+"/") {
-			if _, _, err := memorystore.ParsePath(filePath); err != nil {
-				return integrationMessageRequest{}, fmt.Errorf("invalid attachment path: %w", err)
-			}
-			continue
-		}
-		if _, err := resolveArtifactPath(filePath); err != nil {
-			return integrationMessageRequest{}, fmt.Errorf("invalid artifact attachment path: %w", err)
+		if err := validateFilePath(filePath); err != nil {
+			return integrationMessageRequest{}, fmt.Errorf("invalid attachment path: %w", err)
 		}
 	}
 	return input, nil

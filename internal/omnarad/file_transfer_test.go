@@ -37,7 +37,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 			http.Error(w, "conflict", http.StatusConflict)
 			return
 		}
-		result := map[string]string{"path": memoryPath, "digest": digest}
+		result := map[string]string{"path": memoryPath, "digest": digest, "filename": "file.bin"}
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
@@ -114,7 +114,7 @@ func TestMemoryTransferRoundTripAndFailedDownload(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &uploaded); err != nil {
 		t.Fatal(err)
 	}
-	if uploaded["path"] != memoryPath || uploaded["digest"] != digest {
+	if len(uploaded) != 2 || uploaded["path"] != memoryPath || uploaded["digest"] != digest {
 		t.Fatalf("unexpected upload result: %s", output.Bytes())
 	}
 	if err = os.WriteFile(path, make([]byte, daemonprotocol.MaxFileTransferBytes+1), 0600); err != nil {
@@ -139,7 +139,7 @@ func TestFileTransferArtifactRoundTrip(t *testing.T) {
 	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
 	content := []byte{0xff, 0x00, 0x80, 0x42}
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(content))
-	uploadResult := map[string]string{"path": "/artifacts/" + artifactID, "digest": digest}
+	uploadResult := map[string]string{"path": "/artifacts/" + artifactID, "digest": digest, "filename": "file.bin"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/daemon/tool-calls/"+toolID+"/file" || r.Header.Get("Authorization") != "Bearer token-a" {
 			t.Errorf("unexpected request: %s", r.URL.Path)

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/omnara-ai/omnara/internal/storage"
 )
@@ -34,6 +35,9 @@ func runListFiles(ctx context.Context, call asyncToolContext) (asyncPhaseResult,
 		input.Limit,
 	)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return nil, errors.New("file listing timed out; narrow the pattern and retry")
+		}
 		return nil, err
 	}
 	return completeFileTool(result)

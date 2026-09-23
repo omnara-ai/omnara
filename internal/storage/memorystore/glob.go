@@ -57,7 +57,10 @@ func (g globFS) Open(name string) (fs.File, error) {
 	if errors.Is(err, syscall.ENOTDIR) {
 		err = fs.ErrNotExist
 	}
-	return file, err
+	if err != nil {
+		return nil, err
+	}
+	return file, nil
 }
 
 func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
