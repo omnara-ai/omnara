@@ -17,7 +17,7 @@ The tools are grouped by what they do:
 | Commands | `run_command` |
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
-| Files | `upload_file`, `download_file`, `read_file`, `search_files` |
+| Files | `list_files`, `upload_file`, `download_file`, `read_file`, `search_files`, `write_file` |
 | Integrations | `send_integration_message`, `set_integration_target` |
 | Skills | `skill` |
 | Tool loading | `tool_search` |
@@ -165,55 +165,85 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 ## Files
 
-`path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
+`path` addresses files stored in Omnara, not files on an attached machine. `/artifacts` is the destination for creating an artifact, `/artifacts/<artifact_id>` identifies an existing artifact, and `/memory/<store-name>/<file-path>` identifies a file in an [attached memory store](/agents/configuration#memory-stores).
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `list_files`, `read_file`, and `search_files` entries to the compiled config, leaving the source unchanged. Attaching a memory store also adds these retrieval tools; a `read_write` attachment adds `write_file`. Explicit tool permissions and `enabled: false` settings take precedence. These tools do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
+
+### `list_files`
+
+Lists matching files and directories without reading their contents.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Absolute path pattern; see examples below |
+| `limit` | integer | 1–100; default 50 |
+
+Use `/*` to list `/artifacts` and `/memory`, `/artifacts/*` for the agent's artifacts, or `/memory/*` for attached stores and their descriptions. For example, `/memory/engineering/**/*.md` finds Markdown files across directories. `*` matches within a path segment, `**` spans directory levels, and `?` matches one character.
+
+Artifact patterns such as `/artifacts/*.pdf` match filenames and return `/artifacts/<artifact_id>` paths. A literal path matches only that entry. Results include hidden entries; if `truncated` is true, narrow the pattern.
 
 ### `upload_file`
 
-Use `upload_file` to copy a file from an attached machine into Omnara's virtual filesystem. Currently, uploads support only creating artifacts at `/artifacts`, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
+Use `upload_file` to copy a file from an attached machine into Omnara. Uploads to `/artifacts` create artifacts, making files such as generated PDFs, images, or reports available for the user to view or download. Set `path` to `/artifacts` or `/memory/<store-name>/<file-path>` and pass the regular machine file's relative, absolute, or `~`-relative path as `source`; provide `machine_id` when the agent has more than one machine.
 
-Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
+Files may be up to 10 MiB. Artifacts must be non-empty; memory files may be empty. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, take the artifact ID from the final component of each `/artifacts/<artifact_id>` path and pass those IDs in `artifact_ids` to `send_integration_message`.
+On success, an artifact appears in the conversation and the durable tool result contains its `path`, `digest`, and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, pass their paths in `paths` to `send_integration_message`.
+
+A memory upload requires write access and returns its `path` and `digest`. Omit `expected_digest` to create a file, or pass its current digest to replace changed content. On conflict, read or download the latest file and reapply your changes before retrying. Uploading identical contents succeeds without changing the file, even with a stale digest. Artifacts do not accept `expected_digest`.
 
 ### `download_file`
 
-Use `download_file` to copy a file from Omnara's virtual filesystem to an attached machine. Currently, downloads support only `/artifacts/<artifact_id>`; provide `machine_id` when the agent has more than one machine.
+Use `download_file` to copy a file stored in Omnara to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
 
-Set `path` to `/artifacts/<artifact_id>` and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically.
+Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads include the file's `digest` in the process output; use it when uploading an edited memory file.
 
 Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
 
 ### `read_file`
 
-Reads a UTF-8 text file at `/artifacts/<artifact_id>`. The artifact must contain no NUL bytes and be at most 48 MiB. Readability is determined from the file's bytes, regardless of its declared content type.
+Reads a UTF-8 text file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<file-path>`. Files must contain no NUL bytes. Artifacts may be up to 48 MiB; memory files may be up to 10 MiB. Readability is determined from the file's bytes, regardless of its declared content type.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact path |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact or memory file path |
 | `offset_line` | integer | ≥ 1; default 1 |
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
 
-Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, and `has_more`.
+Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 
 When `has_more` is true, continue using the returned `next_offset_line` or `next_offset_char`. A line longer than one page returns its first chunk and a character offset; switch to character mode to continue. Reading past the end returns empty content with `has_more: false`.
 
-### `search_files`
+### `write_file`
 
-Searches text inside an artifact file using a regular expression. It accepts one exact artifact path per call and has the same file requirements as `read_file`.
+Creates or edits a memory text file in a writable store attached with `read_write` access. Returns `path` and `digest`.
 
 | Input | Type | Notes |
 | --- | --- | --- |
-| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact artifact path |
-| `pattern`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | RE2 regex, 1–1024 UTF-8 bytes; case-sensitive unless using `(?i)` |
-| `offset_line` | integer | ≥ 1; default 1; first line to search for matches |
-| `max_matches` | integer | 1–100 matching lines; default 20 |
-| `context_lines` | integer | 0–5 lines before and after each match; default 0 |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | Exact `/memory/<store-name>/<file-path>` destination |
+| `content` | string | Text to create or replace the file with; empty text is allowed |
+| `script` | string | GNU sed script using extended regex, at most 64 KiB; transforms an existing file |
+| `append` | boolean | Append `content` exactly, without adding a newline; default false. Creates missing files. |
+| `expected_digest` | string | Current digest when changing an existing file; omit to create |
 
-Results include line numbers and bounded text snippets. When `truncated` is true, continue with the same pattern and the returned `next_offset_line` as `offset_line`. Context may overlap between pages or include lines before `offset_line`. Patterns match within individual lines; use `read_file` to read more around a match.
+Supply exactly one of `content` or `script`; `append` only applies to `content`. Text must be UTF-8 without NUL bytes, at most 10 MiB. Scripts cannot read other files, write files, or run commands, and run with resource limits. Concurrent edits cause a conflict; read the file again before retrying.
+
+### `search_files`
+
+Searches text in one artifact or in memory files matching a path or glob. Binary files may be skipped when searching with a glob.
+
+| Input | Type | Notes |
+| --- | --- | --- |
+| `path`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string | For artifacts, one exact `/artifacts/<artifact_id>` path. For memory, an exact file path or a glob such as `/memory/notes/**/*.md`. |
+| `args`<span style={{ color: "#c97a7a", fontWeight: 700 }}>*</span> | string[] | Ripgrep options and `-e` patterns; for example `["-i", "-C", "2", "-e", "deploy"]` |
+| `limit` | integer | 1–100 entries across all files; default 20 |
+| `offset_line` | integer | Starting line, default 1; only for exact-file content searches |
+
+Supported options are `-e` (repeatable patterns), `-F` (literal), `-i` (ignore case), `-w` (whole word), `-x` (whole line), `-v` (invert), `-U` (multiline), `-l` (matching paths), `-c` (counts), and `-A`/`-B`/`-C` (0–5 context lines). Patterns total at most 1024 UTF-8 bytes. Other options and file operands are rejected.
+
+Content results are a sequence of match and context records with paths, original line numbers, and bounded snippets. Context does not count toward `limit`; counts in `-c` results are not capped by it. Context may be cut off at the response limit. Narrow the query when truncated.
 
 ### Large tool results
 
@@ -231,7 +261,7 @@ Existing media references remain inline so their attachments remain available to
 
 ### `send_integration_message`
 
-Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`; pass `artifact_ids` to attach artifacts owned by the agent. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
+Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`; pass exact `paths` to attach files from the agent's artifacts or attached memory stores. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
 
 ### `set_integration_target`
 

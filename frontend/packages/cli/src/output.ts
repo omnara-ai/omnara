@@ -234,6 +234,7 @@ export async function runCliAction(action: () => void | Promise<void>): Promise<
     } else if (error instanceof ApiError) {
       const code = error.code ? ` [${error.code}]` : ''
       console.error(`error: API ${error.status}${code}: ${error.message}`)
+      if (error.currentDigest) console.error(`current_digest: ${error.currentDigest}`)
     } else {
       console.error(`error: ${error instanceof Error ? error.message : String(error)}`)
     }

@@ -11,7 +11,7 @@ import {
   createBasicConfigSession,
   useAgentBuilderForm,
 } from '@/components/agents/useAgentBuilderForm'
-import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning'
+import { useAgentUnsavedChangesWarning } from '@/components/agents/useAgentUnsavedChangesWarning'
 
 export type AgentConfigEditorState = ReturnType<typeof useAgentConfigEditor>
 
@@ -59,7 +59,7 @@ export function useAgentConfigEditor({
   const editorYaml = mode.editorYaml ?? builderYaml
   const yaml = showBuilder ? builderYaml : editorYaml
   const dirty = yaml !== source
-  const suppressUnsavedChangesWarning = useUnsavedChangesWarning(dirty)
+  const suppressUnsavedChangesWarning = useAgentUnsavedChangesWarning(dirty)
   const saveBlocked =
     yaml.trim() === '' ||
     (builderSession != null && form.blocked && (showBuilder || !yamlDiverged(mode)))

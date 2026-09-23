@@ -92,6 +92,7 @@ type Config struct {
 	SecretEncryptionKeys              string
 	SecretEncryptionActiveKeyID       string
 	SkillDownloadSigningKey           string
+	MemoryDir                         string
 	BlobS3Bucket                      string
 	BlobS3Region                      string
 	BlobS3Endpoint                    string
@@ -281,6 +282,7 @@ func Load() (Config, error) {
 		SecretEncryptionKeys:              getenv("OMNARA_SECRET_ENCRYPTION_KEYS", ""),
 		SecretEncryptionActiveKeyID:       getenv("OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID", ""),
 		SkillDownloadSigningKey:           getenv("OMNARA_SKILL_DOWNLOAD_SIGNING_KEY", ""),
+		MemoryDir:                         getenv("OMNARA_MEMORY_DIR", ""),
 		BlobS3Bucket:                      getenv("OMNARA_BLOB_S3_BUCKET", ""),
 		BlobS3Region:                      getenv("OMNARA_BLOB_S3_REGION", ""),
 		BlobS3Endpoint:                    getenv("OMNARA_BLOB_S3_ENDPOINT", ""),
@@ -322,6 +324,12 @@ func Load() (Config, error) {
 	}
 	if cfg.AllowInsecureDev && cfg.EmailDriver == "none" {
 		cfg.EmailDriver = "console"
+	}
+	if cfg.AllowInsecureDev && cfg.MemoryDir == "" {
+		cfg.MemoryDir, err = filepath.Abs(".local/memory")
+		if err != nil {
+			return Config{}, fmt.Errorf("resolve memory directory: %w", err)
+		}
 	}
 	if cfg.AllowInsecureDev && cfg.BlobS3Bucket == "" {
 		cfg.BlobS3Bucket = "omnara"
@@ -438,6 +446,9 @@ func (cfg Config) ValidateAPI() error {
 	}
 	if err := validateSkillDownloadSigningKeyConfig(cfg); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := validateBlobStoreConfig(cfg); err != nil {
 		return err
@@ -620,6 +631,9 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if err := cfg.validatePublicURL(true); err != nil {
 		return err
+	}
+	if !filepath.IsAbs(cfg.MemoryDir) {
+		return errors.New("OMNARA_MEMORY_DIR must be an absolute path")
 	}
 	if err := validateBlobStoreConfig(cfg); err != nil {
 		return err

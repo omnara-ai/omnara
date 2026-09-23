@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -250,6 +251,55 @@ func isUploadArtifactToolCall(call ToolCallRecord) bool {
 	return json.Unmarshal(call.Input, &input) == nil && input.Path == toolcatalog.ArtifactVFSRoot
 }
 
+func uploadMemoryToolResult(input, result json.RawMessage) (ToolResultOutcome, json.RawMessage, error) {
+	if uploaded, ok := decodeMemoryUploadMetadata(input, result); ok {
+		metadata, err := marshalJSON(uploaded)
+		return ToolResultOutcomeSucceeded, metadata, err
+	}
+	var failure map[string]any
+	if err := json.Unmarshal(result, &failure); err != nil {
+		return "", nil, fmt.Errorf("decode upload command result: %w", err)
+	}
+	failure["error"] = "upload completed without valid file metadata"
+	metadata, err := marshalJSON(failure)
+	return ToolResultOutcomeFailed, metadata, err
+}
+
+type memoryUploadMetadata struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+}
+
+func decodeMemoryUploadMetadata(input, result json.RawMessage) (memoryUploadMetadata, bool) {
+	var request struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &request); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	var observed struct {
+		Output    string `json:"output"`
+		Truncated bool   `json:"truncated"`
+	}
+	if err := json.Unmarshal(result, &observed); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	if observed.Truncated {
+		return memoryUploadMetadata{}, false
+	}
+	var uploaded memoryUploadMetadata
+	if err := json.Unmarshal([]byte(observed.Output), &uploaded); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	if uploaded.Path == "" || uploaded.Path != request.Path {
+		return memoryUploadMetadata{}, false
+	}
+	if err := daemonprotocol.ValidateFileDigest(uploaded.Digest); err != nil {
+		return memoryUploadMetadata{}, false
+	}
+	return uploaded, true
+}
+
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
@@ -277,7 +327,8 @@ func uploadArtifactProcessToolResultContentParts(
 		{
 			"type": "structured_data",
 			"value": map[string]any{
-				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
+				"path":   toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
+				"digest": artifact.Digest,
 			},
 		},
 		{

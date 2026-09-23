@@ -393,9 +393,10 @@ WHERE process.org_id = sqlc.arg(org_id)
   AND runtime.daemon_token_id = sqlc.arg(daemon_token_id)
   AND process.id = sqlc.arg(id);
 
--- name: GetDaemonArtifactProcessScope :one
+-- name: GetDaemonFileProcessScope :one
 SELECT process.project_id,
        process.agent_id,
+       COALESCE(tool_call.input->>'expected_digest', '')::text AS expected_digest,
        COALESCE(tool_call.input->>'path', '')::text AS path
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id

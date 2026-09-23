@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import * as z from 'zod'
 
-import { zAgentEvent, zCreateAgentResponse, zListTurnEventsResponse } from './generated/zod.gen'
+import {
+  zAgentEvent,
+  zCreateAgentResponse,
+  zListMemoryFilesResponse,
+  zListTurnEventsResponse,
+} from './generated/zod.gen'
 import type { JsonBody } from './json-body'
 import { relaxedResponseValidator, relaxedSchema } from './validate-response'
 
@@ -77,6 +82,19 @@ describe('relaxedSchema', () => {
 
   it('rejects wrong-shaped data against a real union response', () => {
     expect(outcome(zCreateAgentResponse, 'not an object')).toBe('rejected')
+  })
+
+  it.each<{ name: string; entry: Record<string, JsonBody>; want: string }>([
+    { name: 'directory', entry: { type: 'directory' }, want: 'accepted' },
+    { name: 'empty file', entry: { type: 'file', size_bytes: 0 }, want: 'accepted' },
+    { name: 'file', entry: { type: 'file', size_bytes: 7 }, want: 'accepted' },
+    { name: 'file missing size', entry: { type: 'file' }, want: 'rejected' },
+  ])('validates a memory $name response', async ({ entry, want }) => {
+    const response = {
+      data: [{ path: 'notes', modified_at: '2026-09-22T00:00:00Z', ...entry }],
+      next_cursor: null,
+    }
+    expect(await validatorOutcome(zListMemoryFilesResponse, response)).toBe(want)
   })
 
   it('rejects a malformed event of a known kind in a real event payload', () => {

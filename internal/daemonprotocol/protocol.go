@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,8 +37,9 @@ const (
 type AckStatus string
 
 const (
-	MaxMessageBytes        = 1048576
-	MaxArtifactUploadBytes = 10 * 1024 * 1024
+	MaxMessageBytes      = 1048576
+	MaxFileTransferBytes = 10 * 1024 * 1024
+	MaxFileDownloadBytes = 48 * 1024 * 1024
 
 	AckStatusCommitted       AckStatus = "committed"
 	AckStatusCleanupOnly     AckStatus = "cleanup_only"
@@ -524,3 +526,15 @@ const (
 	ActionDispositionSettle  ActionDisposition = "settle"
 	ActionDispositionRelease ActionDisposition = "release"
 )
+
+func ValidateFileDigest(digest string) error {
+	if len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
+		return errors.New("expected sha256 digest with 64 lowercase hexadecimal characters")
+	}
+	for _, c := range digest[7:] {
+		if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') {
+			return errors.New("expected sha256 digest with 64 lowercase hexadecimal characters")
+		}
+	}
+	return nil
+}

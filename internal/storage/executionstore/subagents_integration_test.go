@@ -330,6 +330,7 @@ tools:
   send_agent_message: {enabled: false}
   stop_agent: {enabled: false}
   list_agents: {enabled: false}
+  list_files: {enabled: false}
   read_file: {enabled: false}
   search_files: {enabled: false}
 `

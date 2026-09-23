@@ -127,6 +127,15 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		}
 		response.Skills = append(response.Skills, openapi.CompiledSkill{Id: id})
 	}
+	for _, store := range compiled.MemoryStores {
+		id, err := publicCompiledID(publicid.KindMemoryStore, store.ID)
+		if err != nil {
+			return openapi.CompiledAgentConfig{}, err
+		}
+		response.MemoryStores = append(response.MemoryStores, openapi.CompiledMemoryStore{
+			Id: id, Access: openapi.CompiledMemoryStoreAccess(store.Access),
+		})
+	}
 	response.Subagents = make(map[string]openapi.CompiledSubagent, len(compiled.Subagents))
 	for name, subagent := range compiled.Subagents {
 		var model *openapi.CompiledSubagentModel

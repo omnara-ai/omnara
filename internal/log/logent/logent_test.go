@@ -556,6 +556,55 @@ func TestMCPInitializationFailureWarns(t *testing.T) {
 	}
 }
 
+func TestMemoryCleanupFailed(t *testing.T) {
+	for _, test := range []struct {
+		operation MemoryCleanupOperation
+		level     string
+	}{
+		{MemoryCleanupDeleteStore, "error"},
+		{MemoryCleanupDeleteProject, "error"},
+		{MemoryCleanupDeleteOrganization, "error"},
+		{MemoryCleanupDiscardStagedFile, "warn"},
+	} {
+		t.Run(string(test.operation), func(t *testing.T) {
+			var buf bytes.Buffer
+			ctx := log.WithLogger(context.Background(), testLogger(&buf))
+			parent := log.NewEvent(ctx, "test.parent")
+			ctx = log.WithEvent(ctx, parent)
+			orgID, projectID, storeID := testID(1), testID(2), testID(3)
+			MemoryCleanupFailed(ctx, test.operation, orgID, projectID, storeID, errors.New("remove failed"))
+			record := oneRecord(t, &buf)
+			for key, want := range map[string]any{
+				"event.name":               "memory.cleanup_failed",
+				"parent.event.name":        "test.parent",
+				"level":                    test.level,
+				"memory.cleanup.operation": string(test.operation),
+				"org.id":                   orgID.String(),
+				"project.id":               projectID.String(),
+				"memory_store.id":          storeID.String(),
+				"error.message":            "remove failed",
+			} {
+				if got := record[key]; got != want {
+					t.Fatalf("%s = %v, want %v in %+v", key, got, want, record)
+				}
+			}
+			if got, present := record["memory.cleanup.gave_up"]; present != (test.level == "error") || (present && got != true) {
+				t.Fatalf("unexpected gave_up field: %+v", record)
+			}
+		})
+	}
+}
+
+func TestWorkerFileToolsUnavailable(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := log.WithLogger(context.Background(), testLogger(&buf))
+	WorkerFileToolsUnavailable(ctx, errors.New("file launcher unavailable"))
+	record := oneRecord(t, &buf)
+	require.Equal(t, "worker.file_tools_unavailable", record["event.name"])
+	require.Equal(t, "warn", record["level"])
+	require.Equal(t, "file launcher unavailable", record["error.message"])
+}
+
 func testLogger(buf *bytes.Buffer) *slog.Logger {
 	return testLoggerAtLevel(buf, slog.LevelInfo)
 }

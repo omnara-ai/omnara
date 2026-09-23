@@ -69,6 +69,11 @@ export function ProjectsNav() {
                   label: 'Project Skills',
                 },
                 {
+                  to: '/projects/$projectId/memory' as const,
+                  paths: [`${projectRoot}/memory`],
+                  label: 'Memory',
+                },
+                {
                   to: '/projects/$projectId/usage' as const,
                   path: `${projectRoot}/usage`,
                   label: 'Usage',

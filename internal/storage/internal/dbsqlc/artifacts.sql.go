@@ -171,6 +171,68 @@ func (q *Queries) InsertArtifact(ctx context.Context, arg InsertArtifactParams) 
 	return i, err
 }
 
+const listAgentArtifacts = `-- name: ListAgentArtifacts :many
+(SELECT a.id, a.filename, a.digest, a.size_bytes
+ FROM artifacts a
+ WHERE a.agent_id = $2
+   AND a.id = $3::uuid
+)
+UNION ALL
+(SELECT a.id, a.filename, a.digest, a.size_bytes
+ FROM artifacts a
+ WHERE $3::uuid IS NULL
+   AND a.agent_id = $2
+   AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ $4::text
+ ORDER BY a.id DESC
+ LIMIT $1)
+ORDER BY id DESC
+LIMIT $1
+`
+
+type ListAgentArtifactsParams struct {
+	RowLimit   int32
+	AgentID    uuid.UUID
+	ArtifactID *uuid.UUID
+	Pattern    string
+}
+
+type ListAgentArtifactsRow struct {
+	ID        uuid.UUID
+	Filename  *string
+	Digest    *string
+	SizeBytes *int64
+}
+
+func (q *Queries) ListAgentArtifacts(ctx context.Context, arg ListAgentArtifactsParams) ([]ListAgentArtifactsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentArtifacts,
+		arg.RowLimit,
+		arg.AgentID,
+		arg.ArtifactID,
+		arg.Pattern,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentArtifactsRow{}
+	for rows.Next() {
+		var i ListAgentArtifactsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Filename,
+			&i.Digest,
+			&i.SizeBytes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArtifactsByIDs = `-- name: ListArtifactsByIDs :many
 SELECT artifact.id, agent.project_id, artifact.agent_id, artifact.content_type,
        coalesce(artifact.filename, '') AS filename, coalesce(artifact.digest, '') AS digest,

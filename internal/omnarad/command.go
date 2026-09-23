@@ -45,6 +45,11 @@ type daemonCommand struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
 	} `arg:"subcommand:__omnara_process_runner,hidden"`
+	FileTransfer *struct {
+		Direction   string `arg:"positional,required"`
+		ToolCallID  string `arg:"positional,required"`
+		EncodedPath string `arg:"positional,required"`
+	} `arg:"subcommand:__omnara_file_transfer,hidden"`
 	UploadArtifact *struct {
 		ToolCallID  string `arg:"positional,required"`
 		EncodedPath string `arg:"positional,required"`
@@ -230,6 +235,14 @@ func Run(
 			return 1
 		}
 		return 0
+	case command.FileTransfer != nil:
+		if err := runFileTransfer(
+			ctx, command.FileTransfer.Direction, command.FileTransfer.ToolCallID, command.FileTransfer.EncodedPath, stdout,
+		); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
 	case command.UploadArtifact != nil:
 		if err := runUploadArtifactCommand(
 			ctx,
@@ -247,6 +260,7 @@ func Run(
 			command.DownloadArtifact.ToolCallID,
 			command.DownloadArtifact.ArtifactID,
 			command.DownloadArtifact.EncodedPath,
+			stdout,
 		); err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

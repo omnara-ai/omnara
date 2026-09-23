@@ -3,7 +3,7 @@ import type { Skill } from '@omnara/sdk'
 import { CatchBoundary } from '@tanstack/react-router'
 import { lazy, Suspense, type SyntheticEvent, useId, useState } from 'react'
 
-import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
+import { FileArchive } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,13 +14,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { FilePicker } from '@/components/ui/file-picker'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { errorMessage } from '@/lib/submit-status'
 
-const LazySkillMdEditor = lazy(async () => {
-  const module = await import('@/components/skills/SkillMdEditor')
-  return { default: module.SkillMdEditor }
+const LazyTextFileEditor = lazy(async () => {
+  const module = await import('@/components/ui/text-file-editor')
+  return { default: module.TextFileEditor }
 })
 
 function SkillMdEditorFallback() {
@@ -136,8 +137,9 @@ export function UpdateSkillDialog({
                   ) : (
                     <CatchBoundary getResetKey={() => skill.id} errorComponent={SkillMdEditorError}>
                       <Suspense fallback={<SkillMdEditorFallback />}>
-                        <LazySkillMdEditor
+                        <LazyTextFileEditor
                           id={skill.id}
+                          filename="SKILL.md"
                           className="h-[65vh]"
                           value={editorValue}
                           readOnly={updateSkill.isPending}
@@ -157,7 +159,10 @@ export function UpdateSkillDialog({
               <TabsContent value="archive">
                 <Field>
                   <FieldLabel htmlFor={archiveInputId}>Skill archive</FieldLabel>
-                  <SkillArchivePicker
+                  <FilePicker
+                    accept=".zip,.tar.gz,application/zip,application/gzip"
+                    label="Skill archive"
+                    icon={FileArchive}
                     id={archiveInputId}
                     file={archive}
                     disabled={updateSkill.isPending}

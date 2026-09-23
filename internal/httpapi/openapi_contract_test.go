@@ -314,6 +314,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"post /daemon/runtimes":                         true,
 		"post /daemon/runtimes/{runtimeID}/end":         true,
 		"post /daemon/runtimes/{runtimeID}/sleep":       true,
+		"post /daemon/tool-calls/{toolCallID}/file":     true,
 		"post /daemon/tool-calls/{toolCallID}/artifact": true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
@@ -376,6 +377,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"Agent.name":                                     "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                    "#/components/schemas/AgentName",
 		"CreateAgentRequest.name":                        "#/components/schemas/AgentName",
+		"MemoryStore.name":                               "#/components/schemas/MemoryStoreName",
+		"CreateMemoryStore.name":                         "#/components/schemas/MemoryStoreName",
 		"Skill.name":                                     "#/components/schemas/SkillName",
 		"Actor.display_name":                             "",
 		"AgentInteraction.tool_name":                     "",
@@ -432,6 +435,41 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 func openAPINameProperty(property string) bool {
 	return property == "name" || property == "display_name" || property == "provider_config" ||
 		strings.HasSuffix(property, "_name")
+}
+
+func TestOpenAPIErrorCodesContract(t *testing.T) {
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Enum           []string       `yaml:"enum"`
+				ExtensibleEnum []string       `yaml:"x-extensible-enum"`
+				Properties     map[string]any `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(openapispec.YAML, &doc); err != nil {
+		t.Fatalf("parse checked-in openapi spec: %v", err)
+	}
+	code := openAPIPropertySchema(t, doc.Components.Schemas["Error"].Properties, "code")
+	if _, closed := code["enum"]; closed || code["x-go-type"] != "ErrorCode" {
+		t.Fatal("Error.code must be extensible and use the Go ErrorCode type")
+	}
+	values, ok := code["x-extensible-enum"].([]any)
+	known := doc.Components.Schemas["ErrorCode"].Enum
+	if !ok || len(known) == 0 || !slices.Equal(openAPIStringSlice(values), known) {
+		t.Fatal("Error.code extensible values must match the known ErrorCode enum")
+	}
+	for _, name := range []string{"ClientErrorCode", "ServerErrorCode"} {
+		schema := doc.Components.Schemas[name]
+		if len(schema.Enum) != 0 || len(schema.ExtensibleEnum) == 0 {
+			t.Fatalf("%s must be extensible", name)
+		}
+		for _, value := range schema.ExtensibleEnum {
+			if !slices.Contains(known, value) {
+				t.Fatalf("%s contains unknown code %q", name, value)
+			}
+		}
+	}
 }
 
 func TestOpenAPIModelProviderOpenRouterOptionsContract(t *testing.T) {

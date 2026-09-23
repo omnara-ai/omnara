@@ -128,6 +128,18 @@ export {
 export { useMcpServerTools } from './domains/mcp-server-tools'
 export { useMe } from './domains/me'
 export {
+  type MemoryScope,
+  useCreateMemoryStore,
+  useDeleteMemoryFile,
+  useDeleteMemoryStore,
+  useMemoryFile,
+  useMemoryFiles,
+  useMemoryStore,
+  useMemoryStores,
+  useUpdateMemoryStore,
+  useWriteMemoryFile,
+} from './domains/memory'
+export {
   type ModelOption,
   type ModelPricingLookup,
   type ModelProviderListFilters,

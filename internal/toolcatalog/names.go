@@ -15,6 +15,7 @@ const (
 	ToolNameListProcesses          = "list_processes"
 	ToolNameCreateMachine          = "create_machine"
 	ToolNameDeleteMachine          = "delete_machine"
+	ToolNameListFiles              = "list_files"
 	ToolNameListMachines           = "list_machines"
 	ToolNameInspectMachine         = "inspect_machine"
 	ToolNameAskQuestion            = "ask_question"
@@ -23,6 +24,7 @@ const (
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
 	ToolNameReadFile               = "read_file"
+	ToolNameWriteFile              = "write_file"
 	ToolNameSearchFiles            = "search_files"
 	ToolNameUploadFile             = "upload_file"
 	ToolNameDownloadFile           = "download_file"
@@ -78,7 +80,8 @@ func IsSubagentToolName(name string) bool {
 func implicit(name string) bool {
 	return slices.Contains(MachineToolNames(), name) || slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill || name == ToolNameSendIntegrationMessage ||
-		name == ToolNameReadFile || name == ToolNameSearchFiles || name == ToolNameToolSearch
+		name == ToolNameListFiles || name == ToolNameReadFile || name == ToolNameSearchFiles ||
+		name == ToolNameWriteFile || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

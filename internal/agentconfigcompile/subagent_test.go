@@ -20,6 +20,9 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 			"read_agent":  {Enabled: true},
 			"skill":       {Enabled: false},
 		},
+		MemoryStores: []agentconfig.MemoryStoreCompiled{
+			{ID: uuid.New(), Access: "read_only"},
+		},
 		Subagents: map[string]agentconfig.SubagentCompiled{"worker": {Type: agentconfig.SubagentTypeSelf}},
 	}
 	raw, err := json.Marshal(base)
@@ -39,6 +42,7 @@ func TestDeriveSubagentConfigWithoutSource(t *testing.T) {
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(leaf.CompiledDefinition, &compiled))
 		require.Equal(t, "Help.\n\nInvestigate.", compiled.Instruction)
+		require.Equal(t, base.MemoryStores, compiled.MemoryStores)
 		require.Empty(t, compiled.Subagents)
 		require.NotContains(t, compiled.Tools, "spawn_agent")
 		require.Equal(t, base.Tools["read_agent"], compiled.Tools["read_agent"])

@@ -20,41 +20,49 @@ type DaemonProcessOffer struct {
 	RetryError       error             `json:"-"`
 }
 
-type DaemonArtifactProcessScope struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	Path      string
+type DaemonFileProcessScope struct {
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	Path           string
+	ExpectedDigest *string
 }
 
-func (s *Store) GetDaemonArtifactProcessScope(
+func (s *Store) GetDaemonFileProcessScope(
 	ctx context.Context,
 	orgID, machineID, toolCallID uuid.UUID,
 	toolName string,
-) (DaemonArtifactProcessScope, bool, error) {
+) (DaemonFileProcessScope, bool, error) {
 	if orgID == uuid.Nil || machineID == uuid.Nil || toolCallID == uuid.Nil {
-		return DaemonArtifactProcessScope{}, false, errors.New(
+		return DaemonFileProcessScope{}, false, errors.New(
 			"organization id, machine id, and tool call id are required",
 		)
 	}
 	if toolName == "" {
-		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
+		return DaemonFileProcessScope{}, false, errors.New("tool name is required")
 	}
-	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
+	record, err := s.q.GetDaemonFileProcessScope(ctx, dbsqlc.GetDaemonFileProcessScopeParams{
 		OrgID:      orgID,
 		MachineID:  machineID,
 		ToolCallID: toolCallID,
 		ToolName:   toolName,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DaemonArtifactProcessScope{}, false, nil
+		return DaemonFileProcessScope{}, false, nil
 	}
 	if err != nil {
-		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
+		return DaemonFileProcessScope{}, false, fmt.Errorf("load daemon file process scope: %w", err)
 	}
-	return DaemonArtifactProcessScope{
-		ProjectID: record.ProjectID,
-		AgentID:   record.AgentID,
-		Path:      record.Path,
+	var expectedDigest *string
+	if record.ExpectedDigest != "" {
+		expectedDigest = &record.ExpectedDigest
+	}
+	return DaemonFileProcessScope{
+		OrgID:          orgID,
+		ProjectID:      record.ProjectID,
+		AgentID:        record.AgentID,
+		Path:           record.Path,
+		ExpectedDigest: expectedDigest,
 	}, true, nil
 }
 

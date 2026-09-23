@@ -4,7 +4,7 @@ description: Steps to run Omnara on your own infrastructure
 icon: "cloud-arrow-up"
 ---
 
-Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, and S3-compatible bucket ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
+Self-hosting means running four long-lived Omnara services plus a one-shot migration job, pointed at your own Postgres, Redis, S3-compatible bucket, and persistent memory filesystem ([Architecture](/self-hosting/architecture)), with one public URL in front of them.
 
 ## Quick start (local)
 
@@ -30,6 +30,14 @@ maintenance services. Connect the migrator directly to the PostgreSQL writer;
 do not use RDS Proxy or transaction-pooling PgBouncer. Long-running services
 may use a compatible proxy. See [database configuration](/self-hosting/configuration#database-and-redis)
 for connection-pool defaults.
+
+## Memory storage
+
+Compose shares the persistent `memory-data` volume between API and worker at `/var/lib/omnara/memory`.
+
+Across hosts, mount the same shared filesystem into API and every worker and set `OMNARA_MEMORY_DIR` to its absolute mount path. Configure services to wait for the mount before starting, and verify shared locking and file visibility between hosts. See [Memory storage configuration](/self-hosting/configuration#memory-storage) for filesystem requirements.
+
+Keep the mount private to API and workers. Back up the entire memory directory alongside PostgreSQL.
 
 ## Exposing the deployment publicly
 

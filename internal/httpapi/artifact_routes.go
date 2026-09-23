@@ -87,7 +87,7 @@ func (response artifactContentResponse) VisitGetArtifactContentResponse(w http.R
 	return response.write(w)
 }
 
-func (response artifactContentResponse) VisitDownloadDaemonArtifactResponse(w http.ResponseWriter) error {
+func (response artifactContentResponse) VisitDownloadDaemonFileResponse(w http.ResponseWriter) error {
 	return response.write(w)
 }
 
@@ -102,6 +102,7 @@ func (response artifactContentResponse) write(w http.ResponseWriter) error {
 	w.Header().Set("Content-Disposition", contentDisposition(response.artifact.Filename))
 	if response.artifact.Digest != "" {
 		w.Header().Set("ETag", `"`+response.artifact.Digest+`"`)
+		w.Header().Set("X-Omnara-File-Digest", response.artifact.Digest)
 	}
 	// Artifact content is immutable: the digest never changes for an id.
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")

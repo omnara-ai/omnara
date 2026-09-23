@@ -83,7 +83,24 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-
 
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+
       - run: make ${{ matrix.target }}
+
+  worker-image:
+    name: Worker Image Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: make test-worker-image
 
   daemon-darwin:
     name: Daemon macOS Tests
@@ -178,6 +195,12 @@ jobs:
             ~/.cache/go-build
           key: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-integration-${{ matrix.target }}-
+
+      - name: Install file tools
+        if: matrix.target == 'test-integration-runtime'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
+          make install-file-edit
 
       - uses: ./.github/actions/setup-test-db
 

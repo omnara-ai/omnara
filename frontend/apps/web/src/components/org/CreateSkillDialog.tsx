@@ -2,7 +2,7 @@ import { useCreateSkill } from '@omnara/react'
 import type { Skill, SkillOwnerInput } from '@omnara/sdk'
 import { type SyntheticEvent, useId, useState } from 'react'
 
-import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
+import { FileArchive } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { FilePicker } from '@/components/ui/file-picker'
 import { errorMessage } from '@/lib/submit-status'
 
 export function CreateSkillDialog({
@@ -75,7 +76,10 @@ export function CreateSkillDialog({
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor={inputId}>Skill archive</FieldLabel>
-              <SkillArchivePicker
+              <FilePicker
+                accept=".zip,.tar.gz,application/zip,application/gzip"
+                label="Skill archive"
+                icon={FileArchive}
                 id={inputId}
                 file={archive}
                 disabled={createSkill.isPending}

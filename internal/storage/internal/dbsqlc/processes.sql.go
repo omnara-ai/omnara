@@ -520,9 +520,10 @@ func (q *Queries) FailProcessBeforeExecution(ctx context.Context, arg FailProces
 	return i, err
 }
 
-const getDaemonArtifactProcessScope = `-- name: GetDaemonArtifactProcessScope :one
+const getDaemonFileProcessScope = `-- name: GetDaemonFileProcessScope :one
 SELECT process.project_id,
        process.agent_id,
+       COALESCE(tool_call.input->>'expected_digest', '')::text AS expected_digest,
        COALESCE(tool_call.input->>'path', '')::text AS path
 FROM processes process
 JOIN tool_calls tool_call ON tool_call.agent_id = process.agent_id
@@ -536,28 +537,34 @@ WHERE process.org_id = $1
   AND tool_call.name = $4
 `
 
-type GetDaemonArtifactProcessScopeParams struct {
+type GetDaemonFileProcessScopeParams struct {
 	OrgID      uuid.UUID
 	MachineID  uuid.UUID
 	ToolCallID uuid.UUID
 	ToolName   string
 }
 
-type GetDaemonArtifactProcessScopeRow struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	Path      string
+type GetDaemonFileProcessScopeRow struct {
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	ExpectedDigest string
+	Path           string
 }
 
-func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaemonArtifactProcessScopeParams) (GetDaemonArtifactProcessScopeRow, error) {
-	row := q.db.QueryRow(ctx, getDaemonArtifactProcessScope,
+func (q *Queries) GetDaemonFileProcessScope(ctx context.Context, arg GetDaemonFileProcessScopeParams) (GetDaemonFileProcessScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonFileProcessScope,
 		arg.OrgID,
 		arg.MachineID,
 		arg.ToolCallID,
 		arg.ToolName,
 	)
-	var i GetDaemonArtifactProcessScopeRow
-	err := row.Scan(&i.ProjectID, &i.AgentID, &i.Path)
+	var i GetDaemonFileProcessScopeRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.AgentID,
+		&i.ExpectedDigest,
+		&i.Path,
+	)
 	return i, err
 }
 

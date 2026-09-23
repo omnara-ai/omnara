@@ -7,8 +7,6 @@ import {
   listAgentProfilesQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
-  type QueryClient,
-  type QueryKey,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -24,6 +22,7 @@ import {
   paginatedListOptions,
 } from './list-options'
 import { cursorPaginated } from './pagination'
+import { removeQueryWhenInactive } from './query-keys'
 import { useScopedMutation } from './scoped-mutation'
 
 export type AgentProfileListFilters = ListFilters<ListAgentProfilesData>
@@ -187,26 +186,5 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
         }),
       ])
     },
-  })
-}
-
-function removeQueryWhenInactive(queryClient: QueryClient, queryKey: QueryKey) {
-  const cache = queryClient.getQueryCache()
-  const query = cache.find({ queryKey, exact: true })
-  if (!query) return
-  if (query.getObserversCount() === 0) {
-    cache.remove(query)
-    return
-  }
-  const unsubscribe = cache.subscribe((event) => {
-    if (event.query !== query) return
-    if (event.type === 'removed') {
-      unsubscribe()
-      return
-    }
-    if (event.type === 'observerRemoved' && query.getObserversCount() === 0) {
-      unsubscribe()
-      cache.remove(query)
-    }
   })
 }

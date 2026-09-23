@@ -241,6 +241,24 @@ max_depth: 2
 
 Subagents start with a clean context: only the `task` passed to `spawn_agent` reaches them. Each subagent launches from a new config derived from its base with the key's overrides applied; a subagent at the tree's `max_depth` has `subagents` and `spawn_agent` removed. Subagents share the parent's attached machines, including its pool machines, instead of provisioning from the base config's `machine_sources`. A subagent's final answer, question, or failure arrives in the parent's timeline as a message from the subagent; `read_agent` reads its timeline on demand. Subagents appear in the console and API as agents with a `parent_agent_id`; listing agents returns top-level agents unless `include_subagents` or `parent_agent_id` is set. Archiving a parent archives its subagents.
 
+## Memory stores
+
+`memory_stores` attaches project-owned stores where agents can keep files between conversations or share them with other agents. Reference each store by name:
+
+```yaml
+memory_stores:
+  - name: engineering
+    access: read_write
+```
+
+Store names are unique within a project and use 1–64 lowercase letters, digits, and single hyphens between groups of letters or digits.
+
+Each attachment requires `access: read_only` or `access: read_write`. Agent writes require both `read_write` access and a writable store. Project managers can edit files in read-only stores.
+
+Attached stores are available through the [file tools](/tools/built-in#files) at `/memory/<store-name>/<file-path>`. Paths can include nested directories. Files keep only their current contents; there is no edit history. Retrieval tools are added automatically; `read_write` attachments also add `write_file`. Explicit tool disables still apply.
+
+The CLI's `omnara memory-stores` commands manage stores; `omnara memory-stores files` manages their files using a store ID and a path relative to its root. Replacing or deleting a file requires `--expected-digest`, returned by upload and download.
+
 ## Create a config
 
 <Tabs>

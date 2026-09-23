@@ -81,6 +81,16 @@ func options(
 		}
 		return profileID, nil
 	}
+	opts.ResolveMemoryStoreName = func(name string) (uuid.UUID, error) {
+		record, err := store.Memories().Resolve(ctx, projectID, name)
+		if err != nil {
+			if storeerr.IsNotFound(err) {
+				return uuid.Nil, fmt.Errorf("memory store %q was not found: %w", name, storeerr.ErrNotFound)
+			}
+			return uuid.Nil, err
+		}
+		return record.ID, nil
+	}
 	opts.ResolveSkillID = func(skillID string) (agentconfig.SkillResolution, error) {
 		records, missing, err := store.Skills().GetSkillsByIDsForCompile(ctx, skillstore.GetSkillsByIDsInput{
 			OrgID:     orgID,

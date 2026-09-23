@@ -1258,13 +1258,17 @@ WHERE agent.project_id = $1 AND wake.agent_id = $2
 	}
 }
 
-func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T) {
+func TestUploadFileWaitsForTerminalResult(t *testing.T) {
 	t.Parallel()
+	memoryOutput := `{"path":"/memory/team/screenshot.png","digest":"sha256:` + strings.Repeat("a", 64) + `"}` + "\n"
+	const memoryFailureOutput = "upload file: memory changed; read it and retry\n"
 	for _, test := range []struct {
 		name           string
 		toolName       string
 		input          json.RawMessage
+		terminalResult json.RawMessage
 		createArtifact bool
+		exitCode       int
 		wantOutcome    executionstore.ToolResultOutcome
 	}{
 		{
@@ -1280,16 +1284,37 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			input:       json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`),
 			wantOutcome: executionstore.ToolResultOutcomeFailed,
 		},
+		{
+			name:     "memory",
+			toolName: "upload_file",
+			input:    json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": memoryOutput, "cursor": 0, "next_cursor": len(memoryOutput),
+				"state": "exited", "done": true, "truncated": false,
+			}),
+			wantOutcome: executionstore.ToolResultOutcomeSucceeded,
+		},
+		{
+			name:     "memory_failure",
+			toolName: "upload_file",
+			input:    json.RawMessage(`{"path":"/memory/team/screenshot.png","source":"screenshot.png"}`),
+			terminalResult: mustTestRawJSON(t, map[string]any{
+				"output": memoryFailureOutput, "cursor": 0, "next_cursor": len(memoryFailureOutput),
+				"state": "exited", "done": true, "truncated": false,
+			}),
+			exitCode:    1,
+			wantOutcome: executionstore.ToolResultOutcomeFailed,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			fixture := newProcessDaemonFixture(t, ctx, "upload_artifact_terminal_"+test.name)
+			fixture := newProcessDaemonFixture(t, ctx, "upload_file_terminal_"+test.name)
 			toolCallIDs := createToolCallBatchForProcessTest(
 				t,
 				ctx,
 				fixture,
-				"upload_artifact_terminal_"+test.name,
+				"upload_file_terminal_"+test.name,
 				[]processToolCallBatchItem{{
 					TestName: test.name,
 					ToolName: test.toolName,
@@ -1306,7 +1331,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				RuntimeLockID: fixture.Lock.ID,
 			}, executionstore.CreateProcessInput{
 				AgentMachineBindingID: fixture.BindingID,
-				Command:               "upload artifact",
+				Command:               "upload file",
 				ShellSelector:         "sh",
 				Cwd:                   "/work",
 			})
@@ -1357,6 +1382,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 			artifactID := uuid.New()
 			filename := "screenshot.png"
 			sizeBytes := int64(2048)
+			digest := "sha256:" + strings.Repeat("a", 64)
 			if test.createArtifact {
 				idempotencyKey := executionstore.UploadArtifactIdempotencyKey(toolCallID)
 				if _, err := fixture.Store.q.InsertArtifact(ctx, dbsqlc.InsertArtifactParams{
@@ -1365,6 +1391,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					AgentID:        fixture.AgentID,
 					ContentType:    "image/png",
 					Filename:       &filename,
+					Digest:         &digest,
 					SizeBytes:      &sizeBytes,
 					IdempotencyKey: &idempotencyKey,
 				}); err != nil {
@@ -1372,16 +1399,18 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				}
 			}
 
-			exitCode := 0
 			completionInput := executionstore.CompleteDaemonProcessInput{
 				ProjectID:     testProjectID,
 				AgentID:       fixture.AgentID,
 				ID:            process.ID,
 				Authority:     fixture.authority(),
 				State:         executionstore.ProcessStateExited,
-				ExitCode:      &exitCode,
+				ExitCode:      &test.exitCode,
 				Result:        json.RawMessage(`{"output":"not json","truncated":true}`),
 				SourceEndedAt: fixture.Now.Add(2 * time.Second),
+			}
+			if test.terminalResult != nil {
+				completionInput.Result = test.terminalResult
 			}
 			completed, err := fixture.Store.Execution().CompleteDaemonProcess(ctx, completionInput)
 			if err != nil {
@@ -1410,7 +1439,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 				publicArtifactID := publicResourceID(publicid.KindArtifact, artifactID)
 				wantContent := []byte(
 					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID +
-						`"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
+						`","digest":"` + digest + `"}},{"type":"media_ref","artifact_id":"` + artifactID.String() +
 						`","exclude_from_model_context":true}]`,
 				)
 				if !sameJSON(toolCall.ResultContentParts, wantContent) {
@@ -1439,7 +1468,7 @@ func TestUploadArtifactPublishesResultWithoutParsingTerminalOutput(t *testing.T)
 					)
 				}
 				wantModelContent := []byte(
-					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `"}}]`,
+					`[{"type":"structured_data","value":{"path":"/artifacts/` + publicArtifactID + `","digest":"` + digest + `"}}]`,
 				)
 				if result.Outcome != test.wantOutcome ||
 					!sameJSON(result.ResultContentParts, wantModelContent) {
@@ -1509,6 +1538,37 @@ WHERE result.agent_id = $1 AND result.tool_call_id = $2
 				}
 				if !foundCompactionResult {
 					t.Fatalf("upload artifact compaction result = %+v, want %s", compactionEvents, wantModelContent)
+				}
+			} else if test.terminalResult != nil {
+				var wantValue map[string]any
+				wantValueJSON := test.terminalResult
+				if test.wantOutcome == executionstore.ToolResultOutcomeSucceeded {
+					wantValueJSON = json.RawMessage(memoryOutput)
+				}
+				if err := json.Unmarshal(wantValueJSON, &wantValue); err != nil {
+					t.Fatal(err)
+				}
+				if test.wantOutcome == executionstore.ToolResultOutcomeFailed {
+					wantValue["process_id"] = publicResourceID(publicid.KindProcess, process.ID)
+				}
+				wantResult, err := json.Marshal([]map[string]any{{"type": "structured_data", "value": wantValue}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Outcome != test.wantOutcome || !sameJSON(result.ResultContentParts, wantResult) {
+					t.Fatalf("upload tool result = %+v, want %s", result, wantResult)
+				}
+				if !sameJSON(toolCall.ResultContentParts, wantResult) {
+					t.Fatalf("stored upload result = %s, want %s", toolCall.ResultContentParts, wantResult)
+				}
+				var terminal struct {
+					NextCursor int64 `json:"next_cursor"`
+				}
+				if err := json.Unmarshal(test.terminalResult, &terminal); err != nil {
+					t.Fatal(err)
+				}
+				if completed.Process.DefaultOutputCursor != terminal.NextCursor {
+					t.Fatalf("output cursor = %d, want %d", completed.Process.DefaultOutputCursor, terminal.NextCursor)
 				}
 			} else {
 				wantResult, err := json.Marshal([]map[string]any{{
