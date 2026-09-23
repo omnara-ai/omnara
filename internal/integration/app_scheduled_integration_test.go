@@ -187,13 +187,12 @@ func TestScheduledLaunchHasConversationContextWithoutMentionLauncher(t *testing.
 	require.NoError(t, err)
 	require.True(t, found)
 	raw := string(config.CompiledDefinition)
-	context, found, err := f.store.Integrations().GetAgentAppToolContext(
+	context, found, err := f.store.Integrations().GetAgentAppConversation(
 		t.Context(), f.ids.ProjectID, launched.Agent.ID, f.appID,
 	)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, "C123:100.1", context.ProviderRef)
-	require.True(t, context.IsToolContext)
+	require.Equal(t, "C123:100.1", context.Ref)
 	require.Contains(t, raw, "app__chat__post_message")
 	subscriptions, err := f.store.Integrations().ListAppSubscriptions(
 		t.Context(), integrationstore.ListAppSubscriptionsInput{ProjectID: f.ids.ProjectID, AppID: f.appID, Limit: 100},

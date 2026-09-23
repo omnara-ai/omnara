@@ -493,7 +493,6 @@ func TestAppToolMissingContextBeforeProviderIO(t *testing.T) {
 				withSlackApp: test.provider == "slack", withDiscordApp: test.provider == "discord",
 				withGitHubApp: test.provider == "github",
 			})
-			require.False(t, f.Target.IsToolContext, "ordinary input attribution does not authorize tools")
 			call := f.recordToolCall(t, ctx, "missing", toolcatalog.AppToolName("chat", test.operation), test.input, f.Now)
 			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

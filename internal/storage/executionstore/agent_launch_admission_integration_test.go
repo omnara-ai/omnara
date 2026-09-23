@@ -54,6 +54,9 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 	require.JSONEq(t, string(input.InitialInput.ContentBlocks), string(launch.InputContentBlocks))
 	require.Equal(t, launch.IntegrationTarget.ID, launch.AgentInput.IntegrationTargetID)
 	require.Empty(t, launch.IntegrationTarget.SelectionSlot)
+	_, assigned, err := f.store.Integrations().GetAgentAppConversation(f.ctx, testProjectID, launch.Agent.ID, f.app.ID)
+	require.NoError(t, err)
+	require.False(t, assigned, "an input origin and subscription do not assign a tool conversation")
 	require.Equal(t, "integration:slack:"+f.app.ID.String(), launch.AgentInput.IdempotencyScope)
 	require.Equal(t, input.InitialInput.SemanticEventKey, launch.AgentInput.InputIdempotencyKey)
 	require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
@@ -354,6 +357,7 @@ func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 		{`SELECT count(*) FROM agents WHERE id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM app_subscriptions WHERE agent_id=$1`, slot.AgentID},
+		{`SELECT count(*) FROM app_states WHERE kind='agent_conversation' AND key=$1`, slot.AgentID.String()},
 		{`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, slot.AgentID},
 		{`SELECT count(*) FROM artifacts WHERE agent_id=$1`, slot.AgentID},
 	} {
@@ -396,7 +400,12 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	}
 	require.Equal(t, f.app.ID, created.IntegrationTarget.AppID)
 	require.Equal(t, "a", created.IntegrationTarget.SelectionSlot)
-	require.True(t, created.IntegrationTarget.IsToolContext, "launch assigns the conversation used by app tools")
+	conversation, found, err := f.store.Integrations().GetAgentAppConversation(
+		f.ctx, testProjectID, created.Agent.ID, f.app.ID,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, f.slots["a"].Selection.Address, conversation)
 	require.Equal(t, created.IntegrationTarget.ID, created.AgentInput.IntegrationTargetID)
 	require.Len(t, created.Artifacts, 1)
 	require.Equal(t, f.slots["a"].ArtifactIDs[0], created.Artifacts[0].ID)

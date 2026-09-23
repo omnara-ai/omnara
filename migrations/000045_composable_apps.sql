@@ -187,7 +187,6 @@ FOR EACH ROW EXECUTE FUNCTION project_apps_reject_identity_change();
 
 ALTER TABLE integration_targets
     DROP COLUMN target_ref, -- Drops the obsolete alias index and nonempty check too.
-    ADD COLUMN is_tool_context boolean NOT NULL DEFAULT false,
     ADD COLUMN selection_slot text,
     ADD CHECK (selection_slot IS NULL OR selection_slot <> '');
 
@@ -198,28 +197,6 @@ CREATE UNIQUE INDEX integration_targets_active_agent_address_idx
 CREATE UNIQUE INDEX integration_targets_selection_idx
     ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref, selection_slot)
     WHERE selection_slot IS NOT NULL;
--- Retired sending contexts must still prevent assigning a second context.
-CREATE UNIQUE INDEX integration_targets_tool_context_idx
-    ON integration_targets(project_id, agent_id, app_id) WHERE is_tool_context;
-
--- Go46 temporarily disables this guard to assign existing Slack sending contexts.
--- +goose StatementBegin
-CREATE FUNCTION integration_targets_reject_tool_context_change() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    IF NEW.is_tool_context IS DISTINCT FROM OLD.is_tool_context
-       OR (OLD.is_tool_context AND
-           (NEW.project_id, NEW.agent_id, NEW.app_id, NEW.provider_ref_kind, NEW.provider_ref)
-           IS DISTINCT FROM
-           (OLD.project_id, OLD.agent_id, OLD.app_id, OLD.provider_ref_kind, OLD.provider_ref)) THEN
-        RAISE EXCEPTION 'integration target tool context is immutable' USING ERRCODE = '25006';
-    END IF;
-    RETURN NEW;
-END;
-$$;
--- +goose StatementEnd
-CREATE TRIGGER integration_targets_tool_context_immutable BEFORE UPDATE ON integration_targets
-FOR EACH ROW EXECUTE FUNCTION integration_targets_reject_tool_context_change();
-
 CREATE INDEX integration_targets_conversation_idx
     ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref);
 

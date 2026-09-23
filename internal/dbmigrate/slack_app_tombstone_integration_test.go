@@ -16,6 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -162,12 +163,19 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted app history grants receive routes at cutover")
-			var isContext bool
+			var assignments int
+			require.NoError(t, db.QueryRowContext(ctx,
+				`SELECT count(*) FROM app_states WHERE kind='agent_conversation'`).Scan(&assignments))
+			if scenario.onlyDeleted {
+				require.Zero(t, assignments, "deleted apps do not assign conversations")
+			} else {
+				require.Equal(t, 1, assignments, "only targets formerly producing successors assign conversations")
+				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, liveID,
+					integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"})
+			}
 			var slot sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT is_tool_context,selection_slot FROM integration_targets WHERE id=$1`, targetID).
-				Scan(&isContext, &slot))
-			require.Equal(t, !scenario.onlyDeleted, isContext, "only targets formerly producing successors become tool contexts")
+				`SELECT selection_slot FROM integration_targets WHERE id=$1`, targetID).Scan(&slot))
 			require.False(t, slot.Valid)
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(

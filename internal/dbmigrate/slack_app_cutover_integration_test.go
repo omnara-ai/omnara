@@ -364,7 +364,7 @@ tools:
                  -'integration_target_id'-'updated_at'
                  -'interaction_handler_key'-'interaction_handler_args' ORDER BY a.id) FROM agents a),
 				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'app_id'
-                  -'selection_slot'-'is_tool_context'-'target_ref')
+                  -'selection_slot'-'target_ref')
                   || jsonb_build_object('app_id',coalesce(to_jsonb(t)->'app_id',to_jsonb(t)->'integration_install_id'))
                   ORDER BY t.id) FROM integration_targets t),
 				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
@@ -502,16 +502,12 @@ tools:
 				}
 				return
 			}
-			assertContextRollback := func() {
+			assertConversationRollback := func() {
 				t.Helper()
-				var contexts int
+				var conversations int
 				require.NoError(t, db.QueryRowContext(ctx,
-					`SELECT count(*) FROM integration_targets WHERE is_tool_context`).Scan(&contexts))
-				require.Zero(t, contexts)
-				var enabled string
-				require.NoError(t, db.QueryRowContext(ctx,
-					`SELECT tgenabled::text FROM pg_trigger WHERE tgname='integration_targets_tool_context_immutable'`).Scan(&enabled))
-				require.Equal(t, "O", enabled, "migration failure restores the write-once guard")
+					`SELECT count(*) FROM app_states WHERE kind='agent_conversation'`).Scan(&conversations))
+				require.Zero(t, conversations, "migration failure rolls back conversation assignments")
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
@@ -567,7 +563,7 @@ tools:
 				}
 				require.ErrorContains(t, err, want)
 				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
-				assertContextRollback()
+				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
@@ -594,7 +590,7 @@ tools:
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected rewrite failure")
 				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
-				assertContextRollback()
+				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var active, configs int
 				require.NoError(
@@ -628,7 +624,7 @@ tools:
 				exec(`CREATE FUNCTION reject_cutover_config_event() RETURNS trigger LANGUAGE plpgsql AS $$
 				 BEGIN
                  IF NEW.input_idempotency_key='slack_app_cutover'
-                    AND EXISTS (SELECT 1 FROM integration_targets WHERE is_tool_context) THEN
+                    AND EXISTS (SELECT 1 FROM app_states WHERE kind='agent_conversation') THEN
                      RAISE EXCEPTION 'injected cutover failure';
                  END IF;
                  RETURN NEW;
@@ -638,7 +634,7 @@ tools:
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected cutover failure")
 				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
-				assertContextRollback()
+				assertConversationRollback()
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
 				require.Equal(t, 1, count)
@@ -671,7 +667,7 @@ tools:
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "reject_cutover_webhook")
 				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
-				assertContextRollback()
+				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var configs, deliveries int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&configs))
@@ -688,16 +684,15 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM event_webhook_deliveries`).Scan(&deliveries))
 				require.Zero(t, deliveries, "cutover must not enqueue deliveries without an event webhook")
 			}
-			var retiredContext bool
 			var retiredSlot sql.NullString
 			var retiredMetadata []byte
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT is_tool_context,selection_slot,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
-				Scan(&retiredContext, &retiredSlot, &retiredMetadata))
-			require.False(t, retiredContext, "a target excluded from the old fixed config must not become context")
+				`SELECT selection_slot,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
+				Scan(&retiredSlot, &retiredMetadata))
 			require.False(t, retiredSlot.Valid)
 			require.JSONEq(t, `{"legacy":"retained"}`, string(retiredMetadata))
 			execution := executionstore.New(pool, executionstore.Config{})
+			conversations := integrationstore.New(pool, executionstore.AppAccess{})
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
@@ -737,33 +732,27 @@ tools:
 				require.Equal(t, sendingEnabled, tool.Enabled)
 				require.Equal(t, "always_allow", tool.Permission.Mode)
 				require.Equal(t, appID, tool.AppID)
-				contexts := integrationstore.New(pool, executionstore.AppAccess{})
-				context, found, err := contexts.GetAgentAppToolContext(ctx, ids.ProjectID, agentID, appID)
+				conversation, found, err := conversations.GetAgentAppConversation(ctx, ids.ProjectID, agentID, appID)
 				require.NoError(t, err)
 				require.True(t, found)
-				require.True(t, context.IsToolContext)
-				require.Empty(t, context.SelectionSlot, "legacy contexts must not suppress new mention launches")
-				if scenario != "channel" && scenario != "dm" {
-					require.Equal(t, "thread", context.ProviderRefKind)
-					require.Equal(t, fmt.Sprintf("C123:111.%d", i+1), context.ProviderRef)
-				}
+				wantConversation := integrationstore.ConversationAddress{Kind: "thread", Ref: fmt.Sprintf("C123:111.%d", i+1)}
 				if scenario == "channel" {
-					require.Equal(t, "channel", context.ProviderRefKind)
-					require.Equal(t, fmt.Sprintf("C%d", i+1), context.ProviderRef)
+					wantConversation = integrationstore.ConversationAddress{Kind: "channel", Ref: fmt.Sprintf("C%d", i+1)}
 				}
 				if scenario == "dm" {
-					require.Equal(t, "dm", context.ProviderRefKind)
-					require.Equal(t, fmt.Sprintf("D%d", i+1), context.ProviderRef)
+					wantConversation = integrationstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
 				}
+				require.Equal(t, wantConversation, conversation)
+				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, appID, wantConversation)
 				wantApps := 1
 				if scenario == "multiple_apps" {
 					wantApps = 2
-					second, found, err := contexts.GetAgentAppToolContext(ctx, ids.ProjectID, agentID, secondAppID)
+					second, found, err := conversations.GetAgentAppConversation(ctx, ids.ProjectID, agentID, secondAppID)
 					require.NoError(t, err)
 					require.True(t, found)
-					require.Equal(t, "dm", second.ProviderRefKind)
-					require.Equal(t, fmt.Sprintf("D%d", i+1), second.ProviderRef)
-					require.Empty(t, second.SelectionSlot)
+					wantSecond := integrationstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
+					require.Equal(t, wantSecond, second)
+					assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, secondAppID, wantSecond)
 				}
 				require.Len(t, contract.AppTools, wantApps)
 				require.Contains(t, raw.Tools, "set_interaction_handler")
@@ -812,6 +801,17 @@ tools:
 			}
 			require.NoError(t, rows.Err())
 
+			var assignments, selections int
+			require.NoError(t, db.QueryRowContext(ctx,
+				`SELECT count(*) FROM app_states WHERE kind='agent_conversation'`).Scan(&assignments))
+			wantAssignments := len(agents)
+			if scenario == "multiple_apps" {
+				wantAssignments *= 2
+			}
+			require.Equal(t, wantAssignments, assignments, "only eligible live targets assign conversations")
+			require.NoError(t, db.QueryRowContext(ctx,
+				`SELECT count(*) FROM integration_targets WHERE selection_slot IS NOT NULL`).Scan(&selections))
+			require.Zero(t, selections, "migrated conversations must not suppress new mention launches")
 			var subscriptions, pointers int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "cutover preserves sending and history without creating receive routes")
@@ -995,6 +995,25 @@ tools:
 			}
 		})
 	}
+}
+
+func assertSlackCutoverConversationState(
+	t *testing.T, db *sql.DB, projectID, agentID, appID uuid.UUID, want integrationstore.ConversationAddress,
+) {
+	t.Helper()
+	var data []byte
+	var scopeKind, scopeRef sql.NullString
+	var expiresAt sql.NullTime
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`SELECT data,scope_kind,scope_ref,expires_at FROM app_states
+        WHERE project_id=$1 AND app_id=$2 AND kind='agent_conversation' AND key=$3`,
+		projectID, appID, agentID.String()).Scan(&data, &scopeKind, &scopeRef, &expiresAt))
+	wantData, err := json.Marshal(want)
+	require.NoError(t, err)
+	require.JSONEq(t, string(wantData), string(data))
+	require.False(t, scopeKind.Valid)
+	require.False(t, scopeRef.Valid)
+	require.False(t, expiresAt.Valid, "assigned conversations do not expire")
 }
 
 func seedSlackCutoverSuccessfulRetry(

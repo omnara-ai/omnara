@@ -508,12 +508,6 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 		return err
 	}
 	// Leave selection slots NULL so new mentions can launch through the app after cutover.
-	if _, err := tx.ExecContext(
-		ctx,
-		`ALTER TABLE integration_targets DISABLE TRIGGER integration_targets_tool_context_immutable`,
-	); err != nil {
-		return err
-	}
 	for _, agent := range agents {
 		compiled, err := slackSendingSuccessor(agent.compiled, agent.targets)
 		if err != nil {
@@ -560,17 +554,14 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 		}
 		for _, target := range agent.targets {
 			if _, err := tx.ExecContext(
-				ctx, `UPDATE integration_targets SET is_tool_context=true WHERE id=$1::uuid`, target.id,
+				ctx, `INSERT INTO app_states(project_id,app_id,kind,key,data)
+				SELECT project_id,app_id,'agent_conversation',agent_id::text,
+                    jsonb_build_object('kind',provider_ref_kind,'ref',provider_ref)
+				FROM integration_targets WHERE id=$1::uuid`, target.id,
 			); err != nil {
-				return fmt.Errorf("designate Slack tool context %s: %w", target.id, err)
+				return fmt.Errorf("assign Slack conversation from target %s: %w", target.id, err)
 			}
 		}
-	}
-	if _, err := tx.ExecContext(
-		ctx,
-		`ALTER TABLE integration_targets ENABLE TRIGGER integration_targets_tool_context_immutable`,
-	); err != nil {
-		return err
 	}
 	_, err = tx.ExecContext(
 		ctx,

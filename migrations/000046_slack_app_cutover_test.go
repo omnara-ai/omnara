@@ -103,7 +103,7 @@ func TestSlackSendingSuccessorPinsAppsAndPreservesPolicies(t *testing.T) {
 					require.Equal(t, original["send_integration_message"].Deferred, tool.Deferred)
 				}
 			}
-			require.JSONEq(t, string(first), string(second), "destinations now belong to immutable target contexts")
+			require.JSONEq(t, string(first), string(second), "destinations belong to assigned app conversation state")
 			require.Equal(t, `{"instruction":"Review","tools":`+policy+`}`, string(original))
 		})
 	}

@@ -61,15 +61,15 @@ tools:
 			for _, name := range []string{"app__chat__read", "app__chat__post_message"} {
 				require.Equal(t, compiled.Compiled.Tools[name], actual.Tools[name], "explicit tool policy stays intact")
 			}
-			target, found, err := f.store.Integrations().GetAgentAppToolContext(
+			target, found, err := f.store.Integrations().GetAgentAppConversation(
 				t.Context(), f.ids.ProjectID, launched.Agent.ID, f.appID,
 			)
 			require.NoError(t, err)
 			require.True(t, found)
 			kind, ref, err := f.provider.root.Conversation()
 			require.NoError(t, err)
-			require.Equal(t, kind, target.ProviderRefKind)
-			require.Equal(t, ref, target.ProviderRef)
+			require.Equal(t, kind, target.Kind)
+			require.Equal(t, ref, target.Ref)
 			var blocks []struct {
 				Text     string            `json:"text"`
 				Metadata map[string]string `json:"metadata"`

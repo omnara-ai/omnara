@@ -47,7 +47,6 @@ type IntegrationTargetRecord struct {
 	OrgID            uuid.UUID       `json:"org_id"`
 	ProjectID        uuid.UUID       `json:"project_id"`
 	AgentID          uuid.UUID       `json:"agent_id"`
-	IsToolContext    bool            `json:"is_tool_context"`
 	ProviderRef      string          `json:"provider_ref"`
 	ProviderRefKind  string          `json:"provider_ref_kind"`
 	DisplayName      string          `json:"display_name"`

@@ -7,7 +7,7 @@ SELECT pg_advisory_xact_lock(hashtextextended(
 -- Keep retired selections so a later comment cannot launch a replacement agent.
 -- name: ListConversationSelections :many
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
 FROM integration_targets target
 WHERE target.project_id = sqlc.arg(project_id) AND target.app_id = sqlc.arg(app_id)
@@ -17,7 +17,7 @@ ORDER BY target.id;
 
 -- name: GetAppSelectionTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
@@ -26,7 +26,7 @@ WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
 
 -- name: GetAgentConversationTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id)
@@ -45,11 +45,11 @@ LIMIT 1;
 
 -- name: InsertAppConversationTarget :one
 INSERT INTO integration_targets(project_id, agent_id, app_id,
-    provider_ref_kind, provider_ref, display_name, selection_slot, is_tool_context, created_at, updated_at)
+    provider_ref_kind, provider_ref, display_name, selection_slot, created_at, updated_at)
 VALUES (sqlc.arg(project_id), sqlc.arg(agent_id), sqlc.arg(app_id),
-    sqlc.arg(kind), sqlc.arg(ref), sqlc.arg(display_name), sqlc.narg(slot), sqlc.arg(is_tool_context),
+    sqlc.arg(kind), sqlc.arg(ref), sqlc.arg(display_name), sqlc.narg(slot),
     transaction_timestamp(), transaction_timestamp())
 ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, app_id, provider_ref,
-          provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+          provider_ref_kind, display_name, provider_metadata, selection_slot,
           deleted_at, created_at, updated_at;

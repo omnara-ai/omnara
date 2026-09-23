@@ -1043,15 +1043,16 @@ func seedToolContext(
 	address integrationstore.ConversationAddress,
 ) integrationstore.IntegrationTargetRecord {
 	t.Helper()
-	_, err := pool.Exec(ctx, `INSERT INTO integration_targets
-(project_id, agent_id, app_id, provider_ref_kind, provider_ref, is_tool_context, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, true, now(), now())`,
-		agent.ProjectID, agent.ID, app.ID, address.Kind, address.Ref)
+	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	target, found, err := store.Integrations().GetAgentAppToolContext(ctx, agent.ProjectID, agent.ID, app.ID)
+	defer func() { _ = tx.Rollback(ctx) }()
+	target, err := store.Integrations().EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+		ProjectID: agent.ProjectID, AgentID: agent.ID, AppID: app.ID, Address: address,
+	})
 	require.NoError(t, err)
-	require.True(t, found)
-	require.True(t, target.IsToolContext)
+	err = store.Integrations().AssignAgentAppConversationTx(ctx, tx, agent.ProjectID, agent.ID, app.ID, address)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
 	return target
 }
 

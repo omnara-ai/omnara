@@ -39,7 +39,6 @@ type EnsureConversationTargetInput struct {
 	Address                   ConversationAddress
 	DisplayName               string
 	SelectionSlot             string
-	IsToolContext             bool
 }
 
 func LockConversationTx(
@@ -110,8 +109,7 @@ func (s *Store) EnsureConversationTargetTx(
 		})
 	}
 	if err == nil {
-		if existing.AgentID != input.AgentID || existing.DeletedAt != nil ||
-			(input.IsToolContext && !existing.IsToolContext) {
+		if existing.AgentID != input.AgentID || existing.DeletedAt != nil {
 			return IntegrationTargetRecord{}, storeerr.ErrConflict
 		}
 		return appTargetRecord(existing, app.OrgID), nil
@@ -132,14 +130,13 @@ func (s *Store) EnsureConversationTargetTx(
 		}
 	}
 	row, err := q.InsertAppConversationTarget(ctx, dbsqlc.InsertAppConversationTargetParams{
-		ProjectID:     input.ProjectID,
-		AgentID:       input.AgentID,
-		AppID:         input.AppID,
-		Kind:          input.Address.Kind,
-		Ref:           input.Address.Ref,
-		DisplayName:   strings.TrimSpace(input.DisplayName),
-		IsToolContext: input.IsToolContext,
-		Slot:          storeutil.TextFromEmpty(input.SelectionSlot),
+		ProjectID:   input.ProjectID,
+		AgentID:     input.AgentID,
+		AppID:       input.AppID,
+		Kind:        input.Address.Kind,
+		Ref:         input.Address.Ref,
+		DisplayName: strings.TrimSpace(input.DisplayName),
+		Slot:        storeutil.TextFromEmpty(input.SelectionSlot),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationTargetRecord{}, storeerr.ErrConflict
@@ -157,8 +154,7 @@ func appTargetRecord(row dbsqlc.GetAgentConversationTargetRow, orgID uuid.UUID) 
 		ID: row.ID, OrgID: orgID, ProjectID: row.ProjectID, AgentID: row.AgentID, AppID: row.AppID,
 		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
 		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
-		IsToolContext: row.IsToolContext,
-		DeletedAt:     row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	if row.SelectionSlot != nil {
 		record.SelectionSlot = *row.SelectionSlot

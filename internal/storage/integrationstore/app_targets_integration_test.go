@@ -3,8 +3,6 @@
 package integrationstore_test
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,8 +50,7 @@ func TestAppConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T)
 	first, err := ensure(input)
 	require.NoError(t, err)
 	require.True(t, first.Created)
-	require.False(t, first.IsToolContext, "launch selection does not imply tool context")
-	_, found, err := store.GetAgentAppToolContext(f.ctx, f.project, input.AgentID, input.AppID)
+	_, found, err := store.GetAgentAppConversation(f.ctx, f.project, input.AgentID, input.AppID)
 	require.NoError(t, err)
 	require.False(t, found)
 	replay, err := ensure(input)
@@ -188,180 +184,4 @@ func (f inboxFixture) ensureConversationTarget(
 		return record, err
 	}
 	return record, tx.Commit(f.ctx)
-}
-
-func TestAgentAppToolContextIsImmutableAndSurvivesRetirement(t *testing.T) {
-	t.Parallel()
-	f := newInboxFixture(t)
-	execution := executionstore.New(f.pool, executionstore.Config{})
-	var configID uuid.UUID
-	require.NoError(t, f.pool.QueryRow(f.ctx,
-		`SELECT id FROM agent_configs WHERE project_id=$1 LIMIT 1`, f.project).Scan(&configID))
-	launch, err := execution.LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
-		ProjectID: f.project, AgentConfigID: configID, LaunchedBy: identitystore.NewUserPrincipal(f.user),
-	})
-	require.NoError(t, err)
-	input := integrationstore.EnsureConversationTargetInput{
-		ProjectID: f.project, AgentID: launch.Agent.ID, AppID: f.appID,
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
-	}
-	ordinary, err := f.ensureConversationTarget(input)
-	require.NoError(t, err)
-	require.False(t, ordinary.IsToolContext)
-	input.IsToolContext = true
-	_, err = f.ensureConversationTarget(input)
-	require.ErrorIs(t, err, storeerr.ErrConflict, "an existing attribution target cannot be promoted")
-	input.IsToolContext = false
-	replayedAttribution, err := f.ensureConversationTarget(input)
-	require.NoError(t, err)
-	require.Equal(t, ordinary.ID, replayedAttribution.ID)
-	require.False(t, replayedAttribution.IsToolContext)
-	_, found, err := f.store.GetAgentAppToolContext(f.ctx, f.project, input.AgentID, f.appID)
-	require.NoError(t, err)
-	require.False(t, found, "attribution does not imply tool context")
-
-	input.Address.Ref = "C123:3.4"
-	input.IsToolContext, input.SelectionSlot = true, "reviewer"
-	original, err := f.ensureConversationTarget(input)
-	require.NoError(t, err)
-	require.True(t, original.Created)
-	require.True(t, original.IsToolContext)
-	record, err := f.store.GetIntegrationTarget(f.ctx, f.project, original.ID)
-	require.NoError(t, err)
-	require.True(t, record.IsToolContext)
-	require.Equal(t, original.SelectionSlot, record.SelectionSlot)
-	replay, err := f.ensureConversationTarget(input)
-	require.NoError(t, err)
-	require.Equal(t, original.ID, replay.ID)
-	require.False(t, replay.Created)
-	input.IsToolContext = false
-	replay, err = f.ensureConversationTarget(input)
-	require.NoError(t, err)
-	require.True(t, replay.IsToolContext, "ordinary attribution cannot clear an existing context")
-
-	_, err = f.pool.Exec(f.ctx, `UPDATE integration_targets SET is_tool_context=true WHERE id=$1`, ordinary.ID)
-	require.ErrorContains(t, err, "tool context is immutable")
-	for _, statement := range []string{
-		`UPDATE integration_targets SET is_tool_context=false WHERE id=$1`,
-		`UPDATE integration_targets SET provider_ref='C456:1.2' WHERE id=$1`,
-		`UPDATE integration_targets SET provider_ref_kind='channel' WHERE id=$1`,
-		`UPDATE integration_targets SET agent_id=$2 WHERE id=$1`,
-		`UPDATE integration_targets SET app_id=$2 WHERE id=$1`,
-		`UPDATE integration_targets SET project_id=$2 WHERE id=$1`,
-	} {
-		args := []any{original.ID}
-		if strings.Contains(statement, "$2") {
-			args = append(args, uuid.New())
-		}
-		_, err = f.pool.Exec(f.ctx, statement, args...)
-		require.ErrorContains(t, err, "tool context is immutable")
-	}
-	f.exec(t,
-		`UPDATE integration_targets SET display_name='renamed',provider_metadata='{"retained":true}' WHERE id=$1`,
-		original.ID,
-	)
-	input.IsToolContext, input.SelectionSlot = true, ""
-	input.Address.Ref = "C123:5.6"
-	_, err = f.ensureConversationTarget(input)
-	require.ErrorIs(t, err, storeerr.ErrConflict, "a different address cannot replace the context")
-	otherApp := f.addApp(t, "second-context", integrationstore.ProjectAppSettings{})
-	input.AppID = otherApp.ID
-	second, err := f.ensureConversationTarget(input)
-	require.NoError(t, err)
-	require.True(t, second.IsToolContext, "each app has its own context")
-	require.Empty(t, second.SelectionSlot, "tool context need not be a launch selection")
-	input.AppID = f.appID
-	secondLaunch, err := execution.LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
-		ProjectID: f.project, AgentConfigID: configID, LaunchedBy: identitystore.NewUserPrincipal(f.user),
-	})
-	require.NoError(t, err)
-	input.AgentID = secondLaunch.Agent.ID
-	_, err = f.ensureConversationTarget(input)
-	require.NoError(t, err, "each agent has its own context")
-	input.AgentID = launch.Agent.ID
-
-	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, original.ID)
-	_, err = f.ensureConversationTarget(input)
-	require.ErrorIs(t, err, storeerr.ErrConflict, "retiring a context cannot free its unique slot")
-	input.Address.Ref = original.ProviderRef
-	_, err = f.ensureConversationTarget(input)
-	require.ErrorIs(t, err, storeerr.ErrConflict, "even a retired context at the same address cannot be recreated")
-	f.exec(t, `UPDATE project_apps SET state='disconnected' WHERE id=$1`, f.appID)
-	for _, scope := range [][3]uuid.UUID{
-		{f.project, launch.Agent.ID, f.appID},
-		{uuid.New(), launch.Agent.ID, f.appID},
-		{f.project, uuid.New(), f.appID},
-		{f.project, launch.Agent.ID, uuid.New()},
-	} {
-		wantFound := scope == [3]uuid.UUID{f.project, launch.Agent.ID, f.appID}
-		record, found, err := f.store.GetAgentAppToolContext(f.ctx, scope[0], scope[1], scope[2])
-		require.NoError(t, err)
-		require.Equal(t, wantFound, found)
-		if found {
-			require.Equal(t, original.ID, record.ID)
-			require.Equal(t, original.ProviderRef, record.ProviderRef)
-			require.True(t, record.IsToolContext)
-			require.NotNil(t, record.DeletedAt)
-			require.Equal(t, "renamed", record.DisplayName)
-			require.JSONEq(t, `{"retained":true}`, string(record.ProviderMetadata))
-		}
-	}
-}
-
-func TestAgentAppToolContextConcurrentCreation(t *testing.T) {
-	t.Parallel()
-	for _, sameAddress := range []bool{false, true} {
-		t.Run(fmt.Sprintf("same_address=%t", sameAddress), func(t *testing.T) {
-			t.Parallel()
-			f := newInboxFixture(t)
-			var configID uuid.UUID
-			require.NoError(t, f.pool.QueryRow(f.ctx,
-				`SELECT id FROM agent_configs WHERE project_id=$1 LIMIT 1`, f.project).Scan(&configID))
-			execution := executionstore.New(f.pool, executionstore.Config{})
-			launch, err := execution.LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
-				ProjectID: f.project, AgentConfigID: configID, LaunchedBy: identitystore.NewUserPrincipal(f.user),
-			})
-			require.NoError(t, err)
-			input := integrationstore.EnsureConversationTargetInput{
-				ProjectID: f.project, AgentID: launch.Agent.ID, AppID: f.appID,
-				Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
-				IsToolContext: true,
-			}
-			type result struct {
-				record integrationstore.IntegrationTargetRecord
-				err    error
-			}
-			results := make(chan result, 2)
-			start := make(chan struct{})
-			for i := range 2 {
-				candidate := input
-				if i == 1 && !sameAddress {
-					candidate.Address.Ref = "C123:3.4"
-				}
-				go func() {
-					<-start
-					record, err := f.ensureConversationTarget(candidate)
-					results <- result{record, err}
-				}()
-			}
-			close(start)
-			first := integrationdb.Await(t, results, "first context creation")
-			second := integrationdb.Await(t, results, "second context creation")
-			if first.err != nil {
-				first, second = second, first
-			}
-			require.NoError(t, first.err)
-			if sameAddress {
-				require.NoError(t, second.err)
-				require.Equal(t, first.record.ID, second.record.ID)
-				require.NotEqual(t, first.record.Created, second.record.Created)
-			} else {
-				require.ErrorIs(t, second.err, storeerr.ErrConflict)
-			}
-			actual, found, err := f.store.GetAgentAppToolContext(f.ctx, f.project, input.AgentID, f.appID)
-			require.NoError(t, err)
-			require.True(t, found)
-			require.Equal(t, first.record.ID, actual.ID)
-		})
-	}
 }

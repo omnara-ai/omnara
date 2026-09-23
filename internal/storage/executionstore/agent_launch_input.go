@@ -122,12 +122,18 @@ func (s *Store) insertLaunchInitialContentInputTx(
 			Address: origin.Address, DisplayName: origin.DisplayName,
 		}
 		if admission != nil {
-			targetInput.IsToolContext = true
 			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
 		}
 		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
 		if err != nil {
 			return err
+		}
+		if admission != nil {
+			if err := s.integrations.AssignAgentAppConversationTx(
+				ctx, tx, agent.ProjectID, agent.ID, admission.AppID, origin.Address,
+			); err != nil {
+				return err
+			}
 		}
 		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, origin.AppID)
 		if err != nil {

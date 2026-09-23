@@ -15,7 +15,7 @@ import (
 
 const getAgentConversationTarget = `-- name: GetAgentConversationTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = $1 AND agent_id = $2
@@ -42,7 +42,6 @@ type GetAgentConversationTargetRow struct {
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	SelectionSlot    *string
-	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -67,7 +66,6 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.SelectionSlot,
-		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -77,7 +75,7 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 
 const getAppSelectionTarget = `-- name: GetAppSelectionTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = $1 AND app_id = $2
@@ -103,7 +101,6 @@ type GetAppSelectionTargetRow struct {
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	SelectionSlot    *string
-	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -128,7 +125,6 @@ func (q *Queries) GetAppSelectionTarget(ctx context.Context, arg GetAppSelection
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.SelectionSlot,
-		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -167,25 +163,24 @@ func (q *Queries) GetConversationDisplayName(ctx context.Context, arg GetConvers
 
 const insertAppConversationTarget = `-- name: InsertAppConversationTarget :one
 INSERT INTO integration_targets(project_id, agent_id, app_id,
-    provider_ref_kind, provider_ref, display_name, selection_slot, is_tool_context, created_at, updated_at)
+    provider_ref_kind, provider_ref, display_name, selection_slot, created_at, updated_at)
 VALUES ($1, $2, $3,
-    $4, $5, $6, $7, $8,
+    $4, $5, $6, $7,
     transaction_timestamp(), transaction_timestamp())
 ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, app_id, provider_ref,
-          provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+          provider_ref_kind, display_name, provider_metadata, selection_slot,
           deleted_at, created_at, updated_at
 `
 
 type InsertAppConversationTargetParams struct {
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	AppID         uuid.UUID
-	Kind          string
-	Ref           string
-	DisplayName   string
-	Slot          *string
-	IsToolContext bool
+	ProjectID   uuid.UUID
+	AgentID     uuid.UUID
+	AppID       uuid.UUID
+	Kind        string
+	Ref         string
+	DisplayName string
+	Slot        *string
 }
 
 type InsertAppConversationTargetRow struct {
@@ -198,7 +193,6 @@ type InsertAppConversationTargetRow struct {
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	SelectionSlot    *string
-	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -213,7 +207,6 @@ func (q *Queries) InsertAppConversationTarget(ctx context.Context, arg InsertApp
 		arg.Ref,
 		arg.DisplayName,
 		arg.Slot,
-		arg.IsToolContext,
 	)
 	var i InsertAppConversationTargetRow
 	err := row.Scan(
@@ -226,7 +219,6 @@ func (q *Queries) InsertAppConversationTarget(ctx context.Context, arg InsertApp
 		&i.DisplayName,
 		&i.ProviderMetadata,
 		&i.SelectionSlot,
-		&i.IsToolContext,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -236,7 +228,7 @@ func (q *Queries) InsertAppConversationTarget(ctx context.Context, arg InsertApp
 
 const listConversationSelections = `-- name: ListConversationSelections :many
 SELECT id, project_id, agent_id, app_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot, is_tool_context,
+       provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
 FROM integration_targets target
 WHERE target.project_id = $1 AND target.app_id = $2
@@ -262,7 +254,6 @@ type ListConversationSelectionsRow struct {
 	DisplayName      string
 	ProviderMetadata json.RawMessage
 	SelectionSlot    *string
-	IsToolContext    bool
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -293,7 +284,6 @@ func (q *Queries) ListConversationSelections(ctx context.Context, arg ListConver
 			&i.DisplayName,
 			&i.ProviderMetadata,
 			&i.SelectionSlot,
-			&i.IsToolContext,
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,

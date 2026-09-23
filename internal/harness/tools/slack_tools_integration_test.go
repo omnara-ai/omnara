@@ -235,7 +235,6 @@ func TestSlackAppTargetAloneDoesNotGrantSend(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixture(t, ctx, "no-app-authority")
 	require.NotZero(t, f.Target.ID)
-	require.False(t, f.Target.IsToolContext)
 	require.NotContains(t, f.AppTools, toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage))
 	posts := 0
 	server := httptest.NewServer(

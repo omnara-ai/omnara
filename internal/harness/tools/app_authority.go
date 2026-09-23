@@ -104,7 +104,7 @@ func (e Executor) appToolConversation(
 	default:
 		return appdefinition.Scope{}, errors.New("app tool requires an explicit scope")
 	}
-	target, found, err := e.Store.Integrations().GetAgentAppToolContext(ctx, turn.ProjectID, turn.AgentID, access.App.ID)
+	address, found, err := e.Store.Integrations().GetAgentAppConversation(ctx, turn.ProjectID, turn.AgentID, access.App.ID)
 	if err != nil {
 		return appdefinition.Scope{}, err
 	}
@@ -113,7 +113,7 @@ func (e Executor) appToolConversation(
 			"app %q has no assigned conversation for this agent; this tool requires an assigned conversation", access.App.Name,
 		))
 	}
-	conversation, err := appdefinition.ParseConversation(access.App.Provider, target.ProviderRefKind, target.ProviderRef)
+	conversation, err := appdefinition.ParseConversation(access.App.Provider, address.Kind, address.Ref)
 	if err != nil {
 		return appdefinition.Scope{}, appToolPreparationFailure(err)
 	}

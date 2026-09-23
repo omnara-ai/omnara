@@ -62,9 +62,13 @@ can reach anything their implementation permits within those credentials; review
 any target arguments accordingly. Approval summaries include a destination only
 for conversation-scoped tools.
 
-The shipped apps assign one immutable sending conversation per agent/app during
-launch. All their current tools are conversation-scoped and take action arguments,
-not destinations. A missing or retired context never grants unrestricted sending.
+The shipped apps save one assigned conversation per agent/app during launch in
+`app_states`, keyed by `agent_conversation` and the agent UUID. Its `{kind, ref}`
+payload is insert-only through the owning storage API and commits with the launch.
+The assignment survives subscription changes and agent archival; app/project
+teardown reclaims it with other app state. All their current tools are
+conversation-scoped and take action arguments, not destinations. A missing or
+malformed assignment never grants unrestricted sending.
 Their executors require that conversation; a future standalone operation must be
 dispatched before that requirement. GitHub PR tools also narrow their installation
 token to the assigned repository; standalone operations must choose their own
@@ -126,10 +130,11 @@ artifact references, including archived history.
 
 Use `app_states` for small workflow records keyed by app, kind and key, optionally
 indexed by conversation. A launcher can need state before an agent exists. Define
-and validate JSON in its owning workflow; keep identity, subscriptions and leases
-in their existing structures. Replacements use revisions, and decisions with a
-deadline check database time at the write. Decision deadlines are not retention
-TTLs. The profile chooser is the existing example.
+and validate JSON in its owning workflow; keep app identity, credentials,
+subscription routing and transport leases in their existing structures.
+Replacements use revisions, and decisions with a deadline check database time at
+the write. Decision deadlines are not retention TTLs. The profile chooser is the
+existing example.
 
 Query within an indexed identity/scope before filtering workflow JSON. Keep state
 and retained histories small; JSON replacement rewrites the document. Do not infer
