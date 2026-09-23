@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ import (
 func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, false, time.Minute, "scheduled")
-	require.Equal(t, integrationstore.IntegrationInboxSourceProvider, f.receipt.Source)
+	require.Equal(t, appstore.AppInboxSourceProvider, f.receipt.Source)
 	slot := f.slots["scheduled"]
 	providerActor := slot.Launch.InitialInput.Actor
 	triggerID := uuid.New()
@@ -35,7 +35,7 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	f.slots["scheduled"] = slot
 	plan, err := json.Marshal(f.slots)
 	require.NoError(t, err)
-	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
+	_, err = f.store.pool.Exec(f.ctx, `UPDATE app_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
 	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled")
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
@@ -45,7 +45,7 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	f.slots["scheduled"] = slot
 	plan, err = json.Marshal(f.slots)
 	require.NoError(t, err)
-	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
+	_, err = f.store.pool.Exec(f.ctx, `UPDATE app_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
 	launch, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled")
 	require.NoError(t, err)

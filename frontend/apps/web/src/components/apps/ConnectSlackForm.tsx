@@ -3,7 +3,7 @@ import {
   useCreateProjectAppSlackSetup,
   useOmnaraClient,
 } from '@omnara/react'
-import type { IntegrationOAuthSetup, ProjectApp } from '@omnara/sdk'
+import type { AppOAuthSetup, ProjectApp } from '@omnara/sdk'
 import { createFormHook, createFormHookContexts, formOptions } from '@tanstack/react-form'
 import { type ReactNode, useState } from 'react'
 
@@ -85,7 +85,7 @@ export function ConnectSlackForm({
       if (!slackSetupValid(existingApp, value)) return
       setError('')
       await startSetup(value).catch((cause: unknown) => {
-        setError(projectAppFormError(cause, 'Could not start integration setup'))
+        setError(projectAppFormError(cause, 'Could not start app setup'))
       })
     },
   })
@@ -383,7 +383,7 @@ function SlackAuthorizationPending({
   isError,
   onRetry,
 }: {
-  pending: IntegrationOAuthSetup
+  pending: AppOAuthSetup
   isError: boolean
   onRetry: () => void
 }) {

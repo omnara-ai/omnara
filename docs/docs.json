@@ -122,13 +122,12 @@
             ]
           },
           {
-            "group": "Integrations",
+            "group": "Apps",
             "pages": [
               "integrations/apps",
               "integrations/slack",
               "integrations/github",
-              "integrations/discord",
-              "integrations/custom-integrations"
+              "integrations/discord"
             ]
           },
           {
@@ -147,7 +146,8 @@
             "group": "API reference",
             "pages": [
               "api/overview",
-              "api/authentication"
+              "api/authentication",
+              "integrations/custom-integrations"
             ]
           },
           {

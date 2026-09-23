@@ -13,12 +13,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 )
 
 const githubManifestCallbackPath = "/api/integrations/github/manifest/callback"
@@ -150,14 +150,14 @@ func (s *Server) validateGitHubGuidedSetup() error {
 	return nil
 }
 
-func validateGitHubRegistrationApp(app integrationstore.ProjectAppRecord, revision int64) error {
+func validateGitHubRegistrationApp(app appstore.ProjectAppRecord, revision int64) error {
 	if app.AppType != appdefinition.GitHubPR {
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this app does not support GitHub setup")
 	}
 	if app.SetupRevision != revision {
-		return apierror.ProjectScoped(integrationstore.ErrProjectAppSetupChanged)
+		return apierror.ProjectScoped(appstore.ErrProjectAppSetupChanged)
 	}
-	if app.ProviderTenantID != "" || app.State == integrationstore.ProjectAppStateActive {
+	if app.ProviderTenantID != "" || app.State == appstore.ProjectAppStateActive {
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "use existing GitHub App credentials to reconnect this app")
 	}
 	return nil
@@ -199,7 +199,7 @@ func (s *Server) encodeGitHubManifestState(ctx context.Context, state githubMani
 	if err != nil {
 		return "", err
 	}
-	if len(body) > integrationOAuthStateBytes {
+	if len(body) > appOAuthStateBytes {
 		return "", errors.New("GitHub registration state is too large")
 	}
 	return secrets.SealToken(ctx, s.secretKeyWrapper, githubManifestStatePurpose, body)

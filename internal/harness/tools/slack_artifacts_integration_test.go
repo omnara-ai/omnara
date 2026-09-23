@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -249,7 +249,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					writeToolTestJSON(w, map[string]any{"ok": true})
 				default:
-					t.Errorf("unexpected integration provider path %s", r.URL.Path)
+					t.Errorf("unexpected app provider path %s", r.URL.Path)
 					http.Error(w, "test handler failed", http.StatusBadRequest)
 					return
 				}
@@ -257,8 +257,8 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 			defer server.Close()
 
 			executor := Executor{
-				Store:                 fixture.Store,
-				IntegrationHTTPClient: integrationProviderTestClient(server),
+				Store:         fixture.Store,
+				AppHTTPClient: appProviderTestClient(server),
 			}
 			if tt.loseAfterPath != "" {
 				slackTarget := slack.MessageTarget{

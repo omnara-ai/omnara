@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -34,14 +34,14 @@ func runSlackTool(
 		return appToolFailure(errors.New("app conversation does not match Slack"))
 	}
 	e := call.Executor
-	e.IntegrationHTTPClient = slack.WithRequestCheck(e.IntegrationHTTPClient, func(ctx context.Context) error {
+	e.AppHTTPClient = slack.WithRequestCheck(e.AppHTTPClient, func(ctx context.Context) error {
 		return call.Executor.recheckAppToolAccess(ctx, call.Turn, record, access)
 	})
 	identity, err := slack.ParseInstallIdentity(access.App.ProviderIdentity)
 	if err != nil {
 		return appToolFailure(err)
 	}
-	if err := slack.CheckIdentity(ctx, slack.OAuthConfig{HTTPClient: e.IntegrationHTTPClient},
+	if err := slack.CheckIdentity(ctx, slack.OAuthConfig{HTTPClient: e.AppHTTPClient},
 		access.Credential[secrets.KeyAccessToken], slack.Identity{
 			WorkspaceID: access.App.ProviderTenantID, BotUserID: identity.BotUserID,
 		}); err != nil {
@@ -62,8 +62,8 @@ func runSlackTool(
 		var result slack.APIResult
 		var err error
 		var slept time.Duration
-		for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
-			page, result, err = slack.ReadMessages(ctx, e.IntegrationHTTPClient, target, input.Cursor, input.Limit)
+		for attempt := 1; attempt <= appMessageSendAttempts; attempt++ {
+			page, result, err = slack.ReadMessages(ctx, e.AppHTTPClient, target, input.Cursor, input.Limit)
 			if err != nil {
 				return appToolFailure(err)
 			}
@@ -72,14 +72,14 @@ func runSlackTool(
 				return completeAsynchronously(content), err
 			}
 			if result.RateLimited {
-				retry, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &slept, attempt)
+				retry, err := sleepForAppRateLimit(ctx, result.RetryAfter, &slept, attempt)
 				if err != nil {
 					return appToolFailure(err)
 				}
 				if retry {
 					continue
 				}
-			} else if (result.TransientFailure || result.DeliveryUnknown) && attempt < integrationMessageSendAttempts {
+			} else if (result.TransientFailure || result.DeliveryUnknown) && attempt < appMessageSendAttempts {
 				continue
 			}
 			break
@@ -103,8 +103,8 @@ func runSlackTool(
 	}
 	var result slack.APIResult
 	var slept time.Duration
-	for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
-		result, err = slack.PostMessage(ctx, e.IntegrationHTTPClient, target, agentID, record.ID.String(), input.Text)
+	for attempt := 1; attempt <= appMessageSendAttempts; attempt++ {
+		result, err = slack.PostMessage(ctx, e.AppHTTPClient, target, agentID, record.ID.String(), input.Text)
 		if err != nil {
 			return appToolFailure(err)
 		}
@@ -112,7 +112,7 @@ func runSlackTool(
 			break
 		}
 		if result.RateLimited {
-			retry, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &slept, attempt)
+			retry, err := sleepForAppRateLimit(ctx, result.RetryAfter, &slept, attempt)
 			if err != nil {
 				return appToolFailure(err)
 			}
@@ -123,7 +123,7 @@ func runSlackTool(
 		if result.DeliveryUnknown || result.TransientFailure {
 			messageID, found, _, readErr := slack.ReconcileMessage(
 				ctx,
-				e.IntegrationHTTPClient,
+				e.AppHTTPClient,
 				target,
 				agentID,
 				record.ID.String(),

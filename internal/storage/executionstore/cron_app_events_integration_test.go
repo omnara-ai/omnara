@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
@@ -83,7 +83,7 @@ func cronAppReceipt(
 	t *testing.T,
 	f appInteractionFixture,
 	id uuid.UUID,
-) (uuid.UUID, integrationstore.ScheduledAppEvent) {
+) (uuid.UUID, appstore.ScheduledAppEvent) {
 	t.Helper()
 	var receipt uuid.UUID
 	var raw []byte
@@ -91,11 +91,11 @@ func cronAppReceipt(
 		t,
 		f.store.pool.QueryRow(f.ctx,
 			`SELECT inbox.id, inbox.payload FROM cron_triggers cron
-  JOIN integration_inbox inbox ON inbox.id=cron.last_app_receipt_id WHERE cron.id=$1`, id).
+  JOIN app_inbox inbox ON inbox.id=cron.last_app_receipt_id WHERE cron.id=$1`, id).
 			Scan(&receipt, &raw),
 	)
-	event, err := (integrationstore.IntegrationInboxRecord{
-		Source: integrationstore.IntegrationInboxSourceScheduled, Payload: raw,
+	event, err := (appstore.AppInboxRecord{
+		Source: appstore.AppInboxSourceScheduled, Payload: raw,
 	}).ScheduledEvent()
 	require.NoError(t, err)
 	return receipt, event
@@ -132,10 +132,10 @@ func TestCronAppEventCurrentSnapshotReplayAndStats(t *testing.T) {
 	var key, source string
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT receipt_key,source FROM integration_inbox WHERE id=$1`, receipt).
+		f.store.pool.QueryRow(f.ctx, `SELECT receipt_key,source FROM app_inbox WHERE id=$1`, receipt).
 			Scan(&key, &source),
 	)
-	require.Equal(t, string(integrationstore.IntegrationInboxSourceScheduled), source)
+	require.Equal(t, string(appstore.AppInboxSourceScheduled), source)
 	require.Equal(t, "cron_trigger:"+record.ID.String()+":"+claimed.DueAt.UTC().Format(time.RFC3339), key)
 	queued, err = f.store.Execution().CreateCronTriggerAppEvent(f.ctx, claimed)
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestCronAppEventClaimFencingAndEdits(t *testing.T) {
 			var count int
 			require.NoError(
 				t,
-				f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).
+				f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).
 					Scan(&count),
 			)
 			require.Zero(t, count)
@@ -257,11 +257,11 @@ func TestCronAppEventLifecycle(t *testing.T) {
 			claimed := claimCronApp(t, f, record.ID)
 			switch scenario {
 			case "disconnect":
-				_, err := f.store.Integrations().
-					DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
+				_, err := f.store.Apps().
+					DisconnectProjectApp(f.ctx, appstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
 				require.NoError(t, err)
 			case "delete_app":
-				require.NoError(t, f.store.Integrations().DeleteProjectApp(f.ctx, testOrgID, testProjectID, f.app.ID))
+				require.NoError(t, f.store.Apps().DeleteProjectApp(f.ctx, testOrgID, testProjectID, f.app.ID))
 			case "delete_profile":
 				require.NoError(t, f.store.Execution().DeleteAgentProfile(f.ctx, testProjectID, f.profile.ID))
 			}
@@ -358,7 +358,7 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 	for _, state := range []string{"processing", "completed", "failed"} {
 		_, err := f.store.pool.Exec(
 			f.ctx,
-			`UPDATE integration_inbox SET state=$2,
+			`UPDATE app_inbox SET state=$2,
   claim_token=CASE WHEN $2='processing' THEN uuidv7() ELSE NULL END,
   claim_expires_at=CASE WHEN $2='processing' THEN now()+interval '1 minute' ELSE NULL END,
   completed_at=CASE WHEN $2 IN ('completed','failed') THEN now() ELSE NULL END,
@@ -378,13 +378,13 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 	}
 	_, err = f.store.pool.Exec(
 		f.ctx,
-		`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload,source,state,completed_at)
+		`INSERT INTO app_inbox(project_id,app_id,receipt_key,payload,source,state,completed_at)
   VALUES ($1,$2,'older',convert_to('{}','UTF8'),'scheduled','failed',now())`,
 		testProjectID,
 		f.app.ID,
 	)
 	require.NoError(t, err)
-	_, err = f.store.pool.Exec(f.ctx, `DELETE FROM integration_inbox WHERE id=$1`, receipt)
+	_, err = f.store.pool.Exec(f.ctx, `DELETE FROM app_inbox WHERE id=$1`, receipt)
 	require.NoError(t, err)
 	current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, record.ID)
 	require.NoError(t, err)
@@ -395,14 +395,14 @@ func TestCronAppEventValidationListAndLastRun(t *testing.T) {
 		require.NoError(
 			t,
 			f.store.pool.QueryRow(f.ctx,
-				`INSERT INTO integration_inbox(project_id,app_id,receipt_key,payload)
+				`INSERT INTO app_inbox(project_id,app_id,receipt_key,payload)
   VALUES ($1,$2,$3,convert_to('{}','UTF8')) RETURNING id`, testProjectID, appID, uuid.NewString()).
 				Scan(&wrong),
 		)
 		if appID != f.app.ID {
 			_, err = f.store.pool.Exec(
 				f.ctx,
-				`UPDATE integration_inbox SET source='scheduled' WHERE id=$1`,
+				`UPDATE app_inbox SET source='scheduled' WHERE id=$1`,
 				wrong,
 			)
 			require.NoError(t, err)
@@ -426,7 +426,7 @@ func TestCronAppEventLeaseExpiresDuringHandoff(t *testing.T) {
 	claimed := claimCronApp(t, f, record.ID)
 	_, err := f.store.pool.Exec(
 		f.ctx,
-		`CREATE FUNCTION expire_app_handoff() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE cron_triggers SET claimed_until=clock_timestamp()-interval '1 second' WHERE id=(convert_from(NEW.payload,'UTF8')::jsonb->>'trigger_id')::uuid; RETURN NEW; END $$; CREATE TRIGGER expire_app_handoff AFTER INSERT ON integration_inbox FOR EACH ROW EXECUTE FUNCTION expire_app_handoff()`,
+		`CREATE FUNCTION expire_app_handoff() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE cron_triggers SET claimed_until=clock_timestamp()-interval '1 second' WHERE id=(convert_from(NEW.payload,'UTF8')::jsonb->>'trigger_id')::uuid; RETURN NEW; END $$; CREATE TRIGGER expire_app_handoff AFTER INSERT ON app_inbox FOR EACH ROW EXECUTE FUNCTION expire_app_handoff()`,
 	)
 	require.NoError(t, err)
 	queued, err := f.store.Execution().CreateCronTriggerAppEvent(f.ctx, claimed)
@@ -435,7 +435,7 @@ func TestCronAppEventLeaseExpiresDuringHandoff(t *testing.T) {
 	var count int
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&count),
+		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&count),
 	)
 	require.Zero(t, count)
 	current, err := f.store.Execution().GetCronTrigger(f.ctx, testProjectID, record.ID)
@@ -469,7 +469,7 @@ func TestCronAppEventInvalidTimezoneAfterClaimDoesNotRetry(t *testing.T) {
 	require.Nil(t, claimToken)
 	var count int
 	require.NoError(t, f.store.pool.QueryRow(f.ctx,
-		`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&count))
+		`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&count))
 	require.Zero(t, count)
 }
 

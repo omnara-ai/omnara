@@ -104,7 +104,7 @@ SET state = 'disconnected', credential_secret_id = NULL, deleted_at = statement_
     setup_revision = setup_revision + 1, updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
--- name: IntegrationOAuthFlowConsumed :one
+-- name: AppOAuthFlowConsumed :one
 -- @sqlc-vet-disable project-apps-deleted-at
 -- Tombstones also prevent reusing a completed setup attempt.
 SELECT EXISTS (SELECT 1 FROM project_apps WHERE last_oauth_flow_id = sqlc.arg(flow_id)) AS consumed;

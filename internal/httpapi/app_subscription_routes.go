@@ -6,7 +6,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 )
 
 func (s strictOpenAPIServer) ListAppSubscriptions(
@@ -25,7 +25,7 @@ func (s strictOpenAPIServer) ListAppSubscriptions(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Integrations().ListAppSubscriptions(ctx, integrationstore.ListAppSubscriptionsInput{
+	page, err := s.server.store.Apps().ListAppSubscriptions(ctx, appstore.ListAppSubscriptionsInput{
 		ProjectID: scope.project.ID, AppID: appID, Limit: limit, After: after,
 	})
 	if err != nil {
@@ -65,14 +65,14 @@ func (s strictOpenAPIServer) CreateAppSubscription(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid agent_id")
 	}
-	input := integrationstore.CreateAppSubscriptionInput{
+	input := appstore.CreateAppSubscriptionInput{
 		OrgID: scope.project.OrgID, ProjectID: scope.project.ID, AppID: appID, AgentID: agentID,
 		Type: request.Body.Type, Conversation: request.Body.Conversation,
 	}
 	if request.Body.Events != nil {
 		input.Events = *request.Body.Events
 	}
-	subscription, err := s.server.store.Integrations().CreateAppSubscription(ctx, input)
+	subscription, err := s.server.store.Apps().CreateAppSubscription(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -99,7 +99,7 @@ func (s strictOpenAPIServer) DeleteAppSubscription(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid subscription id")
 	}
-	if err := s.server.store.Integrations().DeleteAppSubscription(
+	if err := s.server.store.Apps().DeleteAppSubscription(
 		ctx, scope.project.OrgID, scope.project.ID, appID, id,
 	); err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -107,7 +107,7 @@ func (s strictOpenAPIServer) DeleteAppSubscription(
 	return openapi.DeleteAppSubscription204Response{}, nil
 }
 
-func appSubscriptionResponse(subscription integrationstore.AppSubscriptionRecord) (openapi.AppSubscription, error) {
+func appSubscriptionResponse(subscription appstore.AppSubscriptionRecord) (openapi.AppSubscription, error) {
 	id, err := publicID(publicid.KindAppSubscription, subscription.ID)
 	if err != nil {
 		return openapi.AppSubscription{}, err

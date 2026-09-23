@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -51,8 +51,8 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	builder := e.contextBuilder()
 	modelProducedResponse := false
 	defer func() {
-		if shouldPostIntegrationRuntimeMessage(ctx, err, modelProducedResponse) {
-			e.postIntegrationRuntimeError(ctx, input)
+		if shouldPostAppRuntimeMessage(ctx, err, modelProducedResponse) {
+			e.postAppRuntimeError(ctx, input)
 		}
 	}()
 	if e.ModelResolver == nil {
@@ -109,16 +109,16 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	}
 }
 
-func (e AgentExecutor) postIntegrationRuntimeError(
+func (e AgentExecutor) postAppRuntimeError(
 	ctx context.Context,
 	input ModelWorkExecution,
 ) {
 	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
+	_ = e.configuredToolExecutor().PostAppRuntimeMessage(
 		postCtx,
 		toToolTurn(input),
-		integration.AgentRequestFailureMessage,
+		apps.AgentRequestFailureMessage,
 	)
 }
 
@@ -159,14 +159,14 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 	return nil
 }
 
-func shouldPostIntegrationRuntimeMessage(ctx context.Context, err error, modelProducedResponse bool) bool {
+func shouldPostAppRuntimeMessage(ctx context.Context, err error, modelProducedResponse bool) bool {
 	if modelProducedResponse && !errors.Is(err, storeerr.ErrModelGrantUnavailable) {
 		return false
 	}
-	return shouldPostIntegrationRuntimeError(ctx, err)
+	return shouldPostAppRuntimeError(ctx, err)
 }
 
-func shouldPostIntegrationRuntimeError(ctx context.Context, err error) bool {
+func shouldPostAppRuntimeError(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}

@@ -19,13 +19,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -249,7 +249,7 @@ tools:
 			ctx, `SELECT last_app_receipt_id FROM cron_triggers WHERE id=$1`, triggerID,
 		).Scan(&receiptID))
 		require.NotEqual(t, previousReceipt, receiptID)
-		receipt, err := store.Integrations().GetIntegrationInbox(ctx, projectID, receiptID)
+		receipt, err := store.Apps().GetAppInbox(ctx, projectID, receiptID)
 		require.NoError(t, err)
 		event, err := receipt.ScheduledEvent()
 		require.NoError(t, err)
@@ -259,7 +259,7 @@ tools:
 		require.Equal(t, "Prepare the update for "+dates[i]+".", launch.Message)
 		require.True(t, dueAt.Equal(event.Occurrence.DueAt))
 		if i == 0 {
-			require.Equal(t, integrationstore.IntegrationInboxPending, receipt.State)
+			require.Equal(t, appstore.AppInboxPending, receipt.State)
 			startServiceSlackWorkers(t, ctx, store, client, log)
 		}
 
@@ -282,7 +282,7 @@ WHERE agent.project_id=$1 AND interaction.interaction_kind='question' AND intera
 		require.NoError(t, err)
 		require.NotNil(t, destination, "first interaction already knows the scheduled conversation")
 		require.Equal(t, app.ID, destination.AppID)
-		require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:" + roots[i]}, destination.Address)
+		require.Equal(t, appstore.ConversationAddress{Kind: "thread", Ref: "C123:" + roots[i]}, destination.Address)
 		var actorProvider, actorUser string
 		require.NoError(t, env.db.QueryRow(ctx, `SELECT actor.provider, actor.provider_user_id
 FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id
@@ -293,7 +293,7 @@ WHERE input.agent_id=$1 AND input.input_kind='content'`, agentID).Scan(&actorPro
 		require.NoError(t, env.db.QueryRow(ctx, `SELECT scope_ref FROM app_subscriptions
 WHERE agent_id=$1 AND app_id=$2 AND subscription_type='thread_messages'`, agentID, app.ID).Scan(&scope))
 		require.Equal(t, "C123:"+roots[i], scope, "replies are subscribed before any model post or human reply")
-		presenter := integration.InteractionPresenter{Store: store, HTTPClient: client}
+		presenter := apps.InteractionPresenter{Store: store, HTTPClient: client}
 		require.NoError(t, presenter.Present(ctx, projectID, agentID, questionID))
 		require.EqualValues(t, i+1, questionPosts.Load())
 		require.EqualValues(t, i, reportPosts.Load(), "the first interaction precedes the model's first post")
@@ -306,7 +306,7 @@ WHERE agent_id=$1 AND app_id=$2 AND subscription_type='thread_messages'`, agentI
 		waitForServiceE2ECondition(t, ctx, func() (bool, string) {
 			var pending, locks int
 			err := env.db.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM integration_inbox WHERE app_id=$1 AND state <> 'completed'),
+  (SELECT count(*) FROM app_inbox WHERE app_id=$1 AND state <> 'completed'),
   (SELECT count(*) FROM agent_runtime_locks WHERE agent_id=$2)`, app.ID, agentID).Scan(&pending, &locks)
 			return err == nil && pending == 0 && locks == 0 && dismissals.Load() == int32(i+1),
 				fmt.Sprintf("inbox=%d locks=%d dismissals=%d err=%v %s", pending, locks, dismissals.Load(), err, logs.Excerpt(20))

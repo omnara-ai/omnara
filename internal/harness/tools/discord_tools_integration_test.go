@@ -14,8 +14,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +27,7 @@ func createDiscordToolApp(
 	ctx context.Context,
 	store *storage.Store,
 	userID uuid.UUID,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	secret, version, err := store.Secrets().
 		CreateSecret(
@@ -42,11 +42,11 @@ func createDiscordToolApp(
 			},
 		)
 	require.NoError(t, err)
-	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+	app, err := store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
 		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", AppType: appdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
-	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+	app, err = store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
 		OrgID:                 toolsTestOrgID,
 		ProjectID:             toolsTestProjectID,
 		AppID:                 app.ID,
@@ -118,7 +118,7 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 			defer server.Close()
 			call := f.recordToolCall(t, ctx, "post", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
 				`{"content":"hello"}`, f.Now)
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
@@ -174,7 +174,7 @@ func TestDiscordAppReadSavedThreadPagination(t *testing.T) {
 	defer server.Close()
 	call := f.recordToolCall(t, ctx, "read", "app__chat__read", `{"before":"777","limit":1}`, f.Now)
 	result, err := dispatchAsyncToolToTerminal(t, ctx,
-		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+		Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
 	require.NoError(t, err)
 	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 	require.NoError(t, err)

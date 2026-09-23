@@ -42,7 +42,7 @@ func options(
 ) agentconfig.CompileOptions {
 	opts := base
 	opts.ResolveAppName = func(name string) (agentconfig.AppResolution, error) {
-		app, err := store.Integrations().GetProjectAppByName(ctx, projectID, name)
+		app, err := store.Apps().GetProjectAppByName(ctx, projectID, name)
 		if err != nil {
 			return agentconfig.AppResolution{}, err
 		}

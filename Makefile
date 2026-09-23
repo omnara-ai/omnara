@@ -30,14 +30,14 @@ INTEGRATION_STORAGE_PACKAGES := \
 	./internal/storage \
 	./internal/storage/executionstore \
 	./internal/storage/identitystore \
-	./internal/storage/integrationstore \
+	./internal/storage/appstore \
 	./internal/testutil/storagetest
 INTEGRATION_HTTPAPI_PACKAGES := \
 	./internal/httpapi \
 	./internal/httpapi/auth
 INTEGRATION_RUNTIME_PACKAGES := \
 	./cmd/maintenance \
-	./internal/integration \
+	./internal/apps \
 	./internal/maintenance \
 	./internal/harness/kernel \
 	./internal/harness/tools \

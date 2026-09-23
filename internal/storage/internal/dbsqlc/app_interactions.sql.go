@@ -53,7 +53,7 @@ const getInteractionDestinationTarget = `-- name: GetInteractionDestinationTarge
 SELECT target.id, target.app_id AS app_id,
        target.provider_ref_kind, target.provider_ref, target.display_name,
        app.state AS app_state
-FROM integration_targets target
+FROM app_targets target
 JOIN project_apps app
   ON app.project_id = target.project_id AND app.id = target.app_id
 WHERE target.project_id = $1 AND target.agent_id = $2
@@ -91,7 +91,7 @@ func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetIn
 }
 
 const getInteractionSelection = `-- name: GetInteractionSelection :one
-SELECT current_config_id, integration_target_id,
+SELECT current_config_id, app_target_id,
        coalesce(interaction_handler_key, '') AS handler_key, interaction_handler_args AS handler_args
 FROM agents
 WHERE project_id = $1 AND id = $2
@@ -103,10 +103,10 @@ type GetInteractionSelectionParams struct {
 }
 
 type GetInteractionSelectionRow struct {
-	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	HandlerKey          string
-	HandlerArgs         *json.RawMessage
+	CurrentConfigID uuid.UUID
+	AppTargetID     *uuid.UUID
+	HandlerKey      string
+	HandlerArgs     *json.RawMessage
 }
 
 func (q *Queries) GetInteractionSelection(ctx context.Context, arg GetInteractionSelectionParams) (GetInteractionSelectionRow, error) {
@@ -114,7 +114,7 @@ func (q *Queries) GetInteractionSelection(ctx context.Context, arg GetInteractio
 	var i GetInteractionSelectionRow
 	err := row.Scan(
 		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
+		&i.AppTargetID,
 		&i.HandlerKey,
 		&i.HandlerArgs,
 	)
@@ -157,14 +157,14 @@ func (q *Queries) RecordAgentInteractionPresentationReceipt(ctx context.Context,
 
 const setInteractionSelection = `-- name: SetInteractionSelection :execrows
 UPDATE agents
-SET integration_target_id = $1::uuid,
+SET app_target_id = $1::uuid,
     interaction_handler_key = $2::text,
     interaction_handler_args = $3::jsonb,
     updated_at = statement_timestamp()
 WHERE agents.project_id = $4 AND agents.id = $5
   AND (($1::uuid IS NULL AND $2::text IS NULL AND $3::jsonb IS NULL)
     OR ($2::text <> '' AND jsonb_typeof($3::jsonb) = 'object' AND EXISTS (
-      SELECT 1 FROM integration_targets target
+      SELECT 1 FROM app_targets target
       JOIN project_apps app
         ON app.project_id = target.project_id
        AND app.id = target.app_id

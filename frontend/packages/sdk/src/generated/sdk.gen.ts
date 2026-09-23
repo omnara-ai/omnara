@@ -169,7 +169,7 @@ export const createOrganization = <ThrowOnError extends boolean = true>(options:
 /**
  * Delete organization
  *
- * Deletes the organization and everything in it: projects, memberships, pending invitations, profiles, integrations, machine pools and machines, model provider configs and configured models, and all skills. Agents are archived and their runtimes and queued work are stopped. Secrets are permanently deleted once machine teardown no longer needs them. Deletion fails if project agent teardown cannot complete. Only organization owners can delete an organization.
+ * Deletes the organization and everything in it: projects, memberships, pending invitations, profiles, apps, machine pools and machines, model provider configs and configured models, and all skills. Agents are archived and their runtimes and queued work are stopped. Secrets are permanently deleted once machine teardown no longer needs them. Deletion fails if project agent teardown cannot complete. Only organization owners can delete an organization.
  */
 export const deleteOrganization = <ThrowOnError extends boolean = true>(options: Options<DeleteOrganizationData, ThrowOnError>): RequestResult<DeleteOrganizationResponses, DeleteOrganizationErrors, ThrowOnError> => (options.client ?? client).delete<DeleteOrganizationResponses, DeleteOrganizationErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteOrganizationResponse),
@@ -1235,7 +1235,7 @@ export const deleteSecretGrant = <ThrowOnError extends boolean = true>(options: 
 /**
  * Resolve agent config tools
  *
- * Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual integration tools, discover MCP tools, or change any configuration.
+ * Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual app tools, discover MCP tools, or change any configuration.
  */
 export const resolveAgentConfigTools = <ThrowOnError extends boolean = true>(options: Options<ResolveAgentConfigToolsData, ThrowOnError>): RequestResult<ResolveAgentConfigToolsResponses, ResolveAgentConfigToolsErrors, ThrowOnError> => (options.client ?? client).post<ResolveAgentConfigToolsResponses, ResolveAgentConfigToolsErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zResolveAgentConfigToolsResponse),
@@ -1533,7 +1533,7 @@ export const updateAgentProfile = <ThrowOnError extends boolean = true>(options:
 /**
  * Connect an app through OAuth
  *
- * Starts OAuth for this app (currently Slack). The callback pins the app and setup revision, records verified credentials, and returns integration_oauth=success and app_id to the supplied local return_to route. It requires a browser session for the initiating user and current project management access. Replayed, stale, or deleted-app callbacks are rejected.
+ * Starts OAuth for this app (currently Slack). The callback pins the app and setup revision, records verified credentials, and returns app_oauth=success and app_id to the supplied local return_to route. It requires a browser session for the initiating user and current project management access. Replayed, stale, or deleted-app callbacks are rejected.
  */
 export const createProjectAppOAuthSetup = <ThrowOnError extends boolean = true>(options: Options<CreateProjectAppOAuthSetupData, ThrowOnError>): RequestResult<CreateProjectAppOAuthSetupResponses, CreateProjectAppOAuthSetupErrors, ThrowOnError> => (options.client ?? client).post<CreateProjectAppOAuthSetupResponses, CreateProjectAppOAuthSetupErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateProjectAppOAuthSetupResponse),

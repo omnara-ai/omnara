@@ -40,10 +40,10 @@ rules:
     message: "project_apps query must filter deleted_at (or annotate @sqlc-vet-disable project-apps-deleted-at)"
     rule: >-
       query.sql.matches(r'(?i)\b(from|join|update)\s+project_apps\b') && !query.sql.contains('deleted_at')
-  - name: integration-targets-deleted-at
-    message: "integration_targets query must filter deleted_at (or annotate @sqlc-vet-disable integration-targets-deleted-at)"
+  - name: app-targets-deleted-at
+    message: "app_targets query must filter deleted_at (or annotate @sqlc-vet-disable app-targets-deleted-at)"
     rule: >-
-      query.sql.matches(r'(?i)\b(from|join|update)\s+integration_targets\b') && !query.sql.contains('deleted_at')
+      query.sql.matches(r'(?i)\b(from|join|update)\s+app_targets\b') && !query.sql.contains('deleted_at')
   - name: machine-pools-deleted-at
     message: "machine_pools query must filter deleted_at (or annotate @sqlc-vet-disable machine-pools-deleted-at)"
     rule: >-
@@ -74,7 +74,7 @@ sql:
       - agent-profiles-deleted-at
       - agent-profile-versions-deleted-at
       - project-apps-deleted-at
-      - integration-targets-deleted-at
+      - app-targets-deleted-at
       - machine-pools-deleted-at
       - machines-deleted-at
       - skills-deleted-at

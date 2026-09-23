@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -17,12 +17,12 @@ func newAppLifecycleJourney(t *testing.T) appInteractionFixture {
 	t.Helper()
 	f := newAppInteractionFixture(t)
 	for _, spec := range []struct {
-		app     integrationstore.ProjectAppRecord
+		app     appstore.ProjectAppRecord
 		channel string
 	}{
 		{f.app, "C123"}, {f.otherApp, "C456"},
 	} {
-		_, err := f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+		_, err := f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 			OrgID: testOrgID, ProjectID: testProjectID, AppID: spec.app.ID, AgentID: f.process.AgentID,
 			Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"` + spec.channel + `"}`),
 		})
@@ -31,7 +31,7 @@ func newAppLifecycleJourney(t *testing.T) appInteractionFixture {
 	require.Len(t, f.activation().subscriptions(t, f.process.AgentID), 2)
 	selected := f.selectOrigin(t, f.a.ID)
 	require.Equal(t, "chat", selected.HandlerKey)
-	require.Equal(t, f.a.ID, selected.IntegrationTargetID)
+	require.Equal(t, f.a.ID, selected.AppTargetID)
 	return f
 }
 
@@ -45,15 +45,15 @@ func TestAppDeletionClearsInteractionSelectionAndReleasesCredentials(t *testing.
 	_, err := f.store.Secrets().DeleteSecret(f.ctx, credential)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "the live app protects its credential")
 
-	require.NoError(t, f.store.Integrations().DeleteProjectApp(f.ctx, testOrgID, testProjectID, f.app.ID))
+	require.NoError(t, f.store.Apps().DeleteProjectApp(f.ctx, testOrgID, testProjectID, f.app.ID))
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{}, selection, "delete clears target, handler and args together")
-	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
+	_, err = f.store.Apps().GetAppTarget(f.ctx, testProjectID, f.a.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	_, err = f.store.Integrations().GetProjectApp(f.ctx, testProjectID, f.app.ID)
+	_, err = f.store.Apps().GetProjectApp(f.ctx, testProjectID, f.app.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+	_, _, err = f.store.Apps().AcceptAppReceipt(f.ctx, appstore.VerifiedAppReceipt{
 		ProjectID: testProjectID, AppID: f.app.ID, ReceiptKey: "after-delete", Payload: []byte(`{}`),
 	})
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
@@ -65,10 +65,10 @@ func TestAppDeletionClearsInteractionSelectionAndReleasesCredentials(t *testing.
 		`SELECT count(*) FROM secret_versions WHERE secret_id=$1`, credential.SecretID).Scan(&versions))
 	require.Zero(t, versions, "unreferenced credential ciphertext can be destroyed")
 
-	other, err := f.store.Integrations().GetProjectApp(f.ctx, testProjectID, f.otherApp.ID)
+	other, err := f.store.Apps().GetProjectApp(f.ctx, testProjectID, f.otherApp.ID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectAppStateActive, other.State)
-	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.b.ID)
+	require.Equal(t, appstore.ProjectAppStateActive, other.State)
+	_, err = f.store.Apps().GetAppTarget(f.ctx, testProjectID, f.b.ID)
 	require.NoError(t, err)
 	credential.SecretID = f.otherApp.CredentialSecretID
 	_, err = f.store.Secrets().DeleteSecret(f.ctx, credential)
@@ -113,7 +113,7 @@ func TestScopeTeardownSweepsLiveAppsSubscriptionsTargetsAndCredentials(t *testin
 			require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT
 			 (SELECT count(*) FROM project_apps WHERE project_id=$1 AND deleted_at IS NOT NULL
 			    AND state='disconnected' AND credential_secret_id IS NULL),
-			 (SELECT count(*) FROM integration_targets WHERE project_id=$1 AND deleted_at IS NULL),
+			 (SELECT count(*) FROM app_targets WHERE project_id=$1 AND deleted_at IS NULL),
 			 (SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
 			 (SELECT count(*) FROM secret_versions WHERE secret_id IN ($2,$3))`,
 				testProjectID, f.app.CredentialSecretID, f.otherApp.CredentialSecretID).
@@ -129,7 +129,7 @@ func TestScopeTeardownSweepsLiveAppsSubscriptionsTargetsAndCredentials(t *testin
 				f.process.AgentID, input.ID).Scan(&agentState, &retainedInput))
 			require.Equal(t, string(executionstore.AgentStateArchived), agentState)
 			require.True(t, retainedInput, "scope teardown preserves accepted input history")
-			_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+			_, _, err = f.store.Apps().AcceptAppReceipt(f.ctx, appstore.VerifiedAppReceipt{
 				ProjectID: testProjectID, AppID: f.app.ID, ReceiptKey: "after-teardown", Payload: []byte(`{}`),
 			})
 			require.ErrorIs(t, err, storeerr.ErrNotFound)

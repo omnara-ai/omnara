@@ -18,6 +18,10 @@ config migrations committed before the app preflight runs. The original release
 must not restart against that changed schema; use matching images or restore the
 pre-upgrade backup.
 
+Development or preview databases that already applied an earlier revision of
+migrations 45/46 must be rebuilt or restored from schema 44 before applying this
+release. Goose does not rerun an applied version when its file changes.
+
 Inventory your deployment before scheduling. Set the window from a restored-copy
 rehearsal with the exact release artifacts, allowing time for recovery. Local
 fixture tests establish neither production readiness nor a fixed completion time.
@@ -48,6 +52,12 @@ The project `/integration-installs` API is replaced by `/apps`; public app IDs
 use `app_` rather than `iin_`. Internal IDs and audit references are preserved.
 Upgrade clients and generated SDKs with the cluster release. There is no separate
 connection API. Apps own credentials, setup and optional launcher settings.
+Agent responses now expose `app_target` instead of `integration_target`; captured
+interaction destinations use `app_target_id`. OAuth return query parameters are
+`app_oauth` and `app_oauth_error`. Existing `itgt_` and `ioaf_` IDs and configured
+`/api/integrations/` webhook and OAuth callback URLs remain unchanged.
+Update saved log queries from `integration_event.*` to `app_event.*`. Slack send
+results report unavailable setup as `app_disconnected` instead of `integration_disabled`.
 App records and save requests identify behavior with `app_type`: `slack_thread`,
 `discord_thread` or `github_pr`. The app-definition catalog returns `app_type` and
 `capabilities`. Neither app records nor catalog entries expose a provider classification.
@@ -88,7 +98,7 @@ webhook URL change is required. New setup requests use app-scoped
 in-flight setup through the new app page after cutover.
 
 App actors use `provider: app`; legacy Slack actor attribution is preserved.
-The released `Agent.integration_target.provider` remains transport-valued
+The former `Agent.integration_target.provider`, now `Agent.app_target.provider`, remains transport-valued
 (`slack`, `discord` or `github`). Secrets add `github_app_credentials`.
 Cron trigger responses can now include an `app` target with app-defined `settings`. Update clients
 that validate or switch on cron target types before creating app schedules.

@@ -10,8 +10,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -22,7 +22,7 @@ type appToolAccess struct {
 	Conversation      appdefinition.Scope
 	OriginalContract  agentconfig.RuntimeContract
 	CurrentConfigID   uuid.UUID
-	App               integrationstore.ProjectAppRecord
+	App               appstore.ProjectAppRecord
 	Credential        secrets.Payload
 	CredentialVersion uuid.UUID
 }
@@ -32,7 +32,7 @@ func (e Executor) resolveAppToolAuthority(
 	turn Turn,
 	tool executionstore.ToolCallRecord,
 ) (appToolAccess, error) {
-	if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
+	if err := e.ensureAppPostOwnership(ctx, turn); err != nil {
 		return appToolAccess{}, err
 	}
 	model, found, err := e.Store.Execution().
@@ -62,7 +62,7 @@ func (e Executor) resolveAppToolAuthority(
 	if !ok {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app tool was not configured for this call"))
 	}
-	app, err := e.Store.Integrations().GetProjectApp(ctx, turn.ProjectID, pinned.AppID)
+	app, err := e.Store.Apps().GetProjectApp(ctx, turn.ProjectID, pinned.AppID)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
 	}
@@ -70,7 +70,7 @@ func (e Executor) resolveAppToolAuthority(
 		return appToolAccess{}, err
 	}
 	name, _, valid := toolcatalog.SplitAppToolName(tool.Name)
-	if !valid || app.Name != name || app.State != integrationstore.ProjectAppStateActive || app.OrgID != turn.OrgID {
+	if !valid || app.Name != name || app.State != appstore.ProjectAppStateActive || app.OrgID != turn.OrgID {
 		return appToolAccess{}, appToolPreparationFailure(errors.New("app is unavailable"))
 	}
 	metadata := map[uuid.UUID]agentconfig.AppResolution{pinned.AppID: {AppID: pinned.AppID, AppType: app.AppType}}
@@ -104,7 +104,7 @@ func (e Executor) appToolConversation(
 	default:
 		return appdefinition.Scope{}, errors.New("app tool requires an explicit scope")
 	}
-	address, found, err := e.Store.Integrations().GetAgentAppConversation(ctx, turn.ProjectID, turn.AgentID, access.App.ID)
+	address, found, err := e.Store.Apps().GetAgentAppConversation(ctx, turn.ProjectID, turn.AgentID, access.App.ID)
 	if err != nil {
 		return appdefinition.Scope{}, err
 	}
@@ -140,7 +140,7 @@ func (e Executor) prepareAppToolAccess(
 		return appToolAccess{}, err
 	}
 	access.Conversation = conversation
-	kind, err := integrationstore.ProjectAppCredentialKind(access.App.Provider)
+	kind, err := appstore.ProjectAppCredentialKind(access.App.Provider)
 	if err != nil {
 		return appToolAccess{}, err
 	}
@@ -164,7 +164,7 @@ func (e Executor) recheckAppToolAccess(
 	tool executionstore.ToolCallRecord,
 	access appToolAccess,
 ) error {
-	if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
+	if err := e.ensureAppPostOwnership(ctx, turn); err != nil {
 		return err
 	}
 	agent, err := e.Store.Execution().GetAgentInProject(ctx, turn.ProjectID, turn.AgentID)
@@ -185,11 +185,11 @@ func (e Executor) recheckAppToolAccess(
 			return fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
 		}
 	}
-	app, err := e.Store.Integrations().GetProjectApp(ctx, turn.ProjectID, access.App.ID)
+	app, err := e.Store.Apps().GetProjectApp(ctx, turn.ProjectID, access.App.ID)
 	if err != nil {
 		return err
 	}
-	if app.State != integrationstore.ProjectAppStateActive || app.SetupRevision != access.App.SetupRevision {
+	if app.State != appstore.ProjectAppStateActive || app.SetupRevision != access.App.SetupRevision {
 		return fmt.Errorf("%w: app setup changed; submit a new call", ErrToolAuthorizationInvalidated)
 	}
 	secret, err := e.Store.Secrets().GetProjectAvailableSecret(ctx, turn.OrgID, turn.ProjectID, app.CredentialSecretID)
@@ -219,7 +219,7 @@ func (e Executor) appRuntimeContract(
 	)
 }
 
-func (e Executor) ensureIntegrationPostOwnership(ctx context.Context, turn Turn) error {
+func (e Executor) ensureAppPostOwnership(ctx context.Context, turn Turn) error {
 	return e.Store.Execution().EnsureRuntimeLockActive(
 		ctx,
 		turn.ProjectID,

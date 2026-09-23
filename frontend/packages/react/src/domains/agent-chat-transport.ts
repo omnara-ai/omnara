@@ -16,7 +16,7 @@ import type {
 const sourceLabels: Record<AgentChatSource, string> = { web: 'web app', cli: 'CLI' }
 
 export function sourceHint(source: AgentChatSource): string {
-  return `This message came from the Omnara ${sourceLabels[source]}. Reply with normal assistant text unless explicitly asked to message an integration.`
+  return `This message came from the Omnara ${sourceLabels[source]}. Reply with normal assistant text unless explicitly asked to send a message through an app.`
 }
 
 export const sdkAgentChatTransport: AgentChatTransport = {

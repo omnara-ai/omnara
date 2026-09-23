@@ -11,11 +11,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ import (
 type appSetupIdentityFixture struct {
 	handler  http.Handler
 	project  publicHTTPProject
-	app      integrationstore.ProjectAppRecord
+	app      appstore.ProjectAppRecord
 	material secrets.Material
 	body     map[string]any
 	steps    int
@@ -97,9 +97,9 @@ func (f appSetupIdentityFixture) update(t *testing.T, status int) {
 
 }
 
-func (f appSetupIdentityFixture) current(t *testing.T) integrationstore.ProjectAppRecord {
+func (f appSetupIdentityFixture) current(t *testing.T) appstore.ProjectAppRecord {
 	t.Helper()
-	current, err := f.project.Store.Integrations().GetProjectApp(
+	current, err := f.project.Store.Apps().GetProjectApp(
 		t.Context(), f.project.ProjectUUID, f.app.ID)
 	require.NoError(t, err)
 	return current
@@ -120,7 +120,7 @@ func (f appSetupIdentityFixture) rotate(t *testing.T) uuid.UUID {
 
 func verifiedAppCredentialVersion(
 	t *testing.T,
-	record integrationstore.ProjectAppRecord,
+	record appstore.ProjectAppRecord,
 ) uuid.UUID {
 	t.Helper()
 	var metadata struct {
@@ -221,7 +221,7 @@ func TestAppSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 					case "credential rotation":
 						f.rotate(t)
 					case "app setup":
-						input := integrationstore.ConfigureProjectAppInput{
+						input := appstore.ConfigureProjectAppInput{
 							OrgID:                    f.project.OrgUUID,
 							ProjectID:                f.project.ProjectUUID,
 							InstalledByUserID:        f.project.AdminUserUUID,
@@ -237,11 +237,11 @@ func TestAppSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 							CredentialAppID:          123,
 							ProviderAgentDisplayName: "Concurrent edit",
 						}
-						_, err := f.project.Store.Integrations().
+						_, err := f.project.Store.Apps().
 							ConfigureProjectApp(t.Context(), input)
 						require.NoError(t, err)
 					case "app deletion":
-						require.NoError(t, f.project.Store.Integrations().DeleteProjectApp(
+						require.NoError(t, f.project.Store.Apps().DeleteProjectApp(
 							t.Context(), f.project.OrgUUID, f.project.ProjectUUID, f.app.ID))
 					}
 				}
@@ -252,7 +252,7 @@ func TestAppSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 				f.update(t, status)
 				require.Nil(t, before)
 				if change == "app deletion" {
-					_, err := f.project.Store.Integrations().GetProjectApp(
+					_, err := f.project.Store.Apps().GetProjectApp(
 						t.Context(), f.project.ProjectUUID, f.app.ID)
 					require.ErrorIs(
 						t,
@@ -374,10 +374,10 @@ func TestGitHubHTTPActiveSaveRequiresProviderButDisconnectAndDeleteDoNot(t *test
 	require.Equal(t, f.app.SetupRevision, f.current(t).SetupRevision)
 	f.disconnect(t)
 	require.Equal(t, f.steps+1, calls, "disconnect must not call the provider")
-	require.Equal(t, integrationstore.ProjectAppStateDisconnected, f.current(t).State)
+	require.Equal(t, appstore.ProjectAppStateDisconnected, f.current(t).State)
 	f.update(t, http.StatusServiceUnavailable)
 	require.Equal(t, f.steps+2, calls, "reconnect must refresh identity")
-	require.Equal(t, integrationstore.ProjectAppStateDisconnected, f.current(t).State)
+	require.Equal(t, appstore.ProjectAppStateDisconnected, f.current(t).State)
 	path := strings.TrimSuffix(appSetupPath(t, f.project, f.app), "/setup")
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path, "", "", http.StatusNoContent,
 		authHeaders(f.project.AdminToken))

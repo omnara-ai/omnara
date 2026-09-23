@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -20,11 +20,11 @@ var ErrInboxRecipientSettled = errors.New("inbox recipient is already settled")
 // before provider preparation, returning ErrInboxRecipientSettled on success.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
-	lease integrationstore.IntegrationInboxLease,
+	lease appstore.AppInboxLease,
 	key string,
-	address integrationstore.ConversationAddress,
+	address appstore.ConversationAddress,
 ) error {
-	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+	snapshot, err := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (s *Store) CheckInboxConversationAuthority(
 			return err
 		}
 	}
-	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, resources...)
+	work, err := s.apps.LockAppInboxLeaseTx(ctx, tx, lease, resources...)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (s *Store) CheckInboxConversationAuthority(
 	if !sameJSON(snapshot.Plan, locked.Plan) {
 		return storeerr.ErrIdempotencyConflict
 	}
-	if err := integrationstore.LockAppsTx(
+	if err := appstore.LockAppsTx(
 		ctx,
 		tx,
 		lease.ProjectID,
@@ -127,16 +127,16 @@ func (s *Store) CheckInboxConversationAuthority(
 			}
 		}
 	}
-	_, err = q.ReadIntegrationInboxLease(
+	_, err = q.ReadAppInboxLease(
 		ctx,
-		dbsqlc.ReadIntegrationInboxLeaseParams{
+		dbsqlc.ReadAppInboxLeaseParams{
 			ProjectID:  lease.ProjectID,
 			ID:         lease.ReceiptID,
 			ClaimToken: lease.Token,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return integrationstore.ErrIntegrationInboxLeaseLost
+		return appstore.ErrAppInboxLeaseLost
 	}
 	return err
 }

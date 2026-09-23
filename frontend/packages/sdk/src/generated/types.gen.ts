@@ -90,7 +90,7 @@ export type ProjectId = string;
 
 export type McpoAuthFlowId = string;
 
-export type IntegrationOAuthFlowId = string;
+export type AppOAuthFlowId = string;
 
 export type ActorId = string;
 
@@ -102,7 +102,7 @@ export type AgentProfileId = string;
 
 export type CronTriggerId = string;
 
-export type IntegrationTargetId = string;
+export type AppTargetId = string;
 
 export type AgentEventId = string;
 
@@ -824,7 +824,7 @@ export type McpoAuthStartResponse = {
     expires_at: Timestamp;
 };
 
-export type CreateIntegrationOAuthSetupRequest = {
+export type CreateAppOAuthSetupRequest = {
     client_id: string;
     client_secret: string;
     signing_secret: string;
@@ -848,14 +848,14 @@ export type AppProviderConfig = {
     [key: string]: unknown;
 };
 
-export type IntegrationOAuthSetup = {
+export type AppOAuthSetup = {
     app_id: ProjectAppId;
     /**
      * App setup revision captured by this authorization flow.
      */
     setup_revision: number;
     provider: string;
-    flow_id: IntegrationOAuthFlowId;
+    flow_id: AppOAuthFlowId;
     oauth_url: string;
     redirect_uri: string;
     events_url: string;
@@ -934,7 +934,7 @@ export type SlackSetup = {
      */
     setup_revision: number;
     provider: string;
-    flow_id: IntegrationOAuthFlowId;
+    flow_id: AppOAuthFlowId;
     slack_app_id: string;
     oauth_url: string;
     redirect_uri: string;
@@ -997,7 +997,7 @@ export type ToolCatalogEntry = {
     name: string;
     description: string;
     /**
-     * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
+     * Whether this tool supports implicit inclusion based on config resources or app context, even when explicitly configured.
      */
     implicit?: boolean;
     default_permission: ToolPermissionSelection;
@@ -1643,7 +1643,7 @@ export type Agent = {
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     name: AgentName;
-    integration_target?: IntegrationTarget;
+    app_target?: AppTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
     /**
@@ -1679,7 +1679,7 @@ export type AgentModel = {
     name: ResourceName;
 };
 
-export type IntegrationTarget = {
+export type AppTarget = {
     provider: string;
     provider_ref: string;
     provider_ref_kind: string;
@@ -1958,7 +1958,7 @@ export type MachineMetadata = {
 /**
  * A provider conversation address scoped to one app. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
  */
-export type IntegrationConversationAddress = {
+export type AppConversationAddress = {
     kind: string;
     ref: string;
 };
@@ -2478,8 +2478,8 @@ export type AgentInteractionDestination = {
     args: {
         [key: string]: unknown;
     };
-    integration_target_id: IntegrationTargetId;
-    address: IntegrationConversationAddress;
+    app_target_id: AppTargetId;
+    address: AppConversationAddress;
 };
 
 /**
@@ -3717,7 +3717,7 @@ export type ProjectApp = {
      * Credential and transport revision. Launcher edits leave this value unchanged.
      */
     setup_revision: number;
-    last_oauth_flow_id?: IntegrationOAuthFlowId;
+    last_oauth_flow_id?: AppOAuthFlowId;
     runtime_failure?: ProjectAppRuntimeFailure;
     settings: ProjectAppSettings;
     provider_tenant_id: string;
@@ -8790,7 +8790,7 @@ export type UpdateAgentProfileResponses = {
 export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof UpdateAgentProfileResponses];
 
 export type CreateProjectAppOAuthSetupData = {
-    body: CreateIntegrationOAuthSetupRequest;
+    body: CreateAppOAuthSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
@@ -8851,9 +8851,9 @@ export type CreateProjectAppOAuthSetupError = CreateProjectAppOAuthSetupErrors[k
 
 export type CreateProjectAppOAuthSetupResponses = {
     /**
-     * Integration OAuth setup created.
+     * App OAuth setup created.
      */
-    201: IntegrationOAuthSetup;
+    201: AppOAuthSetup;
 };
 
 export type CreateProjectAppOAuthSetupResponse = CreateProjectAppOAuthSetupResponses[keyof CreateProjectAppOAuthSetupResponses];

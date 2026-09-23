@@ -3,7 +3,7 @@
 -- name: FindInboxSelectionReservations :many
 WITH matches AS MATERIALIZED (
   SELECT id, state
-  FROM integration_inbox
+  FROM app_inbox
   WHERE project_id = sqlc.arg(project_id) AND app_id = sqlc.arg(app_id)
     AND id <> sqlc.arg(receipt_id) AND plan IS NOT NULL
     AND state IN ('pending', 'processing')

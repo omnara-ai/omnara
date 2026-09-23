@@ -17,13 +17,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -34,8 +34,8 @@ type profileChoiceHTTPFixture struct {
 	handler       http.Handler
 	project       publicHTTPProject
 	pool          *pgxpool.Pool
-	app           integrationstore.ProjectAppRecord
-	options       []integrationstore.AppProfileChoiceOption
+	app           appstore.ProjectAppRecord
+	options       []appstore.AppProfileChoiceOption
 	key           ed25519.PrivateKey
 	updates       chan map[string]any
 	signingSecret string
@@ -88,11 +88,11 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 		Name: "bot", Material: material, Actor: httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	app, err := project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
+	app, err := project.Store.Apps().CreateProjectApp(t.Context(), appstore.SaveProjectAppInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
 	})
 	require.NoError(t, err)
-	app, err = project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+	app, err = project.Store.Apps().ConfigureProjectApp(t.Context(), appstore.ConfigureProjectAppInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
 		InstalledByUserID: project.AdminUserUUID, Provider: provider,
 		ProviderTenantID: tenant, ProviderAccountRef: account, CredentialSecretID: secret.ID,
@@ -107,27 +107,27 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	f := profileChoiceHTTPFixture{
 		handler: handler, project: project, pool: pool, app: app, key: privateKey, updates: updates,
 	}
-	var slots []integrationstore.AppLaunchSlot
+	var slots []appstore.AppLaunchSlot
 	for _, name := range []string{"Support", "Reviewer"} {
 		profile, err := project.Store.Execution().CreateAgentProfile(t.Context(), executionstore.CreateAgentProfileInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: name, CurrentConfigID: configID,
 		})
 		require.NoError(t, err)
 		key := strings.ToLower(name)
-		slots = append(slots, integrationstore.AppLaunchSlot{Key: key, AgentProfileID: &profile.ID})
-		f.options = append(f.options, integrationstore.AppProfileChoiceOption{Key: key, ProfileID: profile.ID, Name: name})
+		slots = append(slots, appstore.AppLaunchSlot{Key: key, AgentProfileID: &profile.ID})
+		f.options = append(f.options, appstore.AppProfileChoiceOption{Key: key, ProfileID: profile.ID, Name: name})
 	}
-	f.app, err = project.Store.Integrations().UpdateProjectApp(t.Context(), app.ID, integrationstore.SaveProjectAppInput{
+	f.app, err = project.Store.Apps().UpdateProjectApp(t.Context(), app.ID, appstore.SaveProjectAppInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
-		Settings: integrationstore.ProjectAppSettings{
-			Launcher: &integrationstore.AppLauncher{Trigger: "mention", ScopeKind: scopeKind, ScopeRef: scopeRef, Slots: slots},
+		Settings: appstore.ProjectAppSettings{
+			Launcher: &appstore.AppLauncher{Trigger: "mention", ScopeKind: scopeKind, ScopeRef: scopeRef, Slots: slots},
 		},
 	})
 	require.NoError(t, err)
 	return f
 }
 
-func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstore.AppProfileChoiceRecord {
+func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) appstore.AppProfileChoiceRecord {
 	t.Helper()
 	channel, message, thread, originalActor := "300", "400", "300", "701"
 	if other {
@@ -141,7 +141,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 		}
 		scope = appdefinition.Scope{Slack: &appdefinition.SlackScope{ChannelID: channel, ThreadTS: thread}}
 	}
-	source := integration.AppEvent{
+	source := apps.AppEvent{
 		Event:       appdefinition.Event{Kind: "message", Mentioned: true, Scope: scope},
 		SemanticKey: "source:" + message, ContentBlocks: json.RawMessage(`[{"type":"text","text":"original request"}]`),
 		Actor: executionstore.ActorParams{Provider: executionstore.ActorProviderApp,
@@ -151,23 +151,23 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	kind, ref, err := scope.Conversation()
 	require.NoError(t, err)
 	payload := []byte("  {\"text\":\"original request\"}\n")
-	store := f.project.Store.Integrations()
-	accepted, created, err := store.AcceptIntegrationReceipt(t.Context(), integrationstore.VerifiedIntegrationReceipt{
+	store := f.project.Store.Apps()
+	accepted, created, err := store.AcceptAppReceipt(t.Context(), appstore.VerifiedAppReceipt{
 		ProjectID: f.project.ProjectUUID, AppID: f.app.ID, ReceiptKey: source.SemanticKey, Payload: payload,
 	})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Nil(t, accepted.Events)
-	claimed, found, err := store.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
+	claimed, found, err := store.ClaimAppInbox(t.Context(), appstore.ClaimAppInboxInput{
 		ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
-		LeaseDuration: integrationstore.IntegrationInboxMaxLease,
+		LeaseDuration: appstore.AppInboxMaxLease,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, accepted.ID, claimed.ID)
 	choice, created, err := store.EnsureAppProfileChoice(t.Context(), claimed.Lease(),
-		integrationstore.EnsureAppProfileChoiceInput{
-			AppID: f.app.ID, Address: integrationstore.ConversationAddress{Kind: kind, Ref: ref},
+		appstore.EnsureAppProfileChoiceInput{
+			AppID: f.app.ID, Address: appstore.ConversationAddress{Kind: kind, Ref: ref},
 			SourceKey: source.SemanticKey, Event: json.RawMessage(projectAppHTTPJSON(t, source)),
 			Payload: payload, Options: f.options,
 		})
@@ -178,9 +178,9 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	return f.readChoice(t, choice.ID)
 }
 
-func (f profileChoiceHTTPFixture) readChoice(t *testing.T, id uuid.UUID) integrationstore.AppProfileChoiceRecord {
+func (f profileChoiceHTTPFixture) readChoice(t *testing.T, id uuid.UUID) appstore.AppProfileChoiceRecord {
 	t.Helper()
-	choice, err := f.project.Store.Integrations().GetAppProfileChoice(
+	choice, err := f.project.Store.Apps().GetAppProfileChoice(
 		t.Context(), f.project.ProjectUUID, f.app.ID, id)
 	require.NoError(t, err)
 	return choice
@@ -202,14 +202,14 @@ func (f profileChoiceHTTPFixture) assertNoAgent(t *testing.T) {
 func (f profileChoiceHTTPFixture) assertReceiptCount(t *testing.T, choiceID uuid.UUID, want int) {
 	t.Helper()
 	var count int
-	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM integration_inbox
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM app_inbox
 		WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
 		f.project.ProjectUUID, f.app.ID, "choice:"+choiceID.String()).Scan(&count))
 	require.Equal(t, want, count)
 }
 
 func (f profileChoiceHTTPFixture) callback(
-	t *testing.T, menu integrationstore.AppProfileChoiceRecord, choiceID uuid.UUID, key, actor string,
+	t *testing.T, menu appstore.AppProfileChoiceRecord, choiceID uuid.UUID, key, actor string,
 	badSignature bool, change func(map[string]any),
 ) *httptest.ResponseRecorder {
 	t.Helper()
@@ -225,7 +225,7 @@ func (f profileChoiceHTTPFixture) callback(
 			"component_type": 3, "values": []string{key}},
 	}
 	if f.app.Provider == appdefinition.ProviderSlack {
-		path = integrationActionsPath
+		path = appActionsPath
 		payload = map[string]any{
 			"type": "block_actions", "api_app_id": "A123", "team": map[string]string{"id": "T123"},
 			"user":    map[string]string{"id": actor, "team_id": "T123"},
@@ -262,7 +262,7 @@ func (f profileChoiceHTTPFixture) callback(
 }
 
 func (f profileChoiceHTTPFixture) assertAccepted(
-	t *testing.T, response *httptest.ResponseRecorder, menu integrationstore.AppProfileChoiceRecord,
+	t *testing.T, response *httptest.ResponseRecorder, menu appstore.AppProfileChoiceRecord,
 ) {
 	t.Helper()
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -305,27 +305,27 @@ func TestAppProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *testing.T) {
 			f.assertReceiptCount(t, menu.ID, 1)
 			var receiptID uuid.UUID
 			require.NoError(t, f.pool.QueryRow(t.Context(),
-				`SELECT id FROM integration_inbox WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
+				`SELECT id FROM app_inbox WHERE project_id=$1 AND app_id=$2 AND receipt_key=$3`,
 				f.project.ProjectUUID, f.app.ID, "choice:"+menu.ID.String()).Scan(&receiptID))
-			receipt, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.project.ProjectUUID, receiptID)
+			receipt, err := f.project.Store.Apps().GetAppInbox(t.Context(), f.project.ProjectUUID, receiptID)
 			require.NoError(t, err)
-			require.Equal(t, integrationstore.IntegrationInboxPending, receipt.State)
+			require.Equal(t, appstore.AppInboxPending, receipt.State)
 			require.Nil(t, receipt.Plan, "the callback does not plan or admit a launch")
 			require.Equal(t, menu.Payload, receipt.Payload)
-			var expected integration.AppEvent
+			var expected apps.AppEvent
 			require.NoError(t, json.Unmarshal(menu.Event, &expected))
 			expected.Directed = true
-			expected.Launches = []integration.AppLaunchIntent{{
+			expected.Launches = []apps.AppLaunchIntent{{
 				AppID: f.app.ID, Slot: "reviewer", ProfileID: f.options[1].ProfileID,
 			}}
-			require.JSONEq(t, projectAppHTTPJSON(t, []integration.AppEvent{expected}), string(receipt.Events))
+			require.JSONEq(t, projectAppHTTPJSON(t, []apps.AppEvent{expected}), string(receipt.Events))
 			for _, replay := range []struct{ key, actor string }{{"reviewer", actor}, {"support", actor + "2"}} {
 				f.assertAccepted(t, f.callback(t, menu, menu.ID, replay.key, replay.actor, false, nil), menu)
 				replayed := f.readChoice(t, menu.ID)
 				require.Equal(t, chosen, replayed)
 				f.assertReceiptCount(t, menu.ID, 1)
 			}
-			replayed, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.project.ProjectUUID, receiptID)
+			replayed, err := f.project.Store.Apps().GetAppInbox(t.Context(), f.project.ProjectUUID, receiptID)
 			require.NoError(t, err)
 			require.Equal(t, receipt, replayed)
 			f.assertNoAgent(t)
@@ -411,14 +411,14 @@ func TestAppProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 			if staleProfile {
 				settings := f.app.Settings
 				settings.Launcher.Slots = settings.Launcher.Slots[:1]
-				_, err := f.project.Store.Integrations().UpdateProjectApp(t.Context(), f.app.ID,
-					integrationstore.SaveProjectAppInput{
+				_, err := f.project.Store.Apps().UpdateProjectApp(t.Context(), f.app.ID,
+					appstore.SaveProjectAppInput{
 						OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
 						Name: f.app.Name, AppType: f.app.AppType, Settings: settings,
 					})
 				require.NoError(t, err)
 			} else {
-				require.NoError(t, f.project.Store.Integrations().ExpireAppProfileChoice(
+				require.NoError(t, f.project.Store.Apps().ExpireAppProfileChoice(
 					t.Context(), f.project.ProjectUUID, f.app.ID, menu.ID))
 			}
 			response := f.callback(t, menu, menu.ID, "reviewer", "700", false, nil)
@@ -456,11 +456,11 @@ func TestAppProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *testing.T) {
 				Name: "other-bot", Material: material, Actor: httpUserPrincipal(other.AdminUserUUID),
 			})
 			require.NoError(t, err)
-			app, err := f.project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
+			app, err := f.project.Store.Apps().CreateProjectApp(t.Context(), appstore.SaveProjectAppInput{
 				OrgID: other.OrgUUID, ProjectID: other.ProjectUUID, Name: "sibling", AppType: f.app.AppType,
 			})
 			require.NoError(t, err)
-			app, err = f.project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+			app, err = f.project.Store.Apps().ConfigureProjectApp(t.Context(), appstore.ConfigureProjectAppInput{
 				OrgID: other.OrgUUID, ProjectID: other.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
 				InstalledByUserID: other.AdminUserUUID, Provider: provider,
 				ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,
@@ -477,7 +477,7 @@ func TestAppProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *testing.T) {
 			f.assertReceiptCount(t, menu.ID, 1)
 			var count int
 			require.NoError(t, f.pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, app.ID).Scan(&count))
+				`SELECT count(*) FROM app_inbox WHERE app_id=$1`, app.ID).Scan(&count))
 			require.Zero(t, count, "shared provider identity must not fan out a callback")
 		})
 	}
@@ -492,10 +492,10 @@ func TestAppProfileChoiceMetadataEditPreservesCallbackAuthority(t *testing.T) {
 			menu := f.menu(t, false)
 			settings := f.app.Settings
 			launcher := *settings.Launcher
-			launcher.Slots = []integrationstore.AppLaunchSlot{launcher.Slots[1], launcher.Slots[0]}
+			launcher.Slots = []appstore.AppLaunchSlot{launcher.Slots[1], launcher.Slots[0]}
 			settings.Launcher = &launcher
-			updated, err := f.project.Store.Integrations().
-				UpdateProjectApp(t.Context(), f.app.ID, integrationstore.SaveProjectAppInput{
+			updated, err := f.project.Store.Apps().
+				UpdateProjectApp(t.Context(), f.app.ID, appstore.SaveProjectAppInput{
 					OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: f.app.Name,
 					AppType: f.app.AppType, Settings: settings,
 				})
@@ -513,8 +513,8 @@ func TestAppProfileChoiceRejectsSetupChangedAfterAuthentication(t *testing.T) {
 	menu := f.menu(t, false)
 	credential, err := f.project.Store.Secrets().GetSecret(t.Context(), f.app.OrgID, f.app.CredentialSecretID)
 	require.NoError(t, err)
-	updated, err := f.project.Store.Integrations().
-		ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+	updated, err := f.project.Store.Apps().
+		ConfigureProjectApp(t.Context(), appstore.ConfigureProjectAppInput{
 			OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, AppID: f.app.ID, ExpectedSetupRevision: f.app.SetupRevision,
 			InstalledByUserID: f.project.AdminUserUUID, Provider: f.app.Provider,
 			ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,

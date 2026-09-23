@@ -289,7 +289,7 @@ it.each([true, false])(
     window.history.replaceState(
       { checkpoint: 'kept' },
       '',
-      `${pagePath}?draft=keep&integration_oauth=success&app_id=${matching ? app.id : 'another-app'}#profiles`,
+      `${pagePath}?draft=keep&app_oauth=success&app_id=${matching ? app.id : 'another-app'}#profiles`,
     )
     const api = fakeApi([
       {
@@ -334,7 +334,7 @@ async function beginSlackAuthorization({ setupRevision = 1, callbackError = fals
   window.history.replaceState(
     null,
     '',
-    pagePath + (callbackError ? '?integration_oauth_error=missing_scope' : ''),
+    pagePath + (callbackError ? '?app_oauth_error=missing_scope' : ''),
   )
   let current = draft
   const api = fakeApi([
@@ -485,7 +485,7 @@ it.each([404, 500])(
     window.history.replaceState(
       { checkpoint: 'kept' },
       '',
-      `${pagePath}?draft=keep&integration_oauth_error=app_deleted#profiles`,
+      `${pagePath}?draft=keep&app_oauth_error=app_deleted#profiles`,
     )
     let release!: (response: Response) => void
     const pending = new Promise<Response>((resolve) => {

@@ -125,7 +125,7 @@ export const zProjectId = z.string().regex(/^proj_[a-z2-7]{26}$/);
 
 export const zMcpoAuthFlowId = z.string().regex(/^moaf_[a-z2-7]{26}$/);
 
-export const zIntegrationOAuthFlowId = z.string().regex(/^ioaf_[a-z2-7]{26}$/);
+export const zAppOAuthFlowId = z.string().regex(/^ioaf_[a-z2-7]{26}$/);
 
 export const zActorId = z.string().regex(/^actr_[a-z2-7]{26}$/);
 
@@ -137,7 +137,7 @@ export const zAgentProfileId = z.string().regex(/^aprf_[a-z2-7]{26}$/);
 
 export const zCronTriggerId = z.string().regex(/^cron_[a-z2-7]{26}$/);
 
-export const zIntegrationTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
+export const zAppTargetId = z.string().regex(/^itgt_[a-z2-7]{26}$/);
 
 export const zAgentEventId = z.string().regex(/^evt_[a-z2-7]{26}$/);
 
@@ -603,7 +603,7 @@ export const zMcpoAuthStartResponse = z.object({
     expires_at: zTimestamp
 });
 
-export const zCreateIntegrationOAuthSetupRequest = z.object({
+export const zCreateAppOAuthSetupRequest = z.object({
     client_id: z.string().min(1),
     client_secret: z.string().min(1),
     signing_secret: z.string().min(1),
@@ -1089,7 +1089,7 @@ export const zAgentModel = z.object({
     name: zResourceName
 });
 
-export const zIntegrationTarget = z.object({
+export const zAppTarget = z.object({
     provider: z.string(),
     provider_ref: z.string(),
     provider_ref_kind: z.string(),
@@ -1104,7 +1104,7 @@ export const zAgent = z.object({
     agent_profile_id: zAgentProfileId.optional(),
     state: z.enum(['active', 'archived']),
     name: zAgentName,
-    integration_target: zIntegrationTarget.optional(),
+    app_target: zAppTarget.optional(),
     current_config_id: zAgentConfigId.optional(),
     model: zAgentModel.optional(),
     parent_agent_id: zAgentId.optional(),
@@ -1368,7 +1368,7 @@ export const zMachineMetadata = z.record(z.string(), z.string().max(512));
 /**
  * A provider conversation address scoped to one app. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
  */
-export const zIntegrationConversationAddress = z.object({
+export const zAppConversationAddress = z.object({
     kind: z.string().min(1).max(128),
     ref: z.string().min(1).max(2048)
 });
@@ -2808,11 +2808,11 @@ export const zListProjectMembershipGrantsResponse = z.object({
 
 export const zProjectAppId = z.string().regex(/^app_[a-z2-7]{26}$/);
 
-export const zIntegrationOAuthSetup = z.object({
+export const zAppOAuthSetup = z.object({
     app_id: zProjectAppId,
     setup_revision: z.int().gte(1),
     provider: z.string(),
-    flow_id: zIntegrationOAuthFlowId,
+    flow_id: zAppOAuthFlowId,
     oauth_url: z.url(),
     redirect_uri: z.url(),
     events_url: z.url(),
@@ -2832,7 +2832,7 @@ export const zSlackSetup = z.object({
     app_id: zProjectAppId,
     setup_revision: z.int().gte(1),
     provider: z.string(),
-    flow_id: zIntegrationOAuthFlowId,
+    flow_id: zAppOAuthFlowId,
     slack_app_id: z.string(),
     oauth_url: z.url(),
     redirect_uri: z.url(),
@@ -2972,8 +2972,8 @@ export const zAgentInteractionDestination = z.object({
     handler_key: z.string(),
     app_id: zProjectAppId,
     args: z.record(z.string(), z.unknown()),
-    integration_target_id: zIntegrationTargetId,
-    address: zIntegrationConversationAddress
+    app_target_id: zAppTargetId,
+    address: zAppConversationAddress
 });
 
 export const zAgentInteraction = z.object({
@@ -3149,7 +3149,7 @@ export const zProjectApp = z.object({
     app_type: zAppType,
     state: zProjectAppState,
     setup_revision: z.int().gte(1),
-    last_oauth_flow_id: zIntegrationOAuthFlowId.optional(),
+    last_oauth_flow_id: zAppOAuthFlowId.optional(),
     runtime_failure: zProjectAppRuntimeFailure.optional(),
     settings: zProjectAppSettings,
     provider_tenant_id: z.string(),
@@ -4092,7 +4092,7 @@ export const zUpdateAgentProfilePath = z.object({
  */
 export const zUpdateAgentProfileResponse = zAgentProfile;
 
-export const zCreateProjectAppOAuthSetupBody = zCreateIntegrationOAuthSetupRequest;
+export const zCreateProjectAppOAuthSetupBody = zCreateAppOAuthSetupRequest;
 
 export const zCreateProjectAppOAuthSetupPath = z.object({
     orgID: zOrganizationId,
@@ -4101,9 +4101,9 @@ export const zCreateProjectAppOAuthSetupPath = z.object({
 });
 
 /**
- * Integration OAuth setup created.
+ * App OAuth setup created.
  */
-export const zCreateProjectAppOAuthSetupResponse = zIntegrationOAuthSetup;
+export const zCreateProjectAppOAuthSetupResponse = zAppOAuthSetup;
 
 export const zCreateProjectAppSlackSetupBody = zCreateSlackSetupRequest;
 

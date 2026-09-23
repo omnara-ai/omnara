@@ -1,0 +1,188 @@
+package executionstore
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+)
+
+type AgentInputOrigin struct {
+	AppID       uuid.UUID                    `json:"app_id"`
+	Address     appstore.ConversationAddress `json:"address"`
+	DisplayName string                       `json:"display_name,omitempty"`
+}
+
+type InboxInputResult struct {
+	Skipped                InboxInputSkipReason
+	AgentInput             AgentInputRecord
+	ContentBlocks          json.RawMessage
+	AppTarget              appstore.AppTargetRecord
+	Artifacts              []artifactstore.ArtifactRecord
+	CanceledInteractionIDs []uuid.UUID
+	Created                bool
+}
+
+func prepareOriginContentInput(
+	input CreateAgentContentInputInput,
+) (CreateAgentContentInputInput, []CreateContentBlockInput, error) {
+	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.IdempotencyKey == "" {
+		return input, nil, storeerr.InvalidRequest(
+			errors.New("origin input requires project, agent and semantic idempotency key"),
+		)
+	}
+	if input.Origin == nil || input.Origin.AppID == uuid.Nil || input.AppTargetID != uuid.Nil {
+		return input, nil, storeerr.InvalidRequest(errors.New("inbox input requires an origin, not a target ID"))
+	}
+	if err := input.Origin.Address.Validate(); err != nil {
+		return input, nil, err
+	}
+	input, err := prepareCreateAgentContentInput(input)
+	if err != nil {
+		return input, nil, err
+	}
+	blocks, err := parseAgentInputContentBlocks(input.ContentBlocks)
+	if err != nil {
+		return input, nil, err
+	}
+	input.ContentBlocks, err = marshalAgentInputContentBlocks(blocks)
+	return input, blocks, err
+}
+
+func (s *Store) resolveInputOriginTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	input CreateAgentContentInputInput,
+) (CreateAgentContentInputInput, appstore.ProjectAppRecord, error) {
+	app, err := s.apps.GetProjectAppByIDTx(ctx, tx, input.Origin.AppID)
+	if err != nil {
+		return input, app, err
+	}
+	if app.ProjectID != input.ProjectID {
+		return input, app, storeerr.ErrUnauthorized
+	}
+	input.IdempotencyScope = appstore.IdempotencyScope(app)
+	return input, app, nil
+}
+
+func validateAppInputActor(appID uuid.UUID, actor *ActorParams) error {
+	if actor == nil || strings.TrimSpace(actor.ProviderUserID) == "" {
+		return storeerr.ErrUnauthorized
+	}
+	expected, err := AppActorParams(appID, actor.ProviderUserID, nil)
+	if err != nil {
+		return err
+	}
+	if actor.Provider != expected.Provider || actor.ProviderTenantID != expected.ProviderTenantID {
+		return storeerr.ErrUnauthorized
+	}
+	return nil
+}
+
+func (s *Store) admitOriginContentTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	notifications *notifications.TxNotifications,
+	input CreateAgentContentInputInput,
+	blocks []CreateContentBlockInput,
+	artifacts []artifactstore.PreparedArtifact,
+) (InboxInputResult, error) {
+	if err := lifecyclelock.Agents(
+		ctx,
+		tx,
+		[]lifecyclelock.AgentRef{{ProjectID: input.ProjectID, AgentID: input.AgentID}},
+	); err != nil {
+		return InboxInputResult{}, err
+	}
+	if result, found, err := s.originContentReplayTx(ctx, tx, input); err != nil || found {
+		return result, err
+	}
+	input, app, err := s.resolveInputOriginTx(ctx, tx, input)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	if err := validateAppInputActor(app.ID, input.Actor); err != nil {
+		return InboxInputResult{}, err
+	}
+	agent, err := loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	target, err := s.apps.EnsureConversationTargetTx(ctx, tx, appstore.EnsureConversationTargetInput{
+		ProjectID: input.ProjectID, AgentID: input.AgentID, AppID: app.ID,
+		Address: input.Origin.Address, DisplayName: input.Origin.DisplayName,
+	})
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	input.AppTargetID = target.ID
+	files, err := artifactstore.InsertPreparedArtifactsTx(ctx, tx, input.ProjectID, input.AgentID, artifacts)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	created, err := createAgentContentInputTx(ctx, notifications, tx, dbsqlc.New(tx), agent, input, blocks)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	if created.created {
+		if _, err := s.SelectInteractionDestinationForOriginTx(
+			ctx,
+			tx,
+			input.ProjectID,
+			input.AgentID,
+			target.ID,
+		); err != nil {
+			return InboxInputResult{}, err
+		}
+	}
+	return InboxInputResult{
+		AgentInput:             created.agentInput,
+		ContentBlocks:          created.contentBlocks,
+		AppTarget:              target,
+		Artifacts:              files,
+		Created:                created.created,
+		CanceledInteractionIDs: created.canceledInteractionIDs,
+	}, nil
+}
+
+func (s *Store) originContentReplayTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	input CreateAgentContentInputInput,
+) (InboxInputResult, bool, error) {
+	q := dbsqlc.New(tx)
+	existing, found, err := loadAgentInputByIdempotencyMaybeTx(
+		ctx,
+		tx,
+		input.ProjectID,
+		input.AgentID,
+		input.IdempotencyScope,
+		input.IdempotencyKey,
+	)
+	if err != nil || !found {
+		return InboxInputResult{}, false, err
+	}
+	target, err := s.apps.GetAppTargetTx(ctx, tx, input.ProjectID, existing.AppTargetID)
+	if err != nil {
+		return InboxInputResult{}, false, err
+	}
+	if target.AgentID != input.AgentID || target.AppID != input.Origin.AppID ||
+		target.ProviderRefKind != input.Origin.Address.Kind || target.ProviderRef != input.Origin.Address.Ref {
+		return InboxInputResult{}, false, storeerr.ErrIdempotencyConflict
+	}
+	content, err := agentInputContentBlocks(ctx, q, input.ProjectID, input.AgentID, []uuid.UUID{existing.ID})
+	return InboxInputResult{
+		AgentInput:    existing,
+		ContentBlocks: content[existing.ID],
+		AppTarget:     target,
+	}, err == nil, err
+}

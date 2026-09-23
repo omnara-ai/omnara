@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -64,7 +64,7 @@ func TestAppHandlerSelectionCreatesAndReusesTargets(t *testing.T) {
 	var count int
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, launch.Agent.ID).
+		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_targets WHERE agent_id=$1`, launch.Agent.ID).
 			Scan(&count),
 	)
 	require.Zero(t, count, "config save and activation create no handler targets")
@@ -85,7 +85,7 @@ func TestAppHandlerSelectionCreatesAndReusesTargets(t *testing.T) {
 	}
 	require.NoError(
 		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, launch.Agent.ID).
+		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_targets WHERE agent_id=$1`, launch.Agent.ID).
 			Scan(&count),
 	)
 	require.Equal(t, 1, count, "selection creates and reuses canonical attribution")
@@ -112,7 +112,7 @@ func TestAppHandlerActivationClearsRevokedSelectionAndPreservesCapture(t *testin
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{}, selection)
 	require.JSONEq(t, string(prompt.Destination), string(f.read(t, prompt.ID).Destination))
-	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
+	_, err = f.store.Apps().GetAppTarget(f.ctx, testProjectID, f.a.ID)
 	require.NoError(t, err, "revocation preserves attribution/history")
 }
 
@@ -121,8 +121,8 @@ func TestAppHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {
 	f := newAppInteractionFixture(t)
 	input := f.selectionCall(t)
 	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(t, integrationstore.LockConversationTx(f.ctx, blocker, testProjectID, f.app.ID,
-		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:555.666"}))
+	require.NoError(t, appstore.LockConversationTx(f.ctx, blocker, testProjectID, f.app.ID,
+		appstore.ConversationAddress{Kind: "thread", Ref: "C123:555.666"}))
 	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 		return f.store.Execution().
 			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"555.666"}`))
@@ -138,7 +138,7 @@ func TestAppHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {
 	selection, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.NotEqual(t, f.a.ID, selection.IntegrationTargetID)
+	require.NotEqual(t, f.a.ID, selection.AppTargetID)
 }
 
 func TestAppHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {

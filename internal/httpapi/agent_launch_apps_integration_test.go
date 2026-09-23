@@ -55,7 +55,7 @@ func (f appLaunchHTTPFixture) counts(t *testing.T) [6]int {
 		(SELECT count(*) FROM agent_configs WHERE project_id=$1),
 		(SELECT count(*) FROM agents WHERE project_id=$1),
 		(SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_kind='content'),
-		(SELECT count(*) FROM integration_targets WHERE project_id=$1),
+		(SELECT count(*) FROM app_targets WHERE project_id=$1),
 		(SELECT count(*) FROM app_subscriptions WHERE project_id=$1),
 		(SELECT count(*) FROM actors WHERE project_id=$1)`, f.project.ProjectUUID).
 		Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5]))
@@ -106,7 +106,7 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	require.Equal(t, f.appID, testutil.RequireType[map[string]any](t, publicHandlers[f.appName])["app_id"])
 	var provider, actorTenant, actorUser string
 	var noTarget bool
-	require.NoError(t, pool.QueryRow(ctx, `SELECT input.integration_target_id IS NULL,
+	require.NoError(t, pool.QueryRow(ctx, `SELECT input.app_target_id IS NULL,
   actor.provider, actor.provider_tenant_id, actor.provider_user_id
   FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id WHERE input.id=$1`, inputID).
 		Scan(&noTarget, &provider, &actorTenant, &actorUser))
@@ -116,7 +116,7 @@ func TestPublicAppLaunchAtomicRollbackAndReplay(t *testing.T) {
 	require.Equal(t, "requester-7", actorUser)
 	selection, err := f.project.Store.Execution().GetInteractionSelection(ctx, f.project.ProjectUUID, agentID)
 	require.NoError(t, err)
-	require.Equal(t, uuid.Nil, selection.IntegrationTargetID)
+	require.Equal(t, uuid.Nil, selection.AppTargetID)
 	profile := requestJSONWithHeaders(t, f.handler, http.MethodGet,
 		f.project.ProjectPath+"/agent-profiles/"+f.profileID, "", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, profile["current_config"])["id"])

@@ -38,25 +38,25 @@ type insertAgentInput struct {
 }
 
 type AgentRecord struct {
-	ID                  uuid.UUID  `json:"id"`
-	OrgID               uuid.UUID  `json:"org_id"`
-	ProjectID           uuid.UUID  `json:"project_id"`
-	AgentProfileID      uuid.UUID  `json:"agent_profile_id,omitempty"`
-	State               AgentState `json:"state"`
-	Name                string     `json:"name,omitempty"`
-	CurrentConfigID     uuid.UUID  `json:"current_config_id"`
-	Model               AgentModelDisplay
-	IntegrationTargetID uuid.UUID `json:"integration_target_id,omitempty"`
-	IntegrationTarget   IntegrationTargetDisplay
-	IdempotencyKey      string     `json:"idempotency_key,omitempty"`
-	NextEventSequence   int64      `json:"-"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
-	ParentAgentID       uuid.UUID  `json:"parent_agent_id,omitempty"`
-	SubagentKey         string     `json:"subagent_key,omitempty"`
-	Activity            *AgentActivity
-	Created             bool `json:"-"`
+	ID                uuid.UUID  `json:"id"`
+	OrgID             uuid.UUID  `json:"org_id"`
+	ProjectID         uuid.UUID  `json:"project_id"`
+	AgentProfileID    uuid.UUID  `json:"agent_profile_id,omitempty"`
+	State             AgentState `json:"state"`
+	Name              string     `json:"name,omitempty"`
+	CurrentConfigID   uuid.UUID  `json:"current_config_id"`
+	Model             AgentModelDisplay
+	AppTargetID       uuid.UUID `json:"app_target_id,omitempty"`
+	AppTarget         AppTargetDisplay
+	IdempotencyKey    string     `json:"idempotency_key,omitempty"`
+	NextEventSequence int64      `json:"-"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	ArchivedAt        *time.Time `json:"archived_at,omitempty"`
+	ParentAgentID     uuid.UUID  `json:"parent_agent_id,omitempty"`
+	SubagentKey       string     `json:"subagent_key,omitempty"`
+	Activity          *AgentActivity
+	Created           bool `json:"-"`
 }
 
 type AgentActivity struct {
@@ -69,7 +69,7 @@ type AgentModelDisplay struct {
 	Name           string `json:"name"`
 }
 
-type IntegrationTargetDisplay struct {
+type AppTargetDisplay struct {
 	Provider         string `json:"provider,omitempty"`
 	ProviderTenantID string `json:"-"`
 	ProviderRef      string `json:"provider_ref,omitempty"`
@@ -193,12 +193,12 @@ type ListAgentsForProjectInput struct {
 }
 
 type AgentListFilters struct {
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
-	IncludeArchived        bool
+	AppTargetKinds   []string
+	HasAppTarget     *bool
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
+	IncludeArchived  bool
 }
 
 type ListAgentsForProjectResult struct {
@@ -221,7 +221,7 @@ func (s *Store) ListAgentsForProject(
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
-		"name", "created_at", "updated_at", "state", "integration_target_kind",
+		"name", "created_at", "updated_at", "state", "app_target_kind",
 	) {
 		return ListAgentsForProjectResult{}, errors.New("unsupported agent list sort")
 	}
@@ -237,13 +237,13 @@ func (s *Store) ListAgentsForProject(
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorIsNull: input.List.After.IsNull, CursorKey: input.List.After.Key,
-		CursorID:               input.List.After.ID,
-		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-		AgentProfileID:         input.Filters.AgentProfileID,
-		ParentAgentID:          input.Filters.ParentAgentID,
-		IncludeSubagents:       input.Filters.IncludeSubagents,
-		IncludeArchived:        input.Filters.IncludeArchived,
+		CursorID:         input.List.After.ID,
+		AppTargetKinds:   input.Filters.AppTargetKinds,
+		HasAppTarget:     input.Filters.HasAppTarget,
+		AgentProfileID:   input.Filters.AgentProfileID,
+		ParentAgentID:    input.Filters.ParentAgentID,
+		IncludeSubagents: input.Filters.IncludeSubagents,
+		IncludeArchived:  input.Filters.IncludeArchived,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -315,18 +315,18 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	rows, err := s.q.ListAgentsForProjectByCreatedAtDesc(
 		ctx,
 		dbsqlc.ListAgentsForProjectByCreatedAtDescParams{
-			ProjectID:              input.ProjectID,
-			NamePattern:            input.List.NamePattern,
-			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-			AgentProfileID:         input.Filters.AgentProfileID,
-			ParentAgentID:          input.Filters.ParentAgentID,
-			IncludeSubagents:       input.Filters.IncludeSubagents,
-			IncludeArchived:        input.Filters.IncludeArchived,
-			CursorSet:              input.List.After.Set,
-			CursorCreatedAt:        cursorCreatedAt,
-			CursorID:               input.List.After.ID,
-			RowLimit:               int64(input.Limit) + 1,
+			ProjectID:        input.ProjectID,
+			NamePattern:      input.List.NamePattern,
+			AppTargetKinds:   input.Filters.AppTargetKinds,
+			HasAppTarget:     input.Filters.HasAppTarget,
+			AgentProfileID:   input.Filters.AgentProfileID,
+			ParentAgentID:    input.Filters.ParentAgentID,
+			IncludeSubagents: input.Filters.IncludeSubagents,
+			IncludeArchived:  input.Filters.IncludeArchived,
+			CursorSet:        input.List.After.Set,
+			CursorCreatedAt:  cursorCreatedAt,
+			CursorID:         input.List.After.ID,
+			RowLimit:         int64(input.Limit) + 1,
 		},
 	)
 	if err != nil {

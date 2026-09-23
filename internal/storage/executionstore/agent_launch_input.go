@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -26,9 +26,9 @@ type LaunchInitialInput struct {
 }
 
 type LaunchInputOrigin struct {
-	AppID       uuid.UUID                            `json:"app_id"`
-	Address     integrationstore.ConversationAddress `json:"address"`
-	DisplayName string                               `json:"display_name,omitempty"`
+	AppID       uuid.UUID                    `json:"app_id"`
+	Address     appstore.ConversationAddress `json:"address"`
+	DisplayName string                       `json:"display_name,omitempty"`
 }
 
 type launchAdmission struct {
@@ -117,25 +117,25 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		content.IdempotencyKey = launchChildIdempotencyKey(launch.IdempotencyKey, "content-input")
 	}
 	if origin := initial.Origin; origin != nil {
-		targetInput := integrationstore.EnsureConversationTargetInput{
+		targetInput := appstore.EnsureConversationTargetInput{
 			ProjectID: agent.ProjectID, AgentID: agent.ID, AppID: origin.AppID,
 			Address: origin.Address, DisplayName: origin.DisplayName,
 		}
 		if admission != nil {
 			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
 		}
-		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
+		result.AppTarget, err = s.apps.EnsureConversationTargetTx(ctx, tx, targetInput)
 		if err != nil {
 			return err
 		}
 		if admission != nil {
-			if err := s.integrations.AssignAgentAppConversationTx(
+			if err := s.apps.AssignAgentAppConversationTx(
 				ctx, tx, agent.ProjectID, agent.ID, admission.AppID, origin.Address,
 			); err != nil {
 				return err
 			}
 		}
-		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, origin.AppID)
+		app, err := s.apps.GetProjectAppByIDTx(ctx, tx, origin.AppID)
 		if err != nil {
 			return err
 		}
@@ -144,8 +144,8 @@ func (s *Store) insertLaunchInitialContentInputTx(
 				return err
 			}
 		}
-		content.IntegrationTargetID = result.IntegrationTarget.ID
-		content.IdempotencyScope = integrationstore.IdempotencyScope(app)
+		content.AppTargetID = result.AppTarget.ID
+		content.IdempotencyScope = appstore.IdempotencyScope(app)
 	}
 	if admission != nil {
 		result.Artifacts, err = artifactstore.InsertPreparedArtifactsTx(
@@ -163,13 +163,13 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	if err != nil {
 		return err
 	}
-	if created.created && content.IntegrationTargetID != uuid.Nil {
+	if created.created && content.AppTargetID != uuid.Nil {
 		if _, err := s.SelectInteractionDestinationForOriginTx(
 			ctx,
 			tx,
 			agent.ProjectID,
 			agent.ID,
-			content.IntegrationTargetID,
+			content.AppTargetID,
 		); err != nil {
 			return err
 		}

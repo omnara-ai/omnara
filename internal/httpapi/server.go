@@ -15,9 +15,9 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -72,7 +72,7 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
-	integrationHTTPClient               *http.Client
+	appHTTPClient                       *http.Client
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -225,9 +225,9 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 	}
 }
 
-func WithIntegrationHTTPClient(client *http.Client) Option {
+func WithAppHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
-		s.integrationHTTPClient = client
+		s.appHTTPClient = client
 	}
 }
 

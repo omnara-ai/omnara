@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -29,7 +29,7 @@ func (f appActivationFixture) launchWithSelectedApp(t *testing.T) executionstore
 	definition = f.encodedDefinition(t, compiled)
 	input := f.launchInput(uuid.Nil, "selected-app")
 	input.DerivedConfig = &definition
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
 	target := (appInteractionFixture{ctx: f.ctx, store: f.store, app: f.app}).target(t, launch.Agent.ID, "C123:111.222")
@@ -43,7 +43,7 @@ func (f appActivationFixture) launchWithSelectedApp(t *testing.T) executionstore
 	)
 	require.NoError(t, err)
 	require.Equal(t, "chat", selection.HandlerKey)
-	require.Equal(t, target.ID, selection.IntegrationTargetID)
+	require.Equal(t, target.ID, selection.AppTargetID)
 	require.NoError(t, tx.Commit(f.ctx))
 	return launch
 }
@@ -74,9 +74,9 @@ func TestConfigChangeDropsPreviousAppWithoutItsGate(t *testing.T) {
 
 func (f appActivationFixture) revokeAppForConfigGateTest(state string) error {
 	if state == "deleted" {
-		return f.store.Integrations().DeleteProjectApp(f.ctx, testOrgID, testProjectID, f.app.ID)
+		return f.store.Apps().DeleteProjectApp(f.ctx, testOrgID, testProjectID, f.app.ID)
 	}
-	_, err := f.store.Integrations().DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{
+	_, err := f.store.Apps().DisconnectProjectApp(f.ctx, appstore.DisconnectProjectAppInput{
 		ProjectID: testProjectID, AppID: f.app.ID,
 	})
 	return err

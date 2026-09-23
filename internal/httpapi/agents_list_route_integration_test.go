@@ -18,8 +18,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -151,7 +151,7 @@ func TestListAgents(t *testing.T) {
 				t.Fatalf("cursor paging returned duplicate agent %s", id)
 			}
 			if id == slackTargetAgentID {
-				assertListAgentsIntegrationTarget(
+				assertListAgentsAppTarget(
 					t,
 					row,
 					"slack",
@@ -514,12 +514,12 @@ func seedListAgentsSlackTarget(
 		IdempotencyKey: "list-agents-handler",
 	})
 	require.NoError(t, err)
-	_, _, err = store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+	_, _, err = store.Apps().AcceptAppReceipt(ctx, appstore.VerifiedAppReceipt{
 		ProjectID: project.ProjectUUID, AppID: install.ID,
 		ReceiptKey: "list-origin", Payload: []byte(`{"verified":true}`),
 	})
 	require.NoError(t, err)
-	receipt, found, err := store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+	receipt, found, err := store.Apps().ClaimAppInbox(ctx, appstore.ClaimAppInboxInput{
 		ProjectID: project.ProjectUUID, AppID: install.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
@@ -530,7 +530,7 @@ func seedListAgentsSlackTarget(
 		AgentID: agent.ID, Input: executionstore.CreateAgentContentInputInput{
 			Origin: &executionstore.AgentInputOrigin{
 				AppID: install.ID,
-				Address: integrationstore.ConversationAddress{
+				Address: appstore.ConversationAddress{
 					Kind: "thread",
 					Ref:  "C0BAK8REEGY:1783382417.000100",
 				},
@@ -540,11 +540,11 @@ func seedListAgentsSlackTarget(
 		},
 	}})
 	require.NoError(t, err)
-	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
-		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
+	require.NoError(t, store.Apps().WithAppInboxLease(ctx, receipt.Lease(),
+		func(w *appstore.AppInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
 	_, err = store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
 	require.NoError(t, err)
-	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
+	if err := store.Apps().UpdateAppTargetDisplayNamesByProviderRefPrefix(
 		ctx,
 		project.ProjectUUID,
 		install.ID,
@@ -560,7 +560,7 @@ func seedListAgentsSlackTarget(
 	return publicAgentID
 }
 
-func assertListAgentsIntegrationTarget(
+func assertListAgentsAppTarget(
 	t *testing.T,
 	row map[string]any,
 	provider string,
@@ -570,28 +570,28 @@ func assertListAgentsIntegrationTarget(
 	providerURI string,
 ) {
 	t.Helper()
-	raw, ok := row["integration_target"]
+	raw, ok := row["app_target"]
 	if !ok {
-		t.Fatalf("list agent missing integration target: %+v", row)
+		t.Fatalf("list agent missing app target: %+v", row)
 	}
 	target, ok := raw.(map[string]any)
 	if !ok {
-		t.Fatalf("integration target has unexpected shape: %+v", raw)
+		t.Fatalf("app target has unexpected shape: %+v", raw)
 	}
 	// Released clients still interpret this field as a transport, not an app type.
 	if got := target["provider"]; got != provider {
-		t.Fatalf("integration target provider = %v, want %q", got, provider)
+		t.Fatalf("app target provider = %v, want %q", got, provider)
 	}
 	if got := target["provider_ref"]; got != providerRef {
-		t.Fatalf("integration target provider_ref = %v, want %q", got, providerRef)
+		t.Fatalf("app target provider_ref = %v, want %q", got, providerRef)
 	}
 	if got := target["provider_ref_kind"]; got != refKind {
-		t.Fatalf("integration target provider_ref_kind = %v, want %q", got, refKind)
+		t.Fatalf("app target provider_ref_kind = %v, want %q", got, refKind)
 	}
 	if got := target["display_name"]; got != displayName {
-		t.Fatalf("integration target display_name = %v, want %q", got, displayName)
+		t.Fatalf("app target display_name = %v, want %q", got, displayName)
 	}
 	if got := target["provider_uri"]; got != providerURI {
-		t.Fatalf("integration target provider_uri = %v, want %q", got, providerURI)
+		t.Fatalf("app target provider_uri = %v, want %q", got, providerURI)
 	}
 }

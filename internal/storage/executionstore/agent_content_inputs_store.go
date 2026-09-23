@@ -24,9 +24,9 @@ func (s *Store) CreateAgentContentInput(
 	if input.AgentID == uuid.Nil {
 		return AgentInputRecord{}, nil, false, errors.New("agent id is required")
 	}
-	if input.Origin != nil || input.IntegrationTargetID != uuid.Nil {
+	if input.Origin != nil || input.AppTargetID != uuid.Nil {
 		return AgentInputRecord{}, nil, false, storeerr.InvalidRequest(
-			errors.New("integration origin requires verified inbox admission"),
+			errors.New("app origin requires verified inbox admission"),
 		)
 	}
 	exists, err := s.q.AgentExistsInProject(
@@ -177,7 +177,7 @@ func createAgentContentInputTx(
 			if !actorFound ||
 				existingInput.DeliveryMode != input.DeliveryMode ||
 				existingInput.ActorID != existingActorID ||
-				existingInput.IntegrationTargetID != input.IntegrationTargetID ||
+				existingInput.AppTargetID != input.AppTargetID ||
 				!sameJSON(existingInput.Metadata, normalizedJSON(input.Metadata)) ||
 				!sameJSON(existingContentBlocks, input.ContentBlocks) {
 				return createAgentContentInputTxResult{}, storeerr.ErrIdempotencyConflict
@@ -196,9 +196,9 @@ func createAgentContentInputTx(
 	if agent.State == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
-	if input.IntegrationTargetID != uuid.Nil {
+	if input.AppTargetID != uuid.Nil {
 		target, err := qtx.GetInteractionDestinationTarget(ctx, dbsqlc.GetInteractionDestinationTargetParams{
-			ProjectID: input.ProjectID, AgentID: input.AgentID, TargetID: input.IntegrationTargetID,
+			ProjectID: input.ProjectID, AgentID: input.AgentID, TargetID: input.AppTargetID,
 		})
 		if err != nil {
 			return createAgentContentInputTxResult{}, err
@@ -221,7 +221,7 @@ func createAgentContentInputTx(
 		AgentID:             input.AgentID,
 		DeliveryMode:        input.DeliveryMode,
 		ActorID:             actorID,
-		IntegrationTargetID: input.IntegrationTargetID,
+		AppTargetID:         input.AppTargetID,
 		IdempotencyScope:    input.IdempotencyScope,
 		InputIdempotencyKey: input.IdempotencyKey,
 		Metadata:            input.Metadata,
@@ -340,7 +340,7 @@ type CreateAgentContentInputInput struct {
 	ProjectID              uuid.UUID              `json:"project_id,omitempty"`
 	AgentID                uuid.UUID              `json:"agent_id,omitempty"`
 	Actor                  *ActorParams           `json:"actor,omitempty"`
-	IntegrationTargetID    uuid.UUID              `json:"integration_target_id,omitempty"`
+	AppTargetID            uuid.UUID              `json:"app_target_id,omitempty"`
 	Origin                 *AgentInputOrigin      `json:"origin,omitempty"`
 	ContentBlocks          json.RawMessage        `json:"content_blocks"`
 	Metadata               json.RawMessage        `json:"metadata,omitempty"`

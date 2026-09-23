@@ -15,9 +15,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -32,10 +32,10 @@ type appInteractionFixture struct {
 	store         *Store
 	user          identitystore.UserRecord
 	profile       executionstore.AgentProfileRecord
-	app, otherApp integrationstore.ProjectAppRecord
+	app, otherApp appstore.ProjectAppRecord
 	process       processDaemonFixture
 	handlers      map[string]agentconfig.AppCapabilityCompiled
-	a, b          integrationstore.IntegrationTargetRecord
+	a, b          appstore.AppTargetRecord
 }
 
 func newAppInteractionFixture(t *testing.T) appInteractionFixture {
@@ -73,7 +73,7 @@ func newAppInteractionFixture(t *testing.T) appInteractionFixture {
 
 func (f appInteractionFixture) target(
 	t *testing.T, agentID uuid.UUID, address string,
-) integrationstore.IntegrationTargetRecord {
+) appstore.AppTargetRecord {
 	t.Helper()
 	// Admitting input here would disturb the fixture's already-active tool turn.
 	appID := f.app.ID
@@ -82,11 +82,11 @@ func (f appInteractionFixture) target(
 	}
 	tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, testOrgID, testProjectID))
-	require.NoError(t, integrationstore.LockAppsTx(f.ctx, tx, testProjectID, nil, appID))
-	conversation := integrationstore.ConversationAddress{Kind: "thread", Ref: address}
+	require.NoError(t, appstore.LockAppsTx(f.ctx, tx, testProjectID, nil, appID))
+	conversation := appstore.ConversationAddress{Kind: "thread", Ref: address}
 	require.NoError(
 		t,
-		integrationstore.LockConversationTx(f.ctx, tx, testProjectID, appID, conversation),
+		appstore.LockConversationTx(f.ctx, tx, testProjectID, appID, conversation),
 	)
 	require.NoError(
 		t,
@@ -96,8 +96,8 @@ func (f appInteractionFixture) target(
 			[]lifecyclelock.AgentRef{{ProjectID: testProjectID, AgentID: agentID}},
 		),
 	)
-	target, err := f.store.Integrations().
-		EnsureConversationTargetTx(f.ctx, tx, integrationstore.EnsureConversationTargetInput{
+	target, err := f.store.Apps().
+		EnsureConversationTargetTx(f.ctx, tx, appstore.EnsureConversationTargetInput{
 			ProjectID: testProjectID, AgentID: agentID, AppID: appID,
 			Address: conversation,
 		})
@@ -109,17 +109,17 @@ func (f appInteractionFixture) target(
 func (f appInteractionFixture) createApp(
 	t *testing.T,
 	name string,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
-	credential := createIntegrationCredential(t, f.ctx, f.store, testProjectID, f.user.ID, name)
+	credential := createAppCredential(t, f.ctx, f.store, testProjectID, f.user.ID, name)
 	secret, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, credential)
 	require.NoError(t, err)
-	app, err := f.store.Integrations().CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
+	app, err := f.store.Apps().CreateProjectApp(f.ctx, appstore.SaveProjectAppInput{
 		OrgID: testOrgID, ProjectID: testProjectID, Name: name, AppType: appdefinition.SlackThread,
 	})
 	require.NoError(t, err)
-	app, err = f.store.Integrations().
-		ConfigureProjectApp(f.ctx, integrationstore.ConfigureProjectAppInput{
+	app, err = f.store.Apps().
+		ConfigureProjectApp(f.ctx, appstore.ConfigureProjectAppInput{
 			OrgID:                 testOrgID,
 			ProjectID:             testProjectID,
 			AppID:                 app.ID,
@@ -180,8 +180,8 @@ func (f appInteractionFixture) change(
 
 func (f appInteractionFixture) disable(t *testing.T) {
 	t.Helper()
-	changed, err := f.store.Integrations().
-		DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
+	changed, err := f.store.Apps().
+		DisconnectProjectApp(f.ctx, appstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
 	require.NoError(t, err)
 	require.True(t, changed)
 }
@@ -205,7 +205,7 @@ func (f appInteractionFixture) selectOrigin(
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, selection.HandlerKey, stored.HandlerKey)
-	require.Equal(t, selection.IntegrationTargetID, stored.IntegrationTargetID)
+	require.Equal(t, selection.AppTargetID, stored.AppTargetID)
 	if selection.HandlerKey != "" {
 		require.JSONEq(t, string(selection.Args), string(stored.Args))
 	}
@@ -245,7 +245,7 @@ func (f appInteractionFixture) callback(
 			Actor: mustAppActorParams(t, f.app.ID, user),
 		},
 		AppID: f.app.ID, AppType: appdefinition.SlackThread,
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
+		Address: appstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
 	}
 }
 
@@ -274,7 +274,7 @@ func TestAppInteractionsSelectionAndCapturedQuestion(t *testing.T) {
 	question := f.question(t)
 	destination, err := question.CapturedDestination()
 	require.NoError(t, err)
-	require.Equal(t, f.a.ID, destination.IntegrationTargetID)
+	require.Equal(t, f.a.ID, destination.AppTargetID)
 	require.Equal(t, f.app.ID, destination.AppID)
 	require.Equal(t, "chat", destination.HandlerKey)
 	f.selectOrigin(t, f.b.ID)
@@ -284,7 +284,7 @@ func TestAppInteractionsSelectionAndCapturedQuestion(t *testing.T) {
 	selection, err = f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, f.b.ID, selection.IntegrationTargetID)
+	require.Equal(t, f.b.ID, selection.AppTargetID)
 	listed, err := f.store.Execution().ListAgentInteractionsForAgent(f.ctx,
 		executionstore.ListAgentInteractionsForAgentInput{
 			ProjectID: testProjectID,
@@ -428,7 +428,7 @@ func TestAppInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
 			v.AppType = appdefinition.DiscordThread
 		},
-		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.IntegrationTargetID = f.b.ID },
+		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.AppTargetID = f.b.ID },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Actor = nil },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
 			v.Actor.ProviderTenantID = "OTHER_APP"
@@ -477,7 +477,7 @@ func TestAppInteractionsIdentityCannotRedirectCapturedPrompt(t *testing.T) {
 			} else {
 				_, err := f.store.pool.Exec(
 					f.ctx,
-					`UPDATE integration_targets SET provider_ref='C123:999.888' WHERE project_id=$1 AND agent_id=$2 AND id=$3`,
+					`UPDATE app_targets SET provider_ref='C123:999.888' WHERE project_id=$1 AND agent_id=$2 AND id=$3`,
 					testProjectID,
 					f.process.AgentID,
 					f.a.ID,
@@ -538,11 +538,11 @@ func TestAppInteractionsCaptureUsesLockedCurrentSelectionWithoutAppGate(t *testi
 	interaction := integrationdb.AwaitSuccess(
 		t,
 		done,
-		"capture without acquiring a app gate after the agent lock",
+		"capture without acquiring an app gate after the agent lock",
 	)
 	destination, err := interaction.CapturedDestination()
 	require.NoError(t, err)
-	require.Equal(t, f.b.ID, destination.IntegrationTargetID)
+	require.Equal(t, f.b.ID, destination.AppTargetID)
 	require.Equal(t, "other", destination.HandlerKey)
 	require.NoError(t, appGate.Rollback(f.ctx))
 	callback := f.callback(t, interaction, "U_OTHER_PARTICIPANT")
@@ -638,7 +638,7 @@ func TestAppInteractionsCallbackFencesVerifiedSetupRevision(t *testing.T) {
 	result := integrationdb.Await(t, done, "callback verified before app setup revision changed")
 	require.ErrorIs(t, result.Err, storeerr.ErrUnauthorized)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, question.ID).State)
-	current, err := f.store.Integrations().GetProjectApp(f.ctx, testProjectID, f.app.ID)
+	current, err := f.store.Apps().GetProjectApp(f.ctx, testProjectID, f.app.ID)
 	require.NoError(t, err)
 	input.SourceSetupRevision = current.SetupRevision
 	resolved, err := f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, input)
@@ -878,14 +878,14 @@ func TestInteractionSelectionDatabaseRequiresCompleteSelection(t *testing.T) {
 	t.Parallel()
 	f := newAppInteractionFixture(t)
 	for _, fields := range []string{
-		"integration_target_id=$2",
+		"app_target_id=$2",
 		"interaction_handler_key='chat'",
 		"interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_key='chat'",
+		"app_target_id=$2, interaction_handler_key='chat'",
 		"interaction_handler_key='chat', interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_key='', interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_key='chat', interaction_handler_args='null'::jsonb",
+		"app_target_id=$2, interaction_handler_args='{}'::jsonb",
+		"app_target_id=$2, interaction_handler_key='', interaction_handler_args='{}'::jsonb",
+		"app_target_id=$2, interaction_handler_key='chat', interaction_handler_args='null'::jsonb",
 	} {
 		args := []any{f.process.AgentID}
 		if strings.Contains(fields, "$2") {

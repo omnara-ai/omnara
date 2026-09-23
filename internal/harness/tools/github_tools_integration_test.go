@@ -21,8 +21,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +31,7 @@ import (
 
 func createGitHubToolApp(
 	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -44,11 +44,11 @@ func createGitHubToolApp(
 		},
 	})
 	require.NoError(t, err)
-	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+	app, err := store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
 		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", AppType: appdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
-	app, err = store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+	app, err = store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
 		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, AppID: app.ID,
 		ExpectedSetupRevision: app.SetupRevision, InstalledByUserID: userID,
 		Provider: appdefinition.ProviderGitHub, ProviderTenantID: "11", ProviderAccountRef: "22",
@@ -153,7 +153,7 @@ func TestGitHubAppReadSections(t *testing.T) {
 				_, _ = w.Write([]byte(tt.response))
 			})
 			call := f.recordToolCall(t, ctx, "read", toolcatalog.AppToolName("chat", "read"), tt.input, f.Now)
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
@@ -242,7 +242,7 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 				})
 				name := toolcatalog.AppToolName("chat", tt.operation)
 				call := f.recordToolCall(t, ctx, "comment", name, tt.input, f.Now)
-				executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+				executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 				require.NoError(t, err)
 				body := toolResultMapFromTestParts(t, result.ContentParts)
@@ -304,7 +304,7 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 				writeToolTestJSON(w, map[string]any{"message": "private-provider-details"})
 			})
 			call := f.recordToolCall(t, ctx, "comment", toolcatalog.AppToolName("chat", operation), input, f.Now)
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)

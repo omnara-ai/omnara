@@ -430,7 +430,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"ConfigureProjectAppRequest.provider_agent_display_name": "#/components/schemas/AppProviderDisplayName",
 		"ProjectApp.provider_config":                             "#/components/schemas/AppProviderConfig",
 		"ConfigureProjectAppRequest.provider_config":             "#/components/schemas/AppProviderConfig",
-		"IntegrationTarget.display_name":                         "",
+		"AppTarget.display_name":                                 "",
 		"MachinePool.provider_config":                            "",
 		"MCPRegistryHeader.name":                                 "",
 		"MCPRegistryServer.name":                                 "",

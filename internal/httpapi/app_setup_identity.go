@@ -5,11 +5,11 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/integration/github"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 )
 
 func appSetupInputError(err error) error {
@@ -49,10 +49,10 @@ func appSetupInputError(err error) error {
 }
 
 func appCredentialAlreadyVerified(
-	current *integrationstore.ProjectAppRecord,
-	input integrationstore.ConfigureProjectAppInput,
+	current *appstore.ProjectAppRecord,
+	input appstore.ConfigureProjectAppInput,
 ) bool {
-	if current == nil || current.State != integrationstore.ProjectAppStateActive ||
+	if current == nil || current.State != appstore.ProjectAppStateActive ||
 		current.CredentialSecretID != input.CredentialSecretID ||
 		input.CredentialVersionID == uuid.Nil {
 		return false
@@ -65,8 +65,8 @@ func appCredentialAlreadyVerified(
 }
 
 func setVerifiedAppIdentity(
-	input *integrationstore.ConfigureProjectAppInput,
-	current *integrationstore.ProjectAppRecord,
+	input *appstore.ConfigureProjectAppInput,
+	current *appstore.ProjectAppRecord,
 	identity any,
 ) error {
 	metadata := make(map[string]json.RawMessage)

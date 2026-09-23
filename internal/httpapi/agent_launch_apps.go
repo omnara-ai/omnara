@@ -9,9 +9,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 func (s strictOpenAPIServer) preparePublicAgentLaunch(
@@ -53,7 +53,7 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 			if !ok {
 				return input, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid subscription app_id")
 			}
-			attachment := integrationstore.AppSubscriptionAttachment{
+			attachment := appstore.AppSubscriptionAttachment{
 				AppID: appID, Type: source.Type, Conversation: source.Conversation,
 			}
 			if source.Events != nil {

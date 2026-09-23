@@ -17,7 +17,7 @@ WITH candidates AS (
     SELECT choice.id FROM app_states choice
     WHERE choice.kind = 'profile_choice' AND choice.expires_at < statement_timestamp() - $1::bigint * interval '1 millisecond'
       AND NOT EXISTS (
-          SELECT 1 FROM integration_inbox inbox
+          SELECT 1 FROM app_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
             AND inbox.receipt_key = 'choice:' || choice.id::text
       )
@@ -46,7 +46,7 @@ const findPendingAppProfileChoice = `-- name: FindPendingAppProfileChoice :one
 WITH candidates AS (
     (SELECT choice.id, 0 AS priority
      FROM app_states choice
-     JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
+     JOIN app_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
        AND inbox.receipt_key = 'choice:' || choice.id::text
      WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.app_id = $2
        AND choice.scope_kind = $3::text
@@ -61,7 +61,7 @@ WITH candidates AS (
        AND choice.scope_ref = $4::text
        AND COALESCE(choice.data->>'selected_key', '') = '' AND choice.expires_at > statement_timestamp()
        AND (choice.data->>'message_id' <> '' OR EXISTS (
-           SELECT 1 FROM integration_inbox owner
+           SELECT 1 FROM app_inbox owner
            WHERE owner.id = CASE WHEN choice.kind = 'profile_choice'
                                 THEN (choice.data->>'owner_receipt_id')::uuid END AND owner.project_id = choice.project_id
              AND owner.app_id = choice.app_id AND owner.state IN ('pending', 'processing')
@@ -110,7 +110,7 @@ func (q *Queries) FindPendingAppProfileChoice(ctx context.Context, arg FindPendi
 const findUnplannedAppProfileChoiceReservation = `-- name: FindUnplannedAppProfileChoiceReservation :one
 SELECT inbox.id, inbox.state
 FROM app_states choice
-JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
+JOIN app_inbox inbox ON inbox.project_id = choice.project_id AND inbox.app_id = choice.app_id
   AND inbox.receipt_key = 'choice:' || choice.id::text
 WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.app_id = $2
   AND choice.scope_kind = $3::text AND choice.scope_ref = $4::text
@@ -186,7 +186,7 @@ func (q *Queries) GetAppProfileChoiceAppForShare(ctx context.Context, arg GetApp
 }
 
 const insertAppProfileChoiceInboxReceipt = `-- name: InsertAppProfileChoiceInboxReceipt :one
-INSERT INTO integration_inbox(project_id, app_id, receipt_key, payload, events)
+INSERT INTO app_inbox(project_id, app_id, receipt_key, payload, events)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (project_id, app_id, receipt_key) DO NOTHING
 RETURNING id, project_id, app_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
@@ -200,7 +200,7 @@ type InsertAppProfileChoiceInboxReceiptParams struct {
 	Events     *json.RawMessage
 }
 
-func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg InsertAppProfileChoiceInboxReceiptParams) (IntegrationInbox, error) {
+func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg InsertAppProfileChoiceInboxReceiptParams) (AppInbox, error) {
 	row := q.db.QueryRow(ctx, insertAppProfileChoiceInboxReceipt,
 		arg.ProjectID,
 		arg.AppID,
@@ -208,7 +208,7 @@ func (q *Queries) InsertAppProfileChoiceInboxReceipt(ctx context.Context, arg In
 		arg.Payload,
 		arg.Events,
 	)
-	var i IntegrationInbox
+	var i AppInbox
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,

@@ -12,9 +12,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -38,7 +38,7 @@ type LaunchAgentInput struct {
 	DerivedBaseConfigID     uuid.UUID
 	Subagent                *SubagentLaunch
 	InitialInput            *LaunchInitialInput
-	Subscriptions           []integrationstore.AppSubscriptionAttachment
+	Subscriptions           []appstore.AppSubscriptionAttachment
 	admission               *launchAdmission
 }
 
@@ -52,7 +52,7 @@ type LaunchAgentResult struct {
 	ProvisionMachineIDs []uuid.UUID
 	AgentInput          AgentInputRecord
 	InputContentBlocks  json.RawMessage
-	IntegrationTarget   integrationstore.IntegrationTargetRecord
+	AppTarget           appstore.AppTargetRecord
 	Artifacts           []artifactstore.ArtifactRecord
 	Created             bool
 }
@@ -83,7 +83,7 @@ func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) 
 			errors.New("profile-attributed derived launch requires a base config"),
 		)
 	}
-	if len(input.Subscriptions) > integrationstore.MaxAppSubscriptionsPerLaunch {
+	if len(input.Subscriptions) > appstore.MaxAppSubscriptionsPerLaunch {
 		return LaunchAgentInput{}, storeerr.InvalidRequest(errors.New("at most 100 launch subscriptions are allowed"))
 	}
 	if input.InitialInput != nil && (input.Message != "" || input.MessageActor != nil) {
@@ -161,7 +161,7 @@ func (s *Store) launchAgentTx(
 	// Lock order: project -> all apps -> receipt -> conversation -> launch key ->
 	// profile -> machine sources/model -> agent. Inbox admission must already hold
 	// every app gate used by this nested launch to avoid re-entering an earlier class.
-	if err := integrationstore.LockAppsTx(
+	if err := appstore.LockAppsTx(
 		ctx,
 		tx,
 		input.ProjectID,
@@ -173,9 +173,9 @@ func (s *Store) launchAgentTx(
 	if initial != nil && initial.Origin != nil {
 		origins = append(origins, AgentInputOrigin(*initial.Origin))
 	}
-	subscriptions := make([]integrationstore.RegisterAppSubscriptionInput, 0, len(input.Subscriptions))
+	subscriptions := make([]appstore.RegisterAppSubscriptionInput, 0, len(input.Subscriptions))
 	for _, attachment := range input.Subscriptions {
-		prepared, err := integrationstore.PrepareAppSubscriptionTx(ctx, tx, input.ProjectID, attachment)
+		prepared, err := appstore.PrepareAppSubscriptionTx(ctx, tx, input.ProjectID, attachment)
 		if err != nil {
 			return launchReplayAfterFailureTx(ctx, qtx, input, err)
 		}
@@ -339,7 +339,7 @@ func (s *Store) launchAgentTx(
 	for i := range subscriptions {
 		subscriptions[i].AgentID = agent.ID
 	}
-	if _, err := integrationstore.RegisterAppSubscriptionsTx(ctx, tx, subscriptions); err != nil {
+	if _, err := appstore.RegisterAppSubscriptionsTx(ctx, tx, subscriptions); err != nil {
 		return LaunchAgentResult{}, err
 	}
 

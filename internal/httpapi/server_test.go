@@ -1490,21 +1490,21 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 			want: http.StatusForbidden,
 		},
 		{
-			name:   "integration oauth callback route exact match",
+			name:   "app oauth callback route exact match",
 			method: http.MethodGet,
-			path:   integrationOAuthCallbackPath,
+			path:   appOAuthCallbackPath,
 			want:   http.StatusServiceUnavailable,
 		},
 		{
-			name:   "integration events provider route exact match",
+			name:   "app events provider route exact match",
 			method: http.MethodPost,
-			path:   integrationEventsPath,
+			path:   appEventsPath,
 			want:   http.StatusBadRequest,
 		},
 		{
-			name:   "integration actions provider route exact match",
+			name:   "app actions provider route exact match",
 			method: http.MethodPost,
-			path:   integrationActionsPath,
+			path:   appActionsPath,
 			want:   http.StatusBadRequest,
 		},
 		{

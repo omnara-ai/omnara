@@ -249,7 +249,7 @@ tools:
 	require.NoError(t, env.db.QueryRow(ctx, `SELECT
   (SELECT count(*) FROM project_apps WHERE project_id=$1),
   (SELECT count(*) FROM app_subscriptions WHERE agent_id=$2),
-  (SELECT count(*) FROM integration_targets WHERE agent_id=$2)`, projectUUID, agentUUID).
+  (SELECT count(*) FROM app_targets WHERE agent_id=$2)`, projectUUID, agentUUID).
 		Scan(&apps, &subscriptions, &targets))
 	require.Zero(t, apps)
 	require.Zero(t, subscriptions)

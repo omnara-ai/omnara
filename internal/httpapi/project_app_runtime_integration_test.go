@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func TestProjectAppRuntimeFailureOnlyOnGet(t *testing.T) {
 	setup := requestJSONWithHeaders(t, handler, http.MethodPost, appSetupPath(t, project, app),
 		projectAppHTTPJSON(t, body), "", http.StatusOK, headers)
 	require.NotContains(t, setup, "runtime_failure")
-	app, err := project.Store.Integrations().GetProjectApp(ctx, project.ProjectUUID, app.ID)
+	app, err := project.Store.Apps().GetProjectApp(ctx, project.ProjectUUID, app.ID)
 	require.NoError(t, err)
 	path := project.ProjectPath + "/apps/" + testPublicID(t, publicid.KindProjectApp, app.ID)
 	get := func() map[string]any {
@@ -38,13 +38,13 @@ func TestProjectAppRuntimeFailureOnlyOnGet(t *testing.T) {
 	var versionID uuid.UUID
 	err = pool.QueryRow(ctx, `SELECT current_version_id FROM secrets WHERE id=$1`, app.CredentialSecretID).Scan(&versionID)
 	require.NoError(t, err)
-	claim, found, err := project.Store.Integrations().ClaimAppRuntime(ctx, integrationstore.AppRuntimeRevision{
+	claim, found, err := project.Store.Apps().ClaimAppRuntime(ctx, appstore.AppRuntimeRevision{
 		ProjectID: project.ProjectUUID, AppID: app.ID, Key: "discord/shard/0",
 		SetupRevision: app.SetupRevision, CredentialVersionID: versionID,
 	}, 30*time.Second)
 	require.NoError(t, err)
 	require.True(t, found)
-	err = project.Store.Integrations().ReleaseAppRuntime(ctx, claim.Lease, time.Hour, "Discord Gateway closed: 4014")
+	err = project.Store.Apps().ReleaseAppRuntime(ctx, claim.Lease, time.Hour, "Discord Gateway closed: 4014")
 	require.NoError(t, err)
 	response := get()
 	require.Equal(t, "active", response["state"])

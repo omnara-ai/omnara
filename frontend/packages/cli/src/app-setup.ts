@@ -4,7 +4,7 @@ import * as z from 'zod'
 
 import { type CommandGroup, type FlowContext, flowOp, op } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
-import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
+import { runSlackApp, zSlackBody } from './slack-setup.ts'
 
 export const zAppProfilesBody = z.object({
   profile_ids: z
@@ -82,7 +82,7 @@ export const appCommandGroups: CommandGroup[] = [
         summary: 'Connect this app to Slack through browser authorization',
         path: schemas.zGetProjectAppPath,
         body: zSlackBody,
-        run: runSlackIntegration,
+        run: runSlackApp,
       }),
       flowOp({
         verb: 'profiles',

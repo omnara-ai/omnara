@@ -41,15 +41,15 @@ function Outcome() {
 }
 
 it.each([
-  ['integration_oauth=success&app_id=app_current', 'Connected'],
-  ['integration_oauth=success&app_id=app_other', ''],
-  ['integration_oauth=success', ''],
-  ['integration_oauth=pending&app_id=app_current', ''],
-  ['integration_oauth_error=app_setup_changed', 'Refresh the app and start setup again.'],
-  ['integration_oauth_error=app_deleted', 'Choose or create an app before starting setup again.'],
-  ['integration_oauth_error=flow_consumed', 'Refresh the app to see its current setup.'],
+  ['app_oauth=success&app_id=app_current', 'Connected'],
+  ['app_oauth=success&app_id=app_other', ''],
+  ['app_oauth=success', ''],
+  ['app_oauth=pending&app_id=app_current', ''],
+  ['app_oauth_error=app_setup_changed', 'Refresh the app and start setup again.'],
+  ['app_oauth_error=app_deleted', 'Choose or create an app before starting setup again.'],
+  ['app_oauth_error=flow_consumed', 'Refresh the app to see its current setup.'],
   [
-    'integration_oauth=success&app_id=app_current&integration_oauth_error=missing_scope',
+    'app_oauth=success&app_id=app_current&app_oauth_error=missing_scope',
     'Please approve the requested permissions and try again.',
   ],
 ])('consumes %s while preserving unrelated URL and history state', (query, expected) => {
@@ -93,30 +93,30 @@ it('does not replace history when there is no OAuth outcome', () => {
   expect(replace).not.toHaveBeenCalled()
 })
 
-it.each([
-  'integration_oauth_error=app_setup_changed',
-  'integration_oauth=success&app_id=app_current',
-])('clears %s without changing unrelated URL state', (query) => {
-  const pagePath = '/projects/project/apps/app_current'
-  window.history.replaceState(
-    { checkpoint: 'kept' },
-    '',
-    `${pagePath}?draft=keep&${query}#profiles`,
-  )
-  act(() => {
-    root.render(<Outcome />)
-  })
-  expect(container.querySelector('[role="alert"], [role="status"]')).not.toBeNull()
-  act(() => {
-    button('Clear outcome').click()
-  })
-  expect(container.textContent).toBe('')
-  act(() => {
-    root.render(<Outcome />)
-  })
-  expect(container.textContent).toBe('')
-  expect(window.location.pathname + window.location.search + window.location.hash).toBe(
-    `${pagePath}?draft=keep#profiles`,
-  )
-  expect(window.history.state).toEqual({ checkpoint: 'kept' })
-})
+it.each(['app_oauth_error=app_setup_changed', 'app_oauth=success&app_id=app_current'])(
+  'clears %s without changing unrelated URL state',
+  (query) => {
+    const pagePath = '/projects/project/apps/app_current'
+    window.history.replaceState(
+      { checkpoint: 'kept' },
+      '',
+      `${pagePath}?draft=keep&${query}#profiles`,
+    )
+    act(() => {
+      root.render(<Outcome />)
+    })
+    expect(container.querySelector('[role="alert"], [role="status"]')).not.toBeNull()
+    act(() => {
+      button('Clear outcome').click()
+    })
+    expect(container.textContent).toBe('')
+    act(() => {
+      root.render(<Outcome />)
+    })
+    expect(container.textContent).toBe('')
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      `${pagePath}?draft=keep#profiles`,
+    )
+    expect(window.history.state).toEqual({ checkpoint: 'kept' })
+  },
+)

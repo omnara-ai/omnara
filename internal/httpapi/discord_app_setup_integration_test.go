@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,7 +80,7 @@ func TestDiscordHTTPSetupDiscoversBotIdentity(t *testing.T) {
 	require.Equal(t, "111", app.ProviderTenantID)
 	require.Equal(t, "222", app.ProviderAccountRef)
 	require.Equal(t, "Helper", app.ProviderAgentDisplayName)
-	require.Equal(t, integrationstore.ProjectAppStateActive, app.State)
+	require.Equal(t, appstore.ProjectAppStateActive, app.State)
 }
 
 func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
@@ -205,7 +205,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 
 func configureDiscordHTTPApp(
 	t *testing.T, handler http.Handler, project publicHTTPProject, body map[string]any,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
 	requestJSONWithHeaders(
@@ -218,7 +218,7 @@ func configureDiscordHTTPApp(
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	app, err := project.Store.Integrations().
+	app, err := project.Store.Apps().
 		GetProjectApp(t.Context(), project.ProjectUUID, app.ID)
 	require.NoError(t, err)
 	var identity discord.Identity

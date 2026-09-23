@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
@@ -53,8 +53,8 @@ func TestInteractionPresenterLateReceiptAfterCancelDismisses(t *testing.T) {
 		f.Now,
 	)
 	executor := Executor{
-		Store:                 f.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
+		Store:         f.Store,
+		AppHTTPClient: appProviderTestClient(server),
 	}
 	_, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
@@ -117,8 +117,8 @@ func TestInteractionPresenterRechecksAppBeforeRetry(t *testing.T) {
 	call := f.recordToolCall(t, ctx, "revoked-question", "ask_question",
 		`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
 	executor := Executor{
-		Store:                 f.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
+		Store:         f.Store,
+		AppHTTPClient: appProviderTestClient(server),
 	}
 	_, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
@@ -128,8 +128,8 @@ func TestInteractionPresenterRechecksAppBeforeRetry(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("presentation did not start")
 	}
-	_, err = f.Store.Integrations().
-		DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+	_, err = f.Store.Apps().
+		DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
 			ProjectID:             toolsTestProjectID,
 			AppID:                 f.Install.ID,
 			ExpectedSetupRevision: &f.Install.SetupRevision,

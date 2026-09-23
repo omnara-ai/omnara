@@ -37,7 +37,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
-LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
+LEFT JOIN app_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
     AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
@@ -60,7 +60,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
-LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
+LEFT JOIN app_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
     AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
@@ -90,7 +90,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        false AS sort_is_null
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
-LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
+LEFT JOIN app_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
     AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)
@@ -131,7 +131,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.created_at, trigger.updated_at
 FROM cron_triggers trigger
 JOIN projects project ON project.id = trigger.project_id
-LEFT JOIN integration_inbox receipt ON receipt.id = trigger.last_app_receipt_id
+LEFT JOIN app_inbox receipt ON receipt.id = trigger.last_app_receipt_id
     AND receipt.project_id = trigger.project_id AND receipt.app_id = trigger.app_id
     AND receipt.source = 'scheduled'
 WHERE trigger.project_id = sqlc.arg(project_id)

@@ -170,7 +170,7 @@ func (e Executor) PrepareToolCallPermission(
 	if err != nil {
 		return err
 	}
-	e.enqueueIntegrationPromptCopy(turn, interaction)
+	e.enqueueAppPromptCopy(turn, interaction)
 	return nil
 }
 

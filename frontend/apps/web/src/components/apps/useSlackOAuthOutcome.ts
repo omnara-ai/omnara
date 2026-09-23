@@ -4,13 +4,13 @@ import { slackOAuthErrorDescription } from './slackOAuthErrors'
 
 export type SlackOAuthOutcome = { kind: 'success' } | { kind: 'error'; description: string }
 
-const params = ['integration_oauth', 'integration_oauth_error', 'app_id']
+const params = ['app_oauth', 'app_oauth_error', 'app_id']
 
 function readOutcome(appId: string): SlackOAuthOutcome | null {
   const search = new URLSearchParams(window.location.search)
-  const errorCode = search.get('integration_oauth_error')
+  const errorCode = search.get('app_oauth_error')
   if (errorCode) return { kind: 'error', description: slackOAuthErrorDescription(errorCode) }
-  return search.get('integration_oauth') === 'success' && search.get('app_id') === appId
+  return search.get('app_oauth') === 'success' && search.get('app_id') === appId
     ? { kind: 'success' }
     : null
 }

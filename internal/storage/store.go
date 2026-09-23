@@ -8,10 +8,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/accountsecurity"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -25,7 +25,7 @@ type Store struct {
 	models          *modelstore.Store
 	artifacts       *artifactstore.Store
 	execution       *executionstore.Store
-	integrations    *integrationstore.Store
+	apps            *appstore.Store
 	secrets         *secretstore.Store
 	skills          *skillstore.Store
 	organizations   *orglifecycle.Service
@@ -86,11 +86,11 @@ func NewStore(pool *pgxpool.Pool, opts ...Option) *Store {
 	store.secrets = secretstore.New(pool, config.secretKeyWrapper, store.identity)
 	store.skills = skillstore.New(pool, config.blobs, store.identity)
 	store.artifacts = artifactstore.New(pool, config.blobs)
-	store.integrations = integrationstore.New(pool, executionstore.AppAccess{})
+	store.apps = appstore.New(pool, executionstore.AppAccess{})
 	store.execution = executionstore.New(pool, executionstore.Config{
 		PostCommitPublisher:   config.postCommitPublisher,
 		ModelCallRetryBackoff: config.modelCallRetryBackoff,
-		Integrations:          store.integrations,
+		Apps:                  store.apps,
 		MachinePoolProviders:  config.machinePoolProviders,
 		Identity:              store.identity,
 		Secrets:               store.secrets,
@@ -123,8 +123,8 @@ func (s *Store) Artifacts() *artifactstore.Store {
 	return s.artifacts
 }
 
-func (s *Store) Integrations() *integrationstore.Store {
-	return s.integrations
+func (s *Store) Apps() *appstore.Store {
+	return s.apps
 }
 
 func (s *Store) Execution() *executionstore.Store {

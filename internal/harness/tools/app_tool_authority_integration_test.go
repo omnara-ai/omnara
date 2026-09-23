@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -52,7 +52,7 @@ func TestAppToolApprovalShowsResolvedDestination(t *testing.T) {
 				w.WriteHeader(http.StatusForbidden)
 			}))
 			defer server.Close()
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 			require.NoError(t, executor.PrepareToolCallPermission(ctx, f.turn(), call))
 			interaction := integrationToolInteraction(t, ctx, f, f.toolCallID(t, ctx, call.ID),
 				executionstore.AgentInteractionKindPermission)
@@ -102,7 +102,7 @@ func TestAppToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) {
 			call := f.recordPendingToolCall(t, ctx, "invalid",
 				toolcatalog.AppToolName("chat", test.operation), test.args, f.Now)
 			if test.name == "disconnected" {
-				_, err := f.Store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+				_, err := f.Store.Apps().DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
 					ProjectID: toolsTestProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 				})
 				require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestAppToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) {
 				w.WriteHeader(http.StatusForbidden)
 			}))
 			defer server.Close()
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 			require.NoError(t, executor.PrepareToolCallPermission(ctx, f.turn(), call))
 			id := f.toolCallID(t, ctx, call.ID)
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, id)
@@ -208,7 +208,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						`{"text":"hello"}`,
 						f.Now,
 					)
-					var subscription integrationstore.AppSubscriptionRecord
+					var subscription appstore.AppSubscriptionRecord
 					if scenario == "subscription-detached" {
 						subscription = attachToolSubscription(t, f, "thread_messages", `{"channel_id":"C123","thread_ts":"111.222"}`, nil)
 					}
@@ -227,7 +227,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.1"})
 					}))
 					defer server.Close()
-					executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+					executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 					require.NoError(t, executor.PrepareToolCallPermission(ctx, turn, call))
 					permission := integrationToolInteraction(
 						t,
@@ -247,7 +247,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						case "removed":
 							delete(source.Tools, call.Name)
 						case "app-disconnected":
-							_, err := f.Store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+							_, err := f.Store.Apps().DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
 								ProjectID: toolsTestProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 							})
 							require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						case "rebound":
 							require.NoError(
 								t,
-								f.Store.Integrations().DeleteProjectApp(ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID),
+								f.Store.Apps().DeleteProjectApp(ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID),
 							)
 							replacement := createSlackToolApp(t, ctx, f.Store, f.User.ID, "chat", "replacement")
 							require.NotEqual(t, f.Install.ID, replacement.ID)
@@ -274,7 +274,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 								"chat": {},
 							}
 						case "subscription-detached":
-							require.NoError(t, f.Store.Integrations().DeleteAppSubscription(
+							require.NoError(t, f.Store.Apps().DeleteAppSubscription(
 								ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID, subscription.ID,
 							))
 							return
@@ -321,7 +321,7 @@ func TestAppToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 					require.Equal(t, wantOutcome, record.Outcome)
 					listed := f
 					if scenario == "rebound" {
-						listed.Install, err = f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "chat")
+						listed.Install, err = f.Store.Apps().GetProjectAppByName(ctx, toolsTestProjectID, "chat")
 						require.NoError(t, err)
 					}
 					require.Empty(t, appToolSubscriptions(t, listed), "approval and sending must not create subscriptions")
@@ -423,7 +423,7 @@ func TestAppToolsUseSavedConversation(t *testing.T) {
 					input = `{"content":"hello"}`
 				}
 				if state == "retired" {
-					_, err := f.Pool.Exec(ctx, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, f.Target.ID)
+					_, err := f.Pool.Exec(ctx, `UPDATE app_targets SET deleted_at=now() WHERE id=$1`, f.Target.ID)
 					require.NoError(t, err)
 				}
 				call := f.recordToolCall(t, ctx, "send", toolcatalog.AppToolName("chat", "post_message"), input, f.Now)
@@ -465,7 +465,7 @@ func TestAppToolsUseSavedConversation(t *testing.T) {
 				}))
 				defer server.Close()
 				_, err := dispatchAsyncToolToTerminal(t, ctx,
-					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+					Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
 				require.NoError(t, err)
 				record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 				require.NoError(t, err)
@@ -501,7 +501,7 @@ func TestAppToolMissingContextBeforeProviderIO(t *testing.T) {
 			}))
 			defer server.Close()
 			_, err := dispatchAsyncToolToTerminal(t, ctx,
-				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+				Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
 			require.NoError(t, err)
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
@@ -534,7 +534,7 @@ func TestAppToolRejectsDestinationArgumentsBeforeProviderIO(t *testing.T) {
 			}))
 			defer server.Close()
 			_, err := dispatchAsyncToolToTerminal(t, ctx,
-				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+				Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
 			require.NoError(t, err)
 			record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
@@ -545,9 +545,9 @@ func TestAppToolRejectsDestinationArgumentsBeforeProviderIO(t *testing.T) {
 	}
 }
 
-func appToolSubscriptions(t *testing.T, f integrationToolFixture) []integrationstore.AppSubscriptionRecord {
+func appToolSubscriptions(t *testing.T, f integrationToolFixture) []appstore.AppSubscriptionRecord {
 	t.Helper()
-	page, err := f.Store.Integrations().ListAppSubscriptions(t.Context(), integrationstore.ListAppSubscriptionsInput{
+	page, err := f.Store.Apps().ListAppSubscriptions(t.Context(), appstore.ListAppSubscriptionsInput{
 		ProjectID: toolsTestProjectID, AppID: f.Install.ID, Limit: 100,
 	})
 	require.NoError(t, err)
@@ -560,10 +560,10 @@ func attachToolSubscription(
 	f integrationToolFixture,
 	subscriptionType, conversation string,
 	events []string,
-) integrationstore.AppSubscriptionRecord {
+) appstore.AppSubscriptionRecord {
 	t.Helper()
-	subscription, err := f.Store.Integrations().
-		CreateAppSubscription(t.Context(), integrationstore.CreateAppSubscriptionInput{
+	subscription, err := f.Store.Apps().
+		CreateAppSubscription(t.Context(), appstore.CreateAppSubscriptionInput{
 			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, AppID: f.Install.ID, AgentID: f.Agent.ID,
 			Type: subscriptionType, Conversation: json.RawMessage(conversation), Events: events,
 		})

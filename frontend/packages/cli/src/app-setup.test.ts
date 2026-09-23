@@ -9,7 +9,7 @@ import { expect, it, vi } from 'vitest'
 import * as z from 'zod'
 
 import { runAppProfilesUpdate, zAppProfilesBody } from './app-setup.ts'
-import { runSlackIntegration, zSlackBody } from './slack-integration.ts'
+import { runSlackApp, zSlackBody } from './slack-setup.ts'
 
 const id = (prefix: string) => `${prefix}_${'a'.repeat(26)}`
 const path = { orgID: id('org'), projectID: id('proj'), appID: id('app') }
@@ -132,7 +132,7 @@ it('Slack waits for this app and the exact OAuth flow', async () => {
   })
   const output = report()
   try {
-    const run = runSlackIntegration({
+    const run = runSlackApp({
       client,
       path,
       apiUrl: 'https://omnara.test/api/v1',
@@ -158,7 +158,7 @@ it('rejects mixed Slack creation and existing-app credentials before sending a r
   const fetch = vi.fn()
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch })
   await expect(
-    runSlackIntegration({
+    runSlackApp({
       client,
       path,
       apiUrl: 'https://omnara.test/api/v1',

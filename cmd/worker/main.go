@@ -14,6 +14,10 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/apps/github"
+	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/config"
 	"github.com/omnara-ai/omnara/internal/crontrigger"
@@ -21,10 +25,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/integration/github"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
@@ -41,8 +41,8 @@ import (
 )
 
 const (
-	integrationHTTPClientTimeout = 5 * time.Minute
-	cronTriggerFireInterval      = 30 * time.Second
+	appHTTPClientTimeout    = 5 * time.Minute
+	cronTriggerFireInterval = 30 * time.Second
 )
 
 func main() {
@@ -139,9 +139,9 @@ func main() {
 		metrics.ReadyAll(db.Ping, redisClient.Ping),
 	)
 	httpRecorder := metrics.NewHTTPClientRecorder(metricSet, metrics.SubsystemHTTPClient)
-	integrationHTTPClient := metrics.NewObservedHTTPClient(
+	appHTTPClient := metrics.NewObservedHTTPClient(
 		outboundhttp.NewPublicClient(
-			outboundhttp.PublicClientOptions{Timeout: integrationHTTPClientTimeout},
+			outboundhttp.PublicClientOptions{Timeout: appHTTPClientTimeout},
 		),
 		httpRecorder,
 	)
@@ -189,7 +189,7 @@ func main() {
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 			Skills: store.Skills(),
 		},
 		ModelResolver: modelprovider.Resolver{
@@ -208,16 +208,16 @@ func main() {
 		MCPAuthHTTPClient:    mcpHTTPClient,
 		SigV4CredentialCache: sigV4CredentialCache,
 		ToolExecutor: tools.Executor{
-			Store:                 store,
-			Skills:                store.Skills(),
-			IntegrationHTTPClient: integrationHTTPClient,
-			WebSearch:             searchProvider,
-			WebFetcher:            webFetcher,
-			MachinePoolManager:    machinePoolManager,
-			BackgroundRunner:      backgroundRunner,
-			SkillBroadcaster:      skillBroadcaster,
-			AgentConfigOptions:    agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
-			Log:                   log,
+			Store:              store,
+			Skills:             store.Skills(),
+			AppHTTPClient:      appHTTPClient,
+			WebSearch:          searchProvider,
+			WebFetcher:         webFetcher,
+			MachinePoolManager: machinePoolManager,
+			BackgroundRunner:   backgroundRunner,
+			SkillBroadcaster:   skillBroadcaster,
+			AgentConfigOptions: agentconfig.CompileOptions{AllowInsecureLocalMCPHTTP: cfg.AllowInsecureDev},
+			Log:                log,
 		},
 		StreamPublisher: redisBus,
 		StreamLog:       log,
@@ -231,7 +231,7 @@ func main() {
 	presentationsDone := make(chan struct{})
 	go func() {
 		defer close(presentationsDone)
-		presenter := integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log}
+		presenter := apps.InteractionPresenter{Store: store, HTTPClient: appHTTPClient, Log: log}
 		presenter.RunPending(ctx, backgroundRunner)
 	}()
 	workerErr := make(chan error, 1)
@@ -244,13 +244,13 @@ func main() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
-	discordRuntime := integration.DiscordRuntime{
-		Capacity:     cfg.WorkerDiscordCapacity,
-		Integrations: store.Integrations(),
-		Secrets:      store.Secrets(),
-		Redis:        redisClient,
-		HTTPClient:   integrationHTTPClient,
-		Log:          log,
+	discordRuntime := apps.DiscordRuntime{
+		Capacity:   cfg.WorkerDiscordCapacity,
+		Apps:       store.Apps(),
+		Secrets:    store.Secrets(),
+		Redis:      redisClient,
+		HTTPClient: appHTTPClient,
+		Log:        log,
 	}
 	discordDone := make(chan struct{})
 	var discordRunErr error
@@ -261,48 +261,48 @@ func main() {
 			cancel()
 		}
 	}()
-	appRouter := integration.NewAppRouter(store.Execution(), store.Integrations())
-	slackProvider := integration.NewSlackAppInboxProvider(
-		slack.OAuthConfig{HTTPClient: integrationHTTPClient},
+	appRouter := apps.NewAppRouter(store.Execution(), store.Apps())
+	slackProvider := apps.NewSlackAppInboxProvider(
+		slack.OAuthConfig{HTTPClient: appHTTPClient},
 		store.Secrets(),
-		store.Integrations(),
+		store.Apps(),
 		store.Execution(),
 	)
-	discordProvider := integration.NewDiscordAppInboxProvider(
-		discord.Config{HTTPClient: integrationHTTPClient},
+	discordProvider := apps.NewDiscordAppInboxProvider(
+		discord.Config{HTTPClient: appHTTPClient},
 		store.Secrets(),
-		store.Integrations(),
+		store.Apps(),
 	)
-	appProviders := map[string]integration.AppInboxProvider{
+	appProviders := map[string]apps.AppInboxProvider{
 		"slack":   slackProvider,
 		"discord": discordProvider,
-		"github":  integration.NewGitHubAppInboxProvider(github.Config{HTTPClient: integrationHTTPClient}, store.Secrets(), store.Integrations()),
+		"github":  apps.NewGitHubAppInboxProvider(github.Config{HTTPClient: appHTTPClient}, store.Secrets(), store.Apps()),
 	}
-	chatLauncher := integration.NewChatAppLauncher(store.Integrations(), store.Execution(), appProviders)
-	appLaunchers := integration.NewAppLaunchWorkflow(appRouter, map[appdefinition.Type]integration.AppLauncher{
+	chatLauncher := apps.NewChatAppLauncher(store.Apps(), store.Execution(), appProviders)
+	appLaunchers := apps.NewAppLaunchWorkflow(appRouter, map[appdefinition.Type]apps.AppLauncher{
 		appdefinition.SlackThread:   chatLauncher.Decide,
 		appdefinition.DiscordThread: chatLauncher.Decide,
-		appdefinition.GitHubPR:      integration.EverySlotAppLauncher,
+		appdefinition.GitHubPR:      apps.EverySlotAppLauncher,
 	})
 	appLaunchers.Log = log
-	appConsumer := integration.NewAppInboxConsumer(
+	appConsumer := apps.NewAppInboxConsumer(
 		appRouter,
-		store.Integrations(),
+		store.Apps(),
 		store.Artifacts(),
 		appProviders,
-		integration.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log},
+		apps.InteractionPresenter{Store: store, HTTPClient: appHTTPClient, Log: log},
 		appLaunchers,
-		integration.WithAppScheduledHandlers(map[appdefinition.Type]integration.AppScheduledHandler{
-			appdefinition.SlackThread: integration.NewThreadAppScheduledHandler(
-				appRouter, store.Integrations(), slackProvider,
+		apps.WithAppScheduledHandlers(map[appdefinition.Type]apps.AppScheduledHandler{
+			appdefinition.SlackThread: apps.NewThreadAppScheduledHandler(
+				appRouter, store.Apps(), slackProvider,
 			).Handle,
-			appdefinition.DiscordThread: integration.NewThreadAppScheduledHandler(
-				appRouter, store.Integrations(), discordProvider,
+			appdefinition.DiscordThread: apps.NewThreadAppScheduledHandler(
+				appRouter, store.Apps(), discordProvider,
 			).Handle,
 		}),
 	)
 	appConsumer.Log = log
-	appWorker := integration.NewAppInboxWorker(store.Integrations(), appConsumer, integration.AppInboxWorkerOptions{
+	appWorker := apps.NewAppInboxWorker(store.Apps(), appConsumer, apps.AppInboxWorkerOptions{
 		Log: log, MachinePools: machinePoolManager, Capacity: cfg.WorkerInboxCapacity,
 		Metrics: metrics.NewAppInboxRecorder(metricSet),
 	})

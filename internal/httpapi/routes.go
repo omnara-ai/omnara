@@ -33,12 +33,12 @@ type manualRouteContract struct {
 
 var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodGet, Pattern: mcpOAuthCallbackPath, Access: manualRouteAccessOAuthState},
-	{Method: http.MethodGet, Pattern: integrationOAuthCallbackPath, Access: manualRouteAccessAuthRequired},
+	{Method: http.MethodGet, Pattern: appOAuthCallbackPath, Access: manualRouteAccessAuthRequired},
 	{Method: http.MethodGet, Pattern: githubManifestCallbackPath, Access: manualRouteAccessAuthRequired},
 	{Method: http.MethodGet, Pattern: mcpOAuthClientMetadataPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: mcpProtectedResourceMetadataPath, Access: manualRouteAccessStatic},
-	{Method: http.MethodPost, Pattern: integrationEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
-	{Method: http.MethodPost, Pattern: integrationActionsPath, Access: manualRouteAccessProviderSigned},
+	{Method: http.MethodPost, Pattern: appEventsPath, Access: manualRouteAccessProviderUnsignedProbe},
+	{Method: http.MethodPost, Pattern: appActionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: discordInteractionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: GitHubEventsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: GitHubSharedEventsPath, Access: manualRouteAccessProviderSigned},
@@ -54,12 +54,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		s.authRoutes.RegisterRoutes(mux)
 	}
 	mux.HandleFunc("GET /api/mcp-oauth/callback", s.mcpOAuthCallbackRoute)
-	mux.HandleFunc("GET /api/integrations/oauth/callback", s.integrationOAuthCallbackRoute)
+	mux.HandleFunc("GET /api/integrations/oauth/callback", s.appOAuthCallbackRoute)
 	mux.HandleFunc("GET /api/integrations/github/manifest/callback", s.githubManifestCallbackRoute)
 	mux.HandleFunc("GET /.well-known/oauth-client.json", s.mcpOAuthClientMetadataRoute)
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", s.mcpProtectedResourceMetadataRoute)
-	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
-	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
+	mux.HandleFunc("POST /api/integrations/slack/events", s.appEventsRoute)
+	mux.HandleFunc("POST /api/integrations/slack/actions", s.appActionsRoute)
 	mux.HandleFunc("POST /api/integrations/discord/{application_id}/interactions", s.discordInteractionsRoute)
 	mux.Handle("POST /api/integrations/github/{app_id}/events", s.GitHubEventsHandler())
 	mux.Handle("POST /api/integrations/github/events", s.GitHubEventsHandler())

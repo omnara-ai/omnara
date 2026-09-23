@@ -25,8 +25,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/orglifecycle"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -245,7 +245,7 @@ func webE2EVerifiedAppSetupFixture(
 			http.Error(w, "invalid app id", http.StatusBadRequest)
 			return
 		}
-		app, err := store.Integrations().GetProjectApp(r.Context(), projectID, appID)
+		app, err := store.Apps().GetProjectApp(r.Context(), projectID, appID)
 		if err != nil || app.OrgID != orgID {
 			http.Error(
 				w,
@@ -279,7 +279,7 @@ func webE2EVerifiedAppSetupFixture(
 			http.Error(w, "browser credential was not persisted", http.StatusBadRequest)
 			return
 		}
-		input := integrationstore.ConfigureProjectAppInput{
+		input := appstore.ConfigureProjectAppInput{
 			OrgID: orgID, ProjectID: projectID, AppID: app.ID,
 			ExpectedSetupRevision: body.ExpectedSetupRevision, InstalledByUserID: userID,
 			Provider: app.Provider, ProviderTenantID: "111", ProviderAccountRef: "222",
@@ -304,7 +304,7 @@ func webE2EVerifiedAppSetupFixture(
 		if body.ProviderAgentDisplayName != nil {
 			input.ProviderAgentDisplayName = *body.ProviderAgentDisplayName
 		}
-		configured, err := store.Integrations().ConfigureProjectApp(r.Context(), input)
+		configured, err := store.Apps().ConfigureProjectApp(r.Context(), input)
 		if err != nil {
 			t.Errorf("configure verified browser app: %v", err)
 			http.Error(w, "could not configure verified app", http.StatusInternalServerError)

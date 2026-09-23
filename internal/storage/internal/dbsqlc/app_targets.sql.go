@@ -17,7 +17,7 @@ const getAgentConversationTarget = `-- name: GetAgentConversationTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
        provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
-FROM integration_targets
+FROM app_targets
 WHERE project_id = $1 AND agent_id = $2
   AND app_id = $3
   AND provider_ref_kind = $4 AND provider_ref = $5
@@ -77,7 +77,7 @@ const getAppSelectionTarget = `-- name: GetAppSelectionTarget :one
 SELECT id, project_id, agent_id, app_id, provider_ref,
        provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
-FROM integration_targets
+FROM app_targets
 WHERE project_id = $1 AND app_id = $2
   AND provider_ref_kind = $3 AND provider_ref = $4
   AND selection_slot = $5
@@ -134,7 +134,7 @@ func (q *Queries) GetAppSelectionTarget(ctx context.Context, arg GetAppSelection
 
 const getConversationDisplayName = `-- name: GetConversationDisplayName :one
 SELECT display_name
-FROM integration_targets
+FROM app_targets
 WHERE project_id = $1 AND app_id = $2
   AND provider_ref_kind = $3 AND provider_ref = $4
   AND deleted_at IS NULL AND display_name <> ''
@@ -162,7 +162,7 @@ func (q *Queries) GetConversationDisplayName(ctx context.Context, arg GetConvers
 }
 
 const insertAppConversationTarget = `-- name: InsertAppConversationTarget :one
-INSERT INTO integration_targets(project_id, agent_id, app_id,
+INSERT INTO app_targets(project_id, agent_id, app_id,
     provider_ref_kind, provider_ref, display_name, selection_slot, created_at, updated_at)
 VALUES ($1, $2, $3,
     $4, $5, $6, $7,
@@ -230,7 +230,7 @@ const listConversationSelections = `-- name: ListConversationSelections :many
 SELECT id, project_id, agent_id, app_id, provider_ref,
        provider_ref_kind, display_name, provider_metadata, selection_slot,
        deleted_at, created_at, updated_at
-FROM integration_targets target
+FROM app_targets target
 WHERE target.project_id = $1 AND target.app_id = $2
   AND target.provider_ref_kind = $3 AND target.provider_ref = $4
   AND target.selection_slot IS NOT NULL

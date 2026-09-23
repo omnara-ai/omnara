@@ -882,7 +882,7 @@ func TestWorkerRunOnceUsesRealKernelExecutor(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -937,7 +937,7 @@ func TestWorkerKernelStructuredQuestionBlocksResolvesAndContinues(t *testing.T) 
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1021,7 +1021,7 @@ func TestWorkerKernelStructuredQuestionUsesCatalogAllowPolicy(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1101,7 +1101,7 @@ func TestWorkerKernelPermissionApprovalUnlocksStructuredQuestionTool(t *testing.
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1197,7 +1197,7 @@ func TestWorkerKernelPermissionDenialCompletesToolResult(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1258,7 +1258,7 @@ func TestWorkerKernelMachineToolWithoutBindingFailsBeforeApproval(t *testing.T) 
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1305,7 +1305,7 @@ func TestWorkerKernelDeniedMachineToolDoesNotRequireBinding(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1358,7 +1358,7 @@ func TestWorkerKernelPermissionApprovalStartsMachineRunCommand(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1427,7 +1427,7 @@ func TestWorkerKernelStructuredInteractionFormResolvesAtomically(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },
@@ -1505,7 +1505,7 @@ func TestWorkerKernelMultipleToolCallsWaitForAllInteractions(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 		Now:           func() time.Time { return now.Add(2 * time.Second) },

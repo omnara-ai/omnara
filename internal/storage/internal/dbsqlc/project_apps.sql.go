@@ -34,6 +34,23 @@ func (q *Queries) AgentProfileHasProjectApp(ctx context.Context, arg AgentProfil
 	return referenced, err
 }
 
+const appOAuthFlowConsumed = `-- name: AppOAuthFlowConsumed :one
+SELECT EXISTS (SELECT 1 FROM project_apps WHERE last_oauth_flow_id = $1) AS consumed
+`
+
+type AppOAuthFlowConsumedParams struct {
+	FlowID *uuid.UUID
+}
+
+// @sqlc-vet-disable project-apps-deleted-at
+// Tombstones also prevent reusing a completed setup attempt.
+func (q *Queries) AppOAuthFlowConsumed(ctx context.Context, arg AppOAuthFlowConsumedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, appOAuthFlowConsumed, arg.FlowID)
+	var consumed bool
+	err := row.Scan(&consumed)
+	return consumed, err
+}
+
 const configureProjectApp = `-- name: ConfigureProjectApp :one
 UPDATE project_apps
 SET installed_by_user_id = $1,
@@ -341,23 +358,6 @@ func (q *Queries) InsertProjectApp(ctx context.Context, arg InsertProjectAppPara
 		&i.SetupRevision,
 	)
 	return i, err
-}
-
-const integrationOAuthFlowConsumed = `-- name: IntegrationOAuthFlowConsumed :one
-SELECT EXISTS (SELECT 1 FROM project_apps WHERE last_oauth_flow_id = $1) AS consumed
-`
-
-type IntegrationOAuthFlowConsumedParams struct {
-	FlowID *uuid.UUID
-}
-
-// @sqlc-vet-disable project-apps-deleted-at
-// Tombstones also prevent reusing a completed setup attempt.
-func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg IntegrationOAuthFlowConsumedParams) (bool, error) {
-	row := q.db.QueryRow(ctx, integrationOAuthFlowConsumed, arg.FlowID)
-	var consumed bool
-	err := row.Scan(&consumed)
-	return consumed, err
 }
 
 const listProjectAppMetadataByIDs = `-- name: ListProjectAppMetadataByIDs :many

@@ -14,7 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -168,10 +168,10 @@ func (s *Store) CreateCronTrigger(
 	}
 	switch input.Target.Kind {
 	case CronTriggerTargetApp:
-		if err := integrationstore.LockAppsTx(ctx, tx, input.ProjectID, nil, input.Target.ID); err != nil {
+		if err := appstore.LockAppsTx(ctx, tx, input.ProjectID, nil, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
 		}
-		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, input.Target.ID)
+		app, err := s.apps.GetProjectAppByIDTx(ctx, tx, input.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err
 		}
@@ -398,7 +398,7 @@ func (s *Store) UpdateCronTrigger(
 		return CronTriggerRecord{}, err
 	}
 	if record.Target.Kind == CronTriggerTargetApp {
-		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, record.Target.ID)
+		app, err := s.apps.GetProjectAppByIDTx(ctx, tx, record.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err
 		}
@@ -881,7 +881,7 @@ func cronTriggerTargetsEqual(a, b CronTriggerTarget) bool {
 	return jsoncanonical.Equal(a.Settings, b.Settings)
 }
 
-func validateCronAppTarget(target *CronTriggerTarget, app integrationstore.ProjectAppRecord) error {
+func validateCronAppTarget(target *CronTriggerTarget, app appstore.ProjectAppRecord) error {
 	canonical, err := appdefinition.ValidateScheduleSettings(app.AppType, target.Settings)
 	if err != nil {
 		return storeerr.InvalidRequest(err)

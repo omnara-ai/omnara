@@ -12,9 +12,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func inboxInputApp(t *testing.T, f appActivationFixture, provider string) integrationstore.ProjectAppRecord {
+func inboxInputApp(t *testing.T, f appActivationFixture, provider string) appstore.ProjectAppRecord {
 	t.Helper()
 	require.Equal(t, "github", provider)
 	secret, _, err := f.store.Secrets().CreateSecret(f.ctx, secretstore.CreateSecretInput{
@@ -35,11 +35,11 @@ func inboxInputApp(t *testing.T, f appActivationFixture, provider string) integr
 		},
 	})
 	require.NoError(t, err)
-	app, err := f.store.Integrations().CreateProjectApp(f.ctx, integrationstore.SaveProjectAppInput{
+	app, err := f.store.Apps().CreateProjectApp(f.ctx, appstore.SaveProjectAppInput{
 		OrgID: testOrgID, ProjectID: testProjectID, Name: "github", AppType: appdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
-	app, err = f.store.Integrations().ConfigureProjectApp(f.ctx, integrationstore.ConfigureProjectAppInput{
+	app, err = f.store.Apps().ConfigureProjectApp(f.ctx, appstore.ConfigureProjectAppInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AppID: app.ID, InstalledByUserID: f.user.ID,
 		Provider: provider, ProviderTenantID: "123", ProviderAccountRef: "456", CredentialAppID: 123,
 		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, ExpectedSetupRevision: app.SetupRevision,
@@ -56,13 +56,13 @@ func (f appInteractionFixture) activation() appActivationFixture {
 func inboxInputPlan(
 	t *testing.T,
 	agentID uuid.UUID,
-	app integrationstore.ProjectAppRecord,
+	app appstore.ProjectAppRecord,
 	event string,
 ) executionstore.InboxInputSlot {
 	return executionstore.InboxInputSlot{AgentID: agentID, Input: executionstore.CreateAgentContentInputInput{
 		Origin: &executionstore.AgentInputOrigin{
 			AppID:   app.ID,
-			Address: integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"},
+			Address: appstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"},
 		},
 		Actor:                  mustAppActorParams(t, app.ID, "participant"),
 		ContentBlocks:          json.RawMessage(`[{"type":"text","text":"Please address this review"}]`),
@@ -79,12 +79,12 @@ func freezeInboxInput(
 	slot executionstore.InboxInputSlot,
 	key string,
 	lease time.Duration,
-) integrationstore.IntegrationInboxRecord {
+) appstore.AppInboxRecord {
 	t.Helper()
-	_, _, err := f.store.Integrations().
-		AcceptIntegrationReceipt(
+	_, _, err := f.store.Apps().
+		AcceptAppReceipt(
 			f.ctx,
-			integrationstore.VerifiedIntegrationReceipt{
+			appstore.VerifiedAppReceipt{
 				ProjectID:  testProjectID,
 				AppID:      slot.Input.Origin.AppID,
 				ReceiptKey: key,
@@ -92,10 +92,10 @@ func freezeInboxInput(
 			},
 		)
 	require.NoError(t, err)
-	receipt, found, err := f.store.Integrations().
-		ClaimIntegrationInbox(
+	receipt, found, err := f.store.Apps().
+		ClaimAppInbox(
 			f.ctx,
-			integrationstore.ClaimIntegrationInboxInput{
+			appstore.ClaimAppInboxInput{
 				ProjectID:     testProjectID,
 				AppID:         slot.Input.Origin.AppID,
 				LeaseDuration: lease,
@@ -107,11 +107,11 @@ func freezeInboxInput(
 	require.NoError(t, err)
 	require.NoError(
 		t,
-		f.store.Integrations().
-			WithIntegrationInboxLease(
+		f.store.Apps().
+			WithAppInboxLease(
 				f.ctx,
 				receipt.Lease(),
-				func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(f.ctx, plan) },
+				func(w *appstore.AppInboxLeaseTx) error { return w.FreezePlan(f.ctx, plan) },
 			),
 	)
 	return receipt
@@ -120,7 +120,7 @@ func freezeInboxInput(
 func prepareInboxInput(
 	t *testing.T,
 	f appActivationFixture,
-	receipt integrationstore.IntegrationInboxRecord,
+	receipt appstore.AppInboxRecord,
 	slot executionstore.InboxInputSlot,
 ) {
 	t.Helper()
@@ -141,11 +141,11 @@ func prepareInboxInput(
 	require.NoError(t, err)
 	require.NoError(
 		t,
-		f.store.Integrations().
-			WithIntegrationInboxLease(
+		f.store.Apps().
+			WithAppInboxLease(
 				f.ctx,
 				receipt.Lease(),
-				func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.PrepareSlot(f.ctx, "recipient", raw) },
+				func(w *appstore.AppInboxLeaseTx) error { return w.PrepareSlot(f.ctx, "recipient", raw) },
 			),
 	)
 }
@@ -197,8 +197,8 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 				require.Equal(t, result.AgentInput.ID, prompt.ResolvedByInputID)
 			}
 			require.Equal(t, executionstore.DeliveryModeSteering, result.AgentInput.DeliveryMode)
-			require.Empty(t, result.IntegrationTarget.SelectionSlot)
-			require.Equal(t, app.ID, result.IntegrationTarget.AppID)
+			require.Empty(t, result.AppTarget.SelectionSlot)
+			require.Equal(t, app.ID, result.AppTarget.AppID)
 			actor, err := f.store.Execution().GetActor(f.ctx, testProjectID, result.AgentInput.ActorID)
 			require.NoError(t, err)
 			require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
@@ -230,11 +230,11 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			require.Equal(t, selected, selection)
 			require.NoError(
 				t,
-				f.store.Integrations().
-					WithIntegrationInboxLease(
+				f.store.Apps().
+					WithAppInboxLease(
 						f.ctx,
 						duplicate.Lease(),
-						func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.Complete(f.ctx) },
+						func(w *appstore.AppInboxLeaseTx) error { return w.Complete(f.ctx) },
 					),
 			)
 
@@ -263,13 +263,13 @@ func TestInboxInputConcurrentMediaAndCompletedReplay(t *testing.T) {
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "existing-recipient"))
 	require.NoError(t, err)
 	slot := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.app, "message:file"))
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	first := freezeInboxInput(t, f, slot, "file-one", time.Minute)
 	second := freezeInboxInput(t, f, slot, "file-two", time.Minute)
 	prepareInboxInput(t, f, first, slot)
 	prepareInboxInput(t, f, second, slot)
 	start := make(chan struct{})
-	admit := func(receipt integrationstore.IntegrationInboxRecord) func() (executionstore.InboxInputResult, error) {
+	admit := func(receipt appstore.AppInboxRecord) func() (executionstore.InboxInputResult, error) {
 		return func() (executionstore.InboxInputResult, error) {
 			<-start
 			return f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
@@ -280,7 +280,7 @@ func TestInboxInputConcurrentMediaAndCompletedReplay(t *testing.T) {
 	a, b := integrationdb.AwaitSuccess(t, one, "first event"), integrationdb.AwaitSuccess(t, two, "duplicate event")
 	require.NotEqual(t, a.Created, b.Created)
 	require.Equal(t, a.AgentInput.ID, b.AgentInput.ID)
-	for _, table := range []string{"artifacts", "integration_targets"} {
+	for _, table := range []string{"artifacts", "app_targets"} {
 		var count int
 		require.NoError(
 			t,
@@ -289,14 +289,14 @@ func TestInboxInputConcurrentMediaAndCompletedReplay(t *testing.T) {
 		)
 		require.Equal(t, 1, count)
 	}
-	for _, receipt := range []integrationstore.IntegrationInboxRecord{first, second} {
+	for _, receipt := range []appstore.AppInboxRecord{first, second} {
 		require.NoError(
 			t,
-			f.store.Integrations().
-				WithIntegrationInboxLease(
+			f.store.Apps().
+				WithAppInboxLease(
 					f.ctx,
 					receipt.Lease(),
-					func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.Complete(f.ctx) },
+					func(w *appstore.AppInboxLeaseTx) error { return w.Complete(f.ctx) },
 				),
 		)
 	}
@@ -313,7 +313,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 	selected := f.selectOrigin(t, f.a.ID)
 	prompt := f.question(t)
 	slot := withInboxFile(t, inboxInputPlan(t, f.process.AgentID, f.app, "expire-file"))
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C456:999.888"}
+	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C456:999.888"}
 	receipt := freezeInboxInput(t, f.activation(), slot, "expire", 2*time.Second)
 	prepareInboxInput(t, f.activation(), receipt, slot)
 	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
@@ -331,7 +331,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 		10*time.Millisecond,
 	)
 	require.NoError(t, blocker.Commit(f.ctx))
-	require.ErrorIs(t, integrationdb.Await(t, done, "expired input").Err, integrationstore.ErrIntegrationInboxLeaseLost)
+	require.ErrorIs(t, integrationdb.Await(t, done, "expired input").Err, appstore.ErrAppInboxLeaseLost)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, prompt.ID).State)
 	current, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
@@ -346,7 +346,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 		t,
 		f.store.pool.QueryRow(
 			f.ctx,
-			`SELECT count(*) FROM integration_targets WHERE agent_id=$1 AND provider_ref=$2`,
+			`SELECT count(*) FROM app_targets WHERE agent_id=$1 AND provider_ref=$2`,
 			f.process.AgentID,
 			slot.Input.Origin.Address.Ref,
 		).
@@ -368,7 +368,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 			),
 	)
 	require.Zero(t, count)
-	record, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
+	record, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
 	var progress map[string]map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(record.Progress, &progress))
@@ -382,7 +382,7 @@ func TestInboxInputAppGateBeforeReceiptAndAgent(t *testing.T) {
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "lock-recipient"))
 	require.NoError(t, err)
 	slot := inboxInputPlan(t, agent.Agent.ID, f.app, "message:lock")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	receipt := freezeInboxInput(t, f, slot, "lock-event", time.Minute)
 	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	q := dbsqlc.New(blocker)
@@ -399,9 +399,9 @@ func TestInboxInputAppGateBeforeReceiptAndAgent(t *testing.T) {
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectAppLifecycleShared", 1)
 	ctx, cancel := context.WithTimeout(f.ctx, time.Second)
 	defer cancel()
-	_, err = q.LockIntegrationInboxReceipt(
+	_, err = q.LockAppInboxReceipt(
 		ctx,
-		dbsqlc.LockIntegrationInboxReceiptParams{ProjectID: testProjectID, ID: receipt.ID},
+		dbsqlc.LockAppInboxReceiptParams{ProjectID: testProjectID, ID: receipt.ID},
 	)
 	require.NoError(t, err)
 	_, err = q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agent.Agent.ID})
@@ -414,7 +414,7 @@ func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *test
 	t.Parallel()
 	f := newAppInteractionFixture(t)
 	slot := inboxInputPlan(t, f.process.AgentID, f.otherApp, "handler-origin")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: f.b.ProviderRef}
+	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: f.b.ProviderRef}
 	slot.Input.CancelOpenInteractions = false
 	receipt := freezeInboxInput(t, f.activation(), slot, "handler-origin", time.Minute)
 	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
@@ -423,7 +423,7 @@ func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *test
 	selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, "other", selected.HandlerKey)
-	require.Equal(t, f.b.ID, selected.IntegrationTargetID)
+	require.Equal(t, f.b.ID, selected.AppTargetID)
 	require.JSONEq(t, `{"channel_id":"C456","thread_ts":"333.444"}`, string(selected.Args))
 	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: mustOmnaraActorParams(t, f.user.ID),
@@ -454,11 +454,11 @@ func TestOrdinaryContentInputExternalActorPreservesSelectionAndRejectsOrigin(t *
 	actor, err := f.store.Execution().GetActor(f.ctx, testProjectID, first.ActorID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ActorProviderExternal, actor.Provider)
-	require.Equal(t, uuid.Nil, first.IntegrationTargetID)
+	require.Equal(t, uuid.Nil, first.AppTargetID)
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, "chat", selection.HandlerKey)
-	require.Equal(t, f.a.ID, selection.IntegrationTargetID)
+	require.Equal(t, f.a.ID, selection.AppTargetID)
 	f.selectOrigin(t, f.b.ID)
 	replayed, _, created, err := f.store.Execution().CreateAgentContentInput(f.ctx, input)
 	require.NoError(t, err)
@@ -472,12 +472,12 @@ func TestOrdinaryContentInputExternalActorPreservesSelectionAndRejectsOrigin(t *
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	input.Origin = &executionstore.AgentInputOrigin{
 		AppID:   f.app.ID,
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
+		Address: appstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
 	}
 	input.IdempotencyKey = "forged-native"
 	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	input.Origin, input.IntegrationTargetID = nil, f.a.ID
+	input.Origin, input.AppTargetID = nil, f.a.ID
 	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest, "target ID cannot bypass public origin validation")
 }
@@ -494,7 +494,7 @@ func TestInboxInputInvalidPreparationOrActorLeavesNoAdmission(t *testing.T) {
 				LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "invalid-recipient"))
 			require.NoError(t, err)
 			slot := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.app, "invalid-file"))
-			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+			slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 			switch scenario {
 			case "external-actor":
 				slot.Input.Actor.Provider = executionstore.ActorProviderExternal
@@ -519,7 +519,7 @@ func TestInboxInputInvalidPreparationOrActorLeavesNoAdmission(t *testing.T) {
 				query string
 				arg   any
 			}{
-				{`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, agent.Agent.ID},
+				{`SELECT count(*) FROM app_targets WHERE agent_id=$1`, agent.Agent.ID},
 				{`SELECT count(*) FROM artifacts WHERE agent_id=$1`, agent.Agent.ID},
 				{`SELECT count(*) FROM agent_inputs WHERE input_idempotency_key=$1`, slot.Input.IdempotencyKey},
 			} {
@@ -527,7 +527,7 @@ func TestInboxInputInvalidPreparationOrActorLeavesNoAdmission(t *testing.T) {
 				require.NoError(t, f.store.pool.QueryRow(f.ctx, check.query, check.arg).Scan(&count))
 				require.Zero(t, count)
 			}
-			record, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
+			record, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
 			require.NoError(t, err)
 			var progress map[string]map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(record.Progress, &progress))
@@ -543,7 +543,7 @@ func TestInboxMessageSiblingsConcurrentAndDelayedFiles(t *testing.T) {
 			t.Parallel()
 			f := newAppInteractionFixture(t)
 			base := inboxInputPlan(t, f.process.AgentID, f.app, "text-callback")
-			base.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+			base.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 			base.Sibling = &executionstore.InboxMessageSibling{Key: "file-callback"}
 			files := withInboxFile(t, base)
 			files.Input.IdempotencyKey = "file-callback"
@@ -554,7 +554,7 @@ func TestInboxMessageSiblingsConcurrentAndDelayedFiles(t *testing.T) {
 			textReceipt := freezeInboxInput(t, f.activation(), base, "text-receipt", time.Minute)
 			fileReceipt := freezeInboxInput(t, f.activation(), files, "file-receipt", time.Minute)
 			prepareInboxInput(t, f.activation(), fileReceipt, files)
-			admit := func(r integrationstore.IntegrationInboxRecord) (executionstore.InboxInputResult, error) {
+			admit := func(r appstore.AppInboxRecord) (executionstore.InboxInputResult, error) {
 				return f.store.Execution().AdmitInboxInputSlot(f.ctx, r.Lease(), "recipient")
 			}
 			var laterTool uuid.UUID

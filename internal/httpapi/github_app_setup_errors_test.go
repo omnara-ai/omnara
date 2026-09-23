@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/stretchr/testify/require"
 )
 

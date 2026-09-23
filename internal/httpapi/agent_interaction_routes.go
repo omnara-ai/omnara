@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -228,7 +228,7 @@ func agentInteractionResponseFromRecord(
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
-		targetID, err := publicID(publicid.KindIntegrationTarget, destination.IntegrationTargetID)
+		targetID, err := publicID(publicid.KindAppTarget, destination.AppTargetID)
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
@@ -237,12 +237,12 @@ func agentInteractionResponseFromRecord(
 			return openapi.AgentInteraction{}, err
 		}
 		response.Destination = &openapi.AgentInteractionDestination{
-			AppType:             openapi.AppType(destination.AppType),
-			Args:                args,
-			HandlerKey:          destination.HandlerKey,
-			AppId:               appID,
-			IntegrationTargetId: targetID,
-			Address: openapi.IntegrationConversationAddress{
+			AppType:     openapi.AppType(destination.AppType),
+			Args:        args,
+			HandlerKey:  destination.HandlerKey,
+			AppId:       appID,
+			AppTargetId: targetID,
+			Address: openapi.AppConversationAddress{
 				Kind: destination.Address.Kind, Ref: destination.Address.Ref,
 			},
 		}
@@ -340,7 +340,7 @@ func (s *Server) dismissInteractionAsync(ctx context.Context, record executionst
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		presenter := integration.InteractionPresenter{Store: s.store, HTTPClient: s.integrationHTTPClient, Log: s.log}
+		presenter := apps.InteractionPresenter{Store: s.store, HTTPClient: s.appHTTPClient, Log: s.log}
 		if err := presenter.Dismiss(ctx, record); err != nil {
 			s.log.Warn("interaction dismissal failed", "interaction_id", record.ID, "error", err)
 		}

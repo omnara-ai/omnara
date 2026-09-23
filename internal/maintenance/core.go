@@ -76,26 +76,26 @@ func RunCore(ctx context.Context, store *storage.Store) CoreResult {
 	})
 	tasks.Go(func() {
 		defer recoverMaintenanceTask("cleanup app states", &result.AppStatesCleanupErr)
-		result.DeletedAppStates, result.AppStatesCleanupErr = store.Integrations().CleanupAppStates(
-			ctx, IntegrationInboxRetention, integrationInboxCleanupBatch,
+		result.DeletedAppStates, result.AppStatesCleanupErr = store.Apps().CleanupAppStates(
+			ctx, AppInboxRetention, appInboxCleanupBatch,
 		)
 	})
 	tasks.Go(func() {
-		defer recoverMaintenanceTask("cleanup completed integration inbox", &result.CompletedInboxCleanupErr)
+		defer recoverMaintenanceTask("cleanup completed app inbox", &result.CompletedInboxCleanupErr)
 		result.CompletedInbox, result.CompletedInboxBudgetExhausted, result.CompletedInboxCleanupErr =
-			drainIntegrationInboxCleanup(
+			drainAppInboxCleanup(
 				ctx, func(cleanupCtx context.Context) (int64, error) {
-					return store.Integrations().CleanupTerminalIntegrationInbox(
-						cleanupCtx, IntegrationInboxRetention, integrationInboxCleanupBatch,
+					return store.Apps().CleanupTerminalAppInbox(
+						cleanupCtx, AppInboxRetention, appInboxCleanupBatch,
 					)
 				},
 			)
 	})
 	tasks.Go(func() {
-		defer recoverMaintenanceTask("cleanup deleted integration inbox", &result.DeletedInboxCleanupErr)
-		result.DeletedInbox, result.DeletedInboxBudgetExhausted, result.DeletedInboxCleanupErr = drainIntegrationInboxCleanup(
+		defer recoverMaintenanceTask("cleanup deleted app inbox", &result.DeletedInboxCleanupErr)
+		result.DeletedInbox, result.DeletedInboxBudgetExhausted, result.DeletedInboxCleanupErr = drainAppInboxCleanup(
 			ctx, func(cleanupCtx context.Context) (int64, error) {
-				return store.Integrations().CleanupDeletedIntegrationInbox(cleanupCtx, integrationInboxCleanupBatch)
+				return store.Apps().CleanupDeletedAppInbox(cleanupCtx, appInboxCleanupBatch)
 			},
 		)
 	})

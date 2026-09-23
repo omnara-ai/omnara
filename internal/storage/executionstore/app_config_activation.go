@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -83,7 +83,7 @@ func lockConfigChangeAppsTx(
 	if err != nil {
 		return err
 	}
-	if err := integrationstore.LockAppsTx(ctx, tx, input.ProjectID, next.ReferencedAppIDs()); err != nil {
+	if err := appstore.LockAppsTx(ctx, tx, input.ProjectID, next.ReferencedAppIDs()); err != nil {
 		// An activation may have committed while we waited; replay must survive revocation.
 		if replay, replayErr := configChangeReplayExistsTx(ctx, q, input); replayErr == nil && replay {
 			return nil

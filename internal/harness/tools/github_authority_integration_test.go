@@ -12,8 +12,8 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +48,7 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 				changeInput := appToolConfigChangeInput(t, f, source)
 				revoke := func() error {
 					if scenario == "disconnected" {
-						_, err := f.Store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+						_, err := f.Store.Apps().DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
 							ProjectID: f.Agent.ProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 						})
 						return err
@@ -77,7 +77,7 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 				}))
 				defer server.Close()
 				_, err = dispatchAsyncToolToTerminal(t, ctx,
-					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+					Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
 				require.NoError(t, err)
 				record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 				require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestGitHubAppReplyRejectsForeignPullRequest(t *testing.T) {
 	})
 	call := f.recordToolCall(t, ctx, "reply", "app__chat__reply", `{"comment_id":31,"body":"Reply"}`, f.Now)
 	result, err := dispatchAsyncToolToTerminal(t, ctx,
-		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+		Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
 	require.NoError(t, err)
 	require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
 	require.EqualValues(t, 1, reads.Load())

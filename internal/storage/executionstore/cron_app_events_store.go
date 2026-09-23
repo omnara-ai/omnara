@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/cronschedule"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -41,7 +41,7 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 		return false, err
 	}
 	unavailable := ""
-	if err := integrationstore.LockAppsTx(ctx, tx, claimed.ProjectID, nil, claimed.Target.ID); err != nil {
+	if err := appstore.LockAppsTx(ctx, tx, claimed.ProjectID, nil, claimed.Target.ID); err != nil {
 		if !errors.Is(err, storeerr.ErrNotFound) && !errors.Is(err, storeerr.ErrUnauthorized) {
 			return false, err
 		}
@@ -84,7 +84,7 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 	if unavailable != "" {
 		return false, skipCronAppEventTx(ctx, tx, q, claimed, unavailable)
 	}
-	app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, current.Target.ID)
+	app, err := s.apps.GetProjectAppByIDTx(ctx, tx, current.Target.ID)
 	if err != nil {
 		return false, err
 	}
@@ -100,13 +100,13 @@ func (s *Store) CreateCronTriggerAppEvent(ctx context.Context, claimed ClaimedCr
 	if _, err := time.LoadLocation(current.Timezone); err != nil {
 		return false, skipCronAppEventTx(ctx, tx, q, claimed, "Scheduled app action skipped: invalid timezone.")
 	}
-	receipt, _, err := s.integrations.AcceptScheduledAppEventTx(
+	receipt, _, err := s.apps.AcceptScheduledAppEventTx(
 		ctx,
 		tx,
-		integrationstore.AcceptScheduledAppEventInput{
+		appstore.AcceptScheduledAppEventInput{
 			ProjectID: current.ProjectID, AppID: current.Target.ID,
 			ReceiptKey: "cron_trigger:" + current.ID.String() + ":" + claimed.DueAt.UTC().Format(time.RFC3339),
-			Event: integrationstore.ScheduledAppEvent{
+			Event: appstore.ScheduledAppEvent{
 				TriggerID: current.ID,
 				Occurrence: cronschedule.Occurrence{
 					Name: current.Name, DueAt: claimed.DueAt, FiredAt: claimed.FiredAt,

@@ -10,7 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -26,7 +26,7 @@ func (s strictOpenAPIServer) CreateProjectApp(
 	if err != nil {
 		return nil, err
 	}
-	app, err := s.server.store.Integrations().CreateProjectApp(ctx, input)
+	app, err := s.server.store.Apps().CreateProjectApp(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -53,7 +53,7 @@ func (s strictOpenAPIServer) UpdateProjectApp(
 	if err != nil {
 		return nil, err
 	}
-	app, err := s.server.store.Integrations().UpdateProjectApp(ctx, id, input)
+	app, err := s.server.store.Apps().UpdateProjectApp(ctx, id, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -76,7 +76,7 @@ func (s strictOpenAPIServer) GetProjectApp(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid app id")
 	}
-	app, err := s.server.store.Integrations().GetProjectApp(ctx, scope.project.ID, id)
+	app, err := s.server.store.Apps().GetProjectApp(ctx, scope.project.ID, id)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -84,7 +84,7 @@ func (s strictOpenAPIServer) GetProjectApp(
 	if err != nil {
 		return nil, err
 	}
-	failure, err := s.server.store.Integrations().GetAppRuntimeFailure(ctx, app.ProjectID, app.ID, app.SetupRevision)
+	failure, err := s.server.store.Apps().GetAppRuntimeFailure(ctx, app.ProjectID, app.ID, app.SetupRevision)
 	if err != nil && !errors.Is(err, storeerr.ErrNotFound) {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -108,7 +108,7 @@ func (s strictOpenAPIServer) DeleteProjectApp(
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid app id")
 	}
-	if err := s.server.store.Integrations().DeleteProjectApp(ctx, scope.project.OrgID, scope.project.ID, id); err != nil {
+	if err := s.server.store.Apps().DeleteProjectApp(ctx, scope.project.OrgID, scope.project.ID, id); err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
 	return openapi.DeleteProjectApp204Response{}, nil
@@ -126,7 +126,7 @@ func (s strictOpenAPIServer) ListProjectApps(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
 	}
-	page, err := s.server.store.Integrations().ListProjectApps(ctx, integrationstore.ListProjectAppsInput{
+	page, err := s.server.store.Apps().ListProjectApps(ctx, appstore.ListProjectAppsInput{
 		ProjectID: scope.project.ID, Limit: limit, After: after,
 	})
 	if err != nil {
@@ -151,14 +151,14 @@ func parseProjectAppRequest(
 	body *openapi.SaveProjectAppRequest,
 	orgID,
 	projectID uuid.UUID,
-) (integrationstore.SaveProjectAppInput, error) {
+) (appstore.SaveProjectAppInput, error) {
 	if body == nil {
-		return integrationstore.SaveProjectAppInput{}, apierror.FromCode(
+		return appstore.SaveProjectAppInput{}, apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
 			"request body is required",
 		)
 	}
-	input := integrationstore.SaveProjectAppInput{
+	input := appstore.SaveProjectAppInput{
 		OrgID: orgID, ProjectID: projectID, Name: body.Name, AppType: appdefinition.Type(body.AppType),
 	}
 	if source := body.Settings.Launcher; source != nil {
@@ -166,13 +166,13 @@ func parseProjectAppRequest(
 			return input, apierror.FromCode(openapi.ErrorCodeInvalidRequest,
 				"Discord launchers do not accept scope_kind or scope_ref; manage bot access in Discord")
 		}
-		launcher := &integrationstore.AppLauncher{
+		launcher := &appstore.AppLauncher{
 			Trigger:   source.Trigger,
 			ScopeKind: stringFromPtr(source.ScopeKind),
 			ScopeRef:  stringFromPtr(source.ScopeRef),
 		}
 		for _, sourceSlot := range source.Slots {
-			slot := integrationstore.AppLaunchSlot{Key: sourceSlot.Key}
+			slot := appstore.AppLaunchSlot{Key: sourceSlot.Key}
 			if sourceSlot.AgentProfileId != nil {
 				id, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, *sourceSlot.AgentProfileId)
 				if !ok {
@@ -194,7 +194,7 @@ func parseProjectAppRequest(
 	return input, nil
 }
 
-func projectAppResponse(app integrationstore.ProjectAppRecord) (openapi.ProjectApp, error) {
+func projectAppResponse(app appstore.ProjectAppRecord) (openapi.ProjectApp, error) {
 	id, err := publicID(publicid.KindProjectApp, app.ID)
 	if err != nil {
 		return openapi.ProjectApp{}, err
@@ -217,7 +217,7 @@ func projectAppResponse(app integrationstore.ProjectAppRecord) (openapi.ProjectA
 	if err := json.Unmarshal(app.ProviderConfig, &response.ProviderConfig); err != nil {
 		return openapi.ProjectApp{}, err
 	}
-	response.LastOauthFlowId, err = idOrNil(publicid.KindIntegrationOAuthFlow, app.LastOAuthFlowID)
+	response.LastOauthFlowId, err = idOrNil(publicid.KindAppOAuthFlow, app.LastOAuthFlowID)
 	if err != nil {
 		return openapi.ProjectApp{}, err
 	}

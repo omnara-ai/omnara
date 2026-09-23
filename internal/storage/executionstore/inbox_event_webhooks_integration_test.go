@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +25,7 @@ func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	definition := app.encodedDefinition(t, compiled)
 	app.profile.CurrentConfig.CompiledDefinition = definition.CompiledDefinition
 	f := newInboxLaunchFixtureForApp(t, app, false, time.Minute, "a")
-	before, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, f.receipt.ID)
+	before, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, f.receipt.ID)
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx,
 		`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_test_deliveries CHECK (false) NOT VALID`)
@@ -68,9 +68,9 @@ func TestInboxInputEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	_, err := f.store.pool.Exec(f.ctx, `DELETE FROM event_webhook_deliveries WHERE agent_id=$1`, f.process.AgentID)
 	require.NoError(t, err)
 	slot := inboxInputPlan(t, f.process.AgentID, f.app, "webhook-input")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	receipt := freezeInboxInput(t, f.activation(), slot, "webhook-receipt", time.Minute)
-	before, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
+	before, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx,
 		`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_test_deliveries CHECK (false) NOT VALID`)
@@ -101,9 +101,9 @@ func TestInboxInputEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	assertInboxWebhookCount(t, f.activation(), f.process.AgentID, "tool_result", 1)
 }
 
-func assertInboxWebhookProgress(t *testing.T, f appActivationFixture, before integrationstore.IntegrationInboxRecord) {
+func assertInboxWebhookProgress(t *testing.T, f appActivationFixture, before appstore.AppInboxRecord) {
 	t.Helper()
-	after, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, before.ID)
+	after, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, before.ID)
 	require.NoError(t, err)
 	require.JSONEq(t, string(before.Progress), string(after.Progress))
 }

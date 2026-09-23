@@ -19,14 +19,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -40,7 +40,7 @@ type capturedHTTPFixture struct {
 	handler        http.Handler
 	project        publicHTTPProject
 	pool           *pgxpool.Pool
-	app            integrationstore.ProjectAppRecord
+	app            appstore.ProjectAppRecord
 	callbackStatus int
 	signingSecret  string
 	record         executionstore.AgentInteractionRecord
@@ -150,7 +150,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	client := &http.Client{Transport: capturedTestTransport{base: server.Client().Transport, target: target}}
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool,
-		WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}), WithIntegrationHTTPClient(client))
+		WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}), WithAppHTTPClient(client))
 	project := bootstrapPublicHTTPProject(t, handler, "captured-"+provider+"-"+kind)
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -180,11 +180,11 @@ func newCapturedHTTPFixtureWithDismiss(
 	appTypes := appdefinition.AppTypesForProvider(provider)
 	require.Len(t, appTypes, 1)
 	appType := appdefinition.Type(appTypes[0])
-	app, err := project.Store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+	app, err := project.Store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
 	})
 	require.NoError(t, err)
-	app, err = project.Store.Integrations().ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+	app, err = project.Store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
 		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
 		InstalledByUserID: project.AdminUserUUID, Provider: provider, ProviderTenantID: tenant, ProviderAccountRef: account,
 		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
@@ -239,13 +239,13 @@ func newCapturedHTTPFixtureWithDismiss(
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	address := integrationstore.ConversationAddress{Kind: "channel", Ref: ref}
-	require.NoError(t, integrationstore.LockAppsTx(ctx, tx, project.ProjectUUID, nil, app.ID))
-	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, app.ID, address))
+	address := appstore.ConversationAddress{Kind: "channel", Ref: ref}
+	require.NoError(t, appstore.LockAppsTx(ctx, tx, project.ProjectUUID, nil, app.ID))
+	require.NoError(t, appstore.LockConversationTx(ctx, tx, project.ProjectUUID, app.ID, address))
 	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agentUUID)
 	require.NoError(t, err)
-	origin, err := project.Store.Integrations().
-		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+	origin, err := project.Store.Apps().
+		EnsureConversationTargetTx(ctx, tx, appstore.EnsureConversationTargetInput{
 			ProjectID: project.ProjectUUID, AgentID: agentUUID, AppID: app.ID,
 			Address: address,
 		})
@@ -288,7 +288,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		kind,
 		selectionCalls...,
 	)
-	presenter := integration.InteractionPresenter{Store: project.Store, HTTPClient: client}
+	presenter := apps.InteractionPresenter{Store: project.Store, HTTPClient: client}
 	if !opts.prepareOnly {
 		require.NoError(t, presenter.Present(ctx, project.ProjectUUID, record.AgentID, record.ID))
 	}
@@ -378,12 +378,12 @@ func (f capturedHTTPFixture) slackRequest(
 	destination, err := f.record.CapturedDestination()
 	require.NoError(t, err)
 	body := slackActionFormBody(t, slackActionPayloadInput{
-		Install:             f.app,
-		AgentID:             f.record.AgentID,
-		IntegrationTargetID: destination.IntegrationTargetID,
-		InteractionID:       f.record.ID,
-		UserID:              "U_OTHER",
-		OptionValue:         "0",
+		Install:       f.app,
+		AgentID:       f.record.AgentID,
+		AppTargetID:   destination.AppTargetID,
+		InteractionID: f.record.ID,
+		UserID:        "U_OTHER",
+		OptionValue:   "0",
 	})
 	values, err := url.ParseQuery(body)
 	require.NoError(t, err)
@@ -410,7 +410,7 @@ func (f capturedHTTPFixture) slackRequest(
 	if status == 0 {
 		status = http.StatusOK
 	}
-	return requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationActionsPath, body, "", status, headers)
+	return requestJSONWithHeaders(t, f.handler, http.MethodPost, appActionsPath, body, "", status, headers)
 }
 
 func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
@@ -509,7 +509,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 				_, err = f.pool.Exec(
 					t.Context(),
-					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",
+					"UPDATE agents SET app_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",
 					f.record.AgentID,
 				)
 				require.NoError(t, err)
@@ -604,8 +604,8 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
 		t.Run(provider, func(t *testing.T) {
 			f := newCapturedHTTPFixture(t, provider, "question")
-			_, err := f.project.Store.Integrations().DisconnectProjectApp(
-				t.Context(), integrationstore.DisconnectProjectAppInput{
+			_, err := f.project.Store.Apps().DisconnectProjectApp(
+				t.Context(), appstore.DisconnectProjectAppInput{
 					ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
 					ExpectedSetupRevision: &f.app.SetupRevision,
 				},
@@ -813,18 +813,18 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.NotNil(t, destination)
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				require.Equal(t, map[string]any{
-					"app_type":              string(f.app.AppType),
-					"args":                  map[string]any{"channel_id": destination.Address.Ref},
-					"handler_key":           "support",
-					"app_id":                testPublicID(t, publicid.KindProjectApp, f.app.ID),
-					"integration_target_id": testPublicID(t, publicid.KindIntegrationTarget, destination.IntegrationTargetID),
-					"address":               map[string]any{"kind": destination.Address.Kind, "ref": destination.Address.Ref},
+					"app_type":      string(f.app.AppType),
+					"args":          map[string]any{"channel_id": destination.Address.Ref},
+					"handler_key":   "support",
+					"app_id":        testPublicID(t, publicid.KindProjectApp, f.app.ID),
+					"app_target_id": testPublicID(t, publicid.KindAppTarget, destination.AppTargetID),
+					"address":       map[string]any{"kind": destination.Address.Kind, "ref": destination.Address.Ref},
 				}, captured)
 				var receipt map[string]any
 				require.NoError(t, json.Unmarshal(f.record.PresentationReceipt, &receipt))
 				require.Equal(t, receipt, listed["presentation_receipt"])
 				require.NotContains(t, projectAppHTTPJSON(t, listed), f.app.ID.String())
-				require.NotContains(t, projectAppHTTPJSON(t, listed), destination.IntegrationTargetID.String())
+				require.NotContains(t, projectAppHTTPJSON(t, listed), destination.AppTargetID.String())
 				headers := apiHeaders
 				if surface == "dashboard" {
 					headers = browserHeaders
@@ -846,7 +846,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 	}
 }
 
-func capturedSiblingApp(t *testing.T, f capturedHTTPFixture) (integrationstore.ProjectAppRecord, ed25519.PrivateKey) {
+func capturedSiblingApp(t *testing.T, f capturedHTTPFixture) (appstore.ProjectAppRecord, ed25519.PrivateKey) {
 	t.Helper()
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -862,11 +862,11 @@ func capturedSiblingApp(t *testing.T, f capturedHTTPFixture) (integrationstore.P
 		Name: "sibling", Material: material, Actor: httpUserPrincipal(f.project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	app, err := f.project.Store.Integrations().CreateProjectApp(t.Context(), integrationstore.SaveProjectAppInput{
+	app, err := f.project.Store.Apps().CreateProjectApp(t.Context(), appstore.SaveProjectAppInput{
 		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: "sibling", AppType: f.app.AppType,
 	})
 	require.NoError(t, err)
-	app, err = f.project.Store.Integrations().ConfigureProjectApp(t.Context(), integrationstore.ConfigureProjectAppInput{
+	app, err = f.project.Store.Apps().ConfigureProjectApp(t.Context(), appstore.ConfigureProjectAppInput{
 		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
 		InstalledByUserID: f.project.AdminUserUUID, Provider: f.app.Provider,
 		ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,
@@ -903,7 +903,7 @@ func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
 			}
 			var targets int
 			require.NoError(t, f.pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM integration_targets WHERE app_id=$1`, sibling.ID).Scan(&targets))
+				`SELECT count(*) FROM app_targets WHERE app_id=$1`, sibling.ID).Scan(&targets))
 			require.Zero(t, targets)
 		})
 	}
@@ -913,7 +913,7 @@ func TestCapturedDiscordPingAcceptsAnyActiveSharedApp(t *testing.T) {
 	t.Parallel()
 	f := newCapturedHTTPFixture(t, "discord", "question")
 	_, key := capturedSiblingApp(t, f)
-	_, err := f.project.Store.Integrations().DisconnectProjectApp(t.Context(), integrationstore.DisconnectProjectAppInput{
+	_, err := f.project.Store.Apps().DisconnectProjectApp(t.Context(), appstore.DisconnectProjectAppInput{
 		ProjectID: f.app.ProjectID, AppID: f.app.ID,
 	})
 	require.NoError(t, err)
@@ -959,7 +959,7 @@ func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
 					return false
 				},
 			})
-			p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+			p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 			var err error
 			if operation == "prompt" {
 				err = p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
@@ -1033,7 +1033,7 @@ func TestCapturedSlackRotatedTokenIdentityBeforeProviderIO(t *testing.T) {
 				})
 				require.NoError(t, err)
 				rotated.Store(true)
-				p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+				p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 				switch operation {
 				case "prompt":
 					err = p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
@@ -1076,14 +1076,14 @@ func TestCapturedDiscordRuntimeMessageWithoutInteractionKey(t *testing.T) {
 	})
 	_, err := f.pool.Exec(t.Context(), `UPDATE project_apps SET provider_config='{}' WHERE id=$1`, f.app.ID)
 	require.NoError(t, err)
-	p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+	p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 	require.ErrorIs(t, p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID), storeerr.ErrUnauthorized)
 	require.Zero(t, requests.Load(), "a missing callback key must reject prompts before any provider request")
 	require.NoError(t, p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID,
-		f.runtimeLockID(t), integration.AgentRequestFailureMessage))
+		f.runtimeLockID(t), apps.AgentRequestFailureMessage))
 	require.EqualValues(t, 1, sends.Load(), "plain text needs bot authority, not a callback verification key")
 	payload := <-f.prompts
-	require.Equal(t, integration.AgentRequestFailureMessage, payload["content"])
+	require.Equal(t, apps.AgentRequestFailureMessage, payload["content"])
 	require.Empty(t, payload["components"])
 }
 
@@ -1120,7 +1120,7 @@ func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentInteractionStateCanceled, closed.State)
-	p := integration.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+	p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 	require.NoError(t, p.Dismiss(t.Context(), closed))
 	require.EqualValues(t, 1, dismissals.Load())
 }

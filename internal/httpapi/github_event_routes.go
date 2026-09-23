@@ -11,12 +11,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -27,14 +27,14 @@ const GitHubSharedEventsPath = "/api/integrations/github/events"
 // Leave headroom under GitHub's 10s deadline:
 // https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds
 const githubIntakeTimeout = 5 * time.Second
-const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLimit
+const githubWebhookCredentialLimit = appstore.GitHubWebhookCredentialLimit
 
 type githubIntakeStore interface {
 	ListProjectAppsByProviderIdentity(
 		context.Context, string, string, string, uuid.UUID, int,
-	) ([]integrationstore.ProjectAppRecord, error)
-	AcceptIntegrationReceipt(context.Context, integrationstore.VerifiedIntegrationReceipt) (
-		integrationstore.IntegrationInboxRecord, bool, error,
+	) ([]appstore.ProjectAppRecord, error)
+	AcceptAppReceipt(context.Context, appstore.VerifiedAppReceipt) (
+		appstore.AppInboxRecord, bool, error,
 	)
 }
 
@@ -46,7 +46,7 @@ type githubIntakeSecrets interface {
 
 type GitHubWebhookCredentialApps func(
 	context.Context, string, int,
-) ([]integrationstore.ProjectAppRecord, error)
+) ([]appstore.ProjectAppRecord, error)
 
 func (s *Server) GitHubEventsHandler() http.Handler {
 	if s.store == nil {
@@ -55,8 +55,8 @@ func (s *Server) GitHubEventsHandler() http.Handler {
 		})
 	}
 	return &githubIntakeHandler{
-		store: s.store.Integrations(), secrets: s.store.Secrets(),
-		credentialApps: s.store.Integrations().ListGitHubWebhookCredentialApps,
+		store: s.store.Apps(), secrets: s.store.Secrets(),
+		credentialApps: s.store.Apps().ListGitHubWebhookCredentialApps,
 	}
 }
 
@@ -89,7 +89,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, openapi.ErrorCodeNotFound)
 		return
 	}
-	raw, ok := readIntegrationCallbackBody(w, r, integrationstore.IntegrationInboxMaxPayloadBytes)
+	raw, ok := readAppCallbackBody(w, r, appstore.AppInboxMaxPayloadBytes)
 	if !ok {
 		return
 	}
@@ -102,12 +102,12 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, openapi.ErrorCodeForbidden, "GitHub installation identity mismatch")
 		return
 	}
-	var result integrationFanoutResult
+	var result appFanoutResult
 	var invalidWebhook bool
 	if hint.Installation.ID > 0 {
-		result, err = fanoutIntegrationApps(ctx, h.store.ListProjectAppsByProviderIdentity,
-			integrationstore.IntegrationProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
-			func(ctx context.Context, app integrationstore.ProjectAppRecord) (bool, error) {
+		result, err = fanoutApps(ctx, h.store.ListProjectAppsByProviderIdentity,
+			appstore.AppProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
+			func(ctx context.Context, app appstore.ProjectAppRecord) (bool, error) {
 				event, verified, err := h.verifyAppCredential(ctx, r.Header, raw, appID, app)
 				if verified && err != nil {
 					invalidWebhook = true
@@ -116,10 +116,10 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				if err != nil || !verified {
 					return verified, err
 				}
-				if !integration.GitHubWebhookInstallationMatches(app, event) {
+				if !apps.GitHubWebhookInstallationMatches(app, event) {
 					return true, storeerr.ErrUnauthorized
 				}
-				_, _, err = h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+				_, _, err = h.store.AcceptAppReceipt(ctx, appstore.VerifiedAppReceipt{
 					ProjectID: app.ProjectID, AppID: app.ID,
 					ReceiptKey: "github:" + event.EventType + ":" + event.DeliveryID, Payload: raw,
 				})
@@ -174,9 +174,9 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *githubIntakeHandler) verifyAppCredential(
-	ctx context.Context, header http.Header, raw []byte, appID string, app integrationstore.ProjectAppRecord,
+	ctx context.Context, header http.Header, raw []byte, appID string, app appstore.ProjectAppRecord,
 ) (github.Webhook, bool, error) {
-	if app.Provider != integrationstore.IntegrationProviderGitHub || app.ProviderTenantID != appID ||
+	if app.Provider != appstore.AppProviderGitHub || app.ProviderTenantID != appID ||
 		app.CredentialSecretID == uuid.Nil {
 		return github.Webhook{}, false, nil
 	}
@@ -217,7 +217,7 @@ func (h *githubIntakeHandler) verifyAppWebhook(
 		if verified {
 			return event, true, err
 		}
-		if err != nil && !permanentIntegrationIngressError(err) {
+		if err != nil && !permanentAppIngressError(err) {
 			retryErr = err
 		}
 	}

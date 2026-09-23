@@ -14,12 +14,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -39,7 +39,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	raw, ok := readIntegrationCallbackBody(w, r, discord.InteractionMaxBytes)
+	raw, ok := readAppCallbackBody(w, r, discord.InteractionMaxBytes)
 	if !ok {
 		return
 	}
@@ -49,7 +49,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid interaction", http.StatusBadRequest)
 		return
 	}
-	var app integrationstore.ProjectAppRecord
+	var app appstore.ProjectAppRecord
 	var err error
 	if hint.Type == discord.InteractionTypePing {
 		app, err = s.discordPingApp(ctx, applicationID, r.Header, raw)
@@ -57,13 +57,13 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		var ownerID uuid.UUID
 		ownerID, err = s.discordCallbackOwner(ctx, hint)
 		if err == nil {
-			app, err = s.store.Integrations().GetProjectAppByID(ctx, ownerID)
+			app, err = s.store.Apps().GetProjectAppByID(ctx, ownerID)
 		}
 	}
 	if err != nil {
-		if hint.Type == discord.InteractionTypePing && permanentIntegrationIngressError(err) {
+		if hint.Type == discord.InteractionTypePing && permanentAppIngressError(err) {
 			http.Error(w, "invalid interaction signature", http.StatusUnauthorized)
-		} else if permanentIntegrationIngressError(err) {
+		} else if permanentAppIngressError(err) {
 			http.Error(w, "interaction owner unavailable", http.StatusNotFound)
 		} else {
 			http.Error(w, "interaction handler unavailable", http.StatusServiceUnavailable)
@@ -71,12 +71,12 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if app.Provider != appdefinition.ProviderDiscord || app.ProviderTenantID != applicationID ||
-		app.State != integrationstore.ProjectAppStateActive {
+		app.State != appstore.ProjectAppStateActive {
 		http.Error(w, "invalid interaction owner", http.StatusForbidden)
 		return
 	}
 	handler, err := discord.NewInteractionHandler(
-		applicationID, integration.DiscordInteractionPublicKey(app.ProviderConfig),
+		applicationID, apps.DiscordInteractionPublicKey(app.ProviderConfig),
 		func(ctx context.Context, input discord.Interaction) (discord.InteractionResponse, error) {
 			return s.resolveDiscordInteraction(ctx, app, input)
 		})
@@ -98,7 +98,7 @@ func (s *Server) discordCallbackOwner(ctx context.Context, input discord.Interac
 		if err != nil {
 			return uuid.Nil, storeerr.ErrNotFound
 		}
-		return s.store.Integrations().GetAppProfileChoiceAppID(ctx, id)
+		return s.store.Apps().GetAppProfileChoiceAppID(ctx, id)
 	}
 	custom, err := discord.DecodeCustomID(input.Data.CustomID)
 	if err != nil {
@@ -113,29 +113,29 @@ func (s *Server) discordCallbackOwner(ctx context.Context, input discord.Interac
 
 func (s *Server) discordPingApp(
 	ctx context.Context, applicationID string, header http.Header, raw []byte,
-) (integrationstore.ProjectAppRecord, error) {
+) (appstore.ProjectAppRecord, error) {
 	after := uuid.Nil
 	var retryErr error
 	for {
 		if err := ctx.Err(); err != nil {
-			return integrationstore.ProjectAppRecord{}, err
+			return appstore.ProjectAppRecord{}, err
 		}
-		apps, err := s.store.Integrations().ListProjectAppsByProviderTenant(
-			ctx, appdefinition.ProviderDiscord, applicationID, after, integrationIngressPageSize,
+		page, err := s.store.Apps().ListProjectAppsByProviderTenant(
+			ctx, appdefinition.ProviderDiscord, applicationID, after, appIngressPageSize,
 		)
 		if err != nil {
-			return integrationstore.ProjectAppRecord{}, err
+			return appstore.ProjectAppRecord{}, err
 		}
-		if len(apps) > integrationIngressPageSize {
-			return integrationstore.ProjectAppRecord{}, fmt.Errorf("app ingress page exceeds limit")
+		if len(page) > appIngressPageSize {
+			return appstore.ProjectAppRecord{}, fmt.Errorf("app ingress page exceeds limit")
 		}
-		for _, app := range apps {
+		for _, app := range page {
 			if app.ID == uuid.Nil || app.ID.String() <= after.String() {
-				return integrationstore.ProjectAppRecord{}, fmt.Errorf("app ingress cursor did not advance")
+				return appstore.ProjectAppRecord{}, fmt.Errorf("app ingress cursor did not advance")
 			}
 			after = app.ID
 			if app.Provider != appdefinition.ProviderDiscord || app.ProviderTenantID != applicationID ||
-				app.State != integrationstore.ProjectAppStateActive {
+				app.State != appstore.ProjectAppStateActive {
 				continue
 			}
 			if !discordPingKeyMatches(app, header, raw) {
@@ -148,22 +148,22 @@ func (s *Server) discordPingApp(
 			if err == nil {
 				return app, nil
 			}
-			if !permanentIntegrationIngressError(err) {
+			if !permanentAppIngressError(err) {
 				retryErr = err
 			}
 		}
-		if len(apps) < integrationIngressPageSize {
+		if len(page) < appIngressPageSize {
 			if retryErr != nil {
-				return integrationstore.ProjectAppRecord{}, retryErr
+				return appstore.ProjectAppRecord{}, retryErr
 			}
-			return integrationstore.ProjectAppRecord{}, storeerr.ErrNotFound
+			return appstore.ProjectAppRecord{}, storeerr.ErrNotFound
 		}
 	}
 }
 
 // This only selects a PING key; the handler must still validate timestamp age and protocol.
-func discordPingKeyMatches(app integrationstore.ProjectAppRecord, header http.Header, raw []byte) bool {
-	key, err := hex.DecodeString(integration.DiscordInteractionPublicKey(app.ProviderConfig))
+func discordPingKeyMatches(app appstore.ProjectAppRecord, header http.Header, raw []byte) bool {
+	key, err := hex.DecodeString(apps.DiscordInteractionPublicKey(app.ProviderConfig))
 	if err != nil || len(key) != ed25519.PublicKeySize {
 		return false
 	}
@@ -186,7 +186,7 @@ func discordInteractionNotice(text string) (discord.InteractionResponse, error) 
 }
 
 func (s *Server) resolveDiscordInteraction(
-	ctx context.Context, app integrationstore.ProjectAppRecord, input discord.Interaction,
+	ctx context.Context, app appstore.ProjectAppRecord, input discord.Interaction,
 ) (discord.InteractionResponse, error) {
 	if strings.HasPrefix(input.Data.CustomID, discord.ProfileChoiceCustomIDPrefix) {
 		return s.discordProfileChoiceAction(ctx, app, input)
@@ -217,7 +217,7 @@ func (s *Server) resolveDiscordInteraction(
 		destination.AppID != app.ID {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
-	var receipt integration.InteractionReceipt
+	var receipt apps.InteractionReceipt
 	if json.Unmarshal(record.PresentationReceipt, &receipt) != nil || receipt.Provider != appdefinition.ProviderDiscord ||
 		receipt.MessageID == "" ||
 		input.Message == nil || input.Message.ID != receipt.MessageID || input.Message.ChannelID != receipt.ChannelID ||
@@ -225,7 +225,7 @@ func (s *Server) resolveDiscordInteraction(
 		input.ChannelID != receipt.ChannelID {
 		return discordInteractionNotice("This prompt is unavailable. Respond in Omnara.")
 	}
-	scope, err := integration.DiscordInteractionScope(*destination)
+	scope, err := apps.DiscordInteractionScope(*destination)
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
@@ -243,11 +243,11 @@ func (s *Server) resolveDiscordInteraction(
 		}
 		return discord.InteractionResponse{}, err
 	}
-	latest, err := s.store.Integrations().GetProjectApp(ctx, app.ProjectID, app.ID)
+	latest, err := s.store.Apps().GetProjectApp(ctx, app.ProjectID, app.ID)
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
-	if latest.State != integrationstore.ProjectAppStateActive || latest.SetupRevision != app.SetupRevision {
+	if latest.State != appstore.ProjectAppStateActive || latest.SetupRevision != app.SetupRevision {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
 	if record.State != executionstore.AgentInteractionStateOpen {

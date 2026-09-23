@@ -229,7 +229,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 	}
 	currentNow := now.Add(2 * time.Millisecond)
 	postCount := 0
-	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "managed-retry",
+	appHTTPClient := kernelSlackRuntimeHTTPClient(t, "managed-retry",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			if req.URL.Path != "/api/chat.postMessage" {
@@ -249,8 +249,8 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
 		ToolExecutor: tools.Executor{
-			Store:                 fixture.Store,
-			IntegrationHTTPClient: integrationHTTPClient,
+			Store:         fixture.Store,
+			AppHTTPClient: appHTTPClient,
 		},
 		StreamPublisher: &capturingStreamPublisher{},
 		Now:             func() time.Time { return currentNow },

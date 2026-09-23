@@ -71,7 +71,7 @@ export async function exerciseSlackAppSetup(
   const appPath = `/projects/${projectID}/apps/${app.id}`
   const response = await pending
   expect(response.status()).toBe(201)
-  const setup = schemas.zIntegrationOAuthSetup.parse(await response.json())
+  const setup = schemas.zAppOAuthSetup.parse(await response.json())
   expect(setup.app_id).toBe(app.id)
   expect(response.request().postDataJSON()).toMatchObject({
     client_id: 'local-slack-client',
@@ -126,7 +126,7 @@ export async function exerciseSlackAppSetup(
   await expect(mentions.getByRole('button', { name: 'Choose profiles', exact: true })).toBeVisible()
   await expectAppCapabilities(page, connected)
   await expect(page.getByRole('heading', { name: app.name, exact: true })).toBeVisible()
-  await page.goto(`${browserOrigin}${appPath}?integration_oauth=success&app_id=${app.id}`)
+  await page.goto(`${browserOrigin}${appPath}?app_oauth=success&app_id=${app.id}`)
   await expect(page.getByRole('status').filter({ hasText: 'Account connected.' })).toBeVisible()
   await expect(mentions.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)

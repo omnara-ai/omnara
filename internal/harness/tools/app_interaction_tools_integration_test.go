@@ -12,8 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -96,7 +96,7 @@ func newInteractionToolFixture(
 	)
 	f.Agent, f.AgentConfig, f.Lock = launch.Agent, config, claim.RuntimeLock
 	f.ModelCallContextID, f.ModelOutputEventID = modelCall.Context.ID, uuid.Nil
-	f.Target = launch.IntegrationTarget
+	f.Target = launch.AppTarget
 	return f
 }
 
@@ -133,11 +133,11 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-selection", "chat", "overlap")
-	overlap, err := f.Store.Integrations().GetProjectAppByName(ctx, toolsTestProjectID, "overlap")
+	overlap, err := f.Store.Apps().GetProjectAppByName(ctx, toolsTestProjectID, "overlap")
 	require.NoError(t, err)
 	var targets int
 	require.NoError(t, f.Pool.QueryRow(ctx,
-		`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, f.Agent.ID).Scan(&targets))
+		`SELECT count(*) FROM app_targets WHERE agent_id=$1`, f.Agent.ID).Scan(&targets))
 	require.Zero(t, targets)
 	calls := []model.ToolCall{
 		{
@@ -173,7 +173,7 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 		require.NotNil(t, choice["input_schema"])
 	}
 	seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, overlap,
-		integrationstore.ConversationAddress{Kind: "thread", Ref: "C999:999.1"})
+		appstore.ConversationAddress{Kind: "thread", Ref: "C999:999.1"})
 	dispatchInteractionHandler(t, ctx, f, turn, calls[1])
 	selected := map[string]any{"handler": "overlap", "args": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}}
 	require.Equal(t, selected, interactionToolResult(t, ctx, f, calls[1])["selection"])
@@ -181,7 +181,7 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
 	require.Equal(t, "overlap", selection.HandlerKey)
-	require.NotEqual(t, uuid.Nil, selection.IntegrationTargetID)
+	require.NotEqual(t, uuid.Nil, selection.AppTargetID)
 	require.JSONEq(t, `{"channel_id":"C123","thread_ts":"111.222"}`, string(selection.Args))
 	dispatchInteractionHandler(t, ctx, f, turn, calls[2])
 	page := interactionToolResult(t, ctx, f, calls[2])

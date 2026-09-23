@@ -85,7 +85,7 @@ var sentinelCodes = []sentinelMapping{
 	{storeerr.ErrModelGrantUnavailable, openapi.ErrorCodeInvalidRequest, false},
 	{storeerr.ErrUnauthorized, openapi.ErrorCodeForbidden, false},
 	{storeerr.ErrMCPOAuthFlowConsumed, openapi.ErrorCodeInvalidRequest, false},
-	{storeerr.ErrIntegrationOAuthFlowConsumed, openapi.ErrorCodeInvalidRequest, false},
+	{storeerr.ErrAppOAuthFlowConsumed, openapi.ErrorCodeInvalidRequest, false},
 }
 
 type ResponseError struct {

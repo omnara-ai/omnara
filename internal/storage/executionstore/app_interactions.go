@@ -11,7 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
@@ -21,18 +21,18 @@ const (
 )
 
 type InteractionSelection struct {
-	IntegrationTargetID uuid.UUID       `json:"integration_target_id"`
-	HandlerKey          string          `json:"handler_key"`
-	Args                json.RawMessage `json:"args"`
+	AppTargetID uuid.UUID       `json:"app_target_id"`
+	HandlerKey  string          `json:"handler_key"`
+	Args        json.RawMessage `json:"args"`
 }
 
 type InteractionDestination struct {
-	AppType             appdefinition.Type                   `json:"app_type"`
-	HandlerKey          string                               `json:"handler_key"`
-	AppID               uuid.UUID                            `json:"app_id"`
-	Args                json.RawMessage                      `json:"args"`
-	IntegrationTargetID uuid.UUID                            `json:"integration_target_id"`
-	Address             integrationstore.ConversationAddress `json:"address"`
+	AppType     appdefinition.Type           `json:"app_type"`
+	HandlerKey  string                       `json:"handler_key"`
+	AppID       uuid.UUID                    `json:"app_id"`
+	Args        json.RawMessage              `json:"args"`
+	AppTargetID uuid.UUID                    `json:"app_target_id"`
+	Address     appstore.ConversationAddress `json:"address"`
 }
 
 func (record AgentInteractionRecord) CapturedDestination() (*InteractionDestination, error) {
@@ -58,7 +58,7 @@ func (record AgentInteractionRecord) CapturedDestination() (*InteractionDestinat
 }
 
 func (d InteractionDestination) validate() error {
-	if d.IntegrationTargetID == uuid.Nil || d.AppID == uuid.Nil ||
+	if d.AppTargetID == uuid.Nil || d.AppID == uuid.Nil ||
 		toolcatalog.ValidateAppName(d.HandlerKey) != nil {
 		return errors.New("interaction destination requires target, app and handler key")
 	}
@@ -77,7 +77,7 @@ func (d InteractionDestination) validate() error {
 	if err != nil {
 		return err
 	}
-	if d.Address != (integrationstore.ConversationAddress{Kind: kind, Ref: ref}) {
+	if d.Address != (appstore.ConversationAddress{Kind: kind, Ref: ref}) {
 		return errors.New("interaction destination does not match handler args")
 	}
 	return d.Address.Validate()
@@ -85,7 +85,7 @@ func (d InteractionDestination) validate() error {
 
 func sameInteractionDestination(a, b InteractionDestination) bool {
 	return a.AppType == b.AppType && a.HandlerKey == b.HandlerKey &&
-		a.AppID == b.AppID && a.IntegrationTargetID == b.IntegrationTargetID && a.Address == b.Address &&
+		a.AppID == b.AppID && a.AppTargetID == b.AppTargetID && a.Address == b.Address &&
 		jsoncanonical.Equal(a.Args, b.Args)
 }
 
@@ -99,7 +99,7 @@ func validateInteractionObject(raw json.RawMessage, limit int) error {
 
 func interactionArgsForOrigin(
 	provider string,
-	address integrationstore.ConversationAddress,
+	address appstore.ConversationAddress,
 ) (json.RawMessage, bool) {
 	scope, err := appdefinition.ParseConversation(provider, address.Kind, address.Ref)
 	if err != nil {

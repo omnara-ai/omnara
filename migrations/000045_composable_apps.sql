@@ -113,7 +113,10 @@ $$;
 -- +goose StatementEnd
 
 ALTER TABLE integration_installs RENAME TO project_apps;
-ALTER TABLE integration_targets RENAME COLUMN integration_install_id TO app_id;
+ALTER TABLE integration_targets RENAME TO app_targets;
+ALTER TABLE app_targets RENAME COLUMN integration_install_id TO app_id;
+ALTER TABLE agents RENAME COLUMN integration_target_id TO app_target_id;
+ALTER TABLE agent_inputs RENAME COLUMN integration_target_id TO app_target_id;
 DROP INDEX integration_installs_provider_tenant_account_idx;
 ALTER INDEX integration_installs_last_oauth_flow_id_idx RENAME TO project_apps_last_oauth_flow_id_idx;
 ALTER INDEX integration_installs_credential_secret_idx RENAME TO project_apps_credential_secret_idx;
@@ -185,20 +188,92 @@ $$;
 CREATE TRIGGER project_apps_identity_immutable BEFORE UPDATE ON project_apps
 FOR EACH ROW EXECUTE FUNCTION project_apps_reject_identity_change();
 
-ALTER TABLE integration_targets
+ALTER TABLE app_targets
     DROP COLUMN target_ref, -- Drops the obsolete alias index and nonempty check too.
     ADD COLUMN selection_slot text,
     ADD CHECK (selection_slot IS NULL OR selection_slot <> '');
 
 DROP INDEX integration_targets_active_provider_ref_idx;
-CREATE UNIQUE INDEX integration_targets_active_agent_address_idx
-    ON integration_targets(project_id, agent_id, app_id, provider_ref_kind, provider_ref)
+CREATE UNIQUE INDEX app_targets_active_agent_address_idx
+    ON app_targets(project_id, agent_id, app_id, provider_ref_kind, provider_ref)
     WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX integration_targets_selection_idx
-    ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref, selection_slot)
+CREATE UNIQUE INDEX app_targets_selection_idx
+    ON app_targets(project_id, app_id, provider_ref_kind, provider_ref, selection_slot)
     WHERE selection_slot IS NOT NULL;
-CREATE INDEX integration_targets_conversation_idx
-    ON integration_targets(project_id, app_id, provider_ref_kind, provider_ref);
+CREATE INDEX app_targets_conversation_idx
+    ON app_targets(project_id, app_id, provider_ref_kind, provider_ref);
+
+-- Renaming tables and columns leaves constraint names unchanged, including
+-- PostgreSQL 18's named NOT NULL constraints. Constraint-owned indexes follow.
+-- +goose StatementBegin
+DO $$
+DECLARE constraint_row record; new_name text;
+BEGIN
+    FOR constraint_row IN
+        SELECT conrelid, conname FROM pg_constraint
+        WHERE conrelid IN ('project_apps'::regclass, 'app_targets'::regclass,
+                          'agents'::regclass, 'agent_inputs'::regclass)
+          AND conname ~ 'integration_(installs|targets|install_id|target_id)'
+    LOOP
+        new_name := replace(replace(replace(replace(constraint_row.conname,
+            'integration_installs', 'project_apps'), 'integration_targets', 'app_targets'),
+            'integration_install_id', 'app_id'), 'integration_target_id', 'app_target_id');
+        EXECUTE format('ALTER TABLE %s RENAME CONSTRAINT %I TO %I',
+                       constraint_row.conrelid::regclass, constraint_row.conname, new_name);
+    END LOOP;
+END;
+$$;
+-- +goose StatementEnd
+
+-- PL/pgSQL record-field references are not rewritten by a column rename.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION enforce_agent_input_mutation_policy()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'agent_inputs are immutable'
+            USING ERRCODE = '25006';
+    END IF;
+
+    IF OLD.state IN ('resolved', 'rejected', 'canceled') AND NEW IS DISTINCT FROM OLD THEN
+        RAISE EXCEPTION 'terminal agent_inputs are immutable'
+            USING ERRCODE = '25006';
+    END IF;
+
+    IF (NEW.delivery_mode IS DISTINCT FROM OLD.delivery_mode
+        OR NEW.input_rank IS DISTINCT FROM OLD.input_rank)
+       AND NOT (
+           OLD.state = 'received'
+           AND NEW.state = 'received'
+           AND OLD.input_kind = 'content'
+       ) THEN
+        RAISE EXCEPTION 'agent_input delivery may change only while content remains received'
+            USING ERRCODE = '25006';
+    END IF;
+
+    IF NEW.id IS DISTINCT FROM OLD.id
+       OR NEW.project_id IS DISTINCT FROM OLD.project_id
+       OR NEW.agent_id IS DISTINCT FROM OLD.agent_id
+       OR NEW.actor_id IS DISTINCT FROM OLD.actor_id
+       OR NEW.input_kind IS DISTINCT FROM OLD.input_kind
+       OR NEW.app_target_id IS DISTINCT FROM OLD.app_target_id
+       OR NEW.control_type IS DISTINCT FROM OLD.control_type
+       OR NEW.target_interaction_id IS DISTINCT FROM OLD.target_interaction_id
+       OR NEW.agent_config_id IS DISTINCT FROM OLD.agent_config_id
+       OR NEW.idempotency_scope IS DISTINCT FROM OLD.idempotency_scope
+       OR NEW.input_idempotency_key IS DISTINCT FROM OLD.input_idempotency_key
+       OR NEW.queued_at IS DISTINCT FROM OLD.queued_at
+       OR NEW.metadata IS DISTINCT FROM OLD.metadata THEN
+        RAISE EXCEPTION 'agent_input intent and identity are immutable'
+            USING ERRCODE = '25006';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
 
 CREATE TABLE app_subscriptions (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -238,7 +313,7 @@ CREATE TABLE app_runtime (
 );
 CREATE INDEX app_runtime_credential_idx ON app_runtime(credential_version_id);
 
-CREATE TABLE integration_inbox (
+CREATE TABLE app_inbox (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     project_id uuid NOT NULL,
     app_id uuid NOT NULL,
@@ -266,15 +341,15 @@ CREATE TABLE integration_inbox (
     UNIQUE (project_id, app_id, receipt_key)
 );
 
-CREATE INDEX integration_inbox_ready_idx ON integration_inbox(available_at, id)
+CREATE INDEX app_inbox_ready_idx ON app_inbox(available_at, id)
     WHERE state = 'pending';
-CREATE INDEX integration_inbox_expired_idx ON integration_inbox(claim_expires_at, id)
+CREATE INDEX app_inbox_expired_idx ON app_inbox(claim_expires_at, id)
     WHERE state = 'processing';
-CREATE INDEX integration_inbox_terminal_idx ON integration_inbox(completed_at, id)
+CREATE INDEX app_inbox_terminal_idx ON app_inbox(completed_at, id)
     WHERE state IN ('completed', 'failed');
-CREATE INDEX integration_inbox_app_ready_idx
-    ON integration_inbox(project_id, app_id, available_at, id) WHERE state = 'pending';
-CREATE INDEX integration_inbox_selection_idx ON integration_inbox USING gin
+CREATE INDEX app_inbox_app_ready_idx
+    ON app_inbox(project_id, app_id, available_at, id) WHERE state = 'pending';
+CREATE INDEX app_inbox_selection_idx ON app_inbox USING gin
     ((jsonb_path_query_array(plan, '$.*.selection')) jsonb_path_ops)
     WHERE plan IS NOT NULL AND state IN ('pending', 'processing');
 
@@ -350,14 +425,14 @@ CROSS JOIN default_resource_limits AS defaults
 LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.id
 WHERE orgs.deleted_at IS NULL;
 
-UPDATE agents SET integration_target_id = NULL WHERE integration_target_id IS NOT NULL;
+UPDATE agents SET app_target_id = NULL WHERE app_target_id IS NOT NULL;
 
 ALTER TABLE agents
     ADD COLUMN interaction_handler_key text,
     ADD COLUMN interaction_handler_args jsonb,
     ADD CHECK (
-        (integration_target_id IS NULL AND interaction_handler_key IS NULL AND interaction_handler_args IS NULL)
-        OR (integration_target_id IS NOT NULL AND interaction_handler_key IS NOT NULL
+        (app_target_id IS NULL AND interaction_handler_key IS NULL AND interaction_handler_args IS NULL)
+        OR (app_target_id IS NOT NULL AND interaction_handler_key IS NOT NULL
             AND interaction_handler_key <> '' AND interaction_handler_args IS NOT NULL
             AND jsonb_typeof(interaction_handler_args) = 'object'));
 ALTER TABLE agent_interactions

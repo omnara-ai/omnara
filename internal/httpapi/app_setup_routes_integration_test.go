@@ -13,11 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +36,7 @@ func createSetupHTTPApp(
 	project publicHTTPProject,
 	name string,
 	appType appdefinition.Type,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	response := requestJSONWithHeaders(
 		t,
@@ -56,9 +56,9 @@ func createSetupHTTPApp(
 		publicid.KindProjectApp,
 		testutil.RequireType[string](t, response["id"]),
 	)
-	app, err := project.Store.Integrations().GetProjectApp(t.Context(), project.ProjectUUID, id)
+	app, err := project.Store.Apps().GetProjectApp(t.Context(), project.ProjectUUID, id)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectAppStateDisconnected, app.State)
+	require.Equal(t, appstore.ProjectAppStateDisconnected, app.State)
 	require.Equal(t, uuid.Nil, app.CredentialSecretID)
 	return app
 }
@@ -66,7 +66,7 @@ func createSetupHTTPApp(
 func appSetupPath(
 	t *testing.T,
 	project publicHTTPProject,
-	app integrationstore.ProjectAppRecord,
+	app appstore.ProjectAppRecord,
 ) string {
 	t.Helper()
 	return project.ProjectPath + "/apps/" + testPublicID(
@@ -338,7 +338,7 @@ func TestProjectAppSetupCredentialScopeAndKind(t *testing.T) {
 	)
 	requestJSONWithHeaders(t, handler, http.MethodPost, appSetupPath(t, project, app),
 		projectAppHTTPJSON(t, body), "", http.StatusBadRequest, authHeaders(project.AdminToken))
-	current, err := project.Store.Integrations().
+	current, err := project.Store.Apps().
 		GetProjectApp(t.Context(), project.ProjectUUID, app.ID)
 	require.NoError(t, err)
 	require.Equal(t, app, current, "rejected credentials must leave the saved app unchanged")
@@ -377,7 +377,7 @@ func createSlackHTTPApp(
 	ctx context.Context,
 	project publicHTTPProject,
 	appID, workspaceID, displayName string,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	payload, err := slack.CredentialPayload(
 		slack.AppCredentials{
@@ -391,16 +391,16 @@ func createSlackHTTPApp(
 	credential := createSlackHTTPInstallSecret(t, ctx, project, appID+"-credentials", payload)
 	secret, err := project.Store.Secrets().GetSecret(ctx, project.OrgUUID, credential)
 	require.NoError(t, err)
-	app, err := project.Store.Integrations().
-		CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+	app, err := project.Store.Apps().
+		CreateProjectApp(ctx, appstore.SaveProjectAppInput{
 			OrgID:     project.OrgUUID,
 			ProjectID: project.ProjectUUID,
 			Name:      "slack-" + uuid.NewString()[:8],
 			AppType:   appdefinition.SlackThread,
 		})
 	require.NoError(t, err)
-	app, err = project.Store.Integrations().
-		ConfigureProjectApp(ctx, integrationstore.ConfigureProjectAppInput{
+	app, err = project.Store.Apps().
+		ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
 			OrgID:                    project.OrgUUID,
 			ProjectID:                project.ProjectUUID,
 			AppID:                    app.ID,

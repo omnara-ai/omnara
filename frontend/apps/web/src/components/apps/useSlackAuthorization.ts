@@ -1,10 +1,5 @@
 import { useOmnaraClient, useProjectAppOAuthCompletion } from '@omnara/react'
-import {
-  ApiError,
-  type GetProjectAppError,
-  type IntegrationOAuthSetup,
-  type ProjectApp,
-} from '@omnara/sdk'
+import { ApiError, type AppOAuthSetup, type GetProjectAppError, type ProjectApp } from '@omnara/sdk'
 import { listProjectAppsQueryKey } from '@omnara/sdk/tanstack'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -18,7 +13,7 @@ export function useSlackAuthorization(
 ) {
   const client = useOmnaraClient()
   const cache = useQueryClient()
-  const [pending, setPending] = useState<IntegrationOAuthSetup>()
+  const [pending, setPending] = useState<AppOAuthSetup>()
   const completion = useProjectAppOAuthCompletion(orgId, projectId, pending?.app_id ?? '', pending)
   const connected =
     pending &&
@@ -52,7 +47,7 @@ export function useSlackAuthorization(
 }
 
 function authorizationFailure(
-  pending: IntegrationOAuthSetup | undefined,
+  pending: AppOAuthSetup | undefined,
   connected: boolean,
   app: ProjectApp | undefined,
   error: GetProjectAppError | null,

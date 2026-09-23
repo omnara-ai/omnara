@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 
-	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -39,7 +39,7 @@ func runDiscordTool(
 			BotUserID:     access.App.ProviderAccountRef,
 			BotToken:      access.Credential[secrets.KeyValue],
 		},
-		HTTPClient: call.Executor.IntegrationHTTPClient,
+		HTTPClient: call.Executor.AppHTTPClient,
 		BeforeRequest: func(ctx context.Context) error {
 			return call.Executor.recheckAppToolAccess(ctx, call.Turn, record, access)
 		},

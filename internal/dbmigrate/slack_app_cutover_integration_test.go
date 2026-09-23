@@ -16,8 +16,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -358,22 +358,30 @@ tools:
 				retiredTargetID, ids.ProjectID, agents[0], appID)
 			history := func() string {
 				t.Helper()
+				targetTable := "integration_targets"
+				if currentPostgresMigrationVersion(t, ctx, db) >= 45 {
+					targetTable = "app_targets"
+				}
 				var value string
-				require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object(
+				require.NoError(t, db.QueryRowContext(ctx, fmt.Sprintf(`SELECT jsonb_build_object(
 				 'agents',(SELECT jsonb_agg(to_jsonb(a)-'current_config_id'-'next_event_sequence'
-                 -'integration_target_id'-'updated_at'
+                 -'integration_target_id'-'app_target_id'-'updated_at'
                  -'interaction_handler_key'-'interaction_handler_args' ORDER BY a.id) FROM agents a),
 				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'app_id'
                   -'selection_slot'-'target_ref')
                   || jsonb_build_object('app_id',coalesce(to_jsonb(t)->'app_id',to_jsonb(t)->'integration_install_id'))
-                  ORDER BY t.id) FROM integration_targets t),
-				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
+                  ORDER BY t.id) FROM %s t),
+				 'inputs',(SELECT jsonb_agg((to_jsonb(i)-'integration_target_id'-'app_target_id')
+                  || jsonb_build_object('app_target_id',
+                      coalesce(to_jsonb(i)->'app_target_id',to_jsonb(i)->'integration_target_id'))
+                  ORDER BY i.id) FROM agent_inputs i
                   WHERE i.input_idempotency_key IS DISTINCT FROM 'slack_app_cutover'),
 				 'contexts',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM model_call_contexts c),
 				 'outputs',(SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM model_outputs o),
 				 'blocks',(SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM content_blocks b),
 				 'secrets',(SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM secrets s),
-				 'versions',(SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id) FROM secret_versions v))::text`).Scan(&value))
+				 'versions',(SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id) FROM secret_versions v))::text`,
+					targetTable)).Scan(&value))
 				return value
 			}
 			switch scenario {
@@ -516,7 +524,7 @@ tools:
 					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
 				}
 				if scenario == "invalid_address" {
-					exec(`UPDATE integration_targets SET provider_ref='C1:invalid' WHERE agent_id=$1`, agents[0])
+					exec(`UPDATE app_targets SET provider_ref='C1:invalid' WHERE agent_id=$1`, agents[0])
 				}
 				expectedConfigs := 1
 				if scenario == "invalid_policy" {
@@ -572,7 +580,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND integration_target_id IS NULL`,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND app_target_id IS NULL`,
 						configID,
 					).Scan(
 						&count,
@@ -597,7 +605,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND integration_target_id IS NULL`,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND app_target_id IS NULL`,
 						configID,
 					).Scan(
 						&active,
@@ -687,12 +695,12 @@ tools:
 			var retiredSlot sql.NullString
 			var retiredMetadata []byte
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT selection_slot,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
+				`SELECT selection_slot,provider_metadata FROM app_targets WHERE id=$1`, retiredTargetID).
 				Scan(&retiredSlot, &retiredMetadata))
 			require.False(t, retiredSlot.Valid)
 			require.JSONEq(t, `{"legacy":"retained"}`, string(retiredMetadata))
 			execution := executionstore.New(pool, executionstore.Config{})
-			conversations := integrationstore.New(pool, executionstore.AppAccess{})
+			conversations := appstore.New(pool, executionstore.AppAccess{})
 			for i, agentID := range agents {
 				snapshot, err := execution.CaptureAgentConfigForModelContext(ctx, ids.ProjectID, agentID)
 				require.NoError(t, err)
@@ -735,12 +743,12 @@ tools:
 				conversation, found, err := conversations.GetAgentAppConversation(ctx, ids.ProjectID, agentID, appID)
 				require.NoError(t, err)
 				require.True(t, found)
-				wantConversation := integrationstore.ConversationAddress{Kind: "thread", Ref: fmt.Sprintf("C123:111.%d", i+1)}
+				wantConversation := appstore.ConversationAddress{Kind: "thread", Ref: fmt.Sprintf("C123:111.%d", i+1)}
 				if scenario == "channel" {
-					wantConversation = integrationstore.ConversationAddress{Kind: "channel", Ref: fmt.Sprintf("C%d", i+1)}
+					wantConversation = appstore.ConversationAddress{Kind: "channel", Ref: fmt.Sprintf("C%d", i+1)}
 				}
 				if scenario == "dm" {
-					wantConversation = integrationstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
+					wantConversation = appstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
 				}
 				require.Equal(t, wantConversation, conversation)
 				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, appID, wantConversation)
@@ -750,7 +758,7 @@ tools:
 					second, found, err := conversations.GetAgentAppConversation(ctx, ids.ProjectID, agentID, secondAppID)
 					require.NoError(t, err)
 					require.True(t, found)
-					wantSecond := integrationstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
+					wantSecond := appstore.ConversationAddress{Kind: "dm", Ref: fmt.Sprintf("D%d", i+1)}
 					require.Equal(t, wantSecond, second)
 					assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, secondAppID, wantSecond)
 				}
@@ -810,7 +818,7 @@ tools:
 			}
 			require.Equal(t, wantAssignments, assignments, "only eligible live targets assign conversations")
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT count(*) FROM integration_targets WHERE selection_slot IS NOT NULL`).Scan(&selections))
+				`SELECT count(*) FROM app_targets WHERE selection_slot IS NOT NULL`).Scan(&selections))
 			require.Zero(t, selections, "migrated conversations must not suppress new mention launches")
 			var subscriptions, pointers int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM app_subscriptions`).Scan(&subscriptions))
@@ -819,7 +827,7 @@ tools:
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT count(*) FROM agents WHERE integration_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL OR interaction_handler_args IS NOT NULL`,
+					`SELECT count(*) FROM agents WHERE app_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL OR interaction_handler_args IS NOT NULL`,
 				).
 					Scan(
 						&pointers,
@@ -934,7 +942,7 @@ tools:
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT count(*) FROM agent_inputs input JOIN integration_targets target ON target.id=input.integration_target_id WHERE target.app_id=$1`,
+					`SELECT count(*) FROM agent_inputs input JOIN app_targets target ON target.id=input.app_target_id WHERE target.app_id=$1`,
 					appID,
 				).Scan(
 					&inputTargets,
@@ -993,12 +1001,51 @@ tools:
 					require.NotEqual(t, configID, snapshot.AgentConfig.ID)
 				}
 			}
+			if scenario == "normal" {
+				assertSlackCutoverInputGuards(t, db, ids.ProjectID, agents[noTurnIndex], agents[0], appID)
+			}
 		})
 	}
 }
 
+func assertSlackCutoverInputGuards(t *testing.T, db *sql.DB, projectID, agentID, otherAgentID, appID uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	var targetID, inputID uuid.UUID
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT id FROM app_targets WHERE project_id=$1 AND agent_id=$2 AND app_id=$3 AND deleted_at IS NULL`,
+		projectID, agentID, appID).Scan(&targetID))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,app_target_id,queued_at)
+        VALUES($1,$2,'received','content','queued',$3,now()) RETURNING id`,
+		projectID, agentID, targetID).Scan(&inputID))
+	_, err := db.ExecContext(ctx, `UPDATE agent_inputs SET delivery_mode='steering' WHERE id=$1`, inputID)
+	require.NoError(t, err, "received content remains editable after the column rename")
+	_, err = db.ExecContext(ctx, `UPDATE agent_inputs SET app_target_id=NULL WHERE id=$1`, inputID)
+	require.ErrorContains(t, err, "agent_input intent and identity are immutable")
+	_, err = db.ExecContext(ctx, `UPDATE agent_inputs SET state='canceled',canceled_at=now() WHERE id=$1`, inputID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE agent_inputs SET app_target_id=NULL WHERE id=$1`, inputID)
+	require.ErrorContains(t, err, "terminal agent_inputs are immutable")
+	_, err = db.ExecContext(ctx, `DELETE FROM agent_inputs WHERE id=$1`, inputID)
+	require.ErrorContains(t, err, "agent_inputs are immutable")
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO agent_inputs(project_id,agent_id,state,input_kind,delivery_mode,app_target_id,queued_at)
+        VALUES($1,$2,'received','content','queued',$3,now())`, projectID, otherAgentID, targetID)
+	require.ErrorContains(t, err, "agent_inputs_project_id_agent_id_app_target_id_fkey")
+	_, err = db.ExecContext(ctx,
+		`UPDATE agents SET app_target_id=$2,interaction_handler_key='app__slack__default',interaction_handler_args='{}'
+        WHERE id=$1`, otherAgentID, targetID)
+	require.ErrorContains(t, err, "agents_project_id_id_app_target_id_fkey")
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO app_targets(project_id,agent_id,app_id,provider_ref_kind,provider_ref,created_at,updated_at)
+        SELECT project_id,agent_id,app_id,provider_ref_kind,provider_ref,now(),now() FROM app_targets WHERE id=$1`,
+		targetID)
+	require.ErrorContains(t, err, "app_targets_active_agent_address_idx")
+}
+
 func assertSlackCutoverConversationState(
-	t *testing.T, db *sql.DB, projectID, agentID, appID uuid.UUID, want integrationstore.ConversationAddress,
+	t *testing.T, db *sql.DB, projectID, agentID, appID uuid.UUID, want appstore.ConversationAddress,
 ) {
 	t.Helper()
 	var data []byte

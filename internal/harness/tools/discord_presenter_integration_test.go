@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/discord"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -97,8 +97,8 @@ func TestDiscordPresenterRechecksRotatedCredentialIdentity(t *testing.T) {
 			}
 			call := f.recordToolCall(t, ctx, "discord-question", "ask_question",
 				`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
-			client := integrationProviderTestClient(server)
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: client}
+			client := appProviderTestClient(server)
+			executor := Executor{Store: f.Store, AppHTTPClient: client}
 			_, err := dispatchToolAndDrainAsync(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			interaction := integrationToolInteraction(t, ctx, f, f.toolCallID(t, ctx, call.ID), "question")
@@ -112,7 +112,7 @@ func TestDiscordPresenterRechecksRotatedCredentialIdentity(t *testing.T) {
 			require.EqualValues(t, 1, posts.Load())
 			require.NotEmpty(t, interaction.PresentationReceipt)
 			rotate()
-			presenter := integration.InteractionPresenter{Store: f.Store, HTTPClient: client}
+			presenter := apps.InteractionPresenter{Store: f.Store, HTTPClient: client}
 			err = presenter.PostRuntimeMessage(ctx, toolsTestProjectID, f.Agent.ID, f.Lock.ID, "Runtime update")
 			var apiErr *discord.APIError
 			require.ErrorAs(t, err, &apiErr)

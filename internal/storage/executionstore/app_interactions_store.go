@@ -13,7 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/appdefinition"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -70,13 +70,13 @@ func (s *Store) SelectInteractionDestinationForOriginTx(
 	var selection InteractionSelection
 	matches := 0
 	for key, handler := range handlers {
-		if target.AppState != string(integrationstore.ProjectAppStateActive) ||
+		if target.AppState != string(appstore.ProjectAppStateActive) ||
 			handler.appID != target.AppID {
 			continue
 		}
 		args, ok := interactionArgsForOrigin(
 			handler.definition.Provider,
-			integrationstore.ConversationAddress{
+			appstore.ConversationAddress{
 				Kind: target.ProviderRefKind,
 				Ref:  target.ProviderRef,
 			},
@@ -86,9 +86,9 @@ func (s *Store) SelectInteractionDestinationForOriginTx(
 		}
 		matches++
 		selection = InteractionSelection{
-			IntegrationTargetID: originTargetID,
-			HandlerKey:          key,
-			Args:                args,
+			AppTargetID: originTargetID,
+			HandlerKey:  key,
+			Args:        args,
 		}
 	}
 	if matches != 1 {
@@ -214,7 +214,7 @@ func SetInteractionHandlerForToolCall(
 ) ToolCallCommand {
 	return toolCallCommandFunc(func(ctx context.Context, t *toolCallTransaction) (any, error) {
 		selected := selection
-		if selected.IntegrationTargetID != uuid.Nil {
+		if selected.AppTargetID != uuid.Nil {
 			return nil, storeerr.InvalidRequest(
 				errors.New("handler selection takes args, not a target ID"),
 			)
@@ -229,7 +229,7 @@ func SetInteractionHandlerForToolCall(
 			return nil, err
 		}
 		var handler resolvedInteractionHandler
-		var address integrationstore.ConversationAddress
+		var address appstore.ConversationAddress
 		if selected.HandlerKey != "" {
 			capability, found := original.InteractionHandlers[selected.HandlerKey]
 			if !found {
@@ -247,7 +247,7 @@ func SetInteractionHandlerForToolCall(
 			); err != nil {
 				return nil, err
 			}
-			if err := integrationstore.LockAppsTx(
+			if err := appstore.LockAppsTx(
 				ctx,
 				t.tx,
 				t.input.ProjectID,
@@ -285,12 +285,12 @@ func SetInteractionHandlerForToolCall(
 			if err != nil {
 				return nil, storeerr.InvalidRequest(err)
 			}
-			address = integrationstore.ConversationAddress{Kind: kind, Ref: ref}
+			address = appstore.ConversationAddress{Kind: kind, Ref: ref}
 			selected.Args, err = jsoncanonical.Normalize(selected.Args)
 			if err != nil {
 				return nil, storeerr.InvalidRequest(err)
 			}
-			if err := integrationstore.LockConversationTx(
+			if err := appstore.LockConversationTx(
 				ctx,
 				t.tx,
 				t.input.ProjectID,
@@ -332,10 +332,10 @@ func SetInteractionHandlerForToolCall(
 			if err != nil {
 				return nil, storeerr.ErrUnauthorized
 			}
-			target, err := t.store.integrations.EnsureConversationTargetTx(
+			target, err := t.store.apps.EnsureConversationTargetTx(
 				ctx,
 				t.tx,
-				integrationstore.EnsureConversationTargetInput{
+				appstore.EnsureConversationTargetInput{
 					ProjectID: t.input.ProjectID,
 					AgentID:   t.input.AgentID,
 					AppID:     handler.appID,
@@ -345,7 +345,7 @@ func SetInteractionHandlerForToolCall(
 			if err != nil {
 				return nil, err
 			}
-			selected.IntegrationTargetID = target.ID
+			selected.AppTargetID = target.ID
 		}
 		if err := writeInteractionSelection(
 			ctx,
@@ -384,9 +384,9 @@ func interactionSelectionFromRow(row dbsqlc.GetInteractionSelectionRow) Interact
 		args = *row.HandlerArgs
 	}
 	return InteractionSelection{
-		IntegrationTargetID: storeutil.IDFromPtr(row.IntegrationTargetID),
-		HandlerKey:          row.HandlerKey,
-		Args:                args,
+		AppTargetID: storeutil.IDFromPtr(row.AppTargetID),
+		HandlerKey:  row.HandlerKey,
+		Args:        args,
 	}
 }
 
@@ -454,7 +454,7 @@ func prepareInteractionHandlers(
 			}
 			apps[id] = app
 		}
-		if app.State != string(integrationstore.ProjectAppStateActive) {
+		if app.State != string(appstore.ProjectAppStateActive) {
 			continue
 		}
 		definition, ok := appdefinition.Lookup(appdefinition.Type(app.AppType))
@@ -490,7 +490,7 @@ func writeInteractionSelection(
 	changed, err := q.SetInteractionSelection(ctx, dbsqlc.SetInteractionSelectionParams{
 		ProjectID:   projectID,
 		AgentID:     agentID,
-		TargetID:    storeutil.IDFromNil(selection.IntegrationTargetID),
+		TargetID:    storeutil.IDFromNil(selection.AppTargetID),
 		HandlerKey:  storeutil.TextFromEmpty(selection.HandlerKey),
 		HandlerArgs: args,
 	})
@@ -511,7 +511,7 @@ func selectedInteractionDestination(
 	handlers map[string]resolvedInteractionHandler,
 ) (*InteractionDestination, error) {
 	handler, ok := handlers[selection.HandlerKey]
-	if !ok || selection.IntegrationTargetID == uuid.Nil {
+	if !ok || selection.AppTargetID == uuid.Nil {
 		return nil, nil //nolint:nilnil // Unavailable selection means dashboard only.
 	}
 	target, err := q.GetInteractionDestinationTarget(
@@ -519,7 +519,7 @@ func selectedInteractionDestination(
 		dbsqlc.GetInteractionDestinationTargetParams{
 			ProjectID: projectID,
 			AgentID:   agentID,
-			TargetID:  selection.IntegrationTargetID,
+			TargetID:  selection.AppTargetID,
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -529,16 +529,16 @@ func selectedInteractionDestination(
 		return nil, err
 	}
 	if target.AppID != handler.appID ||
-		target.AppState != string(integrationstore.ProjectAppStateActive) {
+		target.AppState != string(appstore.ProjectAppStateActive) {
 		return nil, nil //nolint:nilnil // Revoked app.
 	}
 	destination := &InteractionDestination{
-		HandlerKey:          selection.HandlerKey,
-		AppID:               handler.appID,
-		AppType:             handler.definition.AppType,
-		Args:                selection.Args,
-		IntegrationTargetID: target.ID,
-		Address: integrationstore.ConversationAddress{
+		HandlerKey:  selection.HandlerKey,
+		AppID:       handler.appID,
+		AppType:     handler.definition.AppType,
+		Args:        selection.Args,
+		AppTargetID: target.ID,
+		Address: appstore.ConversationAddress{
 			Kind: target.ProviderRefKind,
 			Ref:  target.ProviderRef,
 		},
@@ -582,7 +582,7 @@ type ResolveAgentInteractionFromHandlerInput struct {
 	ResolveAgentInteractionInput
 	AppID               uuid.UUID
 	AppType             appdefinition.Type
-	Address             integrationstore.ConversationAddress
+	Address             appstore.ConversationAddress
 	SourceSetupRevision int64
 }
 
@@ -646,13 +646,13 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 	if destination.AppID != input.AppID ||
 		destination.AppType != input.AppType ||
 		destination.Address != input.Address ||
-		(input.IntegrationTargetID != uuid.Nil && input.IntegrationTargetID != destination.IntegrationTargetID) {
+		(input.AppTargetID != uuid.Nil && input.AppTargetID != destination.AppTargetID) {
 		return AgentInteractionRecord{}, storeerr.ErrUnauthorized
 	}
 	if err := validateAppInputActor(destination.AppID, input.Actor); err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	input.IntegrationTargetID = destination.IntegrationTargetID
+	input.AppTargetID = destination.AppTargetID
 	notifications := s.newTxNotifications()
 	record, err := resolveAgentInteractionTx(
 		ctx,
@@ -728,9 +728,9 @@ func lockAuthorizedInteractionDestination(
 		return AgentInteractionRecord{}, nil, err
 	}
 	selection := InteractionSelection{
-		IntegrationTargetID: destination.IntegrationTargetID,
-		HandlerKey:          destination.HandlerKey,
-		Args:                destination.Args,
+		AppTargetID: destination.AppTargetID,
+		HandlerKey:  destination.HandlerKey,
+		Args:        destination.Args,
 	}
 	current, err := selectedInteractionDestination(ctx, q, projectID, agentID, selection, handlers)
 	if err != nil {

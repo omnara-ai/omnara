@@ -182,7 +182,7 @@ describe('AgentChatSession input lifecycle', () => {
           content_blocks: [
             {
               type: 'text',
-              text: 'This message came from the Omnara CLI. Reply with normal assistant text unless explicitly asked to message an integration.',
+              text: 'This message came from the Omnara CLI. Reply with normal assistant text unless explicitly asked to send a message through an app.',
               metadata: { omnara_hidden: 'true' },
             },
             { type: 'text', text: 'Hello' },

@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/github"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/github"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -171,7 +171,7 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	})
 	f := newGitHubSetupJourney(t, "github-renamed-app", WithGitHubClientConfig(config))
 	raw := []byte(githubHTTPComment(t, 42, 3001, "@renamed-helper please review"))
-	event, ok, err := integration.NormalizeGitHubAppEvent(f.app, raw)
+	event, ok, err := apps.NormalizeGitHubAppEvent(f.app, raw)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.False(t, event.Event.Mentioned)
@@ -182,7 +182,7 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	path := appSetupPath(t, f.project, f.app)
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, path, projectAppHTTPJSON(t, body),
 		"", http.StatusOK, authHeaders(f.project.AdminToken))
-	current, err := f.project.Store.Integrations().GetProjectApp(
+	current, err := f.project.Store.Apps().GetProjectApp(
 		t.Context(), f.project.ProjectUUID, f.app.ID)
 	require.NoError(t, err)
 	var identity github.AppIdentity
@@ -197,7 +197,7 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 		verifiedAppCredentialVersion(t, f.app),
 		verifiedAppCredentialVersion(t, current),
 	)
-	event, ok, err = integration.NormalizeGitHubAppEvent(current, raw)
+	event, ok, err = apps.NormalizeGitHubAppEvent(current, raw)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.True(
@@ -210,7 +210,7 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 type githubSetupJourney struct {
 	handler  http.Handler
 	project  publicHTTPProject
-	app      integrationstore.ProjectAppRecord
+	app      appstore.ProjectAppRecord
 	secretID string
 }
 
@@ -250,7 +250,7 @@ func newGitHubSetupJourney(t *testing.T, seed string, options ...Option) githubS
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	app, err = project.Store.Integrations().GetProjectApp(t.Context(), project.ProjectUUID, app.ID)
+	app, err = project.Store.Apps().GetProjectApp(t.Context(), project.ProjectUUID, app.ID)
 	require.NoError(t, err)
 	return githubSetupJourney{
 		handler:  handler,

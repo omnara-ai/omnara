@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -27,7 +27,7 @@ type appActivationFixture struct {
 	store   *Store
 	user    identitystore.UserRecord
 	profile executionstore.AgentProfileRecord
-	app     integrationstore.ProjectAppRecord
+	app     appstore.ProjectAppRecord
 }
 
 func newAppActivationFixture(t *testing.T) appActivationFixture {
@@ -43,8 +43,8 @@ func newAppActivationFixture(t *testing.T) appActivationFixture {
 	return appActivationFixture{ctx: ctx, store: store, user: user, profile: profile, app: app}
 }
 
-func (f appActivationFixture) attachment() integrationstore.AppSubscriptionAttachment {
-	return integrationstore.AppSubscriptionAttachment{
+func (f appActivationFixture) attachment() appstore.AppSubscriptionAttachment {
+	return appstore.AppSubscriptionAttachment{
 		AppID: f.app.ID, Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"C123"}`),
 	}
 }
@@ -129,10 +129,10 @@ func (f appActivationFixture) subscriptions(t *testing.T, agentID uuid.UUID) []d
 }
 
 func (f appActivationFixture) attach(
-	t *testing.T, agentID uuid.UUID, attachment integrationstore.AppSubscriptionAttachment,
-) integrationstore.AppSubscriptionRecord {
+	t *testing.T, agentID uuid.UUID, attachment appstore.AppSubscriptionAttachment,
+) appstore.AppSubscriptionRecord {
 	t.Helper()
-	subscription, err := f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+	subscription, err := f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AgentID: agentID, AppID: attachment.AppID,
 		Type: attachment.Type, Conversation: attachment.Conversation, Events: attachment.Events,
 	})
@@ -143,15 +143,15 @@ func (f appActivationFixture) attach(
 func (f appActivationFixture) detach(t *testing.T, agentID uuid.UUID) {
 	t.Helper()
 	for _, subscription := range f.subscriptions(t, agentID) {
-		require.NoError(t, f.store.Integrations().DeleteAppSubscription(
+		require.NoError(t, f.store.Apps().DeleteAppSubscription(
 			f.ctx, testOrgID, testProjectID, subscription.AppID, subscription.ID))
 	}
 }
 
 func (f appActivationFixture) disable(t *testing.T) {
 	t.Helper()
-	changed, err := f.store.Integrations().
-		DisconnectProjectApp(f.ctx, integrationstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
+	changed, err := f.store.Apps().
+		DisconnectProjectApp(f.ctx, appstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: f.app.ID})
 	require.NoError(t, err)
 	require.True(t, changed)
 }
@@ -161,7 +161,7 @@ func TestAppSubscriptionsDetachAndReattachIndependentOfConfig(t *testing.T) {
 	definition := f.withSendingTools(t, f.definition(t, "Listen and send"))
 	input := f.launchInput(uuid.Nil, "subscription-launch")
 	input.DerivedConfig = &definition
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
 	original := f.subscriptions(t, launch.Agent.ID)[0]
@@ -184,7 +184,7 @@ func TestAppSubscriptionsDetachAndReattachIndependentOfConfig(t *testing.T) {
 	require.NotEqual(t, original.ID, replacement.ID)
 	require.NoError(
 		t,
-		f.store.Integrations().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, original.ID),
+		f.store.Apps().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, original.ID),
 	)
 	after := f.subscriptions(t, launch.Agent.ID)
 	require.Len(t, after, 1)
@@ -212,7 +212,7 @@ func TestAppSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) {
 	require.Zero(t, count, "config/profile save must not subscribe")
 	input := f.launchInput(config.ID, "app-launch")
 	input.ProfileID = profile.ID
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 	input.Message = "Start with the attachment already present"
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
@@ -255,7 +255,7 @@ func TestAppSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) {
 func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 	f := newAppActivationFixture(t)
 	otherProject := seedAdditionalProjectForTest(t, f.ctx, f.store.pool, "other-app")
-	credential := createIntegrationCredential(t, f.ctx, f.store, otherProject, f.user.ID, "other-app")
+	credential := createAppCredential(t, f.ctx, f.store, otherProject, f.user.ID, "other-app")
 	otherInput := slackProjectAppSetupInput(f.user.ID, credential, "A_OTHER", "T_OTHER")
 	otherInput.ProjectID = otherProject
 	other := mustCreateProjectApp(t, f.ctx, f.store, otherInput)
@@ -264,14 +264,14 @@ func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 	for _, state := range []string{"active", "disconnected", "deleted", "missing"} {
 		t.Run(state, func(t *testing.T) {
 			if state == "disconnected" {
-				_, err := f.store.Integrations().DisconnectProjectApp(
+				_, err := f.store.Apps().DisconnectProjectApp(
 					f.ctx,
-					integrationstore.DisconnectProjectAppInput{ProjectID: otherProject, AppID: other.ID},
+					appstore.DisconnectProjectAppInput{ProjectID: otherProject, AppID: other.ID},
 				)
 				require.NoError(t, err)
 			}
 			if state == "deleted" {
-				require.NoError(t, f.store.Integrations().DeleteProjectApp(f.ctx, testOrgID, otherProject, other.ID))
+				require.NoError(t, f.store.Apps().DeleteProjectApp(f.ctx, testOrgID, otherProject, other.ID))
 			}
 			attachment := f.attachment()
 			attachment.AppID = other.ID
@@ -279,10 +279,10 @@ func TestAppSubscriptionsRejectCrossProjectApps(t *testing.T) {
 				attachment.AppID = uuid.New()
 			}
 			input := f.launchInput(f.profile.CurrentConfigID, state)
-			input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment(), attachment}
+			input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment(), attachment}
 			_, err := f.store.Execution().LaunchAgent(f.ctx, input)
 			require.ErrorIs(t, err, storeerr.ErrNotFound)
-			_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+			_, err = f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 				OrgID: testOrgID, ProjectID: testProjectID, AppID: attachment.AppID, AgentID: base.Agent.ID,
 				Type: attachment.Type, Conversation: attachment.Conversation,
 			})
@@ -329,7 +329,7 @@ func TestAppConfigChangesRemainAvailableAtSubscriptionQuota(t *testing.T) {
 		testOrgID,
 	)
 	require.NoError(t, err)
-	_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+	_, err = f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AgentID: base.Agent.ID, AppID: f.app.ID,
 		Type: f.attachment().Type, Conversation: f.attachment().Conversation,
 	})
@@ -347,7 +347,7 @@ func TestAppSubscriptionQuotaPreservesExistingRoutesAndReleasesOnDetach(t *testi
 	t.Parallel()
 	f := newAppActivationFixture(t)
 	input := f.launchInput(f.profile.CurrentConfigID, "existing-subscription")
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
 	before := f.subscriptions(t, launch.Agent.ID)
@@ -361,7 +361,7 @@ func TestAppSubscriptionQuotaPreservesExistingRoutesAndReleasesOnDetach(t *testi
 	require.Equal(t, before[0].ID, duplicate.ID)
 	second := f.attachment()
 	second.Conversation = json.RawMessage(`{"channel_id":"C456"}`)
-	_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+	_, err = f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AgentID: launch.Agent.ID, AppID: second.AppID,
 		Type: second.Type, Conversation: second.Conversation,
 	})
@@ -380,7 +380,7 @@ func TestAppFailedConfigActivationPreservesSubscriptions(t *testing.T) {
 	t.Parallel()
 	f := newAppActivationFixture(t)
 	input := f.launchInput(f.profile.CurrentConfigID, "config-conflict")
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 	launch, err := f.store.Execution().LaunchAgent(f.ctx, input)
 	require.NoError(t, err)
 	before := f.subscriptions(t, launch.Agent.ID)
@@ -405,7 +405,7 @@ func TestAppCapabilitiesLockAppsBeforeLaunchKeyAndProfile(t *testing.T) {
 	definition := f.definition(t, "Lock order launch")
 	input := f.launchInput(uuid.Nil, "lock-order-launch")
 	input.DerivedConfig, input.ProfileID = &definition, f.profile.ID
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 	input.DerivedBaseConfigID = f.profile.CurrentConfigID
 	control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	q := dbsqlc.New(control)
@@ -433,7 +433,7 @@ func TestAppCapabilitiesLockAppsBeforeLaunchKeyAndProfile(t *testing.T) {
 		lockCtx,
 		dbsqlc.LockAgentProfileParams{ProjectID: testProjectID, ProfileID: f.profile.ID},
 	)
-	require.NoError(t, err, "launch must not hold its profile while waiting on a app")
+	require.NoError(t, err, "launch must not hold its profile while waiting on an app")
 	require.NoError(t, control.Commit(f.ctx))
 	launch := integrationdb.AwaitSuccess(t, done, "launch after app gate")
 	require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
@@ -474,7 +474,7 @@ func TestAppCapabilitiesLockAppsBeforeAgentSourcesAndAgent(t *testing.T) {
 		lockCtx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: launch.Agent.ID},
 	)
-	require.NoError(t, err, "activation must not hold agent locks while waiting on a app")
+	require.NoError(t, err, "activation must not hold agent locks while waiting on an app")
 	require.NoError(t, control.Commit(f.ctx))
 	changed := integrationdb.AwaitSuccess(t, done, "change after app gate")
 	require.NotEqual(t, launch.Agent.CurrentConfigID, changed.AgentConfig.ID)
@@ -558,21 +558,21 @@ func TestAppCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigChange(t *
 			attachment := f.attachment()
 			attachment.AppID = secondary.ID
 			baseInput := f.launchInput(f.profile.CurrentConfigID, "base")
-			baseInput.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment(), attachment}
+			baseInput.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment(), attachment}
 			base, err := f.store.Execution().LaunchAgent(f.ctx, baseInput)
 			require.NoError(t, err)
 			if state == "deleted" {
-				require.NoError(t, f.store.Integrations().DeleteProjectApp(f.ctx, testOrgID, testProjectID, secondary.ID))
+				require.NoError(t, f.store.Apps().DeleteProjectApp(f.ctx, testOrgID, testProjectID, secondary.ID))
 			} else {
-				_, err := f.store.Integrations().DisconnectProjectApp(
+				_, err := f.store.Apps().DisconnectProjectApp(
 					f.ctx,
-					integrationstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: secondary.ID},
+					appstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: secondary.ID},
 				)
 				require.NoError(t, err)
 			}
 			before := f.subscriptions(t, base.Agent.ID)
 			launchInput := f.launchInput(config.ID, "after-revocation")
-			launchInput.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment()}
+			launchInput.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment()}
 			launch, err := f.store.Execution().LaunchAgent(f.ctx, launchInput)
 			require.NoError(t, err)
 			require.Len(t, f.subscriptions(t, launch.Agent.ID), 1)
@@ -605,17 +605,17 @@ func TestAppCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigChange(t *
 				wantErr = storeerr.ErrNotFound
 			}
 			require.ErrorIs(t, err, wantErr)
-			_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+			_, err = f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 				OrgID: testOrgID, ProjectID: testProjectID, AgentID: base.Agent.ID, AppID: secondary.ID,
 				Type: attachment.Type, Conversation: attachment.Conversation,
 			})
 			require.ErrorIs(t, err, wantErr)
 			if state == "disconnected" {
-				current, err := f.store.Integrations().GetProjectApp(f.ctx, testProjectID, secondary.ID)
+				current, err := f.store.Apps().GetProjectApp(f.ctx, testProjectID, secondary.ID)
 				require.NoError(t, err)
 				credential, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, current.CredentialSecretID)
 				require.NoError(t, err)
-				_, err = f.store.Integrations().ConfigureProjectApp(f.ctx, integrationstore.ConfigureProjectAppInput{
+				_, err = f.store.Apps().ConfigureProjectApp(f.ctx, appstore.ConfigureProjectAppInput{
 					OrgID: testOrgID, ProjectID: testProjectID, AppID: current.ID, InstalledByUserID: f.user.ID,
 					Provider: current.Provider, ProviderTenantID: current.ProviderTenantID,
 					ProviderAccountRef: current.ProviderAccountRef,
@@ -656,27 +656,27 @@ func TestAppCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *testing.T) {
 			slot.Launch.AgentConfigID = saved.ID
 			attachment := f.attachment()
 			attachment.Conversation, attachment.Events = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`), []string{"message"}
-			slot.Launch.Subscriptions = []integrationstore.AppSubscriptionAttachment{attachment}
-			_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+			slot.Launch.Subscriptions = []appstore.AppSubscriptionAttachment{attachment}
+			_, _, err = f.store.Apps().AcceptAppReceipt(f.ctx, appstore.VerifiedAppReceipt{
 				ProjectID: testProjectID, AppID: f.app.ID, ReceiptKey: "unavailable-secondary", Payload: []byte(`{}`),
 			})
 			require.NoError(t, err)
-			receipt, found, err := f.store.Integrations().ClaimIntegrationInbox(
+			receipt, found, err := f.store.Apps().ClaimAppInbox(
 				f.ctx,
-				integrationstore.ClaimIntegrationInboxInput{ProjectID: testProjectID, AppID: f.app.ID, LeaseDuration: time.Minute},
+				appstore.ClaimAppInboxInput{ProjectID: testProjectID, AppID: f.app.ID, LeaseDuration: time.Minute},
 			)
 			require.NoError(t, err)
 			require.True(t, found)
 			plan, err := json.Marshal(map[string]executionstore.InboxLaunchSlot{"a": slot})
 			require.NoError(t, err)
-			require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, receipt.Lease(),
-				func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) }))
+			require.NoError(t, f.store.Apps().WithAppInboxLease(f.ctx, receipt.Lease(),
+				func(work *appstore.AppInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) }))
 			if state == "deleted" {
-				require.NoError(t, f.store.Integrations().DeleteProjectApp(f.ctx, testOrgID, testProjectID, secondary.ID))
+				require.NoError(t, f.store.Apps().DeleteProjectApp(f.ctx, testOrgID, testProjectID, secondary.ID))
 			} else {
-				_, err := f.store.Integrations().DisconnectProjectApp(
+				_, err := f.store.Apps().DisconnectProjectApp(
 					f.ctx,
-					integrationstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: secondary.ID},
+					appstore.DisconnectProjectAppInput{ProjectID: testProjectID, AppID: secondary.ID},
 				)
 				require.NoError(t, err)
 			}
@@ -709,7 +709,7 @@ func TestAppSubscriptionLaunchBatchQuotaRollbackAndDeduplication(t *testing.T) {
 	input.Message = "Atomic initial input"
 	second := f.attachment()
 	second.Conversation = json.RawMessage(`{"channel_id":"C456"}`)
-	input.Subscriptions = []integrationstore.AppSubscriptionAttachment{f.attachment(), second}
+	input.Subscriptions = []appstore.AppSubscriptionAttachment{f.attachment(), second}
 	_, err = f.store.Execution().LaunchAgent(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	var agents, configs, subscriptions, inputs int
@@ -752,10 +752,10 @@ func TestAppSubscriptionConcurrentAttachmentsSerializeQuota(t *testing.T) {
 		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: launch.Agent.ID},
 	)
 	require.NoError(t, err)
-	var pending []<-chan integrationdb.AsyncResult[integrationstore.AppSubscriptionRecord]
+	var pending []<-chan integrationdb.AsyncResult[appstore.AppSubscriptionRecord]
 	for _, conversation := range []string{`{"channel_id":"C123"}`, `{"channel_id":"C456"}`} {
-		pending = append(pending, integrationdb.RunAsync(func() (integrationstore.AppSubscriptionRecord, error) {
-			return f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+		pending = append(pending, integrationdb.RunAsync(func() (appstore.AppSubscriptionRecord, error) {
+			return f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 				OrgID: testOrgID, ProjectID: testProjectID, AgentID: launch.Agent.ID, AppID: f.app.ID,
 				Type: "thread_messages", Conversation: json.RawMessage(conversation),
 			})

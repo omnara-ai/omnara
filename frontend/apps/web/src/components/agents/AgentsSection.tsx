@@ -190,9 +190,9 @@ export function AgentsTable({
 }
 
 function TargetCell({ agent }: { agent: Agent }) {
-  const target = agent.integration_target
+  const target = agent.app_target
   if (!target) return <span className="text-muted-foreground">—</span>
-  const label = integrationTargetLabel(target)
+  const label = appTargetLabel(target)
   if (!target.provider_uri) return <span className="text-muted-foreground">{label}</span>
   return (
     <a
@@ -210,7 +210,7 @@ function TargetCell({ agent }: { agent: Agent }) {
 }
 
 // Where the agent is wired up, without provider-internal thread identifiers.
-function integrationTargetLabel(target: NonNullable<Agent['integration_target']>) {
+function appTargetLabel(target: NonNullable<Agent['app_target']>) {
   const conversation = target.display_name.replace(/^#/, '')
   if (target.provider_ref_kind === 'dm') return 'Direct message'
   if (!conversation) return target.provider

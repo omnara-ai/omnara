@@ -16,7 +16,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -171,11 +171,11 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			} else {
 				require.Equal(t, 1, assignments, "only targets formerly producing successors assign conversations")
 				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, liveID,
-					integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"})
+					appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"})
 			}
 			var slot sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT selection_slot FROM integration_targets WHERE id=$1`, targetID).Scan(&slot))
+				`SELECT selection_slot FROM app_targets WHERE id=$1`, targetID).Scan(&slot))
 			require.False(t, slot.Valid)
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(
@@ -218,7 +218,7 @@ func TestSlackAppCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT app_id FROM integration_targets WHERE id=$1`,
+					`SELECT app_id FROM app_targets WHERE id=$1`,
 					targetID,
 				).Scan(
 					&targetApp,
@@ -281,7 +281,7 @@ func assertSlackTombstoneSourceResave(
 		tool := contract.AppTools["app__slack__post_message"]
 		require.False(t, tool.Enabled)
 		require.Equal(t, liveID, tool.AppID)
-		app, err := store.Integrations().GetProjectAppByName(ctx, ids.ProjectID, "slack")
+		app, err := store.Apps().GetProjectAppByName(ctx, ids.ProjectID, "slack")
 		require.NoError(t, err)
 		require.Equal(t, "disconnected", string(app.State))
 	}

@@ -54,7 +54,7 @@ func TestAppOAuthDeletedCallbackUsesOnlyValidatedSealedReturnTo(t *testing.T) {
 	t.Parallel()
 	f := newProjectSlackOAuthFixture(t, nil)
 	token, _ := f.start(t, false)
-	require.NoError(t, f.project.Store.Integrations().DeleteProjectApp(t.Context(),
+	require.NoError(t, f.project.Store.Apps().DeleteProjectApp(t.Context(),
 		f.project.OrgUUID, f.project.ProjectUUID, f.app.ID))
 	other := bootstrapPublicHTTPProject(t, f.handler, "other-oauth-user")
 	for _, tc := range []struct {
@@ -70,7 +70,7 @@ func TestAppOAuthDeletedCallbackUsesOnlyValidatedSealedReturnTo(t *testing.T) {
 			"state": {tc.token}, "code": {"unused"}, "return_to": {"https://attacker.test/steal"},
 		}
 		req := httptest.NewRequest(http.MethodGet,
-			"https://omnara.test"+integrationOAuthCallbackPath+"?"+query.Encode(), nil)
+			"https://omnara.test"+appOAuthCallbackPath+"?"+query.Encode(), nil)
 		if tc.session != "" {
 			req.AddCookie(&http.Cookie{Name: httpauth.BrowserSessionHostCookieName, Value: tc.session})
 		}

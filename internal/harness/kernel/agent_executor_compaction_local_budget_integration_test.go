@@ -801,7 +801,7 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 	executor := AgentExecutor{
 		Store: fixture.Store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
+			Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Apps()),
 		},
 		ModelResolver: liveTestModelResolver(fixture.Store, compactionModel),
 		ToolExecutor:  tools.Executor{Store: fixture.Store},

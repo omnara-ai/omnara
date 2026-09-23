@@ -53,7 +53,7 @@ func TestWorkerReplacementHonorsDurableProviderRetryDeadline(t *testing.T) {
 	executor := kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
 		},
 		ModelResolver: liveWorkerTestModelResolver(store, modelClient),
 	}

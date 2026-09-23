@@ -100,8 +100,8 @@ func (e AgentExecutor) executeModelStep(
 	if !claim.Claimed {
 		if claim.Created &&
 			claim.Context.ErrorCode == storeerr.ManagedWorkAdmissionDeniedCode &&
-			shouldPostIntegrationRuntimeError(ctx, storeerr.ErrManagedWorkAdmissionDenied) {
-			e.postIntegrationRuntimeError(ctx, input)
+			shouldPostAppRuntimeError(ctx, storeerr.ErrManagedWorkAdmissionDenied) {
+			e.postAppRuntimeError(ctx, input)
 		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
@@ -521,7 +521,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 		return modelStep{}, errors.Join(cause, err)
 	}
 	if ctx.Err() == nil {
-		e.postIntegrationRuntimeError(ctx, input)
+		e.postAppRuntimeError(ctx, input)
 	}
 	return modelStep{State: modelStepDone, Context: claim.Context, Resolved: resolved}, nil
 }

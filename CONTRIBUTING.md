@@ -20,7 +20,7 @@ vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 ## Built-in apps
 
 Slack, Discord and GitHub are examples for adding a hosted app through a code PR.
-Follow the [app implementation guide](internal/integration/CONTRIBUTING.md) for
+Follow the [app implementation guide](internal/apps/CONTRIBUTING.md) for
 extension points, shared infrastructure and tests. Customer-hosted integrations
 can use the [ordinary public APIs](docs/integrations/custom-integrations.mdx)
 without contributing code or registering an Omnara app.

@@ -1,8 +1,8 @@
 import {
   ApiError,
   type ConfigureProjectAppRequest,
+  type CreateAppOAuthSetupRequest,
   type CreateGitHubSetupRequest,
-  type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
   type InspectGitHubInstallationsRequest,
   type ListProjectAppsData,
@@ -138,10 +138,7 @@ export function useAppDefinitions(orgID: string, projectID: string) {
 export function useCreateProjectAppOAuthSetup(orgID: string, projectID: string) {
   const client = useOmnaraClient()
   return useMutation({
-    mutationFn: async ({
-      appID,
-      ...body
-    }: CreateIntegrationOAuthSetupRequest & { appID: string }) => {
+    mutationFn: async ({ appID, ...body }: CreateAppOAuthSetupRequest & { appID: string }) => {
       const { data } = await sdk.createProjectAppOAuthSetup({
         path: { orgID, projectID, appID },
         body,

@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -32,7 +32,7 @@ func TestAppInteractionOriginArguments(t *testing.T) {
 			t.Parallel()
 			args, ok := interactionArgsForOrigin(
 				test.provider,
-				integrationstore.ConversationAddress{Kind: test.kind, Ref: test.ref},
+				appstore.ConversationAddress{Kind: test.kind, Ref: test.ref},
 			)
 			require.Equal(t, test.args != "", ok)
 			if ok {
@@ -45,12 +45,12 @@ func TestAppInteractionOriginArguments(t *testing.T) {
 func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	t.Parallel()
 	destination := InteractionDestination{
-		AppType:             appdefinition.SlackThread,
-		HandlerKey:          "chat",
-		AppID:               uuid.New(),
-		IntegrationTargetID: uuid.New(),
-		Args:                json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
-		Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
+		AppType:     appdefinition.SlackThread,
+		HandlerKey:  "chat",
+		AppID:       uuid.New(),
+		AppTargetID: uuid.New(),
+		Args:        json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
+		Address:     appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 	}
 	raw, err := json.Marshal(destination)
 	require.NoError(t, err)
@@ -106,12 +106,12 @@ func TestAppInteractionSnapshotAndReceiptBounds(t *testing.T) {
 func TestAppInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
 	t.Parallel()
 	original := InteractionDestination{
-		AppType:             appdefinition.SlackThread,
-		HandlerKey:          "chat",
-		AppID:               uuid.New(),
-		IntegrationTargetID: uuid.New(),
-		Args:                json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
-		Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
+		AppType:     appdefinition.SlackThread,
+		HandlerKey:  "chat",
+		AppID:       uuid.New(),
+		AppTargetID: uuid.New(),
+		Args:        json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
+		Address:     appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 	}
 	equal := original
 	equal.Args = json.RawMessage(`{ "channel_id" : "C123", "thread_ts":"111.222" }`)
@@ -119,7 +119,7 @@ func TestAppInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
 	for _, change := range []func(*InteractionDestination){
 		func(d *InteractionDestination) { d.HandlerKey = "replacement" },
 		func(d *InteractionDestination) { d.AppID = uuid.New() },
-		func(d *InteractionDestination) { d.IntegrationTargetID = uuid.New() },
+		func(d *InteractionDestination) { d.AppTargetID = uuid.New() },
 		func(d *InteractionDestination) { d.AppType = appdefinition.DiscordThread },
 		func(d *InteractionDestination) { d.Args = json.RawMessage(`{}`) },
 		func(d *InteractionDestination) { d.Address.Ref = "C123:333.444" },

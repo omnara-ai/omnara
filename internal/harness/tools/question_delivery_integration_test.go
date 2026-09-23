@@ -165,7 +165,7 @@ func TestQuestionDispatchDoesNotWaitForSaturatedPresentationQueue(t *testing.T) 
 		`{"questions":[{"prompt":"Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
 	toolID := f.toolCallID(t, ctx, call.ID)
 	executor := Executor{Store: f.Store, BackgroundRunner: runner,
-		IntegrationHTTPClient: integrationProviderTestClient(server)}
+		AppHTTPClient: appProviderTestClient(server)}
 	dispatchCtx, cancelDispatch := context.WithCancel(ctx)
 	defer cancelDispatch()
 	returned := make(chan struct {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
@@ -29,14 +29,14 @@ func (e Executor) sendSlackArtifacts(
 			return toolResultContent{}, fmt.Errorf("load artifact %s: %w", publicID, err)
 		}
 		filename := modelcontext.MediaFilename(artifact.Filename, artifact.ContentType)
-		for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
+		for attempt := 1; attempt <= appMessageSendAttempts; attempt++ {
 			fileID, result, err := slack.UploadFile(
 				ctx,
-				e.IntegrationHTTPClient,
+				e.AppHTTPClient,
 				target,
 				filename,
 				content,
-				func(ctx context.Context) error { return e.ensureIntegrationPostOwnership(ctx, turn) },
+				func(ctx context.Context) error { return e.ensureAppPostOwnership(ctx, turn) },
 			)
 			if err != nil {
 				return toolResultContent{}, err
@@ -46,14 +46,14 @@ func (e Executor) sendSlackArtifacts(
 				break
 			}
 			if result.RateLimited {
-				retry, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &slept, attempt)
+				retry, err := sleepForAppRateLimit(ctx, result.RetryAfter, &slept, attempt)
 				if err != nil {
 					return toolResultContent{}, err
 				}
 				if retry {
 					continue
 				}
-			} else if result.TransientFailure && attempt < integrationMessageSendAttempts {
+			} else if result.TransientFailure && attempt < appMessageSendAttempts {
 				continue
 			}
 			return slackAppFailureContent(target.TargetRef, result)
@@ -61,11 +61,11 @@ func (e Executor) sendSlackArtifacts(
 	}
 	// Upload preparation must not consume the final publication retry budget.
 	slept = 0
-	for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
-		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
+	for attempt := 1; attempt <= appMessageSendAttempts; attempt++ {
+		if err := e.ensureAppPostOwnership(ctx, turn); err != nil {
 			return toolResultContent{}, err
 		}
-		result, err := slack.CompleteFileUploads(ctx, e.IntegrationHTTPClient, target, files, input.Text)
+		result, err := slack.CompleteFileUploads(ctx, e.AppHTTPClient, target, files, input.Text)
 		if err != nil {
 			return toolResultContent{}, err
 		}
@@ -84,7 +84,7 @@ func (e Executor) sendSlackArtifacts(
 			)
 		}
 		if result.RateLimited {
-			retry, err := sleepForIntegrationRateLimit(ctx, result.RetryAfter, &slept, attempt)
+			retry, err := sleepForAppRateLimit(ctx, result.RetryAfter, &slept, attempt)
 			if err != nil {
 				return toolResultContent{}, err
 			}

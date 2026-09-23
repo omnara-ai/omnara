@@ -75,7 +75,7 @@ func TestFireDueTriggersProfileUsesOccurrenceTimezone(t *testing.T) {
 	require.Nil(t, current.FailureReport)
 	require.Nil(t, current.LastRun)
 	var count int
-	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
+	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_inbox`).Scan(&count))
 	require.Zero(t, count)
 	stats, err = service.FireDueTriggers(f.ctx)
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestFireDueTriggersAppHandoffRollbackAndRecovery(t *testing.T) {
 	require.NotNil(t, current.NextFireAfter)
 	require.True(t, current.NextFireAfter.Equal(due))
 	var count int
-	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
+	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_inbox`).Scan(&count))
 	require.Zero(t, count, "receipt insertion must roll back with the failed pointer update")
 	var held, pointed bool
 	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT claim_token IS NOT NULL AND claimed_until > now(),
@@ -129,7 +129,7 @@ func TestFireDueTriggersAppHandoffRollbackAndRecovery(t *testing.T) {
 	receipt, event := cronAppReceipt(t, f, trigger.ID)
 	require.True(t, event.Occurrence.DueAt.Equal(due), "recovery must queue the same occurrence")
 	var key string
-	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT receipt_key FROM integration_inbox WHERE id=$1`, receipt).
+	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT receipt_key FROM app_inbox WHERE id=$1`, receipt).
 		Scan(&key))
 	require.Equal(t, "cron_trigger:"+trigger.ID.String()+":"+due.Format(time.RFC3339), key)
 	current, err = f.store.Execution().GetCronTrigger(f.ctx, testProjectID, trigger.ID)
@@ -138,7 +138,7 @@ func TestFireDueTriggersAppHandoffRollbackAndRecovery(t *testing.T) {
 	require.NotNil(t, current.LastFiredAt)
 	require.NotNil(t, current.LastRun)
 	require.Equal(t, executionstore.CronTriggerLastRunQueued, current.LastRun.State)
-	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
+	require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM app_inbox`).Scan(&count))
 	require.Equal(t, 1, count)
 	stats, err = service.FireDueTriggers(f.ctx)
 	require.NoError(t, err)

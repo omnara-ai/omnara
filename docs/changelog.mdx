@@ -29,7 +29,8 @@ Self-hosted operators must follow the [cutover playbook](/self-hosting/composabl
 
 The public setup API now creates an app before verifying its credentials. Update
 clients using the old integration setup or destination APIs together with the
-cluster release. Customer-hosted integrations continue to use ordinary agent
+cluster release. Agent responses rename `integration_target` to `app_target`;
+app interaction destinations use `app_target_id`. Customer-hosted integrations continue to use ordinary agent
 inputs, custom tools and interaction APIs. See [Apps](/integrations/apps).
 
 </Update>

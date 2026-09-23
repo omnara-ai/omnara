@@ -7,7 +7,7 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -50,7 +50,7 @@ func TestStandaloneAppToolAccessAndRevocation(t *testing.T) {
 				_, err = executor.resolveAppToolAuthority(ctx, f.turn(), record)
 				require.ErrorIs(t, err, ErrToolAuthorizationInvalidated)
 			case "app":
-				_, err := f.Store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+				_, err := f.Store.Apps().DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
 					ProjectID: f.Agent.ProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 				})
 				require.NoError(t, err)

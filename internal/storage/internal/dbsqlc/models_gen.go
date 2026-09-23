@@ -121,6 +121,27 @@ type AgentRuntimeLock struct {
 	CancelRequestedAt *time.Time
 }
 
+type AppInbox struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	AppID          uuid.UUID
+	ReceiptKey     string
+	Payload        []byte
+	Source         string
+	Events         *json.RawMessage
+	Plan           *json.RawMessage
+	Progress       json.RawMessage
+	State          string
+	AttemptCount   int32
+	AvailableAt    time.Time
+	ClaimToken     *uuid.UUID
+	ClaimExpiresAt *time.Time
+	LastError      *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
 type AppState struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID
@@ -250,27 +271,6 @@ type EffectiveResourceLimit struct {
 type ExpiredIdlePoolMachineCandidate struct {
 	OrgID     uuid.UUID
 	MachineID uuid.UUID
-}
-
-type IntegrationInbox struct {
-	ID             uuid.UUID
-	ProjectID      uuid.UUID
-	AppID          uuid.UUID
-	ReceiptKey     string
-	Payload        []byte
-	Source         string
-	Events         *json.RawMessage
-	Plan           *json.RawMessage
-	Progress       json.RawMessage
-	State          string
-	AttemptCount   int32
-	AvailableAt    time.Time
-	ClaimToken     *uuid.UUID
-	ClaimExpiresAt *time.Time
-	LastError      *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
 }
 
 type MachineDaemonToken struct {

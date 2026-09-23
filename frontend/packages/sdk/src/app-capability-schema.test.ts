@@ -47,7 +47,7 @@ describe('generated app capability contracts', () => {
       app_type: 'slack_thread',
       handler_key: 'support',
       app_id: `app_${'a'.repeat(26)}`,
-      integration_target_id: `itgt_${'a'.repeat(26)}`,
+      app_target_id: `itgt_${'a'.repeat(26)}`,
       args: { channel_id: 'C123', thread_ts: '111.222' },
       address: { kind: 'thread', ref: 'C123:111.222' },
     }

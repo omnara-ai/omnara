@@ -1,5 +1,5 @@
 -- name: GetInteractionSelection :one
-SELECT current_config_id, integration_target_id,
+SELECT current_config_id, app_target_id,
        coalesce(interaction_handler_key, '') AS handler_key, interaction_handler_args AS handler_args
 FROM agents
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(agent_id);
@@ -12,14 +12,14 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(interaction_id)
 
 -- name: SetInteractionSelection :execrows
 UPDATE agents
-SET integration_target_id = sqlc.narg(target_id)::uuid,
+SET app_target_id = sqlc.narg(target_id)::uuid,
     interaction_handler_key = sqlc.narg(handler_key)::text,
     interaction_handler_args = sqlc.narg(handler_args)::jsonb,
     updated_at = statement_timestamp()
 WHERE agents.project_id = sqlc.arg(project_id) AND agents.id = sqlc.arg(agent_id)
   AND ((sqlc.narg(target_id)::uuid IS NULL AND sqlc.narg(handler_key)::text IS NULL AND sqlc.narg(handler_args)::jsonb IS NULL)
     OR (sqlc.narg(handler_key)::text <> '' AND jsonb_typeof(sqlc.narg(handler_args)::jsonb) = 'object' AND EXISTS (
-      SELECT 1 FROM integration_targets target
+      SELECT 1 FROM app_targets target
       JOIN project_apps app
         ON app.project_id = target.project_id
        AND app.id = target.app_id
@@ -32,7 +32,7 @@ WHERE agents.project_id = sqlc.arg(project_id) AND agents.id = sqlc.arg(agent_id
 SELECT target.id, target.app_id AS app_id,
        target.provider_ref_kind, target.provider_ref, target.display_name,
        app.state AS app_state
-FROM integration_targets target
+FROM app_targets target
 JOIN project_apps app
   ON app.project_id = target.project_id AND app.id = target.app_id
 WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)

@@ -14,9 +14,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/maintenance"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -60,24 +60,24 @@ event_webhook:
 	live := createMaintenanceInboxApp(t, store, ids, "live").ID
 	disconnected := createMaintenanceInboxApp(t, store, ids, "disconnected").ID
 	deleted := createMaintenanceInboxApp(t, store, ids, "deleted").ID
-	applied, err := store.Integrations().DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{
+	applied, err := store.Apps().DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
 		ProjectID: ids.ProjectID, AppID: disconnected,
 	})
 	require.NoError(t, err)
 	require.True(t, applied)
-	require.NoError(t, store.Integrations().DeleteProjectApp(ctx, ids.OrgID, ids.ProjectID, deleted))
-	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
+	require.NoError(t, store.Apps().DeleteProjectApp(ctx, ids.OrgID, ids.ProjectID, deleted))
+	_, err = pool.Exec(ctx, `INSERT INTO app_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'old:'||n,'verified raw callback'::bytea,'completed',statement_timestamp()-interval '8 days'
  FROM generate_series(1,102) n`, ids.ProjectID, live)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
+	_, err = pool.Exec(ctx, `INSERT INTO app_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'deleted:'||n,'obsolete raw callback'::bytea,'failed',statement_timestamp()
  FROM generate_series(1,102) n`,
 		ids.ProjectID, deleted)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
+	_, err = pool.Exec(ctx, `INSERT INTO app_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at,plan,progress)
  VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}','{}'),
         ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"slot":{"identity":"frozen"}}',
@@ -90,7 +90,7 @@ event_webhook:
 	}
 	readRetained := func() []retainedReceipt {
 		rows, err := pool.Query(ctx, `SELECT receipt_key,state,convert_from(payload,'UTF8'),
- coalesce(plan::text,''),progress::text FROM integration_inbox
+ coalesce(plan::text,''),progress::text FROM app_inbox
  WHERE receipt_key IN ('recent','failed','disabled-failed','pending') ORDER BY receipt_key`)
 		require.NoError(t, err)
 		defer rows.Close()
@@ -115,7 +115,7 @@ event_webhook:
 	for {
 		runCoreMaintenanceTick(ctx, logger, store)
 		var obsolete int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox
  WHERE (app_id=$1 AND receipt_key LIKE 'old:%') OR app_id=$2`, live, deleted).Scan(&obsolete))
 		if obsolete == 0 {
 			break
@@ -126,11 +126,11 @@ event_webhook:
 		runCoreMaintenanceTick(ctx, logger, store)
 		var completedCount, deletedCount int
 		require.NoError(t, pool.QueryRow(ctx,
-			`SELECT count(*) FROM integration_inbox WHERE app_id=$1 AND receipt_key LIKE 'old:%'`,
+			`SELECT count(*) FROM app_inbox WHERE app_id=$1 AND receipt_key LIKE 'old:%'`,
 			live).Scan(&completedCount))
 		require.Zero(t, completedCount, "completed receipts stay deleted")
 		require.NoError(t, pool.QueryRow(ctx,
-			`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, deleted).Scan(&deletedCount))
+			`SELECT count(*) FROM app_inbox WHERE app_id=$1`, deleted).Scan(&deletedCount))
 		require.Zero(t, deletedCount, "deleted-scope receipts stay deleted")
 		require.Equal(t, retained, readRetained())
 		var inputID, agentID uuid.UUID
@@ -143,8 +143,8 @@ event_webhook:
 			launched.Agent.ID).Scan(&eventCount))
 		require.Equal(t, originalEvents, eventCount, "agent event history survives raw receipt retention")
 	}
-	require.Contains(t, logs.String(), "cleaned completed integration inbox")
-	require.Contains(t, logs.String(), "cleaned deleted integration inbox")
+	require.Contains(t, logs.String(), "cleaned completed app inbox")
+	require.Contains(t, logs.String(), "cleaned deleted app inbox")
 	require.Contains(t, logs.String(), "cleaned expired event webhooks")
 	var remainingWebhooks int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM event_webhook_deliveries WHERE agent_id = $1`,
@@ -164,12 +164,12 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
 	store := newMaintenanceInboxStore(t, pool, ids)
 	app := createMaintenanceInboxApp(t, store, ids, "retention-timeout").ID
-	_, err := pool.Exec(ctx, `INSERT INTO integration_inbox
+	_, err := pool.Exec(ctx, `INSERT INTO app_inbox
  (project_id,app_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'old:'||n,'x'::bytea,'completed',statement_timestamp()-interval '8 days'
  FROM generate_series(1,202) n`, ids.ProjectID, app)
 	require.NoError(t, err)
-	count, err := store.Integrations().CleanupTerminalIntegrationInbox(ctx, maintenance.IntegrationInboxRetention, 100)
+	count, err := store.Apps().CleanupTerminalAppInbox(ctx, maintenance.AppInboxRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 100, count)
 	// Sequence increments survive rollback, so only the first maintenance attempt stalls.
@@ -179,22 +179,22 @@ func TestCoreMaintenanceInboxRetentionResumesAfterBatchTimeout(t *testing.T) {
    IF nextval('inbox_cleanup_deletes') = 50 THEN PERFORM pg_sleep(10); END IF;
    RETURN OLD;
  END $$;
- CREATE TRIGGER slow_inbox_cleanup BEFORE DELETE ON integration_inbox
+ CREATE TRIGGER slow_inbox_cleanup BEFORE DELETE ON app_inbox
  FOR EACH ROW EXECUTE FUNCTION slow_inbox_cleanup()`)
 	require.NoError(t, err)
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	runCoreMaintenanceTick(ctx, logger, store)
 	var remaining int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&remaining))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox`).Scan(&remaining))
 	require.Equal(t, 102, remaining, "timed-out batch rolls back every delete; the first batch stays committed")
 	require.Contains(t, logs.String(), `"level":"ERROR"`, "hard deadline failure must be logged")
-	require.Contains(t, logs.String(), "cleanup completed integration inbox")
+	require.Contains(t, logs.String(), "cleanup completed app inbox")
 	logs.Reset()
 	until := time.Now().Add(10 * time.Second)
 	for {
 		runCoreMaintenanceTick(ctx, logger, store)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&remaining))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox`).Scan(&remaining))
 		if remaining == 0 {
 			break
 		}
@@ -217,10 +217,10 @@ func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixtu
 
 func createMaintenanceInboxApp(
 	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, name string,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	ctx := t.Context()
-	input := integrationstore.ConfigureProjectAppInput{
+	input := appstore.ConfigureProjectAppInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, InstalledByUserID: ids.ProviderAdminUserID,
 	}
 	input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "github", "123", "456"
@@ -233,15 +233,15 @@ func createMaintenanceInboxApp(
 		Name: name + "-credentials", Actor: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Material: material,
 	})
 	require.NoError(t, err)
-	app, err := store.Integrations().CreateProjectApp(ctx, integrationstore.SaveProjectAppInput{
+	app, err := store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, AppType: appdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
 	input.AppID, input.ExpectedSetupRevision = app.ID, app.SetupRevision
 	input.CredentialSecretID, input.CredentialVersionID = credential.ID, version.ID
-	app, err = store.Integrations().ConfigureProjectApp(ctx, input)
+	app, err = store.Apps().ConfigureProjectApp(ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectAppStateActive, app.State)
+	require.Equal(t, appstore.ProjectAppStateActive, app.State)
 	require.Equal(t, credential.ID, app.CredentialSecretID)
 	return app
 }

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
@@ -18,20 +18,20 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	t.Parallel()
 	f := newAppActivationFixture(t)
 	f.app = inboxInputApp(t, f, "github")
-	_, err := f.store.Integrations().UpdateProjectApp(f.ctx, f.app.ID, integrationstore.SaveProjectAppInput{
+	_, err := f.store.Apps().UpdateProjectApp(f.ctx, f.app.ID, appstore.SaveProjectAppInput{
 		OrgID: testOrgID, ProjectID: testProjectID, Name: f.app.Name, AppType: f.app.AppType,
-		Settings: integrationstore.ProjectAppSettings{Launcher: &integrationstore.AppLauncher{
+		Settings: appstore.ProjectAppSettings{Launcher: &appstore.AppLauncher{
 			Trigger: "mention", ScopeKind: "installation", ScopeRef: f.app.ProviderAccountRef,
-			Slots: []integrationstore.AppLaunchSlot{{Key: "review", AgentProfileID: &f.profile.ID}},
+			Slots: []appstore.AppLaunchSlot{{Key: "review", AgentProfileID: &f.profile.ID}},
 		}},
 	})
 	require.NoError(t, err)
 	definition := f.definition(t, "Review comments")
-	address := integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"}
+	address := appstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"}
 	launch := f.launchInput(uuid.Nil, "subscription-events-launch")
 	launch.ProfileID, launch.DerivedBaseConfigID = f.profile.ID, f.profile.CurrentConfigID
 	launch.DerivedConfig = &definition
-	launch.Subscriptions = []integrationstore.AppSubscriptionAttachment{
+	launch.Subscriptions = []appstore.AppSubscriptionAttachment{
 		{AppID: f.app.ID, Type: "pull_request", Conversation: json.RawMessage(`{"repository_id":123,"pull_request":41}`), Events: []string{"discussion_comment"}},
 		{AppID: f.app.ID, Type: "pull_request", Conversation: json.RawMessage(`{"repository_id":123,"pull_request":42}`), Events: []string{"discussion_comment"}},
 	}
@@ -43,21 +43,21 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	}
 	slot := executionstore.InboxLaunchSlot{
 		AgentID: uuid.Must(uuid.NewV7()), Launch: f.freezeLaunch(t, launch),
-		Selection: integrationstore.InboxAppSelection{AppID: f.app.ID, Address: address, Slot: "review"},
+		Selection: appstore.InboxAppSelection{AppID: f.app.ID, Address: address, Slot: "review"},
 	}
-	_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+	_, _, err = f.store.Apps().AcceptAppReceipt(f.ctx, appstore.VerifiedAppReceipt{
 		ProjectID: testProjectID, AppID: f.app.ID, ReceiptKey: "launch", Payload: []byte(`{}`),
 	})
 	require.NoError(t, err)
-	receipt, found, err := f.store.Integrations().ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
+	receipt, found, err := f.store.Apps().ClaimAppInbox(f.ctx, appstore.ClaimAppInboxInput{
 		ProjectID: testProjectID, AppID: f.app.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
 	plan, err := json.Marshal(map[string]executionstore.InboxLaunchSlot{"review": slot})
 	require.NoError(t, err)
-	require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, receipt.Lease(),
-		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) }))
+	require.NoError(t, f.store.Apps().WithAppInboxLease(f.ctx, receipt.Lease(),
+		func(work *appstore.AppInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) }))
 	launched, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, receipt.Lease(), "review")
 	require.NoError(t, err)
 	require.True(t, launched.Created)
@@ -72,7 +72,7 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	}
 	require.NotEqual(t, uuid.Nil, selectedID)
 
-	freeze := func(event string) integrationstore.IntegrationInboxRecord {
+	freeze := func(event string) appstore.AppInboxRecord {
 		input := inboxInputPlan(t, launched.Agent.ID, f.app, event)
 		input.Subscription = &executionstore.InboxSubscriptionAuthority{
 			Event:        event,
@@ -100,16 +100,16 @@ func TestAppSubscriptionEventChangesRequireExplicitReattachmentAndFenceFrozenInp
 	)
 	attachment := launch.Subscriptions[1]
 	attachment.Events = []string{"review_comment", "commit"}
-	_, err = f.store.Integrations().CreateAppSubscription(f.ctx, integrationstore.CreateAppSubscriptionInput{
+	_, err = f.store.Apps().CreateAppSubscription(f.ctx, appstore.CreateAppSubscriptionInput{
 		OrgID: testOrgID, ProjectID: testProjectID, AppID: f.app.ID, AgentID: launched.Agent.ID,
 		Type: attachment.Type, Conversation: attachment.Conversation, Events: attachment.Events,
 	})
 	require.ErrorIs(t, err, storeerr.ErrConflict, "attach cannot overwrite another receive filter")
 	require.Equal(t, before, f.subscriptions(t, launched.Agent.ID))
-	require.NoError(t, f.store.Integrations().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, selectedID))
+	require.NoError(t, f.store.Apps().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, selectedID))
 	replacement := f.attach(t, launched.Agent.ID, attachment)
 	require.NotEqual(t, selectedID, replacement.ID)
-	require.NoError(t, f.store.Integrations().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, selectedID))
+	require.NoError(t, f.store.Apps().DeleteAppSubscription(f.ctx, testOrgID, testProjectID, f.app.ID, selectedID))
 	after := f.subscriptions(t, launched.Agent.ID)
 	require.Len(t, after, 2)
 	for _, row := range after {
@@ -147,7 +147,7 @@ func TestAppSubscriptionLaunchBatchRejectsInvalidOrConflictingAttachment(t *test
 			t.Parallel()
 			f := newAppActivationFixture(t)
 			f.app = inboxInputApp(t, f, "github")
-			first := integrationstore.AppSubscriptionAttachment{
+			first := appstore.AppSubscriptionAttachment{
 				AppID: f.app.ID, Type: "pull_request", Conversation: json.RawMessage(`{"repository_id":123,"pull_request":42}`),
 				Events: []string{"discussion_comment"},
 			}
@@ -171,7 +171,7 @@ func TestAppSubscriptionLaunchBatchRejectsInvalidOrConflictingAttachment(t *test
 			definition := f.definition(t, "Invalid attachment batch")
 			input := f.launchInput(uuid.Nil, "invalid-batch")
 			input.DerivedConfig = &definition
-			input.Subscriptions = []integrationstore.AppSubscriptionAttachment{first, second}
+			input.Subscriptions = []appstore.AppSubscriptionAttachment{first, second}
 			input.Message = "Must not be admitted"
 			_, err := f.store.Execution().LaunchAgent(f.ctx, input)
 			require.ErrorIs(t, err, want)

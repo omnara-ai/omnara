@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -119,7 +119,7 @@ func (e Executor) githubToolClient(
 			WebhookSecret: access.Credential[secrets.KeyWebhookSecret],
 		},
 		InstallationID: installationID,
-		HTTPClient:     e.IntegrationHTTPClient,
+		HTTPClient:     e.AppHTTPClient,
 		BeforeRequest: func(ctx context.Context) error {
 			return e.recheckAppToolAccess(ctx, turn, tool, access)
 		},

@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/discord"
-	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -34,7 +34,7 @@ func (s strictOpenAPIServer) ConfigureProjectApp(
 	if err != nil {
 		return nil, appSetupInputError(err)
 	}
-	record, err := s.server.store.Integrations().ConfigureProjectApp(ctx, input)
+	record, err := s.server.store.Apps().ConfigureProjectApp(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -57,12 +57,12 @@ func (s strictOpenAPIServer) DisconnectProjectApp(
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.server.store.Integrations().
-		DisconnectProjectApp(ctx, integrationstore.DisconnectProjectAppInput{ProjectID: scope.project.ID, AppID: current.ID})
+	_, err = s.server.store.Apps().
+		DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{ProjectID: scope.project.ID, AppID: current.ID})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	current, err = s.server.store.Integrations().GetProjectApp(ctx, scope.project.ID, current.ID)
+	current, err = s.server.store.Apps().GetProjectApp(ctx, scope.project.ID, current.ID)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -77,17 +77,17 @@ func (s strictOpenAPIServer) projectAppForSetup(
 	ctx context.Context,
 	scope projectScopeRecord,
 	ref string,
-) (integrationstore.ProjectAppRecord, error) {
+) (appstore.ProjectAppRecord, error) {
 	id, ok := parseOpenAPIPublicID(publicid.KindProjectApp, ref)
 	if !ok {
-		return integrationstore.ProjectAppRecord{}, apierror.FromCode(
+		return appstore.ProjectAppRecord{}, apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
 			"invalid app id",
 		)
 	}
-	app, err := s.server.store.Integrations().GetProjectApp(ctx, scope.project.ID, id)
+	app, err := s.server.store.Apps().GetProjectApp(ctx, scope.project.ID, id)
 	if err != nil {
-		return integrationstore.ProjectAppRecord{}, apierror.ProjectScoped(err)
+		return appstore.ProjectAppRecord{}, apierror.ProjectScoped(err)
 	}
 	return app, nil
 }
@@ -96,9 +96,9 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 	ctx context.Context,
 	scope projectScopeRecord,
 	body *openapi.ConfigureProjectAppRequest,
-	current *integrationstore.ProjectAppRecord,
-) (integrationstore.ConfigureProjectAppInput, error) {
-	var input integrationstore.ConfigureProjectAppInput
+	current *appstore.ProjectAppRecord,
+) (appstore.ConfigureProjectAppInput, error) {
+	var input appstore.ConfigureProjectAppInput
 	if body == nil {
 		return input, storeerr.InvalidRequest(errors.New("request body is required"))
 	}
@@ -106,7 +106,7 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 	if err != nil {
 		return input, *err
 	}
-	input = integrationstore.ConfigureProjectAppInput{
+	input = appstore.ConfigureProjectAppInput{
 		OrgID:                    scope.project.OrgID,
 		ProjectID:                scope.project.ID,
 		InstalledByUserID:        principal.ID,
@@ -121,9 +121,9 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 		ProviderConfig:           current.ProviderConfig,
 	}
 	if input.ExpectedSetupRevision != current.SetupRevision {
-		return input, integrationstore.ErrProjectAppSetupChanged
+		return input, appstore.ErrProjectAppSetupChanged
 	}
-	if current.Provider == integrationstore.IntegrationProviderSlack {
+	if current.Provider == appstore.AppProviderSlack {
 		return input, storeerr.InvalidRequest(
 			errors.New("configure Slack credentials through app OAuth setup"),
 		)
@@ -135,7 +135,7 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 		}
 		input.ProviderConfig = config
 	}
-	kind, kindErr := integrationstore.ProjectAppCredentialKind(input.Provider)
+	kind, kindErr := appstore.ProjectAppCredentialKind(input.Provider)
 	if kindErr != nil {
 		return input, storeerr.InvalidRequest(kindErr)
 	}
@@ -164,7 +164,7 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 	if _, validateErr := secrets.ValidatePayload(kind, credential.Payload); validateErr != nil {
 		return input, storeerr.InvalidRequest(validateErr)
 	}
-	if input.Provider == integrationstore.IntegrationProviderGitHub {
+	if input.Provider == appstore.AppProviderGitHub {
 		appID, parseErr := strconv.ParseInt(
 			strings.TrimSpace(credential.Payload[secrets.KeyAppID]),
 			10,
@@ -239,7 +239,7 @@ func (s strictOpenAPIServer) projectAppSetupInput(
 			return input, err
 		}
 	}
-	if input.Provider == integrationstore.IntegrationProviderDiscord {
+	if input.Provider == appstore.AppProviderDiscord {
 		if body.ProviderAgentDisplayName == nil {
 			input.ProviderAgentDisplayName = current.ProviderAgentDisplayName
 		}

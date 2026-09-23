@@ -235,7 +235,7 @@ export const createOrganizationMutation = (options?: Partial<Options<CreateOrgan
 /**
  * Delete organization
  *
- * Deletes the organization and everything in it: projects, memberships, pending invitations, profiles, integrations, machine pools and machines, model provider configs and configured models, and all skills. Agents are archived and their runtimes and queued work are stopped. Secrets are permanently deleted once machine teardown no longer needs them. Deletion fails if project agent teardown cannot complete. Only organization owners can delete an organization.
+ * Deletes the organization and everything in it: projects, memberships, pending invitations, profiles, apps, machine pools and machines, model provider configs and configured models, and all skills. Agents are archived and their runtimes and queued work are stopped. Secrets are permanently deleted once machine teardown no longer needs them. Deletion fails if project agent teardown cannot complete. Only organization owners can delete an organization.
  */
 export const deleteOrganizationMutation = (options?: Partial<Options<DeleteOrganizationData>>): UseMutationOptions<DeleteOrganizationResponse, DeleteOrganizationError, Options<DeleteOrganizationData>> => {
     const mutationOptions: UseMutationOptions<DeleteOrganizationResponse, DeleteOrganizationError, Options<DeleteOrganizationData>> = {
@@ -1454,7 +1454,7 @@ export const deleteSecretGrantMutation = (options?: Partial<Options<DeleteSecret
 /**
  * Resolve agent config tools
  *
- * Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual integration tools, discover MCP tools, or change any configuration.
+ * Returns configured built-in and custom tools plus missing machine, skill, subagent, and retrieval defaults, including disabled entries. Accepts YAML/JSON source. Source previews validate tool-related fields only; they do not validate whether the config can be saved or launched. Does not resolve contextual app tools, discover MCP tools, or change any configuration.
  */
 export const resolveAgentConfigToolsMutation = (options?: Partial<Options<ResolveAgentConfigToolsData>>): UseMutationOptions<ResolveAgentConfigToolsResponse, ResolveAgentConfigToolsError, Options<ResolveAgentConfigToolsData>> => {
     const mutationOptions: UseMutationOptions<ResolveAgentConfigToolsResponse, ResolveAgentConfigToolsError, Options<ResolveAgentConfigToolsData>> = {
@@ -1757,7 +1757,7 @@ export const updateAgentProfileMutation = (options?: Partial<Options<UpdateAgent
 /**
  * Connect an app through OAuth
  *
- * Starts OAuth for this app (currently Slack). The callback pins the app and setup revision, records verified credentials, and returns integration_oauth=success and app_id to the supplied local return_to route. It requires a browser session for the initiating user and current project management access. Replayed, stale, or deleted-app callbacks are rejected.
+ * Starts OAuth for this app (currently Slack). The callback pins the app and setup revision, records verified credentials, and returns app_oauth=success and app_id to the supplied local return_to route. It requires a browser session for the initiating user and current project management access. Replayed, stale, or deleted-app callbacks are rejected.
  */
 export const createProjectAppOAuthSetupMutation = (options?: Partial<Options<CreateProjectAppOAuthSetupData>>): UseMutationOptions<CreateProjectAppOAuthSetupResponse, CreateProjectAppOAuthSetupError, Options<CreateProjectAppOAuthSetupData>> => {
     const mutationOptions: UseMutationOptions<CreateProjectAppOAuthSetupResponse, CreateProjectAppOAuthSetupError, Options<CreateProjectAppOAuthSetupData>> = {

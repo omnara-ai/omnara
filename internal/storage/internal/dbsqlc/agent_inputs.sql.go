@@ -266,7 +266,7 @@ func (q *Queries) DemoteSteeringInputToQueued(ctx context.Context, arg DemoteSte
 }
 
 const getNextQueuedAgentInputForAdmission = `-- name: GetNextQueuedAgentInputForAdmission :one
-SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
+SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.app_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
 FROM agent_inputs input
 WHERE input.project_id = $1
   AND input.agent_id = $2
@@ -291,7 +291,7 @@ type GetNextQueuedAgentInputForAdmissionRow struct {
 	InputRank           int64
 	ActorID             *uuid.UUID
 	InputKind           string
-	IntegrationTargetID *uuid.UUID
+	AppTargetID         *uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	QueuedAt            time.Time
@@ -317,7 +317,7 @@ func (q *Queries) GetNextQueuedAgentInputForAdmission(ctx context.Context, arg G
 		&i.InputRank,
 		&i.ActorID,
 		&i.InputKind,
-		&i.IntegrationTargetID,
+		&i.AppTargetID,
 		&i.IdempotencyScope,
 		&i.InputIdempotencyKey,
 		&i.QueuedAt,
@@ -335,7 +335,7 @@ func (q *Queries) GetNextQueuedAgentInputForAdmission(ctx context.Context, arg G
 }
 
 const listQueuedBacklogInputs = `-- name: ListQueuedBacklogInputs :many
-SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
+SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.app_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
 FROM agent_inputs input
 WHERE input.project_id = $1
   AND input.agent_id = $2
@@ -372,7 +372,7 @@ type ListQueuedBacklogInputsRow struct {
 	InputRank           int64
 	ActorID             *uuid.UUID
 	InputKind           string
-	IntegrationTargetID *uuid.UUID
+	AppTargetID         *uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	QueuedAt            time.Time
@@ -412,7 +412,7 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 			&i.InputRank,
 			&i.ActorID,
 			&i.InputKind,
-			&i.IntegrationTargetID,
+			&i.AppTargetID,
 			&i.IdempotencyScope,
 			&i.InputIdempotencyKey,
 			&i.QueuedAt,
@@ -437,7 +437,7 @@ func (q *Queries) ListQueuedBacklogInputs(ctx context.Context, arg ListQueuedBac
 }
 
 const listSteeringAgentInputsForAdmission = `-- name: ListSteeringAgentInputsForAdmission :many
-SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.integration_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
+SELECT input.id, input.project_id, input.agent_id, input.state, input.input_rank, input.actor_id, input.input_kind, input.app_target_id, coalesce(input.idempotency_scope, '') AS idempotency_scope, coalesce(input.input_idempotency_key, '') AS input_idempotency_key, input.queued_at, input.admitted_event_id, input.admitted_at, input.canceled_at, input.delivery_mode, coalesce(input.control_type, '') AS control_type, input.target_interaction_id, input.resolved_at, coalesce(input.rejected_reason, '') AS rejected_reason, input.metadata
 FROM agent_inputs input
 WHERE input.project_id = $1
   AND input.agent_id = $2
@@ -462,7 +462,7 @@ type ListSteeringAgentInputsForAdmissionRow struct {
 	InputRank           int64
 	ActorID             *uuid.UUID
 	InputKind           string
-	IntegrationTargetID *uuid.UUID
+	AppTargetID         *uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	QueuedAt            time.Time
@@ -494,7 +494,7 @@ func (q *Queries) ListSteeringAgentInputsForAdmission(ctx context.Context, arg L
 			&i.InputRank,
 			&i.ActorID,
 			&i.InputKind,
-			&i.IntegrationTargetID,
+			&i.AppTargetID,
 			&i.IdempotencyScope,
 			&i.InputIdempotencyKey,
 			&i.QueuedAt,

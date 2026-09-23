@@ -1,21 +1,21 @@
 package executionstore
 
 import (
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func ScheduledInboxActor(
-	app integrationstore.ProjectAppRecord,
-	launch integrationstore.ScheduledAppEvent,
+	app appstore.ProjectAppRecord,
+	launch appstore.ScheduledAppEvent,
 ) (*ActorParams, error) {
 	return CronTriggerActor(app.OrgID, launch.TriggerID, launch.Occurrence.Name)
 }
 
 func validateScheduledInboxLaunch(
-	receipt integrationstore.IntegrationInboxRecord,
-	app integrationstore.ProjectAppRecord,
+	receipt appstore.AppInboxRecord,
+	app appstore.ProjectAppRecord,
 	slot InboxLaunchSlot,
 ) error {
 	launch, err := receipt.ScheduledEvent()

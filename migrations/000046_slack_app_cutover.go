@@ -459,7 +459,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 		JOIN projects project ON project.id=agent.project_id AND project.deleted_at IS NULL
 		JOIN orgs org ON org.id=agent.org_id AND org.deleted_at IS NULL
 		JOIN agent_configs config ON config.project_id=agent.project_id AND config.id=agent.current_config_id
-		JOIN integration_targets target ON target.project_id=agent.project_id AND target.agent_id=agent.id
+		JOIN app_targets target ON target.project_id=agent.project_id AND target.agent_id=agent.id
 		  AND target.deleted_at IS NULL
 		JOIN project_apps app ON app.project_id=target.project_id
 		  AND app.id=target.app_id AND app.app_type='slack_thread'
@@ -557,7 +557,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 				ctx, `INSERT INTO app_states(project_id,app_id,kind,key,data)
 				SELECT project_id,app_id,'agent_conversation',agent_id::text,
                     jsonb_build_object('kind',provider_ref_kind,'ref',provider_ref)
-				FROM integration_targets WHERE id=$1::uuid`, target.id,
+				FROM app_targets WHERE id=$1::uuid`, target.id,
 			); err != nil {
 				return fmt.Errorf("assign Slack conversation from target %s: %w", target.id, err)
 			}
@@ -565,7 +565,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, apps map[string][]s
 	}
 	_, err = tx.ExecContext(
 		ctx,
-		`UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE integration_target_id IS NOT NULL`,
+		`UPDATE agents SET app_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE app_target_id IS NOT NULL`,
 	)
 	return err
 }

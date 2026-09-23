@@ -8,18 +8,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type InboxLaunchSlot struct {
-	Selection   integrationstore.InboxAppSelection `json:"selection"`
-	AgentID     uuid.UUID                          `json:"agent_id"`
-	Launch      InboxLaunchPlan                    `json:"launch"`
-	ArtifactIDs []uuid.UUID                        `json:"artifact_ids,omitempty"`
+	Selection   appstore.InboxAppSelection `json:"selection"`
+	AgentID     uuid.UUID                  `json:"agent_id"`
+	Launch      InboxLaunchPlan            `json:"launch"`
+	ArtifactIDs []uuid.UUID                `json:"artifact_ids,omitempty"`
 }
 
 type InboxLaunchPrincipal struct {
@@ -28,13 +28,13 @@ type InboxLaunchPrincipal struct {
 }
 
 type InboxLaunchPlan struct {
-	ProfileID           uuid.UUID                                    `json:"profile_id"`
-	AgentConfigID       uuid.UUID                                    `json:"agent_config_id"`
-	DerivedBaseConfigID uuid.UUID                                    `json:"derived_base_config_id"`
-	LaunchedBy          InboxLaunchPrincipal                         `json:"launched_by"`
-	IdempotencyKey      string                                       `json:"idempotency_key"`
-	InitialInput        *LaunchInitialInput                          `json:"initial_input"`
-	Subscriptions       []integrationstore.AppSubscriptionAttachment `json:"subscriptions"`
+	ProfileID           uuid.UUID                            `json:"profile_id"`
+	AgentConfigID       uuid.UUID                            `json:"agent_config_id"`
+	DerivedBaseConfigID uuid.UUID                            `json:"derived_base_config_id"`
+	LaunchedBy          InboxLaunchPrincipal                 `json:"launched_by"`
+	IdempotencyKey      string                               `json:"idempotency_key"`
+	InitialInput        *LaunchInitialInput                  `json:"initial_input"`
+	Subscriptions       []appstore.AppSubscriptionAttachment `json:"subscriptions"`
 }
 
 func (p InboxLaunchPlan) launchInput(projectID uuid.UUID) LaunchAgentInput {
@@ -64,7 +64,7 @@ type inboxLaunchProgress struct {
 
 func (s *Store) AdmitInboxLaunchSlot(
 	ctx context.Context,
-	lease integrationstore.IntegrationInboxLease,
+	lease appstore.AppInboxLease,
 	slotKey string,
 ) (LaunchAgentResult, error) {
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || slotKey == "" {
@@ -77,11 +77,11 @@ func (s *Store) AdmitInboxLaunchSlot(
 
 func (s *Store) admitInboxLaunchSlotOnce(
 	ctx context.Context,
-	lease integrationstore.IntegrationInboxLease,
+	lease appstore.AppInboxLease,
 	slotKey string,
 ) (LaunchAgentResult, error) {
 	// Read the immutable plan first to discover app gates that must precede the receipt lock.
-	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+	snapshot, err := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -102,12 +102,12 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, resources...)
+	work, err := s.apps.LockAppInboxLeaseTx(ctx, tx, lease, resources...)
 	if err != nil {
 		// Release the connection before diagnostic reads, which may need the pool's only session.
 		_ = tx.Rollback(ctx)
 		// Another attempt may have committed and released its lease while this worker waited.
-		latest, readErr := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		latest, readErr := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if readErr == nil {
 			latestSlot, latestProgress, decodeErr := decodeInboxLaunchSlot(latest, slotKey)
 			if decodeErr == nil && latestProgress.Committed != nil {
@@ -134,13 +134,13 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	// These gates are already held. Recheck only this slot's authority so another
 	// slot's revocation cannot block its independent progress.
-	if err := integrationstore.LockAppsTx(ctx, tx, lease.ProjectID, resources); err != nil {
+	if err := appstore.LockAppsTx(ctx, tx, lease.ProjectID, resources); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	selection := slot.Selection
 	origins := []AgentInputOrigin{{AppID: selection.AppID, Address: selection.Address}}
 	for _, attachment := range slot.Launch.Subscriptions {
-		prepared, err := integrationstore.PrepareAppSubscriptionTx(ctx, tx, lease.ProjectID, attachment)
+		prepared, err := appstore.PrepareAppSubscriptionTx(ctx, tx, lease.ProjectID, attachment)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
@@ -149,9 +149,9 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err := lockAppConversationsTx(ctx, tx, lease.ProjectID, origins...); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduled
+	scheduled := locked.Source == appstore.AppInboxSourceScheduled
 	if scheduled {
-		app, err := s.integrations.GetProjectAppByIDTx(ctx, tx, locked.AppID)
+		app, err := s.apps.GetProjectAppByIDTx(ctx, tx, locked.AppID)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
@@ -180,7 +180,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 			AgentID:  result.Agent.ID,
 			ConfigID: result.AgentConfig.ID,
 			InputID:  result.AgentInput.ID,
-			TargetID: result.IntegrationTarget.ID,
+			TargetID: result.AppTarget.ID,
 		},
 	)
 	if err != nil {
@@ -196,7 +196,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 }
 
 func decodeInboxLaunchSlot(
-	receipt integrationstore.IntegrationInboxRecord,
+	receipt appstore.AppInboxRecord,
 	slotKey string,
 ) (InboxLaunchSlot, inboxLaunchProgress, error) {
 	var slot InboxLaunchSlot

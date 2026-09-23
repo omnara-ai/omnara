@@ -27,12 +27,27 @@ func TestAppOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *testing.T) {
 	var obsolete bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT
         EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
-            AND table_name='integration_targets' AND column_name='target_ref')
+            AND table_name='app_targets' AND column_name='target_ref')
         OR EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public'
-            AND indexname='integration_targets_agent_target_ref_idx')
-        OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='integration_targets'::regclass
+            AND indexname='app_targets_agent_target_ref_idx')
+        OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='app_targets'::regclass
             AND pg_get_constraintdef(oid) LIKE '%target_ref%')`).Scan(&obsolete))
 	require.False(t, obsolete, "database-only aliases and their constraints are removed")
+	var legacyObjects []string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT ARRAY(
+        SELECT relname FROM pg_class WHERE relnamespace=current_schema()::regnamespace
+            AND relname ~ '^integration_(installs|targets|inbox)'
+        UNION ALL
+        SELECT conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
+            AND conname ~ 'integration_(installs|targets|install_id|target_id|inbox)'
+        UNION ALL
+        SELECT table_name || '.' || column_name FROM information_schema.columns
+            WHERE table_schema=current_schema() AND column_name='integration_target_id'
+        UNION ALL
+        SELECT proname FROM pg_proc WHERE pronamespace=current_schema()::regnamespace
+            AND prosrc ~ '\mintegration_(installs|targets|target_id|inbox)\M'
+        ORDER BY 1)`).Scan(&legacyObjects))
+	require.Empty(t, legacyObjects, "live relations, constraints, views and functions use app names")
 	ids := storagefixture.ProjectIDs{
 		OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),

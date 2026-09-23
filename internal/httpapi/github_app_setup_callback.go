@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -31,7 +31,7 @@ func (s *Server) decodeGitHubManifestState(ctx context.Context, token string) (g
 	if err != nil {
 		return state, err
 	}
-	if len(body) > integrationOAuthStateBytes {
+	if len(body) > appOAuthStateBytes {
 		return state, errors.New("GitHub registration state is too large")
 	}
 	if err := httpjson.DecodeStrictRequiredBytes(body, &state); err != nil {
@@ -81,7 +81,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	app, err := s.store.Integrations().GetProjectApp(r.Context(), state.ProjectID, state.AppID)
+	app, err := s.store.Apps().GetProjectApp(r.Context(), state.ProjectID, state.AppID)
 	if err != nil {
 		apierror.WriteError(w, apierror.ProjectScoped(err))
 		return
@@ -110,7 +110,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		outcome("missing_code")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), integrationOAuthTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), appOAuthTimeout)
 	defer cancel()
 	// Do not retry this one-time manifest conversion.
 	client, err := github.NewSetupClient(github.SetupConfig{
@@ -149,7 +149,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	params := url.Values{
 		"github_setup": {"credentials_saved"}, "credentials_secret_ref": {ref},
 	}
-	current, err := s.store.Integrations().GetProjectApp(ctx, state.ProjectID, state.AppID)
+	current, err := s.store.Apps().GetProjectApp(ctx, state.ProjectID, state.AppID)
 	if err != nil || current.SetupRevision != state.SetupRevision {
 		params.Set("github_setup_error", "app_setup_changed")
 	}

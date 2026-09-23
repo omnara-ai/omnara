@@ -1,6 +1,6 @@
 # Omnara CLI
 
-Command-line interface for [Omnara](https://omnara.com): launch and manage agents, organizations, integrations, and MCP servers.
+Command-line interface for [Omnara](https://omnara.com): launch and manage agents, organizations, apps, and MCP servers.
 
 ## Installation
 

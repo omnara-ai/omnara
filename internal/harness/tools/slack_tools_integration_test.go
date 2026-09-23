@@ -12,8 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -74,7 +74,7 @@ func TestSlackAppSendDistinctCallsAndReplay(t *testing.T) {
 		},
 	}
 	f.recordToolCalls(t, ctx, calls, f.Now)
-	executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+	executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 	for _, call := range calls {
 		result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 		require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestSlackAppSendSafeRetriesAndUncertainPublication(t *testing.T) {
 			result, err := dispatchAsyncToolToTerminal(
 				t,
 				ctx,
-				Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)},
+				Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)},
 				slackAppToolTurn(f),
 				call,
 			)
@@ -254,7 +254,7 @@ func TestSlackAppTargetAloneDoesNotGrantSend(t *testing.T) {
 	_, err := dispatchAsyncToolToTerminal(
 		t,
 		ctx,
-		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)},
+		Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)},
 		slackAppToolTurn(f),
 		call,
 	)
@@ -303,7 +303,7 @@ func TestSlackAppReadPagination(t *testing.T) {
 	result, err := dispatchAsyncToolToTerminal(
 		t,
 		ctx,
-		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)},
+		Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)},
 		slackAppToolTurn(f),
 		call,
 	)
@@ -317,7 +317,7 @@ func TestSlackAppLegacyContextsPreserveReadAndPost(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "legacy-context", toolFixtureOptions{
 				withSlackApp: true, withToolContext: true,
-				toolContextAddress: integrationstore.ConversationAddress{Kind: test.kind, Ref: test.channel},
+				toolContextAddress: appstore.ConversationAddress{Kind: test.kind, Ref: test.channel},
 			})
 			reads, posts := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -350,7 +350,7 @@ func TestSlackAppLegacyContextsPreserveReadAndPost(t *testing.T) {
 				{ID: "post", Name: "app__chat__post_message", Input: json.RawMessage(`{"text":"hello"}`)},
 			}
 			f.recordToolCalls(t, ctx, calls, f.Now)
-			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
 			for _, call := range calls {
 				_, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(f), call)
 				require.NoError(t, err)
@@ -422,7 +422,7 @@ func TestSlackAppRotatedTokenKeepsVerifiedIdentity(t *testing.T) {
 				}
 				call := f.recordToolCall(t, ctx, "rotated", toolcatalog.AppToolName("chat", name), input, f.Now)
 				_, err = dispatchAsyncToolToTerminal(t, ctx,
-					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)},
+					Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)},
 					slackAppToolTurn(f), call)
 				require.NoError(t, err)
 				record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))

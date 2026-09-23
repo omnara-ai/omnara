@@ -19,12 +19,12 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/integration"
-	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/apps"
+	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -35,7 +35,7 @@ const githubJourneyWebhookSecret = "local-test-webhook-secret"
 type githubHTTPJourney struct {
 	handler  http.Handler
 	project  publicHTTPProject
-	app      integrationstore.ProjectAppRecord
+	app      appstore.ProjectAppRecord
 	secretID string
 }
 
@@ -58,7 +58,7 @@ func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHT
 
 func githubHTTPJourneyApp(
 	t *testing.T, handler http.Handler, project publicHTTPProject, secretID, installationID string,
-) integrationstore.ProjectAppRecord {
+) appstore.ProjectAppRecord {
 	t.Helper()
 	app := createSetupHTTPApp(t, handler, project, "github-"+installationID, appdefinition.GitHubPR)
 	body := appSetupHTTPBody("123", installationID)
@@ -67,7 +67,7 @@ func githubHTTPJourneyApp(
 	created := requestJSONWithHeaders(t, handler, http.MethodPost, appSetupPath(t, project, app),
 		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
 	id := mustPublicHTTPID(t, publicid.KindProjectApp, testutil.RequireType[string](t, created["id"]))
-	app, err := project.Store.Integrations().GetProjectApp(t.Context(), project.ProjectUUID, id)
+	app, err := project.Store.Apps().GetProjectApp(t.Context(), project.ProjectUUID, id)
 	require.NoError(t, err)
 	var identity github.AppIdentity
 	require.NoError(t, json.Unmarshal(app.ProviderIdentity, &identity))
@@ -95,29 +95,29 @@ func githubHTTPWebhook(
 	require.Equal(t, want, w.Code, w.Body.String())
 }
 
-func (f githubHTTPJourney) consume(t *testing.T, raw string) []integration.AppSlotAdmission {
+func (f githubHTTPJourney) consume(t *testing.T, raw string) []apps.AppSlotAdmission {
 	t.Helper()
-	inbox := f.project.Store.Integrations()
-	receipt, found, err := inbox.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
+	inbox := f.project.Store.Apps()
+	receipt, found, err := inbox.ClaimAppInbox(t.Context(), appstore.ClaimAppInboxInput{
 		ProjectID: f.project.ProjectUUID, AppID: f.app.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, raw, string(receipt.Payload), "acknowledged receipt retains exact signed bytes")
-	router := integration.NewAppRouter(f.project.Store.Execution(), inbox)
-	consumer := integration.NewAppInboxConsumer(
+	router := apps.NewAppRouter(f.project.Store.Execution(), inbox)
+	consumer := apps.NewAppInboxConsumer(
 		router, inbox, nil,
-		map[string]integration.AppInboxProvider{"github": integration.GitHubAppInboxProvider{}},
+		map[string]apps.AppInboxProvider{"github": apps.GitHubAppInboxProvider{}},
 		nil,
-		integration.NewAppLaunchWorkflow(router, map[appdefinition.Type]integration.AppLauncher{
-			appdefinition.GitHubPR: integration.EverySlotAppLauncher,
+		apps.NewAppLaunchWorkflow(router, map[appdefinition.Type]apps.AppLauncher{
+			appdefinition.GitHubPR: apps.EverySlotAppLauncher,
 		}),
 	)
 	results, err := consumer.Consume(t.Context(), receipt.Lease())
 	require.NoError(t, err)
-	completed, err := inbox.GetIntegrationInbox(t.Context(), f.project.ProjectUUID, receipt.ID)
+	completed, err := inbox.GetAppInbox(t.Context(), f.project.ProjectUUID, receipt.ID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.IntegrationInboxCompleted, completed.State)
+	require.Equal(t, appstore.AppInboxCompleted, completed.State)
 	return results
 }
 
@@ -184,23 +184,23 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			var receipts int
 			pool := integrationPoolForHandler(t, f.handler)
 			require.NoError(t, pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
+				`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 			require.Zero(t, receipts)
 			// GitHub does not retry automatically; these requests model manual redelivery.
 			_, err := pool.Exec(t.Context(),
-				`ALTER TABLE integration_inbox ADD CONSTRAINT github_test_fail_receipt CHECK (false)`)
+				`ALTER TABLE app_inbox ADD CONSTRAINT github_test_fail_receipt CHECK (false)`)
 			require.NoError(t, err)
 			githubHTTPWebhook(t, f.handler, eventType, "initial", githubJourneyWebhookSecret,
 				raw, http.StatusServiceUnavailable)
 			require.NoError(t, pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
+				`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 			require.Zero(t, receipts)
-			_, err = pool.Exec(t.Context(), `ALTER TABLE integration_inbox DROP CONSTRAINT github_test_fail_receipt`)
+			_, err = pool.Exec(t.Context(), `ALTER TABLE app_inbox DROP CONSTRAINT github_test_fail_receipt`)
 			require.NoError(t, err)
 			for range 2 {
 				githubHTTPWebhook(t, f.handler, eventType, "initial", githubJourneyWebhookSecret, raw, http.StatusNoContent)
 				require.NoError(t, pool.QueryRow(t.Context(),
-					`SELECT count(*) FROM integration_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
+					`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
 				require.Equal(t, 1, receipts, "manual redelivery must accept once and then deduplicate")
 			}
 			results := f.consume(t, raw)
@@ -209,7 +209,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.True(t, results[0].Launch.Created)
 			agentID := results[0].Launch.Agent.ID
 			firstInput := results[0].Launch.AgentInput.ID
-			require.Equal(t, "1001#42", results[0].Launch.IntegrationTarget.ProviderRef)
+			require.Equal(t, "1001#42", results[0].Launch.AppTarget.ProviderRef)
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "relabeled", githubJourneyWebhookSecret,
 				raw, http.StatusNoContent)
 			f.consume(t, raw)
@@ -309,7 +309,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 		projectAppHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
 		"", http.StatusCreated, authHeaders(f.project.AdminToken))
 	secondApp := githubHTTPJourneyApp(t, f.handler, second, f.secretID, "457")
-	inbox := f.project.Store.Integrations()
+	inbox := f.project.Store.Apps()
 	candidates, err := inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1, "shared credential is decrypted at most once for an App ping")
@@ -355,7 +355,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 		unknown, http.StatusNoContent)
 	var count int
 	pool := integrationPoolForHandler(t, f.handler)
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox`).Scan(&count))
 	require.Zero(t, count, "App health/unmanaged installation callbacks do not choose a project")
 	appPath := f.project.ProjectPath + "/apps/" + testPublicID(t, publicid.KindProjectApp, f.app.ID)
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, appPath+"/disconnect",
@@ -368,7 +368,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	f2 := githubHTTPJourney{handler: f.handler, project: second, app: secondApp, secretID: f.secretID}
 	require.Empty(t, f2.consume(t, installed))
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM integration_inbox WHERE project_id=$1`, f.project.ProjectUUID).Scan(&count))
+		`SELECT count(*) FROM app_inbox WHERE project_id=$1`, f.project.ProjectUUID).Scan(&count))
 	require.Zero(t, count)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 		f.project.ProjectPath+"/apps/"+
@@ -384,7 +384,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	require.Equal(t, f.app.ID, candidates[0].ID)
-	require.Equal(t, integrationstore.ProjectAppStateDisconnected, candidates[0].State)
+	require.Equal(t, appstore.ProjectAppStateDisconnected, candidates[0].State)
 	githubHTTPWebhook(t, f.handler, "ping", "disabled-ping", githubJourneyWebhookSecret, ping, http.StatusNoContent)
 	githubHTTPWebhook(t, f.handler, "installation", "revoked", githubJourneyWebhookSecret,
 		installed, http.StatusUnauthorized)
@@ -420,7 +420,7 @@ func TestGitHubSharedAndLegacyRoutesDeduplicateSameAppFanout(t *testing.T) {
 	}
 	var receipts int
 	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
-		`SELECT count(*) FROM integration_inbox
+		`SELECT count(*) FROM app_inbox
 		 WHERE project_id=$1 AND receipt_key='github:issue_comment:cross-route-delivery'`,
 		f.project.ProjectUUID).Scan(&receipts))
 	require.Equal(t, 2, receipts, "each saved app gets one receipt independently of callback route")

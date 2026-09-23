@@ -48,8 +48,8 @@ func TestReportCoreMaintenanceResultPreservesCleanupOutcomes(t *testing.T) {
 			} else {
 				require.Contains(t, output.String(), "cleaned app states")
 				require.Contains(t, output.String(), "cleaned expired event webhooks")
-				require.Contains(t, output.String(), "cleaned completed integration inbox")
-				require.Contains(t, output.String(), "cleaned deleted integration inbox")
+				require.Contains(t, output.String(), "cleaned completed app inbox")
+				require.Contains(t, output.String(), "cleaned deleted app inbox")
 				require.Contains(t, output.String(), `"budget_exhausted":true`)
 				require.Contains(t, output.String(), `"retention":604800000000000`)
 			}
@@ -77,5 +77,5 @@ func TestReportCoreMaintenanceResultJoinsCleanupErrors(t *testing.T) {
 		require.Contains(t, loop["error.message"], message)
 	}
 	require.Contains(t, output.String(), `"count":100`)
-	require.NotContains(t, output.String(), "cleaned completed integration inbox")
+	require.NotContains(t, output.String(), "cleaned completed app inbox")
 }

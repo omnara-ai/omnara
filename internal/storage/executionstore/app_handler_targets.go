@@ -7,12 +7,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/appstore"
 )
 
 type appConversation struct {
 	appID   uuid.UUID
-	address integrationstore.ConversationAddress
+	address appstore.ConversationAddress
 }
 
 func lockAppConversationsTx(
@@ -35,7 +35,7 @@ func lockAppConversationsTx(
 		return strings.Compare(a.address.Ref, b.address.Ref)
 	})
 	for _, conversation := range slices.Compact(conversations) {
-		if err := integrationstore.LockConversationTx(
+		if err := appstore.LockConversationTx(
 			ctx,
 			tx,
 			projectID,

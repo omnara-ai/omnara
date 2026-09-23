@@ -15,7 +15,7 @@ import (
 const findInboxSelectionReservations = `-- name: FindInboxSelectionReservations :many
 WITH matches AS MATERIALIZED (
   SELECT id, state
-  FROM integration_inbox
+  FROM app_inbox
   WHERE project_id = $1 AND app_id = $2
     AND id <> $3 AND plan IS NOT NULL
     AND state IN ('pending', 'processing')
