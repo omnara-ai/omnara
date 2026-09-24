@@ -13,6 +13,7 @@ import {
   selectAgentAttachment,
   type SelectedAgentAttachment,
 } from '@/lib/agent-attachments'
+import { isImeComposing } from '@/lib/ime-composition'
 
 import { useWindowFileDrop } from './useWindowFileDrop'
 
@@ -221,7 +222,7 @@ export function AgentComposer({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (event.key === 'Enter' && !event.shiftKey && !isImeComposing(event.nativeEvent)) {
       event.preventDefault()
       void send()
     }
