@@ -14,97 +14,97 @@ type Kind string
 type ID string
 
 const (
-	KindOrganization            Kind = "organization"
-	KindInstallation            Kind = "installation"
-	KindUser                    Kind = "user"
-	KindActor                   Kind = "actor"
-	KindProject                 Kind = "project"
-	KindAgent                   Kind = "agent"
-	KindAgentConfig             Kind = "agent_config"
-	KindAgentProfile            Kind = "agent_profile"
-	KindCronTrigger             Kind = "cron_trigger"
-	KindProjectApp              Kind = "project_app"
-	KindAppProfileChoice        Kind = "app_profile_choice"
-	KindAppSubscription         Kind = "app_subscription"
-	KindAppTarget               Kind = "app_target"
-	KindAgentEvent              Kind = "agent_event"
-	KindAgentInput              Kind = "agent_input"
-	KindAgentMachineBinding     Kind = "agent_machine_binding"
-	KindAgentTurn               Kind = "agent_turn"
-	KindAgentInteraction        Kind = "agent_interaction"
-	KindModelCallContext        Kind = "model_call_context"
-	KindContextCheckpoint       Kind = "context_checkpoint"
-	KindToolCall                Kind = "tool_call"
-	KindMachinePool             Kind = "machine_pool"
-	KindMachine                 Kind = "machine"
-	KindMachineDaemonToken      Kind = "machine_daemon_token"
-	KindDaemonRuntime           Kind = "daemon_runtime"
-	KindProjectMachineGrant     Kind = "project_machine_grant"
-	KindProjectMachinePoolGrant Kind = "project_machine_pool_grant"
-	KindProcess                 Kind = "process"
-	KindProcessAction           Kind = "process_action"
-	KindArtifact                Kind = "artifact"
-	KindPersonalAccessToken     Kind = "personal_access_token"
-	KindOrgInvitation           Kind = "org_invitation"
-	KindSecret                  Kind = "secret"
-	KindSecretGrant             Kind = "secret_grant"
-	KindModelProviderConfig     Kind = "model_provider_config"
-	KindConfiguredModel         Kind = "configured_model"
-	KindConfiguredModelRevision Kind = "configured_model_revision"
-	KindProjectModelGrant       Kind = "project_model_grant"
-	KindSkill                   Kind = "skill"
-	KindSkillRevision           Kind = "skill_revision"
-	KindSkillGrant              Kind = "skill_grant"
-	KindOrgAPIKey               Kind = "org_api_key"
-	KindMCPOAuthFlow            Kind = "mcp_oauth_flow"
-	KindAppOAuthFlow            Kind = "app_oauth_flow"
+	KindOrganization             Kind = "organization"
+	KindInstallation             Kind = "installation"
+	KindUser                     Kind = "user"
+	KindActor                    Kind = "actor"
+	KindProject                  Kind = "project"
+	KindAgent                    Kind = "agent"
+	KindAgentConfig              Kind = "agent_config"
+	KindAgentProfile             Kind = "agent_profile"
+	KindCronTrigger              Kind = "cron_trigger"
+	KindProjectIntegration       Kind = "project_integration"
+	KindIntegrationProfileChoice Kind = "integration_profile_choice"
+	KindIntegrationSubscription  Kind = "integration_subscription"
+	KindIntegrationTarget        Kind = "integration_target"
+	KindAgentEvent               Kind = "agent_event"
+	KindAgentInput               Kind = "agent_input"
+	KindAgentMachineBinding      Kind = "agent_machine_binding"
+	KindAgentTurn                Kind = "agent_turn"
+	KindAgentInteraction         Kind = "agent_interaction"
+	KindModelCallContext         Kind = "model_call_context"
+	KindContextCheckpoint        Kind = "context_checkpoint"
+	KindToolCall                 Kind = "tool_call"
+	KindMachinePool              Kind = "machine_pool"
+	KindMachine                  Kind = "machine"
+	KindMachineDaemonToken       Kind = "machine_daemon_token"
+	KindDaemonRuntime            Kind = "daemon_runtime"
+	KindProjectMachineGrant      Kind = "project_machine_grant"
+	KindProjectMachinePoolGrant  Kind = "project_machine_pool_grant"
+	KindProcess                  Kind = "process"
+	KindProcessAction            Kind = "process_action"
+	KindArtifact                 Kind = "artifact"
+	KindPersonalAccessToken      Kind = "personal_access_token"
+	KindOrgInvitation            Kind = "org_invitation"
+	KindSecret                   Kind = "secret"
+	KindSecretGrant              Kind = "secret_grant"
+	KindModelProviderConfig      Kind = "model_provider_config"
+	KindConfiguredModel          Kind = "configured_model"
+	KindConfiguredModelRevision  Kind = "configured_model_revision"
+	KindProjectModelGrant        Kind = "project_model_grant"
+	KindSkill                    Kind = "skill"
+	KindSkillRevision            Kind = "skill_revision"
+	KindSkillGrant               Kind = "skill_grant"
+	KindOrgAPIKey                Kind = "org_api_key"
+	KindMCPOAuthFlow             Kind = "mcp_oauth_flow"
+	KindIntegrationOAuthFlow     Kind = "integration_oauth_flow"
 )
 
 var kindPrefixes = map[Kind]string{
-	KindOrganization:            "org",
-	KindInstallation:            "inst",
-	KindUser:                    "usr",
-	KindActor:                   "actr",
-	KindProject:                 "proj",
-	KindAgent:                   "agt",
-	KindAgentConfig:             "acfg",
-	KindAgentProfile:            "aprf",
-	KindCronTrigger:             "cron",
-	KindProjectApp:              "app",
-	KindAppProfileChoice:        "apc",
-	KindAppSubscription:         "asub",
-	KindAppTarget:               "itgt",
-	KindAgentEvent:              "evt",
-	KindAgentInput:              "ain",
-	KindAgentMachineBinding:     "amb",
-	KindAgentTurn:               "trn",
-	KindAgentInteraction:        "int",
-	KindModelCallContext:        "mcc",
-	KindContextCheckpoint:       "ccp",
-	KindToolCall:                "tcl",
-	KindMachinePool:             "mpo",
-	KindMachine:                 "mch",
-	KindMachineDaemonToken:      "mdt",
-	KindDaemonRuntime:           "drt",
-	KindProjectMachineGrant:     "pmg",
-	KindProjectMachinePoolGrant: "pmpg",
-	KindProcess:                 "prc",
-	KindProcessAction:           "pac",
-	KindArtifact:                "art",
-	KindPersonalAccessToken:     "pat",
-	KindOrgInvitation:           "oinv",
-	KindSecret:                  "sec",
-	KindSecretGrant:             "sgr",
-	KindModelProviderConfig:     "mpc",
-	KindConfiguredModel:         "mdl",
-	KindConfiguredModelRevision: "mrev",
-	KindProjectModelGrant:       "pmog",
-	KindSkill:                   "skl",
-	KindSkillRevision:           "skr",
-	KindSkillGrant:              "skg",
-	KindOrgAPIKey:               "oak",
-	KindMCPOAuthFlow:            "moaf",
-	KindAppOAuthFlow:            "ioaf",
+	KindOrganization:             "org",
+	KindInstallation:             "inst",
+	KindUser:                     "usr",
+	KindActor:                    "actr",
+	KindProject:                  "proj",
+	KindAgent:                    "agt",
+	KindAgentConfig:              "acfg",
+	KindAgentProfile:             "aprf",
+	KindCronTrigger:              "cron",
+	KindProjectIntegration:       "itg",
+	KindIntegrationProfileChoice: "ipc",
+	KindIntegrationSubscription:  "isub",
+	KindIntegrationTarget:        "itgt",
+	KindAgentEvent:               "evt",
+	KindAgentInput:               "ain",
+	KindAgentMachineBinding:      "amb",
+	KindAgentTurn:                "trn",
+	KindAgentInteraction:         "int",
+	KindModelCallContext:         "mcc",
+	KindContextCheckpoint:        "ccp",
+	KindToolCall:                 "tcl",
+	KindMachinePool:              "mpo",
+	KindMachine:                  "mch",
+	KindMachineDaemonToken:       "mdt",
+	KindDaemonRuntime:            "drt",
+	KindProjectMachineGrant:      "pmg",
+	KindProjectMachinePoolGrant:  "pmpg",
+	KindProcess:                  "prc",
+	KindProcessAction:            "pac",
+	KindArtifact:                 "art",
+	KindPersonalAccessToken:      "pat",
+	KindOrgInvitation:            "oinv",
+	KindSecret:                   "sec",
+	KindSecretGrant:              "sgr",
+	KindModelProviderConfig:      "mpc",
+	KindConfiguredModel:          "mdl",
+	KindConfiguredModelRevision:  "mrev",
+	KindProjectModelGrant:        "pmog",
+	KindSkill:                    "skl",
+	KindSkillRevision:            "skr",
+	KindSkillGrant:               "skg",
+	KindOrgAPIKey:                "oak",
+	KindMCPOAuthFlow:             "moaf",
+	KindIntegrationOAuthFlow:     "ioaf",
 }
 
 var encoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

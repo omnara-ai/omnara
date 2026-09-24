@@ -17,8 +17,8 @@ import (
 const (
 	configSchemaPath = "internal/agentconfig/generated/agent_config.schema.json"
 	openAPIPath      = "api/openapi/openapi.yaml"
-	sectionStart     = "    # BEGIN GENERATED APP CAPABILITY SCHEMAS\n"
-	sectionEnd       = "    # END GENERATED APP CAPABILITY SCHEMAS\n"
+	sectionStart     = "    # BEGIN GENERATED INTEGRATION CAPABILITY SCHEMAS\n"
+	sectionEnd       = "    # END GENERATED INTEGRATION CAPABILITY SCHEMAS\n"
 )
 
 func main() {
@@ -89,12 +89,12 @@ func generate(root string, check bool) error {
 func renderOpenAPI(schema, spec []byte) ([]byte, error) {
 	text := string(spec)
 	if strings.Count(text, sectionStart) != 1 || strings.Count(text, sectionEnd) != 1 {
-		return nil, errors.New("OpenAPI must contain exactly one generated app schema marker pair")
+		return nil, errors.New("OpenAPI must contain exactly one generated integration schema marker pair")
 	}
 	before, rest, _ := strings.Cut(text, sectionStart)
 	_, after, found := strings.Cut(rest, sectionEnd)
 	if !found {
-		return nil, errors.New("OpenAPI generated app schema markers are out of order")
+		return nil, errors.New("OpenAPI generated integration schema markers are out of order")
 	}
 	var source struct {
 		Defs map[string]map[string]any `json:"$defs"`
@@ -143,7 +143,7 @@ func renderOpenAPI(schema, spec []byte) ([]byte, error) {
 		}
 		return nil
 	}
-	for _, root := range []string{"AgentConfigAppCapabilitySource", "AgentConfigToolSource"} {
+	for _, root := range []string{"AgentConfigIntegrationCapabilitySource", "AgentConfigToolSource"} {
 		if err := add(root); err != nil {
 			return nil, err
 		}

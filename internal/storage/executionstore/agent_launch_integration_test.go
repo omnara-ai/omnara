@@ -16,9 +16,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -360,13 +360,13 @@ func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 		"invalid initial content": func(input *executionstore.LaunchAgentInput) {
 			input.InitialInput = &executionstore.LaunchInitialInput{ContentBlocks: json.RawMessage(`{}`)}
 		},
-		"missing origin app": func(input *executionstore.LaunchAgentInput) {
+		"missing origin integration": func(input *executionstore.LaunchAgentInput) {
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"losing input"}]`),
 				SemanticEventKey: "losing-event",
 				Origin: &executionstore.LaunchInputOrigin{
-					AppID:   testID("missing-concurrent-retry-app"),
-					Address: appstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
+					IntegrationID: testID("missing-concurrent-retry-integration"),
+					Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
 				},
 			}
 		},

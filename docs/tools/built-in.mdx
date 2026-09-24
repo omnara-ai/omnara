@@ -1,10 +1,10 @@
 ---
 title: Built-in tools
-description: Use built-in tools for web search, commands, machines, apps, and more
+description: Use built-in tools for web search, commands, machines, integrations, and more
 icon: "toolbox"
 ---
 
-Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. App tools use names such as `app__engineering__post_message` and the credentials of that project [app](/integrations/apps). Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
+Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. Integration tools use names such as `int__engineering__post_message` and the credentials of that project [integration](/integrations/overview). Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
 
 This page explains what each tool does and the inputs it accepts. To retrieve the current catalog programmatically, use [`GET /tool-catalog`](/tools/permissions#check-available-tools).
 
@@ -18,7 +18,7 @@ The tools are grouped by what they do:
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
 | Files | `upload_file`, `download_file`, `read_file`, `search_files` |
-| Apps | App-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
+| Integrations | Integration-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
 | Skills | `skill` |
 | Tool loading | `tool_search` |
 
@@ -167,7 +167,7 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 `path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. App-contributed tools are compiled with the config too.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Integration-contributed tools are compiled with the config too.
 
 ### `upload_file`
 
@@ -175,7 +175,7 @@ Use `upload_file` to copy a file from an attached machine into Omnara's virtual 
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver an artifact through an app, use a tool that supports attachments. The artifact ID is the final component of its `/artifacts/<artifact_id>` path; the app tool’s schema describes how to supply it.
+On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver an artifact through an integration, use a tool that supports attachments. The artifact ID is the final component of its `/artifacts/<artifact_id>` path; the integration tool’s schema describes how to supply it.
 
 ### `download_file`
 
@@ -227,21 +227,21 @@ Explicitly disabling both retrieval tools does not disable overflow handling. Th
 
 Existing media references remain inline so their attachments remain available to the model and clients. Consequently, 50 KiB is an overflow threshold, not a hard limit on the rewritten result: many retained media references can still exceed it. Media-only results are not offloaded.
 
-## App tools
+## Integration tools
 
-Select [app tools](/integrations/apps) by qualified name, such as
-`app__engineering__post_message`. An app owns its credentials and defines its
+Select [integration tools](/integrations/overview) by qualified name, such as
+`int__engineering__post_message`. An integration owns its credentials and defines its
 tools' argument schemas and conversation requirements. See its guide and catalog
 for available operations, arguments and pagination. Tool declarations have no
-hidden `config`. Credential access, live app state and ordinary permission govern
+hidden `config`. Credential access, live integration state and ordinary permission govern
 execution. Ordinary model output remains in Omnara.
 
 Subscriptions control incoming forwarding independently of enabled tools. Manage
-them from the app's [Conversations list or subscriptions API](/integrations/apps#stop-forwarding).
+them from the integration's [Conversations list or subscriptions API](/integrations/overview#stop-forwarding).
 
 ### `list_interaction_handlers` / `set_interaction_handler`
 
-Select these tools explicitly under `tools`, or use an app launcher that supplies
+Select these tools explicitly under `tools`, or use an integration launcher that supplies
 an interaction handler and adds them, preserving explicit tool settings. They
 are not global defaults.
 `list_interaction_handlers` accepts `cursor` and `limit`, returning handler keys,
@@ -250,7 +250,7 @@ independently of pagination. No configured handlers means an empty list.
 
 `set_interaction_handler` takes a `handler` key and the complete destination
 described by that handler's schema in `args`. Use `{"handler":null,"args":{}}` for
-dashboard only. Handler selection is independent of the app's sending context. The choice
+dashboard only. Handler selection is independent of the integration's sending context. The choice
 persists for future questions and approvals; existing prompts keep their captured
 destination. A new provider input can select its matching handler automatically.
 

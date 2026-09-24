@@ -18,15 +18,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps"
-	"github.com/omnara-ai/omnara/internal/apps/discord"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
@@ -40,7 +40,7 @@ type capturedHTTPFixture struct {
 	handler        http.Handler
 	project        publicHTTPProject
 	pool           *pgxpool.Pool
-	app            appstore.ProjectAppRecord
+	integration    integrationstore.ProjectIntegrationRecord
 	callbackStatus int
 	signingSecret  string
 	record         executionstore.AgentInteractionRecord
@@ -150,7 +150,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	client := &http.Client{Transport: capturedTestTransport{base: server.Client().Transport, target: target}}
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool,
-		WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}), WithAppHTTPClient(client))
+		WithSlackOAuth(SlackOAuthConfig{HTTPClient: client}), WithIntegrationHTTPClient(client))
 	project := bootstrapPublicHTTPProject(t, handler, "captured-"+provider+"-"+kind)
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -177,19 +177,34 @@ func newCapturedHTTPFixtureWithDismiss(
 		Actor:          httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	appTypes := appdefinition.AppTypesForProvider(provider)
-	require.Len(t, appTypes, 1)
-	appType := appdefinition.Type(appTypes[0])
-	app, err := project.Store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
-		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", AppType: appType,
-	})
+	integrationTypes := integrationdefinition.IntegrationTypesForProvider(provider)
+	require.Len(t, integrationTypes, 1)
+	integrationType := integrationdefinition.Type(integrationTypes[0])
+	integration, err := project.Store.Integrations().CreateProjectIntegration(
+		ctx,
+		integrationstore.SaveProjectIntegrationInput{
+			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationType: integrationType,
+		},
+	)
 	require.NoError(t, err)
-	app, err = project.Store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
-		OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
-		InstalledByUserID: project.AdminUserUUID, Provider: provider, ProviderTenantID: tenant, ProviderAccountRef: account,
-		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
-		ProviderConfig: config, ProviderIdentity: identity,
-	})
+	integration, err = project.Store.Integrations().ConfigureProjectIntegration(
+		ctx,
+		integrationstore.ConfigureProjectIntegrationInput{
+			OrgID:                 project.OrgUUID,
+			ProjectID:             project.ProjectUUID,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
+			InstalledByUserID:     project.AdminUserUUID,
+			Provider:              provider,
+			ProviderTenantID:      tenant,
+			ProviderAccountRef:    account,
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   secret.CurrentVersionID,
+			OAuthFlowID:           uuid.Must(uuid.NewV7()),
+			ProviderConfig:        config,
+			ProviderIdentity:      identity,
+		},
+	)
 	require.NoError(t, err)
 	source := map[string]any{
 		"instruction":          "Help with the request.",
@@ -206,7 +221,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		project,
 		"captured",
 		"json",
-		projectAppHTTPJSON(t, source),
+		projectIntegrationHTTPJSON(t, source),
 		project.AdminToken,
 		201,
 	)
@@ -226,7 +241,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents",
-		projectAppHTTPJSON(
+		projectIntegrationHTTPJSON(
 			t,
 			map[string]any{"profile": profile["id"], "config": configID},
 		),
@@ -239,14 +254,14 @@ func newCapturedHTTPFixtureWithDismiss(
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	address := appstore.ConversationAddress{Kind: "channel", Ref: ref}
-	require.NoError(t, appstore.LockAppsTx(ctx, tx, project.ProjectUUID, nil, app.ID))
-	require.NoError(t, appstore.LockConversationTx(ctx, tx, project.ProjectUUID, app.ID, address))
+	address := integrationstore.ConversationAddress{Kind: "channel", Ref: ref}
+	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, project.ProjectUUID, nil, integration.ID))
+	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, integration.ID, address))
 	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agentUUID)
 	require.NoError(t, err)
-	origin, err := project.Store.Apps().
-		EnsureConversationTargetTx(ctx, tx, appstore.EnsureConversationTargetInput{
-			ProjectID: project.ProjectUUID, AgentID: agentUUID, AppID: app.ID,
+	origin, err := project.Store.Integrations().
+		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: project.ProjectUUID, AgentID: agentUUID, IntegrationID: integration.ID,
 			Address: address,
 		})
 	require.NoError(t, err)
@@ -260,7 +275,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentID+"/inputs",
-		projectAppHTTPJSON(t, map[string]any{
+		projectIntegrationHTTPJSON(t, map[string]any{
 			"content_blocks": []any{map[string]any{"type": "text", "text": "Please respond"}},
 		}),
 		"input",
@@ -275,7 +290,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		}
 		selectionCalls = append(selectionCalls, model.ToolCall{
 			ID: "call_select_handler", Name: toolcatalog.ToolNameSetInteractionHandler,
-			Input: json.RawMessage(projectAppHTTPJSON(t, map[string]any{"handler": "support", "args": args})),
+			Input: json.RawMessage(projectIntegrationHTTPJSON(t, map[string]any{"handler": "support", "args": args})),
 		})
 	}
 	record := createInteractionForAgent(
@@ -288,7 +303,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		kind,
 		selectionCalls...,
 	)
-	presenter := apps.InteractionPresenter{Store: project.Store, HTTPClient: client}
+	presenter := integrationruntime.InteractionPresenter{Store: project.Store, HTTPClient: client}
 	if !opts.prepareOnly {
 		require.NoError(t, presenter.Present(ctx, project.ProjectUUID, record.AgentID, record.ID))
 	}
@@ -300,7 +315,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		require.NotEmpty(t, record.PresentationReceipt)
 	}
 	return capturedHTTPFixture{
-		handler: handler, project: project, pool: pool, app: app,
+		handler: handler, project: project, pool: pool, integration: integration,
 		record: record, key: key, client: client, dismissed: dismissed, prompts: prompts,
 	}
 }
@@ -346,11 +361,11 @@ func (f capturedHTTPFixture) discordRequest(
 	for _, change := range changes {
 		change(payload)
 	}
-	body := projectAppHTTPJSON(t, payload)
+	body := projectIntegrationHTTPJSON(t, payload)
 	timestamp := fmt.Sprint(time.Now().Unix())
 	headers := map[string]string{"Content-Type": "application/json", "X-Signature-Timestamp": timestamp,
 		"X-Signature-Ed25519": hex.EncodeToString(ed25519.Sign(f.key, []byte(timestamp+body)))}
-	path := "/api/integrations/discord/" + f.app.ProviderTenantID + "/interactions"
+	path := "/api/integrations/discord/" + f.integration.ProviderTenantID + "/interactions"
 	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	for name, value := range headers {
 		request.Header.Set(name, value)
@@ -378,12 +393,12 @@ func (f capturedHTTPFixture) slackRequest(
 	destination, err := f.record.CapturedDestination()
 	require.NoError(t, err)
 	body := slackActionFormBody(t, slackActionPayloadInput{
-		Install:       f.app,
-		AgentID:       f.record.AgentID,
-		AppTargetID:   destination.AppTargetID,
-		InteractionID: f.record.ID,
-		UserID:        "U_OTHER",
-		OptionValue:   "0",
+		Install:             f.integration,
+		AgentID:             f.record.AgentID,
+		IntegrationTargetID: destination.IntegrationTargetID,
+		InteractionID:       f.record.ID,
+		UserID:              "U_OTHER",
+		OptionValue:         "0",
 	})
 	values, err := url.ParseQuery(body)
 	require.NoError(t, err)
@@ -398,7 +413,7 @@ func (f capturedHTTPFixture) slackRequest(
 	for _, change := range changes {
 		change(payload)
 	}
-	values.Set("payload", projectAppHTTPJSON(t, payload))
+	values.Set("payload", projectIntegrationHTTPJSON(t, payload))
 	body = values.Encode()
 	secret := f.signingSecret
 	if secret == "" {
@@ -410,7 +425,7 @@ func (f capturedHTTPFixture) slackRequest(
 	if status == 0 {
 		status = http.StatusOK
 	}
-	return requestJSONWithHeaders(t, f.handler, http.MethodPost, appActionsPath, body, "", status, headers)
+	return requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationActionsPath, body, "", status, headers)
 }
 
 func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
@@ -432,12 +447,12 @@ func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
 	for range 2 {
 		require.Equal(t, "ignored", f.slackRequest(t, false, selection)["ok"])
 	}
-	capturedSiblingApp(t, f)
+	capturedSiblingIntegration(t, f)
 	forged := f
 	forged.signingSecret, forged.callbackStatus = "sibling-signing-secret", http.StatusUnauthorized
 	forged.slackRequest(t, false, selection)
 	current, found, err := f.project.Store.Execution().
-		GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+		GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
@@ -456,7 +471,7 @@ func TestCapturedSlackSelectionWaitsForSubmit(t *testing.T) {
 	require.Equal(t, "resolved", response["ok"])
 	require.Equal(t, "Denied: run_command", response["text"])
 	current, found, err = f.project.Store.Execution().
-		GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+		GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentInteractionStateResolved, current.State)
@@ -509,7 +524,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 				_, err = f.pool.Exec(
 					t.Context(),
-					"UPDATE agents SET app_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",
+					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",
 					f.record.AgentID,
 				)
 				require.NoError(t, err)
@@ -554,7 +569,7 @@ func assertCapturedPermissionPrompt(t *testing.T, f capturedHTTPFixture) {
 	require.True(t, form.Questions[0].Options[toolpermission.DenyOptionIndex].AllowsText)
 	require.Len(t, f.prompts, 1)
 	prompt := <-f.prompts
-	if f.app.Provider == "slack" {
+	if f.integration.Provider == "slack" {
 		blocks := testutil.RequireType[[]any](t, prompt["blocks"])
 		require.Len(t, blocks, 3, "heading, choices and Submit; no permission textbox")
 		choices := testutil.RequireType[map[string]any](t, blocks[1])
@@ -563,7 +578,7 @@ func assertCapturedPermissionPrompt(t *testing.T, f capturedHTTPFixture) {
 		require.JSONEq(t, `[
 			{"text":{"type":"plain_text","text":"Allow"},"value":"0"},
 			{"text":{"type":"plain_text","text":"Deny"},"value":"1"}
-		]`, projectAppHTTPJSON(t, element["options"]))
+		]`, projectIntegrationHTTPJSON(t, element["options"]))
 		actions := testutil.RequireType[map[string]any](t, blocks[2])
 		buttons := testutil.RequireType[[]any](t, actions["elements"])
 		require.Len(t, buttons, 1)
@@ -573,7 +588,7 @@ func assertCapturedPermissionPrompt(t *testing.T, f capturedHTTPFixture) {
 		return
 	}
 	var rows []discord.ActionRow
-	require.NoError(t, json.Unmarshal([]byte(projectAppHTTPJSON(t, prompt["components"])), &rows))
+	require.NoError(t, json.Unmarshal([]byte(projectIntegrationHTTPJSON(t, prompt["components"])), &rows))
 	require.Len(t, rows, 1)
 	require.Len(t, rows[0].Components, 2)
 	require.NotContains(t, prompt["content"], "optional text")
@@ -604,10 +619,10 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
 		t.Run(provider, func(t *testing.T) {
 			f := newCapturedHTTPFixture(t, provider, "question")
-			_, err := f.project.Store.Apps().DisconnectProjectApp(
-				t.Context(), appstore.DisconnectProjectAppInput{
-					ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
-					ExpectedSetupRevision: &f.app.SetupRevision,
+			_, err := f.project.Store.Integrations().DisconnectProjectIntegration(
+				t.Context(), integrationstore.DisconnectProjectIntegrationInput{
+					ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
+					ExpectedSetupRevision: &f.integration.SetupRevision,
 				},
 			)
 			require.NoError(t, err)
@@ -642,15 +657,15 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 	}
 }
 
-func TestSlackActionsResolveQuestionAsAppActor(t *testing.T) {
+func TestSlackActionsResolveQuestionAsIntegrationActor(t *testing.T) {
 	t.Parallel()
 	f := newCapturedHTTPFixture(t, "slack", "question")
 	_, err := f.pool.Exec(t.Context(), `
 INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
-VALUES ($1, 'app', $2, 'U_OTHER', 'Grace Hopper', now(), now())
+VALUES ($1, 'integration', $2, 'U_OTHER', 'Grace Hopper', now(), now())
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id)
 DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at`,
-		f.project.ProjectUUID, testPublicID(t, publicid.KindProjectApp, f.app.ID))
+		f.project.ProjectUUID, testPublicID(t, publicid.KindProjectIntegration, f.integration.ID))
 	require.NoError(t, err)
 	require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
 	actorID, inputKind := interactionResolvingInput(
@@ -664,10 +679,15 @@ DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.update
 	require.Equal(t, "interaction_response", inputKind)
 	actor, err := f.project.Store.Execution().GetActor(t.Context(), f.project.ProjectUUID, actorID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
+	require.Equal(t, executionstore.ActorProviderIntegration, actor.Provider)
 	require.Equal(t, "U_OTHER", actor.ProviderUserID)
-	names, err := f.project.Store.Execution().ListActorDisplayNames(t.Context(), f.project.ProjectUUID,
-		executionstore.ActorProviderApp, testPublicID(t, publicid.KindProjectApp, f.app.ID), []string{"U_OTHER"})
+	names, err := f.project.Store.Execution().ListActorDisplayNames(
+		t.Context(),
+		f.project.ProjectUUID,
+		executionstore.ActorProviderIntegration,
+		testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
+		[]string{"U_OTHER"},
+	)
 	require.NoError(t, err)
 	require.Equal(t, "Grace Hopper", names["U_OTHER"], "retain the stored name over the signed payload name")
 }
@@ -698,7 +718,7 @@ func TestCapturedSlackRootPromptRemainsValidAfterThreadReply(t *testing.T) {
 	require.Equal(t, "resolved", root["ok"])
 }
 
-func TestSlackActionsResolvePermissionAsAppActor(t *testing.T) {
+func TestSlackActionsResolvePermissionAsIntegrationActor(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
 	var once sync.Once
@@ -743,7 +763,7 @@ func TestSlackActionsResolvePermissionAsAppActor(t *testing.T) {
 	)
 	actor, err := f.project.Store.Execution().GetActor(t.Context(), f.project.ProjectUUID, actorID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.ActorProviderApp, actor.Provider)
+	require.Equal(t, executionstore.ActorProviderIntegration, actor.Provider)
 	require.Equal(t, "U_OTHER", actor.ProviderUserID)
 	select {
 	case update := <-updates:
@@ -758,7 +778,7 @@ func TestSlackActionsResolvePermissionAsAppActor(t *testing.T) {
 
 func TestCapturedDiscordEndpointVerifiesPingSignatureAndApplication(t *testing.T) {
 	f := newCapturedHTTPFixture(t, "discord", "question")
-	path := "/api/integrations/discord/" + f.app.ProviderTenantID + "/interactions"
+	path := "/api/integrations/discord/" + f.integration.ProviderTenantID + "/interactions"
 	for _, test := range []struct {
 		name, application string
 		badSignature      bool
@@ -813,18 +833,18 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.NotNil(t, destination)
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				require.Equal(t, map[string]any{
-					"app_type":      string(f.app.AppType),
-					"args":          map[string]any{"channel_id": destination.Address.Ref},
-					"handler_key":   "support",
-					"app_id":        testPublicID(t, publicid.KindProjectApp, f.app.ID),
-					"app_target_id": testPublicID(t, publicid.KindAppTarget, destination.AppTargetID),
-					"address":       map[string]any{"kind": destination.Address.Kind, "ref": destination.Address.Ref},
+					"integration_type":      string(f.integration.IntegrationType),
+					"args":                  map[string]any{"channel_id": destination.Address.Ref},
+					"handler_key":           "support",
+					"integration_id":        testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
+					"integration_target_id": testPublicID(t, publicid.KindIntegrationTarget, destination.IntegrationTargetID),
+					"address":               map[string]any{"kind": destination.Address.Kind, "ref": destination.Address.Ref},
 				}, captured)
 				var receipt map[string]any
 				require.NoError(t, json.Unmarshal(f.record.PresentationReceipt, &receipt))
 				require.Equal(t, receipt, listed["presentation_receipt"])
-				require.NotContains(t, projectAppHTTPJSON(t, listed), f.app.ID.String())
-				require.NotContains(t, projectAppHTTPJSON(t, listed), destination.AppTargetID.String())
+				require.NotContains(t, projectIntegrationHTTPJSON(t, listed), f.integration.ID.String())
+				require.NotContains(t, projectIntegrationHTTPJSON(t, listed), destination.IntegrationTargetID.String())
 				headers := apiHeaders
 				if surface == "dashboard" {
 					headers = browserHeaders
@@ -834,7 +854,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 					`{"answers":[{"option_indices":[1],"text":"Please wait"}]}`, "", http.StatusOK, headers)
 				require.Equal(t, "resolved", resolved["state"])
 				require.JSONEq(t, `{"answers":[{"option_indices":[1],"text":"Please wait"}]}`,
-					projectAppHTTPJSON(t, resolved["resolution"]))
+					projectIntegrationHTTPJSON(t, resolved["resolution"]))
 				require.Equal(t, captured, resolved["destination"])
 				require.Equal(t, receipt, resolved["presentation_receipt"])
 				require.Equal(t, resolved, read(apiHeaders))
@@ -846,35 +866,55 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 	}
 }
 
-func capturedSiblingApp(t *testing.T, f capturedHTTPFixture) (appstore.ProjectAppRecord, ed25519.PrivateKey) {
+func capturedSiblingIntegration(
+	t *testing.T,
+	f capturedHTTPFixture,
+) (integrationstore.ProjectIntegrationRecord, ed25519.PrivateKey) {
 	t.Helper()
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	config := json.RawMessage(`{"public_key":"` + hex.EncodeToString(publicKey) + `"}`)
 	material := secrets.Material(secrets.GenericMaterial{Value: "sibling-token"})
-	if f.app.Provider == "slack" {
+	if f.integration.Provider == "slack" {
 		material = secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-sibling", ClientID: "client",
 			ClientSecret: "client-secret", SigningSecret: "sibling-signing-secret"}
 		config = json.RawMessage(`{}`)
 	}
 	secret, _, err := f.project.Store.Secrets().CreateSecret(t.Context(), secretstore.CreateSecretInput{
-		OrgID: f.app.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: f.app.ProjectID,
+		OrgID: f.integration.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: f.integration.ProjectID,
 		Name: "sibling", Material: material, Actor: httpUserPrincipal(f.project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	app, err := f.project.Store.Apps().CreateProjectApp(t.Context(), appstore.SaveProjectAppInput{
-		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, Name: "sibling", AppType: f.app.AppType,
-	})
+	integration, err := f.project.Store.Integrations().CreateProjectIntegration(
+		t.Context(),
+		integrationstore.SaveProjectIntegrationInput{
+			OrgID:           f.integration.OrgID,
+			ProjectID:       f.integration.ProjectID,
+			Name:            "sibling",
+			IntegrationType: f.integration.IntegrationType,
+		},
+	)
 	require.NoError(t, err)
-	app, err = f.project.Store.Apps().ConfigureProjectApp(t.Context(), appstore.ConfigureProjectAppInput{
-		OrgID: f.app.OrgID, ProjectID: f.app.ProjectID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
-		InstalledByUserID: f.project.AdminUserUUID, Provider: f.app.Provider,
-		ProviderTenantID: f.app.ProviderTenantID, ProviderAccountRef: f.app.ProviderAccountRef,
-		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID, OAuthFlowID: uuid.Must(uuid.NewV7()),
-		ProviderConfig: config, ProviderIdentity: f.app.ProviderIdentity,
-	})
+	integration, err = f.project.Store.Integrations().ConfigureProjectIntegration(
+		t.Context(),
+		integrationstore.ConfigureProjectIntegrationInput{
+			OrgID:                 f.integration.OrgID,
+			ProjectID:             f.integration.ProjectID,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
+			InstalledByUserID:     f.project.AdminUserUUID,
+			Provider:              f.integration.Provider,
+			ProviderTenantID:      f.integration.ProviderTenantID,
+			ProviderAccountRef:    f.integration.ProviderAccountRef,
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   secret.CurrentVersionID,
+			OAuthFlowID:           uuid.Must(uuid.NewV7()),
+			ProviderConfig:        config,
+			ProviderIdentity:      f.integration.ProviderIdentity,
+		},
+	)
 	require.NoError(t, err)
-	return app, key
+	return integration, key
 }
 
 func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
@@ -883,7 +923,7 @@ func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
 		t.Run(provider, func(t *testing.T) {
 			t.Parallel()
 			f := newCapturedHTTPFixture(t, provider, "question")
-			sibling, key := capturedSiblingApp(t, f)
+			sibling, key := capturedSiblingIntegration(t, f)
 			forged := f
 			forged.key, forged.signingSecret, forged.callbackStatus = key, "sibling-signing-secret", http.StatusUnauthorized
 			if provider == "slack" {
@@ -892,7 +932,7 @@ func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
 				forged.discordRequest(t, "c0", false, false)
 			}
 			current, found, err := f.project.Store.Execution().
-				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+				GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
@@ -903,19 +943,22 @@ func TestCapturedCallbackUsesOwnerCredentialsWithSharedBot(t *testing.T) {
 			}
 			var targets int
 			require.NoError(t, f.pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM app_targets WHERE app_id=$1`, sibling.ID).Scan(&targets))
+				`SELECT count(*) FROM integration_targets WHERE integration_id=$1`, sibling.ID).Scan(&targets))
 			require.Zero(t, targets)
 		})
 	}
 }
 
-func TestCapturedDiscordPingAcceptsAnyActiveSharedApp(t *testing.T) {
+func TestCapturedDiscordPingAcceptsAnyActiveSharedIntegration(t *testing.T) {
 	t.Parallel()
 	f := newCapturedHTTPFixture(t, "discord", "question")
-	_, key := capturedSiblingApp(t, f)
-	_, err := f.project.Store.Apps().DisconnectProjectApp(t.Context(), appstore.DisconnectProjectAppInput{
-		ProjectID: f.app.ProjectID, AppID: f.app.ID,
-	})
+	_, key := capturedSiblingIntegration(t, f)
+	_, err := f.project.Store.Integrations().DisconnectProjectIntegration(
+		t.Context(),
+		integrationstore.DisconnectProjectIntegrationInput{
+			ProjectID: f.integration.ProjectID, IntegrationID: f.integration.ID,
+		},
+	)
 	require.NoError(t, err)
 	body := `{"id":"600","type":1,"application_id":"100"}`
 	for _, test := range []struct {
@@ -959,19 +1002,19 @@ func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
 					return false
 				},
 			})
-			p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+			p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 			var err error
 			if operation == "prompt" {
-				err = p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+				err = p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 			} else {
-				err = p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
+				err = p.PostRuntimeMessage(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
 			}
 			var providerErr *discord.APIError
 			require.ErrorAs(t, err, &providerErr)
 			require.Equal(t, discord.ScopeMismatch, providerErr.Code)
 			require.Zero(t, sends.Load(), "explicit guild must be checked before any provider send")
 			current, found, err := f.project.Store.Execution().
-				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+				GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
@@ -988,7 +1031,7 @@ func TestCapturedDiscordCallbackRequiresCapturedGuild(t *testing.T) {
 			response := f.discordRequest(t, action, false, false, func(body map[string]any) { body["guild_id"] = guild })
 			require.Equal(t, float64(4), response["type"], "wrong guild cannot resolve or open a modal")
 			current, _, err := f.project.Store.Execution().
-				GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+				GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 			require.NoError(t, err)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 		}
@@ -1026,29 +1069,29 @@ func TestCapturedSlackRotatedTokenIdentityBeforeProviderIO(t *testing.T) {
 					},
 				})
 				_, _, err := f.project.Store.Secrets().CreateSecretVersion(t.Context(), secretstore.CreateSecretVersionInput{
-					OrgID: f.app.OrgID, SecretID: f.app.CredentialSecretID,
+					OrgID: f.integration.OrgID, SecretID: f.integration.CredentialSecretID,
 					Actor: httpUserPrincipal(f.project.AdminUserUUID),
 					Material: secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-rotated", ClientID: "client",
 						ClientSecret: "client-secret", SigningSecret: "signing-secret"},
 				})
 				require.NoError(t, err)
 				rotated.Store(true)
-				p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+				p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 				switch operation {
 				case "prompt":
-					err = p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+					err = p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 				case "dismiss":
 					_, err = f.project.Store.Execution().CancelAgent(t.Context(), executionstore.CancelAgentInput{
-						ProjectID: f.app.ProjectID, AgentID: f.record.AgentID,
+						ProjectID: f.integration.ProjectID, AgentID: f.record.AgentID,
 					})
 					require.NoError(t, err)
 					closed, found, readErr := f.project.Store.Execution().
-						GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+						GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 					require.NoError(t, readErr)
 					require.True(t, found)
 					err = p.Dismiss(t.Context(), closed)
 				case "runtime":
-					err = p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
+					err = p.PostRuntimeMessage(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
 				}
 				if identity == "same" {
 					require.NoError(t, err)
@@ -1074,16 +1117,24 @@ func TestCapturedDiscordRuntimeMessageWithoutInteractionKey(t *testing.T) {
 			return false
 		},
 	})
-	_, err := f.pool.Exec(t.Context(), `UPDATE project_apps SET provider_config='{}' WHERE id=$1`, f.app.ID)
+	_, err := f.pool.Exec(
+		t.Context(),
+		`UPDATE project_integrations SET provider_config='{}' WHERE id=$1`,
+		f.integration.ID,
+	)
 	require.NoError(t, err)
-	p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
-	require.ErrorIs(t, p.Present(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID), storeerr.ErrUnauthorized)
+	p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+	require.ErrorIs(
+		t,
+		p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID),
+		storeerr.ErrUnauthorized,
+	)
 	require.Zero(t, requests.Load(), "a missing callback key must reject prompts before any provider request")
-	require.NoError(t, p.PostRuntimeMessage(t.Context(), f.app.ProjectID, f.record.AgentID,
-		f.runtimeLockID(t), apps.AgentRequestFailureMessage))
+	require.NoError(t, p.PostRuntimeMessage(t.Context(), f.integration.ProjectID, f.record.AgentID,
+		f.runtimeLockID(t), integrationruntime.AgentRequestFailureMessage))
 	require.EqualValues(t, 1, sends.Load(), "plain text needs bot authority, not a callback verification key")
 	payload := <-f.prompts
-	require.Equal(t, apps.AgentRequestFailureMessage, payload["content"])
+	require.Equal(t, integrationruntime.AgentRequestFailureMessage, payload["content"])
 	require.Empty(t, payload["components"])
 }
 
@@ -1109,18 +1160,22 @@ func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
 			return true
 		},
 	})
-	_, err := f.pool.Exec(t.Context(), `UPDATE project_apps SET provider_config='{}' WHERE id=$1`, f.app.ID)
+	_, err := f.pool.Exec(
+		t.Context(),
+		`UPDATE project_integrations SET provider_config='{}' WHERE id=$1`,
+		f.integration.ID,
+	)
 	require.NoError(t, err)
 	_, err = f.project.Store.Execution().CancelAgent(t.Context(), executionstore.CancelAgentInput{
-		ProjectID: f.app.ProjectID, AgentID: f.record.AgentID,
+		ProjectID: f.integration.ProjectID, AgentID: f.record.AgentID,
 	})
 	require.NoError(t, err)
 	closed, found, err := f.project.Store.Execution().
-		GetAgentInteraction(t.Context(), f.app.ProjectID, f.record.AgentID, f.record.ID)
+		GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, executionstore.AgentInteractionStateCanceled, closed.State)
-	p := apps.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+	p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
 	require.NoError(t, p.Dismiss(t.Context(), closed))
 	require.EqualValues(t, 1, dismissals.Load())
 }

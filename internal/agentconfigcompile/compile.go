@@ -41,12 +41,15 @@ func options(
 	base agentconfig.CompileOptions,
 ) agentconfig.CompileOptions {
 	opts := base
-	opts.ResolveAppName = func(name string) (agentconfig.AppResolution, error) {
-		app, err := store.Apps().GetProjectAppByName(ctx, projectID, name)
+	opts.ResolveIntegrationName = func(name string) (agentconfig.IntegrationResolution, error) {
+		integration, err := store.Integrations().GetProjectIntegrationByName(ctx, projectID, name)
 		if err != nil {
-			return agentconfig.AppResolution{}, err
+			return agentconfig.IntegrationResolution{}, err
 		}
-		return agentconfig.AppResolution{AppID: app.ID, AppType: app.AppType}, nil
+		return agentconfig.IntegrationResolution{
+			IntegrationID:   integration.ID,
+			IntegrationType: integration.IntegrationType,
+		}, nil
 	}
 	opts.ValidateSecretID = func(secretID uuid.UUID, expectedKind secrets.Kind) error {
 		return store.Secrets().ValidateProjectSecretReference(ctx, orgID, projectID, secretID, expectedKind)

@@ -144,34 +144,40 @@ const projectAgentsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
-const projectAppsRoute = createRoute({
+const projectIntegrationsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/apps',
-  component: lazyRouteComponent(() => import('@/routes/ProjectAppsPage'), 'ProjectAppsPage'),
-})
-
-const projectAppCatalogRoute = createRoute({
-  getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/apps/new',
+  path: '/projects/$projectId/integrations',
   component: lazyRouteComponent(
-    () => import('@/routes/CreateProjectAppPage'),
-    'CreateProjectAppPage',
+    () => import('@/routes/ProjectIntegrationsPage'),
+    'ProjectIntegrationsPage',
   ),
 })
 
-const createProjectAppRoute = createRoute({
+const projectIntegrationCatalogRoute = createRoute({
   getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/apps/new/$appType',
+  path: '/projects/$projectId/integrations/new',
   component: lazyRouteComponent(
-    () => import('@/routes/CreateProjectAppPage'),
-    'CreateProjectAppPage',
+    () => import('@/routes/CreateProjectIntegrationPage'),
+    'CreateProjectIntegrationPage',
   ),
 })
 
-const projectAppDetailRoute = createRoute({
+const createProjectIntegrationRoute = createRoute({
   getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/apps/$appId',
-  component: lazyRouteComponent(() => import('@/routes/ProjectAppPage'), 'ProjectAppPage'),
+  path: '/projects/$projectId/integrations/new/$integrationType',
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateProjectIntegrationPage'),
+    'CreateProjectIntegrationPage',
+  ),
+})
+
+const projectIntegrationDetailRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/$integrationId',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectIntegrationPage'),
+    'ProjectIntegrationPage',
+  ),
 })
 
 const projectGrantsRoute = createRoute({
@@ -327,10 +333,10 @@ const routeTree = rootRoute.addChildren([
       apiTokensRoute,
       projectRoute,
       projectAgentsRoute,
-      projectAppsRoute,
-      projectAppCatalogRoute,
-      createProjectAppRoute,
-      projectAppDetailRoute,
+      projectIntegrationsRoute,
+      projectIntegrationCatalogRoute,
+      createProjectIntegrationRoute,
+      projectIntegrationDetailRoute,
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,

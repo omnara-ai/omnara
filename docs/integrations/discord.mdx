@@ -4,17 +4,17 @@ description: Connect your bot and choose messaging tools, subscriptions and appr
 icon: "discord"
 ---
 
-Create an Omnara app named, for example, `support` with app type
+Create an Omnara integration named, for example, `support` with integration type
 `discord_thread`. It owns the Discord credentials and optional launcher. Select
 tools and the interaction handler in agent configs, and attach
-conversations with app-owned subscriptions; see [Apps](/integrations/apps).
+conversations with integration-owned subscriptions; see [Integrations](/integrations/overview).
 
 ## Connect your bot
 
 Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
 Record the Application ID, bot token and public key. Omnara retrieves the bot User ID
 and display name automatically from the token. Enable Message Content Intent. Omnara receives guild messages through Gateway; this
-app does not support DMs. Install the bot in your server with permission to read
+integration does not support DMs. Install the bot in your server with permission to read
 history, send messages, add reactions, create public threads and send in threads. Grant Attach
 Files if agents will upload files.
 
@@ -24,7 +24,7 @@ in your application's General Information page.
 
 Save the token as a project-available [generic secret](/organization/secrets),
 with `material: {"kind":"generic","value":"your-bot-token"}`. Configure the
-saved app through `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
+saved integration through `POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup`:
 
 ```json
 {
@@ -35,20 +35,20 @@ saved app through `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
 }
 ```
 
-Use the app's current `setup_revision`. `provider_tenant_id` is the Application
+Use the integration's current `setup_revision`. `provider_tenant_id` is the Application
 ID; neither it nor the bot User ID is the guild ID. Setup discovers and saves the
 bot User ID as `provider_account_ref`. If supplied explicitly, it must match the
 token. Reconnecting cannot change the saved application or bot. Omnara manages one Gateway connection
-per app. This supports bots in fewer than
+per integration. This supports bots in fewer than
 [2,500 servers](https://docs.discord.com/developers/events/gateway#sharding); larger bots
 require sharding, which is not currently supported. Omit `provider_config` during
 token rotation to keep the current settings. Supplying it replaces the settings, so include every field you intend to retain.
 The public key verifies callbacks; it is not the bot token.
 
-Each saved app has an independent runtime. Apps can use the same bot credentials,
+Each saved integration has an independent runtime. Integrations can use the same bot credentials,
 including in different projects, but duplicated sessions consume provider capacity.
 Overlapping launch behavior can create duplicate responses. Omnara does not merge
-these independently configured apps.
+these independently configured integrations.
 
 Omnara looks up the channel for each eligible incoming message before deciding
 whether an agent needs it. Unrelated traffic visible to the bot therefore uses
@@ -58,7 +58,7 @@ Identity checks and attachment downloads happen only after routing finds a recip
 
 ## Launch from mentions
 
-Choose **Profiles for mentions** in the app's settings. Mentions work in every
+Choose **Profiles for mentions** in the integration's settings. Mentions work in every
 server where this bot is installed and permitted; manage server and channel
 access in Discord. All of those servers use this Omnara project's profile choices.
 The API launcher contains `trigger: "mention"` and `slots`; omit `scope_kind`
@@ -86,11 +86,11 @@ An empty selection leaves schedules and existing conversations available.
 Choose a server text or announcement channel. The opening-message template is
 limited to 2,000 characters.
 
-Use **Add schedule** on the app page to post a template opening message and launch
+Use **Add schedule** on the integration page to post a template opening message and launch
 one profile in its new thread. Each schedule selects its own profile and destination
 channel, independently of mention settings. The tools, reply subscription and interaction handler
 are ready when the agent starts. Schedules can coexist with mention launches.
-See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
+See [scheduled integration launches](/integrations/overview#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
 
 ## Thread tools and subscriptions
@@ -103,8 +103,8 @@ fail before contacting Discord.
 
 The launcher subscribes the agent to replies. Posting does not change that
 subscription. To independently forward messages to an existing agent, send this
-body to the [app subscriptions API](/integrations/apps#subscribe-a-conversation).
-This does not assign or change the conversation used by the app's tools.
+body to the [integration subscriptions API](/integrations/overview#subscribe-a-conversation).
+This does not assign or change the conversation used by the integration's tools.
 
 ```json
 {
@@ -120,21 +120,21 @@ This does not assign or change the conversation used by the app's tools.
 
 The default event is `message`. Omit `thread_id` for a channel subscription;
 channel-root intake requires a bot mention. Removing the sending tool or changing
-config does not remove subscriptions. Use **Stop forwarding** on the app page or
-DELETE the subscription to remove it, including while the app is disconnected.
+config does not remove subscriptions. Use **Stop forwarding** on the integration page or
+DELETE the subscription to remove it, including while the integration is disconnected.
 
 ## Questions, approvals and profile menus
 
-Configure the app's public key, then set the Discord registration's
+Configure the integration's public key, then set the Discord registration's
 **Interactions Endpoint URL** to:
 
 ```text
 https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions
 ```
 
-Use the numeric Discord Application ID, not Omnara's `app_…` ID. One public
-endpoint can verify callbacks for independently configured apps. Each menu or
-agent interaction captures its owning app, so its answer is routed only there.
+Use the numeric Discord Application ID, not Omnara's `itg_…` ID. One public
+endpoint can verify callbacks for independently configured integrations. Each menu or
+agent interaction captures its owning integration, so its answer is routed only there.
 Require successful [signed PING verification](https://docs.discord.com/developers/interactions/receiving-and-responding)
 before offering profile menus or external approvals.
 
@@ -159,20 +159,20 @@ answerable in the [dashboard and API](/events/interactions) regardless of delive
 
 ## Restarts and deployments
 
-An app can retain its verified credentials while its Gateway connection is failing.
-The app detail page shows the latest connection error and earliest retry time for
+An integration can retain its verified credentials while its Gateway connection is failing.
+The integration detail page shows the latest connection error and earliest retry time for
 the current setup and credential version. **Refresh status** rereads the recorded
 failure; it does not start a retry. The failure remains until a new attempt starts.
-After correcting the Discord settings, reconnect the app to make it eligible for
+After correcting the Discord settings, reconnect the integration to make it eligible for
 a new attempt without waiting for the old retry time. A missing error does not
 prove the Gateway is connected. The list and setup responses do not include
-this runtime status; API clients read the optional `runtime_failure` from **Get app**.
+this runtime status; API clients read the optional `runtime_failure` from **Get integration**.
 
 A worker saves its Discord session and last committed event sequence in Postgres.
 The event receipt and sequence are saved together. When another worker takes over,
 it resumes that session and Discord can replay missed events; repeated message
 receipts are deduplicated. A database lease prevents two workers from committing
-for the same saved app. Normal shutdown releases that lease; after a
+for the same saved integration. Normal shutdown releases that lease; after a
 crash, a replacement waits for it to expire, normally within 30 seconds.
 
 Keep replacement workers healthy during routine deployments, and allow the old
@@ -183,7 +183,7 @@ restarting is not a guarantee that Discord retains every missed message.
 
 HTTP interactions use the API service separately. Keep a healthy API instance
 receiving requests while another drains. Routine rolling restarts differ from
-this release's [one-time migration maintenance window](/self-hosting/composable-apps-cutover).
+this release's [one-time migration maintenance window](/self-hosting/composable-integrations-cutover).
 
 Before a production rollout, use a dedicated test guild to check a mention,
 a plain reply in the resulting thread, and another reply after restarting the

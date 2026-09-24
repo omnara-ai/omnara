@@ -90,7 +90,7 @@ export type ProjectId = string;
 
 export type McpoAuthFlowId = string;
 
-export type AppOAuthFlowId = string;
+export type IntegrationOAuthFlowId = string;
 
 export type ActorId = string;
 
@@ -102,7 +102,7 @@ export type AgentProfileId = string;
 
 export type CronTriggerId = string;
 
-export type AppTargetId = string;
+export type IntegrationTargetId = string;
 
 export type AgentEventId = string;
 
@@ -824,7 +824,7 @@ export type McpoAuthStartResponse = {
     expires_at: Timestamp;
 };
 
-export type CreateAppOAuthSetupRequest = {
+export type CreateIntegrationOAuthSetupRequest = {
     client_id: string;
     client_secret: string;
     signing_secret: string;
@@ -832,30 +832,30 @@ export type CreateAppOAuthSetupRequest = {
 };
 
 /**
- * Registered app implementation; independent of the saved app's name and immutable ID.
+ * Registered integration implementation; independent of the saved integration's name and immutable ID.
  */
-export type AppType = 'slack_thread' | 'discord_thread' | 'github_pr';
+export type IntegrationType = 'slack_thread' | 'discord_thread' | 'github_pr';
 
 /**
  * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
  */
-export type AppProviderDisplayName = string;
+export type IntegrationProviderDisplayName = string;
 
 /**
- * Non-secret provider configuration, validated for the selected provider. Slack and GitHub apps require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord app. Credentials and app behavior are not accepted here.
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub integrations require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior are not accepted here.
  */
-export type AppProviderConfig = {
+export type IntegrationProviderConfig = {
     [key: string]: unknown;
 };
 
-export type AppOAuthSetup = {
-    app_id: ProjectAppId;
+export type IntegrationOAuthSetup = {
+    integration_id: ProjectIntegrationId;
     /**
-     * App setup revision captured by this authorization flow.
+     * Integration setup revision captured by this authorization flow.
      */
     setup_revision: number;
     provider: string;
-    flow_id: AppOAuthFlowId;
+    flow_id: IntegrationOAuthFlowId;
     oauth_url: string;
     redirect_uri: string;
     events_url: string;
@@ -866,7 +866,7 @@ export type AppOAuthSetup = {
 export type CreateGitHubSetupRequest = {
     expected_setup_revision: number;
     /**
-     * Initial GitHub App name suggestion. Defaults to the saved Omnara app name; GitHub may change it during registration.
+     * Initial GitHub App name suggestion. Defaults to the saved Omnara integration name; GitHub may change it during registration.
      */
     app_name?: string;
     /**
@@ -876,7 +876,7 @@ export type CreateGitHubSetupRequest = {
 };
 
 export type GitHubSetup = {
-    app_id: ProjectAppId;
+    integration_id: ProjectIntegrationId;
     setup_revision: number;
     registration_url: string;
     /**
@@ -928,13 +928,13 @@ export type SlackSetupIcon = {
 };
 
 export type SlackSetup = {
-    app_id: ProjectAppId;
+    integration_id: ProjectIntegrationId;
     /**
-     * App setup revision captured by this authorization flow.
+     * Integration setup revision captured by this authorization flow.
      */
     setup_revision: number;
     provider: string;
-    flow_id: AppOAuthFlowId;
+    flow_id: IntegrationOAuthFlowId;
     slack_app_id: string;
     oauth_url: string;
     redirect_uri: string;
@@ -997,7 +997,7 @@ export type ToolCatalogEntry = {
     name: string;
     description: string;
     /**
-     * Whether this tool supports implicit inclusion based on config resources or app context, even when explicitly configured.
+     * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
      */
     implicit?: boolean;
     default_permission: ToolPermissionSelection;
@@ -1244,7 +1244,7 @@ export type CompiledAgentConfig = {
     };
     event_webhook?: CompiledEventWebhook;
     interaction_handlers?: {
-        [key: string]: CompiledAppCapability;
+        [key: string]: CompiledIntegrationCapability;
     };
     skills?: Array<CompiledSkill>;
     subagents?: {
@@ -1294,7 +1294,7 @@ export type CompiledMachineSource = {
 };
 
 export type CompiledTool = {
-    app_id?: ProjectAppId;
+    integration_id?: ProjectIntegrationId;
     enabled: boolean;
     type?: 'built_in' | 'custom';
     permission: ToolPermissionSelection;
@@ -1305,8 +1305,8 @@ export type CompiledTool = {
     };
 };
 
-export type CompiledAppCapability = {
-    app_id: ProjectAppId;
+export type CompiledIntegrationCapability = {
+    integration_id: ProjectIntegrationId;
 };
 
 export type CompiledMcpServer = {
@@ -1470,11 +1470,11 @@ export type AgentProfileCronTriggerTarget = {
     agent_profile_id: AgentProfileId;
 };
 
-export type AppCronTriggerTarget = {
-    type: 'app';
-    app_id: ProjectAppId;
+export type IntegrationCronTriggerTarget = {
+    type: 'integration';
+    integration_id: ProjectIntegrationId;
     /**
-     * Settings validated by the target app's published schedule input schema. Each accepted occurrence retains its own copy. App resource references are resolved when the app handles the occurrence.
+     * Settings validated by the target integration's published schedule input schema. Each accepted occurrence retains its own copy. Integration resource references are resolved when the integration handles the occurrence.
      */
     settings: {
         [key: string]: unknown;
@@ -1486,8 +1486,8 @@ export type CronTriggerTarget = ({
 } & AgentCronTriggerTarget) | ({
     type: 'profile';
 } & AgentProfileCronTriggerTarget) | ({
-    type: 'app';
-} & AppCronTriggerTarget);
+    type: 'integration';
+} & IntegrationCronTriggerTarget);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -1500,7 +1500,7 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for app targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
 
@@ -1532,7 +1532,7 @@ export type CreateCronTriggerRequest = {
 
 export type UpdateCronTriggerRequest = {
     /**
-     * Updates target options. The target type and ID cannot change. App settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
+     * Updates target options. The target type and ID cannot change. Integration settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
      */
     target?: CronTriggerTarget;
     name?: ResourceName;
@@ -1543,7 +1543,7 @@ export type UpdateCronTriggerRequest = {
 };
 
 /**
- * State of the latest accepted scheduled app action. Completed means the app handled the occurrence; it does not indicate completion of any agent task that action started.
+ * State of the latest accepted scheduled integration action. Completed means the integration handled the occurrence; it does not indicate completion of any agent task that action started.
  */
 export type CronTriggerLastRunState = 'queued' | 'processing' | 'completed' | 'failed';
 
@@ -1568,7 +1568,7 @@ export type CronTrigger = {
     message_template?: CronMessageTemplate;
     enabled: boolean;
     /**
-     * When the trigger last fired, or null if it has never fired. For app targets this means durable inbox handoff.
+     * When the trigger last fired, or null if it has never fired. For integration targets this means durable inbox handoff.
      */
     last_fired_at: Timestamp | null;
     /**
@@ -1580,7 +1580,7 @@ export type CronTrigger = {
      */
     failure_report: CronTriggerFailureReport | null;
     /**
-     * Status of the latest accepted scheduled app launch, scoped to this project and app. Null for ordinary cron, before any launch is accepted, or when retained details have expired. Never falls back to an older launch. Schedule firing failures remain separate in failure_report. Deleting or disabling a schedule does not cancel launch work already accepted by the app.
+     * Status of the latest accepted scheduled integration launch, scoped to this project and integration. Null for ordinary cron, before any launch is accepted, or when retained details have expired. Never falls back to an older launch. Schedule firing failures remain separate in failure_report. Deleting or disabling a schedule does not cancel launch work already accepted by the integration.
      */
     last_run: CronTriggerLastRun | null;
     created_at: Timestamp;
@@ -1607,20 +1607,20 @@ export type CreateAgentRequest = {
      */
     message?: string;
     /**
-     * Additional app tool entries (app__<app-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+     * Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
      */
     tools?: {
         [key: string]: ConfigToolSource;
     };
     /**
-     * App-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
+     * Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
      */
-    subscriptions?: Array<AppSubscriptionAttachment>;
+    subscriptions?: Array<IntegrationSubscriptionAttachment>;
     /**
-     * Additional app interaction handlers, keyed by immutable app name with empty object values. Handler destination arguments are supplied at runtime. Existing entries win unchanged. Requires project management permission.
+     * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Handler destination arguments are supplied at runtime. Existing entries win unchanged. Requires project management permission.
      */
     interaction_handlers?: {
-        [key: string]: ConfigAppCapabilitySource;
+        [key: string]: ConfigIntegrationCapabilitySource;
     };
     initial_input?: AgentLaunchInitialInput;
 };
@@ -1643,7 +1643,7 @@ export type Agent = {
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     name: AgentName;
-    app_target?: AppTarget;
+    integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;
     /**
@@ -1679,7 +1679,7 @@ export type AgentModel = {
     name: ResourceName;
 };
 
-export type AppTarget = {
+export type IntegrationTarget = {
     provider: string;
     provider_ref: string;
     provider_ref_kind: string;
@@ -1956,9 +1956,9 @@ export type MachineMetadata = {
 };
 
 /**
- * A provider conversation address scoped to one app. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
+ * A provider conversation address scoped to one integration. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
  */
-export type AppConversationAddress = {
+export type IntegrationConversationAddress = {
     kind: string;
     ref: string;
 };
@@ -2466,20 +2466,20 @@ export type ResolveAgentInteractionRequest = {
 };
 
 /**
- * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current app and handler authority. Dashboard/API resolution remains available independently.
+ * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
  */
 export type AgentInteractionDestination = {
-    app_type: AppType;
+    integration_type: IntegrationType;
     handler_key: string;
-    app_id: ProjectAppId;
+    integration_id: ProjectIntegrationId;
     /**
-     * Complete provider destination arguments captured at selection, independent of app-agent sending context.
+     * Complete provider destination arguments captured at selection, independent of integration-agent sending context.
      */
     args: {
         [key: string]: unknown;
     };
-    app_target_id: AppTargetId;
-    address: AppConversationAddress;
+    integration_target_id: IntegrationTargetId;
+    address: IntegrationConversationAddress;
 };
 
 /**
@@ -2512,7 +2512,7 @@ export type AgentInteraction = {
     request: InteractionForm;
     resolution?: InteractionResolution;
     /**
-     * Captured built-in app destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+     * Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
      */
     destination?: AgentInteractionDestination;
     presentation_receipt?: InteractionPresentationReceipt;
@@ -2525,9 +2525,9 @@ export type AgentInteraction = {
 };
 
 /**
- * omnara for Omnara identities, app for hosted app senders, slack for historical Slack identities, or external for API-managed actors.
+ * omnara for Omnara identities, integration for hosted integration senders, slack for historical Slack identities, or external for API-managed actors.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'app' | 'external';
+export type ActorProvider = 'omnara' | 'slack' | 'integration' | 'external';
 
 export type Actor = {
     id: ActorId;
@@ -2535,7 +2535,7 @@ export type Actor = {
     project_id: ProjectId;
     provider: ActorProvider;
     /**
-     * Identity namespace. For app actors, the configured project app public ID; for historical Slack actors, the workspace ID. Retained for attribution after app deletion.
+     * Identity namespace. For integration actors, the configured project integration public ID; for historical Slack actors, the workspace ID. Retained for attribution after integration deletion.
      */
     provider_tenant_id?: string;
     /**
@@ -2549,7 +2549,7 @@ export type Actor = {
 };
 
 /**
- * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted apps own their own actor identities.
+ * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
  */
 export type ExternalActorParams = {
     provider_tenant_id?: string;
@@ -3667,15 +3667,15 @@ export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
 
-export type ProjectAppId = string;
+export type ProjectIntegrationId = string;
 
-export type AppLaunchSlot = unknown & {
+export type IntegrationLaunchSlot = unknown & {
     key: string;
     agent_profile_id?: AgentProfileId;
     agent_id?: AgentId;
 };
 
-export type AppLauncher = {
+export type IntegrationLauncher = {
     /**
      * Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
      */
@@ -3689,53 +3689,53 @@ export type AppLauncher = {
      */
     scope_ref?: string;
     /**
-     * App-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
+     * Integration-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
      */
-    slots: Array<AppLaunchSlot>;
+    slots: Array<IntegrationLaunchSlot>;
 };
 
-export type ProjectAppSettings = {
-    launcher?: AppLauncher;
+export type ProjectIntegrationSettings = {
+    launcher?: IntegrationLauncher;
 };
 
 /**
- * Creates a disconnected app, or updates its launcher settings. Name and app_type are immutable. Configure credentials through this app's setup endpoints.
+ * Creates a disconnected integration, or updates its launcher settings. Name and integration_type are immutable. Configure credentials through this integration's setup endpoints.
  */
-export type SaveProjectAppRequest = {
-    name: ProjectAppName;
-    app_type: AppType;
-    settings: ProjectAppSettings;
+export type SaveProjectIntegrationRequest = {
+    name: ProjectIntegrationName;
+    integration_type: IntegrationType;
+    settings: ProjectIntegrationSettings;
 };
 
-export type ProjectApp = {
-    id: ProjectAppId;
+export type ProjectIntegration = {
+    id: ProjectIntegrationId;
     project_id: ProjectId;
-    name: ProjectAppName;
-    app_type: AppType;
-    state: ProjectAppState;
+    name: ProjectIntegrationName;
+    integration_type: IntegrationType;
+    state: ProjectIntegrationState;
     /**
      * Credential and transport revision. Launcher edits leave this value unchanged.
      */
     setup_revision: number;
-    last_oauth_flow_id?: AppOAuthFlowId;
-    runtime_failure?: ProjectAppRuntimeFailure;
-    settings: ProjectAppSettings;
+    last_oauth_flow_id?: IntegrationOAuthFlowId;
+    runtime_failure?: ProjectIntegrationRuntimeFailure;
+    settings: ProjectIntegrationSettings;
     provider_tenant_id: string;
     provider_account_ref: string;
-    provider_agent_display_name: AppProviderDisplayName;
+    provider_agent_display_name: IntegrationProviderDisplayName;
     credential_secret_id?: SecretId;
-    provider_config: AppProviderConfig;
-    capabilities: AppCapabilities;
+    provider_config: IntegrationProviderConfig;
+    capabilities: IntegrationCapabilities;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
 
 /**
- * Most recent connection failure for the active app's current setup and credential version. Returned only by Get app, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+ * Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
  */
-export type ProjectAppRuntimeFailure = {
+export type ProjectIntegrationRuntimeFailure = {
     /**
-     * Connection failure recorded by the app runtime.
+     * Connection failure recorded by the integration runtime.
      */
     message: string;
     /**
@@ -3744,8 +3744,8 @@ export type ProjectAppRuntimeFailure = {
     retry_at: Timestamp;
 };
 
-export type ListProjectAppsResponse = {
-    data: Array<ProjectApp>;
+export type ListProjectIntegrationsResponse = {
+    data: Array<ProjectIntegration>;
     next_cursor: string | null;
 };
 
@@ -3759,7 +3759,7 @@ export type ConfigAgentToolInputSchema = {
     type: 'object';
 };
 
-export type ConfigAppCapabilitySource = {
+export type ConfigIntegrationCapabilitySource = {
     [key: string]: never;
 };
 
@@ -3780,16 +3780,16 @@ export type ConfigToolSource = {
 };
 
 /**
- * Immutable, project-unique app name used in config keys and qualified tool names.
+ * Immutable, project-unique integration name used in config keys and qualified tool names.
  */
-export type ProjectAppName = string;
+export type ProjectIntegrationName = string;
 
-export type ProjectAppState = 'active' | 'disconnected';
+export type ProjectIntegrationState = 'active' | 'disconnected';
 
 /**
- * Verifies credentials for this saved app. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ * Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
  */
-export type ConfigureProjectAppRequest = {
+export type ConfigureProjectIntegrationRequest = {
     expected_setup_revision: number;
     provider_tenant_id: string;
     /**
@@ -3799,70 +3799,70 @@ export type ConfigureProjectAppRequest = {
     /**
      * Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
      */
-    provider_agent_display_name?: AppProviderDisplayName;
+    provider_agent_display_name?: IntegrationProviderDisplayName;
     credential_secret_id: SecretId;
     /**
      * Omit to preserve current provider settings. A supplied object replaces them; include every setting you intend to retain.
      */
-    provider_config?: AppProviderConfig;
+    provider_config?: IntegrationProviderConfig;
 };
 
-export type AppCapabilityDefinition = {
+export type IntegrationCapabilityDefinition = {
     description?: string;
     /**
-     * Static argument schema for this operation or interaction handler. Shipped app tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Handler selection requires a complete destination independently of tool context.
+     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Handler selection requires a complete destination independently of tool context.
      */
     input_schema: {
         [key: string]: unknown;
     };
 };
 
-export type AppSubscriptionId = string;
+export type IntegrationSubscriptionId = string;
 
 /**
- * One concrete provider address, validated by the app subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ * One concrete provider address, validated by the integration subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
  */
-export type AppSubscriptionConversation = {
+export type IntegrationSubscriptionConversation = {
     [key: string]: unknown;
 };
 
-export type AppSubscriptionAttachment = {
-    app_id: ProjectAppId;
+export type IntegrationSubscriptionAttachment = {
+    integration_id: ProjectIntegrationId;
     /**
-     * Named subscription type exported by the app definition.
+     * Named subscription type exported by the integration definition.
      */
     type: string;
-    conversation: AppSubscriptionConversation;
+    conversation: IntegrationSubscriptionConversation;
     /**
-     * Event selection validated against the app definition. Omit to use its defaults.
+     * Event selection validated against the integration definition. Omit to use its defaults.
      */
     events?: Array<string>;
 };
 
-export type CreateAppSubscriptionRequest = {
+export type CreateIntegrationSubscriptionRequest = {
     agent_id: AgentId;
     /**
-     * Named subscription type exported by the app definition.
+     * Named subscription type exported by the integration definition.
      */
     type: string;
-    conversation: AppSubscriptionConversation;
+    conversation: IntegrationSubscriptionConversation;
     /**
-     * Event selection validated against the app definition. Omit to use its defaults.
+     * Event selection validated against the integration definition. Omit to use its defaults.
      */
     events?: Array<string>;
 };
 
-export type AppSubscription = {
-    id: AppSubscriptionId;
+export type IntegrationSubscription = {
+    id: IntegrationSubscriptionId;
     project_id: ProjectId;
-    app_id: ProjectAppId;
+    integration_id: ProjectIntegrationId;
     agent_id: AgentId;
     agent_name: AgentName;
     /**
-     * Named subscription type exported by the app definition.
+     * Named subscription type exported by the integration definition.
      */
     type: string;
-    conversation: AppSubscriptionConversation;
+    conversation: IntegrationSubscriptionConversation;
     /**
      * Resolved event selection for this subscription.
      */
@@ -3870,15 +3870,15 @@ export type AppSubscription = {
     created_at: Timestamp;
 };
 
-export type ListAppSubscriptionsResponse = {
-    data: Array<AppSubscription>;
+export type ListIntegrationSubscriptionsResponse = {
+    data: Array<IntegrationSubscription>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
     next_cursor: string | null;
 };
 
-export type AppSubscriptionDefinition = {
+export type IntegrationSubscriptionDefinition = {
     /**
      * Schema for one concrete provider conversation address.
      */
@@ -3891,24 +3891,24 @@ export type AppSubscriptionDefinition = {
     events: Array<string>;
 };
 
-export type AppCapabilities = {
+export type IntegrationCapabilities = {
     tools: {
-        [key: string]: AppCapabilityDefinition;
+        [key: string]: IntegrationCapabilityDefinition;
     };
     subscriptions: {
-        [key: string]: AppSubscriptionDefinition;
+        [key: string]: IntegrationSubscriptionDefinition;
     };
-    interaction_handler?: AppCapabilityDefinition;
-    schedule?: AppCapabilityDefinition;
+    interaction_handler?: IntegrationCapabilityDefinition;
+    schedule?: IntegrationCapabilityDefinition;
 };
 
-export type AppDefinition = {
-    app_type: AppType;
-    capabilities: AppCapabilities;
+export type IntegrationDefinition = {
+    integration_type: IntegrationType;
+    capabilities: IntegrationCapabilities;
 };
 
-export type ListAppDefinitionsResponse = {
-    data: Array<AppDefinition>;
+export type ListIntegrationDefinitionsResponse = {
+    data: Array<IntegrationDefinition>;
 };
 
 /**
@@ -8789,18 +8789,18 @@ export type UpdateAgentProfileResponses = {
 
 export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof UpdateAgentProfileResponses];
 
-export type CreateProjectAppOAuthSetupData = {
-    body: CreateAppOAuthSetupRequest;
+export type CreateProjectIntegrationOAuthSetupData = {
+    body: CreateIntegrationOAuthSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/oauth/setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup';
 };
 
-export type CreateProjectAppOAuthSetupErrors = {
+export type CreateProjectIntegrationOAuthSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8847,29 +8847,29 @@ export type CreateProjectAppOAuthSetupErrors = {
     };
 };
 
-export type CreateProjectAppOAuthSetupError = CreateProjectAppOAuthSetupErrors[keyof CreateProjectAppOAuthSetupErrors];
+export type CreateProjectIntegrationOAuthSetupError = CreateProjectIntegrationOAuthSetupErrors[keyof CreateProjectIntegrationOAuthSetupErrors];
 
-export type CreateProjectAppOAuthSetupResponses = {
+export type CreateProjectIntegrationOAuthSetupResponses = {
     /**
-     * App OAuth setup created.
+     * Integration OAuth setup created.
      */
-    201: AppOAuthSetup;
+    201: IntegrationOAuthSetup;
 };
 
-export type CreateProjectAppOAuthSetupResponse = CreateProjectAppOAuthSetupResponses[keyof CreateProjectAppOAuthSetupResponses];
+export type CreateProjectIntegrationOAuthSetupResponse = CreateProjectIntegrationOAuthSetupResponses[keyof CreateProjectIntegrationOAuthSetupResponses];
 
-export type CreateProjectAppSlackSetupData = {
+export type CreateProjectIntegrationSlackSetupData = {
     body: CreateSlackSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/slack-setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup';
 };
 
-export type CreateProjectAppSlackSetupErrors = {
+export type CreateProjectIntegrationSlackSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8916,29 +8916,29 @@ export type CreateProjectAppSlackSetupErrors = {
     };
 };
 
-export type CreateProjectAppSlackSetupError = CreateProjectAppSlackSetupErrors[keyof CreateProjectAppSlackSetupErrors];
+export type CreateProjectIntegrationSlackSetupError = CreateProjectIntegrationSlackSetupErrors[keyof CreateProjectIntegrationSlackSetupErrors];
 
-export type CreateProjectAppSlackSetupResponses = {
+export type CreateProjectIntegrationSlackSetupResponses = {
     /**
      * Slack app created and OAuth setup started.
      */
     201: SlackSetup;
 };
 
-export type CreateProjectAppSlackSetupResponse = CreateProjectAppSlackSetupResponses[keyof CreateProjectAppSlackSetupResponses];
+export type CreateProjectIntegrationSlackSetupResponse = CreateProjectIntegrationSlackSetupResponses[keyof CreateProjectIntegrationSlackSetupResponses];
 
-export type CreateProjectAppGitHubSetupData = {
+export type CreateProjectIntegrationGitHubSetupData = {
     body: CreateGitHubSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup';
 };
 
-export type CreateProjectAppGitHubSetupErrors = {
+export type CreateProjectIntegrationGitHubSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8985,29 +8985,29 @@ export type CreateProjectAppGitHubSetupErrors = {
     };
 };
 
-export type CreateProjectAppGitHubSetupError = CreateProjectAppGitHubSetupErrors[keyof CreateProjectAppGitHubSetupErrors];
+export type CreateProjectIntegrationGitHubSetupError = CreateProjectIntegrationGitHubSetupErrors[keyof CreateProjectIntegrationGitHubSetupErrors];
 
-export type CreateProjectAppGitHubSetupResponses = {
+export type CreateProjectIntegrationGitHubSetupResponses = {
     /**
      * GitHub setup information verified.
      */
     201: GitHubSetup;
 };
 
-export type CreateProjectAppGitHubSetupResponse = CreateProjectAppGitHubSetupResponses[keyof CreateProjectAppGitHubSetupResponses];
+export type CreateProjectIntegrationGitHubSetupResponse = CreateProjectIntegrationGitHubSetupResponses[keyof CreateProjectIntegrationGitHubSetupResponses];
 
-export type InspectProjectAppGitHubInstallationsData = {
+export type InspectProjectIntegrationGitHubInstallationsData = {
     body: InspectGitHubInstallationsRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup/installations';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations';
 };
 
-export type InspectProjectAppGitHubInstallationsErrors = {
+export type InspectProjectIntegrationGitHubInstallationsErrors = {
     /**
      * The request was invalid.
      */
@@ -9054,16 +9054,16 @@ export type InspectProjectAppGitHubInstallationsErrors = {
     };
 };
 
-export type InspectProjectAppGitHubInstallationsError = InspectProjectAppGitHubInstallationsErrors[keyof InspectProjectAppGitHubInstallationsErrors];
+export type InspectProjectIntegrationGitHubInstallationsError = InspectProjectIntegrationGitHubInstallationsErrors[keyof InspectProjectIntegrationGitHubInstallationsErrors];
 
-export type InspectProjectAppGitHubInstallationsResponses = {
+export type InspectProjectIntegrationGitHubInstallationsResponses = {
     /**
      * GitHub setup information verified.
      */
     200: GitHubInstallations;
 };
 
-export type InspectProjectAppGitHubInstallationsResponse = InspectProjectAppGitHubInstallationsResponses[keyof InspectProjectAppGitHubInstallationsResponses];
+export type InspectProjectIntegrationGitHubInstallationsResponse = InspectProjectIntegrationGitHubInstallationsResponses[keyof InspectProjectIntegrationGitHubInstallationsResponses];
 
 export type ListCronTriggersData = {
     body?: never;
@@ -9085,9 +9085,9 @@ export type ListCronTriggersData = {
          */
         agent_profile_id?: AgentProfileId;
         /**
-         * Only return scheduled launches for this app.
+         * Only return scheduled launches for this integration.
          */
-        app_id?: ProjectAppId;
+        integration_id?: ProjectIntegrationId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -14668,7 +14668,7 @@ export type DownloadDaemonArtifactResponses = {
 
 export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
 
-export type ListProjectAppsData = {
+export type ListProjectIntegrationsData = {
     body?: never;
     path: {
         orgID: OrganizationId;
@@ -14684,10 +14684,10 @@ export type ListProjectAppsData = {
          */
         cursor?: string;
     };
-    url: '/orgs/{orgID}/projects/{projectID}/apps';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations';
 };
 
-export type ListProjectAppsErrors = {
+export type ListProjectIntegrationsErrors = {
     /**
      * The request was invalid.
      */
@@ -14730,28 +14730,28 @@ export type ListProjectAppsErrors = {
     };
 };
 
-export type ListProjectAppsError = ListProjectAppsErrors[keyof ListProjectAppsErrors];
+export type ListProjectIntegrationsError = ListProjectIntegrationsErrors[keyof ListProjectIntegrationsErrors];
 
-export type ListProjectAppsResponses = {
+export type ListProjectIntegrationsResponses = {
     /**
-     * List project apps.
+     * List project integrations.
      */
-    200: ListProjectAppsResponse;
+    200: ListProjectIntegrationsResponse;
 };
 
-export type ListProjectAppsResponse2 = ListProjectAppsResponses[keyof ListProjectAppsResponses];
+export type ListProjectIntegrationsResponse2 = ListProjectIntegrationsResponses[keyof ListProjectIntegrationsResponses];
 
-export type CreateProjectAppData = {
-    body: SaveProjectAppRequest;
+export type CreateProjectIntegrationData = {
+    body: SaveProjectIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations';
 };
 
-export type CreateProjectAppErrors = {
+export type CreateProjectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -14794,29 +14794,29 @@ export type CreateProjectAppErrors = {
     };
 };
 
-export type CreateProjectAppError = CreateProjectAppErrors[keyof CreateProjectAppErrors];
+export type CreateProjectIntegrationError = CreateProjectIntegrationErrors[keyof CreateProjectIntegrationErrors];
 
-export type CreateProjectAppResponses = {
+export type CreateProjectIntegrationResponses = {
     /**
-     * Create an app and optional launcher.
+     * Create an integration and optional launcher.
      */
-    201: ProjectApp;
+    201: ProjectIntegration;
 };
 
-export type CreateProjectAppResponse = CreateProjectAppResponses[keyof CreateProjectAppResponses];
+export type CreateProjectIntegrationResponse = CreateProjectIntegrationResponses[keyof CreateProjectIntegrationResponses];
 
-export type DeleteProjectAppData = {
+export type DeleteProjectIntegrationData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
 };
 
-export type DeleteProjectAppErrors = {
+export type DeleteProjectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -14859,29 +14859,29 @@ export type DeleteProjectAppErrors = {
     };
 };
 
-export type DeleteProjectAppError = DeleteProjectAppErrors[keyof DeleteProjectAppErrors];
+export type DeleteProjectIntegrationError = DeleteProjectIntegrationErrors[keyof DeleteProjectIntegrationErrors];
 
-export type DeleteProjectAppResponses = {
+export type DeleteProjectIntegrationResponses = {
     /**
-     * Delete app setup and revoke its capabilities.
+     * Delete integration setup and revoke its capabilities.
      */
     204: void;
 };
 
-export type DeleteProjectAppResponse = DeleteProjectAppResponses[keyof DeleteProjectAppResponses];
+export type DeleteProjectIntegrationResponse = DeleteProjectIntegrationResponses[keyof DeleteProjectIntegrationResponses];
 
-export type GetProjectAppData = {
+export type GetProjectIntegrationData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
 };
 
-export type GetProjectAppErrors = {
+export type GetProjectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -14924,29 +14924,29 @@ export type GetProjectAppErrors = {
     };
 };
 
-export type GetProjectAppError = GetProjectAppErrors[keyof GetProjectAppErrors];
+export type GetProjectIntegrationError = GetProjectIntegrationErrors[keyof GetProjectIntegrationErrors];
 
-export type GetProjectAppResponses = {
+export type GetProjectIntegrationResponses = {
     /**
-     * Get project app.
+     * Get project integration.
      */
-    200: ProjectApp;
+    200: ProjectIntegration;
 };
 
-export type GetProjectAppResponse = GetProjectAppResponses[keyof GetProjectAppResponses];
+export type GetProjectIntegrationResponse = GetProjectIntegrationResponses[keyof GetProjectIntegrationResponses];
 
-export type UpdateProjectAppData = {
-    body: SaveProjectAppRequest;
+export type UpdateProjectIntegrationData = {
+    body: SaveProjectIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
 };
 
-export type UpdateProjectAppErrors = {
+export type UpdateProjectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -14989,23 +14989,23 @@ export type UpdateProjectAppErrors = {
     };
 };
 
-export type UpdateProjectAppError = UpdateProjectAppErrors[keyof UpdateProjectAppErrors];
+export type UpdateProjectIntegrationError = UpdateProjectIntegrationErrors[keyof UpdateProjectIntegrationErrors];
 
-export type UpdateProjectAppResponses = {
+export type UpdateProjectIntegrationResponses = {
     /**
-     * Update app launcher settings.
+     * Update integration launcher settings.
      */
-    200: ProjectApp;
+    200: ProjectIntegration;
 };
 
-export type UpdateProjectAppResponse = UpdateProjectAppResponses[keyof UpdateProjectAppResponses];
+export type UpdateProjectIntegrationResponse = UpdateProjectIntegrationResponses[keyof UpdateProjectIntegrationResponses];
 
-export type ListAppSubscriptionsData = {
+export type ListIntegrationSubscriptionsData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: {
         /**
@@ -15017,10 +15017,10 @@ export type ListAppSubscriptionsData = {
          */
         cursor?: string;
     };
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
 };
 
-export type ListAppSubscriptionsErrors = {
+export type ListIntegrationSubscriptionsErrors = {
     /**
      * The request was invalid.
      */
@@ -15063,29 +15063,29 @@ export type ListAppSubscriptionsErrors = {
     };
 };
 
-export type ListAppSubscriptionsError = ListAppSubscriptionsErrors[keyof ListAppSubscriptionsErrors];
+export type ListIntegrationSubscriptionsError = ListIntegrationSubscriptionsErrors[keyof ListIntegrationSubscriptionsErrors];
 
-export type ListAppSubscriptionsResponses = {
+export type ListIntegrationSubscriptionsResponses = {
     /**
-     * App conversation subscriptions.
+     * Integration conversation subscriptions.
      */
-    200: ListAppSubscriptionsResponse;
+    200: ListIntegrationSubscriptionsResponse;
 };
 
-export type ListAppSubscriptionsResponse2 = ListAppSubscriptionsResponses[keyof ListAppSubscriptionsResponses];
+export type ListIntegrationSubscriptionsResponse2 = ListIntegrationSubscriptionsResponses[keyof ListIntegrationSubscriptionsResponses];
 
-export type CreateAppSubscriptionData = {
-    body: CreateAppSubscriptionRequest;
+export type CreateIntegrationSubscriptionData = {
+    body: CreateIntegrationSubscriptionRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
 };
 
-export type CreateAppSubscriptionErrors = {
+export type CreateIntegrationSubscriptionErrors = {
     /**
      * The request was invalid.
      */
@@ -15128,30 +15128,30 @@ export type CreateAppSubscriptionErrors = {
     };
 };
 
-export type CreateAppSubscriptionError = CreateAppSubscriptionErrors[keyof CreateAppSubscriptionErrors];
+export type CreateIntegrationSubscriptionError = CreateIntegrationSubscriptionErrors[keyof CreateIntegrationSubscriptionErrors];
 
-export type CreateAppSubscriptionResponses = {
+export type CreateIntegrationSubscriptionResponses = {
     /**
      * Created or existing subscription.
      */
-    201: AppSubscription;
+    201: IntegrationSubscription;
 };
 
-export type CreateAppSubscriptionResponse = CreateAppSubscriptionResponses[keyof CreateAppSubscriptionResponses];
+export type CreateIntegrationSubscriptionResponse = CreateIntegrationSubscriptionResponses[keyof CreateIntegrationSubscriptionResponses];
 
-export type DeleteAppSubscriptionData = {
+export type DeleteIntegrationSubscriptionData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
-        subscriptionID: AppSubscriptionId;
+        integrationID: ProjectIntegrationId;
+        subscriptionID: IntegrationSubscriptionId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions/{subscriptionID}';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}';
 };
 
-export type DeleteAppSubscriptionErrors = {
+export type DeleteIntegrationSubscriptionErrors = {
     /**
      * The request was invalid.
      */
@@ -15194,29 +15194,29 @@ export type DeleteAppSubscriptionErrors = {
     };
 };
 
-export type DeleteAppSubscriptionError = DeleteAppSubscriptionErrors[keyof DeleteAppSubscriptionErrors];
+export type DeleteIntegrationSubscriptionError = DeleteIntegrationSubscriptionErrors[keyof DeleteIntegrationSubscriptionErrors];
 
-export type DeleteAppSubscriptionResponses = {
+export type DeleteIntegrationSubscriptionResponses = {
     /**
      * Subscription removed or already absent.
      */
     204: void;
 };
 
-export type DeleteAppSubscriptionResponse = DeleteAppSubscriptionResponses[keyof DeleteAppSubscriptionResponses];
+export type DeleteIntegrationSubscriptionResponse = DeleteIntegrationSubscriptionResponses[keyof DeleteIntegrationSubscriptionResponses];
 
-export type ConfigureProjectAppData = {
-    body: ConfigureProjectAppRequest;
+export type ConfigureProjectIntegrationData = {
+    body: ConfigureProjectIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup';
 };
 
-export type ConfigureProjectAppErrors = {
+export type ConfigureProjectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -15263,29 +15263,29 @@ export type ConfigureProjectAppErrors = {
     };
 };
 
-export type ConfigureProjectAppError = ConfigureProjectAppErrors[keyof ConfigureProjectAppErrors];
+export type ConfigureProjectIntegrationError = ConfigureProjectIntegrationErrors[keyof ConfigureProjectIntegrationErrors];
 
-export type ConfigureProjectAppResponses = {
+export type ConfigureProjectIntegrationResponses = {
     /**
-     * App setup.
+     * Integration setup.
      */
-    200: ProjectApp;
+    200: ProjectIntegration;
 };
 
-export type ConfigureProjectAppResponse = ConfigureProjectAppResponses[keyof ConfigureProjectAppResponses];
+export type ConfigureProjectIntegrationResponse = ConfigureProjectIntegrationResponses[keyof ConfigureProjectIntegrationResponses];
 
-export type DisconnectProjectAppData = {
+export type DisconnectProjectIntegrationData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        appID: ProjectAppId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/apps/{appID}/disconnect';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect';
 };
 
-export type DisconnectProjectAppErrors = {
+export type DisconnectProjectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -15332,28 +15332,28 @@ export type DisconnectProjectAppErrors = {
     };
 };
 
-export type DisconnectProjectAppError = DisconnectProjectAppErrors[keyof DisconnectProjectAppErrors];
+export type DisconnectProjectIntegrationError = DisconnectProjectIntegrationErrors[keyof DisconnectProjectIntegrationErrors];
 
-export type DisconnectProjectAppResponses = {
+export type DisconnectProjectIntegrationResponses = {
     /**
-     * App setup.
+     * Integration setup.
      */
-    200: ProjectApp;
+    200: ProjectIntegration;
 };
 
-export type DisconnectProjectAppResponse = DisconnectProjectAppResponses[keyof DisconnectProjectAppResponses];
+export type DisconnectProjectIntegrationResponse = DisconnectProjectIntegrationResponses[keyof DisconnectProjectIntegrationResponses];
 
-export type ListAppDefinitionsData = {
+export type ListIntegrationDefinitionsData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/app-definitions';
+    url: '/orgs/{orgID}/projects/{projectID}/integration-definitions';
 };
 
-export type ListAppDefinitionsErrors = {
+export type ListIntegrationDefinitionsErrors = {
     /**
      * The request was invalid.
      */
@@ -15400,13 +15400,13 @@ export type ListAppDefinitionsErrors = {
     };
 };
 
-export type ListAppDefinitionsError = ListAppDefinitionsErrors[keyof ListAppDefinitionsErrors];
+export type ListIntegrationDefinitionsError = ListIntegrationDefinitionsErrors[keyof ListIntegrationDefinitionsErrors];
 
-export type ListAppDefinitionsResponses = {
+export type ListIntegrationDefinitionsResponses = {
     /**
-     * The code-defined app catalog.
+     * The code-defined integration catalog.
      */
-    200: ListAppDefinitionsResponse;
+    200: ListIntegrationDefinitionsResponse;
 };
 
-export type ListAppDefinitionsResponse2 = ListAppDefinitionsResponses[keyof ListAppDefinitionsResponses];
+export type ListIntegrationDefinitionsResponse2 = ListIntegrationDefinitionsResponses[keyof ListIntegrationDefinitionsResponses];

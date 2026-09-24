@@ -45,7 +45,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type ProjectApp, type SaveProjectAppRequest } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type ProjectIntegration, type SaveProjectIntegrationRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -160,7 +160,7 @@ Report. A short pulse, not a data dump:
   going silent, a spike concentrated in one event). If nothing moved, say
   "steady day" — never invent a story, and never pad the report.
 
-Deliver. When a Slack app provides an app__<app-name>__post_message tool,
+Deliver. When a Slack integration provides an int__<integration-name>__post_message tool,
 use that tool to send the pulse to the conversation that launched you.
 The external user only sees messages sent with that tool. Otherwise present
 the pulse directly in the conversation. If someone replies with a follow-up
@@ -277,23 +277,23 @@ if (slackAppConfigurationToken) {
   const workspaceID = env.SLACK_WORKSPACE_ID?.trim()
   if (!workspaceID) throw new Error('set SLACK_WORKSPACE_ID in .env to connect Slack')
 
-  const appName = 'posthog-pulse-agent'
-  let existingApp: ProjectApp | undefined
+  const integrationName = 'posthog-pulse-agent'
+  let existingIntegration: ProjectIntegration | undefined
   let cursor: string | undefined
   do {
-    const { data: apps } = await sdk.listProjectApps({ client, path, query: { cursor } })
-    existingApp = apps.data.find((app) => app.name === appName)
-    cursor = apps.next_cursor ?? undefined
-  } while (!existingApp && cursor)
+    const { data: integrations } = await sdk.listProjectIntegrations({ client, path, query: { cursor } })
+    existingIntegration = integrations.data.find((integration) => integration.name === integrationName)
+    cursor = integrations.next_cursor ?? undefined
+  } while (!existingIntegration && cursor)
 
-  if (existingApp && existingApp.app_type !== 'slack_thread') {
-    throw new Error(`${appName} already belongs to another app type; choose a different name`)
+  if (existingIntegration && existingIntegration.integration_type !== 'slack_thread') {
+    throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
   }
-  // The app owns its launcher profile. Launching from Slack supplies the
-  // namespaced tools, app-owned thread subscription, and interaction handler to the agent.
-  const body: SaveProjectAppRequest = {
-    name: appName,
-    app_type: 'slack_thread',
+  // The integration owns its launcher profile. Launching from Slack supplies the
+  // namespaced tools, integration-owned thread subscription, and interaction handler to the agent.
+  const body: SaveProjectIntegrationRequest = {
+    name: integrationName,
+    integration_type: 'slack_thread',
     settings: {
       launcher: {
         trigger: 'mention',
@@ -303,18 +303,18 @@ if (slackAppConfigurationToken) {
       },
     },
   }
-  const { data: app } = existingApp
-    ? await sdk.updateProjectApp({ client, path: { ...path, appID: existingApp.id }, body })
-    : await sdk.createProjectApp({ client, path, body })
+  const { data: integration } = existingIntegration
+    ? await sdk.updateProjectIntegration({ client, path: { ...path, integrationID: existingIntegration.id }, body })
+    : await sdk.createProjectIntegration({ client, path, body })
 
-  if (app.state === 'active') {
-    console.log('Slack app already connected:', app.name, app.id)
-  } else if (app.provider_account_ref) {
-    console.log('Reconnect this Slack app in the project Apps page:', app.name, app.id)
+  if (integration.state === 'active') {
+    console.log('Slack integration already connected:', integration.name, integration.id)
+  } else if (integration.provider_account_ref) {
+    console.log('Reconnect this Slack integration in the project Integrations page:', integration.name, integration.id)
   } else {
-    const { data: slack } = await sdk.createProjectAppSlackSetup({
+    const { data: slack } = await sdk.createProjectIntegrationSlackSetup({
       client,
-      path: { ...path, appID: app.id },
+      path: { ...path, integrationID: integration.id },
       body: { app_name: 'PostHog Pulse', app_configuration_token: slackAppConfigurationToken },
     })
     console.log('open this URL to install the Slack app:')

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -63,7 +63,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 	}
 	resolver := &selectionRecordingResolver{client: modelClient}
 	postCount := 0
-	appHTTPClient := kernelSlackRuntimeHTTPClient(t, "managed-admission",
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "managed-admission",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			if req.URL.Path != "/api/chat.postMessage" {
@@ -83,8 +83,8 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		Store:         fixture.Store,
 		ModelResolver: resolver,
 		ToolExecutor: tools.Executor{
-			Store:         fixture.Store,
-			AppHTTPClient: appHTTPClient,
+			Store:                 fixture.Store,
+			IntegrationHTTPClient: integrationHTTPClient,
 		},
 		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
@@ -679,7 +679,7 @@ func TestAgentExecutorCarriesDurableProviderReplayIntoNextTurn(t *testing.T) {
 	}
 
 	bundle, err := (modelcontext.Builder{
-		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Apps()),
+		Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
 	}).Build(
 		ctx,
 		modelcontext.BuildInput{
@@ -773,7 +773,7 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	postCount := 0
 	postedText := ""
 	var postedDecodeErr error
-	appHTTPClient := kernelSlackRuntimeHTTPClient(t, "irreducible-overflow",
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "irreducible-overflow",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			if req.URL.Path != "/api/chat.postMessage" {
@@ -798,8 +798,8 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
 		ToolExecutor: tools.Executor{
-			Store:         fixture.Store,
-			AppHTTPClient: appHTTPClient,
+			Store:                 fixture.Store,
+			IntegrationHTTPClient: integrationHTTPClient,
 		},
 		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
@@ -812,7 +812,7 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	if postCount != 1 {
 		t.Fatalf("Slack runtime message post count = %d, want 1", postCount)
 	}
-	if postedText != apps.AgentRequestFailureMessage {
+	if postedText != integrationruntime.AgentRequestFailureMessage {
 		t.Fatalf("Slack runtime message text = %q", postedText)
 	}
 	if len(modelClient.respondHadSink) != 0 {

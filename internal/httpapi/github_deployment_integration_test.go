@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/apps/github"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
 )
@@ -77,14 +77,14 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	lock, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer lock.Rollback(ctx)
-	_, err = lock.Exec(ctx, `INSERT INTO app_inbox(project_id,app_id,receipt_key,payload)
-		VALUES($1,$2,'github:issue_comment:draining',$3)`, f.app.ProjectID, f.app.ID, []byte(raw))
+	_, err = lock.Exec(ctx, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload)
+		VALUES($1,$2,'github:issue_comment:draining',$3)`, f.integration.ProjectID, f.integration.ID, []byte(raw))
 	require.NoError(t, err)
 	response := sendGitHubDeploymentWebhook(t, old, "draining", raw)
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "InsertAppInboxReceipt", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "InsertIntegrationInboxReceipt", 1)
 	var count int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox WHERE app_id=$1`,
-		f.app.ID).Scan(&count))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox WHERE integration_id=$1`,
+		f.integration.ID).Scan(&count))
 	require.Zero(t, count, "the receipt is not durably visible while intake is blocked")
 	select {
 	case result := <-response:
@@ -107,8 +107,8 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	require.NoError(t, accepted.err)
 	require.Equal(t, http.StatusNoContent, accepted.status)
 	var saved []byte
-	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM app_inbox
-		WHERE app_id=$1 AND receipt_key='github:issue_comment:replacement'`, f.app.ID).Scan(&saved))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM integration_inbox
+		WHERE integration_id=$1 AND receipt_key='github:issue_comment:replacement'`, f.integration.ID).Scan(&saved))
 	require.Equal(t, nextRaw, string(saved), "replacement acknowledges committed signed bytes")
 	select {
 	case err := <-shutdown:
@@ -121,8 +121,8 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	accepted = waitGitHubDeploymentResponse(t, response)
 	require.NoError(t, accepted.err)
 	require.Equal(t, http.StatusNoContent, accepted.status)
-	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM app_inbox
-		WHERE app_id=$1 AND receipt_key='github:issue_comment:draining'`, f.app.ID).Scan(&saved))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM integration_inbox
+		WHERE integration_id=$1 AND receipt_key='github:issue_comment:draining'`, f.integration.ID).Scan(&saved))
 	require.Equal(t, raw, string(saved), "old server acknowledges only after the real transaction commits")
 	select {
 	case err := <-shutdown:
@@ -133,8 +133,8 @@ func TestGitHubHTTPDeploymentDrainPreservesReceipts(t *testing.T) {
 	accepted = waitGitHubDeploymentResponse(t, sendGitHubDeploymentWebhook(t, next, "draining", raw))
 	require.NoError(t, accepted.err)
 	require.Equal(t, http.StatusNoContent, accepted.status)
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox WHERE app_id=$1`,
-		f.app.ID).Scan(&count))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox WHERE integration_id=$1`,
+		f.integration.ID).Scan(&count))
 	require.Equal(t, 2, count, "redelivery to the replacement must preserve the original receipt")
 }
 
@@ -185,23 +185,23 @@ func TestGitHubHTTPDeploymentLostResponseReplayDeduplicates(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("mounted handler did not finish")
 	}
-	var receipt appstore.AppInboxRecord
-	require.NoError(t, pool.QueryRow(t.Context(), `SELECT id FROM app_inbox
-		WHERE app_id=$1 AND receipt_key='github:issue_comment:lost'`, f.app.ID).Scan(&receipt.ID))
-	require.Empty(t, f.consume(t, raw), "this app has no launcher or subscriptions")
+	var receipt integrationstore.IntegrationInboxRecord
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT id FROM integration_inbox
+		WHERE integration_id=$1 AND receipt_key='github:issue_comment:lost'`, f.integration.ID).Scan(&receipt.ID))
+	require.Empty(t, f.consume(t, raw), "this integration has no launcher or subscriptions")
 	old.Close()
 	for range 2 {
 		response = waitGitHubDeploymentResponse(t, sendGitHubDeploymentWebhook(t, next, "lost", raw))
 		require.NoError(t, response.err)
 		require.Equal(t, http.StatusNoContent, response.status)
 	}
-	saved, err := f.project.Store.Apps().GetAppInbox(t.Context(), f.app.ProjectID, receipt.ID)
+	saved, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.integration.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.Equal(t, raw, string(saved.Payload))
-	require.Equal(t, appstore.AppInboxCompleted, saved.State)
+	require.Equal(t, integrationstore.IntegrationInboxCompleted, saved.State)
 	var count, attempts int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*),sum(attempt_count)
-		FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&count, &attempts))
+		FROM integration_inbox WHERE integration_id=$1`, f.integration.ID).Scan(&count, &attempts))
 	require.Equal(t, 1, count)
 	require.Equal(t, 1, attempts, "redelivery cannot cause a second consumption")
 }

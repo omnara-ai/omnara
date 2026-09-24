@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps/github"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -48,7 +48,7 @@ func (t githubSetupLocalTransport) RoundTrip(r *http.Request) (*http.Response, e
 type githubManifestFixture struct {
 	handler     http.Handler
 	project     publicHTTPProject
-	app         appstore.ProjectAppRecord
+	integration integrationstore.ProjectIntegrationRecord
 	privateKey  string
 	conversions atomic.Int32
 	inspections atomic.Int32
@@ -153,7 +153,7 @@ func newGitHubManifestFixtureWithAppID(t *testing.T, appID int64, options ...Opt
 	}, options...)
 	f.handler = newIntegrationServer(openIntegrationDB(t, t.Context()), options...)
 	f.project = bootstrapPublicHTTPProject(t, f.handler, "github-manifest")
-	f.app = createSetupHTTPApp(t, f.handler, f.project, "github-guided", appdefinition.GitHubPR)
+	f.integration = createSetupHTTPIntegration(t, f.handler, f.project, "github-guided", integrationdefinition.GitHubPR)
 	return f
 }
 
@@ -166,7 +166,8 @@ func (f *githubManifestFixture) headers() map[string]string {
 	}
 }
 func (f *githubManifestFixture) path(t *testing.T) string {
-	return f.project.ProjectPath + "/apps/" + testPublicID(t, publicid.KindProjectApp, f.app.ID) + "/github-setup"
+	return f.project.ProjectPath +
+		"/integrations/" + testPublicID(t, publicid.KindProjectIntegration, f.integration.ID) + "/github-setup"
 }
 func (f *githubManifestFixture) start(t *testing.T) (map[string]any, string, githubManifestState) {
 	t.Helper()
@@ -175,7 +176,7 @@ func (f *githubManifestFixture) start(t *testing.T) (map[string]any, string, git
 		f.handler,
 		http.MethodPost,
 		f.path(t),
-		projectAppHTTPJSON(t, map[string]any{"expected_setup_revision": f.app.SetupRevision}),
+		projectIntegrationHTTPJSON(t, map[string]any{"expected_setup_revision": f.integration.SetupRevision}),
 		"",
 		http.StatusCreated,
 		f.headers(),
@@ -215,10 +216,10 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 	response, token, state := f.start(t)
 	require.WithinDuration(t, time.Now().Add(time.Hour), state.ExpiresAt, time.Second)
 	manifest := testutil.RequireType[map[string]any](t, response["manifest"])
-	canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/apps/" + testPublicID(
+	canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" + testPublicID(
 		t,
-		publicid.KindProjectApp,
-		f.app.ID,
+		publicid.KindProjectIntegration,
+		f.integration.ID,
 	)
 	require.Equal(t, canonical, manifest["setup_url"])
 	require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
@@ -263,9 +264,13 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 		},
 		secret.Payload,
 	)
-	current, err := f.project.Store.Apps().GetProjectApp(t.Context(), f.project.ProjectUUID, f.app.ID)
+	current, err := f.project.Store.Integrations().GetProjectIntegration(
+		t.Context(),
+		f.project.ProjectUUID,
+		f.integration.ID,
+	)
 	require.NoError(t, err)
-	require.Equal(t, f.app, current, "registration must not activate the app or change its setup revision")
+	require.Equal(t, f.integration, current, "registration must not activate the integration or change its setup revision")
 	require.NotContains(t, callback.Header().Get("Location"), "secret=")
 	require.NotContains(t, callback.Body.String(), f.privateKey)
 	replay := githubManifestCallback(f.handler, token, strings.Repeat("a", 40), f.project.AdminSession)
@@ -292,8 +297,8 @@ func TestGitHubManifestUsesAPIOriginOnlyForWebhook(t *testing.T) {
 			webhookURL := api.Scheme + "://" + api.Host + GitHubSharedEventsPath
 			require.Equal(t, map[string]any{"url": webhookURL, "active": true}, manifest["hook_attributes"])
 			require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
-			canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/apps/" +
-				testPublicID(t, publicid.KindProjectApp, f.app.ID)
+			canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" +
+				testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)
 			require.Equal(t, canonical, manifest["setup_url"])
 			require.Equal(t, canonical, manifest["url"])
 			webhook := httptest.NewRequest(http.MethodPost, webhookURL, nil)
@@ -339,7 +344,7 @@ func TestGitHubManifestCallbackRejectsInvalidAuthorityBeforeConversion(t *testin
 	f := newGitHubManifestFixture(t)
 	_, token, state := f.start(t)
 	other := bootstrapPublicHTTPProject(t, f.handler, "github-other-user")
-	wrongType := createSetupHTTPApp(t, f.handler, f.project, "slack-other-type", appdefinition.SlackThread)
+	wrongType := createSetupHTTPIntegration(t, f.handler, f.project, "slack-other-type", integrationdefinition.SlackThread)
 	for _, tc := range []struct {
 		name, token, session string
 		want                 int
@@ -358,8 +363,8 @@ func TestGitHubManifestCallbackRejectsInvalidAuthorityBeforeConversion(t *testin
 	for _, mutate := range []func(*githubManifestState){
 		func(s *githubManifestState) { s.ExpiresAt = time.Now().Add(-time.Second) },
 		func(s *githubManifestState) { s.ProjectID = other.ProjectUUID },
-		func(s *githubManifestState) { s.AppID = uuid.New() },
-		func(s *githubManifestState) { s.AppID = wrongType.ID },
+		func(s *githubManifestState) { s.IntegrationID = uuid.New() },
+		func(s *githubManifestState) { s.IntegrationID = wrongType.ID },
 	} {
 		invalid := state
 		mutate(&invalid)
@@ -377,10 +382,10 @@ func TestGitHubManifestCallbackRejectsInvalidAuthorityBeforeConversion(t *testin
 	require.Zero(t, f.conversions.Load())
 }
 
-func TestGitHubManifestStartRequiresBrowserRevisionAndNeverConnectedApp(t *testing.T) {
+func TestGitHubManifestStartRequiresBrowserRevisionAndNeverConnectedIntegration(t *testing.T) {
 	t.Parallel()
 	f := newGitHubManifestFixture(t)
-	body := projectAppHTTPJSON(t, map[string]any{"expected_setup_revision": f.app.SetupRevision})
+	body := projectIntegrationHTTPJSON(t, map[string]any{"expected_setup_revision": f.integration.SetupRevision})
 	requestJSONWithHeaders(
 		t,
 		f.handler,
@@ -442,7 +447,7 @@ func TestGitHubInstallationInspectionUsesSavedSecretAndExplicitPagination(t *tes
 		f.handler,
 		http.MethodPost,
 		f.path(t)+"/installations",
-		projectAppHTTPJSON(t, map[string]any{"credentials_secret_ref": ref}),
+		projectIntegrationHTTPJSON(t, map[string]any{"credentials_secret_ref": ref}),
 		"",
 		http.StatusOK,
 		f.headers(),
@@ -470,25 +475,30 @@ func TestGitHubInstallationInspectionUsesSavedSecretAndExplicitPagination(t *tes
 		f.handler,
 		http.MethodPost,
 		f.path(t)+"/installations",
-		projectAppHTTPJSON(t, map[string]any{"credentials_secret_ref": ref, "page": 2}),
+		projectIntegrationHTTPJSON(t, map[string]any{"credentials_secret_ref": ref, "page": 2}),
 		"",
 		http.StatusOK,
 		f.headers(),
 	)
 	require.Empty(t, response["installations"])
 	require.NotContains(t, response, "next_page")
-	current, err := f.project.Store.Apps().GetProjectApp(t.Context(), f.project.ProjectUUID, f.app.ID)
+	current, err := f.project.Store.Integrations().GetProjectIntegration(
+		t.Context(),
+		f.project.ProjectUUID,
+		f.integration.ID,
+	)
 	require.NoError(t, err)
-	require.Equal(t, f.app, current)
+	require.Equal(t, f.integration, current)
 	other := bootstrapPublicHTTPProject(t, f.handler, "github-foreign-secret")
-	foreign := createSetupHTTPApp(t, f.handler, other, "github-other", appdefinition.GitHubPR)
+	foreign := createSetupHTTPIntegration(t, f.handler, other, "github-other", integrationdefinition.GitHubPR)
 	before := f.inspections.Load()
 	requestJSONWithHeaders(
 		t,
 		f.handler,
 		http.MethodPost,
-		other.ProjectPath+"/apps/"+testPublicID(t, publicid.KindProjectApp, foreign.ID)+"/github-setup/installations",
-		projectAppHTTPJSON(t, map[string]any{"credentials_secret_ref": ref}),
+		other.ProjectPath+
+			"/integrations/"+testPublicID(t, publicid.KindProjectIntegration, foreign.ID)+"/github-setup/installations",
+		projectIntegrationHTTPJSON(t, map[string]any{"credentials_secret_ref": ref}),
 		"",
 		http.StatusNotFound,
 		map[string]string{
@@ -525,30 +535,35 @@ func TestGitHubManifestCallbackRechecksRevocationAndPreservesConvertedSecretOnSe
 			case "deleted":
 				require.NoError(
 					t,
-					f.project.Store.Apps().DeleteProjectApp(t.Context(), f.project.OrgUUID, f.project.ProjectUUID, f.app.ID),
+					f.project.Store.Integrations().DeleteProjectIntegration(
+						t.Context(),
+						f.project.OrgUUID,
+						f.project.ProjectUUID,
+						f.integration.ID,
+					),
 				)
 			case "disconnect":
-				_, err := f.project.Store.Apps().
-					DisconnectProjectApp(t.Context(), appstore.DisconnectProjectAppInput{
-						ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
+				_, err := f.project.Store.Integrations().
+					DisconnectProjectIntegration(t.Context(), integrationstore.DisconnectProjectIntegrationInput{
+						ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
 					})
 				require.NoError(t, err)
 			case "connected before callback":
-				ref := createAppSetupHTTPSecret(t, f.handler, f.project, "manual-github-key", map[string]any{
+				ref := createIntegrationSetupHTTPSecret(t, f.handler, f.project, "manual-github-key", map[string]any{
 					"kind": "github_app_credentials", "app_id": "123",
 					"private_key": f.privateKey, "webhook_secret": githubJourneyWebhookSecret,
 				})
 				body := map[string]any{
-					"expected_setup_revision": f.app.SetupRevision,
+					"expected_setup_revision": f.integration.SetupRevision,
 					"provider_tenant_id":      "123", "provider_account_ref": "456", "credential_secret_id": ref,
 				}
-				requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, f.app),
-					projectAppHTTPJSON(t, body), "", http.StatusOK, f.headers())
+				requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, f.integration),
+					projectIntegrationHTTPJSON(t, body), "", http.StatusOK, f.headers())
 			case "changes during conversion":
 				f.onConvert = func() {
-					_, err := f.project.Store.Apps().
-						DisconnectProjectApp(t.Context(), appstore.DisconnectProjectAppInput{
-							ProjectID: f.project.ProjectUUID, AppID: f.app.ID,
+					_, err := f.project.Store.Integrations().
+						DisconnectProjectIntegration(t.Context(), integrationstore.DisconnectProjectIntegrationInput{
+							ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
 						})
 					require.NoError(t, err)
 				}
@@ -563,7 +578,7 @@ func TestGitHubManifestCallbackRechecksRevocationAndPreservesConvertedSecretOnSe
 			location, err := url.Parse(response.Header().Get("Location"))
 			require.NoError(t, err)
 			require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
-			require.Equal(t, "app_setup_changed", location.Query().Get("github_setup_error"))
+			require.Equal(t, "integration_setup_changed", location.Query().Get("github_setup_error"))
 			secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credentials_secret_ref"))
 			require.NoError(t, err)
 			_, err = f.project.Store.Secrets().
@@ -572,26 +587,30 @@ func TestGitHubManifestCallbackRechecksRevocationAndPreservesConvertedSecretOnSe
 					SecretID: secretID, Kind: secrets.KindGitHubAppCredentials,
 				})
 			require.NoError(t, err, "one-time conversion credentials must remain recoverable")
-			current, err := f.project.Store.Apps().GetProjectApp(t.Context(), f.project.ProjectUUID, f.app.ID)
+			current, err := f.project.Store.Integrations().GetProjectIntegration(
+				t.Context(),
+				f.project.ProjectUUID,
+				f.integration.ID,
+			)
 			require.NoError(t, err)
 			if scenario == "connected before callback" {
-				require.Equal(t, appstore.ProjectAppStateActive, current.State)
+				require.Equal(t, integrationstore.ProjectIntegrationStateActive, current.State)
 				require.NotEqual(t, secretID, current.CredentialSecretID, "conversion must not replace an active connection")
 			} else {
-				require.Equal(t, appstore.ProjectAppStateDisconnected, current.State)
+				require.Equal(t, integrationstore.ProjectIntegrationStateDisconnected, current.State)
 			}
-			require.Equal(t, f.app.SetupRevision+1, current.SetupRevision)
+			require.Equal(t, f.integration.SetupRevision+1, current.SetupRevision)
 			body := map[string]any{
-				"expected_setup_revision": f.app.SetupRevision,
+				"expected_setup_revision": f.integration.SetupRevision,
 				"provider_tenant_id":      "123", "provider_account_ref": "456",
 				"credential_secret_id": location.Query().Get("credentials_secret_ref"),
 			}
-			requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, f.app),
-				projectAppHTTPJSON(t, body), "", http.StatusConflict, f.headers())
+			requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, f.integration),
+				projectIntegrationHTTPJSON(t, body), "", http.StatusConflict, f.headers())
 			body["expected_setup_revision"] = current.SetupRevision
 			body["provider_account_ref"] = "999"
-			requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, f.app),
-				projectAppHTTPJSON(t, body), "", http.StatusBadRequest, f.headers())
+			requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, f.integration),
+				projectIntegrationHTTPJSON(t, body), "", http.StatusBadRequest, f.headers())
 		})
 	}
 }
@@ -601,7 +620,7 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 	f := newGitHubManifestFixture(t)
 	ref := f.saveCredentials(t)
 	body := map[string]any{
-		"expected_setup_revision": f.app.SetupRevision,
+		"expected_setup_revision": f.integration.SetupRevision,
 		"provider_tenant_id":      "123",
 		"provider_account_ref":    "999",
 		"credential_secret_id":    ref,
@@ -610,8 +629,8 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		t,
 		f.handler,
 		http.MethodPost,
-		appSetupPath(t, f.project, f.app),
-		projectAppHTTPJSON(t, body),
+		integrationSetupPath(t, f.project, f.integration),
+		projectIntegrationHTTPJSON(t, body),
 		"",
 		http.StatusBadRequest,
 		f.headers(),
@@ -621,8 +640,8 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		t,
 		f.handler,
 		http.MethodPost,
-		appSetupPath(t, f.project, f.app),
-		projectAppHTTPJSON(t, body),
+		integrationSetupPath(t, f.project, f.integration),
+		projectIntegrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		f.headers(),
@@ -633,8 +652,8 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		t,
 		f.handler,
 		http.MethodPost,
-		appSetupPath(t, f.project, f.app),
-		projectAppHTTPJSON(t, body),
+		integrationSetupPath(t, f.project, f.integration),
+		projectIntegrationHTTPJSON(t, body),
 		"",
 		http.StatusConflict,
 		f.headers(),
@@ -655,8 +674,8 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 		t,
 		f.handler,
 		http.MethodPost,
-		appSetupPath(t, f.project, f.app),
-		projectAppHTTPJSON(t, body),
+		integrationSetupPath(t, f.project, f.integration),
+		projectIntegrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(f.project.AdminToken),
@@ -664,10 +683,14 @@ func TestGitHubGuidedConnectionUsesExistingVerifiedManualSetup(t *testing.T) {
 	require.Equal(t, "Customer label", reconnected["provider_agent_display_name"])
 	delete(body, "provider_agent_display_name")
 	body["expected_setup_revision"] = reconnected["setup_revision"]
-	preserved := requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, f.app),
-		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	preserved := requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, f.integration),
+		projectIntegrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
 	require.Equal(t, "Customer label", preserved["provider_agent_display_name"])
-	current, err := f.project.Store.Apps().GetProjectApp(t.Context(), f.project.ProjectUUID, f.app.ID)
+	current, err := f.project.Store.Integrations().GetProjectIntegration(
+		t.Context(),
+		f.project.ProjectUUID,
+		f.integration.ID,
+	)
 	require.NoError(t, err)
 	require.Equal(t, "Customer label", current.ProviderAgentDisplayName)
 }

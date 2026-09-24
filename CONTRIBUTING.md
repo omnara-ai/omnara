@@ -17,13 +17,13 @@ vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 - Run the relevant checks described in the README's
   [Development section](README.md#development).
 
-## Built-in apps
+## Built-in integrations
 
-Slack, Discord and GitHub are examples for adding a hosted app through a code PR.
-Follow the [app implementation guide](internal/apps/CONTRIBUTING.md) for
+Slack, Discord and GitHub are examples for adding a hosted integration through a code PR.
+Follow the [integration implementation guide](internal/integration/CONTRIBUTING.md) for
 extension points, shared infrastructure and tests. Customer-hosted integrations
 can use the [ordinary public APIs](docs/integrations/custom-integrations.mdx)
-without contributing code or registering an Omnara app.
+without contributing code or registering an Omnara integration.
 
 ## Generated files
 

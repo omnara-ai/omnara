@@ -12,31 +12,31 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func githubToolTestCalls() []model.ToolCall {
 	return []model.ToolCall{
-		{ID: "read", Name: "app__chat__read", Input: json.RawMessage(`{}`)},
-		{ID: "discussion", Name: "app__chat__discussion_comment", Input: json.RawMessage(`{"body":"Review"}`)},
+		{ID: "read", Name: "int__chat__read", Input: json.RawMessage(`{}`)},
+		{ID: "discussion", Name: "int__chat__discussion_comment", Input: json.RawMessage(`{"body":"Review"}`)},
 		{
-			ID: "inline", Name: "app__chat__inline_comment",
+			ID: "inline", Name: "int__chat__inline_comment",
 			Input: json.RawMessage(`{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`),
 		},
-		{ID: "reply", Name: "app__chat__reply", Input: json.RawMessage(`{"comment_id":31,"body":"Resolved"}`)},
+		{ID: "reply", Name: "int__chat__reply", Input: json.RawMessage(`{"comment_id":31,"body":"Resolved"}`)},
 	}
 }
 
-func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
+func TestGitHubIntegrationAuthorityBeforeEveryRequest(t *testing.T) {
 	for _, call := range githubToolTestCalls() {
 		for _, scenario := range []string{"removed-before-dispatch", "removed-after-token", "disconnected"} {
 			t.Run(call.ID+"/"+scenario, func(t *testing.T) {
 				ctx := t.Context()
 				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-authority", toolFixtureOptions{
-					withGitHubApp: true, withToolContext: true,
+					withGitHubIntegration: true, withToolContext: true,
 				})
 				f.recordToolCalls(t, ctx, []model.ToolCall{call}, f.Now)
 				source, err := agentconfig.ParseSource(
@@ -45,12 +45,15 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 				)
 				require.NoError(t, err)
 				delete(source.Tools, call.Name)
-				changeInput := appToolConfigChangeInput(t, f, source)
+				changeInput := integrationToolConfigChangeInput(t, f, source)
 				revoke := func() error {
 					if scenario == "disconnected" {
-						_, err := f.Store.Apps().DisconnectProjectApp(ctx, appstore.DisconnectProjectAppInput{
-							ProjectID: f.Agent.ProjectID, AppID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
-						})
+						_, err := f.Store.Integrations().DisconnectProjectIntegration(
+							ctx,
+							integrationstore.DisconnectProjectIntegrationInput{
+								ProjectID: f.Agent.ProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
+							},
+						)
 						return err
 					}
 					_, err := f.Store.Execution().ChangeAgentConfig(ctx, changeInput)
@@ -77,12 +80,12 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 				}))
 				defer server.Close()
 				_, err = dispatchAsyncToolToTerminal(t, ctx,
-					Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
+					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 				require.NoError(t, err)
 				record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 				require.NoError(t, err)
 				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
-				require.Equal(t, "app_tool_failed", toolResultMapFromTestParts(t, record.ResultContentParts)["code"])
+				require.Equal(t, "integration_tool_failed", toolResultMapFromTestParts(t, record.ResultContentParts)["code"])
 				if scenario == "removed-before-dispatch" {
 					require.Zero(t, requests.Load())
 				} else {
@@ -93,10 +96,10 @@ func TestGitHubAppAuthorityBeforeEveryRequest(t *testing.T) {
 	}
 }
 
-func TestGitHubAppReplyRejectsForeignPullRequest(t *testing.T) {
+func TestGitHubIntegrationReplyRejectsForeignPullRequest(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-foreign-reply", toolFixtureOptions{
-		withGitHubApp: true, withToolContext: true,
+		withGitHubIntegration: true, withToolContext: true,
 	})
 	var reads, posts atomic.Int32
 	server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
@@ -111,9 +114,9 @@ func TestGitHubAppReplyRejectsForeignPullRequest(t *testing.T) {
 			"id": 31, "pull_request_url": "https://api.github.com/repos/octo/renamed/pulls/8",
 		})
 	})
-	call := f.recordToolCall(t, ctx, "reply", "app__chat__reply", `{"comment_id":31,"body":"Reply"}`, f.Now)
+	call := f.recordToolCall(t, ctx, "reply", "int__chat__reply", `{"comment_id":31,"body":"Reply"}`, f.Now)
 	result, err := dispatchAsyncToolToTerminal(t, ctx,
-		Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
+		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 	require.NoError(t, err)
 	require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
 	require.EqualValues(t, 1, reads.Load())

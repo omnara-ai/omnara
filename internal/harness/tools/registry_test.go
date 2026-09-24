@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -199,10 +199,13 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	}
 }
 
-func TestAppMessageArtifactArguments(t *testing.T) {
-	definition, ok := toolcatalog.LookupAppTool(appdefinition.SlackThread, toolcatalog.AppOperationPostMessage)
+func TestIntegrationMessageArtifactArguments(t *testing.T) {
+	definition, ok := toolcatalog.LookupIntegrationTool(
+		integrationdefinition.SlackThread,
+		toolcatalog.IntegrationOperationPostMessage,
+	)
 	require.True(t, ok)
-	entry, err := definition.Prepare(toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage))
+	entry, err := definition.Prepare(toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage))
 	require.NoError(t, err)
 	artifactIDs := make([]string, 21)
 	for index := range artifactIDs {

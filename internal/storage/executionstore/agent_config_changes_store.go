@@ -76,7 +76,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if err := lockConfigChangeAppsTx(ctx, tx, qtx, input); err != nil {
+	if err := lockConfigChangeIntegrationsTx(ctx, tx, qtx, input); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
 	if err := qtx.LockAgentMachineSources(

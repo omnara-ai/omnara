@@ -3,9 +3,9 @@
 import { OmnaraClientProvider } from '@omnara/react'
 import {
   type AgentProfileSummary,
-  type AppCronTriggerTarget,
   createOmnaraClient,
   type CronTrigger,
+  type IntegrationCronTriggerTarget,
 } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -46,9 +46,9 @@ export const profile: AgentProfileSummary = {
   created_at: now,
   updated_at: now,
 }
-export const appTarget: AppCronTriggerTarget = {
-  type: 'app',
-  app_id: fakeId('app'),
+export const integrationTarget: IntegrationCronTriggerTarget = {
+  type: 'integration',
+  integration_id: fakeId('itg'),
   settings: {
     agent_profile_id: profile.id,
     channel_id: 'C123',
@@ -62,7 +62,7 @@ export function trigger(overrides: Partial<CronTrigger> = {}): CronTrigger {
     org_id: orgId,
     project_id: projectId,
     name: 'daily-report',
-    target: appTarget,
+    target: integrationTarget,
     cron: '0 9 * * 1-5',
     timezone: 'UTC',
     enabled: true,
@@ -147,7 +147,7 @@ export async function submit() {
 }
 export async function chooseProfile(selected = profile) {
   act(() => {
-    const picker = document.getElementById('app-profiles')
+    const picker = document.getElementById('integration-profiles')
     if (!(picker instanceof HTMLButtonElement)) throw new Error('Missing profile picker')
     picker.click()
   })

@@ -6,18 +6,18 @@ import (
 )
 
 const (
-	AppInboxRetention      = 7 * 24 * time.Hour
-	appInboxCleanupBatch   = 100
-	appInboxCleanupBudget  = 250 * time.Millisecond
-	appInboxCleanupTimeout = 5 * time.Second
+	IntegrationInboxRetention      = 7 * 24 * time.Hour
+	integrationInboxCleanupBatch   = 100
+	integrationInboxCleanupBudget  = 250 * time.Millisecond
+	integrationInboxCleanupTimeout = 5 * time.Second
 )
 
-func drainAppInboxCleanup(
+func drainIntegrationInboxCleanup(
 	ctx context.Context,
 	cleanup func(context.Context) (int64, error),
 ) (int64, bool, error) {
-	stopAt := time.Now().Add(appInboxCleanupBudget)
-	cleanupCtx, cancel := context.WithTimeout(ctx, appInboxCleanupTimeout)
+	stopAt := time.Now().Add(integrationInboxCleanupBudget)
+	cleanupCtx, cancel := context.WithTimeout(ctx, integrationInboxCleanupTimeout)
 	defer cancel()
 	var total int64
 	for {
@@ -32,7 +32,7 @@ func drainAppInboxCleanup(
 		if err != nil {
 			return total, false, err
 		}
-		if count < appInboxCleanupBatch {
+		if count < integrationInboxCleanupBatch {
 			return total, false, nil
 		}
 	}

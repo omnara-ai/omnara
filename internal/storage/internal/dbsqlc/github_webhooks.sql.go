@@ -9,55 +9,55 @@ import (
 	"context"
 )
 
-const listGitHubWebhookCredentialApps = `-- name: ListGitHubWebhookCredentialApps :many
-SELECT DISTINCT ON (app.credential_secret_id)
-  app.id, app.org_id, app.project_id, app.installed_by_user_id,
-  app.state,
-  app.provider_tenant_id, app.provider_account_ref,
-  app.provider_agent_display_name, app.credential_secret_id,
-  app.provider_config, app.provider_identity, app.provider_metadata,
-  app.last_oauth_flow_id, app.deleted_at, app.created_at, app.updated_at,
-  app.name, app.app_type, app.settings, app.setup_revision
-FROM project_apps app
-JOIN projects project ON project.id = app.project_id AND project.org_id = app.org_id
-JOIN orgs org ON org.id = app.org_id
-JOIN secrets credential ON credential.id = app.credential_secret_id AND credential.org_id = app.org_id
+const listGitHubWebhookCredentialIntegrations = `-- name: ListGitHubWebhookCredentialIntegrations :many
+SELECT DISTINCT ON (integration.credential_secret_id)
+  integration.id, integration.org_id, integration.project_id, integration.installed_by_user_id,
+  integration.state,
+  integration.provider_tenant_id, integration.provider_account_ref,
+  integration.provider_agent_display_name, integration.credential_secret_id,
+  integration.provider_config, integration.provider_identity, integration.provider_metadata,
+  integration.last_oauth_flow_id, integration.deleted_at, integration.created_at, integration.updated_at,
+  integration.name, integration.integration_type, integration.settings, integration.setup_revision
+FROM project_integrations integration
+JOIN projects project ON project.id = integration.project_id AND project.org_id = integration.org_id
+JOIN orgs org ON org.id = integration.org_id
+JOIN secrets credential ON credential.id = integration.credential_secret_id AND credential.org_id = integration.org_id
 JOIN secret_versions version ON version.id = credential.current_version_id AND version.secret_id = credential.id
-WHERE app.app_type = ANY($1::text[])
-  AND app.provider_tenant_id = $2::text
-  AND app.deleted_at IS NULL AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+WHERE integration.integration_type = ANY($1::text[])
+  AND integration.provider_tenant_id = $2::text
+  AND integration.deleted_at IS NULL AND project.deleted_at IS NULL AND org.deleted_at IS NULL
   AND credential.deleted_at IS NULL AND credential.management_kind = 'tenant'
   AND credential.kind = 'github_app_credentials'
   AND (
-    (credential.owner_kind = 'project' AND credential.owner_project_id = app.project_id)
+    (credential.owner_kind = 'project' AND credential.owner_project_id = integration.project_id)
     OR EXISTS (
       SELECT 1 FROM secret_grants grant_access
-      WHERE grant_access.org_id = app.org_id AND grant_access.secret_id = credential.id
-        AND grant_access.target_project_id = app.project_id
+      WHERE grant_access.org_id = integration.org_id AND grant_access.secret_id = credential.id
+        AND grant_access.target_project_id = integration.project_id
     )
   )
-ORDER BY app.credential_secret_id, app.id
+ORDER BY integration.credential_secret_id, integration.id
 LIMIT $3::integer
 `
 
-type ListGitHubWebhookCredentialAppsParams struct {
-	AppTypes    []string
-	GithubAppID string
-	RowLimit    int32
+type ListGitHubWebhookCredentialIntegrationsParams struct {
+	IntegrationTypes []string
+	GithubAppID      string
+	RowLimit         int32
 }
 
 // Ping/unknown-installation verification only; ordinary deliveries verify each
-// matching app independently rather than borrowing these fallback credentials.
-// Include disconnected apps so signed callbacks can be acknowledged without work.
-func (q *Queries) ListGitHubWebhookCredentialApps(ctx context.Context, arg ListGitHubWebhookCredentialAppsParams) ([]ProjectApp, error) {
-	rows, err := q.db.Query(ctx, listGitHubWebhookCredentialApps, arg.AppTypes, arg.GithubAppID, arg.RowLimit)
+// matching integration independently rather than borrowing these fallback credentials.
+// Include disconnected integrations so signed callbacks can be acknowledged without work.
+func (q *Queries) ListGitHubWebhookCredentialIntegrations(ctx context.Context, arg ListGitHubWebhookCredentialIntegrationsParams) ([]ProjectIntegration, error) {
+	rows, err := q.db.Query(ctx, listGitHubWebhookCredentialIntegrations, arg.IntegrationTypes, arg.GithubAppID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ProjectApp{}
+	items := []ProjectIntegration{}
 	for rows.Next() {
-		var i ProjectApp
+		var i ProjectIntegration
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -76,7 +76,7 @@ func (q *Queries) ListGitHubWebhookCredentialApps(ctx context.Context, arg ListG
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Name,
-			&i.AppType,
+			&i.IntegrationType,
 			&i.Settings,
 			&i.SetupRevision,
 		); err != nil {

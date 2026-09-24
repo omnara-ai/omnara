@@ -66,7 +66,7 @@ export function AgentConfigBasicForm({
             onToolsChange={form.setTools}
           />
           {Object.keys(form.interactionHandlers).length > 0 && (
-            <AgentConfigSectionCard title="App capabilities" action={null}>
+            <AgentConfigSectionCard title="Integration capabilities" action={null}>
               <div className="space-y-2 px-4 pb-4 text-sm sm:px-5">
                 <p>Interaction handlers: {Object.keys(form.interactionHandlers).join(', ')}</p>
                 <p className="text-muted-foreground">

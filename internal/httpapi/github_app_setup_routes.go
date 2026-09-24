@@ -12,13 +12,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 const githubManifestCallbackPath = "/api/integrations/github/manifest/callback"
@@ -28,10 +28,10 @@ const githubManifestStateTTL = time.Hour
 
 var githubOrganizationLogin = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 
-func (s strictOpenAPIServer) CreateProjectAppGitHubSetup(
+func (s strictOpenAPIServer) CreateProjectIntegrationGitHubSetup(
 	ctx context.Context,
-	request openapi.CreateProjectAppGitHubSetupRequestObject,
-) (openapi.CreateProjectAppGitHubSetupResponseObject, error) {
+	request openapi.CreateProjectIntegrationGitHubSetupRequestObject,
+) (openapi.CreateProjectIntegrationGitHubSetupResponseObject, error) {
 	if err := authorizeOperationPrincipal(ctx, principalKindBrowserSession); err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (s strictOpenAPIServer) CreateProjectAppGitHubSetup(
 	if err != nil {
 		return nil, err
 	}
-	app, err := s.projectAppForSetup(ctx, scope, request.AppID)
+	integration, err := s.projectIntegrationForSetup(ctx, scope, request.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,10 +49,10 @@ func (s strictOpenAPIServer) CreateProjectAppGitHubSetup(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	if err := validateGitHubRegistrationApp(app, request.Body.ExpectedSetupRevision); err != nil {
+	if err := validateGitHubRegistrationApp(integration, request.Body.ExpectedSetupRevision); err != nil {
 		return nil, err
 	}
-	name := app.Name
+	name := integration.Name
 	if request.Body.AppName != nil {
 		name = *request.Body.AppName
 	}
@@ -71,14 +71,14 @@ func (s strictOpenAPIServer) CreateProjectAppGitHubSetup(
 	}
 	expires := time.Now().UTC().Add(githubManifestStateTTL)
 	state := githubManifestState{
-		FlowID: flowID, OrgID: app.OrgID, ProjectID: app.ProjectID, AppID: app.ID,
-		UserID: principal.ID, SetupRevision: app.SetupRevision, ExpiresAt: expires,
+		FlowID: flowID, OrgID: integration.OrgID, ProjectID: integration.ProjectID, IntegrationID: integration.ID,
+		UserID: principal.ID, SetupRevision: integration.SetupRevision, ExpiresAt: expires,
 	}
 	token, err := s.server.encodeGitHubManifestState(ctx, state)
 	if err != nil {
 		return nil, err
 	}
-	path, err := githubAppReturnPath(app.ProjectID, app.ID)
+	path, err := githubIntegrationReturnPath(integration.ProjectID, integration.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -107,8 +107,8 @@ func (s strictOpenAPIServer) CreateProjectAppGitHubSetup(
 			"pull_request_review_comment",
 		},
 	}
-	return openapi.CreateProjectAppGitHubSetup201JSONResponse(openapi.GitHubSetup{
-		AppId: request.AppID, SetupRevision: app.SetupRevision,
+	return openapi.CreateProjectIntegrationGitHubSetup201JSONResponse(openapi.GitHubSetup{
+		IntegrationId: request.IntegrationID, SetupRevision: integration.SetupRevision,
 		RegistrationUrl: registration + "?" + url.Values{"state": {token}}.Encode(),
 		Manifest:        manifest, ExpiresAt: expires,
 	}), nil
@@ -150,36 +150,39 @@ func (s *Server) validateGitHubGuidedSetup() error {
 	return nil
 }
 
-func validateGitHubRegistrationApp(app appstore.ProjectAppRecord, revision int64) error {
-	if app.AppType != appdefinition.GitHubPR {
-		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this app does not support GitHub setup")
+func validateGitHubRegistrationApp(integration integrationstore.ProjectIntegrationRecord, revision int64) error {
+	if integration.IntegrationType != integrationdefinition.GitHubPR {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this integration does not support GitHub setup")
 	}
-	if app.SetupRevision != revision {
-		return apierror.ProjectScoped(appstore.ErrProjectAppSetupChanged)
+	if integration.SetupRevision != revision {
+		return apierror.ProjectScoped(integrationstore.ErrProjectIntegrationSetupChanged)
 	}
-	if app.ProviderTenantID != "" || app.State == appstore.ProjectAppStateActive {
-		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "use existing GitHub App credentials to reconnect this app")
+	if integration.ProviderTenantID != "" || integration.State == integrationstore.ProjectIntegrationStateActive {
+		return apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"use existing GitHub App credentials to reconnect this integration",
+		)
 	}
 	return nil
 }
 
-func githubAppReturnPath(projectID, appID uuid.UUID) (string, error) {
+func githubIntegrationReturnPath(projectID, integrationID uuid.UUID) (string, error) {
 	project, err := publicid.Encode(publicid.KindProject, projectID)
 	if err != nil {
 		return "", err
 	}
-	app, err := publicid.Encode(publicid.KindProjectApp, appID)
+	integration, err := publicid.Encode(publicid.KindProjectIntegration, integrationID)
 	if err != nil {
 		return "", err
 	}
-	return "/projects/" + project + "/apps/" + app, nil
+	return "/projects/" + project + "/integrations/" + integration, nil
 }
 
 type githubManifestState struct {
 	FlowID        uuid.UUID `json:"flow_id"`
 	OrgID         uuid.UUID `json:"org_id"`
 	ProjectID     uuid.UUID `json:"project_id"`
-	AppID         uuid.UUID `json:"app_id"`
+	IntegrationID uuid.UUID `json:"integration_id"`
 	UserID        uuid.UUID `json:"user_id"`
 	SetupRevision int64     `json:"setup_revision"`
 	ExpiresAt     time.Time `json:"expires_at"`
@@ -187,7 +190,7 @@ type githubManifestState struct {
 
 func (state githubManifestState) validate(now time.Time) error {
 	if state.FlowID == uuid.Nil || state.OrgID == uuid.Nil || state.ProjectID == uuid.Nil ||
-		state.AppID == uuid.Nil || state.UserID == uuid.Nil || state.SetupRevision < 1 ||
+		state.IntegrationID == uuid.Nil || state.UserID == uuid.Nil || state.SetupRevision < 1 ||
 		!now.Before(state.ExpiresAt) || state.ExpiresAt.After(now.Add(githubManifestStateTTL)) {
 		return errors.New("invalid GitHub registration state")
 	}
@@ -199,7 +202,7 @@ func (s *Server) encodeGitHubManifestState(ctx context.Context, state githubMani
 	if err != nil {
 		return "", err
 	}
-	if len(body) > appOAuthStateBytes {
+	if len(body) > integrationOAuthStateBytes {
 		return "", errors.New("GitHub registration state is too large")
 	}
 	return secrets.SealToken(ctx, s.secretKeyWrapper, githubManifestStatePurpose, body)

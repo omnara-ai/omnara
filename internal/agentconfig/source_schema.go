@@ -33,18 +33,18 @@ type EventWebhook struct {
 }
 
 type AgentConfigSource struct {
-	Version             string                                    `json:"version,omitempty"`
-	Instruction         string                                    `json:"instruction"`
-	Model               AgentConfigModelSource                    `json:"model"`
-	MachineSources      []AgentConfigMachineSource                `json:"machine_sources,omitempty"`
-	Tools               map[string]AgentConfigToolSource          `json:"tools,omitempty"`
-	MCP                 map[string]AgentConfigMCPSource           `json:"mcp,omitempty"`
-	InteractionHandlers map[string]AgentConfigAppCapabilitySource `json:"interaction_handlers,omitempty"`
-	Skills              []string                                  `json:"skills,omitempty"`
-	Subagents           map[string]AgentConfigSubagentSource      `json:"subagents,omitempty"`
-	MaxSubagents        *int                                      `json:"max_subagents,omitempty"`
-	MaxDepth            *int                                      `json:"max_depth,omitempty"`
-	EventWebhook        *EventWebhook                             `json:"event_webhook,omitempty"`
+	Version             string                                            `json:"version,omitempty"`
+	Instruction         string                                            `json:"instruction"`
+	Model               AgentConfigModelSource                            `json:"model"`
+	MachineSources      []AgentConfigMachineSource                        `json:"machine_sources,omitempty"`
+	Tools               map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
+	MCP                 map[string]AgentConfigMCPSource                   `json:"mcp,omitempty"`
+	InteractionHandlers map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
+	Skills              []string                                          `json:"skills,omitempty"`
+	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
+	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                              `json:"max_depth,omitempty"`
+	EventWebhook        *EventWebhook                                     `json:"event_webhook,omitempty"`
 }
 
 type AgentConfigModelSource struct {
@@ -348,7 +348,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 				kjsonschema.AnyOf(
 					kjsonschema.String(kjsonschema.Pattern(toolcatalog.ToolNamePattern)),
 					kjsonschema.String(
-						kjsonschema.Pattern(`^app__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$`),
+						kjsonschema.Pattern(`^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$`),
 						kjsonschema.MaxLength(64),
 					),
 				),
@@ -587,7 +587,7 @@ func agentConfigSourceSchema() *kjsonschema.Schema {
 			),
 		}),
 	)
-	addAppSourceSchema(schema)
+	addIntegrationSourceSchema(schema)
 	return schema
 }
 

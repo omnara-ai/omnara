@@ -5,13 +5,13 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
 func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.Agent, error) {
@@ -49,19 +49,19 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 		UpdatedAt:  record.UpdatedAt,
 		ArchivedAt: record.ArchivedAt,
 	}
-	if record.AppTarget.Provider != "" &&
-		record.AppTarget.ProviderRef != "" &&
-		record.AppTarget.ProviderRefKind != "" {
-		target := openapi.AppTarget{
-			Provider:        record.AppTarget.Provider,
-			ProviderRef:     record.AppTarget.ProviderRef,
-			ProviderRefKind: record.AppTarget.ProviderRefKind,
-			DisplayName:     record.AppTarget.DisplayName,
+	if record.IntegrationTarget.Provider != "" &&
+		record.IntegrationTarget.ProviderRef != "" &&
+		record.IntegrationTarget.ProviderRefKind != "" {
+		target := openapi.IntegrationTarget{
+			Provider:        record.IntegrationTarget.Provider,
+			ProviderRef:     record.IntegrationTarget.ProviderRef,
+			ProviderRefKind: record.IntegrationTarget.ProviderRefKind,
+			DisplayName:     record.IntegrationTarget.DisplayName,
 		}
-		if providerURI := appTargetProviderURI(record.AppTarget); providerURI != "" {
+		if providerURI := integrationTargetProviderURI(record.IntegrationTarget); providerURI != "" {
 			target.ProviderUri = &providerURI
 		}
-		response.AppTarget = &target
+		response.IntegrationTarget = &target
 	}
 	if currentConfigID != "" {
 		response.CurrentConfigId = &currentConfigID
@@ -91,9 +91,9 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 	return response, nil
 }
 
-func appTargetProviderURI(target executionstore.AppTargetDisplay) string {
+func integrationTargetProviderURI(target executionstore.IntegrationTargetDisplay) string {
 	switch target.Provider {
-	case appstore.AppProviderSlack:
+	case integrationstore.IntegrationProviderSlack:
 		return slack.ConversationURI(target.ProviderTenantID, target.ProviderRef)
 	default:
 		return ""

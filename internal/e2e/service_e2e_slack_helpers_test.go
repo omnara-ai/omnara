@@ -19,20 +19,20 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps"
-	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/harness/worker"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationredis"
@@ -40,23 +40,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func seedServiceSlackApp(
+func seedServiceSlackIntegration(
 	t *testing.T, ctx context.Context, env *serviceE2EEnvironment, project deterministicProject, store *storage.Store,
-) appstore.ProjectAppRecord {
+) integrationstore.ProjectIntegrationRecord {
 	t.Helper()
-	created := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/apps",
-		map[string]any{"name": "chat", "app_type": appdefinition.SlackThread, "settings": map[string]any{}},
+	created := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/integrations",
+		map[string]any{"name": "chat", "integration_type": integrationdefinition.SlackThread, "settings": map[string]any{}},
 		"", project.adminToken, http.StatusCreated)
-	appID, err := publicid.Decode(publicid.KindProjectApp, testutil.RequireType[string](t, created["id"]))
+	integrationID, err := publicid.Decode(publicid.KindProjectIntegration, testutil.RequireType[string](t, created["id"]))
 	require.NoError(t, err)
 	projectID, err := publicid.Decode(publicid.KindProject, project.projectID)
 	require.NoError(t, err)
-	app, err := store.Apps().GetProjectApp(ctx, projectID, appID)
+	integration, err := store.Integrations().GetProjectIntegration(ctx, projectID, integrationID)
 	require.NoError(t, err)
 	userID, err := publicid.Decode(publicid.KindUser, project.adminUserID)
 	require.NoError(t, err)
 	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
-		OrgID: app.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: projectID,
+		OrgID: integration.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: projectID,
 		Name: "local-slack", Actor: identitystore.NewUserPrincipal(userID),
 		Material: secrets.SlackAppCredentialsMaterial{
 			AccessToken: "xoxb-local-only", ClientID: "local-client", ClientSecret: "local-client-secret",
@@ -64,14 +64,26 @@ func seedServiceSlackApp(
 		},
 	})
 	require.NoError(t, err)
-	app, err = store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
-		OrgID: app.OrgID, ProjectID: projectID, AppID: app.ID, ExpectedSetupRevision: app.SetupRevision,
-		InstalledByUserID: userID, Provider: "slack", ProviderTenantID: "T123", ProviderAccountRef: "A123",
-		ProviderAgentDisplayName: "Scheduled bot", CredentialSecretID: credential.ID, CredentialVersionID: version.ID,
-		OAuthFlowID: uuid.Must(uuid.NewV7()), ProviderIdentity: json.RawMessage(`{"bot_user_id":"U_BOT"}`),
-	})
+	integration, err = store.Integrations().ConfigureProjectIntegration(
+		ctx,
+		integrationstore.ConfigureProjectIntegrationInput{
+			OrgID:                    integration.OrgID,
+			ProjectID:                projectID,
+			IntegrationID:            integration.ID,
+			ExpectedSetupRevision:    integration.SetupRevision,
+			InstalledByUserID:        userID,
+			Provider:                 "slack",
+			ProviderTenantID:         "T123",
+			ProviderAccountRef:       "A123",
+			ProviderAgentDisplayName: "Scheduled bot",
+			CredentialSecretID:       credential.ID,
+			CredentialVersionID:      version.ID,
+			OAuthFlowID:              uuid.Must(uuid.NewV7()),
+			ProviderIdentity:         json.RawMessage(`{"bot_user_id":"U_BOT"}`),
+		},
+	)
 	require.NoError(t, err)
-	return app
+	return integration
 }
 
 func startServiceSlackWorkers(
@@ -83,33 +95,38 @@ func startServiceSlackWorkers(
 	kernelWorker := worker.NewWorker(store.Execution(), kernel.AgentExecutor{
 		Store: store,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Apps()),
+			Store: modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
 		},
 		ModelResolver:   modelprovider.Resolver{Models: store.Models(), Secrets: store.Secrets(), AllowLoopback: true},
-		ToolExecutor:    tools.Executor{Store: store, AppHTTPClient: client, Log: log},
+		ToolExecutor:    tools.Executor{Store: store, IntegrationHTTPClient: client, Log: log},
 		StreamPublisher: bus, StreamLog: log,
 	}, worker.Options{Log: log, Capacity: 1, ControlSubscriber: bus})
-	router := apps.NewAppRouter(store.Execution(), store.Apps())
-	slackProvider := apps.NewSlackAppInboxProvider(
-		slack.OAuthConfig{HTTPClient: client}, store.Secrets(), store.Apps(), store.Execution(),
+	router := integrationruntime.NewIntegrationRouter(store.Execution(), store.Integrations())
+	slackProvider := integrationruntime.NewSlackIntegrationInboxProvider(
+		slack.OAuthConfig{HTTPClient: client}, store.Secrets(), store.Integrations(), store.Execution(),
 	)
-	providers := map[string]apps.AppInboxProvider{"slack": slackProvider}
-	launcher := apps.NewChatAppLauncher(store.Apps(), store.Execution(), providers)
-	launches := apps.NewAppLaunchWorkflow(router, map[appdefinition.Type]apps.AppLauncher{
-		appdefinition.SlackThread: launcher.Decide,
-	})
-	scheduled := apps.NewThreadAppScheduledHandler(router, store.Apps(), slackProvider)
-	consumer := apps.NewAppInboxConsumer(router, store.Apps(), store.Artifacts(), providers,
-		apps.InteractionPresenter{Store: store, HTTPClient: client}, launches,
-		apps.WithAppScheduledHandlers(map[appdefinition.Type]apps.AppScheduledHandler{
-			appdefinition.SlackThread: scheduled.Handle,
-		}))
-	appWorker := apps.NewAppInboxWorker(store.Apps(), consumer,
-		apps.AppInboxWorkerOptions{Log: log, Capacity: 1})
+	providers := map[string]integrationruntime.IntegrationInboxProvider{"slack": slackProvider}
+	launcher := integrationruntime.NewChatIntegrationLauncher(store.Integrations(), store.Execution(), providers)
+	launches := integrationruntime.NewIntegrationLaunchWorkflow(
+		router,
+		map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
+			integrationdefinition.SlackThread: launcher.Decide,
+		},
+	)
+	scheduled := integrationruntime.NewThreadIntegrationScheduledHandler(router, store.Integrations(), slackProvider)
+	consumer := integrationruntime.NewIntegrationInboxConsumer(router, store.Integrations(), store.Artifacts(), providers,
+		integrationruntime.InteractionPresenter{Store: store, HTTPClient: client}, launches,
+		integrationruntime.WithIntegrationScheduledHandlers(
+			map[integrationdefinition.Type]integrationruntime.IntegrationScheduledHandler{
+				integrationdefinition.SlackThread: scheduled.Handle,
+			},
+		))
+	integrationWorker := integrationruntime.NewIntegrationInboxWorker(store.Integrations(), consumer,
+		integrationruntime.IntegrationInboxWorkerOptions{Log: log, Capacity: 1})
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 2)
 	go func() { done <- kernelWorker.Run(workerCtx) }()
-	go func() { done <- appWorker.Run(workerCtx) }()
+	go func() { done <- integrationWorker.Run(workerCtx) }()
 	t.Cleanup(func() {
 		cancel()
 		for range 2 {
@@ -119,7 +136,7 @@ func startServiceSlackWorkers(
 					assert.NoError(t, err)
 				}
 			case <-time.After(10 * time.Second):
-				t.Error("hosted app worker did not stop")
+				t.Error("hosted integration worker did not stop")
 			}
 		}
 	})

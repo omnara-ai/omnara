@@ -23,13 +23,13 @@ type ActorParams struct {
 	Metadata         resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
-func AppActorParams(appID uuid.UUID, userID string, displayName *string) (ActorParams, error) {
-	tenantID, err := publicid.Encode(publicid.KindProjectApp, appID)
+func IntegrationActorParams(integrationID uuid.UUID, userID string, displayName *string) (ActorParams, error) {
+	tenantID, err := publicid.Encode(publicid.KindProjectIntegration, integrationID)
 	if err != nil {
 		return ActorParams{}, err
 	}
 	return ActorParams{
-		Provider: ActorProviderApp, ProviderTenantID: tenantID,
+		Provider: ActorProviderIntegration, ProviderTenantID: tenantID,
 		ProviderUserID: userID, DisplayName: displayName,
 	}, nil
 }

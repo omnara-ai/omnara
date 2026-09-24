@@ -1,11 +1,11 @@
 import type {
   AgentConfigModel,
-  AppDefinition,
   CurrentUser,
   CurrentUserOrg,
+  IntegrationDefinition,
   MachinePool,
   OrgInvitation,
-  ProjectApp,
+  ProjectIntegration,
   ProjectMachinePoolGrant,
 } from '@omnara/sdk'
 
@@ -121,15 +121,17 @@ export function orgInvitation(overrides: Partial<OrgInvitation> = {}): OrgInvita
   }
 }
 
-export function appDefinition(appType: AppDefinition['app_type'] = 'slack_thread'): AppDefinition {
+export function integrationDefinition(
+  integrationType: IntegrationDefinition['integration_type'] = 'slack_thread',
+): IntegrationDefinition {
   const capability = {
     input_schema: { type: 'object', properties: {} },
   }
-  const definition: AppDefinition = {
-    app_type: appType,
+  const definition: IntegrationDefinition = {
+    integration_type: integrationType,
     capabilities: {
       tools:
-        appType === 'github_pr'
+        integrationType === 'github_pr'
           ? {
               read: capability,
               discussion_comment: capability,
@@ -138,17 +140,17 @@ export function appDefinition(appType: AppDefinition['app_type'] = 'slack_thread
             }
           : { read: capability, post_message: capability },
       subscriptions: {
-        [appType === 'github_pr' ? 'pull_request' : 'thread_messages']: {
+        [integrationType === 'github_pr' ? 'pull_request' : 'thread_messages']: {
           conversation_schema: { type: 'object', properties: {} },
           events:
-            appType === 'github_pr'
+            integrationType === 'github_pr'
               ? ['discussion_comment', 'review_comment', 'commit']
               : ['message'],
         },
       },
     },
   }
-  if (appType !== 'github_pr') {
+  if (integrationType !== 'github_pr') {
     definition.capabilities.interaction_handler = capability
     definition.capabilities.schedule = {
       description: 'Start a fresh agent in a new channel thread on each run.',
@@ -178,9 +180,9 @@ export function appDefinition(appType: AppDefinition['app_type'] = 'slack_thread
           channel_id: {
             type: 'string',
             title: 'Channel ID',
-            pattern: appType === 'slack_thread' ? '^[CG][A-Z0-9]+$' : '^[1-9][0-9]*$',
+            pattern: integrationType === 'slack_thread' ? '^[CG][A-Z0-9]+$' : '^[1-9][0-9]*$',
             description:
-              appType === 'slack_thread'
+              integrationType === 'slack_thread'
                 ? 'Use a Slack channel ID beginning with C or G.'
                 : 'Use a Discord text or announcement channel ID.',
           },
@@ -208,13 +210,15 @@ export function appDefinition(appType: AppDefinition['app_type'] = 'slack_thread
   return definition
 }
 
-export function projectApp(overrides: Partial<ProjectApp> = {}): ProjectApp {
-  const definition = appDefinition(overrides.app_type)
+export function projectIntegration(
+  overrides: Partial<ProjectIntegration> = {},
+): ProjectIntegration {
+  const definition = integrationDefinition(overrides.integration_type)
   return {
-    id: fakeId('app'),
+    id: fakeId('itg'),
     project_id: fakeId('proj'),
     name: 'engineering',
-    app_type: definition.app_type,
+    integration_type: definition.integration_type,
     state: 'disconnected',
     setup_revision: 1,
     settings: {},

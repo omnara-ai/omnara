@@ -28,26 +28,26 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY` | Maximum event webhook deliveries in flight per worker process | `128` | No |
 | `OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY` | Soft cap on concurrent event webhook deliveries per org across workers; use the same value on every worker | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
-| `OMNARA_WORKER_INBOX_CAPACITY` | Maximum app inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
-| `OMNARA_WORKER_DISCORD_CAPACITY` | Maximum concurrent Discord app Gateway sessions per worker process; positive integer | `64` | No |
+| `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
+| `OMNARA_WORKER_DISCORD_CAPACITY` | Maximum concurrent Discord integration Gateway sessions per worker process; positive integer | `64` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
 
-### App inbox operation
+### Integration inbox operation
 
 Inbox concurrency is independent of agent-turn concurrency. All worker activity
 shares the database pool; raising inbox capacity does not raise its connection
 limit. Start with the default pool of 10 maximum connections and measure queue
 lag and database contention before increasing concurrency or replica counts.
 
-Workers sample `omnara_app_inbox_oldest_ready_lag_seconds` about every 30 seconds,
+Workers sample `omnara_integration_inbox_oldest_ready_lag_seconds` about every 30 seconds,
 including while every consumer is busy. This measures time since `available_at`
-for the oldest due pending receipt, including inactive apps awaiting recovery;
+for the oldest due pending receipt, including inactive integrations awaiting recovery;
 future retry delays and processing leases are excluded. Scrapes read cached
-values and never query the inbox. The metric has no app or project labels and
+values and never query the inbox. The metric has no integration or project labels and
 reports zero for an empty ready queue, or `NaN` before sampling or after a failed
-sample. Check `omnara_app_inbox_lag_sample_last_success_timestamp_seconds` for
+sample. Check `omnara_integration_inbox_lag_sample_last_success_timestamp_seconds` for
 freshness; it remains unchanged on failure. Each worker observes the same global
 queue, so compare the maximum lag across workers rather than summing it.
 
@@ -60,8 +60,8 @@ The lag query has its own one-second deadline and runs at most once per 30 secon
 
 Inbox retention runs concurrently with the other core maintenance tasks. Completed/failed receipts
 become eligible for deletion seven days after finishing, measured by the database
-clock. Locks or cleanup backlogs can delay deletion. Deleting the app, project or
-organization can purge receipts earlier; disconnecting an app preserves normal
+clock. Locks or cleanup backlogs can delay deletion. Deleting the integration, project or
+organization can purge receipts earlier; disconnecting an integration preserves normal
 retention.
 Terminal and deleted-scope cleanup each drain 100-row transactions with a 250 ms
 soft budget checked between batches. The current batch may finish beyond that
@@ -79,7 +79,7 @@ transport deduplication window; exceptionally late replays can be accepted again
 Accepted agent history is independent and remains intact. Newer messages may pass
 an older receipt waiting to retry.
 
-The opt-in `TestAppInboxLocalLoad` experiment runs with `OMNARA_INBOX_LOAD=1`
+The opt-in `TestIntegrationInboxLocalLoad` experiment runs with `OMNARA_INBOX_LOAD=1`
 and the normal local test database URL. A September 2026 PostgreSQL 18 run against
 100,000 historical receipts completed about 289 receipts/s with four consumers
 and ten connections, or 639/s with sixteen consumers and twenty connections.

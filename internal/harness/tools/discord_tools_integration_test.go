@@ -11,23 +11,23 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func createDiscordToolApp(
+func createDiscordToolIntegration(
 	t *testing.T,
 	ctx context.Context,
 	store *storage.Store,
 	userID uuid.UUID,
-) appstore.ProjectAppRecord {
+) integrationstore.ProjectIntegrationRecord {
 	t.Helper()
 	secret, version, err := store.Secrets().
 		CreateSecret(
@@ -42,25 +42,31 @@ func createDiscordToolApp(
 			},
 		)
 	require.NoError(t, err)
-	app, err := store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", AppType: appdefinition.DiscordThread,
+	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		OrgID:           toolsTestOrgID,
+		ProjectID:       toolsTestProjectID,
+		Name:            "chat",
+		IntegrationType: integrationdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
-	app, err = store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
-		OrgID:                 toolsTestOrgID,
-		ProjectID:             toolsTestProjectID,
-		AppID:                 app.ID,
-		ExpectedSetupRevision: app.SetupRevision,
-		InstalledByUserID:     userID,
-		Provider:              appdefinition.ProviderDiscord,
-		ProviderTenantID:      "111",
-		ProviderAccountRef:    "222",
-		CredentialSecretID:    secret.ID,
-		CredentialVersionID:   version.ID,
-		ProviderConfig:        json.RawMessage(`{"public_key":"` + strings.Repeat("ab", 32) + `"}`),
-	})
+	integration, err = store.Integrations().ConfigureProjectIntegration(
+		ctx,
+		integrationstore.ConfigureProjectIntegrationInput{
+			OrgID:                 toolsTestOrgID,
+			ProjectID:             toolsTestProjectID,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
+			InstalledByUserID:     userID,
+			Provider:              integrationdefinition.ProviderDiscord,
+			ProviderTenantID:      "111",
+			ProviderAccountRef:    "222",
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   version.ID,
+			ProviderConfig:        json.RawMessage(`{"public_key":"` + strings.Repeat("ab", 32) + `"}`),
+		},
+	)
 	require.NoError(t, err)
-	return app
+	return integration
 }
 
 func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
@@ -68,7 +74,7 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "discord-scope", toolFixtureOptions{
-				withDiscordApp: true, withToolContext: true,
+				withDiscordIntegration: true, withToolContext: true,
 			})
 			posts := 0
 			thread := map[string]any{"id": "555", "parent_id": "444", "guild_id": "333", "type": 11}
@@ -116,14 +122,20 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			call := f.recordToolCall(t, ctx, "post", toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
-				`{"content":"hello"}`, f.Now)
-			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
+			call := f.recordToolCall(
+				t,
+				ctx,
+				"post",
+				toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage),
+				`{"content":"hello"}`,
+				f.Now,
+			)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
-			require.Empty(t, appToolSubscriptions(t, f), "sending must not create subscriptions")
+			require.Empty(t, integrationToolSubscriptions(t, f), "sending must not create subscriptions")
 			if scenario == "valid" {
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
 				require.Equal(t, 1, posts)
@@ -143,10 +155,10 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 	}
 }
 
-func TestDiscordAppReadSavedThreadPagination(t *testing.T) {
+func TestDiscordIntegrationReadSavedThreadPagination(t *testing.T) {
 	ctx := t.Context()
 	f := newIntegrationToolFixtureWithOptions(t, ctx, "discord-read", toolFixtureOptions{
-		withDiscordApp: true, withToolContext: true,
+		withDiscordIntegration: true, withToolContext: true,
 	})
 	reads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -172,9 +184,9 @@ func TestDiscordAppReadSavedThreadPagination(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	call := f.recordToolCall(t, ctx, "read", "app__chat__read", `{"before":"777","limit":1}`, f.Now)
+	call := f.recordToolCall(t, ctx, "read", "int__chat__read", `{"before":"777","limit":1}`, f.Now)
 	result, err := dispatchAsyncToolToTerminal(t, ctx,
-		Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}, f.turn(), call)
+		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
 	require.NoError(t, err)
 	record, err := f.Store.Execution().GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 	require.NoError(t, err)

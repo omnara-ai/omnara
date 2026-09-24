@@ -46,12 +46,12 @@ type CreateQuestionInteractionInput struct {
 }
 
 type ResolveAgentInteractionInput struct {
-	ProjectID   uuid.UUID
-	AgentID     uuid.UUID
-	ID          uuid.UUID
-	Resolution  interactionform.Resolution
-	Actor       *ActorParams
-	AppTargetID uuid.UUID
+	ProjectID           uuid.UUID
+	AgentID             uuid.UUID
+	ID                  uuid.UUID
+	Resolution          interactionform.Resolution
+	Actor               *ActorParams
+	IntegrationTargetID uuid.UUID
 }
 
 type AgentInteractionRecord struct {

@@ -6,18 +6,18 @@ import (
 )
 
 const (
-	appMessageSendAttempts          = 3
-	appMessageSendMaxRateLimitSleep = 15 * time.Second
+	integrationMessageSendAttempts          = 3
+	integrationMessageSendMaxRateLimitSleep = 15 * time.Second
 )
 
-func sleepForAppRateLimit(
+func sleepForIntegrationRateLimit(
 	ctx context.Context,
 	retryAfter time.Duration,
 	rateLimitSlept *time.Duration,
 	attempt int,
 ) (bool, error) {
-	if retryAfter < 0 || *rateLimitSlept+retryAfter > appMessageSendMaxRateLimitSleep ||
-		attempt >= appMessageSendAttempts {
+	if retryAfter < 0 || *rateLimitSlept+retryAfter > integrationMessageSendMaxRateLimitSleep ||
+		attempt >= integrationMessageSendAttempts {
 		return false, nil
 	}
 	timer := time.NewTimer(retryAfter)

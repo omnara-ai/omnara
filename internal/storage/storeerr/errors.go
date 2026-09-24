@@ -15,7 +15,7 @@ var (
 	ErrInvalidRequest                = errors.New("invalid request")
 	ErrNoClaimableAgentWakeup        = errors.New("no claimable agent wakeup")
 	ErrAgentNotAdvanceable           = errors.New("agent is not advanceable")
-	ErrAgentLaunchFailed             = errors.New("launch agent for app target")
+	ErrAgentLaunchFailed             = errors.New("launch agent for integration target")
 	ErrRuntimeLockInactive           = errors.New("runtime lock is not active")
 	ErrToolCallInProgress            = errors.New("tool call is already in progress")
 	ErrInvalidToolCallDisposition    = errors.New("invalid tool call transaction disposition")
@@ -52,7 +52,7 @@ var (
 	ErrOAuthScopeExceedsGrant        = errors.New("requested scope exceeds the granted scope")
 	ErrNotFound                      = errors.New("not found")
 	ErrMCPOAuthFlowConsumed          = errors.New("mcp oauth flow already consumed")
-	ErrAppOAuthFlowConsumed          = errors.New("app oauth flow already consumed")
+	ErrIntegrationOAuthFlowConsumed  = errors.New("integration oauth flow already consumed")
 )
 
 type taggedError struct {

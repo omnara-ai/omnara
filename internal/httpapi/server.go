@@ -15,9 +15,9 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/apps/discord"
-	"github.com/omnara-ai/omnara/internal/apps/github"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -72,7 +72,7 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
-	appHTTPClient                       *http.Client
+	integrationHTTPClient               *http.Client
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -84,15 +84,13 @@ type Server struct {
 	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
-
-	machinePoolManager *machinepool.Manager
-
-	daemonRuntimeLeaseDuration        time.Duration
-	daemonSocketFallbackDrainInterval time.Duration
-	daemonSocketFallbackDrainJitter   time.Duration
-	agentEventReconciliationInterval  time.Duration
-	skillDownloadSigningKey           []byte
-	timer                             clock.Clock
+	machinePoolManager                  *machinepool.Manager
+	daemonRuntimeLeaseDuration          time.Duration
+	daemonSocketFallbackDrainInterval   time.Duration
+	daemonSocketFallbackDrainJitter     time.Duration
+	agentEventReconciliationInterval    time.Duration
+	skillDownloadSigningKey             []byte
+	timer                               clock.Clock
 }
 
 func WithTimer(timer clock.Clock) Option {
@@ -225,9 +223,9 @@ func WithSlackOAuth(config SlackOAuthConfig) Option {
 	}
 }
 
-func WithAppHTTPClient(client *http.Client) Option {
+func WithIntegrationHTTPClient(client *http.Client) Option {
 	return func(s *Server) {
-		s.appHTTPClient = client
+		s.integrationHTTPClient = client
 	}
 }
 

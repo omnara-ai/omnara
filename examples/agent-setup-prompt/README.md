@@ -44,10 +44,10 @@ and retry — don't skip ahead.
    - ordinary built-in tools except create_machine and delete_machine —
      list them from GET /tool-catalog. Select list_interaction_handlers and
      set_interaction_handler explicitly if configuring handlers manually. If I
-     chose Slack, its app launcher below supplies these tools, namespaced read/send tools,
-     an app-owned thread subscription and an interaction handler to agents it launches;
-     leave app tools out of the base profile. Tell the agent to use the
-     available app__<app-name>__post_message tool for answers and updates
+     chose Slack, its integration launcher below supplies these tools, namespaced read/send tools,
+     an integration-owned thread subscription and an interaction handler to agents it launches;
+     leave integration tools out of the base profile. Tell the agent to use the
+     available int__<integration-name>__post_message tool for answers and updates
      in Slack, or reply directly in Omnara when no Slack tool is available
    - the granted model and pool
    - if a PAT was collected: create a project-owned secret from the
@@ -66,18 +66,18 @@ and retry — don't skip ahead.
 
 5. If I chose Slack: ask for the Slack workspace ID (T…) and an app
    configuration token from https://api.slack.com/apps (under "Your App
-   Configuration Tokens"). Create a project app with an immutable name
-   such as "team-chat", app_type "slack_thread", and
+   Configuration Tokens"). Create a project integration with an immutable name
+   such as "team-chat", integration_type "slack_thread", and
    settings.launcher {trigger: "mention", scope_kind: "workspace",
    scope_ref: <workspace ID>, slots: [{key: "default",
-   agent_profile_id: <profile ID>}]}. Use the returned app ID with
-   POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/slack-setup, sending
+   agent_profile_id: <profile ID>}]}. Use the returned integration ID with
+   POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup, sending
    app_name and app_configuration_token. Open the returned oauth_url in my
    browser for me to approve before expires_at. Once approved, tell me to
    invite the bot to a channel in that workspace and @-mention it to start a
    conversation, or DM it for a persistent one-on-one agent.
 
 For an existing native Slack deployment, use the coordinated maintenance cutover
-at https://docs.omnara.com/self-hosting/composable-apps-cutover before this setup.
-It preserves prior sending scopes as app-agent context and does not create
+at https://docs.omnara.com/self-hosting/composable-integrations-cutover before this setup.
+It preserves prior sending scopes as integration-agent context and does not create
 subscriptions or interaction handlers for old conversations.

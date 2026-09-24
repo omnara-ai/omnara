@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -224,11 +224,11 @@ func agentInteractionResponseFromRecord(
 		return openapi.AgentInteraction{}, err
 	}
 	if destination != nil {
-		appID, err := publicID(publicid.KindProjectApp, destination.AppID)
+		integrationID, err := publicID(publicid.KindProjectIntegration, destination.IntegrationID)
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
-		targetID, err := publicID(publicid.KindAppTarget, destination.AppTargetID)
+		targetID, err := publicID(publicid.KindIntegrationTarget, destination.IntegrationTargetID)
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
@@ -237,12 +237,12 @@ func agentInteractionResponseFromRecord(
 			return openapi.AgentInteraction{}, err
 		}
 		response.Destination = &openapi.AgentInteractionDestination{
-			AppType:     openapi.AppType(destination.AppType),
-			Args:        args,
-			HandlerKey:  destination.HandlerKey,
-			AppId:       appID,
-			AppTargetId: targetID,
-			Address: openapi.AppConversationAddress{
+			IntegrationType:     openapi.IntegrationType(destination.IntegrationType),
+			Args:                args,
+			HandlerKey:          destination.HandlerKey,
+			IntegrationId:       integrationID,
+			IntegrationTargetId: targetID,
+			Address: openapi.IntegrationConversationAddress{
 				Kind: destination.Address.Kind, Ref: destination.Address.Ref,
 			},
 		}
@@ -340,7 +340,7 @@ func (s *Server) dismissInteractionAsync(ctx context.Context, record executionst
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		presenter := apps.InteractionPresenter{Store: s.store, HTTPClient: s.appHTTPClient, Log: s.log}
+		presenter := integrationruntime.InteractionPresenter{Store: s.store, HTTPClient: s.integrationHTTPClient, Log: s.log}
 		if err := presenter.Dismiss(ctx, record); err != nil {
 			s.log.Warn("interaction dismissal failed", "interaction_id", record.ID, "error", err)
 		}

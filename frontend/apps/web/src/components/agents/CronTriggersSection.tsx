@@ -34,7 +34,7 @@ function nextFireLabel(value: string) {
   return ` · next ${nextFireFormatter.format(date)}`
 }
 
-function appRunLabel(trigger: CronTrigger) {
+function integrationRunLabel(trigger: CronTrigger) {
   if (!trigger.last_run) {
     return trigger.last_fired_at ? 'Last run: details not retained' : 'Not run yet'
   }
@@ -44,7 +44,7 @@ function appRunLabel(trigger: CronTrigger) {
     case 'processing':
       return 'Last run: processing'
     case 'completed':
-      return 'Last run: app action completed'
+      return 'Last run: integration action completed'
     case 'failed':
       return `Last run: ${trigger.last_run.failure_message ?? 'failed'}`
   }
@@ -118,7 +118,7 @@ export function CronTriggersListContent({
                       align="start"
                       className="max-w-sm whitespace-pre-wrap px-4 py-2 text-left text-sm leading-relaxed"
                     >
-                      {trigger.message_template ?? 'Scheduled app action'}
+                      {trigger.message_template ?? 'Scheduled integration action'}
                     </TooltipContent>
                   </Tooltip>
                   {trigger.failure_report && <Badge variant="destructive">Failing</Badge>}
@@ -129,9 +129,9 @@ export function CronTriggersListContent({
                     ` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}
                   {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
-                {trigger.target.type === 'app' && (
+                {trigger.target.type === 'integration' && (
                   <p className="text-muted-foreground break-words text-xs">
-                    {appRunLabel(trigger)}
+                    {integrationRunLabel(trigger)}
                     {trigger.last_run && (
                       <>
                         {' · '}

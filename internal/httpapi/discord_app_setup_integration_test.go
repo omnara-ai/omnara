@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps/discord"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,17 +45,17 @@ func discordSetupTestConfig(t *testing.T) discord.Config {
 
 func TestDiscordHTTPCredentialReplacementCannotChangeIdentity(t *testing.T) {
 	t.Parallel()
-	f := newAppSetupIdentityFixture(t, "discord", nil)
-	foreignSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "foreign-token",
+	f := newIntegrationSetupIdentityFixture(t, "discord", nil)
+	foreignSecret := createIntegrationSetupHTTPSecret(t, f.handler, f.project, "foreign-token",
 		map[string]any{"kind": "generic", "value": "other-customer-token"})
 	f.body["credential_secret_id"] = foreignSecret
 	delete(f.body, "provider_account_ref")
 	f.update(t, http.StatusBadRequest)
 	current := f.current(t)
-	require.Equal(t, f.app.CredentialSecretID, current.CredentialSecretID)
-	require.Equal(t, f.app.UpdatedAt, current.UpdatedAt)
-	require.JSONEq(t, string(f.app.ProviderIdentity), string(current.ProviderIdentity))
-	require.JSONEq(t, string(f.app.ProviderMetadata), string(current.ProviderMetadata))
+	require.Equal(t, f.integration.CredentialSecretID, current.CredentialSecretID)
+	require.Equal(t, f.integration.UpdatedAt, current.UpdatedAt)
+	require.JSONEq(t, string(f.integration.ProviderIdentity), string(current.ProviderIdentity))
+	require.JSONEq(t, string(f.integration.ProviderMetadata), string(current.ProviderMetadata))
 	f.body["provider_account_ref"] = "999"
 	f.update(
 		t,
@@ -69,26 +69,26 @@ func TestDiscordHTTPSetupDiscoversBotIdentity(t *testing.T) {
 	handler := newIntegrationServer(openIntegrationDB(t, t.Context()),
 		WithDiscordClientConfig(discordSetupTestConfig(t)))
 	project := bootstrapPublicHTTPProject(t, handler, "discord-discover-bot")
-	secretID := createAppSetupHTTPSecret(t, handler, project, "discord-credentials",
+	secretID := createIntegrationSetupHTTPSecret(t, handler, project, "discord-credentials",
 		map[string]any{"kind": "generic", "value": "private-discord-token"})
 	body := map[string]any{
 		"expected_setup_revision": 1,
 		"provider_tenant_id":      "111",
 		"credential_secret_id":    secretID,
 	}
-	app := configureDiscordHTTPApp(t, handler, project, body)
-	require.Equal(t, "111", app.ProviderTenantID)
-	require.Equal(t, "222", app.ProviderAccountRef)
-	require.Equal(t, "Helper", app.ProviderAgentDisplayName)
-	require.Equal(t, appstore.ProjectAppStateActive, app.State)
+	integration := configureDiscordHTTPIntegration(t, handler, project, body)
+	require.Equal(t, "111", integration.ProviderTenantID)
+	require.Equal(t, "222", integration.ProviderAccountRef)
+	require.Equal(t, "Helper", integration.ProviderAgentDisplayName)
+	require.Equal(t, integrationstore.ProjectIntegrationStateActive, integration.State)
 }
 
 func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name, app, bot string
-		botAccount     bool
-		status, want   int
+		name, integration, bot string
+		botAccount             bool
+		status, want           int
 	}{
 		{"wrong application", "999", "222", true, http.StatusOK, http.StatusBadRequest},
 		{"wrong bot", "111", "999", true, http.StatusOK, http.StatusBadRequest},
@@ -108,7 +108,7 @@ func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 					} else if r.URL.Path == "/api/v10/users/@me" {
 						fmt.Fprintf(w, `{"id":%q,"bot":%t}`, tc.bot, tc.botAccount)
 					} else {
-						fmt.Fprintf(w, `{"id":%q}`, tc.app)
+						fmt.Fprintf(w, `{"id":%q}`, tc.integration)
 					}
 				}),
 			)
@@ -120,23 +120,23 @@ func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 				}),
 			)
 			project := bootstrapPublicHTTPProject(t, handler, "discord-invalid-identity")
-			secretID := createAppSetupHTTPSecret(t, handler, project, "discord-credentials",
+			secretID := createIntegrationSetupHTTPSecret(t, handler, project, "discord-credentials",
 				map[string]any{"kind": "generic", "value": "private-discord-token"})
-			body := appSetupHTTPBody("111", "222")
+			body := integrationSetupHTTPBody("111", "222")
 			if tc.name != "wrong bot" {
 				delete(body, "provider_account_ref")
 			}
 			body["credential_secret_id"] = secretID
-			app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
+			integration := createSetupHTTPIntegration(t, handler, project, "discord", integrationdefinition.DiscordThread)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
-				appSetupPath(t, project, app), projectAppHTTPJSON(t, body),
+				integrationSetupPath(t, project, integration), projectIntegrationHTTPJSON(t, body),
 				"", tc.want, authHeaders(project.AdminToken))
-			require.NotContains(t, projectAppHTTPJSON(t, response), "private-discord-token")
+			require.NotContains(t, projectIntegrationHTTPJSON(t, response), "private-discord-token")
 			var count int
 			require.NoError(t, integrationPoolForHandler(t, handler).QueryRow(t.Context(),
-				`SELECT count(*) FROM project_apps WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
+				`SELECT count(*) FROM project_integrations WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
 				Scan(&count))
-			require.Zero(t, count, "unverified credentials must not activate the app")
+			require.Zero(t, count, "unverified credentials must not activate the integration")
 		})
 	}
 }
@@ -153,7 +153,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			calls := 0
-			f := newAppSetupIdentityFixture(t, "discord", func(context.Context) error {
+			f := newIntegrationSetupIdentityFixture(t, "discord", func(context.Context) error {
 				calls++
 				return nil
 			})
@@ -163,16 +163,16 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 			f.update(t, http.StatusOK)
 			before := f.current(t)
 			require.Equal(t, "Helper", before.ProviderAgentDisplayName)
-			require.JSONEq(t, projectAppHTTPJSON(t, config), string(before.ProviderConfig))
+			require.JSONEq(t, projectIntegrationHTTPJSON(t, config), string(before.ProviderConfig))
 			require.Equal(t, f.steps, calls, "saving settings reuses the verified credential")
 
 			rotated := requestJSONWithHeaders(t, f.handler, http.MethodPost,
 				"/api/v1/orgs/"+f.project.OrgID+"/secrets/"+
-					testPublicID(t, publicid.KindSecret, f.app.CredentialSecretID)+"/versions",
+					testPublicID(t, publicid.KindSecret, f.integration.CredentialSecretID)+"/versions",
 				`{"material":{"kind":"generic","value":"rotated-discord-token"}}`,
 				"", http.StatusOK, authHeaders(f.project.AdminToken))
 			require.Equal(t, float64(2), rotated["current_version_number"])
-			wantConfig := projectAppHTTPJSON(t, config)
+			wantConfig := projectIntegrationHTTPJSON(t, config)
 			delete(f.body, "provider_config")
 			if tc.clear {
 				f.body["provider_config"] = map[string]any{}
@@ -185,14 +185,14 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 			require.JSONEq(t, wantConfig, string(after.ProviderConfig))
 			require.Equal(t, 2*f.steps, calls, "rotated token must be verified with the provider")
 			secret, err := f.project.Store.Secrets().GetSecret(
-				t.Context(), f.project.OrgUUID, f.app.CredentialSecretID)
+				t.Context(), f.project.OrgUUID, f.integration.CredentialSecretID)
 			require.NoError(t, err)
-			require.NotEqual(t, verifiedAppCredentialVersion(t, before), secret.CurrentVersionID)
-			require.Equal(t, secret.CurrentVersionID, verifiedAppCredentialVersion(t, after))
+			require.NotEqual(t, verifiedIntegrationCredentialVersion(t, before), secret.CurrentVersionID)
+			require.Equal(t, secret.CurrentVersionID, verifiedIntegrationCredentialVersion(t, after))
 			response := requestJSONWithHeaders(t, f.handler, http.MethodGet,
-				strings.TrimSuffix(appSetupPath(t, f.project, f.app), "/setup"),
+				strings.TrimSuffix(integrationSetupPath(t, f.project, f.integration), "/setup"),
 				"", "", http.StatusOK, authHeaders(f.project.AdminToken))
-			require.JSONEq(t, wantConfig, projectAppHTTPJSON(t, response["provider_config"]))
+			require.JSONEq(t, wantConfig, projectIntegrationHTTPJSON(t, response["provider_config"]))
 
 			f.body["expected_setup_revision"] = before.SetupRevision
 			f.body["provider_config"] = map[string]any{"public_key": strings.Repeat("cd", 32)}
@@ -203,26 +203,26 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 	}
 }
 
-func configureDiscordHTTPApp(
+func configureDiscordHTTPIntegration(
 	t *testing.T, handler http.Handler, project publicHTTPProject, body map[string]any,
-) appstore.ProjectAppRecord {
+) integrationstore.ProjectIntegrationRecord {
 	t.Helper()
-	app := createSetupHTTPApp(t, handler, project, "discord", appdefinition.DiscordThread)
+	integration := createSetupHTTPIntegration(t, handler, project, "discord", integrationdefinition.DiscordThread)
 	requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
-		appSetupPath(t, project, app),
-		projectAppHTTPJSON(t, body),
+		integrationSetupPath(t, project, integration),
+		projectIntegrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	app, err := project.Store.Apps().
-		GetProjectApp(t.Context(), project.ProjectUUID, app.ID)
+	integration, err := project.Store.Integrations().
+		GetProjectIntegration(t.Context(), project.ProjectUUID, integration.ID)
 	require.NoError(t, err)
 	var identity discord.Identity
-	require.NoError(t, json.Unmarshal(app.ProviderIdentity, &identity))
+	require.NoError(t, json.Unmarshal(integration.ProviderIdentity, &identity))
 	require.Equal(t, discord.Identity{ApplicationID: "111", BotUserID: "222"}, identity)
-	return app
+	return integration
 }

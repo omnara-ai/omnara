@@ -9,23 +9,23 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/require"
 )
 
 func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	t.Parallel()
-	app := newAppActivationFixture(t)
+	integration := newIntegrationActivationFixture(t)
 	var compiled agentconfig.Compiled
-	require.NoError(t, json.Unmarshal(app.profile.CurrentConfig.CompiledDefinition, &compiled))
+	require.NoError(t, json.Unmarshal(integration.profile.CurrentConfig.CompiledDefinition, &compiled))
 	compiled.EventWebhook = &agentconfig.EventWebhookCompiled{
 		URL: "https://example.com/events", Events: []string{"agent_input"},
 	}
-	definition := app.encodedDefinition(t, compiled)
-	app.profile.CurrentConfig.CompiledDefinition = definition.CompiledDefinition
-	f := newInboxLaunchFixtureForApp(t, app, false, time.Minute, "a")
-	before, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, f.receipt.ID)
+	definition := integration.encodedDefinition(t, compiled)
+	integration.profile.CurrentConfig.CompiledDefinition = definition.CompiledDefinition
+	f := newInboxLaunchFixtureForIntegration(t, integration, false, time.Minute, "a")
+	before, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, f.receipt.ID)
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx,
 		`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_test_deliveries CHECK (false) NOT VALID`)
@@ -33,14 +33,14 @@ func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
 	require.ErrorContains(t, err, "enqueue event webhook")
 	f.assertAbsent(t, "a")
-	assertInboxWebhookProgress(t, f.appActivationFixture, before)
-	assertInboxWebhookCount(t, f.appActivationFixture, f.slots["a"].AgentID, "agent_input", 0)
+	assertInboxWebhookProgress(t, f.integrationActivationFixture, before)
+	assertInboxWebhookCount(t, f.integrationActivationFixture, f.slots["a"].AgentID, "agent_input", 0)
 	_, err = f.store.pool.Exec(f.ctx, `ALTER TABLE event_webhook_deliveries DROP CONSTRAINT reject_test_deliveries`)
 	require.NoError(t, err)
 	result, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
 	require.NoError(t, err)
 	require.True(t, result.Created)
-	assertInboxWebhookCount(t, f.appActivationFixture, result.Agent.ID, "agent_input", 1)
+	assertInboxWebhookCount(t, f.integrationActivationFixture, result.Agent.ID, "agent_input", 1)
 	var sequence int64
 	require.NoError(t, f.store.pool.QueryRow(f.ctx,
 		`SELECT event_sequence FROM event_webhook_deliveries WHERE agent_id=$1`, result.Agent.ID).Scan(&sequence))
@@ -52,25 +52,25 @@ func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
 	require.Len(t, claim.Model.AdmittedInputTurn.Inputs, 1)
 	require.Equal(t, result.AgentInput.ID, claim.Model.AdmittedInputTurn.Inputs[0].ID)
-	assertInboxWebhookCount(t, f.appActivationFixture, result.Agent.ID, "agent_input", 2)
+	assertInboxWebhookCount(t, f.integrationActivationFixture, result.Agent.ID, "agent_input", 2)
 	replayed, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, result.Agent.ID, replayed.Agent.ID)
-	assertInboxWebhookCount(t, f.appActivationFixture, result.Agent.ID, "agent_input", 2)
+	assertInboxWebhookCount(t, f.integrationActivationFixture, result.Agent.ID, "agent_input", 2)
 }
 
 func TestInboxInputEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	t.Parallel()
-	f := newAppInteractionFixture(t)
+	f := newIntegrationInteractionFixture(t)
 	enableEventWebhook(t, f.process, []string{"tool_result"})
 	prompt := f.question(t)
 	_, err := f.store.pool.Exec(f.ctx, `DELETE FROM event_webhook_deliveries WHERE agent_id=$1`, f.process.AgentID)
 	require.NoError(t, err)
-	slot := inboxInputPlan(t, f.process.AgentID, f.app, "webhook-input")
-	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
+	slot := inboxInputPlan(t, f.process.AgentID, f.integration, "webhook-input")
+	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"}
 	receipt := freezeInboxInput(t, f.activation(), slot, "webhook-receipt", time.Minute)
-	before, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
+	before, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx,
 		`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_test_deliveries CHECK (false) NOT VALID`)
@@ -101,14 +101,24 @@ func TestInboxInputEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	assertInboxWebhookCount(t, f.activation(), f.process.AgentID, "tool_result", 1)
 }
 
-func assertInboxWebhookProgress(t *testing.T, f appActivationFixture, before appstore.AppInboxRecord) {
+func assertInboxWebhookProgress(
+	t *testing.T,
+	f integrationActivationFixture,
+	before integrationstore.IntegrationInboxRecord,
+) {
 	t.Helper()
-	after, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, before.ID)
+	after, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, before.ID)
 	require.NoError(t, err)
 	require.JSONEq(t, string(before.Progress), string(after.Progress))
 }
 
-func assertInboxWebhookCount(t *testing.T, f appActivationFixture, agentID uuid.UUID, kind string, expected int) {
+func assertInboxWebhookCount(
+	t *testing.T,
+	f integrationActivationFixture,
+	agentID uuid.UUID,
+	kind string,
+	expected int,
+) {
 	t.Helper()
 	var total, matching int
 	require.NoError(t, f.store.pool.QueryRow(f.ctx, `

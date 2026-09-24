@@ -1,4 +1,4 @@
-import { type ConfigAppCapabilitySource } from '@omnara/sdk'
+import { type ConfigIntegrationCapabilitySource } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 
@@ -82,7 +82,7 @@ export interface BasicConfig {
   modelName: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
-  interactionHandlers: Record<string, ConfigAppCapabilitySource>
+  interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]
   eventWebhookUrl: string
@@ -506,7 +506,7 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
 }
 
 export function toolWire(tool: BasicTool): ToolEntry {
-  const wire: ToolEntry = tool.name.startsWith('app__') ? {} : { type: 'built_in' }
+  const wire: ToolEntry = tool.name.startsWith('int__') ? {} : { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   if (tool.deferred) wire.deferred = true

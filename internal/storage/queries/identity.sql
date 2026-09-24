@@ -97,8 +97,8 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM project_apps app
-    WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id
+    SELECT 1 FROM project_integrations integration
+    WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
   );
 
 -- name: ListActiveProjectIDsForOrganization :many
@@ -198,8 +198,8 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 UPDATE cron_triggers SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
--- name: DeleteProjectAppTargets :exec
-UPDATE app_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+-- name: DeleteProjectIntegrationTargets :exec
+UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
 -- name: DeleteSkillRevisionsForOwner :exec
@@ -268,7 +268,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -379,7 +379,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -848,7 +848,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 

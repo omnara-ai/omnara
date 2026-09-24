@@ -177,8 +177,8 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 }
 
-func TestAppSendPreservesConfiguredPermissionPolicy(t *testing.T) {
-	opts, _ := appTestOptions(t)
+func TestIntegrationSendPreservesConfiguredPermissionPolicy(t *testing.T) {
+	opts, _ := integrationTestOptions(t)
 	for _, mode := range []string{
 		toolpermission.ModeAlwaysAllow,
 		toolpermission.ModeAlwaysAsk,
@@ -186,14 +186,14 @@ func TestAppSendPreservesConfiguredPermissionPolicy(t *testing.T) {
 	} {
 		result, err := Compile(
 			SourceFormatYAML,
-			[]byte(validAgentSource("tools:\n  app__engineering-team__post_message:\n    permission:\n      mode: "+mode+"\n")),
+			[]byte(validAgentSource("tools:\n  int__engineering-team__post_message:\n    permission:\n      mode: "+mode+"\n")),
 			opts,
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Compiled.Tools["app__engineering-team__post_message"].Permission.Mode != mode {
-			t.Fatal("app tool changed explicit permission")
+		if result.Compiled.Tools["int__engineering-team__post_message"].Permission.Mode != mode {
+			t.Fatal("integration tool changed explicit permission")
 		}
 	}
 }

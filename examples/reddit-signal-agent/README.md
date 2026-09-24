@@ -29,7 +29,7 @@ bottom and you have your own.
 
 ## Run it
 
-**SDK compatibility (release pending):** This demo uses the new app API and
+**SDK compatibility (release pending):** This demo uses the new integration API and
 requires a matching `@omnara/sdk` release built from this checkout. Currently
 published `0.1.15` lacks these APIs, and the existing `^0.1.8` range is not
 sufficient. Run the commands below only after that SDK is published and this

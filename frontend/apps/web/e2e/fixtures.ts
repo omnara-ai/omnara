@@ -1,31 +1,34 @@
 import { generateKeyPairSync } from 'node:crypto'
 
-import { type AppType, type ProjectApp, schemas, zJsonText } from '@omnara/sdk'
+import { type IntegrationType, type ProjectIntegration, schemas, zJsonText } from '@omnara/sdk'
 import { expect, type Page, type Request, type Response } from '@playwright/test'
 import { z } from 'zod'
 
 export async function mockSlackSetupReturn(
   page: Page,
   projectPath: string,
-  draft: ProjectApp,
+  draft: ProjectIntegration,
   flowID: string,
 ) {
-  let app: ProjectApp = { ...draft }
-  await page.route(`**${projectPath}/apps/${draft.id}`, async (route) => {
+  let integration: ProjectIntegration = { ...draft }
+  await page.route(`**${projectPath}/integrations/${draft.id}`, async (route) => {
     if (route.request().method() === 'PUT') {
-      const metadata = schemas.zSaveProjectAppRequest.parse(route.request().postDataJSON())
-      if (metadata.name !== app.name || metadata.app_type !== app.app_type)
-        throw new Error('The browser fixture cannot change app identity')
-      app = { ...app, ...metadata, updated_at: new Date().toISOString() }
+      const metadata = schemas.zSaveProjectIntegrationRequest.parse(route.request().postDataJSON())
+      if (
+        metadata.name !== integration.name ||
+        metadata.integration_type !== integration.integration_type
+      )
+        throw new Error('The browser fixture cannot change integration identity')
+      integration = { ...integration, ...metadata, updated_at: new Date().toISOString() }
     } else if (route.request().method() !== 'GET') return route.continue()
-    await route.fulfill({ json: app })
+    await route.fulfill({ json: integration })
   })
   return {
     complete: () => {
-      app = {
-        ...app,
+      integration = {
+        ...integration,
         state: 'active',
-        setup_revision: app.setup_revision + 1,
+        setup_revision: integration.setup_revision + 1,
         last_oauth_flow_id: flowID,
         provider_tenant_id: 'T123',
         provider_account_ref: 'A123',
@@ -88,7 +91,7 @@ export function installFailureTracking(page: FailureTrackingPage, ignore: RegExp
   return failures
 }
 
-export function installAppFailureTracking(page: FailureTrackingPage) {
+export function installIntegrationFailureTracking(page: FailureTrackingPage) {
   const origin = new URL(requiredEnvironmentVariable('OMNARA_WEB_E2E_BASE_URL')).origin.replace(
     /[.*+?^${}()|[\]\\]/g,
     '\\$&',
@@ -96,9 +99,9 @@ export function installAppFailureTracking(page: FailureTrackingPage) {
   return installFailureTracking(page, [
     /^page: Canceled$/,
     /^request: GET .*\/agent-profiles\/aprf_[a-z2-7]+(?:\/config)? \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/apps\/app_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/integrations\/itg_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
     /^request: GET .*\/cron-triggers\/cron_[a-z2-7]+ \(net::ERR_ABORTED\)$/,
-    /^request: GET .*\/apps\/app_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
+    /^request: GET .*\/integrations\/itg_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
     /^request: GET .*\/cron-triggers\?.* \(net::ERR_ABORTED\)$/,
     /^request: POST .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
     // Full-document navigation also cancels intent-preloaded route chunks.
@@ -108,29 +111,34 @@ export function installAppFailureTracking(page: FailureTrackingPage) {
   ])
 }
 
-export async function openAppSetup(page: Page, projectID: string, appType: AppType, name: string) {
+export async function openIntegrationSetup(
+  page: Page,
+  projectID: string,
+  integrationType: IntegrationType,
+  name: string,
+) {
   const label =
-    appType === 'github_pr'
+    integrationType === 'github_pr'
       ? 'GitHub PR review'
-      : appType === 'discord_thread'
+      : integrationType === 'discord_thread'
         ? 'Discord threads'
         : 'Slack threads'
-  const appsPath = `/projects/${projectID}/apps`
-  if (new URL(page.url()).pathname !== appsPath) await page.goto(appsPath)
-  const add = page.getByRole('link', { name: 'Add app', exact: true })
+  const integrationsPath = `/projects/${projectID}/integrations`
+  if (new URL(page.url()).pathname !== integrationsPath) await page.goto(integrationsPath)
+  const add = page.getByRole('link', { name: 'Add integration', exact: true })
   const choice = page.getByRole('link', { name: `Set up ${label}`, exact: false })
   await expect(add.or(choice)).toBeVisible()
   if (await add.isVisible()) await add.click()
   await choice.click()
-  await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
-  if (appType === 'github_pr')
+  await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/${integrationType}`)
+  if (integrationType === 'github_pr')
     await page.getByRole('button', { name: 'Use an existing App', exact: true }).click()
-  await page.getByLabel('App name', { exact: true }).fill(name)
+  await page.getByLabel('Integration name', { exact: true }).fill(name)
   await expect(
     page.getByLabel(
-      appType === 'slack_thread'
+      integrationType === 'slack_thread'
         ? 'App configuration token'
-        : appType === 'github_pr'
+        : integrationType === 'github_pr'
           ? 'GitHub App ID'
           : 'Discord Application ID',
       { exact: true },
@@ -139,80 +147,86 @@ export async function openAppSetup(page: Page, projectID: string, appType: AppTy
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
 
-export function appCreation(page: Page) {
+export function integrationCreation(page: Page) {
   return page.waitForResponse(
     (response) =>
-      response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/apps'),
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/integrations'),
   )
 }
 
-export async function readApp(page: Page, apiProjectPath: string, appID: string) {
+export async function readIntegration(page: Page, apiProjectPath: string, integrationID: string) {
   const body = await page.evaluate(async (path) => {
     const response = await fetch(path)
-    if (!response.ok) throw new Error(`Read app failed: ${response.status}`)
+    if (!response.ok) throw new Error(`Read integration failed: ${response.status}`)
     return response.text()
-  }, `${apiProjectPath}/apps/${appID}`)
-  return zJsonText.pipe(schemas.zProjectApp).parse(body)
+  }, `${apiProjectPath}/integrations/${integrationID}`)
+  return zJsonText.pipe(schemas.zProjectIntegration).parse(body)
 }
 
-export async function mockVerifiedAppSetup(
+export async function mockVerifiedIntegrationSetup(
   page: Page,
-  appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
+  integrationType: Extract<IntegrationType, 'github_pr' | 'discord_thread'>,
 ) {
-  await page.route('**/apps/*/setup', async (route) => {
+  await page.route('**/integrations/*/setup', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
-    const request = schemas.zConfigureProjectAppRequest.parse(route.request().postDataJSON())
-    const appID = schemas.zProjectAppId.parse(
+    const request = schemas.zConfigureProjectIntegrationRequest.parse(
+      route.request().postDataJSON(),
+    )
+    const integrationID = schemas.zProjectIntegrationId.parse(
       new URL(route.request().url()).pathname.split('/').at(-2),
     )
     expect(request.credential_secret_id).toMatch(/^sec_[a-z2-7]{26}$/)
     const seeded = await page.request.post(
-      `${requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_FIXTURE')}/apps/${appID}/setup`,
+      `${requiredEnvironmentVariable('OMNARA_WEB_E2E_PROVIDER_FIXTURE')}/integrations/${integrationID}/setup`,
       { data: request },
     )
     expect(seeded.status()).toBe(200)
-    expect(z.object({ id: schemas.zProjectAppId }).parse(await seeded.json()).id).toBe(appID)
+    expect(z.object({ id: schemas.zProjectIntegrationId }).parse(await seeded.json()).id).toBe(
+      integrationID,
+    )
     const apiProjectPath = route
       .request()
       .url()
-      .slice(0, route.request().url().lastIndexOf('/apps/'))
-    const app = await readApp(page, apiProjectPath, appID)
-    expect(app.app_type).toBe(appType)
-    expect(app.credential_secret_id).toBe(request.credential_secret_id)
-    expect(app.setup_revision).toBe(request.expected_setup_revision + 1)
-    await route.fulfill({ status: 200, json: app })
+      .slice(0, route.request().url().lastIndexOf('/integrations/'))
+    const integration = await readIntegration(page, apiProjectPath, integrationID)
+    expect(integration.integration_type).toBe(integrationType)
+    expect(integration.credential_secret_id).toBe(request.credential_secret_id)
+    expect(integration.setup_revision).toBe(request.expected_setup_revision + 1)
+    await route.fulfill({ status: 200, json: integration })
   })
 }
 
 export async function fillProviderAccount(
   page: Page,
-  appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
+  integrationType: Extract<IntegrationType, 'github_pr' | 'discord_thread'>,
 ) {
   await page
-    .getByLabel(appType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', {
+    .getByLabel(integrationType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID', {
       exact: true,
     })
     .fill('111')
-  if (appType === 'github_pr') await page.getByLabel('Installation ID', { exact: true }).fill('222')
+  if (integrationType === 'github_pr')
+    await page.getByLabel('Installation ID', { exact: true }).fill('222')
 }
 
-export async function connectAppWithCredentialRetry(
+export async function connectIntegrationWithCredentialRetry(
   page: Page,
   projectID: string,
-  appType: Extract<AppType, 'github_pr' | 'discord_thread'>,
+  integrationType: Extract<IntegrationType, 'github_pr' | 'discord_thread'>,
   name: string,
   failures: string[],
 ) {
-  await openAppSetup(page, projectID, appType, name)
-  await mockVerifiedAppSetup(page, appType)
+  await openIntegrationSetup(page, projectID, integrationType, name)
+  await mockVerifiedIntegrationSetup(page, integrationType)
   let credentialCreates = 0
   const trackCredential = (request: Request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/secrets'))
       credentialCreates++
   }
   page.on('request', trackCredential)
-  await fillProviderAccount(page, appType)
-  if (appType === 'github_pr') {
+  await fillProviderAccount(page, integrationType)
+  if (integrationType === 'github_pr') {
     const { privateKey } = generateKeyPairSync('rsa', {
       modulusLength: 2048,
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
@@ -226,7 +240,7 @@ export async function connectAppWithCredentialRetry(
     await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveCount(0)
   }
   await page.route(
-    '**/apps/*/setup',
+    '**/integrations/*/setup',
     (route) =>
       route.fulfill({
         status: 409,
@@ -240,45 +254,49 @@ export async function connectAppWithCredentialRetry(
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith('/setup'),
     )
-  const created = appCreation(page)
+  const created = integrationCreation(page)
   const failedSetup = setupResponse()
   await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
   const creation = await created
   expect(creation.status()).toBe(201)
-  expect(creation.request().postDataJSON()).toEqual({ name, app_type: appType, settings: {} })
-  const draft = schemas.zProjectApp.parse(await creation.json())
-  const apiProjectPath = creation.url().replace(/\/apps$/, '')
+  expect(creation.request().postDataJSON()).toEqual({
+    name,
+    integration_type: integrationType,
+    settings: {},
+  })
+  const draft = schemas.zProjectIntegration.parse(await creation.json())
+  const apiProjectPath = creation.url().replace(/\/integrations$/, '')
   const failed = await failedSetup
   expect(failed.status()).toBe(409)
   await expect(page.getByRole('alert')).toContainText('Verification failed; try again')
   await expect(page.getByText('Credentials saved. Retry reuses the saved secret.')).toBeVisible()
-  await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
+  await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/${integrationType}`)
   expect(failures.splice(0)).toEqual([`response: 409 ${new URL(failed.url()).pathname}`])
   const configured = setupResponse()
   await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
   expect((await configured).status()).toBe(200)
-  await expect(page).toHaveURL(`/projects/${projectID}/apps/new/${appType}`)
+  await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/${integrationType}`)
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  const app = await readApp(page, apiProjectPath, draft.id)
-  expect(app).toMatchObject({
+  const integration = await readIntegration(page, apiProjectPath, draft.id)
+  expect(integration).toMatchObject({
     id: draft.id,
     name: draft.name,
-    app_type: appType,
+    integration_type: integrationType,
     provider_tenant_id: '111',
     provider_account_ref: '222',
     state: 'active',
   })
-  const attempt = schemas.zConfigureProjectAppRequest.parse(failed.request().postDataJSON())
-  if (appType === 'discord_thread')
+  const attempt = schemas.zConfigureProjectIntegrationRequest.parse(failed.request().postDataJSON())
+  if (integrationType === 'discord_thread')
     expect(attempt.provider_config).toMatchObject({ public_key: 'ab'.repeat(32) })
-  expect(attempt.credential_secret_id).toBe(app.credential_secret_id)
+  expect(attempt.credential_secret_id).toBe(integration.credential_secret_id)
   expect(credentialCreates).toBe(1)
   page.off('request', trackCredential)
-  expect(JSON.stringify(app)).not.toContain(
-    appType === 'github_pr' ? 'PRIVATE KEY' : 'local-discord-token',
+  expect(JSON.stringify(integration)).not.toContain(
+    integrationType === 'github_pr' ? 'PRIVATE KEY' : 'local-discord-token',
   )
-  return { app, apiProjectPath }
+  return { integration, apiProjectPath }
 }
 
 export function expectSlackAuthorization(oauthURL: string, browserOrigin: string) {
@@ -292,17 +310,20 @@ export function expectSlackAuthorization(oauthURL: string, browserOrigin: string
   )
 }
 
-export async function expectAppCapabilities(page: Page, app: ProjectApp) {
+export async function expectIntegrationCapabilities(page: Page, integration: ProjectIntegration) {
   const capabilities = page.getByRole('region', { name: 'Advanced', exact: true })
   const disclosure = capabilities.getByRole('button', { name: 'Advanced', exact: true })
   await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
   await disclosure.click()
-  await expect(capabilities.getByText(`app__${app.name}__read`, { exact: true })).toBeVisible()
-  const subscription = app.app_type === 'github_pr' ? 'pull_request' : 'thread_messages'
+  await expect(
+    capabilities.getByText(`int__${integration.name}__read`, { exact: true }),
+  ).toBeVisible()
+  const subscription =
+    integration.integration_type === 'github_pr' ? 'pull_request' : 'thread_messages'
   await expect(capabilities.getByText(subscription, { exact: true })).toBeVisible()
-  if (app.app_type !== 'github_pr')
+  if (integration.integration_type !== 'github_pr')
     await expect(
-      capabilities.getByText(/Listed under/).getByText(app.name, { exact: true }),
+      capabilities.getByText(/Listed under/).getByText(integration.name, { exact: true }),
     ).toBeVisible()
 }
 

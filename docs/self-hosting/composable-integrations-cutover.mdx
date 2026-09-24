@@ -1,0 +1,356 @@
+---
+title: Composable integrations cutover
+description: Coordinated downtime for schema 44 to SQL45 and Go46
+---
+
+This is a downtime upgrade: stop all cluster writers, apply
+[SQL45](https://github.com/omnara-ai/omnara/blob/main/migrations/000045_composable_integrations.sql) and the frozen
+[Go46 migration](https://github.com/omnara-ai/omnara/blob/main/migrations/000046_slack_integration_cutover.go), then start the
+matching release. SQL45 checks unfinished work, the exact continuation frontier
+and custom/built-in name collisions **before schema changes**; failure leaves schema
+44 usable by the old release. Go46 repeats those checks under its config rewrite
+lock. The two migrations commit separately: **a later Go46 failure leaves schema
+45 applied; the old API, worker and maintenance must stay stopped.**
+
+This runbook starts at main’s schema 44. If upgrading from an earlier release,
+rehearse the entire intervening migration chain too: a failure can leave main’s
+config migrations committed before the integration preflight runs. The original release
+must not restart against that changed schema; use matching images or restore the
+pre-upgrade backup.
+
+Development or preview databases that already applied an earlier revision of
+migrations 45/46 must be rebuilt or restored from schema 44 before applying this
+release. Goose does not rerun an applied version when its file changes.
+
+Inventory your deployment before scheduling. Set the window from a restored-copy
+rehearsal with the exact release artifacts, allowing time for recovery. Local
+fixture tests establish neither production readiness nor a fixed completion time.
+
+## What changes
+
+- Installs become project integrations with the same internal identities and credential references.
+  Live installations receive deterministic names (`slack`, `slack-2`, …) before
+  tombstones. Deleted installations become disconnected. Launcher settings retain
+  the installed profile and workspace.
+  Migrated Slack integrations use `integration_type: slack_thread`.
+- History, attribution targets and provider messages survive. Go46 replaces the
+  old global send policy with qualified integration tools and replaces
+  `set_integration_target` with `set_interaction_handler`. Message text is unchanged.
+- Eligible old agents receive compiled-only successor configs with pinned integration tools
+  and preserved explicit policy. Their exact prior sending destinations become
+  immutable integration-agent tool contexts. Shared profiles do not acquire destinations.
+  Archived agents, subagents and agents with no prior turn are included when they
+  have a live project, integration and target.
+- Old conversations get no subscriptions or interaction handlers. Old automatic
+  prompt destinations are cleared. Plain replies in old threads do not resume
+  the previous agent; a fresh mention can launch a new one. Resume old agents
+  through the dashboard/API or explicitly attach a subscription later.
+
+## API and configuration changes
+
+The project `/integration-installs` API is replaced by `/integrations`; public
+integration IDs use `itg_` rather than `iin_`. Internal IDs and audit references
+are preserved. Upgrade clients and generated SDKs with the cluster release.
+Integrations own credentials, setup and optional launcher settings; there is no
+separate connection API. Agent responses expose `integration_target`; captured
+interaction destinations use `integration_id` and `integration_target_id`.
+OAuth return query parameters are `integration_oauth`, `integration_oauth_error`
+and `integration_id`. Existing interaction IDs (`int_`), target IDs (`itgt_`),
+OAuth flow IDs (`ioaf_`) and configured `/api/integrations/` webhook and OAuth
+callback URLs remain unchanged.
+
+Provider event logs use `integration_event.*`. Slack send results report unavailable
+setup as `integration_disconnected` instead of `integration_disabled`.
+Integration records and save requests identify behavior with `integration_type`:
+`slack_thread`, `discord_thread` or `github_pr`. The `/integration-definitions`
+catalog returns `integration_type` and `capabilities`. Neither integration records
+nor catalog entries expose a provider classification. Profile choices use `ipc_` IDs.
+
+Publish and install the matching generated SDK before running the updated
+standalone examples or switching API clients. The npm SDK releases through
+`0.1.15` do not contain these integration operations. As part of the SDK release, raise the
+four signal-agent examples’ minimum `@omnara/sdk` version to that release and
+verify them against the published package; do not substitute a raw source checkout
+for the package in their Node runtime.
+
+New configs select `int__<name>__<operation>` under `tools`, retaining enabled state,
+deferred loading and permissions. `interaction_handlers` maps integration names to `{}`.
+Catalog tools and handlers expose static `input_schema`. Captured interaction
+destinations contain the captured `integration_type` and complete `args`. See the
+[OpenAPI contract](/api-reference/openapi.yaml).
+
+Hosted and scheduled launches establish one immutable sending conversation per
+integration and agent. Tools always use it; calls have no destination arguments. Migrated
+Slack agents retain their original thread, channel or DM destination. An agent
+without an assigned conversation cannot execute these tools. Handler selection
+still takes complete arguments independently, and accepted provider input selects
+the complete origin automatically. Subscriptions never establish sending context.
+Integration schedules use the cron API's `target.settings` for their destination and templates.
+Receive subscriptions belong to integrations: use launch
+`subscriptions` attachments or `/integrations/{integrationID}/subscriptions` to attach existing
+agents. Their IDs use `isub_`; catalog entries expose
+`capabilities.subscriptions[type].conversation_schema` and `.events`.
+Changing configs does not reconcile subscriptions. Disconnecting preserves them
+and permits listing/deletion; permanent integration deletion or agent archival removes them.
+The generic send tool is removed; the selection tools are
+`list_interaction_handlers` and `set_interaction_handler`. Configs keep resolved
+integration IDs, so name reuse cannot redirect an existing agent.
+
+Slack's OAuth callback, event and interaction URLs stay the same; no Slack
+webhook URL change is required. New setup requests use integration-scoped
+`/integrations/{integrationID}/oauth/setup` or `/integrations/{integrationID}/slack-setup`. Finish or restart
+in-flight setup through the new integration page after cutover.
+
+Integration actors use `provider: integration`; legacy Slack actor attribution is preserved.
+`Agent.integration_target.provider` remains transport-valued
+(`slack`, `discord` or `github`). Secrets add `github_app_credentials`.
+Cron trigger responses can now include an `integration` target with integration-defined `settings`. Update clients
+that validate or switch on cron target types before creating integration schedules.
+
+## Prepare and rehearse
+
+1. Pin the release images for `api`, `worker`, `maintenance`, `web` and `migrate`;
+   retain the old images and configuration for a restore. Use the existing
+   [deployment procedure](/self-hosting/deployment), [Compose file](https://github.com/omnara-ai/omnara/blob/main/compose.yaml)
+   and [cluster release workflow](https://github.com/omnara-ai/omnara/blob/main/.github/workflows/cluster-release.yaml).
+   The workflow publishes images; map the shutdown/startup steps below to the
+   actual deployment's replica and scheduler controls before the window.
+2. Confirm the starting schema is 44 on the PostgreSQL writer. Inventory every
+   gate below with read-only queries during preparation, retaining the queries
+   for an identical check after the freeze. Retain IDs/counts and logs, not
+   credentials or config/prompt bodies. Successful query execution alone does
+   not certify a gate: review its results.
+3. On an isolated restored copy, rehearse old-release cancellation, the writer
+   freeze, both migrations, validation and **snapshot restoration** with the exact
+   release artifacts. Keep provider egress disabled or use an authorized test
+   workspace. Verify backup completeness, restore access and the existing secret
+   key ring/blob storage references. Read-only SQL cannot validate YAML,
+   config hashes, rewritten-config uniqueness or runtime decoding; Go46 and the
+   restored-copy checks must succeed too. Repair historical custom-name
+   collisions before the window through a reviewed migration/repair; merely
+   changing a current profile leaves the historical blocker intact.
+4. Leave config quota room for at most one successor per eligible agent, counting
+   **all** stored configs, plus capacity for subsequent integration launches. This release
+   raises the default to 10 million configs per project; explicit org overrides
+   still take precedence. Review any existing
+   `max_agent_configs_per_project` org override if necessary; do not
+   delete config history to make room. Inventory OAuth/setup flows and old
+   interactive callbacks for smoke tests. Record intended backlog and schedule
+   disposition so restarting workers does not unexpectedly resume work.
+
+Run the packaged [schema-44 preflight SQL](/self-hosting/assets/composable-integrations-preflight.sql)
+from the release checkout against the explicitly selected writer:
+
+```sh
+psql "$CUTOVER_DATABASE_URL" -X --set=ON_ERROR_STOP=1 \
+  --file=docs/self-hosting/assets/composable-integrations-preflight.sql
+```
+
+Set `CUTOVER_DATABASE_URL` to the intended writer using your normal credential
+handling. The script prints database identity/version, rejects a replica or a
+version other than 44, and runs all queries in one read-only, repeatable-read
+transaction. It lists every blocker instead of stopping at the first, with only
+IDs, tool names and quota counts. Every blocker result must be empty; a successful
+psql exit only means the queries ran. The script uses historical schema-44 tables
+and columns while checking the final reserved tool namespace, `int__`, and handler
+tool names. It does not repair or cancel work. Run the same preflight during
+preparation and after the freeze. SQL45 and Go46 enforce the final gates below.
+Go46's source parsing, hashes and rewrite uniqueness still require the
+restored-copy rehearsal; passing SQL preflight does not replace it.
+
+The report uses internal UUIDs. Work rows include the agent's org and project so
+you can locate it in the old dashboard. For API cancellation, convert those UUIDs
+with [`publicid.Encode`](https://github.com/omnara-ai/omnara/blob/main/internal/publicid/publicid.go),
+using `KindOrganization`, `KindProject` and `KindAgent` respectively. The resulting
+`org_`, `proj_` and `agt_` IDs are the API identifiers; raw UUIDs are not accepted.
+
+| Gate | Required result before SQL45 |
+| --- | --- |
+| Raw work, across the whole database | No `agent_runtime_locks` with `lease_expires_at > statement_timestamp()`, no `model_call_contexts.state = 'started'`, no `tool_calls.state <> 'completed'`, no `agent_interactions.state = 'open'`. SQL45 checks before schema changes; Go46 rechecks under lock. |
+| Derived work, for every agent with a latest turn | No `agent_continuable_model_contexts` or `agent_next_model_work` row for that latest turn (greatest `agent_turns.turn_sequence`), and `agent_has_incomplete_tool_batch(project_id, agent_id)` is false. Pass the same project/agent IDs to both frontier functions. An idle worker is insufficient. Historical failed/retry contexts superseded by success or stop are not themselves blockers. |
+| Stored configs | No custom tool using `int__` or the new handler tool names. Compiled legacy send policy must be an object containing only boolean `enabled`/`deferred` and optional `always_allow` permission with empty parameters. Source may also include `type: built_in` and nullable `enabled`; the migration normalizes these released forms. A disabled policy needs a known Slack integration in its project. SQL45 rejects unmappable compiled policy before schema changes. Go46 also validates source parsing, hashes and rewrite uniqueness. |
+| Old setup and addresses | Installs must be Slack webhook setups with a profile, not an agent destination. A live active setup requires credentials. Eligible targets must use a valid Slack channel, DM or channel-and-timestamp thread address. SQL45 checks these before schema changes. |
+| Multiple targets through one integration | No eligible agent may have more than one live target through the same Slack install. SQL45 reports the agent and target IDs before schema changes. Review those destinations on the schema-44 copy and arrange an explicit repair before cutover; the migration does not choose a destination or broaden access. Multiple targets through different integrations are supported. |
+| Quota and writer freeze | The new default of 10 million configs, or an explicit org override, must cover all existing configs plus at most one successor per eligible agent. SQL45 checks this conservative budget. Stop every writer and rerun preflight after freezing. |
+
+
+Eligible agents have a current config, an undeleted org/project, and an undeleted
+Slack target/integration. Do not exclude archived agents, subagents, agents with
+no previous turn or disconnected integrations. Count each eligible agent once for
+quota, even when it has targets through several different integrations. SQL45/Go46 are the final gates; do not
+bypass their checks if preparation missed a blocker.
+
+The [44 → 45 → 46 fixture test](https://github.com/omnara-ai/omnara/blob/main/internal/dbmigrate/slack_integration_cutover_integration_test.go)
+checks scoped successors, historical config reads, strict runtime decoding, no
+subscriptions or new runnable work, and later public input. A real continuable retry
+fails at **44**; historical failures superseded by success/stop are allowed. An
+injected Go46 failure leaves **45**, and rerunning succeeds after the injected
+cause is removed. This is not a snapshot-restore test or live Slack rehearsal.
+Run against the final release code using local test services:
+
+```sh
+# Local test services only; defaults are documented in Makefile.
+make db-up
+go test -count=1 ./migrations -run '^TestSlack'
+OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmode=disable' \
+  go test -race -count=1 -tags=integration ./internal/dbmigrate \
+  -run '^TestSlackIntegrationCutoverPreservesScopedSendingAndHistory$'
+```
+
+## Announce, cancel and freeze
+
+1. **About one hour before:** enable the Cloudflare announcement banner with the
+   date, window and timezone. Use the packaged
+   [Cloudflare snippet](/self-hosting/assets/cloudflare-maintenance.mjs), also at
+   `docs/self-hosting/assets/cloudflare-maintenance.mjs` in the release checkout.
+   Set `NOTICE`, then use `MODE = "banner"`, `"maintenance"`, and `"off"` for the
+   three stages via [Cloudflare Snippets](https://developers.cloudflare.com/rules/snippets/create-dashboard/).
+   Scope its rule to the web console, public API and webhook hostnames. Preview the rule
+   before enabling it; the file defaults to off. The banner appears on fresh
+   navigation/refresh.
+2. **At cutover:** enable full maintenance. Verify browser responses and POSTs
+   to `/api/integrations/slack/events` and `/api/integrations/slack/actions` return
+   **503**, with non-browser failures rather than HTML 200. Preserve the OAuth
+   callback `/api/integrations/oauth/callback` and both Slack URLs. Block direct
+   origin/public ingress too, retaining only restricted operator access. The
+   snippet does not close existing connections or stop internal writers.
+3. Disable scheduled cron triggers through the old API, recording which to
+   re-enable; pause external input producers, automation and automatic
+   restarts/rollouts. Cron firing runs inside the worker; blocking ingress does
+   not pause it. While the **old** API and required execution/recovery services
+   remain available privately, cancel outstanding turns and interactions through
+   their normal lifecycle. Use the old dashboard Cancel action or
+   `POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel`
+   (adjust the versioned API mount for your deployment), with public IDs and
+   normal authorization. See [agent cancellation](/agents/overview#stop-current-work)
+   and [cancellation implementation](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/agent_runtime_cancellation_store.go).
+   Cancellation supplies neither approval nor an answer, and closes the same
+   interaction shown in the dashboard. Do not archive agents or edit terminal
+   states with SQL. Go46's gates are global: clear all reported work, not only
+   agents with a currently selected Slack target.
+4. Confirm cancellation settled, including tool results and runtime release.
+   `runtime_cancel_requested` is not proof of drain. CancelAgent preserves queued
+   backlog; cancel unwanted queued inputs through the old API, or deliberately
+   retain them for reopening while preventing readmission during drain. Let the
+   old release finish recovery and best-effort Slack prompt dismissal. If any
+   gate remains blocked, resolve it while still on schema 44 or postpone.
+5. Gracefully stop **every replica** of old worker, maintenance and API, plus web
+   and any other service/job with database or admission access; close existing
+   sockets and prevent replacements. The maintenance service is a writer too.
+   Keep Postgres, Redis and blob storage available. `omnarad` upgrades separately:
+   this cutover introduces no daemon protocol upgrade requirement. It writes
+   through the API, not directly to Postgres. Stopping the API fences its control
+   plane writes; machine runtimes are distinct from the agent runtime locks in
+   the gate. Existing detached machine processes may continue, so coordinate
+   their external activity if needed rather than assuming a cluster stop kills
+   them or deleting daemon state.
+6. **Rerun the identical read-only preflight now, after the freeze.** All blocker
+   sections must be empty and headroom reviewed. Capture the final schema-44
+   snapshot/backup and verify its restore procedure before applying SQL45.
+
+Maintenance responses do not queue requests. Provider retry windows are limited;
+Slack documents bounded [Events API retries](https://docs.slack.dev/apis/events-api/#retries).
+A message or action sent during downtime may need to be resent after reopening.
+`Retry-After` is not a delivery guarantee; the new inbox only protects receipts
+actually persisted by the new service.
+
+Outbound [event webhooks](/events/webhooks) have a ten-minute delivery window,
+which continues during downtime. Let pending notifications drain before stopping
+workers when possible. Notifications that age past that window, including
+cutover config-change notifications, will not be sent after restart. Timeline
+events remain in agent history; consumers can catch up after their last recorded
+sequence. For missed `tool_call_update` notifications, reconcile current tool-call
+and interaction state through the API. Do not extend deadlines with ad hoc SQL.
+
+## Migrate, validate and reopen
+
+1. Keep maintenance and the writer freeze in place. Run the release's one-shot
+   `migrate` image, which invokes [cmd/migrate](https://github.com/omnara-ai/omnara/blob/main/cmd/migrate/main.go) with the
+   [registered Go migrations](https://github.com/omnara-ai/omnara/blob/main/migrations/go_migrations.go). Use the direct
+   PostgreSQL writer, not RDS Proxy or transaction-pooling PgBouncer. Configure
+   `OMNARA_DATABASE_URL`, `OMNARA_MIGRATIONS_DIR` and
+   `OMNARA_MIGRATION_TIMEOUT` as in
+   [database configuration](/self-hosting/configuration#database-and-redis).
+   Do not use a plain SQL-only Goose invocation: Go46 must execute. Capture exit
+   status and complete logs; start no service between 45 and 46.
+2. Require successful completion through 46 and check the migration version on
+   the writer. Before starting writers, compare the rehearsal/backup inventory:
+   existing agents/history/targets and credential references remain; Slack integration
+   setup has qualified tools with immutable integration references; eligible agents have isolated
+   successor scopes and preserved explicit policy; old pointers are cleared and
+   no old-thread subscriptions were created. Inspect metadata/IDs, not secret values.
+   Use the fixture assertions above as the acceptance checklist.
+3. Start only the matching new cluster images behind maintenance, keeping
+   schedules and normal inputs paused until checks finish. **Starting workers can
+   consume retained backlog even with ingress blocked.** If customer work must
+   remain frozen, validate execution/provider journeys in the isolated rehearsal
+   and defer worker startup until reopening; do not assume a global claim-pause
+   switch. Validate private
+   service health, historical agent/config reads, dashboard cancellation state
+   and normal input on a test agent. In an authorized test Slack workspace,
+   verify mention → new agent → reply continuation, scoped sending, and a new
+   question/approval resolved through Slack and dashboard. Check an old canceled
+   button cannot resolve a new interaction; old plain replies must not resume
+   their previous agents. Permit only controlled test ingress for these checks;
+   do not reopen all provider callbacks as a test bypass.
+4. Record the decision to reopen, then disable maintenance and restore intended
+   schedules/admissions. Monitor migration/service errors, failed receipts and
+   pending receipt age. Explain the old-thread reset and resend requirement to
+   users. A startup or smoke failure keeps maintenance active.
+
+## Failed integration events
+
+Accepted events retry automatically up to eight attempts with exponential delay.
+A terminal failure releases unfinished launch reservations; users can send a new
+mention or message. Already committed agents and inputs remain intact. Failed
+receipts are never requeued and remain for seven days for diagnostics and receipt
+deduplication, then maintenance removes them.
+
+The worker makes a best-effort failure notice for unfinished human requests when
+provider access still works. Empty or fully admitted plans do not produce an
+error message. Scheduled failures remain visible in the schedule's latest run;
+a known opening thread can also receive a notice. Crash recovery can miss notices
+and unused-upload cleanup without blocking new work. Inspect `integration inbox admission
+failed` logs using the receipt, integration and project IDs. See the
+[inbox operation and retention](/self-hosting/configuration#integration-inbox-operation).
+
+If a GitHub webhook failed before intake persisted it, restore intake and manually
+redeliver it from GitHub. GitHub does not automatically retry these deliveries.
+Redelivery of an already accepted failed receipt does not reset its budget; send
+a fresh comment/mention instead. See
+[GitHub delivery recovery](/integrations/github#configure-incoming-pr-work).
+
+### Shared-webhook setup failures
+
+Independent saved integrations can share a physical bot and webhook endpoint. Known
+invalid signatures and revoked/missing setups are skipped, but unknown secret,
+decryption/KMS or database errors still return non-2xx. Healthy siblings commit
+their receipts before that response; redelivery deduplicates those receipts.
+
+Find `provider event integration failed` logs and use `integration_id`, `project_id`, provider,
+`setup_revision`, `stage` and `retryable` to identify the affected setup. Logs
+include the error type, not raw error text, payloads or credentials. Restore a
+shared database/KMS outage first. For a persistently corrupt setup, reconnect
+that saved integration with valid credentials for the same provider identity, or
+disconnect it until repaired so independent healthy integrations can continue. Do not
+acknowledge unknown failures merely because another integration succeeded.
+
+After repair, redeliver events that failed before intake persisted them; GitHub
+requires manual redelivery. Disconnect preserves retained inbox diagnostics. Reconnect before sending fresh
+requests; previously failed work remains terminal.
+
+## Failure and restore
+
+| Failure point | Recovery while maintenance remains active |
+| --- | --- |
+| Before SQL45, or SQL45 failed and version is still 44 | Its early work/frontier/custom-name guards leave the old schema usable. Resolve work using the old release privately; obtain reviewed historical-config repair for collisions, or postpone. Confirm the actual version and old-release health before reopening. |
+| Go46 failed; version is 45 | Source parsing, content hashes and post-rewrite uniqueness can still fail after SQL45 commits; the repeated work, policy, address and quota guards can also catch a broken freeze. Go46 rolls back its own rewrites/successors. **Never restart old services on schema 45.** Preserve diagnostics; use a reviewed schema-45 SQL repair and rerun the same release migrator, or restore the pre-45 snapshot and old release. Do not copy the test's synthetic retry/trigger manipulation into operations. |
+| Version 46, validation fails before customer traffic | Keep ingress blocked; stop all newly started writers. Use reviewed forward repair, or restore the pre-45 snapshot and old images/configuration. Account for any controlled smoke-test side effects: restoring Postgres does not unsend a Slack message or undo a machine command. |
+| Customer traffic or retained customer work has resumed | Prefer forward repair. Restoring the old snapshot loses post-snapshot work and requires a separate, explicit recovery decision and reconciliation. |
+
+Rollback means **restore the verified schema-44 snapshot**, point the stopped
+deployment at the restored database with its matching keys/blob references, then
+start and privately validate the old images before reopening. SQL45/Go46 are
+forward-only; Goose down, deleting migration-version rows or merely rolling back
+images is not a restore. The freeze and 503 responses stay in place throughout
+repair or restore, including any repeat preflight and migration attempt.

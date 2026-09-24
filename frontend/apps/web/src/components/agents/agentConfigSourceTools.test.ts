@@ -84,9 +84,9 @@ machine_sources:
     },
   )
 
-  it('retains an app tool’s permission and deferral when re-enabling it and editing other fields', () => {
+  it('retains an integration tool’s permission and deferral when re-enabling it and editing other fields', () => {
     const source = `${minimalYaml}tools:
-  app__engineering__post_message:
+  int__engineering__post_message:
     enabled: false
     deferred: true
     permission: {mode: always_ask}
@@ -96,7 +96,7 @@ machine_sources:
     config.instruction = 'Re-enable posting.'
     config.tools = config.tools.map((tool) => ({ ...tool, enabled: true }))
     expect(parse(applyToSource(source, config))).toHaveProperty('tools', {
-      app__engineering__post_message: {
+      int__engineering__post_message: {
         deferred: true,
         permission: { mode: 'always_ask' },
       },

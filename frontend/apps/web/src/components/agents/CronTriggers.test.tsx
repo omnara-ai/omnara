@@ -5,17 +5,17 @@ import { act } from 'react'
 import { expect, it, vi } from 'vitest'
 
 import { formatDateTime } from '@/lib/format'
-import { ProjectAppDetail } from '@/routes/ProjectAppPage'
+import { ProjectIntegrationDetail } from '@/routes/ProjectIntegrationPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { fakeId, projectApp } from '@/test/fixtures'
+import { fakeId, projectIntegration } from '@/test/fixtures'
 import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
 import {
-  appTarget,
   cache,
   chooseProfile,
   container,
   cronPath,
+  integrationTarget,
   now,
   orgId,
   path,
@@ -30,13 +30,17 @@ import { CreateCronTriggerDialog, EditCronTriggerDialog } from './CronTriggerDia
 import { CronTriggersList } from './CronTriggersSection'
 
 it.each(['slack_thread', 'discord_thread'] as const)(
-  'creates a %s app schedule without a mention launcher',
-  async (appType) => {
-    const app = projectApp({ app_type: appType, state: 'active' })
+  'creates a %s integration schedule without a mention launcher',
+  async (integrationType) => {
+    const integration = projectIntegration({ integration_type: integrationType, state: 'active' })
     let schedules: CronTrigger[] = []
     const api = fakeApi([
       ...profileRoutes,
-      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+      {
+        method: 'GET',
+        path: path + '/integrations/' + integration.id,
+        respond: () => Response.json(integration),
+      },
       {
         method: 'GET',
         path: cronPath,
@@ -52,7 +56,15 @@ it.each(['slack_thread', 'discord_thread'] as const)(
         },
       },
     ])
-    render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+    render(
+      api,
+      <ProjectIntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />,
+    )
     await waitForUI(() => {
       expect(button('Add schedule')).toBeDefined()
     })
@@ -65,7 +77,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     await enter('Name', 'morning-report')
     await enter('Cron expression', '0 9 * * 1-5')
     await enter('Task instructions', 'Summarize yesterday’s progress.')
-    await enter('Channel ID', appType === 'slack_thread' ? 'G123' : '123456789')
+    await enter('Channel ID', integrationType === 'slack_thread' ? 'G123' : '123456789')
     expect(document.body.textContent).not.toContain('Server ID')
     expect(button('Create schedule').disabled).toBe(true)
     await chooseProfile()
@@ -76,11 +88,11 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     expect(api.requestsTo('POST', cronPath)[0]?.body).toEqual({
       name: 'morning-report',
       target: {
-        type: 'app',
-        app_id: app.id,
+        type: 'integration',
+        integration_id: integration.id,
         settings: {
           agent_profile_id: profile.id,
-          channel_id: appType === 'slack_thread' ? 'G123' : '123456789',
+          channel_id: integrationType === 'slack_thread' ? 'G123' : '123456789',
           opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
           message_template: 'Summarize yesterday’s progress.',
         },
@@ -91,7 +103,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     expect(
       api
         .requestsTo('GET', cronPath)
-        .every((request) => request.url.searchParams.get('app_id') === app.id),
+        .every((request) => request.url.searchParams.get('integration_id') === integration.id),
     ).toBe(true)
     expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(1)
     expect(container.textContent).toContain('morning-report')
@@ -99,7 +111,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
 )
 
 it('keeps mentions and schedules available together without changing the launcher', async () => {
-  const app = projectApp({
+  const integration = projectIntegration({
     state: 'active',
     settings: {
       launcher: {
@@ -112,14 +124,26 @@ it('keeps mentions and schedules available together without changing the launche
   })
   const api = fakeApi([
     ...profileRoutes,
-    { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+    {
+      method: 'GET',
+      path: path + '/integrations/' + integration.id,
+      respond: () => Response.json(integration),
+    },
     {
       method: 'GET',
       path: cronPath,
       respond: () => Response.json({ data: [trigger()], next_cursor: null }),
     },
   ])
-  render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+  render(
+    api,
+    <ProjectIntegrationDetail
+      orgId={orgId}
+      projectId={projectId}
+      integrationId={integration.id}
+      canManage
+    />,
+  )
   await waitForUI(() => {
     expect(container.textContent).toContain('daily-report')
   })
@@ -131,26 +155,44 @@ it('keeps mentions and schedules available together without changing the launche
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
 })
 
-it.each(['github_pr', 'future_app'] as const)(
-  'does not offer schedules for %s apps',
-  async (appType) => {
-    const app = { ...projectApp({ app_type: 'github_pr' }), app_type: appType }
+it.each(['github_pr', 'future_integration'] as const)(
+  'does not offer schedules for %s integrations',
+  async (integrationType) => {
+    const integration = {
+      ...projectIntegration({ integration_type: 'github_pr' }),
+      integration_type: integrationType,
+    }
     const api = fakeApi([
-      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+      {
+        method: 'GET',
+        path: path + '/integrations/' + integration.id,
+        respond: () => Response.json(integration),
+      },
     ])
-    render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+    render(
+      api,
+      <ProjectIntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />,
+    )
     await waitForUI(() => {
-      expect(container.querySelector('h1')?.textContent).toBe(app.name)
+      expect(container.querySelector('h1')?.textContent).toBe(integration.name)
     })
     expect(container.querySelector('[aria-label="Schedules"]')).toBeNull()
     expect(api.requestsTo('GET', cronPath)).toHaveLength(0)
   },
 )
 
-it('edits app settings including the profile for future runs while keeping the saved app', async () => {
-  const app = projectApp({ app_type: 'discord_thread', state: 'active' })
+it('edits integration settings including the profile for future runs while keeping the saved integration', async () => {
+  const integration = projectIntegration({ integration_type: 'discord_thread', state: 'active' })
   const saved = trigger({
-    target: { ...appTarget, settings: { ...appTarget.settings, channel_id: '123' } },
+    target: {
+      ...integrationTarget,
+      settings: { ...integrationTarget.settings, channel_id: '123' },
+    },
   })
   const replacement = { ...profile, id: `aprf_${'b'.repeat(26)}`, name: 'Weekly reporter' }
   const onOpenChange = vi.fn()
@@ -161,7 +203,11 @@ it('edits app settings including the profile for future runs while keeping the s
       respond: () => Response.json({ data: [profile, replacement], next_cursor: null }),
     },
     ...profileRoutes,
-    { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+    {
+      method: 'GET',
+      path: path + '/integrations/' + integration.id,
+      respond: () => Response.json(integration),
+    },
     {
       method: 'PATCH',
       path: cronPath + '/' + saved.id,
@@ -182,7 +228,7 @@ it('edits app settings including the profile for future runs while keeping the s
   await waitForUI(() => {
     expect(field('Channel ID').value).toBe('123')
   })
-  expect(document.querySelector<HTMLButtonElement>('#app-profiles')?.disabled).toBe(false)
+  expect(document.querySelector<HTMLButtonElement>('#integration-profiles')?.disabled).toBe(false)
   expect(document.body.textContent).not.toContain('Server ID')
   await chooseProfile(replacement)
   await enter('Channel ID', '789')
@@ -197,8 +243,8 @@ it('edits app settings including the profile for future runs while keeping the s
     cron: saved.cron,
     timezone: saved.timezone,
     target: {
-      type: 'app',
-      app_id: app.id,
+      type: 'integration',
+      integration_id: integration.id,
       settings: {
         agent_profile_id: replacement.id,
         channel_id: '789',
@@ -210,11 +256,15 @@ it('edits app settings including the profile for future runs while keeping the s
 })
 
 it('rejects Slack DMs and thread addresses before sending an update and retains drafts after API errors', async () => {
-  const app = projectApp({ state: 'active' }),
+  const integration = projectIntegration({ state: 'active' }),
     saved = trigger()
   const api = fakeApi([
     ...profileRoutes,
-    { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+    {
+      method: 'GET',
+      path: path + '/integrations/' + integration.id,
+      respond: () => Response.json(integration),
+    },
     {
       method: 'PATCH',
       path: cronPath + '/' + saved.id,
@@ -256,14 +306,18 @@ it.each([
   { canManage: true, state: 'disconnected' },
   { canManage: false, state: 'disconnected' },
 ] as const)(
-  'honors app schedule management permissions (canManage=$canManage, state=$state)',
+  'honors integration schedule management permissions (canManage=$canManage, state=$state)',
   async ({ canManage, state }) => {
-    const app = projectApp({ state })
+    const integration = projectIntegration({ state })
     let saved = trigger(),
       deleted = false
     const api = fakeApi([
       ...profileRoutes,
-      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+      {
+        method: 'GET',
+        path: path + '/integrations/' + integration.id,
+        respond: () => Response.json(integration),
+      },
       {
         method: 'GET',
         path: cronPath,
@@ -288,7 +342,12 @@ it.each([
     ])
     render(
       api,
-      <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage={canManage} />,
+      <ProjectIntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage={canManage}
+      />,
     )
     await waitForUI(() => {
       expect(container.textContent).toContain(saved.name)
@@ -313,7 +372,7 @@ it.each([
     expect(button('Add schedule').disabled).toBe(state !== 'active')
     if (state === 'disconnected') {
       expect(container.textContent).toContain(
-        'Connect this app before creating schedules or running scheduled actions.',
+        'Connect this integration before creating schedules or running scheduled actions.',
       )
       act(() => {
         button('Add schedule').click()
@@ -360,16 +419,20 @@ it.each([false, true])(
   'keeps a draft schedule error visible without refetching until retry (hasSchedules=%s)',
   async (hasSchedules) => {
     vi.useFakeTimers()
-    const app = projectApp()
+    const integration = projectIntegration()
     const saved = trigger()
-    let currentApp = app
+    let currentIntegration = integration
     let recovered = false
     const api = fakeApi([
       ...profileRoutes,
-      { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(currentApp) },
       {
         method: 'GET',
-        path: path + '/apps/' + app.id + '/subscriptions',
+        path: path + '/integrations/' + integration.id,
+        respond: () => Response.json(currentIntegration),
+      },
+      {
+        method: 'GET',
+        path: path + '/integrations/' + integration.id + '/subscriptions',
         respond: () => Response.json({ data: [], next_cursor: null }),
       },
       {
@@ -381,7 +444,15 @@ it.each([false, true])(
             : jsonResponse({ code: 'internal_error', error: 'Try again' }, 500),
       },
     ])
-    render(api, <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />)
+    render(
+      api,
+      <ProjectIntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />,
+    )
     await waitForUI(() => {
       expect(container.querySelector('[aria-label="Schedules"]')?.textContent).toContain(
         'load schedules',
@@ -411,7 +482,7 @@ it.each([false, true])(
       await vi.advanceTimersByTimeAsync(1000)
     })
     expect(api.requestsTo('GET', cronPath)).toHaveLength(2)
-    currentApp = { ...app, state: 'active', provider_tenant_id: 'T123' }
+    currentIntegration = { ...integration, state: 'active', provider_tenant_id: 'T123' }
     await act(async () => {
       await cache.invalidateQueries()
     })
@@ -427,10 +498,14 @@ it.each([false, true])(
 )
 
 it('closes a schedule editor when management permission is removed', async () => {
-  const app = projectApp({ state: 'active' })
+  const integration = projectIntegration({ state: 'active' })
   const api = fakeApi([
     ...profileRoutes,
-    { method: 'GET', path: path + '/apps/' + app.id, respond: () => Response.json(app) },
+    {
+      method: 'GET',
+      path: path + '/integrations/' + integration.id,
+      respond: () => Response.json(integration),
+    },
     {
       method: 'GET',
       path: cronPath,
@@ -439,7 +514,12 @@ it('closes a schedule editor when management permission is removed', async () =>
   ])
   const rerender = render(
     api,
-    <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage />,
+    <ProjectIntegrationDetail
+      orgId={orgId}
+      projectId={projectId}
+      integrationId={integration.id}
+      canManage
+    />,
   )
   await waitForUI(() => {
     expect(button('Edit schedule daily-report')).toBeDefined()
@@ -449,7 +529,12 @@ it('closes a schedule editor when management permission is removed', async () =>
   })
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   rerender(
-    <ProjectAppDetail orgId={orgId} projectId={projectId} appId={app.id} canManage={false} />,
+    <ProjectIntegrationDetail
+      orgId={orgId}
+      projectId={projectId}
+      integrationId={integration.id}
+      canManage={false}
+    />,
   )
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(api.requests.every((request) => request.method === 'GET')).toBe(true)
@@ -458,10 +543,10 @@ it('closes a schedule editor when management permission is removed', async () =>
 it.each([
   ['queued', 'Last run: queued'],
   ['processing', 'Last run: processing'],
-  ['completed', 'Last run: app action completed'],
+  ['completed', 'Last run: integration action completed'],
   ['failed', 'Last run: Could not prepare the thread'],
 ] as const)(
-  'shows %s app action state independently of firing failure reports',
+  'shows %s integration action state independently of firing failure reports',
   async (state, label) => {
     const earlierRun = '2026-09-19T09:00:00Z'
     const saved = trigger({
@@ -487,7 +572,7 @@ it.each([
         orgId={orgId}
         projectId={projectId}
         canManage={false}
-        filters={{ app_id: fakeId('app') }}
+        filters={{ integration_id: fakeId('itg') }}
         emptyMessage="No schedules"
       />,
     )
@@ -512,7 +597,7 @@ it('shows a generic action failure once with its update time', async () => {
       state: 'failed',
       created_at: now,
       updated_at: now,
-      failure_message: 'Scheduled app action failed.',
+      failure_message: 'Scheduled integration action failed.',
     },
   })
   const api = fakeApi([
@@ -528,12 +613,12 @@ it('shows a generic action failure once with its update time', async () => {
       orgId={orgId}
       projectId={projectId}
       canManage={false}
-      filters={{ app_id: fakeId('app') }}
+      filters={{ integration_id: fakeId('itg') }}
       emptyMessage="No schedules"
     />,
   )
   await waitForUI(() => {
-    expect(container.textContent).toContain('Scheduled app action failed.')
+    expect(container.textContent).toContain('Scheduled integration action failed.')
   })
   expect(container.textContent.match(/failed/gi)).toHaveLength(1)
   expect(container.querySelector('time')?.textContent).toBe(formatDateTime(now))
@@ -556,7 +641,7 @@ it.each([null, now])(
         orgId={orgId}
         projectId={projectId}
         canManage={false}
-        filters={{ app_id: fakeId('app') }}
+        filters={{ integration_id: fakeId('itg') }}
         emptyMessage="No schedules"
       />,
     )

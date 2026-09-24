@@ -5,19 +5,19 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
 
-func (s strictOpenAPIServer) InspectProjectAppGitHubInstallations(
+func (s strictOpenAPIServer) InspectProjectIntegrationGitHubInstallations(
 	ctx context.Context,
-	request openapi.InspectProjectAppGitHubInstallationsRequestObject,
-) (openapi.InspectProjectAppGitHubInstallationsResponseObject, error) {
+	request openapi.InspectProjectIntegrationGitHubInstallationsRequestObject,
+) (openapi.InspectProjectIntegrationGitHubInstallationsResponseObject, error) {
 	if err := authorizeOperationPrincipal(ctx, principalKindBrowserSession); err != nil {
 		return nil, err
 	}
@@ -25,15 +25,15 @@ func (s strictOpenAPIServer) InspectProjectAppGitHubInstallations(
 	if err != nil {
 		return nil, err
 	}
-	app, err := s.projectAppForSetup(ctx, scope, request.AppID)
+	integration, err := s.projectIntegrationForSetup(ctx, scope, request.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.server.validateGitHubGuidedSetup(); err != nil {
 		return nil, err
 	}
-	if app.AppType != appdefinition.GitHubPR {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this app does not support GitHub setup")
+	if integration.IntegrationType != integrationdefinition.GitHubPR {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this integration does not support GitHub setup")
 	}
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
@@ -51,7 +51,10 @@ func (s strictOpenAPIServer) InspectProjectAppGitHubInstallations(
 	}
 	credential, err := s.server.store.Secrets().
 		ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
-			OrgID: app.OrgID, ProjectID: app.ProjectID, SecretID: secretID, Kind: secrets.KindGitHubAppCredentials,
+			OrgID:     integration.OrgID,
+			ProjectID: integration.ProjectID,
+			SecretID:  secretID,
+			Kind:      secrets.KindGitHubAppCredentials,
 		})
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -60,7 +63,7 @@ func (s strictOpenAPIServer) InspectProjectAppGitHubInstallations(
 	if err != nil || appID <= 0 {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid GitHub credential App ID")
 	}
-	if app.ProviderTenantID != "" && app.ProviderTenantID != strconv.FormatInt(appID, 10) {
+	if integration.ProviderTenantID != "" && integration.ProviderTenantID != strconv.FormatInt(appID, 10) {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "credentials belong to another GitHub App")
 	}
 	config := github.SetupConfig{
@@ -80,11 +83,11 @@ func (s strictOpenAPIServer) InspectProjectAppGitHubInstallations(
 	defer cancel()
 	metadata, err := client.App(ctx)
 	if err != nil {
-		return nil, appSetupInputError(err)
+		return nil, integrationSetupInputError(err)
 	}
 	installations, err := client.ListInstallations(ctx, github.PageOptions{Page: page, PerPage: 100})
 	if err != nil {
-		return nil, appSetupInputError(err)
+		return nil, integrationSetupInputError(err)
 	}
 	response := openapi.GitHubInstallations{
 		ProviderAppId: strconv.FormatInt(metadata.ID, 10),
@@ -110,5 +113,5 @@ func (s strictOpenAPIServer) InspectProjectAppGitHubInstallations(
 	if installations.NextPage > 0 {
 		response.NextPage = &installations.NextPage
 	}
-	return openapi.InspectProjectAppGitHubInstallations200JSONResponse(response), nil
+	return openapi.InspectProjectIntegrationGitHubInstallations200JSONResponse(response), nil
 }

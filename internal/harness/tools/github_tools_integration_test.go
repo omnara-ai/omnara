@@ -18,20 +18,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func createGitHubToolApp(
+func createGitHubToolIntegration(
 	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID,
-) appstore.ProjectAppRecord {
+) integrationstore.ProjectIntegrationRecord {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -44,18 +44,21 @@ func createGitHubToolApp(
 		},
 	})
 	require.NoError(t, err)
-	app, err := store.Apps().CreateProjectApp(ctx, appstore.SaveProjectAppInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", AppType: appdefinition.GitHubPR,
+	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", IntegrationType: integrationdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
-	app, err = store.Apps().ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, AppID: app.ID,
-		ExpectedSetupRevision: app.SetupRevision, InstalledByUserID: userID,
-		Provider: appdefinition.ProviderGitHub, ProviderTenantID: "11", ProviderAccountRef: "22",
-		CredentialSecretID: secret.ID, CredentialVersionID: version.ID, CredentialAppID: 11,
-	})
+	integration, err = store.Integrations().ConfigureProjectIntegration(
+		ctx,
+		integrationstore.ConfigureProjectIntegrationInput{
+			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, IntegrationID: integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision, InstalledByUserID: userID,
+			Provider: integrationdefinition.ProviderGitHub, ProviderTenantID: "11", ProviderAccountRef: "22",
+			CredentialSecretID: secret.ID, CredentialVersionID: version.ID, CredentialAppID: 11,
+		},
+	)
 	require.NoError(t, err)
-	return app
+	return integration
 }
 
 func githubToolTestServer(t *testing.T, permission string, operation http.HandlerFunc) *httptest.Server {
@@ -104,7 +107,7 @@ func githubToolTestServer(t *testing.T, permission string, operation http.Handle
 	return server
 }
 
-func TestGitHubAppReadSections(t *testing.T) {
+func TestGitHubIntegrationReadSections(t *testing.T) {
 	for _, tt := range []struct {
 		name, input, path, response, collection string
 		want                                    map[string]any
@@ -135,7 +138,7 @@ func TestGitHubAppReadSections(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-read", toolFixtureOptions{
-				withGitHubApp: true, withToolContext: true,
+				withGitHubIntegration: true, withToolContext: true,
 			})
 			var operationRequests atomic.Int32
 			server := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +155,8 @@ func TestGitHubAppReadSections(t *testing.T) {
 				}
 				_, _ = w.Write([]byte(tt.response))
 			})
-			call := f.recordToolCall(t, ctx, "read", toolcatalog.AppToolName("chat", "read"), tt.input, f.Now)
-			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
+			call := f.recordToolCall(t, ctx, "read", toolcatalog.IntegrationToolName("chat", "read"), tt.input, f.Now)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
@@ -178,7 +181,7 @@ func TestGitHubAppReadSections(t *testing.T) {
 	}
 }
 
-func TestGitHubAppCommentsAndReplay(t *testing.T) {
+func TestGitHubIntegrationCommentsAndReplay(t *testing.T) {
 	for _, tt := range []struct {
 		operation, input, path, payload string
 	}{
@@ -200,12 +203,12 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 			t.Run(scenario, func(t *testing.T) {
 				ctx := t.Context()
 				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-comment", toolFixtureOptions{
-					withGitHubApp: true, withToolContext: true,
+					withGitHubIntegration: true, withToolContext: true,
 				})
 				if withSubscription {
 					attachToolSubscription(t, f, "pull_request", `{"repository_id":123,"pull_request":7}`, []string{"commit"})
 				}
-				subscriptionsBefore := appToolSubscriptions(t, f)
+				subscriptionsBefore := integrationToolSubscriptions(t, f)
 				if withSubscription {
 					require.Len(t, subscriptionsBefore, 1)
 				} else {
@@ -240,24 +243,24 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 						"id": 501, "body": "provider-confirmed", "html_url": "https://github.com/octo/renamed/pull/7#comment-501",
 					})
 				})
-				name := toolcatalog.AppToolName("chat", tt.operation)
+				name := toolcatalog.IntegrationToolName("chat", tt.operation)
 				call := f.recordToolCall(t, ctx, "comment", name, tt.input, f.Now)
-				executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
+				executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 				require.NoError(t, err)
 				body := toolResultMapFromTestParts(t, result.ContentParts)
 				require.Equal(t, float64(501), body["id"])
 				require.Equal(t, "provider-confirmed", body["body"])
 				require.Equal(t, "https://github.com/octo/renamed/pull/7#comment-501", body["html_url"])
-				require.Equal(t, subscriptionsBefore, appToolSubscriptions(t, f), "sending must not add subscriptions")
+				require.Equal(t, subscriptionsBefore, integrationToolSubscriptions(t, f), "sending must not add subscriptions")
 				source, err := agentconfig.ParseSource(
 					agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
 					[]byte(f.AgentConfig.Source),
 				)
 				require.NoError(t, err)
 				delete(source.Tools, name)
-				changeAppToolConfig(t, ctx, f, source)
-				require.Equal(t, subscriptionsBefore, appToolSubscriptions(t, f),
+				changeIntegrationToolConfig(t, ctx, f, source)
+				require.Equal(t, subscriptionsBefore, integrationToolSubscriptions(t, f),
 					"removing a sender must not revoke its subscription")
 				replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 				require.NoError(t, err)
@@ -271,7 +274,7 @@ func TestGitHubAppCommentsAndReplay(t *testing.T) {
 	}
 }
 
-func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
+func TestGitHubIntegrationProviderFailureDoesNotResend(t *testing.T) {
 	for _, tt := range []struct {
 		name, code string
 		status     int
@@ -290,7 +293,7 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 				path = "/repos/octo/renamed/pulls/7/comments"
 			}
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-failure", toolFixtureOptions{
-				withGitHubApp: true, withToolContext: true,
+				withGitHubIntegration: true, withToolContext: true,
 			})
 			var posts atomic.Int32
 			server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
@@ -303,8 +306,8 @@ func TestGitHubAppProviderFailureDoesNotResend(t *testing.T) {
 				w.WriteHeader(tt.status)
 				writeToolTestJSON(w, map[string]any{"message": "private-provider-details"})
 			})
-			call := f.recordToolCall(t, ctx, "comment", toolcatalog.AppToolName("chat", operation), input, f.Now)
-			executor := Executor{Store: f.Store, AppHTTPClient: appProviderTestClient(server)}
+			call := f.recordToolCall(t, ctx, "comment", toolcatalog.IntegrationToolName("chat", operation), input, f.Now)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
 			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 			require.NoError(t, err)
 			body := toolResultMapFromTestParts(t, result.ContentParts)

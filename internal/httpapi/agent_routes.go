@@ -544,7 +544,7 @@ func (s strictOpenAPIServer) createAgent(
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
 	}
-	// Replay before resolving app references, which may have been deleted since launch.
+	// Replay before resolving integration references, which may have been deleted since launch.
 	// The kernel repeats this lookup under the launch key lock before writing.
 	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
 		ctx, project.ID, idempotencyKey,

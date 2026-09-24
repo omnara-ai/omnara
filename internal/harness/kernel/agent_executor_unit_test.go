@@ -216,7 +216,7 @@ func TestMCPInitializationRetryableFailureClassification(t *testing.T) {
 	}
 }
 
-func TestShouldPostAppRuntimeError(t *testing.T) {
+func TestShouldPostIntegrationRuntimeError(t *testing.T) {
 	baseCtx := context.Background()
 	canceledCtx, cancelCanceled := context.WithCancel(baseCtx)
 	cancelCanceled()
@@ -257,22 +257,22 @@ func TestShouldPostAppRuntimeError(t *testing.T) {
 			case "deadline":
 				ctx = deadlineCtx
 			}
-			if got := shouldPostAppRuntimeError(ctx, tc.err); got != tc.want {
+			if got := shouldPostIntegrationRuntimeError(ctx, tc.err); got != tc.want {
 				t.Fatalf("should post = %t, want %t", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestShouldPostAppRuntimeMessageAllowsUnavailableGrantAfterModelResponse(t *testing.T) {
+func TestShouldPostIntegrationRuntimeMessageAllowsUnavailableGrantAfterModelResponse(t *testing.T) {
 	ctx := context.Background()
-	if !shouldPostAppRuntimeMessage(ctx, storeerr.ErrModelGrantUnavailable, true) {
+	if !shouldPostIntegrationRuntimeMessage(ctx, storeerr.ErrModelGrantUnavailable, true) {
 		t.Fatal("unavailable model grant after a prior model response should still post a runtime message")
 	}
-	if shouldPostAppRuntimeMessage(ctx, errors.New("boom"), true) {
+	if shouldPostIntegrationRuntimeMessage(ctx, errors.New("boom"), true) {
 		t.Fatal("generic runtime error after a prior model response should not post a duplicate runtime message")
 	}
-	if !shouldPostAppRuntimeMessage(ctx, errors.New("boom"), false) {
+	if !shouldPostIntegrationRuntimeMessage(ctx, errors.New("boom"), false) {
 		t.Fatal("generic runtime error before a model response should post a runtime message")
 	}
 }

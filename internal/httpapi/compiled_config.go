@@ -83,21 +83,24 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			Enabled: tool.Enabled, Type: openapi.CompiledToolType(tool.Type), Permission: tool.Permission,
 			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
 		}
-		if tool.AppID != uuid.Nil {
-			projected.AppId, err = publicCompiledID(publicid.KindProjectApp, tool.AppID)
+		if tool.IntegrationID != uuid.Nil {
+			projected.IntegrationId, err = publicCompiledID(publicid.KindProjectIntegration, tool.IntegrationID)
 			if err != nil {
 				return openapi.CompiledAgentConfig{}, err
 			}
 		}
 		response.Tools[name] = projected
 	}
-	response.InteractionHandlers = make(map[string]openapi.CompiledAppCapability, len(compiled.InteractionHandlers))
+	response.InteractionHandlers = make(
+		map[string]openapi.CompiledIntegrationCapability,
+		len(compiled.InteractionHandlers),
+	)
 	for name, capability := range compiled.InteractionHandlers {
-		appID, err := publicCompiledID(publicid.KindProjectApp, capability.AppID)
+		integrationID, err := publicCompiledID(publicid.KindProjectIntegration, capability.IntegrationID)
 		if err != nil {
 			return openapi.CompiledAgentConfig{}, err
 		}
-		response.InteractionHandlers[name] = openapi.CompiledAppCapability{AppId: appID}
+		response.InteractionHandlers[name] = openapi.CompiledIntegrationCapability{IntegrationId: integrationID}
 	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))
 	for name, server := range compiled.MCP {

@@ -245,7 +245,7 @@ func (e AgentExecutor) recordTerminalContextMaintenanceFailure(
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
 	if ctx.Err() == nil {
-		e.postAppRuntimeError(ctx, input)
+		e.postIntegrationRuntimeError(ctx, input)
 	}
 	return modelStep{State: modelStepDone, Context: claim.Context, Resolved: resolved}, nil
 }

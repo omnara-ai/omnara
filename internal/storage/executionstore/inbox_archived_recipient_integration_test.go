@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -18,11 +18,11 @@ import (
 
 func TestInboxInputArchivedRecipientSettlesWithoutPreparation(t *testing.T) {
 	t.Parallel()
-	f := newAppActivationFixture(t)
+	f := newIntegrationActivationFixture(t)
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "archived-recipient"))
 	require.NoError(t, err)
-	slot := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.app, "message:archived"))
-	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	slot := withInboxFile(t, inboxInputPlan(t, agent.Agent.ID, f.integration, "message:archived"))
+	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	receipt := freezeInboxInput(t, f, slot, "archived-recipient", time.Minute)
 	_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, agent.Agent.ID, userPrincipal(f.user.ID))
 	require.NoError(t, err)
@@ -32,12 +32,12 @@ func TestInboxInputArchivedRecipientSettlesWithoutPreparation(t *testing.T) {
 	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
 		f.ctx, receipt.Lease(), "recipient", slot.Input.Origin.Address), executionstore.ErrInboxRecipientSettled)
 	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
-		f.ctx, receipt.Lease(), "recipient", appstore.ConversationAddress{Kind: "thread", Ref: "C123:9.9"}),
+		f.ctx, receipt.Lease(), "recipient", integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:9.9"}),
 		storeerr.ErrUnauthorized, "settled progress never authorizes another conversation")
-	saved, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
+	saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"recipient":{"committed":{"skipped":"agent_archived"}}}`, string(saved.Progress))
-	for _, table := range []string{"agent_inputs", "artifacts", "app_targets"} {
+	for _, table := range []string{"agent_inputs", "artifacts", "integration_targets"} {
 		var count int
 		query := "SELECT count(*) FROM " + table + " WHERE agent_id=$1"
 		if table == "agent_inputs" {
@@ -46,8 +46,8 @@ func TestInboxInputArchivedRecipientSettlesWithoutPreparation(t *testing.T) {
 		require.NoError(t, f.store.pool.QueryRow(f.ctx, query, agent.Agent.ID).Scan(&count))
 		require.Zero(t, count, table)
 	}
-	require.NoError(t, f.store.Apps().WithAppInboxLease(f.ctx, receipt.Lease(),
-		func(work *appstore.AppInboxLeaseTx) error { return work.Complete(f.ctx) }))
+	require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, receipt.Lease(),
+		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Complete(f.ctx) }))
 	f.disable(t)
 	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
 	require.NoError(t, err, "completed skips replay without reacquiring authority")
@@ -59,11 +59,11 @@ func TestInboxInputArchivedRecipientReplaysPriorDelivery(t *testing.T) {
 	for _, scenario := range []string{"same input", "message sibling", "supplemental files"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
-			f := newAppActivationFixture(t)
+			f := newIntegrationActivationFixture(t)
 			agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "prior-recipient"))
 			require.NoError(t, err)
-			slot := inboxInputPlan(t, agent.Agent.ID, f.app, "message:prior")
-			slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+			slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:prior")
+			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 			first := freezeInboxInput(t, f, slot, "prior-delivery", time.Minute)
 			prior, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, first.Lease(), "recipient")
 			require.NoError(t, err)
@@ -103,11 +103,11 @@ func TestInboxInputArchivedRecipientReplaysPriorDelivery(t *testing.T) {
 
 func TestInboxInputArchiveRechecksStateAfterAgentLockWait(t *testing.T) {
 	t.Parallel()
-	f := newAppActivationFixture(t)
+	f := newIntegrationActivationFixture(t)
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "archive-race"))
 	require.NoError(t, err)
-	slot := inboxInputPlan(t, agent.Agent.ID, f.app, "message:archive-race")
-	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:archive-race")
+	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	receipt := freezeInboxInput(t, f, slot, "archive-race", time.Minute)
 	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	_, err = dbsqlc.New(blocker).LockAgentInProject(f.ctx,
@@ -132,25 +132,25 @@ func TestInboxInputArchiveRechecksStateAfterAgentLockWait(t *testing.T) {
 	require.False(t, result.Created)
 	var targets, inputs int
 	require.NoError(t, f.store.pool.QueryRow(f.ctx,
-		`SELECT count(*) FROM app_targets WHERE agent_id=$1`, agent.Agent.ID).Scan(&targets))
+		`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, agent.Agent.ID).Scan(&targets))
 	require.NoError(t, f.store.pool.QueryRow(f.ctx,
 		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, agent.Agent.ID).Scan(&inputs))
 	require.Zero(t, targets, "inbox settlement must not create a target after archival")
 	require.Zero(t, inputs, "inbox settlement must not admit content after archival")
-	saved, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
+	saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"recipient":{"committed":{"skipped":"agent_archived"}}}`, string(saved.Progress))
 }
 
 func TestInboxInputMissingRecipientDoesNotSettle(t *testing.T) {
 	t.Parallel()
-	f := newAppActivationFixture(t)
-	slot := inboxInputPlan(t, uuid.New(), f.app, "message:missing")
-	slot.Input.Origin.Address = appstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	f := newIntegrationActivationFixture(t)
+	slot := inboxInputPlan(t, uuid.New(), f.integration, "message:missing")
+	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	receipt := freezeInboxInput(t, f, slot, "missing-recipient", time.Minute)
 	_, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	saved, err := f.store.Apps().GetAppInbox(f.ctx, testProjectID, receipt.ID)
+	saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
 	var progress map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(saved.Progress, &progress))

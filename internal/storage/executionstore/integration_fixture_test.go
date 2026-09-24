@@ -345,9 +345,9 @@ func createLaunchTestAgent(
 	return profile
 }
 
-func mustAppActorParams(t *testing.T, appID uuid.UUID, userID string) *executionstore.ActorParams {
+func mustIntegrationActorParams(t *testing.T, integrationID uuid.UUID, userID string) *executionstore.ActorParams {
 	t.Helper()
-	actor, err := executionstore.AppActorParams(appID, userID, nil)
+	actor, err := executionstore.IntegrationActorParams(integrationID, userID, nil)
 	require.NoError(t, err)
 	return &actor
 }

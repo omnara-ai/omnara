@@ -379,7 +379,7 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)
 	webhookCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookCleanupErr)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, result.AuthCleanupErr)
-	statesOutcome := completedMaintenanceOutcome(ctx, result.AppStatesCleanupErr)
+	statesOutcome := completedMaintenanceOutcome(ctx, result.IntegrationStatesCleanupErr)
 	completedInboxOutcome := completedMaintenanceOutcome(ctx, result.CompletedInboxCleanupErr)
 	deletedInboxOutcome := completedMaintenanceOutcome(ctx, result.DeletedInboxCleanupErr)
 	authCleanupDeleted := result.AuthCleanup.DeletedInactiveTokens > 0 ||
@@ -393,7 +393,7 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 		result.ExpiredProcessTools > 0 ||
 		authCleanupDeleted ||
 		result.DeletedWebhooks > 0 ||
-		result.DeletedAppStates > 0 ||
+		result.DeletedIntegrationStates > 0 ||
 		result.CompletedInbox > 0 ||
 		result.DeletedInbox > 0
 	logent.MaintenanceLoopResult(
@@ -413,20 +413,20 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 		),
 	)
 	if statesOutcome.err != nil {
-		log.Error("cleanup app states", "error", statesOutcome.err)
-	} else if !statesOutcome.interrupted && result.DeletedAppStates > 0 {
-		log.Info("cleaned app states", "count", result.DeletedAppStates)
+		log.Error("cleanup integration states", "error", statesOutcome.err)
+	} else if !statesOutcome.interrupted && result.DeletedIntegrationStates > 0 {
+		log.Info("cleaned integration states", "count", result.DeletedIntegrationStates)
 	}
 	if completedInboxOutcome.err != nil {
-		log.Error("cleanup completed app inbox", "count", result.CompletedInbox, "error", completedInboxOutcome.err)
+		log.Error("cleanup completed integration inbox", "count", result.CompletedInbox, "error", completedInboxOutcome.err)
 	} else if !completedInboxOutcome.interrupted && (result.CompletedInbox > 0 || result.CompletedInboxBudgetExhausted) {
-		log.Info("cleaned completed app inbox", "count", result.CompletedInbox,
-			"retention", maintenance.AppInboxRetention, "budget_exhausted", result.CompletedInboxBudgetExhausted)
+		log.Info("cleaned completed integration inbox", "count", result.CompletedInbox,
+			"retention", maintenance.IntegrationInboxRetention, "budget_exhausted", result.CompletedInboxBudgetExhausted)
 	}
 	if deletedInboxOutcome.err != nil {
-		log.Error("cleanup deleted app inbox", "count", result.DeletedInbox, "error", deletedInboxOutcome.err)
+		log.Error("cleanup deleted integration inbox", "count", result.DeletedInbox, "error", deletedInboxOutcome.err)
 	} else if !deletedInboxOutcome.interrupted && (result.DeletedInbox > 0 || result.DeletedInboxBudgetExhausted) {
-		log.Info("cleaned deleted app inbox", "count", result.DeletedInbox,
+		log.Info("cleaned deleted integration inbox", "count", result.DeletedInbox,
 			"budget_exhausted", result.DeletedInboxBudgetExhausted)
 	}
 	if expireDaemonRuntimesOutcome.err != nil {

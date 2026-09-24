@@ -11,8 +11,8 @@ import (
 func validateInboxSubscriptionTx(ctx context.Context, tx pgx.Tx, slot InboxInputSlot) error {
 	q := dbsqlc.New(tx)
 	for _, reference := range slot.Subscription.Alternatives {
-		allowed, err := q.HasAppSubscription(ctx, dbsqlc.HasAppSubscriptionParams{
-			ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID, AppID: slot.Input.Origin.AppID,
+		allowed, err := q.HasIntegrationSubscription(ctx, dbsqlc.HasIntegrationSubscriptionParams{
+			ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID, IntegrationID: slot.Input.Origin.IntegrationID,
 			SubscriptionType: reference.Type, ScopeKind: reference.Address.Kind,
 			ScopeRef: reference.Address.Ref, Event: slot.Subscription.Event,
 		})

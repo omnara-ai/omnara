@@ -83,18 +83,21 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	request(empty, other.AdminToken, http.StatusNotFound)
 }
 
-func TestResolveAgentConfigToolsWithProjectApp(t *testing.T) {
+func TestResolveAgentConfigToolsWithProjectIntegration(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
-	project := bootstrapPublicHTTPProject(t, handler, "preview-app")
-	app := createSlackHTTPApp(t, t.Context(), project, "A123", "T123", "Support")
-	name := "app__" + app.Name + "__read"
+	project := bootstrapPublicHTTPProject(t, handler, "preview-integration")
+	integration := createSlackHTTPIntegration(t, t.Context(), project, "A123", "T123", "Support")
+	name := "int__" + integration.Name + "__read"
 	entry := map[string]any{}
 	source := map[string]any{"tools": map[string]any{name: entry}}
 	preview := func(scope publicHTTPProject, status int) map[string]any {
 		t.Helper()
 		return requestJSONWithHeaders(t, handler, http.MethodPost, scope.ProjectPath+"/agent-configs/tools",
-			projectAppHTTPJSON(t, map[string]any{"source_format": "json", "source": projectAppHTTPJSON(t, source)}),
+			projectIntegrationHTTPJSON(
+				t,
+				map[string]any{"source_format": "json", "source": projectIntegrationHTTPJSON(t, source)},
+			),
 			"", status, authHeaders(scope.AdminToken))
 	}
 	toolsByName := func(response map[string]any) map[string]map[string]any {
@@ -108,13 +111,13 @@ func TestResolveAgentConfigToolsWithProjectApp(t *testing.T) {
 	}
 	tools := toolsByName(preview(project, http.StatusOK))
 	require.Equal(t, true, tools[name]["enabled"])
-	require.NotContains(t, tools, "app__"+app.Name+"__post_message")
+	require.NotContains(t, tools, "int__"+integration.Name+"__post_message")
 	entry["enabled"] = false
 	entry["permission"] = map[string]any{"mode": "always_deny"}
 	tools = toolsByName(preview(project, http.StatusOK))
 	require.Equal(t, false, tools[name]["enabled"])
 	require.Equal(t, "always_deny", testutil.RequireType[map[string]any](t, tools[name]["permission"])["mode"])
-	other := projectAppHTTPSecondProject(t, handler, project)
+	other := projectIntegrationHTTPSecondProject(t, handler, project)
 	rejected := preview(other, http.StatusBadRequest)
-	require.Contains(t, projectAppHTTPJSON(t, rejected), "/tools/"+name)
+	require.Contains(t, projectIntegrationHTTPJSON(t, rejected), "/tools/"+name)
 }

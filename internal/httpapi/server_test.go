@@ -1483,28 +1483,28 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 		{
 			name:   "slack setup route exact match",
 			method: http.MethodPost,
-			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/apps/" +
-				strings.Replace(agentProfilePath, "aprf_", "app_", 1) +
+			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/integrations/" +
+				strings.Replace(agentProfilePath, "aprf_", "itg_", 1) +
 				"/slack-setup",
 			body: `{}`,
 			want: http.StatusForbidden,
 		},
 		{
-			name:   "app oauth callback route exact match",
+			name:   "integration oauth callback route exact match",
 			method: http.MethodGet,
-			path:   appOAuthCallbackPath,
+			path:   integrationOAuthCallbackPath,
 			want:   http.StatusServiceUnavailable,
 		},
 		{
-			name:   "app events provider route exact match",
+			name:   "integration events provider route exact match",
 			method: http.MethodPost,
-			path:   appEventsPath,
+			path:   integrationEventsPath,
 			want:   http.StatusBadRequest,
 		},
 		{
-			name:   "app actions provider route exact match",
+			name:   "integration actions provider route exact match",
 			method: http.MethodPost,
-			path:   appActionsPath,
+			path:   integrationActionsPath,
 			want:   http.StatusBadRequest,
 		},
 		{

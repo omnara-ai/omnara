@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/apps/github"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +19,7 @@ func TestGitHubManifestStatePurposeScopeAndExpiry(t *testing.T) {
 	require.NoError(t, err)
 	server := &Server{secretKeyWrapper: wrapper}
 	state := githubManifestState{
-		FlowID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), AppID: uuid.New(), UserID: uuid.New(),
+		FlowID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), IntegrationID: uuid.New(), UserID: uuid.New(),
 		SetupRevision: 1, ExpiresAt: time.Now().UTC().Add(time.Hour),
 	}
 	token, err := server.encodeGitHubManifestState(t.Context(), state)
@@ -27,7 +27,7 @@ func TestGitHubManifestStatePurposeScopeAndExpiry(t *testing.T) {
 	decoded, err := server.decodeGitHubManifestState(t.Context(), token)
 	require.NoError(t, err)
 	require.Equal(t, state, decoded)
-	_, err = server.decodeAppOAuthState(t.Context(), token)
+	_, err = server.decodeIntegrationOAuthState(t.Context(), token)
 	require.Error(t, err, "GitHub state must not authorize Slack OAuth")
 	_, err = server.decodeGitHubManifestState(t.Context(), token+"tampered")
 	require.Error(t, err)
@@ -37,7 +37,7 @@ func TestGitHubManifestStatePurposeScopeAndExpiry(t *testing.T) {
 		func(s *githubManifestState) { s.FlowID = uuid.Nil },
 		func(s *githubManifestState) { s.OrgID = uuid.Nil },
 		func(s *githubManifestState) { s.ProjectID = uuid.Nil },
-		func(s *githubManifestState) { s.AppID = uuid.Nil },
+		func(s *githubManifestState) { s.IntegrationID = uuid.Nil },
 		func(s *githubManifestState) { s.UserID = uuid.Nil },
 		func(s *githubManifestState) { s.SetupRevision = 0 },
 		func(s *githubManifestState) { s.ExpiresAt = time.Now().Add(-time.Second) },
@@ -52,7 +52,7 @@ func TestGitHubManifestStatePurposeScopeAndExpiry(t *testing.T) {
 	}
 	body, err := json.Marshal(state)
 	require.NoError(t, err)
-	otherPurpose, err := secrets.SealToken(t.Context(), wrapper, appOAuthStatePurpose, body)
+	otherPurpose, err := secrets.SealToken(t.Context(), wrapper, integrationOAuthStatePurpose, body)
 	require.NoError(t, err)
 	_, err = server.decodeGitHubManifestState(t.Context(), otherPurpose)
 	require.Error(t, err)
@@ -62,7 +62,7 @@ func TestGitHubManifestStateHasIndependentOneHourWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	state := githubManifestState{
-		FlowID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), AppID: uuid.New(), UserID: uuid.New(),
+		FlowID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), IntegrationID: uuid.New(), UserID: uuid.New(),
 		SetupRevision: 1, ExpiresAt: now.Add(time.Hour),
 	}
 	require.NoError(t, state.validate(now))
@@ -70,7 +70,7 @@ func TestGitHubManifestStateHasIndependentOneHourWindow(t *testing.T) {
 	require.Error(t, state.validate(state.ExpiresAt), "expiry is exclusive")
 	state.ExpiresAt = now.Add(time.Hour + time.Nanosecond)
 	require.Error(t, state.validate(now), "sealed state cannot extend the one-hour upper bound")
-	require.Equal(t, 10*time.Minute, appOAuthStateTTL, "Slack OAuth keeps its existing lifetime")
+	require.Equal(t, 10*time.Minute, integrationOAuthStateTTL, "Slack OAuth keeps its existing lifetime")
 }
 
 func TestGitHubManifestWebhookRequiresPublicAPIOrigin(t *testing.T) {

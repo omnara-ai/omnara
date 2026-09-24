@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type {
-  AppCronTriggerTarget,
   CreateCronTriggerRequest,
   CronTrigger,
+  IntegrationCronTriggerTarget,
 } from './generated/types.gen'
 import {
   zCreateCronTriggerRequest,
@@ -12,17 +12,17 @@ import {
 } from './generated/zod.gen'
 import { relaxedResponseValidator } from './validate-response'
 
-function request(settings: AppCronTriggerTarget['settings']): CreateCronTriggerRequest {
+function request(settings: IntegrationCronTriggerTarget['settings']): CreateCronTriggerRequest {
   return {
     name: 'daily-report',
     cron: '0 9 * * *',
     timezone: 'UTC',
     enabled: true,
-    target: { type: 'app', app_id: `app_${'a'.repeat(26)}`, settings },
+    target: { type: 'integration', integration_id: `itg_${'a'.repeat(26)}`, settings },
   }
 }
 
-function listResponse(settings: AppCronTriggerTarget['settings']) {
+function listResponse(settings: IntegrationCronTriggerTarget['settings']) {
   const trigger: CronTrigger = {
     ...request(settings),
     id: `cron_${'a'.repeat(26)}`,
@@ -45,7 +45,7 @@ function listResponse(settings: AppCronTriggerTarget['settings']) {
   return { data: [trigger], next_cursor: null }
 }
 
-describe('app scheduled action schemas', () => {
+describe('integration scheduled action schemas', () => {
   it.each([
     {},
     { nested: { enabled: true, count: 3 }, items: ['one', null, 2] },
@@ -56,7 +56,7 @@ describe('app scheduled action schemas', () => {
       message_template: 'Write the daily report.',
     },
   ])(
-    'preserves opaque app settings without requiring a top-level message or profile',
+    'preserves opaque integration settings without requiring a top-level message or profile',
     async (settings) => {
       const input = request(settings)
       expect(zCreateCronTriggerRequest.parse(input)).toEqual(input)

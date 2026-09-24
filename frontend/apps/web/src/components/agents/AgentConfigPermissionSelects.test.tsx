@@ -380,10 +380,10 @@ it.each([
   ['Always ask', 'always_ask'],
   ['Always deny', 'always_deny'],
 ])(
-  'preserves app tool deferral and %s permission through disable and re-enable',
+  'preserves integration tool deferral and %s permission through disable and re-enable',
   async (label, mode) => {
-    const name = 'app__engineering__post_message'
-    const appCatalog = {
+    const name = 'int__engineering__post_message'
+    const integrationCatalog = {
       ...includedCatalog,
       built_in_tools: [
         ...includedCatalog.built_in_tools,
@@ -397,7 +397,7 @@ it.each([
     }
     await renderAndFlush(
       <IncludedToolsHarness
-        catalog={appCatalog}
+        catalog={integrationCatalog}
         source={`${includedSource}  ${name}:
     deferred: true
     permission:

@@ -471,7 +471,7 @@ func apiOptions(
 	opts = append(opts, httpapi.WithAuthHTTPClient(operatorHTTPClient))
 	opts = append(opts, httpapi.WithOAuthClientMetadataHTTPClient(publicServiceHTTPClient))
 	opts = append(opts, httpapi.WithSlackOAuth(httpapi.SlackOAuthConfig{HTTPClient: publicServiceHTTPClient}))
-	opts = append(opts, httpapi.WithAppHTTPClient(publicServiceHTTPClient))
+	opts = append(opts, httpapi.WithIntegrationHTTPClient(publicServiceHTTPClient))
 	opts = append(opts, httpapi.WithRedisBackedAuth(redisClient))
 	opts = append(opts, httpapi.WithTrustedProxyCIDRs(cfg.TrustedProxyCIDRs))
 	return opts, nil

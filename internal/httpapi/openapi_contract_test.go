@@ -141,19 +141,19 @@ func TestGeneratedOpenAPISpecMatchesServedSpec(t *testing.T) {
 	}
 }
 
-func TestOpenAPIAppIDsUseSharedSchemas(t *testing.T) {
+func TestOpenAPIIntegrationIDsUseSharedSchemas(t *testing.T) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
 		t.Fatalf("load generated openapi spec: %v", err)
 	}
 	for path, item := range spec.Paths.Map() {
-		if !strings.HasPrefix(path, "/orgs/{orgID}/projects/{projectID}/apps") {
+		if !strings.HasPrefix(path, "/orgs/{orgID}/projects/{projectID}/integrations") {
 			continue
 		}
 		t.Run(path, func(t *testing.T) {
 			for name, schema := range map[string]string{
-				"orgID": "OrganizationID", "projectID": "ProjectID", "appID": "ProjectAppID",
-				"subscriptionID": "AppSubscriptionID",
+				"orgID": "OrganizationID", "projectID": "ProjectID", "integrationID": "ProjectIntegrationID",
+				"subscriptionID": "IntegrationSubscriptionID",
 			} {
 				if !strings.Contains(path, "{"+name+"}") {
 					continue
@@ -336,14 +336,14 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 	}
 
 	browserOnlyMutations := map[string]bool{
-		"post /orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup":               true,
-		"post /orgs/{orgID}/projects/{projectID}/apps/{appID}/github-setup/installations": true,
-		"post /personal-access-tokens":                                                    true,
-		"post /orgs/{orgID}/api-keys":                                                     true,
-		"patch /orgs/{orgID}/api-keys/{keyID}":                                            true,
-		"post /orgs/{orgID}/api-keys/{keyID}/revoke":                                      true,
-		"put /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":                         true,
-		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":                      true,
+		"post /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup":               true,
+		"post /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations": true,
+		"post /personal-access-tokens":                               true,
+		"post /orgs/{orgID}/api-keys":                                true,
+		"patch /orgs/{orgID}/api-keys/{keyID}":                       true,
+		"post /orgs/{orgID}/api-keys/{keyID}/revoke":                 true,
+		"put /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}":    true,
+		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
 		"post /daemon/bootstrap":                        true,
@@ -410,40 +410,40 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
-		"ProjectApp.name":                                        "#/components/schemas/ProjectAppName",
-		"SaveProjectAppRequest.name":                             "#/components/schemas/ProjectAppName",
-		"Agent.name":                                             "#/components/schemas/AgentName",
-		"AgentInteraction.agent_name":                            "#/components/schemas/AgentName",
-		"AppSubscription.agent_name":                             "#/components/schemas/AgentName",
-		"CreateAgentRequest.name":                                "#/components/schemas/AgentName",
-		"Skill.name":                                             "#/components/schemas/SkillName",
-		"Actor.display_name":                                     "",
-		"AgentInteraction.tool_name":                             "",
-		"CreateMachinePoolRequestBase.provider_config":           "",
-		"CreateSlackSetupRequest.app_name":                       "",
-		"CreateGitHubSetupRequest.app_name":                      "",
-		"GitHubInstallations.name":                               "",
-		"CurrentUserIdentity.display_name":                       "",
-		"DiscoveredProviderModel.display_name":                   "",
-		"ExternalActorParams.display_name":                       "",
-		"ProjectApp.provider_agent_display_name":                 "#/components/schemas/AppProviderDisplayName",
-		"ConfigureProjectAppRequest.provider_agent_display_name": "#/components/schemas/AppProviderDisplayName",
-		"ProjectApp.provider_config":                             "#/components/schemas/AppProviderConfig",
-		"ConfigureProjectAppRequest.provider_config":             "#/components/schemas/AppProviderConfig",
-		"AppTarget.display_name":                                 "",
-		"MachinePool.provider_config":                            "",
-		"MCPRegistryHeader.name":                                 "",
-		"MCPRegistryServer.name":                                 "",
-		"MCPServerInfo.name":                                     "",
-		"MCPServerTool.name":                                     "",
-		"ModelOutputToolUseStreamBlock.tool_name":                "",
-		"ModelToolCallContentBlock.name":                         "",
-		"OrgMember.display_name":                                 "",
-		"ToolCall.name":                                          "",
-		"ToolCatalogEntry.name":                                  "",
-		"ResolvedAgentConfigTool.name":                           "",
-		"ToolPermissionMode.name":                                "",
-		"UpdateMachinePoolRequest.provider_config":               "",
+		"ProjectIntegration.name":                                        "#/components/schemas/ProjectIntegrationName",
+		"SaveProjectIntegrationRequest.name":                             "#/components/schemas/ProjectIntegrationName",
+		"Agent.name":                                                     "#/components/schemas/AgentName",
+		"AgentInteraction.agent_name":                                    "#/components/schemas/AgentName",
+		"IntegrationSubscription.agent_name":                             "#/components/schemas/AgentName",
+		"CreateAgentRequest.name":                                        "#/components/schemas/AgentName",
+		"Skill.name":                                                     "#/components/schemas/SkillName",
+		"Actor.display_name":                                             "",
+		"AgentInteraction.tool_name":                                     "",
+		"CreateMachinePoolRequestBase.provider_config":                   "",
+		"CreateSlackSetupRequest.app_name":                               "",
+		"CreateGitHubSetupRequest.app_name":                              "",
+		"GitHubInstallations.name":                                       "",
+		"CurrentUserIdentity.display_name":                               "",
+		"DiscoveredProviderModel.display_name":                           "",
+		"ExternalActorParams.display_name":                               "",
+		"ProjectIntegration.provider_agent_display_name":                 "#/components/schemas/IntegrationProviderDisplayName",
+		"ConfigureProjectIntegrationRequest.provider_agent_display_name": "#/components/schemas/IntegrationProviderDisplayName",
+		"ProjectIntegration.provider_config":                             "#/components/schemas/IntegrationProviderConfig",
+		"ConfigureProjectIntegrationRequest.provider_config":             "#/components/schemas/IntegrationProviderConfig",
+		"IntegrationTarget.display_name":                                 "",
+		"MachinePool.provider_config":                                    "",
+		"MCPRegistryHeader.name":                                         "",
+		"MCPRegistryServer.name":                                         "",
+		"MCPServerInfo.name":                                             "",
+		"MCPServerTool.name":                                             "",
+		"ModelOutputToolUseStreamBlock.tool_name":                        "",
+		"ModelToolCallContentBlock.name":                                 "",
+		"OrgMember.display_name":                                         "",
+		"ToolCall.name":                                                  "",
+		"ToolCatalogEntry.name":                                          "",
+		"ResolvedAgentConfigTool.name":                                   "",
+		"ToolPermissionMode.name":                                        "",
+		"UpdateMachinePoolRequest.provider_config":                       "",
 	}
 
 	var failures []string

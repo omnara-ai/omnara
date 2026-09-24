@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -34,8 +34,8 @@ type InboxSubscriptionAuthority struct {
 }
 
 type InboxSubscriptionReference struct {
-	Type    string                       `json:"type"`
-	Address appstore.ConversationAddress `json:"address"`
+	Type    string                               `json:"type"`
+	Address integrationstore.ConversationAddress `json:"address"`
 }
 
 type InboxInputPreparation struct {
@@ -61,7 +61,7 @@ type inboxInputProgress struct {
 
 func (s *Store) AdmitInboxInputSlot(
 	ctx context.Context,
-	lease appstore.AppInboxLease,
+	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
 ) (InboxInputResult, error) {
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || slotKey == "" {
@@ -74,10 +74,10 @@ func (s *Store) AdmitInboxInputSlot(
 
 func (s *Store) admitInboxInputSlotOnce(
 	ctx context.Context,
-	lease appstore.AppInboxLease,
+	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
 ) (InboxInputResult, error) {
-	snapshot, err := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
+	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
@@ -93,10 +93,10 @@ func (s *Store) admitInboxInputSlotOnce(
 		return InboxInputResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	work, err := s.apps.LockAppInboxLeaseTx(ctx, tx, lease)
+	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease)
 	if err != nil {
 		_ = tx.Rollback(ctx)
-		latest, readErr := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		latest, readErr := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if readErr == nil {
 			latestSlot, latestProgress, _, decodeErr := decodeInboxInputSlot(latest, slotKey)
 			if decodeErr == nil && latestProgress.Committed != nil {
@@ -121,11 +121,11 @@ func (s *Store) admitInboxInputSlotOnce(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := appstore.LockConversationTx(
+	if err := integrationstore.LockConversationTx(
 		ctx,
 		tx,
 		lease.ProjectID,
-		slot.Input.Origin.AppID,
+		slot.Input.Origin.IntegrationID,
 		slot.Input.Origin.Address,
 	); err != nil {
 		return InboxInputResult{}, err
@@ -176,7 +176,7 @@ func (s *Store) admitInboxInputSlotOnce(
 				committed, err := json.Marshal(
 					inboxInputCommit{
 						InputID:          prior.AgentInput.ID,
-						TargetID:         prior.AgentInput.AppTargetID,
+						TargetID:         prior.AgentInput.IntegrationTargetID,
 						IdempotencyScope: prior.AgentInput.IdempotencyScope,
 						IdempotencyKey:   companion.IdempotencyKey,
 					},
@@ -254,7 +254,7 @@ func (s *Store) admitInboxInputSlotOnce(
 		inboxInputCommit{
 			IdempotencyKey:   slot.Input.IdempotencyKey,
 			InputID:          result.AgentInput.ID,
-			TargetID:         result.AgentInput.AppTargetID,
+			TargetID:         result.AgentInput.IntegrationTargetID,
 			IdempotencyScope: result.AgentInput.IdempotencyScope,
 		},
 	)
@@ -278,7 +278,7 @@ func (s *Store) admitInboxInputSlotOnce(
 func (s *Store) settleArchivedInboxInputTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	work *appstore.AppInboxLeaseTx,
+	work *integrationstore.IntegrationInboxLeaseTx,
 	key string,
 	slot InboxInputSlot,
 ) (*InboxInputResult, error) {
@@ -311,7 +311,7 @@ func (s *Store) settleArchivedInboxInputTx(
 	if found {
 		committed, err = json.Marshal(inboxInputCommit{
 			IdempotencyKey: result.AgentInput.InputIdempotencyKey,
-			InputID:        result.AgentInput.ID, TargetID: result.AgentInput.AppTargetID,
+			InputID:        result.AgentInput.ID, TargetID: result.AgentInput.IntegrationTargetID,
 			IdempotencyScope: result.AgentInput.IdempotencyScope,
 		})
 	} else {
@@ -330,7 +330,7 @@ func (s *Store) settleArchivedInboxInputTx(
 }
 
 func decodeInboxInputSlot(
-	receipt appstore.AppInboxRecord,
+	receipt integrationstore.IntegrationInboxRecord,
 	key string,
 ) (InboxInputSlot, inboxInputProgress, []CreateContentBlockInput, error) {
 	var slot InboxInputSlot
@@ -351,7 +351,7 @@ func decodeInboxInputSlot(
 	}
 	if (slot.Input.ProjectID != uuid.Nil && slot.Input.ProjectID != receipt.ProjectID) ||
 		(slot.Input.AgentID != uuid.Nil && slot.Input.AgentID != slot.AgentID) || slot.Input.Origin == nil ||
-		slot.Input.Origin.AppID != receipt.AppID || slot.Input.Actor == nil {
+		slot.Input.Origin.IntegrationID != receipt.IntegrationID || slot.Input.Actor == nil {
 		return fail()
 	}
 	if slot.Sibling != nil &&
@@ -405,7 +405,7 @@ func (s *Store) replayInboxInput(
 		return InboxInputResult{}, err
 	}
 	record := agentInputRecordFromIdempotencySQLC(row)
-	if record.ID != committed.InputID || record.AppTargetID != committed.TargetID {
+	if record.ID != committed.InputID || record.IntegrationTargetID != committed.TargetID {
 		return InboxInputResult{}, storeerr.ErrIdempotencyConflict
 	}
 	content, err := agentInputContentBlocks(ctx, s.q, slot.Input.ProjectID, slot.AgentID, []uuid.UUID{record.ID})

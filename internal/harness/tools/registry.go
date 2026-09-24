@@ -131,7 +131,7 @@ func toolImplementationFor(name string) (toolImplementation, bool, error) {
 	if err != nil {
 		return toolImplementation{}, false, err
 	}
-	if implementation, ok := appToolImplementation(name); ok {
+	if implementation, ok := integrationToolImplementation(name); ok {
 		return implementation, true, nil
 	}
 	if implementation, ok := mcpToolImplementation(name); ok {

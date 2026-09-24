@@ -11,7 +11,7 @@ or [Discord](/integrations/discord) interaction handler; GitHub has no interacti
 
 ## Connect your GitHub App
 
-Open **Apps** in your project and choose **GitHub PR review**. Choose whether
+Open **Integrations** in your project and choose **GitHub PR review**. Choose whether
 the GitHub App belongs to your personal account or an organization, then select
 **Continue to GitHub**. Omnara supplies the webhook, event subscriptions and
 required permissions. The registration belongs to you.
@@ -19,9 +19,9 @@ required permissions. The registration belongs to you.
 After registration, Omnara saves the credentials in your project. Check its
 installations, select **Install in GitHub** if needed, and choose repository
 access on GitHub. Back in Omnara, refresh the installations, select the verified
-account, and choose **Connect app**. If organization approval is pending, you can
+account, and choose **Connect integration**. If organization approval is pending, you can
 return later using the saved credential. Nothing launches until you choose an
-agent profile and save the app's launch settings.
+agent profile and save the integration's launch settings.
 
 <Warning>
 Any human GitHub user who can comment on a connected repository can trigger
@@ -38,7 +38,7 @@ Use **Use an existing App** for a registration you already own or manual setup.
 Complete registration within an hour. If credential conversion or saving fails,
 recover the existing App by generating a private key and setting a webhook secret
 in GitHub, then enter those values through manual setup. A saved credential remains
-available even if the Omnara app's settings changed during registration.
+available even if the Omnara integration's settings changed during registration.
 
 Guided discovery supports user and organization Apps and installations.
 Enterprise-owned Apps and enterprise-level installations report an unsupported
@@ -70,8 +70,8 @@ App's PR comment permissions.
 }
 ```
 
-Create an Omnara app named `reviews` with app type `github_pr`, then
-configure it at `POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/setup`:
+Create an Omnara integration named `reviews` with integration type `github_pr`, then
+configure it at `POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup`:
 
 ```json
 {
@@ -86,7 +86,7 @@ Use its current `setup_revision`. The credential's App ID must match
 `provider_tenant_id`; `provider_account_ref` is the installation ID. Omnara verifies
 the app, installation and bot identity before saving. Reconfigure after renaming
 the GitHub registration to refresh its bot login. Verified numeric identities
-remain fixed. Disconnecting or deleting the Omnara app requires no GitHub request
+remain fixed. Disconnecting or deleting the Omnara integration requires no GitHub request
 and changes no comments or reviews in GitHub.
 
 Set the GitHub registration's webhook to
@@ -94,21 +94,21 @@ Set the GitHub registration's webhook to
 selects candidate credentials; the signature and installation identity authenticate
 the event. The existing `/api/integrations/github/APP_ID/events` URL also works with
 the numeric GitHub App ID. Verified installation identity routes ordinary events to each
-matching active Omnara app. Independent apps may use the same installation;
-they are not automatically merged. Configure an active app before testing ping.
+matching active Omnara integration. Independent integrations may use the same installation;
+they are not automatically merged. Configure an active integration before testing ping.
 
 ## Select PR tools
 
-After saving the `reviews` app, select operations by qualified tool name:
+After saving the `reviews` integration, select operations by qualified tool name:
 
 ```yaml
 tools:
-  app__reviews__read: {}
-  app__reviews__discussion_comment:
+  int__reviews__read: {}
+  int__reviews__discussion_comment:
     permission: {mode: always_ask}
-  app__reviews__inline_comment:
+  int__reviews__inline_comment:
     permission: {mode: always_ask}
-  app__reviews__reply:
+  int__reviews__reply:
     permission: {mode: always_ask}
 ```
 
@@ -134,7 +134,7 @@ uncertain; inspect GitHub before repeating the action.
 ## Configure incoming PR work
 
 To forward events from one PR to an existing agent, send this body to
-`POST /orgs/{orgID}/projects/{projectID}/apps/{appID}/subscriptions`:
+`POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions`:
 
 ```json
 {
@@ -147,18 +147,18 @@ To forward events from one PR to an existing agent, send this body to
 
 A PR subscription selects `discussion_comment`, `review_comment` and/or `commit`;
 omitting `events` selects all three. Event filters belong to explicit subscription
-attachments. Use **Stop forwarding** on the app page to remove a subscription.
+attachments. Use **Stop forwarding** on the integration page to remove a subscription.
 Here `discussion_comment` means a comment in the PR conversation, not a GitHub
 Discussions post. Submitted reviews arrive as `review_comment`; commits come
 from PR synchronization events, not arbitrary repository pushes.
 
-For PR-open launches, this is the project app body for
-`POST /orgs/{orgID}/projects/{projectID}/apps`:
+For PR-open launches, this is the project integration body for
+`POST /orgs/{orgID}/projects/{projectID}/integrations`:
 
 ```json
 {
   "name": "reviews",
-  "app_type": "github_pr",
+  "integration_type": "github_pr",
   "settings": {
     "launcher": {
       "trigger": "pull_request_opened",
@@ -202,6 +202,6 @@ Completed and failed raw receipts are eligible for cleanup seven days after
 finishing. Their transport deduplication window ends when they are deleted; agent
 conversation history is preserved.
 
-See [Composable apps](/integrations/apps) for mixing these tools with another
+See [Composable integrations](/integrations/overview) for mixing these tools with another
 provider's subscription or approval destination, and [Custom integrations](/integrations/custom-integrations)
 for a service that routes its own events through the public API.

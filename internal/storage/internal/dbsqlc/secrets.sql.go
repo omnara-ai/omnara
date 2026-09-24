@@ -1325,7 +1325,7 @@ SELECT EXISTS (
   SELECT 1 FROM machine_pools pool
   WHERE pool.org_id = $1 AND pool.provider_auth_secret_id = $2::uuid
   UNION ALL
-  SELECT 1 FROM project_apps install
+  SELECT 1 FROM project_integrations install
   WHERE install.org_id = $1 AND install.credential_secret_id = $2::uuid
 ) AS is_referenced
 `
@@ -1335,7 +1335,7 @@ type SecretIsReferencedParams struct {
 	SecretID uuid.UUID
 }
 
-// @sqlc-vet-disable model-provider-configs-deleted-at project-apps-deleted-at machine-pools-deleted-at
+// @sqlc-vet-disable model-provider-configs-deleted-at project-integrations-deleted-at machine-pools-deleted-at
 // Soft-deleted secrets no longer trip foreign keys, so referencing rows are
 // checked explicitly. Deleted configs, pools, and installs clear their
 // credential references; any row still holding one blocks deletion.

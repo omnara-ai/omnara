@@ -22,7 +22,7 @@ type AgentInputRecord struct {
 	InputRank           int64                  `json:"input_rank"`
 	ActorID             uuid.UUID              `json:"actor_id,omitzero"`
 	InputKind           string                 `json:"input_kind"`
-	AppTargetID         uuid.UUID              `json:"app_target_id,omitempty"`
+	IntegrationTargetID uuid.UUID              `json:"integration_target_id,omitempty"`
 	IdempotencyScope    string                 `json:"idempotency_scope,omitempty"`
 	InputIdempotencyKey string                 `json:"input_idempotency_key,omitempty"`
 	QueuedAt            time.Time              `json:"queued_at"`
@@ -75,7 +75,7 @@ type insertAgentInputInput struct {
 	AgentID             uuid.UUID
 	DeliveryMode        AgentInputDeliveryMode
 	ActorID             uuid.UUID
-	AppTargetID         uuid.UUID
+	IntegrationTargetID uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	Metadata            json.RawMessage
@@ -103,7 +103,7 @@ func insertAgentInputTx(
 		ID:                  storeutil.IDFromNil(input.ID),
 		DeliveryMode:        string(input.DeliveryMode),
 		ActorID:             storeutil.IDFromNil(input.ActorID),
-		AppTargetID:         storeutil.IDFromNil(input.AppTargetID),
+		IntegrationTargetID: storeutil.IDFromNil(input.IntegrationTargetID),
 		IdempotencyScope:    storeutil.TextFromEmpty(input.IdempotencyScope),
 		InputIdempotencyKey: storeutil.TextFromEmpty(input.InputIdempotencyKey),
 		Metadata:            input.Metadata,

@@ -14,14 +14,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -121,16 +121,16 @@ func TestAgentExecutorTargetDoesNotImplicitlyGrantMessagingTools(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	sourceYAML := `
-instruction: Send messages through the connected apps.
+instruction: Send messages through the connected integrations.
 model:
   provider_config: openai-prod
-  name: implicit-app-tool-model
+  name: implicit-integration-tool-model
 `
 	profile := fixture.createConfigAndProfileBookmark(
 		t,
 		ctx,
-		"Kernel Implicit App Tool",
-		"kernel-implicit-app-tool-agent",
+		"Kernel Implicit Integration Tool",
+		"kernel-implicit-integration-tool-agent",
 		sourceYAML,
 	)
 	secret, _, err := fixture.Store.Secrets().CreateSecret(
@@ -139,7 +139,7 @@ model:
 			OrgID:          kernelTestOrgID,
 			OwnerKind:      secretstore.SecretOwnerProject,
 			OwnerProjectID: kernelTestProjectID,
-			Name:           "kernel-implicit-app-tool-credentials",
+			Name:           "kernel-implicit-integration-tool-credentials",
 			Material: secrets.SlackAppCredentialsMaterial{
 				AccessToken:   "xoxb-test",
 				ClientID:      "client-id",
@@ -150,22 +150,22 @@ model:
 		},
 	)
 	if err != nil {
-		t.Fatalf("create app credential secret: %v", err)
+		t.Fatalf("create integration credential secret: %v", err)
 	}
-	app, err := fixture.Store.Apps().
-		CreateProjectApp(ctx, appstore.SaveProjectAppInput{
+	integration, err := fixture.Store.Integrations().
+		CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
 			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
-			Name: "implicit", AppType: appdefinition.SlackThread,
+			Name: "implicit", IntegrationType: integrationdefinition.SlackThread,
 		})
 	require.NoError(t, err)
-	install, err := fixture.Store.Apps().
-		ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
+	install, err := fixture.Store.Integrations().
+		ConfigureProjectIntegration(ctx, integrationstore.ConfigureProjectIntegrationInput{
 			OrgID:                 kernelTestOrgID,
 			ProjectID:             kernelTestProjectID,
-			AppID:                 app.ID,
-			ExpectedSetupRevision: app.SetupRevision,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
 			InstalledByUserID:     kernelTestUserID,
-			Provider:              appstore.AppProviderSlack,
+			Provider:              integrationstore.IntegrationProviderSlack,
 			ProviderTenantID:      "T_IMPLICIT_TOOL",
 			ProviderAccountRef:    "A_IMPLICIT_TOOL",
 			CredentialSecretID:    secret.ID,
@@ -174,7 +174,7 @@ model:
 			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
 		})
 	require.NoError(t, err)
-	actor, err := executionstore.AppActorParams(install.ID, "U_FIXTURE", nil)
+	actor, err := executionstore.IntegrationActorParams(install.ID, "U_FIXTURE", nil)
 	require.NoError(t, err)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -183,14 +183,14 @@ model:
 			ProfileID:      profile.ID,
 			AgentConfigID:  profile.CurrentConfigID,
 			LaunchedBy:     kernelTestUserPrincipal(kernelTestUserID),
-			IdempotencyKey: "kernel-implicit-app-tool-agent",
+			IdempotencyKey: "kernel-implicit-integration-tool-agent",
 			InitialInput: &executionstore.LaunchInitialInput{
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"hello"}]`),
 				SemanticEventKey: "kernel-origin",
 				Actor:            &actor,
 				Origin: &executionstore.LaunchInputOrigin{
-					AppID: install.ID,
-					Address: appstore.ConversationAddress{
+					IntegrationID: install.ID,
+					Address: integrationstore.ConversationAddress{
 						Kind: "thread",
 						Ref:  "CIMPLICITTOOL:1.0",
 					},
@@ -201,7 +201,7 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	require.NotEqual(t, uuid.Nil, launch.AppTarget.ID)
+	require.NotEqual(t, uuid.Nil, launch.IntegrationTarget.ID)
 	specs, err := (AgentExecutor{Store: fixture.Store}).modelContextToolRuntime(
 		ctx,
 		kernelTestProjectID,
@@ -215,8 +215,8 @@ model:
 	for _, spec := range specs {
 		require.False(
 			t,
-			toolcatalog.UsesAppToolNamespace(spec.Name),
-			"attribution must not grant app tools",
+			toolcatalog.UsesIntegrationToolNamespace(spec.Name),
+			"attribution must not grant integration tools",
 		)
 	}
 	selection, err := fixture.Store.Execution().
@@ -321,7 +321,7 @@ model:
 	postedPath := ""
 	postedAuthorization := ""
 	var postedDecodeErr error
-	appHTTPClient := kernelSlackRuntimeHTTPClient(t, "unavailable-grant",
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "unavailable-grant",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			postedPath = req.URL.Path
@@ -341,8 +341,8 @@ model:
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
 		ToolExecutor: tools.Executor{
-			Store:         fixture.Store,
-			AppHTTPClient: appHTTPClient,
+			Store:                 fixture.Store,
+			IntegrationHTTPClient: integrationHTTPClient,
 		},
 		Now: func() time.Time { return now.Add(4 * time.Millisecond) },
 	}
@@ -370,7 +370,7 @@ model:
 	}
 	if postedMessage.Channel != "CUNAVAILABLEGRANT" ||
 		postedMessage.ThreadTS != "1.0" ||
-		postedMessage.Text != apps.AgentRequestFailureMessage {
+		postedMessage.Text != integrationruntime.AgentRequestFailureMessage {
 		t.Fatalf("Slack runtime message = %+v", postedMessage)
 	}
 	assertDurableModelErrorForKernelTest(
@@ -450,7 +450,7 @@ func attachKernelSlackHandler(
 			OrgID:          kernelTestOrgID,
 			OwnerKind:      secretstore.SecretOwnerProject,
 			OwnerProjectID: kernelTestProjectID,
-			Name:           "kernel-" + identifier + "-app-credentials",
+			Name:           "kernel-" + identifier + "-integration-credentials",
 			Material: secrets.SlackAppCredentialsMaterial{
 				AccessToken:   botToken,
 				ClientID:      "client-id",
@@ -461,23 +461,23 @@ func attachKernelSlackHandler(
 		},
 	)
 	if err != nil {
-		t.Fatalf("create app credential secret: %v", err)
+		t.Fatalf("create integration credential secret: %v", err)
 	}
 	const handlerKey = "runtime-notifications"
-	app, err := fixture.Store.Apps().
-		CreateProjectApp(ctx, appstore.SaveProjectAppInput{
+	integration, err := fixture.Store.Integrations().
+		CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
 			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
-			Name: handlerKey, AppType: appdefinition.SlackThread,
+			Name: handlerKey, IntegrationType: integrationdefinition.SlackThread,
 		})
 	require.NoError(t, err)
-	install, err := fixture.Store.Apps().
-		ConfigureProjectApp(ctx, appstore.ConfigureProjectAppInput{
+	install, err := fixture.Store.Integrations().
+		ConfigureProjectIntegration(ctx, integrationstore.ConfigureProjectIntegrationInput{
 			OrgID:                 kernelTestOrgID,
 			ProjectID:             kernelTestProjectID,
-			AppID:                 app.ID,
-			ExpectedSetupRevision: app.SetupRevision,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
 			InstalledByUserID:     kernelTestUserID,
-			Provider:              appstore.AppProviderSlack,
+			Provider:              integrationstore.IntegrationProviderSlack,
 			ProviderTenantID:      "T_" + identifier,
 			ProviderAccountRef:    "A_" + identifier,
 			CredentialSecretID:    secret.ID,
@@ -492,13 +492,13 @@ func attachKernelSlackHandler(
 		[]byte(config.Source),
 	)
 	require.NoError(t, err)
-	appID := install.ID
+	integrationID := install.ID
 	channel, thread, found := strings.Cut(providerRef, ":")
 	require.True(t, found, "runtime-message fixture requires a Slack thread")
 	if source.InteractionHandlers == nil {
-		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigAppCapabilitySource)
+		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigIntegrationCapabilitySource)
 	}
-	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigAppCapabilitySource{}
+	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigIntegrationCapabilitySource{}
 	raw, err := json.Marshal(source)
 	require.NoError(t, err)
 	configuredModel := currentConfiguredModelForKernelConfig(t, ctx, fixture.Store, config)
@@ -509,11 +509,11 @@ func attachKernelSlackHandler(
 			ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
 				return resolvedKernelAgentConfigModel(configuredModel), nil
 			},
-			ResolveAppName: func(name string) (agentconfig.AppResolution, error) {
+			ResolveIntegrationName: func(name string) (agentconfig.IntegrationResolution, error) {
 				require.Equal(t, install.Name, name)
-				return agentconfig.AppResolution{
-					AppID:   appID,
-					AppType: install.AppType,
+				return agentconfig.IntegrationResolution{
+					IntegrationID:   integrationID,
+					IntegrationType: install.IntegrationType,
 				}, nil
 			},
 		},
@@ -536,11 +536,11 @@ func attachKernelSlackHandler(
 	tx, err := fixture.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	require.NoError(t, appstore.LockAppsTx(ctx, tx, kernelTestProjectID, nil, install.ID))
-	address := appstore.ConversationAddress{Kind: "thread", Ref: providerRef}
+	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, kernelTestProjectID, nil, install.ID))
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: providerRef}
 	require.NoError(
 		t,
-		appstore.LockConversationTx(ctx, tx, kernelTestProjectID, install.ID, address),
+		integrationstore.LockConversationTx(ctx, tx, kernelTestProjectID, install.ID, address),
 	)
 	_, err = tx.Exec(
 		ctx,
@@ -549,9 +549,9 @@ func attachKernelSlackHandler(
 		agentID,
 	)
 	require.NoError(t, err)
-	target, err := fixture.Store.Apps().
-		EnsureConversationTargetTx(ctx, tx, appstore.EnsureConversationTargetInput{
-			ProjectID: kernelTestProjectID, AgentID: agentID, AppID: install.ID,
+	target, err := fixture.Store.Integrations().
+		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID, IntegrationID: install.ID,
 			Address: address,
 		})
 	require.NoError(t, err)
@@ -559,7 +559,7 @@ func attachKernelSlackHandler(
 		ctx, tx, kernelTestProjectID, agentID, target.ID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, target.ID, selection.AppTargetID)
+	require.Equal(t, target.ID, selection.IntegrationTargetID)
 	require.Equal(t, handlerKey, selection.HandlerKey)
 	expected, err := json.Marshal(map[string]string{"channel_id": channel, "thread_ts": thread})
 	require.NoError(t, err)

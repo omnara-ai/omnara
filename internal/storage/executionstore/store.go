@@ -7,9 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -18,7 +18,7 @@ import (
 type Config struct {
 	PostCommitPublisher   notifications.PostCommitPublisher
 	ModelCallRetryBackoff func(int, string) time.Duration
-	Apps                  *appstore.Store
+	Integrations          *integrationstore.Store
 	MachinePoolProviders  MachinePoolProviders
 	Identity              *identitystore.Store
 	Secrets               *secretstore.Store
@@ -30,7 +30,7 @@ type Store struct {
 	q                     *dbsqlc.Queries
 	postCommitPublisher   notifications.PostCommitPublisher
 	modelCallRetryBackoff func(int, string) time.Duration
-	apps                  *appstore.Store
+	integrations          *integrationstore.Store
 	machinePoolProviders  MachinePoolProviders
 	identity              *identitystore.Store
 	secrets               *secretstore.Store
@@ -43,7 +43,7 @@ func New(pool *pgxpool.Pool, config Config) *Store {
 		q:                     dbsqlc.New(pool),
 		postCommitPublisher:   config.PostCommitPublisher,
 		modelCallRetryBackoff: config.ModelCallRetryBackoff,
-		apps:                  config.Apps,
+		integrations:          config.Integrations,
 		machinePoolProviders:  config.MachinePoolProviders,
 		identity:              config.Identity,
 		secrets:               config.Secrets,

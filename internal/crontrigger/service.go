@@ -56,16 +56,16 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 		)
 	}
 	for _, trigger := range claim.Claimed {
-		if trigger.Target.Kind == executionstore.CronTriggerTargetApp {
-			queued, err := s.execution.CreateCronTriggerAppEvent(ctx, trigger)
+		if trigger.Target.Kind == executionstore.CronTriggerTargetIntegration {
+			queued, err := s.execution.CreateCronTriggerIntegrationEvent(ctx, trigger)
 			if err != nil {
 				stats.Failures++
-				s.logger.Error("queue scheduled app action", "cron_trigger_id", trigger.TriggerID, "error", err)
+				s.logger.Error("queue scheduled integration action", "cron_trigger_id", trigger.TriggerID, "error", err)
 				if recordErr := s.execution.RecordCronTriggerFailure(ctx, executionstore.CronTriggerFailureParams{
 					ProjectID: trigger.ProjectID, TriggerID: trigger.TriggerID, ClaimToken: trigger.ClaimToken,
-					Message: "Scheduled app action could not be queued.", WillRetry: true,
+					Message: "Scheduled integration action could not be queued.", WillRetry: true,
 				}); recordErr != nil {
-					s.logger.Error("record app cron failure", "cron_trigger_id", trigger.TriggerID, "error", recordErr)
+					s.logger.Error("record integration cron failure", "cron_trigger_id", trigger.TriggerID, "error", recordErr)
 				}
 			} else if queued {
 				stats.Queued++

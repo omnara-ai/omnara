@@ -7,26 +7,26 @@ icon: "slack"
 import SlackCreateApp from '/snippets/slack-create-app.mdx'
 import SlackExistingApp from '/snippets/slack-existing-app.mdx'
 
-Create a Slack app from your project's **Apps** page. Your Omnara app owns the
+Create a Slack integration from your project's **Integrations** page. Your Omnara integration owns the
 Slack setup and credentials. Its launcher, tools, subscriptions and interaction handler
-can be used independently; see [Apps](/integrations/apps).
+can be used independently; see [Integrations](/integrations/overview).
 
 ## Connect Slack
 
-Choose **Slack threads** and enter an Omnara app name such as `engineering`.
+Choose **Slack threads** and enter an Omnara integration name such as `engineering`.
 On the same page, connect an existing Slack app or let Omnara create the Slack registration using
 an app configuration token from [Slack's app settings](https://api.slack.com/apps).
 The bot token obtained through OAuth represents the bot's access to that workspace;
 it is different from the configuration token used to create the registration.
 
-With the CLI or API, create the Omnara app first:
+With the CLI or API, create the Omnara integration first:
 
 ```json
-{"name":"engineering","app_type":"slack_thread","settings":{}}
+{"name":"engineering","integration_type":"slack_thread","settings":{}}
 ```
 
-Submit that body to `POST /orgs/{orgID}/projects/{projectID}/apps`, then use its
-returned `app_…` ID for setup. To create a Slack registration:
+Submit that body to `POST /orgs/{orgID}/projects/{projectID}/integrations`, then use its
+returned `itg_…` ID for setup. To create a Slack registration:
 
 <SlackCreateApp />
 
@@ -37,18 +37,18 @@ For an existing Slack registration:
 Configure the returned `events_url`, `actions_url` and `redirect_uri` in Slack.
 Open `oauth_url` before `expires_at`, signed in to Omnara as the user who started
 setup, and approve installation. The CLI opens this link unless `--no-browser`
-is supplied. The app becomes active when its `last_oauth_flow_id` matches the
-returned flow. Setup updates that specific saved app and does not create a launcher.
+is supplied. The integration becomes active when its `last_oauth_flow_id` matches the
+returned flow. Setup updates that specific saved integration and does not create a launcher.
 For self-hosting, `OMNARA_PUBLIC_URL` must be a public HTTPS origin.
 
-Reauthorizing creates a new encrypted project secret and updates the app to use
+Reauthorizing creates a new encrypted project secret and updates the integration to use
 it. A superseded secret remains in Secrets until you delete it; Omnara prevents
 deletion while another resource still references it. Disconnecting preserves
-the credential reference for reconnect, while deleting the app releases it.
+the credential reference for reconnect, while deleting the integration releases it.
 
 ## Start agents from mentions
 
-Choose profiles and a workspace or channel scope in the app's launch settings.
+Choose profiles and a workspace or channel scope in the integration's launch settings.
 With one profile, a mention starts an agent in that thread. With several, the
 first reply asks which profile to use; no agent starts before the selection.
 Anyone in the conversation can choose. Menus expire after an hour, and follow-up
@@ -66,7 +66,7 @@ config entries are preserved. Thread
 replies steer the selected agent and cancel its outstanding interactions. Bot
 messages are ignored. Overlapping launchers using the same bot are discouraged.
 
-For API setup, add this `settings.launcher` to the app's create/update body:
+For API setup, add this `settings.launcher` to the integration's create/update body:
 
 ```json
 {
@@ -82,12 +82,12 @@ mentions. Keep slot keys stable when editing.
 
 ## Scheduled threads
 
-Use **Add schedule** on the app page to post a template opening message and launch
+Use **Add schedule** on the integration page to post a template opening message and launch
 one profile in its new thread. The tools, reply subscription and interaction handler
 are ready when the agent starts. Schedules can coexist with mention launches.
 Choose a channel the bot has already joined, not a DM. The opening-message
 template is limited to 2,000 characters.
-See [scheduled app launches](/integrations/apps#start-a-new-thread-on-a-schedule)
+See [scheduled integration launches](/integrations/overview#start-a-new-thread-on-a-schedule)
 for setup, template variables and recovery behavior.
 
 ## Thread tools and subscriptions
@@ -100,8 +100,8 @@ without an assigned conversation is insufficient; calls fail before contacting S
 
 The launcher also subscribes the agent to replies. Sending messages does not
 change subscriptions. Removing the sending tool or changing the config leaves
-subscriptions intact. Use **Stop forwarding** on the app page or the
-[subscriptions API](/integrations/apps#stop-forwarding) to remove one.
+subscriptions intact. Use **Stop forwarding** on the integration page or the
+[subscriptions API](/integrations/overview#stop-forwarding) to remove one.
 
 The subscriptions API can independently forward messages to an existing agent:
 
@@ -114,7 +114,7 @@ The subscriptions API can independently forward messages to an existing agent:
 ```
 
 Subscriptions use the `message` event by default. Attaching a subscription does
-not assign or change the conversation used by this app's tools.
+not assign or change the conversation used by this integration's tools.
 
 ## Questions and approvals
 

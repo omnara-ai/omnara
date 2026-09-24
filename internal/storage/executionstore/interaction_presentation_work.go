@@ -21,7 +21,7 @@ type InteractionPresentationReference struct {
 }
 
 func (s *Store) ListPendingInteractionPresentations(
-	ctx context.Context, appTypes []string, limit int,
+	ctx context.Context, integrationTypes []string, limit int,
 ) ([]InteractionPresentationReference, error) {
 	// Revoked destinations must still be claimed to drain pending work;
 	// presentation checks live authority afterward.
@@ -30,7 +30,7 @@ func (s *Store) ListPendingInteractionPresentations(
 	}
 	limit = min(limit, MaxPendingInteractionPresentations)
 	rows, err := s.q.ListPendingInteractionPresentations(ctx, dbsqlc.ListPendingInteractionPresentationsParams{
-		AppTypes: appTypes, BatchLimit: int32(limit),
+		IntegrationTypes: integrationTypes, BatchLimit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pending interaction presentations: %w", err)

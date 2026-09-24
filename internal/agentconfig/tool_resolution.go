@@ -41,8 +41,8 @@ func compileTools(
 		enabled := tool.Enabled == nil || *tool.Enabled
 		var entry ToolCompiled
 		switch {
-		case toolcatalog.UsesAppToolNamespace(name):
-			entry, err = compileAppTool(name, tool, opts)
+		case toolcatalog.UsesIntegrationToolNamespace(name):
+			entry, err = compileIntegrationTool(name, tool, opts)
 		case tool.Type == toolcatalog.ToolTypeCustom:
 			entry, err = compileCustomTool(name, tool, enabled, catalog)
 		default:
@@ -111,7 +111,7 @@ func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOpt
 	if err := json.Unmarshal(jsonSource, &source); err != nil {
 		return nil, err
 	}
-	opts = cacheAppResolver(opts)
+	opts = cacheIntegrationResolver(opts)
 	tools, err := compileTools(source, opts)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)

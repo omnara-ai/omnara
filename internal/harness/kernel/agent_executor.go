@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/apps"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -22,18 +22,16 @@ import (
 )
 
 type AgentExecutor struct {
-	Store                *storage.Store
-	ContextBuilder       modelcontext.Builder
-	ModelResolver        model.Resolver
-	MCP                  mcp.Client
-	MCPAuthHTTPClient    *http.Client
-	SigV4CredentialCache *sigv4.CredentialCache
-	ToolExecutor         tools.Executor
-	Now                  func() time.Time
-
-	StreamPublisher notifications.AgentStreamDeltaPublisher
-	StreamLog       *slog.Logger
-
+	Store                    *storage.Store
+	ContextBuilder           modelcontext.Builder
+	ModelResolver            model.Resolver
+	MCP                      mcp.Client
+	MCPAuthHTTPClient        *http.Client
+	SigV4CredentialCache     *sigv4.CredentialCache
+	ToolExecutor             tools.Executor
+	Now                      func() time.Time
+	StreamPublisher          notifications.AgentStreamDeltaPublisher
+	StreamLog                *slog.Logger
 	MCPInitializationBackoff func(attempt int) time.Duration
 	ModelRetryDelay          func(time.Duration) time.Duration
 }
@@ -51,8 +49,8 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	builder := e.contextBuilder()
 	modelProducedResponse := false
 	defer func() {
-		if shouldPostAppRuntimeMessage(ctx, err, modelProducedResponse) {
-			e.postAppRuntimeError(ctx, input)
+		if shouldPostIntegrationRuntimeMessage(ctx, err, modelProducedResponse) {
+			e.postIntegrationRuntimeError(ctx, input)
 		}
 	}()
 	if e.ModelResolver == nil {
@@ -109,16 +107,16 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	}
 }
 
-func (e AgentExecutor) postAppRuntimeError(
+func (e AgentExecutor) postIntegrationRuntimeError(
 	ctx context.Context,
 	input ModelWorkExecution,
 ) {
 	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	_ = e.configuredToolExecutor().PostAppRuntimeMessage(
+	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
 		postCtx,
 		toToolTurn(input),
-		apps.AgentRequestFailureMessage,
+		integrationruntime.AgentRequestFailureMessage,
 	)
 }
 
@@ -131,7 +129,8 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 		len(input.InputIDs) == 0 ||
 		input.OpeningEventSequence <= 0 {
 		return errors.New(
-			"model work organization, project, agent, turn, runtime lock, opening inputs, and opening event sequence are required",
+			"model work organization, project, agent, turn, runtime lock, opening inputs, " +
+				"and opening event sequence are required",
 		)
 	}
 	switch input.Kind {
@@ -159,14 +158,14 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 	return nil
 }
 
-func shouldPostAppRuntimeMessage(ctx context.Context, err error, modelProducedResponse bool) bool {
+func shouldPostIntegrationRuntimeMessage(ctx context.Context, err error, modelProducedResponse bool) bool {
 	if modelProducedResponse && !errors.Is(err, storeerr.ErrModelGrantUnavailable) {
 		return false
 	}
-	return shouldPostAppRuntimeError(ctx, err)
+	return shouldPostIntegrationRuntimeError(ctx, err)
 }
 
-func shouldPostAppRuntimeError(ctx context.Context, err error) bool {
+func shouldPostIntegrationRuntimeError(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}

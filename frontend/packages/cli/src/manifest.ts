@@ -4,7 +4,6 @@ import * as z from 'zod'
 
 import { agentChatOp, agentEventsStreamOp } from './agent-commands.ts'
 import { formatAgentEventList } from './agent-rendering.ts'
-import { appCommandGroups } from './app-setup.ts'
 import {
   currentProfileConfigId,
   renderConfigSource,
@@ -14,13 +13,14 @@ import {
 } from './config-attachment.ts'
 import { type CommandGroup, flowOp, op, type OperationSpec } from './factory.ts'
 import { formatRecord, formatTable, formatVoid } from './format.ts'
+import { integrationCommandGroups } from './integration-setup.ts'
 import { formatMachineSetup, runMachineCreateLocal, zMachineSetupBody } from './machine-setup.ts'
 import { runAgentMcpAdd, runProfileMcpAdd, zMcpAddBody } from './mcp-add.ts'
 import { runMcpOAuth, zMcpOAuthBody } from './mcp-oauth.ts'
 import { loadSkillArchive, zCreateSkillCliBody } from './skill-archive.ts'
 
 export const commandGroups: CommandGroup[] = [
-  ...appCommandGroups,
+  ...integrationCommandGroups,
   {
     name: 'agents',
     aliases: ['agent'],

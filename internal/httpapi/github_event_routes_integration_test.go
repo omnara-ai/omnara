@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps"
-	"github.com/omnara-ai/omnara/internal/apps/github"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -33,10 +33,10 @@ import (
 const githubJourneyWebhookSecret = "local-test-webhook-secret"
 
 type githubHTTPJourney struct {
-	handler  http.Handler
-	project  publicHTTPProject
-	app      appstore.ProjectAppRecord
-	secretID string
+	handler     http.Handler
+	project     publicHTTPProject
+	integration integrationstore.ProjectIntegrationRecord
+	secretID    string
 }
 
 func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHTTPJourney {
@@ -46,36 +46,37 @@ func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHT
 	project := bootstrapPublicHTTPProject(t, handler, seed)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	secretID := createAppSetupHTTPSecret(t, handler, project, "github-credentials", map[string]any{
+	secretID := createIntegrationSetupHTTPSecret(t, handler, project, "github-credentials", map[string]any{
 		"kind": "github_app_credentials", "app_id": "123", "webhook_secret": githubJourneyWebhookSecret,
 		"private_key": string(pem.EncodeToMemory(&pem.Block{
 			Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
 		})),
 	})
-	app := githubHTTPJourneyApp(t, handler, project, secretID, "456")
-	return githubHTTPJourney{handler, project, app, secretID}
+	integration := githubHTTPJourneyIntegration(t, handler, project, secretID, "456")
+	return githubHTTPJourney{handler, project, integration, secretID}
 }
 
-func githubHTTPJourneyApp(
+func githubHTTPJourneyIntegration(
 	t *testing.T, handler http.Handler, project publicHTTPProject, secretID, installationID string,
-) appstore.ProjectAppRecord {
+) integrationstore.ProjectIntegrationRecord {
 	t.Helper()
-	app := createSetupHTTPApp(t, handler, project, "github-"+installationID, appdefinition.GitHubPR)
-	body := appSetupHTTPBody("123", installationID)
+	integration := createSetupHTTPIntegration(t, handler, project, "github-"+
+		installationID, integrationdefinition.GitHubPR)
+	body := integrationSetupHTTPBody("123", installationID)
 	body["credential_secret_id"] = secretID
-	body["expected_setup_revision"] = app.SetupRevision
-	created := requestJSONWithHeaders(t, handler, http.MethodPost, appSetupPath(t, project, app),
-		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
-	id := mustPublicHTTPID(t, publicid.KindProjectApp, testutil.RequireType[string](t, created["id"]))
-	app, err := project.Store.Apps().GetProjectApp(t.Context(), project.ProjectUUID, id)
+	body["expected_setup_revision"] = integration.SetupRevision
+	created := requestJSONWithHeaders(t, handler, http.MethodPost, integrationSetupPath(t, project, integration),
+		projectIntegrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
+	id := mustPublicHTTPID(t, publicid.KindProjectIntegration, testutil.RequireType[string](t, created["id"]))
+	integration, err := project.Store.Integrations().GetProjectIntegration(t.Context(), project.ProjectUUID, id)
 	require.NoError(t, err)
 	var identity github.AppIdentity
-	require.NoError(t, json.Unmarshal(app.ProviderIdentity, &identity))
+	require.NoError(t, json.Unmarshal(integration.ProviderIdentity, &identity))
 	require.Equal(t, int64(123), identity.AppID)
 	require.Equal(t, installationID, strconv.FormatInt(identity.InstallationID, 10))
 	require.Equal(t, int64(999), identity.BotUserID)
 	require.Equal(t, "helper[bot]", identity.BotLogin)
-	return app
+	return integration
 }
 
 func githubHTTPWebhook(
@@ -95,35 +96,38 @@ func githubHTTPWebhook(
 	require.Equal(t, want, w.Code, w.Body.String())
 }
 
-func (f githubHTTPJourney) consume(t *testing.T, raw string) []apps.AppSlotAdmission {
+func (f githubHTTPJourney) consume(t *testing.T, raw string) []integrationruntime.IntegrationSlotAdmission {
 	t.Helper()
-	inbox := f.project.Store.Apps()
-	receipt, found, err := inbox.ClaimAppInbox(t.Context(), appstore.ClaimAppInboxInput{
-		ProjectID: f.project.ProjectUUID, AppID: f.app.ID, LeaseDuration: time.Minute,
+	inbox := f.project.Store.Integrations()
+	receipt, found, err := inbox.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID, LeaseDuration: time.Minute,
 	})
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, raw, string(receipt.Payload), "acknowledged receipt retains exact signed bytes")
-	router := apps.NewAppRouter(f.project.Store.Execution(), inbox)
-	consumer := apps.NewAppInboxConsumer(
+	router := integrationruntime.NewIntegrationRouter(f.project.Store.Execution(), inbox)
+	consumer := integrationruntime.NewIntegrationInboxConsumer(
 		router, inbox, nil,
-		map[string]apps.AppInboxProvider{"github": apps.GitHubAppInboxProvider{}},
+		map[string]integrationruntime.IntegrationInboxProvider{"github": integrationruntime.GitHubIntegrationInboxProvider{}},
 		nil,
-		apps.NewAppLaunchWorkflow(router, map[appdefinition.Type]apps.AppLauncher{
-			appdefinition.GitHubPR: apps.EverySlotAppLauncher,
-		}),
+		integrationruntime.NewIntegrationLaunchWorkflow(
+			router,
+			map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
+				integrationdefinition.GitHubPR: integrationruntime.EverySlotIntegrationLauncher,
+			},
+		),
 	)
 	results, err := consumer.Consume(t.Context(), receipt.Lease())
 	require.NoError(t, err)
-	completed, err := inbox.GetAppInbox(t.Context(), f.project.ProjectUUID, receipt.ID)
+	completed, err := inbox.GetIntegrationInbox(t.Context(), f.project.ProjectUUID, receipt.ID)
 	require.NoError(t, err)
-	require.Equal(t, appstore.AppInboxCompleted, completed.State)
+	require.Equal(t, integrationstore.IntegrationInboxCompleted, completed.State)
 	return results
 }
 
 func githubHTTPComment(t *testing.T, number int, commentID int64, text string) string {
 	t.Helper()
-	return projectAppHTTPJSON(t, map[string]any{
+	return projectIntegrationHTTPJSON(t, map[string]any{
 		"action": "created", "installation": map[string]any{"id": 456},
 		"repository": map[string]any{"id": 1001, "full_name": "owner/repository"},
 		"issue": map[string]any{"id": 2001, "number": number, "pull_request": map[string]any{
@@ -149,7 +153,7 @@ func githubHTTPPullRequest(t *testing.T, action string) string {
 	if action == "synchronize" {
 		payload["before"], payload["after"] = strings.Repeat("a", 40), strings.Repeat("b", 40)
 	}
-	return projectAppHTTPJSON(t, payload)
+	return projectIntegrationHTTPJSON(t, payload)
 }
 
 func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
@@ -158,24 +162,24 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 		t.Run(trigger, func(t *testing.T) {
 			t.Parallel()
 			f := newGitHubHTTPJourney(t, "github-"+strings.ReplaceAll(trigger, "_", "-"))
-			appRef := testPublicID(t, publicid.KindProjectApp, f.app.ID)
+			integrationRef := testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)
 			base := map[string]any{
 				"instruction": "Review this pull request.",
 				"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
 			}
 			config := createPublicHTTPAgentConfig(t, f.handler, f.project, "review-base", "json",
-				projectAppHTTPJSON(t, base), f.project.AdminToken, http.StatusCreated)
+				projectIntegrationHTTPJSON(t, base), f.project.AdminToken, http.StatusCreated)
 			profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "review-profile", "Review",
 				testutil.RequireType[string](t, config["id"]), f.project.AdminToken, http.StatusCreated)
-			app := map[string]any{
-				"name": f.app.Name, "app_type": appdefinition.GitHubPR,
+			integration := map[string]any{
+				"name": f.integration.Name, "integration_type": integrationdefinition.GitHubPR,
 				"settings": map[string]any{"launcher": map[string]any{
 					"trigger": trigger, "scope_kind": "repository", "scope_ref": "1001",
 					"slots": []any{map[string]any{"key": "reviewer", "agent_profile_id": profile["id"]}},
 				}},
 			}
-			requestJSONWithHeaders(t, f.handler, http.MethodPut, f.project.ProjectPath+"/apps/"+appRef,
-				projectAppHTTPJSON(t, app), "", http.StatusOK, authHeaders(f.project.AdminToken))
+			requestJSONWithHeaders(t, f.handler, http.MethodPut, f.project.ProjectPath+"/integrations/"+integrationRef,
+				projectIntegrationHTTPJSON(t, integration), "", http.StatusOK, authHeaders(f.project.AdminToken))
 			raw, eventType := githubHTTPComment(t, 42, 3001, "@helper please review"), "issue_comment"
 			if trigger == "pull_request_opened" {
 				raw, eventType = githubHTTPPullRequest(t, "opened"), "pull_request"
@@ -184,23 +188,23 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			var receipts int
 			pool := integrationPoolForHandler(t, f.handler)
 			require.NoError(t, pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
+				`SELECT count(*) FROM integration_inbox WHERE integration_id=$1`, f.integration.ID).Scan(&receipts))
 			require.Zero(t, receipts)
 			// GitHub does not retry automatically; these requests model manual redelivery.
 			_, err := pool.Exec(t.Context(),
-				`ALTER TABLE app_inbox ADD CONSTRAINT github_test_fail_receipt CHECK (false)`)
+				`ALTER TABLE integration_inbox ADD CONSTRAINT github_test_fail_receipt CHECK (false)`)
 			require.NoError(t, err)
 			githubHTTPWebhook(t, f.handler, eventType, "initial", githubJourneyWebhookSecret,
 				raw, http.StatusServiceUnavailable)
 			require.NoError(t, pool.QueryRow(t.Context(),
-				`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
+				`SELECT count(*) FROM integration_inbox WHERE integration_id=$1`, f.integration.ID).Scan(&receipts))
 			require.Zero(t, receipts)
-			_, err = pool.Exec(t.Context(), `ALTER TABLE app_inbox DROP CONSTRAINT github_test_fail_receipt`)
+			_, err = pool.Exec(t.Context(), `ALTER TABLE integration_inbox DROP CONSTRAINT github_test_fail_receipt`)
 			require.NoError(t, err)
 			for range 2 {
 				githubHTTPWebhook(t, f.handler, eventType, "initial", githubJourneyWebhookSecret, raw, http.StatusNoContent)
 				require.NoError(t, pool.QueryRow(t.Context(),
-					`SELECT count(*) FROM app_inbox WHERE app_id=$1`, f.app.ID).Scan(&receipts))
+					`SELECT count(*) FROM integration_inbox WHERE integration_id=$1`, f.integration.ID).Scan(&receipts))
 				require.Equal(t, 1, receipts, "manual redelivery must accept once and then deduplicate")
 			}
 			results := f.consume(t, raw)
@@ -209,7 +213,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.True(t, results[0].Launch.Created)
 			agentID := results[0].Launch.Agent.ID
 			firstInput := results[0].Launch.AgentInput.ID
-			require.Equal(t, "1001#42", results[0].Launch.AppTarget.ProviderRef)
+			require.Equal(t, "1001#42", results[0].Launch.IntegrationTarget.ProviderRef)
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "relabeled", githubJourneyWebhookSecret,
 				raw, http.StatusNoContent)
 			f.consume(t, raw)
@@ -235,7 +239,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				"id": 5001, "state": "changes_requested", "body": "Please handle the edge case",
 				"user": map[string]any{"id": 71, "login": "human", "type": "User"},
 			}
-			reviewRaw := projectAppHTTPJSON(t, review)
+			reviewRaw := projectIntegrationHTTPJSON(t, review)
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "review", githubJourneyWebhookSecret,
 				reviewRaw, http.StatusNoContent)
 			results = f.consume(t, reviewRaw)
@@ -275,17 +279,18 @@ func TestGitHubHTTPExistingAgentSubscriptionJourney(t *testing.T) {
 		"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
 	}
 	config := createPublicHTTPAgentConfig(t, f.handler, f.project, "existing-config", "json",
-		projectAppHTTPJSON(t, source), f.project.AdminToken, http.StatusCreated)
+		projectIntegrationHTTPJSON(t, source), f.project.AdminToken, http.StatusCreated)
 	profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "existing-profile", "Existing reviewer",
 		testutil.RequireType[string](t, config["id"]), f.project.AdminToken, http.StatusCreated)
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectAppHTTPJSON(t, map[string]any{"profile": profile["id"], "config": config["id"]}),
+		projectIntegrationHTTPJSON(t, map[string]any{"profile": profile["id"], "config": config["id"]}),
 		"existing-reviewer", http.StatusCreated, authHeaders(f.project.AdminToken))
 	publicAgentID := testutil.RequireType[string](t,
 		testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 	requestJSONWithHeaders(t, f.handler, http.MethodPost,
-		f.project.ProjectPath+"/apps/"+testPublicID(t, publicid.KindProjectApp, f.app.ID)+"/subscriptions",
-		projectAppHTTPJSON(t, map[string]any{
+		f.project.ProjectPath+
+			"/integrations/"+testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)+"/subscriptions",
+		projectIntegrationHTTPJSON(t, map[string]any{
 			"agent_id": publicAgentID, "type": "pull_request",
 			"conversation": map[string]any{"repository_id": 1001, "pull_request": 42},
 			"events":       []string{"discussion_comment", "review_comment", "commit"},
@@ -303,45 +308,45 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "github-shared-app")
 	ctx := t.Context()
-	second := projectAppHTTPSecondProject(t, f.handler, f.project)
+	second := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
 	secretPath := "/api/v1/orgs/" + f.project.OrgID + "/secrets/" + f.secretID
 	grant := requestJSONWithHeaders(t, f.handler, http.MethodPost, secretPath+"/grants",
-		projectAppHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
+		projectIntegrationHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
 		"", http.StatusCreated, authHeaders(f.project.AdminToken))
-	secondApp := githubHTTPJourneyApp(t, f.handler, second, f.secretID, "457")
-	inbox := f.project.Store.Apps()
-	candidates, err := inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
+	secondIntegration := githubHTTPJourneyIntegration(t, f.handler, second, f.secretID, "457")
+	inbox := f.project.Store.Integrations()
+	candidates, err := inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1, "shared credential is decrypted at most once for an App ping")
-	require.Equal(t, f.app.CredentialSecretID, candidates[0].CredentialSecretID)
+	require.Equal(t, f.integration.CredentialSecretID, candidates[0].CredentialSecretID)
 	credential, err := f.project.Store.Secrets().ReadProjectAvailableSecretPayload(ctx,
 		secretstore.ReadProjectAvailableSecretPayloadInput{
 			OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
-			SecretID: f.app.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
+			SecretID: f.integration.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
 		})
 	require.NoError(t, err)
 	material := map[string]any{
 		"kind": "github_app_credentials", "app_id": "123", "webhook_secret": githubJourneyWebhookSecret,
 		"private_key": credential.Payload[secrets.KeyPrivateKey],
 	}
-	separateSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "second-credential", material)
-	separate := githubHTTPJourneyApp(t, f.handler, f.project, separateSecret, "458")
-	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
+	separateSecret := createIntegrationSetupHTTPSecret(t, f.handler, f.project, "second-credential", material)
+	separate := githubHTTPJourneyIntegration(t, f.handler, f.project, separateSecret, "458")
+	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 2)
-	limited, err := inbox.ListGitHubWebhookCredentialApps(ctx, "123", 1)
+	limited, err := inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 1)
 	require.NoError(t, err)
 	require.Len(t, limited, 1)
 	require.Equal(t, candidates[0].ID, limited[0].ID, "bounded lookup has stable ordering")
 	material["app_id"] = "124"
-	otherSecret := createAppSetupHTTPSecret(t, f.handler, f.project, "other-app-credential", material)
-	otherBody := appSetupHTTPBody("124", "459")
+	otherSecret := createIntegrationSetupHTTPSecret(t, f.handler, f.project, "other-app-credential", material)
+	otherBody := integrationSetupHTTPBody("124", "459")
 	otherBody["credential_secret_id"] = otherSecret
-	otherApp := createSetupHTTPApp(t, f.handler, f.project, "other-github", appdefinition.GitHubPR)
-	otherBody["expected_setup_revision"] = otherApp.SetupRevision
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, otherApp),
-		projectAppHTTPJSON(t, otherBody), "", http.StatusOK, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
+	otherIntegration := createSetupHTTPIntegration(t, f.handler, f.project, "other-github", integrationdefinition.GitHubPR)
+	otherBody["expected_setup_revision"] = otherIntegration.SetupRevision
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, otherIntegration),
+		projectIntegrationHTTPJSON(t, otherBody), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 2, "a different App cannot become a credential candidate")
 	for _, candidate := range candidates {
@@ -355,56 +360,57 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 		unknown, http.StatusNoContent)
 	var count int
 	pool := integrationPoolForHandler(t, f.handler)
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_inbox`).Scan(&count))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
 	require.Zero(t, count, "App health/unmanaged installation callbacks do not choose a project")
-	appPath := f.project.ProjectPath + "/apps/" + testPublicID(t, publicid.KindProjectApp, f.app.ID)
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, appPath+"/disconnect",
+	integrationPath := f.project.ProjectPath +
+		"/integrations/" + testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationPath+"/disconnect",
 		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	githubHTTPWebhook(t, f.handler, "issue_comment", "disabled", githubJourneyWebhookSecret,
 		githubHTTPComment(t, 42, 3001, "@helper disabled installation"), http.StatusNoContent)
 	installed := `{"action":"created","installation":{"id":457,"app_id":123}}`
 	githubHTTPWebhook(t, f.handler, "installation", "managed", githubJourneyWebhookSecret,
 		installed, http.StatusNoContent)
-	f2 := githubHTTPJourney{handler: f.handler, project: second, app: secondApp, secretID: f.secretID}
+	f2 := githubHTTPJourney{handler: f.handler, project: second, integration: secondIntegration, secretID: f.secretID}
 	require.Empty(t, f2.consume(t, installed))
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM app_inbox WHERE project_id=$1`, f.project.ProjectUUID).Scan(&count))
+		`SELECT count(*) FROM integration_inbox WHERE project_id=$1`, f.project.ProjectUUID).Scan(&count))
 	require.Zero(t, count)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
-		f.project.ProjectPath+"/apps/"+
-			testPublicID(t, publicid.KindProjectApp, separate.ID),
+		f.project.ProjectPath+"/integrations/"+
+			testPublicID(t, publicid.KindProjectIntegration, separate.ID),
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
+	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 		secretPath+"/grants/"+testutil.RequireType[string](t, grant["id"]),
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
+	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
-	require.Equal(t, f.app.ID, candidates[0].ID)
-	require.Equal(t, appstore.ProjectAppStateDisconnected, candidates[0].State)
+	require.Equal(t, f.integration.ID, candidates[0].ID)
+	require.Equal(t, integrationstore.ProjectIntegrationStateDisconnected, candidates[0].State)
 	githubHTTPWebhook(t, f.handler, "ping", "disabled-ping", githubJourneyWebhookSecret, ping, http.StatusNoContent)
 	githubHTTPWebhook(t, f.handler, "installation", "revoked", githubJourneyWebhookSecret,
 		installed, http.StatusUnauthorized)
-	requestJSONWithHeaders(t, f.handler, http.MethodDelete, appPath,
+	requestJSONWithHeaders(t, f.handler, http.MethodDelete, integrationPath,
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
-	candidates, err = inbox.ListGitHubWebhookCredentialApps(ctx, "123", 16)
+	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Empty(t, candidates, "deleted and no-longer-authorized references cannot verify a callback")
 	githubHTTPWebhook(t, f.handler, "ping", "unavailable-ping", githubJourneyWebhookSecret, ping, http.StatusUnauthorized)
 }
 
-func TestGitHubSharedAndLegacyRoutesDeduplicateSameAppFanout(t *testing.T) {
+func TestGitHubSharedAndLegacyRoutesDeduplicateSameIntegrationFanout(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "github-shared-events")
-	second := createSetupHTTPApp(t, f.handler, f.project, "second-github-app", appdefinition.GitHubPR)
-	body := appSetupHTTPBody("123", "456")
+	second := createSetupHTTPIntegration(t, f.handler, f.project, "second-github-app", integrationdefinition.GitHubPR)
+	body := integrationSetupHTTPBody("123", "456")
 	body["credential_secret_id"] = f.secretID
 	body["expected_setup_revision"] = second.SetupRevision
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, appSetupPath(t, f.project, second),
-		projectAppHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, second),
+		projectIntegrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
 	raw := githubHTTPComment(t, 42, 3001, "@helper please review")
 	for _, path := range []string{GitHubSharedEventsPath, "/api/integrations/github/123/events", GitHubSharedEventsPath} {
 		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(raw))
@@ -420,8 +426,8 @@ func TestGitHubSharedAndLegacyRoutesDeduplicateSameAppFanout(t *testing.T) {
 	}
 	var receipts int
 	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
-		`SELECT count(*) FROM app_inbox
+		`SELECT count(*) FROM integration_inbox
 		 WHERE project_id=$1 AND receipt_key='github:issue_comment:cross-route-delivery'`,
 		f.project.ProjectUUID).Scan(&receipts))
-	require.Equal(t, 2, receipts, "each saved app gets one receipt independently of callback route")
+	require.Equal(t, 2, receipts, "each saved integration gets one receipt independently of callback route")
 }

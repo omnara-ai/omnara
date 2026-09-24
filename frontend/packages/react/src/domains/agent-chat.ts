@@ -445,7 +445,7 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
     const { agent } = await queryClient.ensureQueryData(
       getAgentOptions({ path: { orgID, projectID, agentID }, client }),
     )
-    return agent.app_target == null ? undefined : sourceHint(source)
+    return agent.integration_target == null ? undefined : sourceHint(source)
   }, [agentID, client, orgID, projectID, queryClient, source])
 
   const history = useAgentChatHistory(client, scope)

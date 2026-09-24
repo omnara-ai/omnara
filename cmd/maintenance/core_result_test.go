@@ -33,7 +33,7 @@ func TestReportCoreMaintenanceResultPreservesCleanupOutcomes(t *testing.T) {
 			}
 			ctx, event := logent.MaintenanceLoop(ctx, time.Second, time.Now())
 			reportCoreMaintenanceResult(ctx, logger, maintenance.CoreResult{
-				DeletedAppStates: 1, DeletedWebhooks: 2,
+				DeletedIntegrationStates: 1, DeletedWebhooks: 2,
 				CompletedInbox: 100, CompletedInboxBudgetExhausted: true,
 				DeletedInbox: 100, DeletedInboxBudgetExhausted: true,
 			})
@@ -46,10 +46,10 @@ func TestReportCoreMaintenanceResultPreservesCleanupOutcomes(t *testing.T) {
 			if test.canceled {
 				require.Len(t, lines, 1, "shutdown must suppress cleanup success messages")
 			} else {
-				require.Contains(t, output.String(), "cleaned app states")
+				require.Contains(t, output.String(), "cleaned integration states")
 				require.Contains(t, output.String(), "cleaned expired event webhooks")
-				require.Contains(t, output.String(), "cleaned completed app inbox")
-				require.Contains(t, output.String(), "cleaned deleted app inbox")
+				require.Contains(t, output.String(), "cleaned completed integration inbox")
+				require.Contains(t, output.String(), "cleaned deleted integration inbox")
 				require.Contains(t, output.String(), `"budget_exhausted":true`)
 				require.Contains(t, output.String(), `"retention":604800000000000`)
 			}
@@ -62,9 +62,9 @@ func TestReportCoreMaintenanceResultJoinsCleanupErrors(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	ctx, event := logent.MaintenanceLoop(logpkg.WithLogger(t.Context(), logger), time.Second, time.Now())
 	reportCoreMaintenanceResult(ctx, logger, maintenance.CoreResult{
-		WebhookCleanupErr:   errors.New("webhook cleanup failed"),
-		AppStatesCleanupErr: errors.New("app state cleanup failed"),
-		CompletedInbox:      100, CompletedInboxCleanupErr: context.DeadlineExceeded,
+		WebhookCleanupErr:           errors.New("webhook cleanup failed"),
+		IntegrationStatesCleanupErr: errors.New("integration state cleanup failed"),
+		CompletedInbox:              100, CompletedInboxCleanupErr: context.DeadlineExceeded,
 		DeletedInboxCleanupErr: errors.New("deleted scope cleanup failed"),
 	})
 	event.Done(ctx)
@@ -72,10 +72,10 @@ func TestReportCoreMaintenanceResultJoinsCleanupErrors(t *testing.T) {
 	var loop map[string]any
 	require.NoError(t, json.Unmarshal(lines[len(lines)-1], &loop))
 	for _, message := range []string{
-		"webhook cleanup failed", "app state cleanup failed", "context deadline exceeded", "deleted scope cleanup failed",
+		"webhook cleanup failed", "integration state cleanup failed", "context deadline exceeded", "deleted scope cleanup failed",
 	} {
 		require.Contains(t, loop["error.message"], message)
 	}
 	require.Contains(t, output.String(), `"count":100`)
-	require.NotContains(t, output.String(), "cleaned completed app inbox")
+	require.NotContains(t, output.String(), "cleaned completed integration inbox")
 }

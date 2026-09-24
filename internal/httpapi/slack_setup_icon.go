@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/omnara-ai/omnara/internal/apps/slack"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 )
 
 const (

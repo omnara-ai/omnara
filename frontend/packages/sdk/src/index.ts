@@ -28,8 +28,8 @@ export type * from './generated/types.gen'
 export * as schemas from './generated/zod.gen'
 export { type JsonBody, zJsonText } from './json-body'
 export {
-  profileAppDiscordKeyStatus,
-  profileAppLauncherScope,
-  profileAppProfileUpdate,
-  profileAppSetup,
-} from './profile-app'
+  profileIntegrationDiscordKeyStatus,
+  profileIntegrationLauncherScope,
+  profileIntegrationProfileUpdate,
+  profileIntegrationSetup,
+} from './profile-integration'

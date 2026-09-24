@@ -14,7 +14,7 @@ import (
 )
 
 const getAgentInputByIdempotency = `-- name: GetAgentInputByIdempotency :one
-SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, app_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+SELECT id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 FROM agent_inputs
 WHERE project_id = $1
   AND agent_id = $2
@@ -37,7 +37,7 @@ type GetAgentInputByIdempotencyRow struct {
 	InputRank           int64
 	ActorID             *uuid.UUID
 	InputKind           string
-	AppTargetID         *uuid.UUID
+	IntegrationTargetID *uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	QueuedAt            time.Time
@@ -69,7 +69,7 @@ func (q *Queries) GetAgentInputByIdempotency(ctx context.Context, arg GetAgentIn
 		&i.InputRank,
 		&i.ActorID,
 		&i.InputKind,
-		&i.AppTargetID,
+		&i.IntegrationTargetID,
 		&i.IdempotencyScope,
 		&i.InputIdempotencyKey,
 		&i.QueuedAt,
@@ -91,7 +91,7 @@ const insertAgentInput = `-- name: InsertAgentInput :one
 WITH generated AS (
     SELECT coalesce($10, uuidv7()) AS id
 )
-INSERT INTO agent_inputs(id, project_id, agent_id, state, input_rank, actor_id, input_kind, app_target_id, delivery_mode, idempotency_scope, input_idempotency_key, queued_at, metadata)
+INSERT INTO agent_inputs(id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, delivery_mode, idempotency_scope, input_idempotency_key, queued_at, metadata)
 SELECT generated.id, agent.project_id, agent.id, 'received',
        coalesce(
          (
@@ -113,14 +113,14 @@ FROM agents agent
 JOIN generated ON true
 WHERE agent.project_id = $8
   AND agent.id = $9
-RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, app_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
+RETURNING id, project_id, agent_id, state, input_rank, actor_id, input_kind, integration_target_id, coalesce(idempotency_scope, '') AS idempotency_scope, coalesce(input_idempotency_key, '') AS input_idempotency_key, queued_at, admitted_event_id, admitted_at, canceled_at, delivery_mode, coalesce(control_type, '') AS control_type, target_interaction_id, agent_config_id, resolved_at, coalesce(rejected_reason, '') AS rejected_reason, metadata
 `
 
 type InsertAgentInputParams struct {
 	RankStride          int64
 	DeliveryMode        string
 	ActorID             *uuid.UUID
-	AppTargetID         *uuid.UUID
+	IntegrationTargetID *uuid.UUID
 	IdempotencyScope    *string
 	InputIdempotencyKey *string
 	Metadata            json.RawMessage
@@ -137,7 +137,7 @@ type InsertAgentInputRow struct {
 	InputRank           int64
 	ActorID             *uuid.UUID
 	InputKind           string
-	AppTargetID         *uuid.UUID
+	IntegrationTargetID *uuid.UUID
 	IdempotencyScope    string
 	InputIdempotencyKey string
 	QueuedAt            time.Time
@@ -158,7 +158,7 @@ func (q *Queries) InsertAgentInput(ctx context.Context, arg InsertAgentInputPara
 		arg.RankStride,
 		arg.DeliveryMode,
 		arg.ActorID,
-		arg.AppTargetID,
+		arg.IntegrationTargetID,
 		arg.IdempotencyScope,
 		arg.InputIdempotencyKey,
 		arg.Metadata,
@@ -175,7 +175,7 @@ func (q *Queries) InsertAgentInput(ctx context.Context, arg InsertAgentInputPara
 		&i.InputRank,
 		&i.ActorID,
 		&i.InputKind,
-		&i.AppTargetID,
+		&i.IntegrationTargetID,
 		&i.IdempotencyScope,
 		&i.InputIdempotencyKey,
 		&i.QueuedAt,

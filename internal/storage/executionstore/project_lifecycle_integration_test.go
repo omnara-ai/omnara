@@ -316,7 +316,7 @@ func TestProjectSecretDeletionSerializesWithProjectDeletion(t *testing.T) {
 	ctx := context.Background()
 	fixture := newMachineLifecycleLockOrderFixture(t, ctx, "project-secret-delete")
 	actor := scopeDeletionActor(t, fixture)
-	secretID := createAppCredential(
+	secretID := createIntegrationCredential(
 		t,
 		ctx,
 		fixture.store,

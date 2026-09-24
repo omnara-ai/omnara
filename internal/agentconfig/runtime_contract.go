@@ -23,8 +23,8 @@ type RuntimeContract struct {
 	MachineSources      []RuntimeMachine
 	Tools               []RuntimeTool
 	MCPServers          []RuntimeMCPServer
-	AppTools            map[string]ToolCompiled
-	InteractionHandlers map[string]AppCapabilityCompiled
+	IntegrationTools    map[string]ToolCompiled
+	InteractionHandlers map[string]IntegrationCapabilityCompiled
 	Skills              []SkillCompiled
 	Subagents           map[string]SubagentCompiled
 	MaxSubagents        *int
@@ -40,7 +40,7 @@ func (contract RuntimeContract) SubagentKeys() []string {
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
-	for _, tool := range contract.AppTools {
+	for _, tool := range contract.IntegrationTools {
 		if tool.Enabled {
 			return true
 		}
@@ -101,8 +101,8 @@ func RuntimeContractFromCompiled(
 		}
 		return RuntimeContract{}, fmt.Errorf("parse compiled agent config: %w", err)
 	}
-	if err := validateCompiledApps(compiled); err != nil {
-		return RuntimeContract{}, fmt.Errorf("compiled app capabilities: %w", err)
+	if err := validateCompiledIntegrations(compiled); err != nil {
+		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
 	}
 	tools, err := runtimeTools(compiled.Tools)
 	if err != nil {
@@ -118,7 +118,7 @@ func RuntimeContractFromCompiled(
 		MachineSources:      runtimeMachineSources(compiled.MachineSources),
 		Tools:               tools,
 		MCPServers:          mcpServers,
-		AppTools:            appToolsFromCompiled(compiled),
+		IntegrationTools:    integrationToolsFromCompiled(compiled),
 		InteractionHandlers: compiled.InteractionHandlers,
 		Skills:              compiled.Skills,
 		Subagents:           compiled.Subagents,
@@ -129,7 +129,7 @@ func RuntimeContractFromCompiled(
 }
 
 func (contract RuntimeContract) DefersAnyTool() bool {
-	for _, tool := range contract.AppTools {
+	for _, tool := range contract.IntegrationTools {
 		if tool.Enabled && tool.Deferred {
 			return true
 		}
@@ -174,7 +174,7 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 	out := make([]RuntimeTool, 0, len(names))
 	for _, name := range names {
 		tool := compiled[name]
-		if toolcatalog.UsesAppToolNamespace(name) {
+		if toolcatalog.UsesIntegrationToolNamespace(name) {
 			continue
 		}
 		entry, builtInName := catalog.Lookup(name)
@@ -228,8 +228,8 @@ func validateRuntimeTool(
 		return fmt.Errorf("compiled tool %q has unsupported type", name)
 	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
-		if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesAppToolNamespace(name) {
-			return fmt.Errorf("compiled custom tool %q uses a reserved app or MCP tool namespace", name)
+		if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
+			return fmt.Errorf("compiled custom tool %q uses a reserved integration or MCP tool namespace", name)
 		}
 		if toolcatalog.IsReservedWireToolName(name) {
 			return fmt.Errorf("compiled custom tool %q uses a reserved name", name)

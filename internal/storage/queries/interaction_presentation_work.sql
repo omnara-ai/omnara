@@ -1,9 +1,9 @@
 -- name: ListPendingInteractionPresentations :many
-WITH app_types AS (
-    SELECT DISTINCT unnest(sqlc.arg(app_types)::text[]) AS app_type
+WITH integration_types AS (
+    SELECT DISTINCT unnest(sqlc.arg(integration_types)::text[]) AS integration_type
 )
 SELECT pending.project_id, pending.agent_id, pending.id
-FROM app_types
+FROM integration_types
 CROSS JOIN LATERAL (
     SELECT agent.project_id, interaction.agent_id, interaction.id, interaction.created_at
     FROM agent_interactions interaction
@@ -14,7 +14,7 @@ CROSS JOIN LATERAL (
       AND interaction.destination IS NOT NULL
       AND interaction.presentation_attempted_at IS NULL
       AND interaction.presentation_receipt IS NULL
-      AND interaction.destination ->> 'app_type' = app_types.app_type
+      AND interaction.destination ->> 'integration_type' = integration_types.integration_type
       AND agent.state = 'active'
       AND project.deleted_at IS NULL AND org.deleted_at IS NULL
     ORDER BY interaction.created_at, interaction.agent_id, interaction.id

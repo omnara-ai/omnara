@@ -22,18 +22,18 @@ const (
 )
 
 type Compiled struct {
-	Version             string                           `json:"version,omitempty"`
-	Instruction         string                           `json:"instruction"`
-	Model               ModelCompiled                    `json:"model,omitempty"`
-	MachineSources      []MachineSourceCompiled          `json:"machine_sources,omitempty"`
-	Tools               map[string]ToolCompiled          `json:"tools,omitempty"`
-	MCP                 map[string]MCPServerCompiled     `json:"mcp,omitempty"`
-	InteractionHandlers map[string]AppCapabilityCompiled `json:"interaction_handlers,omitempty"`
-	Skills              []SkillCompiled                  `json:"skills,omitempty"`
-	Subagents           map[string]SubagentCompiled      `json:"subagents,omitempty"`
-	MaxSubagents        *int                             `json:"max_subagents,omitempty"`
-	MaxDepth            *int                             `json:"max_depth,omitempty"`
-	EventWebhook        *EventWebhookCompiled            `json:"event_webhook,omitempty"`
+	Version             string                                   `json:"version,omitempty"`
+	Instruction         string                                   `json:"instruction"`
+	Model               ModelCompiled                            `json:"model,omitempty"`
+	MachineSources      []MachineSourceCompiled                  `json:"machine_sources,omitempty"`
+	Tools               map[string]ToolCompiled                  `json:"tools,omitempty"`
+	MCP                 map[string]MCPServerCompiled             `json:"mcp,omitempty"`
+	InteractionHandlers map[string]IntegrationCapabilityCompiled `json:"interaction_handlers,omitempty"`
+	Skills              []SkillCompiled                          `json:"skills,omitempty"`
+	Subagents           map[string]SubagentCompiled              `json:"subagents,omitempty"`
+	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`
+	MaxDepth            *int                                     `json:"max_depth,omitempty"`
+	EventWebhook        *EventWebhookCompiled                    `json:"event_webhook,omitempty"`
 }
 
 type SkillCompiled struct {
@@ -110,13 +110,13 @@ type MachineSourceCompiled struct {
 }
 
 type ToolCompiled struct {
-	AppID       uuid.UUID                `json:"app_id,omitzero"`
-	Enabled     bool                     `json:"enabled"`
-	Type        string                   `json:"type,omitempty"`
-	Permission  toolpermission.Selection `json:"permission"`
-	Deferred    bool                     `json:"deferred,omitempty"`
-	Description string                   `json:"description,omitempty"`
-	InputSchema json.RawMessage          `json:"input_schema,omitempty"`
+	IntegrationID uuid.UUID                `json:"integration_id,omitzero"`
+	Enabled       bool                     `json:"enabled"`
+	Type          string                   `json:"type,omitempty"`
+	Permission    toolpermission.Selection `json:"permission"`
+	Deferred      bool                     `json:"deferred,omitempty"`
+	Description   string                   `json:"description,omitempty"`
+	InputSchema   json.RawMessage          `json:"input_schema,omitempty"`
 }
 
 type MCPServerCompiled struct {
@@ -153,7 +153,7 @@ type Result struct {
 }
 
 type CompileOptions struct {
-	ResolveAppName            func(name string) (AppResolution, error)
+	ResolveIntegrationName    func(name string) (IntegrationResolution, error)
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
@@ -255,7 +255,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 	if len(machines) > 0 {
 		compiled.MachineSources = machines
 	}
-	opts = cacheAppResolver(opts)
+	opts = cacheIntegrationResolver(opts)
 	compiled.Tools, err = compileTools(source, opts)
 	if err != nil {
 		return Compiled{}, err
@@ -267,7 +267,7 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		}
 		compiled.MCP = mcpServers
 	}
-	if err := compileAppCapabilities(source, opts, &compiled); err != nil {
+	if err := compileIntegrationCapabilities(source, opts, &compiled); err != nil {
 		return Compiled{}, err
 	}
 	if len(source.Skills) > 0 {
@@ -485,10 +485,10 @@ func compileCustomTool(
 	if strings.TrimSpace(source.Description) == "" {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name, "description"), "is required")
 	}
-	if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesAppToolNamespace(name) {
+	if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
 		return ToolCompiled{}, issuef(
 			jsonPointer("tools", name),
-			"custom tool name uses a reserved app or MCP tool namespace",
+			"custom tool name uses a reserved integration or MCP tool namespace",
 		)
 	}
 	if _, ok := catalog.Lookup(name); ok {

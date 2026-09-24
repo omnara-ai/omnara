@@ -110,16 +110,16 @@ func (s strictOpenAPIServer) listCronTriggers(
 		}
 		filters.AgentID = agentID
 	}
-	if params.AppId != nil {
-		appID, ok := parseOpenAPIPublicID(publicid.KindProjectApp, *params.AppId)
+	if params.IntegrationId != nil {
+		integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, *params.IntegrationId)
 		if !ok {
-			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid app_id")
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration_id")
 		}
-		filters.AppID = appID
+		filters.IntegrationID = integrationID
 	}
-	extra := struct{ AgentProfileID, AgentID, AppID string }{}
-	if filters.AppID != uuid.Nil {
-		extra.AppID = filters.AppID.String()
+	extra := struct{ AgentProfileID, AgentID, IntegrationID string }{}
+	if filters.IntegrationID != uuid.Nil {
+		extra.IntegrationID = filters.IntegrationID.String()
 	}
 	if filters.AgentProfileID != uuid.Nil {
 		extra.AgentProfileID = filters.AgentProfileID.String()
@@ -288,26 +288,30 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 		)
 	}
 	switch kind {
-	case string(executionstore.CronTriggerTargetApp):
-		target, err := input.AsAppCronTriggerTarget()
+	case string(executionstore.CronTriggerTargetIntegration):
+		target, err := input.AsIntegrationCronTriggerTarget()
 		if err != nil {
 			return executionstore.CronTriggerTarget{}, apierror.FromCode(
 				openapi.ErrorCodeInvalidRequest,
-				"invalid app target",
+				"invalid integration target",
 			)
 		}
-		appID, ok := parseOpenAPIPublicID(publicid.KindProjectApp, target.AppId)
+		integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, target.IntegrationId)
 		if !ok {
 			return executionstore.CronTriggerTarget{}, apierror.FromCode(
 				openapi.ErrorCodeInvalidRequest,
-				"invalid target app_id",
+				"invalid target integration_id",
 			)
 		}
 		settings, err := json.Marshal(target.Settings)
 		if err != nil {
 			return executionstore.CronTriggerTarget{}, err
 		}
-		return executionstore.CronTriggerTarget{Kind: executionstore.CronTriggerTargetApp, ID: appID, Settings: settings}, nil
+		return executionstore.CronTriggerTarget{
+			Kind:     executionstore.CronTriggerTargetIntegration,
+			ID:       integrationID,
+			Settings: settings,
+		}, nil
 
 	case string(executionstore.CronTriggerTargetAgent):
 		target, err := input.AsAgentCronTriggerTarget()
@@ -363,16 +367,19 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi.CronTriggerTarget, error) {
 	var response openapi.CronTriggerTarget
 	switch target.Kind {
-	case executionstore.CronTriggerTargetApp:
-		appID, err := publicID(publicid.KindProjectApp, target.ID)
+	case executionstore.CronTriggerTargetIntegration:
+		integrationID, err := publicID(publicid.KindProjectIntegration, target.ID)
 		if err != nil {
 			return response, err
 		}
-		appTarget := openapi.AppCronTriggerTarget{Type: openapi.AppCronTriggerTargetTypeApp, AppId: appID}
-		if err := json.Unmarshal(target.Settings, &appTarget.Settings); err != nil {
+		integrationTarget := openapi.IntegrationCronTriggerTarget{
+			Type:          openapi.IntegrationCronTriggerTargetTypeIntegration,
+			IntegrationId: integrationID,
+		}
+		if err := json.Unmarshal(target.Settings, &integrationTarget.Settings); err != nil {
 			return response, err
 		}
-		if err := response.FromAppCronTriggerTarget(appTarget); err != nil {
+		if err := response.FromIntegrationCronTriggerTarget(integrationTarget); err != nil {
 			return response, err
 		}
 
@@ -429,7 +436,7 @@ func cronTriggerResponseFromRecord(
 		return openapi.CronTrigger{}, err
 	}
 	var message *string
-	if record.Target.Kind != executionstore.CronTriggerTargetApp {
+	if record.Target.Kind != executionstore.CronTriggerTargetIntegration {
 		message = &record.MessageTemplate
 	}
 	return openapi.CronTrigger{

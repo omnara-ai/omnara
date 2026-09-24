@@ -312,8 +312,8 @@ func TestDispatchMapsArguments(t *testing.T) {
 	}
 
 	target := map[string]any{
-		"type":   "app",
-		"app_id": "app_abcdefghijklmnopqrstuvwxyz",
+		"type":           "integration",
+		"integration_id": "itg_abcdefghijklmnopqrstuvwxyz",
 		"settings": map[string]any{
 			"agent_profile_id":         "aprf_abcdefghijklmnopqrstuvwxyz",
 			"channel_id":               "C123",
@@ -326,7 +326,7 @@ func TestDispatchMapsArguments(t *testing.T) {
 		"name": "daily-review", "cron": "0 9 * * *", "target": target,
 	})
 	if result.IsError {
-		t.Fatalf("app cron rejected: %+v", result.Content)
+		t.Fatalf("integration cron rejected: %+v", result.Content)
 	}
 	if err := json.Unmarshal(echoed.Body, &body); err != nil {
 		t.Fatalf("decode cron body: %v", err)
@@ -356,9 +356,9 @@ func TestInputSchemaIsEnforced(t *testing.T) {
 		{name: "wrong body type", tool: "agents_launch", arguments: map[string]any{
 			"orgID": testOrgID, "projectID": testProject, "config": testConfigID, "name": 7,
 		}},
-		{name: "missing app settings", tool: "crons_create", arguments: map[string]any{
+		{name: "missing integration settings", tool: "crons_create", arguments: map[string]any{
 			"orgID": testOrgID, "projectID": testProject, "name": "daily-review", "cron": "0 9 * * *",
-			"target": map[string]any{"type": "app", "app_id": "app_abcdefghijklmnopqrstuvwxyz"},
+			"target": map[string]any{"type": "integration", "integration_id": "itg_abcdefghijklmnopqrstuvwxyz"},
 		}},
 	}
 	for _, tc := range cases {

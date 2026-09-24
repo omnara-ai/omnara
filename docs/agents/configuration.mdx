@@ -129,21 +129,21 @@ The builder displays these defaults under **Tools → Other tools** without writ
 
 Existing machine configs gain missing machine-tool defaults only when saved again. The builder previews that saved result, not the tools currently stored for an existing config.
 
-### App capabilities
+### Integration capabilities
 
-Create a project app first, then reference its tools as
-`tools.app__<app-name>__<operation>`. Tool entries contain enabled state, deferred
-loading and permissions; handler entries use `interaction_handlers: {app-name: {}}`.
-The shipped tools use immutable app-agent context established by a provider or
+Create a project integration first, then reference its tools as
+`tools.int__<integration-name>__<operation>`. Tool entries contain enabled state, deferred
+loading and permissions; handler entries use `interaction_handlers: {integration-name: {}}`.
+The shipped tools use immutable integration-agent context established by a provider or
 scheduled launch. They fail before provider I/O if no conversation is assigned. Handler selection
 always takes complete destination arguments and is independent of sending context.
-Incoming subscriptions belong to the app and are attached through launch requests
-or the app subscriptions API, not config. Removing a tool or changing config does
+Incoming subscriptions belong to the integration and are attached through launch requests
+or the integration subscriptions API, not config. Removing a tool or changing config does
 not remove subscriptions.
 
-App names resolve to immutable IDs when compiled, while credentials remain live
-on the app. See [Apps](/integrations/apps) for examples and provider launchers.
-App tools, subscriptions and interaction handlers are not inherited by spawned subagents.
+Integration names resolve to immutable IDs when compiled, while credentials remain live
+on the integration. See [Integrations](/integrations/overview) for examples and provider launchers.
+Integration tools, subscriptions and interaction handlers are not inherited by spawned subagents.
 
 ### Deferred tools
 
@@ -324,7 +324,7 @@ Updating a profile points it to a new immutable config. Future launches use the 
 
 To launch from a profile, select it under **New agent**, pass `--profile` to `omnara agents launch`, or pass `profile` and `config` to the API. See [Launch an agent](/agents/overview#launch-an-agent).
 
-Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the dashboard, open the profile's row menu and click **Delete**, or run `omnara profiles delete {agent-profile-id}`. An active app that uses the profile must be removed first. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
+Deleting a profile removes the profile and its version history, but agents launched from it keep running. In the dashboard, open the profile's row menu and click **Delete**, or run `omnara profiles delete {agent-profile-id}`. An active integration that uses the profile must be removed first. See [Delete agent profile](/api-reference/endpoints/configs-and-profiles/delete-agent-profile).
 
 ## Next
 

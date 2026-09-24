@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/apps/slack"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
+func TestSlackIntegrationUploadsArtifactWithSafeRetries(t *testing.T) {
 	tests := []struct {
 		name                   string
 		artifactCount          int
@@ -76,7 +76,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 				t,
 				ctx,
 				seed,
-				toolFixtureOptions{withSlackApp: true, withToolContext: true},
+				toolFixtureOptions{withSlackIntegration: true, withToolContext: true},
 				storage.WithBlobStore(integrationblob.MustOpen(t, ctx)),
 			)
 			artifactCount := tt.artifactCount
@@ -249,7 +249,7 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 					}
 					writeToolTestJSON(w, map[string]any{"ok": true})
 				default:
-					t.Errorf("unexpected app provider path %s", r.URL.Path)
+					t.Errorf("unexpected integration provider path %s", r.URL.Path)
 					http.Error(w, "test handler failed", http.StatusBadRequest)
 					return
 				}
@@ -257,8 +257,8 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 			defer server.Close()
 
 			executor := Executor{
-				Store:         fixture.Store,
-				AppHTTPClient: appProviderTestClient(server),
+				Store:                 fixture.Store,
+				IntegrationHTTPClient: integrationProviderTestClient(server),
 			}
 			if tt.loseAfterPath != "" {
 				slackTarget := slack.MessageTarget{
@@ -286,16 +286,16 @@ func TestSlackAppUploadsArtifactWithSafeRetries(t *testing.T) {
 					t,
 					ctx,
 					"call_"+seed,
-					toolcatalog.AppToolName("chat", toolcatalog.AppOperationPostMessage),
+					toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage),
 					string(input),
 					fixture.Now.Add(20*time.Second),
 				)
-				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackAppToolTurn(fixture), call)
+				result, err := dispatchAsyncToolToTerminal(t, ctx, executor, slackIntegrationToolTurn(fixture), call)
 				if err != nil {
 					t.Fatalf("dispatch artifact send: %v", err)
 				}
 				body := toolResultMapFromTestParts(t, result.ContentParts)
-				require.Equal(t, "chat", body["app"])
+				require.Equal(t, "chat", body["integration"])
 				if tt.wantCode == "delivered" {
 					require.Equal(t, "C123", body["channel_id"])
 					require.Len(t, body["file_ids"], artifactCount)

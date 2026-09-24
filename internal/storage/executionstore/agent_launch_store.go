@@ -12,9 +12,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/resourcename"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -38,7 +38,7 @@ type LaunchAgentInput struct {
 	DerivedBaseConfigID     uuid.UUID
 	Subagent                *SubagentLaunch
 	InitialInput            *LaunchInitialInput
-	Subscriptions           []appstore.AppSubscriptionAttachment
+	Subscriptions           []integrationstore.IntegrationSubscriptionAttachment
 	admission               *launchAdmission
 }
 
@@ -52,7 +52,7 @@ type LaunchAgentResult struct {
 	ProvisionMachineIDs []uuid.UUID
 	AgentInput          AgentInputRecord
 	InputContentBlocks  json.RawMessage
-	AppTarget           appstore.AppTargetRecord
+	IntegrationTarget   integrationstore.IntegrationTargetRecord
 	Artifacts           []artifactstore.ArtifactRecord
 	Created             bool
 }
@@ -83,7 +83,7 @@ func validateLaunchAgentInput(input LaunchAgentInput) (LaunchAgentInput, error) 
 			errors.New("profile-attributed derived launch requires a base config"),
 		)
 	}
-	if len(input.Subscriptions) > appstore.MaxAppSubscriptionsPerLaunch {
+	if len(input.Subscriptions) > integrationstore.MaxIntegrationSubscriptionsPerLaunch {
 		return LaunchAgentInput{}, storeerr.InvalidRequest(errors.New("at most 100 launch subscriptions are allowed"))
 	}
 	if input.InitialInput != nil && (input.Message != "" || input.MessageActor != nil) {
@@ -139,7 +139,7 @@ func (s *Store) launchAgentTx(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// Replay must survive app revocation; concurrent first attempts serialize below.
+	// Replay must survive integration revocation; concurrent first attempts serialize below.
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
 		return result, err
 	}
@@ -147,42 +147,42 @@ func (s *Store) launchAgentTx(
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
-	var originApps []uuid.UUID
+	var originIntegrations []uuid.UUID
 	if initial != nil && initial.Origin != nil {
-		originApps = append(originApps, initial.Origin.AppID)
+		originIntegrations = append(originIntegrations, initial.Origin.IntegrationID)
 	}
 	for _, subscription := range input.Subscriptions {
-		originApps = append(originApps, subscription.AppID)
+		originIntegrations = append(originIntegrations, subscription.IntegrationID)
 	}
-	resources, err := launchAppIDsTx(ctx, qtx, input)
+	resources, err := launchIntegrationIDsTx(ctx, qtx, input)
 	if err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
-	// Lock order: project -> all apps -> receipt -> conversation -> launch key ->
+	// Lock order: project -> all integrations -> receipt -> conversation -> launch key ->
 	// profile -> machine sources/model -> agent. Inbox admission must already hold
-	// every app gate used by this nested launch to avoid re-entering an earlier class.
-	if err := appstore.LockAppsTx(
+	// every integration gate used by this nested launch to avoid re-entering an earlier class.
+	if err := integrationstore.LockIntegrationsTx(
 		ctx,
 		tx,
 		input.ProjectID,
 		resources,
-		originApps...); err != nil {
+		originIntegrations...); err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
 	var origins []AgentInputOrigin
 	if initial != nil && initial.Origin != nil {
 		origins = append(origins, AgentInputOrigin(*initial.Origin))
 	}
-	subscriptions := make([]appstore.RegisterAppSubscriptionInput, 0, len(input.Subscriptions))
+	subscriptions := make([]integrationstore.RegisterIntegrationSubscriptionInput, 0, len(input.Subscriptions))
 	for _, attachment := range input.Subscriptions {
-		prepared, err := appstore.PrepareAppSubscriptionTx(ctx, tx, input.ProjectID, attachment)
+		prepared, err := integrationstore.PrepareIntegrationSubscriptionTx(ctx, tx, input.ProjectID, attachment)
 		if err != nil {
 			return launchReplayAfterFailureTx(ctx, qtx, input, err)
 		}
 		subscriptions = append(subscriptions, prepared)
-		origins = append(origins, AgentInputOrigin{AppID: prepared.AppID, Address: prepared.Address})
+		origins = append(origins, AgentInputOrigin{IntegrationID: prepared.IntegrationID, Address: prepared.Address})
 	}
-	if err := lockAppConversationsTx(ctx, tx, input.ProjectID, origins...); err != nil {
+	if err := lockIntegrationConversationsTx(ctx, tx, input.ProjectID, origins...); err != nil {
 		return launchReplayAfterFailureTx(ctx, qtx, input, err)
 	}
 	if input.IdempotencyKey != "" {
@@ -339,7 +339,7 @@ func (s *Store) launchAgentTx(
 	for i := range subscriptions {
 		subscriptions[i].AgentID = agent.ID
 	}
-	if _, err := appstore.RegisterAppSubscriptionsTx(ctx, tx, subscriptions); err != nil {
+	if _, err := integrationstore.RegisterIntegrationSubscriptionsTx(ctx, tx, subscriptions); err != nil {
 		return LaunchAgentResult{}, err
 	}
 
@@ -425,7 +425,7 @@ func (s *Store) launchAgentTx(
 	return result, nil
 }
 
-// This path cannot resume admission: app/conversation gates would invert the
+// This path cannot resume admission: integration/conversation gates would invert the
 // lock order after acquiring the launch key to await a concurrent commit.
 func launchReplayAfterFailureTx(
 	ctx context.Context,

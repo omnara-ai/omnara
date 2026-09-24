@@ -5,7 +5,7 @@ description: Connect your own service using agent inputs, custom tools and inter
 
 Your service can connect any system to Omnara through the public API. It receives
 provider events, chooses which agent should receive them, executes custom tools,
-and displays questions or approvals wherever you choose. No Omnara app needs to be registered.
+and displays questions or approvals wherever you choose. No Omnara integration needs to be registered.
 
 Use a project-authorized API key with the operator role for runtime requests.
 Creating configs requires project management permission. The
@@ -17,7 +17,7 @@ The examples below use paths relative to `/orgs/{orgID}/projects/{projectID}`.
 Keep a mapping from your conversation ID to an Omnara agent ID. On the first
 event, [launch an agent](/agents/overview#launch-an-agent) with your config and an
 initial message. To attribute that first message to a customer, use
-[`initial_input` with an `actor`](/agents/overview#attach-apps-and-an-initial-input-atomically).
+[`initial_input` with an `actor`](/agents/overview#attach-integrations-and-an-initial-input-atomically).
 Supply an `Idempotency-Key` so a retried launch returns the same agent. Retry the
 first event by retrying the launch; its key does not deduplicate a later input.
 For later events, send `POST /agents/{agentID}/inputs`:
@@ -42,8 +42,8 @@ explicitly. Steering can also cancel open interactions with
 `cancel_open_interactions: true`.
 
 Your service owns webhook verification, event persistence and retry policy.
-Sending an input does not grant tools, create an app subscription or change a built-in
-app's interaction destination.
+Sending an input does not grant tools, create an integration subscription or change a built-in
+integration's interaction destination.
 
 ## Let the model act in your system
 
@@ -86,7 +86,7 @@ form wherever your application chooses, and submit answers through
 The first accepted answer wins; later conflicting answers are rejected.
 
 Your application decides where to present an interaction and retains its remote
-message IDs. If it handles all presentation, leave built-in app interaction
+message IDs. If it handles all presentation, leave built-in integration interaction
 handlers unconfigured. When configured, those handlers still deliver to the
 captured Slack or Discord destination; ordinary API input does not override that
 selection. An optional `destination` or `presentation_receipt` describes Omnara's
@@ -98,10 +98,10 @@ missed. Deduplicate presentations by interaction ID and close your copies when
 interactions resolve or cancel. A failed external delivery must not prevent
 someone from answering through the dashboard or API.
 
-## Contribute a built-in app
+## Contribute a built-in integration
 
 If you want Omnara itself to host the provider connection and behavior, contribute
 an implementation through a pull request. Slack, Discord and GitHub use the same
-shared app infrastructure. The repository's
+shared integration infrastructure. The repository's
 [contribution guide](https://github.com/omnara-ai/omnara/blob/main/CONTRIBUTING.md)
 links the implementation guide and examples.

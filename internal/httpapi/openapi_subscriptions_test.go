@@ -16,11 +16,11 @@ import (
 func TestGeneratedSubscriptionRequestsPreserveConversationAndEventSelection(t *testing.T) {
 	// This repository ID exceeds float64's exact integer range.
 	const conversation = `{"repository_id":9007199254740993,"pull_request":42}`
-	var create openapi.CreateAppSubscriptionRequest
+	var create openapi.CreateIntegrationSubscriptionRequest
 	require.NoError(t, json.Unmarshal(
 		[]byte(`{"agent_id":"agent","type":"pull_request","conversation":`+conversation+`}`), &create))
 	require.JSONEq(t, conversation, string(create.Conversation))
-	require.Nil(t, create.Events, "omitted events select app defaults")
+	require.Nil(t, create.Events, "omitted events select integration defaults")
 	require.NoError(t, json.Unmarshal(
 		[]byte(`{"agent_id":"agent","type":"pull_request","conversation":`+conversation+`,"events":[]}`), &create))
 	require.NotNil(t, create.Events, "explicit empty events must reach validation as empty")
@@ -28,7 +28,7 @@ func TestGeneratedSubscriptionRequestsPreserveConversationAndEventSelection(t *t
 
 	var launch openapi.CreateAgentRequest
 	require.NoError(t, json.Unmarshal(
-		[]byte(`{"config":"config","subscriptions":[{"app_id":"app","type":"pull_request","conversation":`+
+		[]byte(`{"config":"config","subscriptions":[{"integration_id":"integration","type":"pull_request","conversation":`+
 			conversation+`,"events":["commit"]}]}`), &launch))
 	require.NotNil(t, launch.Subscriptions)
 	require.Len(t, *launch.Subscriptions, 1)
@@ -55,8 +55,8 @@ func TestSubscriptionRequestEventSelectionContract(t *testing.T) {
 	for _, request := range []struct {
 		schema, idKey, idPrefix string
 	}{
-		{"AppSubscriptionAttachment", "app_id", "app_"},
-		{"CreateAppSubscriptionRequest", "agent_id", "agt_"},
+		{"IntegrationSubscriptionAttachment", "integration_id", "itg_"},
+		{"CreateIntegrationSubscriptionRequest", "agent_id", "agt_"},
 	} {
 		t.Run(request.schema, func(t *testing.T) {
 			schema, err := compiler.Compile(resource + "#/components/schemas/" + request.schema)

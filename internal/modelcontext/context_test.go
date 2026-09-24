@@ -380,24 +380,24 @@ func TestBuildPreservesStructuredProcessResultValues(t *testing.T) {
 }
 
 type fakeContextStore struct {
-	messages                   []executionstore.ContextEventRecord
-	toolCalls                  []executionstore.ToolCallRecord
-	completedToolCallWatermark int64
-	appDefinitions             map[uuid.UUID]agentconfig.AppResolution
-	appDefinitionRequests      []appDefinitionRequest
-	appDefinitionsErr          error
-	machinePools               []executionstore.MachinePoolSourceRecord
-	watermark                  int64
-	checkpoints                []executionstore.ContextCheckpointRecord
-	outputLimitBoundaries      map[int64]bool
-	config                     executionstore.AgentConfigRecord
-	hasConfig                  bool
-	noConfig                   bool
-	mcpConnections             map[string]executionstore.MCPConnectionRecord
-	artifacts                  []artifactstore.ArtifactRecord
-	artifactContent            map[string][]byte
-	artifactBlobReads          []uuid.UUID
-	skills                     map[string]skillstore.SkillRecord
+	messages                      []executionstore.ContextEventRecord
+	toolCalls                     []executionstore.ToolCallRecord
+	completedToolCallWatermark    int64
+	integrationDefinitions        map[uuid.UUID]agentconfig.IntegrationResolution
+	integrationDefinitionRequests []integrationDefinitionRequest
+	integrationDefinitionsErr     error
+	machinePools                  []executionstore.MachinePoolSourceRecord
+	watermark                     int64
+	checkpoints                   []executionstore.ContextCheckpointRecord
+	outputLimitBoundaries         map[int64]bool
+	config                        executionstore.AgentConfigRecord
+	hasConfig                     bool
+	noConfig                      bool
+	mcpConnections                map[string]executionstore.MCPConnectionRecord
+	artifacts                     []artifactstore.ArtifactRecord
+	artifactContent               map[string][]byte
+	artifactBlobReads             []uuid.UUID
+	skills                        map[string]skillstore.SkillRecord
 }
 
 func (s *fakeContextStore) GetSkillForDispatch(
@@ -509,28 +509,28 @@ func (s *fakeContextStore) ListCompletedToolCallsAtWatermark(
 	return out, nil
 }
 
-type appDefinitionRequest struct {
+type integrationDefinitionRequest struct {
 	ProjectID uuid.UUID
 	IDs       []uuid.UUID
 }
 
-func (s *fakeContextStore) ResolveAppDefinitions(
+func (s *fakeContextStore) ResolveIntegrationDefinitions(
 	_ context.Context, projectID uuid.UUID, ids []uuid.UUID,
-) (map[uuid.UUID]agentconfig.AppResolution, error) {
-	s.appDefinitionRequests = append(
-		s.appDefinitionRequests,
-		appDefinitionRequest{projectID, append([]uuid.UUID(nil), ids...)},
+) (map[uuid.UUID]agentconfig.IntegrationResolution, error) {
+	s.integrationDefinitionRequests = append(
+		s.integrationDefinitionRequests,
+		integrationDefinitionRequest{projectID, append([]uuid.UUID(nil), ids...)},
 	)
-	if s.appDefinitionsErr != nil {
-		return nil, s.appDefinitionsErr
+	if s.integrationDefinitionsErr != nil {
+		return nil, s.integrationDefinitionsErr
 	}
-	apps := map[uuid.UUID]agentconfig.AppResolution{}
+	integrations := map[uuid.UUID]agentconfig.IntegrationResolution{}
 	for _, id := range ids {
-		if app, ok := s.appDefinitions[id]; ok {
-			apps[id] = app
+		if integration, ok := s.integrationDefinitions[id]; ok {
+			integrations[id] = integration
 		}
 	}
-	return apps, nil
+	return integrations, nil
 }
 
 func (s *fakeContextStore) ListMachinePoolSources(

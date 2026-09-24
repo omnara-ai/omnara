@@ -74,7 +74,7 @@ func IsSubagentToolName(name string) bool {
 }
 
 func implicit(name string) bool {
-	return UsesAppToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
+	return UsesIntegrationToolNamespace(name) || slices.Contains(MachineToolNames(), name) ||
 		slices.Contains(MachinePoolToolNames(), name) ||
 		IsSubagentToolName(name) || name == ToolNameSkill ||
 		name == ToolNameReadFile || name == ToolNameSearchFiles ||

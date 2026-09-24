@@ -59,18 +59,22 @@ type ArtifactStore interface {
 	) ([]byte, artifactstore.ArtifactRecord, error)
 }
 
-type AppStore interface {
-	ResolveAppDefinitions(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]agentconfig.AppResolution, error)
+type IntegrationStore interface {
+	ResolveIntegrationDefinitions(
+		context.Context,
+		uuid.UUID,
+		[]uuid.UUID,
+	) (map[uuid.UUID]agentconfig.IntegrationResolution, error)
 }
 
 type Store interface {
-	AppStore
+	IntegrationStore
 	ArtifactStore
 	ExecutionStore
 }
 
 type composedStore struct {
-	AppStore
+	IntegrationStore
 	ArtifactStore
 	ExecutionStore
 }
@@ -78,12 +82,12 @@ type composedStore struct {
 func NewStore(
 	execution ExecutionStore,
 	artifacts ArtifactStore,
-	apps AppStore,
+	integrations IntegrationStore,
 ) Store {
 	return composedStore{
-		AppStore:       apps,
-		ArtifactStore:  artifacts,
-		ExecutionStore: execution,
+		IntegrationStore: integrations,
+		ArtifactStore:    artifacts,
+		ExecutionStore:   execution,
 	}
 }
 

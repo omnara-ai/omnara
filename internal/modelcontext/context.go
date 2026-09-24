@@ -229,10 +229,10 @@ func defaultSystemPromptForContract(
 	if catalog := skillCatalogBlock(skills); catalog != "" {
 		parts = append(parts, catalog)
 	}
-	if len(contract.AppTools) > 0 {
+	if len(contract.IntegrationTools) > 0 {
 		parts = append(
 			parts,
-			"Use the app tools to communicate with external participants. Ordinary assistant text stays in Omnara.",
+			"Use the integration tools to communicate with external participants. Ordinary assistant text stays in Omnara.",
 		)
 	}
 	return strings.Join(parts, "\n\n")

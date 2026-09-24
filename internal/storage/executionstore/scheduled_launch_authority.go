@@ -1,38 +1,38 @@
 package executionstore
 
 import (
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func ScheduledInboxActor(
-	app appstore.ProjectAppRecord,
-	launch appstore.ScheduledAppEvent,
+	integration integrationstore.ProjectIntegrationRecord,
+	launch integrationstore.ScheduledIntegrationEvent,
 ) (*ActorParams, error) {
-	return CronTriggerActor(app.OrgID, launch.TriggerID, launch.Occurrence.Name)
+	return CronTriggerActor(integration.OrgID, launch.TriggerID, launch.Occurrence.Name)
 }
 
 func validateScheduledInboxLaunch(
-	receipt appstore.AppInboxRecord,
-	app appstore.ProjectAppRecord,
+	receipt integrationstore.IntegrationInboxRecord,
+	integration integrationstore.ProjectIntegrationRecord,
 	slot InboxLaunchSlot,
 ) error {
 	launch, err := receipt.ScheduledEvent()
 	if err != nil {
 		return err
 	}
-	if err := receipt.ValidateScheduledPlan(app, receipt.Plan); err != nil {
+	if err := receipt.ValidateScheduledPlan(integration, receipt.Plan); err != nil {
 		return err
 	}
 	input := slot.Launch.InitialInput
-	if app.ID != receipt.AppID || app.ProjectID != receipt.ProjectID ||
-		slot.Selection.AppID != receipt.AppID ||
+	if integration.ID != receipt.IntegrationID || integration.ProjectID != receipt.ProjectID ||
+		slot.Selection.IntegrationID != receipt.IntegrationID ||
 		slot.Launch.LaunchedBy.Type != identitystore.PrincipalTypeSystem || slot.Launch.LaunchedBy.ID != launch.TriggerID ||
 		input == nil || input.Actor == nil || input.SemanticEventKey != receipt.ReceiptKey {
 		return storeerr.ErrUnauthorized
 	}
-	actor, err := ScheduledInboxActor(app, launch)
+	actor, err := ScheduledInboxActor(integration, launch)
 	if err != nil {
 		return err
 	}

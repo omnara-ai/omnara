@@ -59,7 +59,7 @@ describe('agentBuilderToolsSource', () => {
     const handler = {}
     const source = {
       instruction: 'Review',
-      tools: { app__chat__post_message: tool },
+      tools: { int__chat__post_message: tool },
       interaction_handlers: { chat: handler },
       event_webhook: {
         url: 'https://example.com/events',
@@ -68,11 +68,12 @@ describe('agentBuilderToolsSource', () => {
       },
     }
     const session = createBasicConfigSession(JSON.stringify(source))
-    if (session.initialDraft === null) throw new Error('App source must support builder preview')
+    if (session.initialDraft === null)
+      throw new Error('Integration source must support builder preview')
     const changed = { ...session.initialDraft, instruction: 'Updated instruction' }
     const preview: unknown = JSON.parse(agentBuilderToolsSource(changed))
     expect(preview).toMatchObject({
-      tools: { app__chat__post_message: tool },
+      tools: { int__chat__post_message: tool },
       interaction_handlers: source.interaction_handlers,
     })
     const updated = createBasicConfigSession(session.apply(changed)).initialDraft
@@ -81,7 +82,7 @@ describe('agentBuilderToolsSource', () => {
     expect(updated?.eventWebhookEvents).toEqual(source.event_webhook.events)
     expect(updated?.eventWebhookSigningSecretId).toBe(source.event_webhook.signing_secret_id)
     expect(updated?.tools[0]).toEqual({
-      name: 'app__chat__post_message',
+      name: 'int__chat__post_message',
       permission: { mode: 'always_ask', parameters: {} },
       deferred: true,
     })

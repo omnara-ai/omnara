@@ -30,7 +30,7 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			token := customIntegrationHTTPKey(t, f.handler, f.project, "router", "operator")
 			inputBody := customIntegrationHTTPInput()
 			inputBody["actor"] = map[string]any{"provider_tenant_id": "helpdesk", "provider_user_id": "customer-7"}
-			body := projectAppHTTPJSON(t, inputBody)
+			body := projectIntegrationHTTPJSON(t, inputBody)
 			created := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.path+"/inputs", body,
 				"ticket-event-1", http.StatusCreated, authHeaders(token))
 			input := testutil.RequireType[map[string]any](t, created["agent_input"])
@@ -57,12 +57,12 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			}
 			resolvePath := f.path + "/interactions/" + interactionID + "/resolve"
 			resolved := requestJSONWithHeaders(t, f.handler, http.MethodPost, resolvePath,
-				projectAppHTTPJSON(t, answers), "", http.StatusOK, headers)
+				projectIntegrationHTTPJSON(t, answers), "", http.StatusOK, headers)
 			require.Equal(t, "resolved", resolved["state"])
 			require.NotEmpty(t, resolved["resolved_by_input_id"])
 			require.Equal(t, resolved, customIntegrationHTTPInteraction(t, f, f.project.adminBrowserAuthHeaders()))
 			requestJSONWithHeaders(t, f.handler, http.MethodPost, resolvePath,
-				projectAppHTTPJSON(t, answers), "", http.StatusOK, headers)
+				projectIntegrationHTTPJSON(t, answers), "", http.StatusOK, headers)
 			requestJSONWithHeaders(
 				t,
 				f.handler,
@@ -117,12 +117,12 @@ func TestCustomIntegrationPublicInputInteractionAndToolJourney(t *testing.T) {
 			require.Equal(t, "external", actorProvider)
 			require.Equal(t, "helpdesk", actorTenant)
 			require.Equal(t, "customer-7", actorUser)
-			var apps, subscriptions int
+			var integrations, subscriptions int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT
-    (SELECT count(*) FROM project_apps WHERE project_id=$1),
-    (SELECT count(*) FROM app_subscriptions WHERE agent_id=$2)`, f.project.ProjectUUID, f.agent.ID).
-				Scan(&apps, &subscriptions))
-			require.Zero(t, apps)
+    (SELECT count(*) FROM project_integrations WHERE project_id=$1),
+    (SELECT count(*) FROM integration_subscriptions WHERE agent_id=$2)`, f.project.ProjectUUID, f.agent.ID).
+				Scan(&integrations, &subscriptions))
+			require.Zero(t, integrations)
 			require.Zero(t, subscriptions)
 		})
 	}
@@ -133,7 +133,7 @@ func TestCustomIntegrationPublicInputAuthorizationAndReplay(t *testing.T) {
 	f := newCustomIntegrationHTTPFixture(t, "custom-input-auth")
 	token := customIntegrationHTTPKey(t, f.handler, f.project, "operator", "operator")
 	viewer := customIntegrationHTTPKey(t, f.handler, f.project, "viewer", "viewer")
-	body := projectAppHTTPJSON(t, customIntegrationHTTPInput())
+	body := projectIntegrationHTTPJSON(t, customIntegrationHTTPInput())
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.path+"/inputs", body, "event", http.StatusUnauthorized, nil)
 	requestJSONWithHeaders(
 		t,
@@ -173,7 +173,7 @@ func TestCustomIntegrationPublicInputAuthorizationAndReplay(t *testing.T) {
 		f.handler,
 		http.MethodPost,
 		f.path+"/inputs",
-		projectAppHTTPJSON(t, changed),
+		projectIntegrationHTTPJSON(t, changed),
 		"event",
 		http.StatusConflict,
 		authHeaders(token),
@@ -186,11 +186,11 @@ func TestCustomIntegrationPublicInputRejectsOrigin(t *testing.T) {
 	token := customIntegrationHTTPKey(t, f.handler, f.project, "operator", "operator")
 	body := customIntegrationHTTPInput()
 	body["origin"] = map[string]any{
-		"app_id":  testPublicID(t, publicid.KindProjectApp, uuid.New()),
-		"address": map[string]any{"kind": "channel", "ref": "C123"},
+		"integration_id": testPublicID(t, publicid.KindProjectIntegration, uuid.New()),
+		"address":        map[string]any{"kind": "channel", "ref": "C123"},
 	}
 	rejected := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.path+"/inputs",
-		projectAppHTTPJSON(t, body), "rejected-origin", http.StatusBadRequest, authHeaders(token))
+		projectIntegrationHTTPJSON(t, body), "rejected-origin", http.StatusBadRequest, authHeaders(token))
 	require.Equal(t, "validation_failed", rejected["code"])
 	require.Contains(t, rejected["error"], "origin")
 	var count int
@@ -209,7 +209,7 @@ func TestCustomIntegrationPublicInputMediaReplay(t *testing.T) {
 	headers := authHeaders(project.AdminToken)
 	inputs, artifacts := map[string]bool{}, map[string]bool{}
 	for _, event := range []string{"first", "second"} {
-		body := projectAppHTTPJSON(t, map[string]any{"content_blocks": []any{map[string]any{
+		body := projectIntegrationHTTPJSON(t, map[string]any{"content_blocks": []any{map[string]any{
 			"type": "media", "media_type": "text/plain", "filename": "ticket.txt",
 			"data": base64.StdEncoding.EncodeToString([]byte(event)),
 		}}})
@@ -255,7 +255,7 @@ func newCustomIntegrationHTTPFixture(t *testing.T, seed string) customIntegratio
 		project,
 		seed,
 		"json",
-		projectAppHTTPJSON(t, source),
+		projectIntegrationHTTPJSON(t, source),
 		project.AdminToken,
 		http.StatusCreated,
 	)
@@ -270,7 +270,7 @@ func newCustomIntegrationHTTPFixture(t *testing.T, seed string) customIntegratio
 		project.AdminToken,
 		http.StatusCreated,
 	)
-	launchBody := projectAppHTTPJSON(t, map[string]any{"profile": profile["id"], "config": configID})
+	launchBody := projectIntegrationHTTPJSON(t, map[string]any{"profile": profile["id"], "config": configID})
 	launched := requestJSONWithHeaders(
 		t,
 		handler,
@@ -332,11 +332,11 @@ func customIntegrationHTTPKey(t *testing.T, handler http.Handler, project public
 	t.Helper()
 	path := "/api/v1/orgs/" + project.OrgID + "/api-keys"
 	created := requestJSONWithHeaders(t, handler, http.MethodPost, path,
-		projectAppHTTPJSON(t, map[string]any{"name": name, "org_role": "member"}),
+		projectIntegrationHTTPJSON(t, map[string]any{"name": name, "org_role": "member"}),
 		"", http.StatusCreated, project.adminBrowserAuthHeaders())
 	id := testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, created["api_key"])["id"])
 	requestJSONWithHeaders(t, handler, http.MethodPut, path+"/"+id+"/projects/"+project.ProjectID,
-		projectAppHTTPJSON(t, map[string]any{"role": role}), "", http.StatusOK, project.adminBrowserAuthHeaders())
+		projectIntegrationHTTPJSON(t, map[string]any{"role": role}), "", http.StatusOK, project.adminBrowserAuthHeaders())
 	return testutil.RequireType[string](t, created["token"])
 }
 

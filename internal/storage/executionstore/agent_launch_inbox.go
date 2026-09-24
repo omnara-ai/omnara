@@ -8,18 +8,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type InboxLaunchSlot struct {
-	Selection   appstore.InboxAppSelection `json:"selection"`
-	AgentID     uuid.UUID                  `json:"agent_id"`
-	Launch      InboxLaunchPlan            `json:"launch"`
-	ArtifactIDs []uuid.UUID                `json:"artifact_ids,omitempty"`
+	Selection   integrationstore.InboxIntegrationSelection `json:"selection"`
+	AgentID     uuid.UUID                                  `json:"agent_id"`
+	Launch      InboxLaunchPlan                            `json:"launch"`
+	ArtifactIDs []uuid.UUID                                `json:"artifact_ids,omitempty"`
 }
 
 type InboxLaunchPrincipal struct {
@@ -28,13 +28,13 @@ type InboxLaunchPrincipal struct {
 }
 
 type InboxLaunchPlan struct {
-	ProfileID           uuid.UUID                            `json:"profile_id"`
-	AgentConfigID       uuid.UUID                            `json:"agent_config_id"`
-	DerivedBaseConfigID uuid.UUID                            `json:"derived_base_config_id"`
-	LaunchedBy          InboxLaunchPrincipal                 `json:"launched_by"`
-	IdempotencyKey      string                               `json:"idempotency_key"`
-	InitialInput        *LaunchInitialInput                  `json:"initial_input"`
-	Subscriptions       []appstore.AppSubscriptionAttachment `json:"subscriptions"`
+	ProfileID           uuid.UUID                                            `json:"profile_id"`
+	AgentConfigID       uuid.UUID                                            `json:"agent_config_id"`
+	DerivedBaseConfigID uuid.UUID                                            `json:"derived_base_config_id"`
+	LaunchedBy          InboxLaunchPrincipal                                 `json:"launched_by"`
+	IdempotencyKey      string                                               `json:"idempotency_key"`
+	InitialInput        *LaunchInitialInput                                  `json:"initial_input"`
+	Subscriptions       []integrationstore.IntegrationSubscriptionAttachment `json:"subscriptions"`
 }
 
 func (p InboxLaunchPlan) launchInput(projectID uuid.UUID) LaunchAgentInput {
@@ -64,7 +64,7 @@ type inboxLaunchProgress struct {
 
 func (s *Store) AdmitInboxLaunchSlot(
 	ctx context.Context,
-	lease appstore.AppInboxLease,
+	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
 ) (LaunchAgentResult, error) {
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || slotKey == "" {
@@ -77,11 +77,11 @@ func (s *Store) AdmitInboxLaunchSlot(
 
 func (s *Store) admitInboxLaunchSlotOnce(
 	ctx context.Context,
-	lease appstore.AppInboxLease,
+	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
 ) (LaunchAgentResult, error) {
-	// Read the immutable plan first to discover app gates that must precede the receipt lock.
-	snapshot, err := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
+	// Read the immutable plan first to discover integration gates that must precede the receipt lock.
+	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -98,16 +98,16 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	resources, err := launchAppIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID))
+	resources, err := launchIntegrationIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID))
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	work, err := s.apps.LockAppInboxLeaseTx(ctx, tx, lease, resources...)
+	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease, resources...)
 	if err != nil {
 		// Release the connection before diagnostic reads, which may need the pool's only session.
 		_ = tx.Rollback(ctx)
 		// Another attempt may have committed and released its lease while this worker waited.
-		latest, readErr := s.apps.GetAppInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		latest, readErr := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 		if readErr == nil {
 			latestSlot, latestProgress, decodeErr := decodeInboxLaunchSlot(latest, slotKey)
 			if decodeErr == nil && latestProgress.Committed != nil {
@@ -134,28 +134,28 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	// These gates are already held. Recheck only this slot's authority so another
 	// slot's revocation cannot block its independent progress.
-	if err := appstore.LockAppsTx(ctx, tx, lease.ProjectID, resources); err != nil {
+	if err := integrationstore.LockIntegrationsTx(ctx, tx, lease.ProjectID, resources); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	selection := slot.Selection
-	origins := []AgentInputOrigin{{AppID: selection.AppID, Address: selection.Address}}
+	origins := []AgentInputOrigin{{IntegrationID: selection.IntegrationID, Address: selection.Address}}
 	for _, attachment := range slot.Launch.Subscriptions {
-		prepared, err := appstore.PrepareAppSubscriptionTx(ctx, tx, lease.ProjectID, attachment)
+		prepared, err := integrationstore.PrepareIntegrationSubscriptionTx(ctx, tx, lease.ProjectID, attachment)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		origins = append(origins, AgentInputOrigin{AppID: prepared.AppID, Address: prepared.Address})
+		origins = append(origins, AgentInputOrigin{IntegrationID: prepared.IntegrationID, Address: prepared.Address})
 	}
-	if err := lockAppConversationsTx(ctx, tx, lease.ProjectID, origins...); err != nil {
+	if err := lockIntegrationConversationsTx(ctx, tx, lease.ProjectID, origins...); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	scheduled := locked.Source == appstore.AppInboxSourceScheduled
+	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduled
 	if scheduled {
-		app, err := s.apps.GetProjectAppByIDTx(ctx, tx, locked.AppID)
+		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, locked.IntegrationID)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		if err := validateScheduledInboxLaunch(locked, app, slot); err != nil {
+		if err := validateScheduledInboxLaunch(locked, integration, slot); err != nil {
 			return LaunchAgentResult{}, err
 		}
 	}
@@ -163,7 +163,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	launch.admission = &launchAdmission{
 		Scheduled:     scheduled,
 		AgentID:       slot.AgentID,
-		AppID:         selection.AppID,
+		IntegrationID: selection.IntegrationID,
 		SelectionSlot: selection.Slot,
 		Artifacts:     artifacts,
 	}
@@ -180,7 +180,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 			AgentID:  result.Agent.ID,
 			ConfigID: result.AgentConfig.ID,
 			InputID:  result.AgentInput.ID,
-			TargetID: result.AppTarget.ID,
+			TargetID: result.IntegrationTarget.ID,
 		},
 	)
 	if err != nil {
@@ -196,7 +196,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 }
 
 func decodeInboxLaunchSlot(
-	receipt appstore.AppInboxRecord,
+	receipt integrationstore.IntegrationInboxRecord,
 	slotKey string,
 ) (InboxLaunchSlot, inboxLaunchProgress, error) {
 	var slot InboxLaunchSlot
@@ -215,8 +215,8 @@ func decodeInboxLaunchSlot(
 		return fail("planned agent requires a UUIDv7 identity")
 	}
 	selection := slot.Selection
-	if selection.AppID == uuid.Nil || selection.AppID != receipt.AppID || selection.Slot == "" {
-		return fail("launch selection must belong to the receipt app and name an app slot")
+	if selection.IntegrationID == uuid.Nil || selection.IntegrationID != receipt.IntegrationID || selection.Slot == "" {
+		return fail("launch selection must belong to the receipt integration and name an integration slot")
 	}
 	if slot.Launch.ProfileID == uuid.Nil || slot.Launch.AgentConfigID == uuid.Nil ||
 		slot.Launch.DerivedBaseConfigID == uuid.Nil || slot.Launch.IdempotencyKey == "" {
@@ -231,7 +231,7 @@ func decodeInboxLaunchSlot(
 		return slot, progress, err
 	}
 	if slot.Launch.InitialInput == nil || initial.Origin == nil || initial.Actor == nil ||
-		initial.Origin.AppID != selection.AppID || initial.Origin.Address != selection.Address {
+		initial.Origin.IntegrationID != selection.IntegrationID || initial.Origin.Address != selection.Address {
 		return fail("inbox launch requires initial content, actor and origin matching its frozen selection")
 	}
 	var stages map[string]json.RawMessage

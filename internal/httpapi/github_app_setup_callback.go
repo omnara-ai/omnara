@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/httpjson"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -31,7 +31,7 @@ func (s *Server) decodeGitHubManifestState(ctx context.Context, token string) (g
 	if err != nil {
 		return state, err
 	}
-	if len(body) > appOAuthStateBytes {
+	if len(body) > integrationOAuthStateBytes {
 		return state, errors.New("GitHub registration state is too large")
 	}
 	if err := httpjson.DecodeStrictRequiredBytes(body, &state); err != nil {
@@ -81,20 +81,20 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	app, err := s.store.Apps().GetProjectApp(r.Context(), state.ProjectID, state.AppID)
+	integration, err := s.store.Integrations().GetProjectIntegration(r.Context(), state.ProjectID, state.IntegrationID)
 	if err != nil {
 		apierror.WriteError(w, apierror.ProjectScoped(err))
 		return
 	}
-	if app.OrgID != state.OrgID {
+	if integration.OrgID != state.OrgID {
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	if app.AppType != appdefinition.GitHubPR {
-		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "this app does not support GitHub setup")
+	if integration.IntegrationType != integrationdefinition.GitHubPR {
+		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "this integration does not support GitHub setup")
 		return
 	}
-	path, err := githubAppReturnPath(state.ProjectID, state.AppID)
+	path, err := githubIntegrationReturnPath(state.ProjectID, state.IntegrationID)
 	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeInternalError)
 		return
@@ -110,7 +110,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		outcome("missing_code")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), appOAuthTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), integrationOAuthTimeout)
 	defer cancel()
 	// Do not retry this one-time manifest conversion.
 	client, err := github.NewSetupClient(github.SetupConfig{
@@ -149,9 +149,9 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	params := url.Values{
 		"github_setup": {"credentials_saved"}, "credentials_secret_ref": {ref},
 	}
-	current, err := s.store.Apps().GetProjectApp(ctx, state.ProjectID, state.AppID)
+	current, err := s.store.Integrations().GetProjectIntegration(ctx, state.ProjectID, state.IntegrationID)
 	if err != nil || current.SetupRevision != state.SetupRevision {
-		params.Set("github_setup_error", "app_setup_changed")
+		params.Set("github_setup_error", "integration_setup_changed")
 	}
 	s.redirectOAuthOutcome(w, r, path, params)
 }

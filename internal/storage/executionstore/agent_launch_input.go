@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/notifications"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -26,15 +26,15 @@ type LaunchInitialInput struct {
 }
 
 type LaunchInputOrigin struct {
-	AppID       uuid.UUID                    `json:"app_id"`
-	Address     appstore.ConversationAddress `json:"address"`
-	DisplayName string                       `json:"display_name,omitempty"`
+	IntegrationID uuid.UUID                            `json:"integration_id"`
+	Address       integrationstore.ConversationAddress `json:"address"`
+	DisplayName   string                               `json:"display_name,omitempty"`
 }
 
 type launchAdmission struct {
 	Scheduled     bool
 	AgentID       uuid.UUID
-	AppID         uuid.UUID
+	IntegrationID uuid.UUID
 	SelectionSlot string
 	Artifacts     []artifactstore.PreparedArtifact
 }
@@ -75,9 +75,9 @@ func prepareLaunchInitialInput(input LaunchAgentInput) (*LaunchInitialInput, []C
 	}
 	snapshot.DeliveryMode = prepared.DeliveryMode
 	if origin := snapshot.Origin; origin != nil {
-		if origin.AppID == uuid.Nil || snapshot.SemanticEventKey == "" {
+		if origin.IntegrationID == uuid.Nil || snapshot.SemanticEventKey == "" {
 			return nil, nil, storeerr.InvalidRequest(
-				errors.New("initial origin requires an app and semantic event key"),
+				errors.New("initial origin requires an integration and semantic event key"),
 			)
 		}
 		if err := origin.Address.Validate(); err != nil {
@@ -117,35 +117,35 @@ func (s *Store) insertLaunchInitialContentInputTx(
 		content.IdempotencyKey = launchChildIdempotencyKey(launch.IdempotencyKey, "content-input")
 	}
 	if origin := initial.Origin; origin != nil {
-		targetInput := appstore.EnsureConversationTargetInput{
-			ProjectID: agent.ProjectID, AgentID: agent.ID, AppID: origin.AppID,
+		targetInput := integrationstore.EnsureConversationTargetInput{
+			ProjectID: agent.ProjectID, AgentID: agent.ID, IntegrationID: origin.IntegrationID,
 			Address: origin.Address, DisplayName: origin.DisplayName,
 		}
 		if admission != nil {
-			targetInput.AppID, targetInput.SelectionSlot = admission.AppID, admission.SelectionSlot
+			targetInput.IntegrationID, targetInput.SelectionSlot = admission.IntegrationID, admission.SelectionSlot
 		}
-		result.AppTarget, err = s.apps.EnsureConversationTargetTx(ctx, tx, targetInput)
+		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
 		if err != nil {
 			return err
 		}
 		if admission != nil {
-			if err := s.apps.AssignAgentAppConversationTx(
-				ctx, tx, agent.ProjectID, agent.ID, admission.AppID, origin.Address,
+			if err := s.integrations.AssignAgentIntegrationConversationTx(
+				ctx, tx, agent.ProjectID, agent.ID, admission.IntegrationID, origin.Address,
 			); err != nil {
 				return err
 			}
 		}
-		app, err := s.apps.GetProjectAppByIDTx(ctx, tx, origin.AppID)
+		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, origin.IntegrationID)
 		if err != nil {
 			return err
 		}
 		if admission == nil || !admission.Scheduled {
-			if err := validateAppInputActor(app.ID, actor); err != nil {
+			if err := validateIntegrationInputActor(integration.ID, actor); err != nil {
 				return err
 			}
 		}
-		content.AppTargetID = result.AppTarget.ID
-		content.IdempotencyScope = appstore.IdempotencyScope(app)
+		content.IntegrationTargetID = result.IntegrationTarget.ID
+		content.IdempotencyScope = integrationstore.IdempotencyScope(integration)
 	}
 	if admission != nil {
 		result.Artifacts, err = artifactstore.InsertPreparedArtifactsTx(
@@ -163,13 +163,13 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	if err != nil {
 		return err
 	}
-	if created.created && content.AppTargetID != uuid.Nil {
+	if created.created && content.IntegrationTargetID != uuid.Nil {
 		if _, err := s.SelectInteractionDestinationForOriginTx(
 			ctx,
 			tx,
 			agent.ProjectID,
 			agent.ID,
-			content.AppTargetID,
+			content.IntegrationTargetID,
 		); err != nil {
 			return err
 		}

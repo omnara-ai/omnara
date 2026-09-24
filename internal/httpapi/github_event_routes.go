@@ -11,12 +11,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/apps"
-	"github.com/omnara-ai/omnara/internal/apps/github"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/secrets"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -27,14 +27,14 @@ const GitHubSharedEventsPath = "/api/integrations/github/events"
 // Leave headroom under GitHub's 10s deadline:
 // https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds
 const githubIntakeTimeout = 5 * time.Second
-const githubWebhookCredentialLimit = appstore.GitHubWebhookCredentialLimit
+const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLimit
 
 type githubIntakeStore interface {
-	ListProjectAppsByProviderIdentity(
+	ListProjectIntegrationsByProviderIdentity(
 		context.Context, string, string, string, uuid.UUID, int,
-	) ([]appstore.ProjectAppRecord, error)
-	AcceptAppReceipt(context.Context, appstore.VerifiedAppReceipt) (
-		appstore.AppInboxRecord, bool, error,
+	) ([]integrationstore.ProjectIntegrationRecord, error)
+	AcceptIntegrationReceipt(context.Context, integrationstore.VerifiedIntegrationReceipt) (
+		integrationstore.IntegrationInboxRecord, bool, error,
 	)
 }
 
@@ -44,9 +44,9 @@ type githubIntakeSecrets interface {
 	)
 }
 
-type GitHubWebhookCredentialApps func(
+type GitHubWebhookCredentialIntegrations func(
 	context.Context, string, int,
-) ([]appstore.ProjectAppRecord, error)
+) ([]integrationstore.ProjectIntegrationRecord, error)
 
 func (s *Server) GitHubEventsHandler() http.Handler {
 	if s.store == nil {
@@ -55,15 +55,15 @@ func (s *Server) GitHubEventsHandler() http.Handler {
 		})
 	}
 	return &githubIntakeHandler{
-		store: s.store.Apps(), secrets: s.store.Secrets(),
-		credentialApps: s.store.Apps().ListGitHubWebhookCredentialApps,
+		store: s.store.Integrations(), secrets: s.store.Secrets(),
+		credentialIntegrations: s.store.Integrations().ListGitHubWebhookCredentialIntegrations,
 	}
 }
 
 type githubIntakeHandler struct {
-	store          githubIntakeStore
-	secrets        githubIntakeSecrets
-	credentialApps GitHubWebhookCredentialApps
+	store                  githubIntakeStore
+	secrets                githubIntakeSecrets
+	credentialIntegrations GitHubWebhookCredentialIntegrations
 }
 
 func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +89,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, openapi.ErrorCodeNotFound)
 		return
 	}
-	raw, ok := readAppCallbackBody(w, r, appstore.AppInboxMaxPayloadBytes)
+	raw, ok := readIntegrationCallbackBody(w, r, integrationstore.IntegrationInboxMaxPayloadBytes)
 	if !ok {
 		return
 	}
@@ -102,13 +102,13 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, openapi.ErrorCodeForbidden, "GitHub installation identity mismatch")
 		return
 	}
-	var result appFanoutResult
+	var result integrationFanoutResult
 	var invalidWebhook bool
 	if hint.Installation.ID > 0 {
-		result, err = fanoutApps(ctx, h.store.ListProjectAppsByProviderIdentity,
-			appstore.AppProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
-			func(ctx context.Context, app appstore.ProjectAppRecord) (bool, error) {
-				event, verified, err := h.verifyAppCredential(ctx, r.Header, raw, appID, app)
+		result, err = fanoutIntegrations(ctx, h.store.ListProjectIntegrationsByProviderIdentity,
+			integrationstore.IntegrationProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
+			func(ctx context.Context, integration integrationstore.ProjectIntegrationRecord) (bool, error) {
+				event, verified, err := h.verifyIntegrationCredential(ctx, r.Header, raw, appID, integration)
 				if verified && err != nil {
 					invalidWebhook = true
 					return true, storeerr.InvalidRequest(err)
@@ -116,11 +116,11 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				if err != nil || !verified {
 					return verified, err
 				}
-				if !apps.GitHubWebhookInstallationMatches(app, event) {
+				if !integrationruntime.GitHubWebhookInstallationMatches(integration, event) {
 					return true, storeerr.ErrUnauthorized
 				}
-				_, _, err = h.store.AcceptAppReceipt(ctx, appstore.VerifiedAppReceipt{
-					ProjectID: app.ProjectID, AppID: app.ID,
+				_, _, err = h.store.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+					ProjectID: integration.ProjectID, IntegrationID: integration.ID,
 					ReceiptKey: "github:" + event.EventType + ":" + event.DeliveryID, Payload: raw,
 				})
 				return true, err
@@ -143,7 +143,7 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	event, verified, err := h.verifyAppWebhook(ctx, r.Header, raw, appID)
+	event, verified, err := h.verifyIntegrationWebhook(ctx, r.Header, raw, appID)
 	if err != nil {
 		if verified {
 			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "invalid GitHub webhook")
@@ -173,15 +173,22 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *githubIntakeHandler) verifyAppCredential(
-	ctx context.Context, header http.Header, raw []byte, appID string, app appstore.ProjectAppRecord,
+func (h *githubIntakeHandler) verifyIntegrationCredential(
+	ctx context.Context,
+	header http.Header,
+	raw []byte,
+	appID string,
+	integration integrationstore.ProjectIntegrationRecord,
 ) (github.Webhook, bool, error) {
-	if app.Provider != appstore.AppProviderGitHub || app.ProviderTenantID != appID ||
-		app.CredentialSecretID == uuid.Nil {
+	if integration.Provider != integrationstore.IntegrationProviderGitHub || integration.ProviderTenantID != appID ||
+		integration.CredentialSecretID == uuid.Nil {
 		return github.Webhook{}, false, nil
 	}
 	credential, err := h.secrets.ReadProjectAvailableSecretPayload(ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
-		OrgID: app.OrgID, ProjectID: app.ProjectID, SecretID: app.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
+		OrgID:     integration.OrgID,
+		ProjectID: integration.ProjectID,
+		SecretID:  integration.CredentialSecretID,
+		Kind:      secrets.KindGitHubAppCredentials,
 	})
 	if err != nil {
 		return github.Webhook{}, false, err
@@ -198,13 +205,13 @@ func (h *githubIntakeHandler) verifyAppCredential(
 	return event, true, err
 }
 
-func (h *githubIntakeHandler) verifyAppWebhook(
+func (h *githubIntakeHandler) verifyIntegrationWebhook(
 	ctx context.Context, header http.Header, raw []byte, appID string,
 ) (github.Webhook, bool, error) {
-	if h.credentialApps == nil {
+	if h.credentialIntegrations == nil {
 		return github.Webhook{}, false, fmt.Errorf("github App credential resolver is required")
 	}
-	candidates, err := h.credentialApps(ctx, appID, githubWebhookCredentialLimit)
+	candidates, err := h.credentialIntegrations(ctx, appID, githubWebhookCredentialLimit)
 	if err != nil {
 		return github.Webhook{}, false, err
 	}
@@ -212,12 +219,12 @@ func (h *githubIntakeHandler) verifyAppWebhook(
 		return github.Webhook{}, false, fmt.Errorf("github App credential candidate limit exceeded")
 	}
 	var retryErr error
-	for _, app := range candidates {
-		event, verified, err := h.verifyAppCredential(ctx, header, raw, appID, app)
+	for _, integration := range candidates {
+		event, verified, err := h.verifyIntegrationCredential(ctx, header, raw, appID, integration)
 		if verified {
 			return event, true, err
 		}
-		if err != nil && !permanentAppIngressError(err) {
+		if err != nil && !permanentIntegrationIngressError(err) {
 			retryErr = err
 		}
 	}

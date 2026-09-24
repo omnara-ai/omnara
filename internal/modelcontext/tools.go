@@ -26,16 +26,16 @@ func RuntimeContractToolSpecs(
 	if err != nil {
 		return nil, err
 	}
-	apps, err := store.ResolveAppDefinitions(ctx, projectID, contract.ReferencedAppIDs())
+	integrations, err := store.ResolveIntegrationDefinitions(ctx, projectID, contract.ReferencedIntegrationIDs())
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := agentconfig.PrepareAppTools(
+	prepared, err := agentconfig.PrepareIntegrationTools(
 		agentconfig.Compiled{
-			Tools:               contract.AppTools,
+			Tools:               contract.IntegrationTools,
 			InteractionHandlers: contract.InteractionHandlers,
 		},
-		apps,
+		integrations,
 	)
 	if err != nil {
 		return nil, err

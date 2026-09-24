@@ -11,12 +11,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
@@ -67,9 +67,9 @@ func TestInteractionDeliveryRecoversUnstartedQueueWork(t *testing.T) {
 				writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 			}))
 			defer server.Close()
-			presenter := apps.InteractionPresenter{
+			presenter := integrationruntime.InteractionPresenter{
 				Store:      f.Store,
-				HTTPClient: appProviderTestClient(server),
+				HTTPClient: integrationProviderTestClient(server),
 			}
 			require.NoError(t, presenter.EnqueuePending(ctx, immediateIntegrationBackgroundRunner(ctx)))
 			require.NoError(t, presenter.EnqueuePending(ctx, immediateIntegrationBackgroundRunner(ctx)))
@@ -106,7 +106,7 @@ func TestInteractionDeliveryConcurrentPresentersPublishOnce(t *testing.T) {
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 	}))
 	defer server.Close()
-	presenter := apps.InteractionPresenter{Store: f.Store, HTTPClient: appProviderTestClient(server)}
+	presenter := integrationruntime.InteractionPresenter{Store: f.Store, HTTPClient: integrationProviderTestClient(server)}
 	var group sync.WaitGroup
 	errors := make(chan error, 8)
 	for range 8 {
@@ -147,9 +147,9 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			presenter := apps.InteractionPresenter{
+			presenter := integrationruntime.InteractionPresenter{
 				Store:      f.Store,
-				HTTPClient: appProviderTestClient(server),
+				HTTPClient: integrationProviderTestClient(server),
 			}
 			switch scenario {
 			case "crash_after_claim":
@@ -172,11 +172,11 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 				)
 				require.NoError(t, err)
 			case "revoked":
-				_, err := f.Store.Apps().DisconnectProjectApp(
+				_, err := f.Store.Integrations().DisconnectProjectIntegration(
 					ctx,
-					appstore.DisconnectProjectAppInput{
+					integrationstore.DisconnectProjectIntegrationInput{
 						ProjectID:             toolsTestProjectID,
-						AppID:                 f.Install.ID,
+						IntegrationID:         f.Install.ID,
 						ExpectedSetupRevision: &f.Install.SetupRevision,
 					},
 				)
@@ -201,7 +201,7 @@ func TestInteractionDeliveryNeverRepostsClaimedWork(t *testing.T) {
 			require.Equal(t, want, posts.Load())
 			pending, err := f.Store.Execution().ListPendingInteractionPresentations(
 				ctx,
-				[]string{string(appdefinition.SlackThread)},
+				[]string{string(integrationdefinition.SlackThread)},
 				10,
 			)
 			require.NoError(t, err)
@@ -245,7 +245,7 @@ func TestInteractionDeliveryRetriesOnlyConfirmedReceipt(t *testing.T) {
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 	}))
 	defer server.Close()
-	presenter := apps.InteractionPresenter{Store: f.Store, HTTPClient: appProviderTestClient(server)}
+	presenter := integrationruntime.InteractionPresenter{Store: f.Store, HTTPClient: integrationProviderTestClient(server)}
 	require.NoError(t, presenter.Present(ctx, toolsTestProjectID, f.Agent.ID, interaction.ID))
 	require.NoError(t, presenter.Present(ctx, toolsTestProjectID, f.Agent.ID, interaction.ID))
 	require.EqualValues(t, 1, posts.Load())
@@ -286,8 +286,8 @@ func TestInteractionDeliveryRetriesPreflightWithinClaim(t *testing.T) {
 						return
 					}
 					if scenario == "revoked_during_retry" {
-						_, err := f.Store.Apps().DisconnectProjectApp(ctx,
-							appstore.DisconnectProjectAppInput{ProjectID: toolsTestProjectID, AppID: f.Install.ID})
+						_, err := f.Store.Integrations().DisconnectProjectIntegration(ctx,
+							integrationstore.DisconnectProjectIntegrationInput{ProjectID: toolsTestProjectID, IntegrationID: f.Install.ID})
 						if err != nil {
 							t.Error(err)
 						}
@@ -318,7 +318,10 @@ func TestInteractionDeliveryRetriesPreflightWithinClaim(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			presenter := apps.InteractionPresenter{Store: f.Store, HTTPClient: appProviderTestClient(server)}
+			presenter := integrationruntime.InteractionPresenter{
+				Store:      f.Store,
+				HTTPClient: integrationProviderTestClient(server),
+			}
 			err := presenter.Present(ctx, toolsTestProjectID, f.Agent.ID, interaction.ID)
 			success := scenario == "identity_transient" || scenario == "identity_short_throttle"
 			if success {
@@ -387,7 +390,7 @@ func TestInteractionDeliveryRetriesCredentialRead(t *testing.T) {
 		writeToolTestJSON(w, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
 	}))
 	defer server.Close()
-	presenter := apps.InteractionPresenter{Store: store, HTTPClient: appProviderTestClient(server)}
+	presenter := integrationruntime.InteractionPresenter{Store: store, HTTPClient: integrationProviderTestClient(server)}
 	require.NoError(t, presenter.Present(ctx, toolsTestProjectID, f.Agent.ID, interaction.ID))
 	require.Equal(t, 2, wrapper.attempts)
 	require.EqualValues(t, 1, posts.Load())

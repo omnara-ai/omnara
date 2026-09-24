@@ -1573,20 +1573,6 @@ func (q *Queries) DeleteProjectAgentProfiles(ctx context.Context, arg DeleteProj
 	return err
 }
 
-const deleteProjectAppTargets = `-- name: DeleteProjectAppTargets :exec
-UPDATE app_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
-WHERE project_id = $1 AND deleted_at IS NULL
-`
-
-type DeleteProjectAppTargetsParams struct {
-	ProjectID uuid.UUID
-}
-
-func (q *Queries) DeleteProjectAppTargets(ctx context.Context, arg DeleteProjectAppTargetsParams) error {
-	_, err := q.db.Exec(ctx, deleteProjectAppTargets, arg.ProjectID)
-	return err
-}
-
 const deleteProjectCronTriggers = `-- name: DeleteProjectCronTriggers :exec
 UPDATE cron_triggers SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = $1 AND deleted_at IS NULL
@@ -1598,6 +1584,20 @@ type DeleteProjectCronTriggersParams struct {
 
 func (q *Queries) DeleteProjectCronTriggers(ctx context.Context, arg DeleteProjectCronTriggersParams) error {
 	_, err := q.db.Exec(ctx, deleteProjectCronTriggers, arg.ProjectID)
+	return err
+}
+
+const deleteProjectIntegrationTargets = `-- name: DeleteProjectIntegrationTargets :exec
+UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
+WHERE project_id = $1 AND deleted_at IS NULL
+`
+
+type DeleteProjectIntegrationTargetsParams struct {
+	ProjectID uuid.UUID
+}
+
+func (q *Queries) DeleteProjectIntegrationTargets(ctx context.Context, arg DeleteProjectIntegrationTargetsParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectIntegrationTargets, arg.ProjectID)
 	return err
 }
 
@@ -2041,8 +2041,8 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM project_apps app
-    WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id
+    SELECT 1 FROM project_integrations integration
+    WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
   )
 `
 
@@ -4304,7 +4304,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4385,7 +4385,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4924,7 +4924,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_apps app WHERE app.org_id = secret.org_id AND app.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/appdefinition"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -18,7 +18,7 @@ func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -43,7 +43,7 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -68,7 +68,7 @@ func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -88,7 +88,7 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -113,7 +113,7 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -122,12 +122,14 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.ParentAgentID,
 		row.SubagentKey,
 	)
-	record.AppTarget = AppTargetDisplay{
-		Provider:         appdefinition.ProviderForType(appdefinition.Type(row.AppTargetAppType)),
-		ProviderTenantID: row.AppTargetProviderTenantID,
-		ProviderRef:      row.AppTargetProviderRef,
-		ProviderRefKind:  row.AppTargetProviderRefKind,
-		DisplayName:      row.AppTargetDisplayName,
+	record.IntegrationTarget = IntegrationTargetDisplay{
+		Provider: integrationdefinition.ProviderForType(
+			integrationdefinition.Type(row.IntegrationTargetIntegrationType),
+		),
+		ProviderTenantID: row.IntegrationTargetProviderTenantID,
+		ProviderRef:      row.IntegrationTargetProviderRef,
+		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		DisplayName:      row.IntegrationTargetDisplayName,
 	}
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -145,7 +147,7 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -154,12 +156,14 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.ParentAgentID,
 		row.SubagentKey,
 	)
-	record.AppTarget = AppTargetDisplay{
-		Provider:         appdefinition.ProviderForType(appdefinition.Type(row.AppTargetAppType)),
-		ProviderTenantID: row.AppTargetProviderTenantID,
-		ProviderRef:      row.AppTargetProviderRef,
-		ProviderRefKind:  row.AppTargetProviderRefKind,
-		DisplayName:      row.AppTargetDisplayName,
+	record.IntegrationTarget = IntegrationTargetDisplay{
+		Provider: integrationdefinition.ProviderForType(
+			integrationdefinition.Type(row.IntegrationTargetIntegrationType),
+		),
+		ProviderTenantID: row.IntegrationTargetProviderTenantID,
+		ProviderRef:      row.IntegrationTargetProviderRef,
+		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		DisplayName:      row.IntegrationTargetDisplayName,
 	}
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -179,7 +183,7 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.AppTargetID,
+		row.IntegrationTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -188,12 +192,14 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.ParentAgentID,
 		row.SubagentKey,
 	)
-	record.AppTarget = AppTargetDisplay{
-		Provider:         appdefinition.ProviderForType(appdefinition.Type(row.AppTargetAppType)),
-		ProviderTenantID: row.AppTargetProviderTenantID,
-		ProviderRef:      row.AppTargetProviderRef,
-		ProviderRefKind:  row.AppTargetProviderRefKind,
-		DisplayName:      row.AppTargetDisplayName,
+	record.IntegrationTarget = IntegrationTargetDisplay{
+		Provider: integrationdefinition.ProviderForType(
+			integrationdefinition.Type(row.IntegrationTargetIntegrationType),
+		),
+		ProviderTenantID: row.IntegrationTargetProviderTenantID,
+		ProviderRef:      row.IntegrationTargetProviderRef,
+		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		DisplayName:      row.IntegrationTargetDisplayName,
 	}
 	record.Model = AgentModelDisplay{
 		ProviderConfig: row.ModelProviderConfigName,
@@ -210,7 +216,7 @@ func agentRecordFromSQLC(
 	name string,
 	agentProfileID *uuid.UUID,
 	currentConfigID uuid.UUID,
-	appTargetID *uuid.UUID,
+	integrationTargetID *uuid.UUID,
 	idempotencyKey string,
 	nextEventSequence int64,
 	createdAt time.Time,
@@ -220,20 +226,20 @@ func agentRecordFromSQLC(
 	subagentKey string,
 ) AgentRecord {
 	return AgentRecord{
-		ID:                id,
-		OrgID:             orgID,
-		ProjectID:         projectID,
-		AgentProfileID:    storeutil.IDFromPtr(agentProfileID),
-		State:             AgentState(state),
-		Name:              name,
-		CurrentConfigID:   currentConfigID,
-		AppTargetID:       storeutil.IDFromPtr(appTargetID),
-		IdempotencyKey:    idempotencyKey,
-		NextEventSequence: nextEventSequence,
-		CreatedAt:         createdAt,
-		UpdatedAt:         updatedAt,
-		ArchivedAt:        archivedAt,
-		ParentAgentID:     storeutil.IDFromPtr(parentAgentID),
-		SubagentKey:       subagentKey,
+		ID:                  id,
+		OrgID:               orgID,
+		ProjectID:           projectID,
+		AgentProfileID:      storeutil.IDFromPtr(agentProfileID),
+		State:               AgentState(state),
+		Name:                name,
+		CurrentConfigID:     currentConfigID,
+		IntegrationTargetID: storeutil.IDFromPtr(integrationTargetID),
+		IdempotencyKey:      idempotencyKey,
+		NextEventSequence:   nextEventSequence,
+		CreatedAt:           createdAt,
+		UpdatedAt:           updatedAt,
+		ArchivedAt:          archivedAt,
+		ParentAgentID:       storeutil.IDFromPtr(parentAgentID),
+		SubagentKey:         subagentKey,
 	}
 }

@@ -1,12 +1,12 @@
 import {
-  type AppOAuthSetup,
-  type CreateAppOAuthSetupRequest,
+  type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
-  type ProjectApp,
+  type IntegrationOAuthSetup,
+  type ProjectIntegration,
   sdk,
   type SlackSetup,
 } from '@omnara/sdk'
-import { zCreateAppOAuthSetupRequest, zCreateSlackSetupRequest } from '@omnara/sdk/zod'
+import { zCreateIntegrationOAuthSetupRequest, zCreateSlackSetupRequest } from '@omnara/sdk/zod'
 import * as z from 'zod'
 
 import type { FlowContext } from './factory.ts'
@@ -33,7 +33,7 @@ type SlackBody = z.output<typeof zSlackBody>
 
 type SlackSetupRequest =
   | { kind: 'create-app'; body: CreateSlackSetupRequest }
-  | { kind: 'existing-app'; body: CreateAppOAuthSetupRequest }
+  | { kind: 'existing-app'; body: CreateIntegrationOAuthSetupRequest }
 
 function parseRequest(body: SlackBody): SlackSetupRequest {
   const createAppFields = [
@@ -52,13 +52,13 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
   }
 
   if (usesExistingApp) {
-    const draft: Partial<z.input<typeof zCreateAppOAuthSetupRequest>> = {
+    const draft: Partial<z.input<typeof zCreateIntegrationOAuthSetupRequest>> = {
       client_id: body.client_id,
       client_secret: body.client_secret,
       signing_secret: body.signing_secret,
     }
     if (body.return_to !== undefined) draft.return_to = body.return_to
-    const result = zCreateAppOAuthSetupRequest.safeParse(draft)
+    const result = zCreateIntegrationOAuthSetupRequest.safeParse(draft)
     if (!result.success) {
       throw new CliInputError(
         `invalid existing Slack app parameters:\n${z.prettifyError(result.error)}`,
@@ -88,9 +88,9 @@ function parseRequest(body: SlackBody): SlackSetupRequest {
   return { kind: 'create-app', body: result.data }
 }
 
-export async function runSlackApp(
+export async function runSlackIntegration(
   context: FlowContext<
-    { orgID: string; projectID: string; appID: string },
+    { orgID: string; projectID: string; integrationID: string },
     z.output<typeof zSlackBody>
   >,
 ): Promise<void> {
@@ -99,12 +99,12 @@ export async function runSlackApp(
   const setupPath = {
     orgID: path.orgID,
     projectID: path.projectID,
-    appID: path.appID,
+    integrationID: path.integrationID,
   }
-  let start: AppOAuthSetup | SlackSetup
+  let start: IntegrationOAuthSetup | SlackSetup
   let slackAppId: string | undefined
   if (request.kind === 'create-app') {
-    const { data } = await sdk.createProjectAppSlackSetup({
+    const { data } = await sdk.createProjectIntegrationSlackSetup({
       client,
       path: setupPath,
       body: request.body,
@@ -112,7 +112,7 @@ export async function runSlackApp(
     start = data
     slackAppId = data.slack_app_id
   } else {
-    const { data } = await sdk.createProjectAppOAuthSetup({
+    const { data } = await sdk.createProjectIntegrationOAuthSetup({
       client,
       path: setupPath,
       body: request.body,
@@ -125,14 +125,14 @@ export async function runSlackApp(
     start.oauth_url,
     body.browser,
   )
-  report.start('Waiting for the Slack app setup to be saved')
-  let app: ProjectApp
+  report.start('Waiting for the Slack integration to connect')
+  let integration: ProjectIntegration
   try {
-    app = await pollUntilDeadline({
+    integration = await pollUntilDeadline({
       expiresAt: start.expires_at,
-      expiredMessage: 'Slack authorization expired before app setup were saved',
+      expiredMessage: 'Slack authorization expired before the integration connected',
       async fetchOnce() {
-        const { data } = await sdk.getProjectApp({ client, path: setupPath })
+        const { data } = await sdk.getProjectIntegration({ client, path: setupPath })
         return data.state === 'active' && data.last_oauth_flow_id === start.flow_id
           ? data
           : undefined
@@ -145,10 +145,10 @@ export async function runSlackApp(
     }
     throw error
   }
-  report.stop('Slack app setup saved')
-  report.info(`App ID: ${app.id} (${app.name})`)
+  report.stop('Slack integration connected')
+  report.info(`Integration ID: ${integration.id} (${integration.name})`)
   report.info(
-    'Reconnect preserves existing app settings. Use apps get/update to inspect or change the launcher.',
+    'Reconnect preserves existing integration settings. Use integrations get/update to inspect or change the launcher.',
   )
   report.done()
 }

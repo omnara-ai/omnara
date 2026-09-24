@@ -1,10 +1,10 @@
 import { useCreateCronTrigger, useUpdateCronTrigger } from '@omnara/react'
 import {
-  type AppCronTriggerTarget,
   type CreateCronTriggerRequest,
   type CronTrigger,
   type CronTriggerDeliveryMode,
   type CronTriggerTarget,
+  type IntegrationCronTriggerTarget,
   type UpdateCronTriggerRequest,
 } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
@@ -16,8 +16,8 @@ import {
   cronTriggerDeliveryModeLabel,
   cronTriggerDeliveryModeOptions,
 } from '@/components/agents/cron-trigger-delivery-mode'
-import { AppCronTriggerFields } from '@/components/apps/AppCronTriggerFields'
-import { useAppScheduleSettings } from '@/components/apps/useAppScheduleSettings'
+import { IntegrationCronTriggerFields } from '@/components/integrations/IntegrationCronTriggerFields'
+import { useIntegrationScheduleSettings } from '@/components/integrations/useIntegrationScheduleSettings'
 import { Button } from '@/components/ui/button'
 import {
   Combobox,
@@ -89,14 +89,14 @@ function cronDescription(expression: string) {
 
 function cronTriggerFormValid(
   value: CronTriggerFormValues,
-  appSettingsValid: (settings: AppCronTriggerTarget['settings']) => boolean,
+  integrationSettingsValid: (settings: IntegrationCronTriggerTarget['settings']) => boolean,
 ) {
   return (
     resourceNameValid(value.name) &&
     value.cron.trim() !== '' &&
     value.timezone.trim() !== '' &&
-    (value.appTarget
-      ? appSettingsValid(value.appTarget.settings)
+    (value.integrationTarget
+      ? integrationSettingsValid(value.integrationTarget.settings)
       : value.messageTemplate.trim() !== '')
   )
 }
@@ -107,7 +107,7 @@ interface CronTriggerFormValues {
   timezone: string
   messageTemplate: string
   deliveryMode: CronTriggerDeliveryMode
-  appTarget?: Extract<CronTriggerTarget, { type: 'app' }>
+  integrationTarget?: Extract<CronTriggerTarget, { type: 'integration' }>
 }
 
 function CronTriggerFormDialog({
@@ -138,15 +138,15 @@ function CronTriggerFormDialog({
   projectId: string
 }) {
   const [error, setError] = useState('')
-  const appSchedule = useAppScheduleSettings(
+  const integrationSchedule = useIntegrationScheduleSettings(
     orgId,
     projectId,
-    target.type === 'app' ? target.app_id : '',
+    target.type === 'integration' ? target.integration_id : '',
   )
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      if (!cronTriggerFormValid(value, appSchedule.valid)) return
+      if (!cronTriggerFormValid(value, integrationSchedule.valid)) return
       setError('')
       try {
         await onSubmit(value)
@@ -196,14 +196,14 @@ function CronTriggerFormDialog({
                 </Field>
               )}
             </form.Field>
-            {target.type === 'app' && (
-              <form.Field name="appTarget">
+            {target.type === 'integration' && (
+              <form.Field name="integrationTarget">
                 {(field) =>
                   field.state.value && (
-                    <AppCronTriggerFields
+                    <IntegrationCronTriggerFields
                       orgId={orgId}
                       projectId={projectId}
-                      schedule={appSchedule}
+                      schedule={integrationSchedule}
                       value={field.state.value}
                       onChange={field.handleChange}
                     />
@@ -264,7 +264,7 @@ function CronTriggerFormDialog({
                 </Field>
               )}
             </form.Field>
-            {target.type !== 'app' && (
+            {target.type !== 'integration' && (
               <form.Field name="messageTemplate">
                 {(field) => (
                   <Field>
@@ -322,7 +322,7 @@ function CronTriggerFormDialog({
               <form.Subscribe
                 selector={(state) =>
                   [
-                    cronTriggerFormValid(state.values, appSchedule.valid),
+                    cronTriggerFormValid(state.values, integrationSchedule.valid),
                     state.isSubmitting,
                   ] as const
                 }
@@ -342,8 +342,8 @@ function CronTriggerFormDialog({
 }
 
 function targetDescription(target: CronTriggerTarget, targetLabel?: string) {
-  if (target.type === 'app') {
-    return `Each run asks ${targetLabel ?? 'this app'} to perform its scheduled action using these settings. Changes apply to future runs; work already prepared keeps its saved settings.`
+  if (target.type === 'integration') {
+    return `Each run asks ${targetLabel ?? 'this integration'} to perform its scheduled action using these settings. Changes apply to future runs; work already prepared keeps its saved settings.`
   }
   if (target.type === 'profile') {
     return `Each firing launches a new agent from ${targetLabel ?? 'this profile'} and sends the message as its initial prompt. To message an agent that already exists, add a schedule from that agent's page instead.`
@@ -386,7 +386,7 @@ export function CreateCronTriggerDialog({
         timezone: browserTimezone,
         messageTemplate: '',
         deliveryMode: 'queued',
-        appTarget: target.type === 'app' ? target : undefined,
+        integrationTarget: target.type === 'integration' ? target : undefined,
       }}
       isPending={createTrigger.isPending}
       onSubmit={async (value) => {
@@ -395,11 +395,11 @@ export function CreateCronTriggerDialog({
           target:
             target.type === 'agent'
               ? { ...target, delivery_mode: value.deliveryMode }
-              : (value.appTarget ?? target),
+              : (value.integrationTarget ?? target),
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
         }
-        if (target.type !== 'app') request.message_template = value.messageTemplate
+        if (target.type !== 'integration') request.message_template = value.messageTemplate
         const trigger = await createTrigger.mutateAsync(request)
         onCreated?.(trigger)
       }}
@@ -439,7 +439,7 @@ export function EditCronTriggerDialog({
         messageTemplate: trigger.message_template ?? '',
         deliveryMode:
           trigger.target.type === 'agent' ? (trigger.target.delivery_mode ?? 'queued') : 'queued',
-        appTarget: trigger.target.type === 'app' ? trigger.target : undefined,
+        integrationTarget: trigger.target.type === 'integration' ? trigger.target : undefined,
       }}
       isPending={updateTrigger.isPending}
       onSubmit={async (value) => {
@@ -449,12 +449,12 @@ export function EditCronTriggerDialog({
           cron: value.cron.trim(),
           timezone: value.timezone.trim(),
         }
-        if (trigger.target.type !== 'app') update.message_template = value.messageTemplate
+        if (trigger.target.type !== 'integration') update.message_template = value.messageTemplate
         if (trigger.target.type === 'agent') {
           update.target = { ...trigger.target, delivery_mode: value.deliveryMode }
         }
-        if (trigger.target.type === 'app' && value.appTarget) {
-          update.target = value.appTarget
+        if (trigger.target.type === 'integration' && value.integrationTarget) {
+          update.target = value.integrationTarget
         }
         await updateTrigger.mutateAsync(update)
       }}

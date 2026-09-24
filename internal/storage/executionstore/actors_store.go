@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	ActorProviderOmnara   = "omnara"
-	ActorProviderSlack    = "slack"
-	ActorProviderApp      = "app"
-	ActorProviderExternal = "external"
+	ActorProviderOmnara      = "omnara"
+	ActorProviderSlack       = "slack"
+	ActorProviderIntegration = "integration"
+	ActorProviderExternal    = "external"
 )
 
 type ActorRecord struct {

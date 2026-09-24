@@ -121,54 +121,6 @@ type AgentRuntimeLock struct {
 	CancelRequestedAt *time.Time
 }
 
-type AppInbox struct {
-	ID             uuid.UUID
-	ProjectID      uuid.UUID
-	AppID          uuid.UUID
-	ReceiptKey     string
-	Payload        []byte
-	Source         string
-	Events         *json.RawMessage
-	Plan           *json.RawMessage
-	Progress       json.RawMessage
-	State          string
-	AttemptCount   int32
-	AvailableAt    time.Time
-	ClaimToken     *uuid.UUID
-	ClaimExpiresAt *time.Time
-	LastError      *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
-}
-
-type AppState struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	AppID     uuid.UUID
-	Kind      string
-	Key       string
-	ScopeKind *string
-	ScopeRef  *string
-	Data      json.RawMessage
-	Revision  int64
-	ExpiresAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type AppSubscription struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	AppID            uuid.UUID
-	SubscriptionType string
-	ScopeKind        string
-	ScopeRef         string
-	Events           []string
-	CreatedAt        time.Time
-}
-
 type AuthConnector struct {
 	ID                    uuid.UUID
 	Slug                  string
@@ -264,13 +216,61 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
-	MaxActiveProjectAppsPerProject            int64
-	MaxActiveAppSubscriptionsPerAgent         int64
+	MaxActiveProjectIntegrationsPerProject    int64
+	MaxActiveIntegrationSubscriptionsPerAgent int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {
 	OrgID     uuid.UUID
 	MachineID uuid.UUID
+}
+
+type IntegrationInbox struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	IntegrationID  uuid.UUID
+	ReceiptKey     string
+	Payload        []byte
+	Source         string
+	Events         *json.RawMessage
+	Plan           *json.RawMessage
+	Progress       json.RawMessage
+	State          string
+	AttemptCount   int32
+	AvailableAt    time.Time
+	ClaimToken     *uuid.UUID
+	ClaimExpiresAt *time.Time
+	LastError      *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	CompletedAt    *time.Time
+}
+
+type IntegrationState struct {
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	Kind          string
+	Key           string
+	ScopeKind     *string
+	ScopeRef      *string
+	Data          json.RawMessage
+	Revision      int64
+	ExpiresAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type IntegrationSubscription struct {
+	ID               uuid.UUID
+	ProjectID        uuid.UUID
+	AgentID          uuid.UUID
+	IntegrationID    uuid.UUID
+	SubscriptionType string
+	ScopeKind        string
+	ScopeRef         string
+	Events           []string
+	CreatedAt        time.Time
 }
 
 type MachineDaemonToken struct {
@@ -447,7 +447,7 @@ type ProcessAction struct {
 	StateReasonMessage string
 }
 
-type ProjectApp struct {
+type ProjectIntegration struct {
 	ID                       uuid.UUID
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
@@ -465,7 +465,7 @@ type ProjectApp struct {
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 	Name                     string
-	AppType                  string
+	IntegrationType          string
 	Settings                 json.RawMessage
 	SetupRevision            int64
 }

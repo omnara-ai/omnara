@@ -122,9 +122,9 @@
             ]
           },
           {
-            "group": "Apps",
+            "group": "Integrations",
             "pages": [
-              "integrations/apps",
+              "integrations/overview",
               "integrations/slack",
               "integrations/github",
               "integrations/discord"

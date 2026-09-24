@@ -17,20 +17,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/appdefinition"
-	"github.com/omnara-ai/omnara/internal/apps"
-	"github.com/omnara-ai/omnara/internal/apps/github"
-	"github.com/omnara-ai/omnara/internal/storage/appstore"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGitHubHTTPSetupRequiresInstallationID(t *testing.T) {
 	t.Parallel()
-	f := newAppSetupIdentityFixture(t, "github", nil)
+	f := newIntegrationSetupIdentityFixture(t, "github", nil)
 	delete(f.body, "provider_account_ref")
 	f.update(t, http.StatusBadRequest)
-	require.Equal(t, f.app, f.current(t))
+	require.Equal(t, f.integration, f.current(t))
 }
 
 func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
@@ -63,7 +63,7 @@ func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 			project := bootstrapPublicHTTPProject(t, handler, "github-invalid-identity")
 			key, err := rsa.GenerateKey(rand.Reader, 2048)
 			require.NoError(t, err)
-			secretID := createAppSetupHTTPSecret(
+			secretID := createIntegrationSetupHTTPSecret(
 				t,
 				handler,
 				project,
@@ -77,18 +77,18 @@ func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 					})),
 				},
 			)
-			body := appSetupHTTPBody("123", "456")
+			body := integrationSetupHTTPBody("123", "456")
 			body["credential_secret_id"] = secretID
-			app := createSetupHTTPApp(t, handler, project, "github", appdefinition.GitHubPR)
+			integration := createSetupHTTPIntegration(t, handler, project, "github", integrationdefinition.GitHubPR)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
-				appSetupPath(t, project, app), projectAppHTTPJSON(t, body),
+				integrationSetupPath(t, project, integration), projectIntegrationHTTPJSON(t, body),
 				"", tc.want, authHeaders(project.AdminToken))
-			require.NotContains(t, projectAppHTTPJSON(t, response), "private provider body")
+			require.NotContains(t, projectIntegrationHTTPJSON(t, response), "private provider body")
 			var count int
 			require.NoError(t, integrationPoolForHandler(t, handler).QueryRow(t.Context(),
-				`SELECT count(*) FROM project_apps WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
+				`SELECT count(*) FROM project_integrations WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
 				Scan(&count))
-			require.Zero(t, count, "public setup must not save an unverified app")
+			require.Zero(t, count, "public setup must not save an unverified integration")
 		})
 	}
 }
@@ -171,19 +171,19 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	})
 	f := newGitHubSetupJourney(t, "github-renamed-app", WithGitHubClientConfig(config))
 	raw := []byte(githubHTTPComment(t, 42, 3001, "@renamed-helper please review"))
-	event, ok, err := apps.NormalizeGitHubAppEvent(f.app, raw)
+	event, ok, err := integrationruntime.NormalizeGitHubIntegrationEvent(f.integration, raw)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.False(t, event.Event.Mentioned)
 	renamed.Store(true)
-	body := appSetupHTTPBody("123", "456")
+	body := integrationSetupHTTPBody("123", "456")
 	body["credential_secret_id"] = f.secretID
-	body["expected_setup_revision"] = f.app.SetupRevision
-	path := appSetupPath(t, f.project, f.app)
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, path, projectAppHTTPJSON(t, body),
+	body["expected_setup_revision"] = f.integration.SetupRevision
+	path := integrationSetupPath(t, f.project, f.integration)
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, path, projectIntegrationHTTPJSON(t, body),
 		"", http.StatusOK, authHeaders(f.project.AdminToken))
-	current, err := f.project.Store.Apps().GetProjectApp(
-		t.Context(), f.project.ProjectUUID, f.app.ID)
+	current, err := f.project.Store.Integrations().GetProjectIntegration(
+		t.Context(), f.project.ProjectUUID, f.integration.ID)
 	require.NoError(t, err)
 	var identity github.AppIdentity
 	require.NoError(t, json.Unmarshal(current.ProviderIdentity, &identity))
@@ -191,13 +191,13 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 		AppID: 123, InstallationID: 456, BotUserID: 999,
 		AppSlug: "renamed-helper", BotLogin: "renamed-helper[bot]", DisplayName: "renamed-helper[bot]",
 	}, identity)
-	require.Equal(t, f.app.CredentialSecretID, current.CredentialSecretID)
+	require.Equal(t, f.integration.CredentialSecretID, current.CredentialSecretID)
 	require.Equal(
 		t,
-		verifiedAppCredentialVersion(t, f.app),
-		verifiedAppCredentialVersion(t, current),
+		verifiedIntegrationCredentialVersion(t, f.integration),
+		verifiedIntegrationCredentialVersion(t, current),
 	)
-	event, ok, err = apps.NormalizeGitHubAppEvent(current, raw)
+	event, ok, err = integrationruntime.NormalizeGitHubIntegrationEvent(current, raw)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.True(
@@ -208,10 +208,10 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 }
 
 type githubSetupJourney struct {
-	handler  http.Handler
-	project  publicHTTPProject
-	app      appstore.ProjectAppRecord
-	secretID string
+	handler     http.Handler
+	project     publicHTTPProject
+	integration integrationstore.ProjectIntegrationRecord
+	secretID    string
 }
 
 func newGitHubSetupJourney(t *testing.T, seed string, options ...Option) githubSetupJourney {
@@ -221,7 +221,7 @@ func newGitHubSetupJourney(t *testing.T, seed string, options ...Option) githubS
 	project := bootstrapPublicHTTPProject(t, handler, seed)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	secretID := createAppSetupHTTPSecret(
+	secretID := createIntegrationSetupHTTPSecret(
 		t,
 		handler,
 		project,
@@ -237,25 +237,25 @@ func newGitHubSetupJourney(t *testing.T, seed string, options ...Option) githubS
 			),
 		},
 	)
-	app := createSetupHTTPApp(t, handler, project, "github", appdefinition.GitHubPR)
-	body := appSetupHTTPBody("123", "456")
+	integration := createSetupHTTPIntegration(t, handler, project, "github", integrationdefinition.GitHubPR)
+	body := integrationSetupHTTPBody("123", "456")
 	body["credential_secret_id"] = secretID
 	requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
-		appSetupPath(t, project, app),
-		projectAppHTTPJSON(t, body),
+		integrationSetupPath(t, project, integration),
+		projectIntegrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	app, err = project.Store.Apps().GetProjectApp(t.Context(), project.ProjectUUID, app.ID)
+	integration, err = project.Store.Integrations().GetProjectIntegration(t.Context(), project.ProjectUUID, integration.ID)
 	require.NoError(t, err)
 	return githubSetupJourney{
-		handler:  handler,
-		project:  project,
-		app:      app,
-		secretID: secretID,
+		handler:     handler,
+		project:     project,
+		integration: integration,
+		secretID:    secretID,
 	}
 }

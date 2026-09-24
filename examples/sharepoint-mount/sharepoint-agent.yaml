@@ -23,7 +23,7 @@ instruction: |
     with the docx module.
   Reading files this way is always safe; only writing needs user confirmation.
 
-  When a Slack app launcher provides an app__<app-name>__post_message tool,
+  When a Slack integration launcher provides an int__<integration-name>__post_message tool,
   use it for every answer or update in the conversation that launched you.
   The external user only sees messages sent with that tool. Otherwise answer
   directly in the Omnara conversation.

@@ -263,7 +263,7 @@ func parseSecretMaterial(
 	case secrets.KindGitHubAppCredentials:
 		material, err := input.AsGitHubAppCredentialsSecretMaterial()
 		if err != nil {
-			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid GitHub app credentials material")
+			apiErr := apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid GitHub App credentials material")
 			return nil, &apiErr
 		}
 		return secrets.GitHubAppCredentialsMaterial{

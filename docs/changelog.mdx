@@ -7,31 +7,40 @@ mode: "center"
 
 <Update label="Upcoming">
 
-## Project apps for Slack, Discord and GitHub
+## Project integrations for Slack, Discord and GitHub
 
-Create an app from your project's Apps page and configure its provider setup and
-launch behavior. Slack and Discord can start a thread agent from a mention and
-offer a profile menu. GitHub can launch from a PR mention or opening a PR, then
-read and write discussion and inline comments. Tools and interaction handlers can be selected independently in agent configs.
-App-owned subscriptions forward conversations to agents independently of config.
-Manage them from the app’s paginated Conversations list or subscriptions API.
+Create an integration from your project's Integrations page and configure its
+provider setup and launch behavior. Slack and Discord can start a thread agent
+from a mention and offer a profile menu. GitHub can launch from a PR mention or
+opening a PR, then read and write discussion and inline comments. Tools and
+interaction handlers can be selected independently in agent configs.
+Integration-owned subscriptions forward conversations to agents independently of
+config. Manage them from the integration's paginated Conversations list or
+subscriptions API.
 
-This release replaces native Slack setup with project-owned apps. Tool names now
-include the app name, such as `app__engineering__post_message`; interaction-handler
-configs refer to that app as well. Subscription attachments use app IDs. Existing Slack data and
-configs are migrated during a coordinated maintenance window. Operators must drain
-or cancel outstanding work and open interactions across the entire deployment,
-then stop cluster writers. The migration rejects outstanding work; it does not
-cancel it. Agents, conversation history and provider messages remain, but plain
-replies in old Slack threads no longer resume their agents automatically. Use the
-dashboard/API or explicitly attach a subscription to resume those conversations.
-Self-hosted operators must follow the [cutover playbook](/self-hosting/composable-apps-cutover).
+This release replaces native Slack setup with project-owned integrations. Tool
+names include the integration name, such as `int__engineering__post_message`;
+interaction-handler configs refer to that integration as well. Subscription
+attachments use integration IDs. Existing Slack data and configs are migrated
+during a coordinated maintenance window. Operators must drain or cancel outstanding
+work and open interactions across the entire deployment, then stop cluster writers.
+The migration rejects outstanding work; it does not cancel it. Agents,
+conversation history and provider messages remain, but plain replies in old Slack
+threads no longer resume their agents automatically. Use the dashboard/API or
+explicitly attach a subscription to resume those conversations. Self-hosted
+operators must follow the [cutover playbook](/self-hosting/composable-integrations-cutover).
 
-The public setup API now creates an app before verifying its credentials. Update
-clients using the old integration setup or destination APIs together with the
-cluster release. Agent responses rename `integration_target` to `app_target`;
-app interaction destinations use `app_target_id`. Customer-hosted integrations continue to use ordinary agent
-inputs, custom tools and interaction APIs. See [Apps](/integrations/apps).
+The public setup API creates an integration before verifying its credentials.
+Project management uses `/integrations` and `/integration-definitions`, with
+`integration_type` identifying behavior and `integration_id` identifying a saved
+integration. Integration IDs use `itg_`, subscriptions use `isub_`, and profile
+choices use `ipc_`; agent interaction IDs remain `int_`. Agent responses expose
+`integration_target`, and captured interaction destinations use
+`integration_target_id`. Update clients using the old integration setup or
+destination APIs together with the cluster release. Existing `/api/integrations/`
+webhook and OAuth callback URLs remain unchanged. Customer-hosted integrations
+continue to use ordinary agent inputs, custom tools and interaction APIs.
+See [Integrations](/integrations/overview).
 
 </Update>
 

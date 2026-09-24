@@ -422,7 +422,7 @@ func TestProgressiveCompactionExhaustionPublishesOneParentError(t *testing.T) {
 		Store:    compaction.NewStore(fixture.Store.Execution()),
 		Resolver: resolver,
 		ContextBuilder: modelcontext.Builder{
-			Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Apps()),
+			Store: modelcontext.NewStore(fixture.Store.Execution(), fixture.Store.Artifacts(), fixture.Store.Integrations()),
 		},
 		Now: func() time.Time { return runNow },
 	}

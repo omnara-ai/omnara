@@ -44,11 +44,11 @@ func (q *Queries) ClaimInteractionPresentation(ctx context.Context, arg ClaimInt
 }
 
 const listPendingInteractionPresentations = `-- name: ListPendingInteractionPresentations :many
-WITH app_types AS (
-    SELECT DISTINCT unnest($2::text[]) AS app_type
+WITH integration_types AS (
+    SELECT DISTINCT unnest($2::text[]) AS integration_type
 )
 SELECT pending.project_id, pending.agent_id, pending.id
-FROM app_types
+FROM integration_types
 CROSS JOIN LATERAL (
     SELECT agent.project_id, interaction.agent_id, interaction.id, interaction.created_at
     FROM agent_interactions interaction
@@ -59,7 +59,7 @@ CROSS JOIN LATERAL (
       AND interaction.destination IS NOT NULL
       AND interaction.presentation_attempted_at IS NULL
       AND interaction.presentation_receipt IS NULL
-      AND interaction.destination ->> 'app_type' = app_types.app_type
+      AND interaction.destination ->> 'integration_type' = integration_types.integration_type
       AND agent.state = 'active'
       AND project.deleted_at IS NULL AND org.deleted_at IS NULL
     ORDER BY interaction.created_at, interaction.agent_id, interaction.id
@@ -70,8 +70,8 @@ LIMIT least(greatest($1::integer, 1), 100)
 `
 
 type ListPendingInteractionPresentationsParams struct {
-	BatchLimit int32
-	AppTypes   []string
+	BatchLimit       int32
+	IntegrationTypes []string
 }
 
 type ListPendingInteractionPresentationsRow struct {
@@ -81,7 +81,7 @@ type ListPendingInteractionPresentationsRow struct {
 }
 
 func (q *Queries) ListPendingInteractionPresentations(ctx context.Context, arg ListPendingInteractionPresentationsParams) ([]ListPendingInteractionPresentationsRow, error) {
-	rows, err := q.db.Query(ctx, listPendingInteractionPresentations, arg.BatchLimit, arg.AppTypes)
+	rows, err := q.db.Query(ctx, listPendingInteractionPresentations, arg.BatchLimit, arg.IntegrationTypes)
 	if err != nil {
 		return nil, err
 	}

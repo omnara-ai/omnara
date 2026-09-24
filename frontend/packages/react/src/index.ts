@@ -61,11 +61,6 @@ export {
   useUpdateAgentConfig,
 } from './domains/agents'
 export {
-  useAppSubscriptions,
-  useCreateAppSubscription,
-  useDeleteAppSubscription,
-} from './domains/app-subscriptions'
-export {
   type CronTriggerListFilters,
   type CronTriggerListOptions,
   type CronTriggerListSort,
@@ -74,6 +69,11 @@ export {
   useDeleteCronTrigger,
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
+export {
+  useCreateIntegrationSubscription,
+  useDeleteIntegrationSubscription,
+  useIntegrationSubscriptions,
+} from './domains/integration-subscriptions'
 export {
   useAcceptInvitation,
   useDeclineInvitation,
@@ -178,21 +178,6 @@ export {
   useRevokePersonalAccessToken,
 } from './domains/personal-access-tokens'
 export {
-  useAppDefinitions,
-  useConfigureProjectApp,
-  useCreateProjectApp,
-  useCreateProjectAppGitHubSetup,
-  useCreateProjectAppOAuthSetup,
-  useCreateProjectAppSlackSetup,
-  useDeleteProjectApp,
-  useDisconnectProjectApp,
-  useInspectProjectAppGitHubInstallations,
-  useProjectApp,
-  useProjectAppOAuthCompletion,
-  useProjectApps,
-  useUpdateProjectApp,
-} from './domains/project-apps'
-export {
   type ProjectMachineGrantListFilters,
   type ProjectMachineGrantListOptions,
   type ProjectMachineGrantListSort,
@@ -214,6 +199,21 @@ export {
   useUpdateProjectMachinePoolGrant,
   useUpdateProjectModelGrant,
 } from './domains/project-grants'
+export {
+  useConfigureProjectIntegration,
+  useCreateProjectIntegration,
+  useCreateProjectIntegrationGitHubSetup,
+  useCreateProjectIntegrationOAuthSetup,
+  useCreateProjectIntegrationSlackSetup,
+  useDeleteProjectIntegration,
+  useDisconnectProjectIntegration,
+  useInspectProjectIntegrationGitHubInstallations,
+  useIntegrationDefinitions,
+  useProjectIntegration,
+  useProjectIntegrationOAuthCompletion,
+  useProjectIntegrations,
+  useUpdateProjectIntegration,
+} from './domains/project-integrations'
 export { useCreateProject, useProjects, useVisibleProjectsList } from './domains/projects'
 export {
   type ProjectAvailableSecretListFilters,
