@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -54,6 +55,78 @@ func TestModelProviderAPIKeyHeaderRejectsTransportReplayHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModelProviderHeadersFromColumns(t *testing.T) {
+	secretID := uuid.New()
+	parsed, err := ModelProviderHeadersFromColumns(
+		json.RawMessage(`{"X-Team":"core"}`),
+		json.RawMessage(`{"X-Gateway-Key":"`+secretID.String()+`"}`),
+	)
+	require.NoError(t, err)
+	require.Equal(t, ModelProviderHeaders{
+		Headers:       map[string]string{"X-Team": "core"},
+		SecretHeaders: map[string]uuid.UUID{"X-Gateway-Key": secretID},
+	}, parsed)
+
+	maxPlainHeaders := make(map[string]string, maxModelProviderHeaders)
+	for i := range maxModelProviderHeaders {
+		maxPlainHeaders[fmt.Sprintf("X-Header-%d", i)] = "v"
+	}
+	maxPlainHeadersJSON, err := json.Marshal(maxPlainHeaders)
+	require.NoError(t, err)
+
+	for name, input := range map[string][2]string{
+		"reserved":                   {`{"Authorization":"Bearer x"}`, `{}`},
+		"reserved accept":            {`{"accept":"text/plain"}`, `{}`},
+		"reserved user agent":        {`{"User-Agent":"omnara"}`, `{}`},
+		"reserved anthropic version": {`{"anthropic-version":"2023-06-01"}`, `{}`},
+		"reserved content prefix":    {`{"Content-Encoding":"gzip"}`, `{}`},
+		"reserved proxy prefix":      {`{}`, `{"Proxy-Authorization":"` + secretID.String() + `"}`},
+		"reserved method override":   {`{"X-HTTP-Method-Override":"GET"}`, `{}`},
+		"invalid name":               {`{"X Team":"core"}`, `{}`},
+		"invalid value":              {`{"X-Team":"a\nb"}`, `{}`},
+		"value whitespace":           {`{"X-Team":"core "}`, `{}`},
+		"non-string value":           {`{"X-Team":1}`, `{}`},
+		"duplicate across maps":      {`{"x-gateway-key":"a"}`, `{"X-Gateway-Key":"` + secretID.String() + `"}`},
+		"invalid secret id":          {`{}`, `{"X-Gateway-Key":"not-a-uuid"}`},
+		"secret headers not map":     {`{}`, `[]`},
+		"too many headers":           {string(maxPlainHeadersJSON), `{"X-Gateway-Key":"` + secretID.String() + `"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ModelProviderHeadersFromColumns(json.RawMessage(input[0]), json.RawMessage(input[1]))
+			require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+		})
+	}
+
+	_, err = ModelProviderHeadersFromColumns(json.RawMessage(`{"x-api-key":"k"}`), json.RawMessage(`{}`), "X-Api-Key")
+	require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
+	_, err = ModelProviderHeadersFromColumns(json.RawMessage(`{"x-api-key":"k"}`), json.RawMessage(`{}`))
+	require.NoError(t, err)
+}
+
+func TestNormalizeModelProviderConfigUpdateValidatesHeaders(t *testing.T) {
+	update := modelProviderConfigUpdate{
+		OrgID:              uuid.New(),
+		ID:                 uuid.New(),
+		BaseURL:            "https://api.anthropic.com/v1",
+		EndpointPath:       "/messages",
+		RequestTimeoutMS:   1000,
+		IdleTimeoutMS:      1000,
+		AuthKind:           ModelProviderAuthKindAPIKeyHeader,
+		AuthOptions:        json.RawMessage(`{"header_name":"x-api-key"}`),
+		CredentialSecretID: uuid.New(),
+		Headers:            json.RawMessage(`{"X-Team":"core"}`),
+		APIFormat:          modelprotocol.APIFormatAnthropicMessages,
+		APIVariant:         modelprotocol.APIVariantDefault,
+	}
+	validateCredential := func(context.Context, uuid.UUID, uuid.UUID, string) error { return nil }
+	_, err := normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
+	require.NoError(t, err)
+
+	update.Headers = json.RawMessage(`{"X-Api-Key":"k"}`)
+	_, err = normalizeModelProviderConfigUpdate(context.Background(), update, validateCredential)
+	require.ErrorIs(t, err, storeerr.ErrInvalidModelProviderConfig)
 }
 
 func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {

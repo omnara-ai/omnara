@@ -27,6 +27,28 @@ describe('createModelProviderFormValid', () => {
     )
     expect(createModelProviderFormValid({ ...custom, provider: 'openai' })).toBe(true)
   })
+
+  it('requires named headers and a secret for each secret header', () => {
+    const openai = { ...custom, provider: 'openai' as const }
+    const header = { id: 'text', key: 'X-Team', value: 'platform' }
+    const secretHeader = { id: 'secret', key: 'X-Gateway-Key', secretId: 'sec_456' }
+    expect(
+      createModelProviderFormValid({
+        ...openai,
+        headerRows: [header],
+        secretHeaderRows: [secretHeader],
+      }),
+    ).toBe(true)
+    expect(createModelProviderFormValid({ ...openai, headerRows: [{ ...header, key: ' ' }] })).toBe(
+      false,
+    )
+    expect(
+      createModelProviderFormValid({
+        ...openai,
+        secretHeaderRows: [{ ...secretHeader, secretId: '' }],
+      }),
+    ).toBe(false)
+  })
 })
 
 describe('configuredModelRequestForDiscoveredModel', () => {

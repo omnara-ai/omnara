@@ -81,6 +81,80 @@ func TestModelProviderConfigRoutesBackAgentConfigCompilation(t *testing.T) {
 		openRouterConfig["auth_kind"] != "bearer_token" {
 		t.Fatalf("preset did not materialize OpenRouter provider config: %+v", openRouterConfig)
 	}
+	gatewaySecretID := testutil.RequireType[string](t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"gateway-key","material":{"kind":"generic","value":"gw-secret"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)["id"])
+	headersConfig := createdModelProviderConfig(t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
+		`{"name":"openai-gateway","preset":"openai","credential_secret_id":"`+secretID+`","headers":{"X-Team":"core"},"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	))
+	if testutil.RequireType[map[string]any](t, headersConfig["headers"])["X-Team"] != "core" ||
+		testutil.RequireType[map[string]any](t, headersConfig["secret_headers"])["X-Gateway-Key"] != gatewaySecretID {
+		t.Fatalf("provider headers did not round-trip: %+v", headersConfig)
+	}
+	headersConfigPath := "/api/v1/orgs/" + project.OrgID + "/model-provider-configs/" +
+		testutil.RequireType[string](t, headersConfig["id"])
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodDelete,
+		"/api/v1/orgs/"+project.OrgID+"/secrets/"+gatewaySecretID,
+		"",
+		"",
+		http.StatusNoContent,
+		authHeaders(project.AdminToken),
+	)
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"headers":{"X-Team":"platform"}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	deletedSecretHeader := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{"X-Gateway-Key":"`+gatewaySecretID+`"}}`,
+		"",
+		http.StatusNotFound,
+		authHeaders(project.AdminToken),
+	)
+	deletedMessage, _ := deletedSecretHeader["error"].(string)
+	if !strings.Contains(deletedMessage, "the secret for header X-Gateway-Key no longer exists") {
+		t.Fatalf("deleted secret header error = %q", deletedMessage)
+	}
+	replacedHeadersConfig := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodPut,
+		headersConfigPath,
+		`{"secret_headers":{}}`,
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if testutil.RequireType[map[string]any](t, replacedHeadersConfig["headers"])["X-Team"] != "platform" ||
+		len(testutil.RequireType[map[string]any](t, replacedHeadersConfig["secret_headers"])) != 0 {
+		t.Fatalf("provider headers were not replaced: %+v", replacedHeadersConfig)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -775,6 +849,7 @@ func TestModelProviderConfigRoutesRejectLocalEndpointsOutsideInsecureDev(t *test
 			context.Context,
 			modelstore.ModelProviderConfigRecord,
 			string,
+			map[string]string,
 			bool,
 		) ([]modelprovider.DiscoveredModel, error) {
 			return nil, errors.New("model discovery is disabled in integration tests")
@@ -849,6 +924,11 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":{"message":"invalid api key"}}`))
 			return
 		}
+		if r.Header.Get("X-Gateway-Key") != "gw-good" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid gateway key"}}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"data":[
 			{"id":"gpt-a","context_length":65536,"max_output_tokens":2048},
 			{"id":"gpt-b"}
@@ -873,12 +953,22 @@ func TestCreateModelProviderConfigRunsModelDiscovery(t *testing.T) {
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
 	)
+	gatewaySecret := requestJSONWithHeaders(
+		t,
+		devHandler,
+		http.MethodPost,
+		"/api/v1/orgs/"+project.OrgID+"/secrets",
+		`{"owner":{"kind":"org"},"name":"discovery-gateway-key","material":{"kind":"generic","value":"gw-good"}}`,
+		"",
+		http.StatusCreated,
+		authHeaders(project.AdminToken),
+	)
 	created := requestJSONWithHeaders(
 		t,
 		devHandler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/model-provider-configs",
-		`{"name":"discovery-ok","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, goodSecret["id"])+`"}`,
+		`{"name":"discovery-ok","api_format":"openai-responses","base_url":"`+modelsServer.URL+`/v1","credential_secret_id":"`+testutil.RequireType[string](t, goodSecret["id"])+`","secret_headers":{"X-Gateway-Key":"`+testutil.RequireType[string](t, gatewaySecret["id"])+`"}}`,
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),

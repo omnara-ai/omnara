@@ -186,6 +186,18 @@ export type CreateModelProviderConfigRequest = {
         region?: string;
     };
     credential_secret_id: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens.
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references.
+     */
+    secret_headers?: {
+        [key: string]: SecretId;
+    };
 };
 
 /**
@@ -218,6 +230,18 @@ export type UpdateModelProviderConfigRequest = {
         region?: string;
     };
     credential_secret_id?: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens. Replaces all headers when provided.
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references. Replaces all secret headers when provided.
+     */
+    secret_headers?: {
+        [key: string]: SecretId;
+    };
 };
 
 export type ModelProviderConfig = {
@@ -244,6 +268,18 @@ export type ModelProviderConfig = {
         region?: string;
     };
     credential_secret_id: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider.
+     */
+    headers: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from the referenced secrets.
+     */
+    secret_headers: {
+        [key: string]: SecretId;
+    };
     created_at: Timestamp;
     updated_at: Timestamp;
 };

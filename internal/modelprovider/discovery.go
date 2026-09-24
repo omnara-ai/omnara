@@ -41,6 +41,7 @@ type DiscoverFunc func(
 	ctx context.Context,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	apiKey string,
+	headers map[string]string,
 	allowLoopback bool,
 ) ([]DiscoveredModel, error)
 
@@ -54,6 +55,7 @@ func DiscoverModels(
 	ctx context.Context,
 	providerConfig modelstore.ModelProviderConfigRecord,
 	apiKey string,
+	headers map[string]string,
 	allowLoopback bool,
 ) ([]DiscoveredModel, error) {
 	auth, err := routeAuthForProviderConfig(providerConfig, apiKey)
@@ -64,6 +66,9 @@ func DiscoverModels(
 		auth = route.BearerToken{Token: apiKey}
 	} else if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages {
 		auth = route.Chain{auth, route.Headers{"Anthropic-Version": anthropicmessages.APIVersion}}
+	}
+	if len(headers) > 0 {
+		auth = route.Chain{route.Headers(headers), auth}
 	}
 	ctx, cancel := context.WithTimeout(ctx, discoveryRequestTimeout)
 	defer cancel()

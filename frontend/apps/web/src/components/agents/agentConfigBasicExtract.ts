@@ -10,12 +10,11 @@ import type {
   BasicMcpServer,
   BasicMcpTool,
 } from '@/components/agents/useAgentBuilderForm'
+import { type SecretRow, type TextRow } from '@/components/key-value/keyValueRows'
 import {
   emptyProviderOptions,
-  type EnvOverlayRow,
   idleDeletionMinutesValid,
   type ProviderOptionsDraft,
-  type SecretEnvOverlayRow,
 } from '@/components/machines/machineOverrides'
 import { machinePoolProviderDefinitions } from '@/components/org/machinePoolProviders'
 import { memoryGbDraft } from '@/lib/machine-memory'
@@ -258,10 +257,10 @@ function machineSourceDraft(
     machineMemoryGb: memoryGbDraft(isPool ? entry.machine_memory_mb : undefined),
     providerOptions: providerOverlay.options,
     envRows: Object.entries(entry.env_overlay ?? {}).map(
-      ([key, value]): EnvOverlayRow => ({ id: crypto.randomUUID(), key, value }),
+      ([key, value]): TextRow => ({ id: crypto.randomUUID(), key, value }),
     ),
     secretEnvRows: Object.entries(entry.secret_env_overlay ?? {}).map(
-      ([key, secretId]): SecretEnvOverlayRow => ({ id: crypto.randomUUID(), key, secretId }),
+      ([key, secretId]): SecretRow => ({ id: crypto.randomUUID(), key, secretId }),
     ),
   }
 }

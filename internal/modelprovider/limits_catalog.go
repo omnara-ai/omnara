@@ -239,9 +239,10 @@ func NewDiscoverer(catalog *LimitsCatalog) DiscoverFunc {
 		ctx context.Context,
 		providerConfig modelstore.ModelProviderConfigRecord,
 		apiKey string,
+		headers map[string]string,
 		allowLoopback bool,
 	) ([]DiscoveredModel, error) {
-		models, err := DiscoverModels(ctx, providerConfig, apiKey, allowLoopback)
+		models, err := DiscoverModels(ctx, providerConfig, apiKey, headers, allowLoopback)
 		if err != nil {
 			return nil, err
 		}

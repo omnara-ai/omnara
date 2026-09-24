@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"golang.org/x/net/http/httpguts"
 )
 
 var sigV4ScopeComponentPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -445,56 +446,137 @@ func validateModelProviderAuthHeaderName(headerName string) error {
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
-	if !validHTTPHeaderFieldName(headerName) {
+	if !httpguts.ValidHeaderFieldName(headerName) {
 		return fmt.Errorf("auth_options.header_name is invalid: %w", storeerr.ErrInvalidModelProviderConfig)
 	}
-	switch strings.ToLower(headerName) {
-	case "authorization",
-		"content-type",
-		"content-length",
-		"host",
-		"connection",
-		"transfer-encoding",
-		"idempotency-key",
-		"x-idempotency-key":
+	if reservedModelProviderHeaderName(headerName) {
 		return fmt.Errorf(
-			"auth_options.header_name %q is reserved for transport or auth headers: %w",
+			"auth_options.header_name %q is reserved: %w",
 			headerName,
 			storeerr.ErrInvalidModelProviderConfig,
 		)
-	default:
+	}
+	return nil
+}
+
+var (
+	reservedModelProviderHeaders = map[string]bool{
+		"authorization":          true,
+		"accept":                 true,
+		"accept-encoding":        true,
+		"host":                   true,
+		"connection":             true,
+		"keep-alive":             true,
+		"transfer-encoding":      true,
+		"te":                     true,
+		"trailer":                true,
+		"upgrade":                true,
+		"expect":                 true,
+		"user-agent":             true,
+		"x-http-method-override": true,
+		"x-http-method":          true,
+		"x-method-override":      true,
+		"idempotency-key":        true,
+		"x-idempotency-key":      true,
+	}
+	reservedModelProviderHeaderPrefixes = []string{"content-", "proxy-"}
+	modelProviderProtocolHeaders        = []string{
+		"anthropic-version",
+		"x-amz-date",
+		"x-amz-security-token",
+		"x-amz-content-sha256",
+	}
+)
+
+func reservedModelProviderHeaderName(headerName string, extra ...string) bool {
+	name := strings.ToLower(headerName)
+	return reservedModelProviderHeaders[name] ||
+		slices.ContainsFunc(reservedModelProviderHeaderPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(name, prefix)
+		}) ||
+		slices.ContainsFunc(extra, func(reserved string) bool { return strings.EqualFold(reserved, name) })
+}
+
+func modelProviderAuthHeaders(authKind string, authOptions json.RawMessage) []string {
+	if authKind != ModelProviderAuthKindAPIKeyHeader {
 		return nil
 	}
+	headerName, err := ModelProviderAPIKeyHeaderName(authOptions)
+	if err != nil {
+		return nil
+	}
+	return []string{headerName}
 }
 
-func validHTTPHeaderFieldName(name string) bool {
-	if name == "" {
-		return false
+func ModelProviderHeadersFromColumns(
+	headers, secretHeaders json.RawMessage,
+	authHeaders ...string,
+) (ModelProviderHeaders, error) {
+	var parsed ModelProviderHeaders
+	if err := json.Unmarshal(storeutil.NormalizeJSON(headers), &parsed.Headers); err != nil || parsed.Headers == nil {
+		return ModelProviderHeaders{}, fmt.Errorf(
+			"headers must be an object of strings: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
 	}
-	for i := range len(name) {
-		if !isHTTPTokenChar(name[i]) {
-			return false
+	if err := json.Unmarshal(storeutil.NormalizeJSON(secretHeaders), &parsed.SecretHeaders); err != nil ||
+		parsed.SecretHeaders == nil {
+		return ModelProviderHeaders{}, fmt.Errorf(
+			"secret_headers must be an object of secret ids: %w",
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	if len(parsed.Headers)+len(parsed.SecretHeaders) > maxModelProviderHeaders {
+		return ModelProviderHeaders{}, fmt.Errorf(
+			"headers and secret_headers may contain at most %d entries combined: %w",
+			maxModelProviderHeaders,
+			storeerr.ErrInvalidModelProviderConfig,
+		)
+	}
+	reserved := slices.Concat(modelProviderProtocolHeaders, authHeaders)
+	seen := make(map[string]bool, len(parsed.Headers)+len(parsed.SecretHeaders))
+	validateName := func(field, name string) error {
+		lower := strings.ToLower(name)
+		switch {
+		case !httpguts.ValidHeaderFieldName(name):
+			return fmt.Errorf("%s has an invalid header name %q: %w", field, name, storeerr.ErrInvalidModelProviderConfig)
+		case reservedModelProviderHeaderName(name, reserved...):
+			return fmt.Errorf(
+				"%s.%s is reserved: %w",
+				field,
+				name,
+				storeerr.ErrInvalidModelProviderConfig,
+			)
+		case seen[lower]:
+			return fmt.Errorf("header %s is set more than once: %w", name, storeerr.ErrInvalidModelProviderConfig)
+		}
+		seen[lower] = true
+		return nil
+	}
+	for name, value := range parsed.Headers {
+		if err := validateName("headers", name); err != nil {
+			return ModelProviderHeaders{}, err
+		}
+		if err := ValidateModelProviderHeaderValue("headers."+name, value); err != nil {
+			return ModelProviderHeaders{}, err
 		}
 	}
-	return true
+	for name := range parsed.SecretHeaders {
+		if err := validateName("secret_headers", name); err != nil {
+			return ModelProviderHeaders{}, err
+		}
+	}
+	return parsed, nil
 }
 
-func isHTTPTokenChar(value byte) bool {
-	if value >= '0' && value <= '9' {
-		return true
+func ValidateModelProviderHeaderValue(field, value string) error {
+	if !httpguts.ValidHeaderFieldValue(value) {
+		return fmt.Errorf("%s has an invalid value: %w", field, storeerr.ErrInvalidModelProviderConfig)
 	}
-	if value >= 'a' && value <= 'z' {
-		return true
+	if strings.Trim(value, " \t") != value {
+		return fmt.Errorf("%s cannot start or end with whitespace: %w", field, storeerr.ErrInvalidModelProviderConfig)
 	}
-	if value >= 'A' && value <= 'Z' {
-		return true
-	}
-	switch value {
-	case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
-		return true
-	default:
-		return false
-	}
+	return nil
 }
 
 // On a cluster-managed OpenRouter provider a tenant may only use what shapes or bills their own
