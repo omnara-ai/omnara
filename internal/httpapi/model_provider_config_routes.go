@@ -25,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type createModelProviderConfigCommand struct {
@@ -392,6 +393,9 @@ func (s strictOpenAPIServer) providerModelCatalog(
 		return failed("credential secret has no value")
 	}
 	headers, err := modelprovider.ProviderHeaders(ctx, s.server.store.Secrets(), record)
+	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		return failed(err.Error())
+	}
 	if err != nil {
 		return failed("could not read the header secrets")
 	}

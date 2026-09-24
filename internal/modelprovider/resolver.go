@@ -204,6 +204,14 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 		)
 	}
 	customHeaders, err := ProviderHeaders(ctx, r.Secrets, providerConfig)
+	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		return model.ResolvedClient{}, resolverError(
+			model.ErrorKindInvalidRequest,
+			"invalid_model_provider_headers",
+			"The configured model provider headers are invalid.",
+			err,
+		)
+	}
 	if err != nil {
 		return model.ResolvedClient{}, err
 	}
@@ -319,7 +327,11 @@ func ProviderHeaders(
 		if err != nil {
 			return nil, fmt.Errorf("read secret for header %s: %w", name, err)
 		}
-		headers[name] = secret.Payload[secrets.KeyValue]
+		value := secret.Payload[secrets.KeyValue]
+		if err := modelstore.ValidateModelProviderHeaderValue("secret_headers."+name, value); err != nil {
+			return nil, err
+		}
+		headers[name] = value
 	}
 	return headers, nil
 }

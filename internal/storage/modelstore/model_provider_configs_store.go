@@ -140,7 +140,11 @@ func (s *Store) createModelProviderConfigTx(
 	}
 	input.Headers = storeutil.NormalizeJSON(input.Headers)
 	input.SecretHeaders = storeutil.NormalizeJSON(input.SecretHeaders)
-	headers, err := ModelProviderHeadersFromColumns(input.Headers, input.SecretHeaders)
+	headers, err := ModelProviderHeadersFromColumns(
+		input.Headers,
+		input.SecretHeaders,
+		modelProviderAuthHeaders(input.AuthKind, input.AuthOptions)...,
+	)
 	if err != nil {
 		return ModelProviderConfigRecord{}, err
 	}
@@ -367,15 +371,13 @@ func (s *Store) PatchModelProviderConfig(
 	}
 	update := updateModelProviderConfigInputFromCurrent(current)
 	applyModelProviderConfigPatch(&update, current, input)
-	if input.Headers != nil || input.SecretHeaders != nil {
+	if input.SecretHeaders != nil {
 		headers, err := ModelProviderHeadersFromColumns(update.Headers, update.SecretHeaders)
 		if err != nil {
 			return ModelProviderConfigRecord{}, err
 		}
-		if input.SecretHeaders != nil {
-			if err := validateModelProviderHeaderSecretsTx(ctx, qtx, input.OrgID, management.Tenant, headers); err != nil {
-				return ModelProviderConfigRecord{}, err
-			}
+		if err := validateModelProviderHeaderSecretsTx(ctx, qtx, input.OrgID, management.Tenant, headers); err != nil {
+			return ModelProviderConfigRecord{}, err
 		}
 	}
 	record, err := updateModelProviderConfigTx(ctx, tx, qtx, update, management.Tenant)
@@ -469,6 +471,13 @@ func normalizeModelProviderConfigUpdate(
 	}
 	input.Headers = storeutil.NormalizeJSON(input.Headers)
 	input.SecretHeaders = storeutil.NormalizeJSON(input.SecretHeaders)
+	if _, err := ModelProviderHeadersFromColumns(
+		input.Headers,
+		input.SecretHeaders,
+		modelProviderAuthHeaders(input.AuthKind, input.AuthOptions)...,
+	); err != nil {
+		return modelProviderConfigUpdate{}, err
+	}
 	if err := validateModelProviderTimeoutMS("request_timeout_ms", input.RequestTimeoutMS); err != nil {
 		return modelProviderConfigUpdate{}, err
 	}

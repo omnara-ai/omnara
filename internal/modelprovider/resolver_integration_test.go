@@ -970,4 +970,22 @@ func TestResolverAppliesProviderHeaders(t *testing.T) {
 		headers.Get("Authorization") != "Bearer sk-provider" {
 		t.Fatalf("request headers after header secret deletion = %v", headers)
 	}
+
+	paddedKeyID := createSecret("padded-key", "gw-secret ")
+	invalidSecretHeaders := json.RawMessage(`{"X-Gateway-Key":"` + paddedKeyID.String() + `"}`)
+	if _, err := store.Models().PatchModelProviderConfig(ctx, modelstore.PatchModelProviderConfigInput{
+		OrgID:         created.Org.ID,
+		ID:            providerConfig.ID,
+		SecretHeaders: &invalidSecretHeaders,
+	}); err != nil {
+		t.Fatalf("patch provider secret headers: %v", err)
+	}
+	_, err = resolver.Resolve(ctx, model.Selection{
+		OrgID:                     created.Org.ID.String(),
+		ProjectID:                 created.Project.ID.String(),
+		ConfiguredModelRevisionID: configuredModel.CurrentRevisionID.String(),
+	})
+	if providerErr, ok := model.ClassifyError(err); !ok || providerErr.Code != "invalid_model_provider_headers" {
+		t.Fatalf("resolve with an invalid header secret value error = %v, want invalid_model_provider_headers", err)
+	}
 }
