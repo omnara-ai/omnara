@@ -439,9 +439,7 @@ func (s *Store) archiveAgentOnce(
 	if err := enterActiveAgentProjectTx(ctx, tx, qtx, projectID); err != nil {
 		return AgentRecord{}, nil, err
 	}
-	machines, err := archiveAgentTreeTx(
-		ctx, tx, qtx, txNotifications, projectID, agentID, actor, SubagentMessageKindArchived,
-	)
+	machines, err := archiveAgentTreeTx(ctx, tx, qtx, txNotifications, projectID, agentID, actor)
 	if err != nil {
 		return AgentRecord{}, nil, err
 	}
@@ -672,25 +670,14 @@ func archiveLockedAgentTreeTx(
 	txNotifications *notifications.TxNotifications,
 	locked lockedAgentTree,
 	actor *ActorParams,
-	notifyParentKind string,
 ) ([]MachineRecord, error) {
-	root := locked.root
-	alreadyArchived := root.State == AgentStateArchived
 	var machines []MachineRecord
 	for index := len(locked.ids) - 1; index >= 0; index-- {
-		released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, root.ProjectID, locked.ids[index], actor)
+		released, err := archiveAgentTx(ctx, tx, qtx, txNotifications, locked.root.ProjectID, locked.ids[index], actor)
 		if err != nil {
 			return nil, err
 		}
 		machines = append(machines, released...)
-	}
-	if notifyParentKind != "" && !alreadyArchived && root.ParentAgentID != uuid.Nil {
-		if err := notifyParentAgentTx(ctx, txNotifications, tx, qtx, root, subagentMessage{
-			Kind:           notifyParentKind,
-			IdempotencyKey: notifyParentKind + ":" + root.ID.String(),
-		}); err != nil {
-			return nil, err
-		}
 	}
 	return machines, nil
 }
@@ -702,11 +689,10 @@ func archiveAgentTreeTx(
 	txNotifications *notifications.TxNotifications,
 	projectID, agentID uuid.UUID,
 	actor *ActorParams,
-	notifyParentKind string,
 ) ([]MachineRecord, error) {
 	locked, err := lockAgentTreeTx(ctx, tx, qtx, projectID, agentID)
 	if err != nil {
 		return nil, err
 	}
-	return archiveLockedAgentTreeTx(ctx, tx, qtx, txNotifications, locked, actor, notifyParentKind)
+	return archiveLockedAgentTreeTx(ctx, tx, qtx, txNotifications, locked, actor)
 }

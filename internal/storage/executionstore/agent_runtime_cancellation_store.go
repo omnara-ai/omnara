@@ -11,6 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -44,7 +45,10 @@ func (s *Store) CancelAgent(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := dbsqlc.New(tx)
-	if err := lockAgentWithParentTx(ctx, tx, qtx, input.ProjectID, input.AgentID); err != nil {
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: input.ProjectID,
+		AgentID:   input.AgentID,
+	}}); err != nil {
 		return CancelAgentResult{}, err
 	}
 	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, uuid.Nil)
@@ -386,14 +390,6 @@ func cancelAgentTx(
 	}
 	if err := qtx.ReconcileAgentWakeup(ctx, params); err != nil {
 		return CancelAgentResult{}, fmt.Errorf("reconcile canceled agent wakeup: %w", err)
-	}
-	if input.ReasonCode == cancelReasonAgentCanceled {
-		if err := handleSubagentTurnEndedTx(ctx, txNotifications, tx, qtx, projectID, agentID, subagentMessage{
-			Kind:           SubagentMessageKindCanceled,
-			IdempotencyKey: fmt.Sprintf("canceled:%s:%d", agentID.String(), afterSequence),
-		}); err != nil {
-			return CancelAgentResult{}, err
-		}
 	}
 	return CancelAgentResult{
 		Event:                  event,

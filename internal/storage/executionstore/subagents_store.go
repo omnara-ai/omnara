@@ -29,8 +29,6 @@ const (
 	SubagentMessageKindContentFiltered = "content_filtered"
 	SubagentMessageKindFailed          = "failed"
 	SubagentMessageKindQuestion        = "question"
-	SubagentMessageKindCanceled        = "canceled"
-	SubagentMessageKindArchived        = "archived"
 
 	SubagentStateRunning              = "running"
 	SubagentStateIdle                 = "idle"
@@ -447,10 +445,6 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 	case SubagentMessageKindQuestion:
 		header = label + " asked a question and is paused until a human answers it. " +
 			"Messaging it with send_agent_message cancels the question."
-	case SubagentMessageKindCanceled:
-		header = label + " was canceled."
-	case SubagentMessageKindArchived:
-		header = label + " was archived."
 	default:
 		header = label + ":"
 	}
@@ -731,7 +725,7 @@ func StopSubagentForToolCall(
 		}
 		var machines []MachineRecord
 		if input.Archive {
-			machines, err = archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil, "")
+			machines, err = archiveAgentTreeTx(ctx, tx.tx, tx.q, tx.notifications, child.ProjectID, child.ID, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -752,7 +746,10 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 	if child.State != AgentStateActive {
 		return storeerr.InvalidRequest(errors.New("subagent is archived"))
 	}
-	if err := lockAgentWithParentTx(ctx, t.tx, t.q, child.ProjectID, child.ID); err != nil {
+	if err := lifecyclelock.Agents(ctx, t.tx, []lifecyclelock.AgentRef{{
+		ProjectID: child.ProjectID,
+		AgentID:   child.ID,
+	}}); err != nil {
 		return err
 	}
 	parent, err := loadAgentInProjectTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
@@ -858,9 +855,7 @@ func (s *Store) archiveIdleCandidateOnce(
 	if !idle {
 		return nil, errIdleArchiveNoLongerEligible
 	}
-	released, err := archiveLockedAgentTreeTx(
-		ctx, tx, qtx, txNotifications, locked, nil, SubagentMessageKindArchived,
-	)
+	released, err := archiveLockedAgentTreeTx(ctx, tx, qtx, txNotifications, locked, nil)
 	if err != nil {
 		return nil, err
 	}
