@@ -35,9 +35,6 @@ func buildInput(
 	if bundle.ContextCheckpoint != nil {
 		capacity++
 	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
 	items := make([]any, 0, capacity)
 	clientToolSearch := modelcontext.DeferredToolsEnabled(bundle.ToolSpecs)
 	if checkpoint := bundle.ContextCheckpoint; checkpoint != nil {
@@ -95,15 +92,6 @@ func buildInput(
 				},
 			)
 		}
-	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		items = append(
-			items,
-			map[string]any{
-				"role":    responsesRoleSystem,
-				"content": modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-			},
-		)
 	}
 	return items, nil
 }

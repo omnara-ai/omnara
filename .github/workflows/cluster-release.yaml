@@ -184,3 +184,5 @@ jobs:
         run: |
           source_commit=$(jq -er '.source_commit' cluster-release.json)
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$DOCS_BRANCH" -f sha="$source_commit" -F force=false
+          newest_tag=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '[.[].tagName | select(test("^cluster-v[0-9]+\\.[0-9]+\\.[0-9]+$"))] | max_by(ltrimstr("cluster-v") | split(".") | map(tonumber))')
+          if [ "$newest_tag" = "$GITHUB_REF_NAME" ]; then gh release edit "$GITHUB_REF_NAME" --latest; fi

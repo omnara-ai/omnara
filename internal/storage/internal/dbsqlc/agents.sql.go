@@ -825,6 +825,52 @@ func (q *Queries) ListAgentProfilesForProject(ctx context.Context, arg ListAgent
 	return items, nil
 }
 
+const listAgentProfilesWithAgentCounts = `-- name: ListAgentProfilesWithAgentCounts :many
+SELECT profile.id,
+       profile.name,
+       count(agent.id)::bigint AS agent_count
+FROM agent_profiles profile
+LEFT JOIN agents agent ON agent.project_id = profile.project_id
+  AND agent.agent_profile_id = profile.id
+  AND agent.parent_agent_id IS NULL
+WHERE profile.project_id = ANY($1::uuid[])
+  AND profile.id = ANY($2::uuid[])
+  AND profile.deleted_at IS NULL
+GROUP BY profile.id, profile.name
+ORDER BY profile.id
+`
+
+type ListAgentProfilesWithAgentCountsParams struct {
+	ProjectIds []uuid.UUID
+	ProfileIds []uuid.UUID
+}
+
+type ListAgentProfilesWithAgentCountsRow struct {
+	ID         uuid.UUID
+	Name       string
+	AgentCount int64
+}
+
+func (q *Queries) ListAgentProfilesWithAgentCounts(ctx context.Context, arg ListAgentProfilesWithAgentCountsParams) ([]ListAgentProfilesWithAgentCountsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentProfilesWithAgentCounts, arg.ProjectIds, arg.ProfileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentProfilesWithAgentCountsRow{}
+	for rows.Next() {
+		var i ListAgentProfilesWithAgentCountsRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.AgentCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentAgentProfilesForProjects = `-- name: ListRecentAgentProfilesForProjects :many
 SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,

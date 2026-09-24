@@ -3521,6 +3521,117 @@ export type OrgOverviewResponse = {
      * Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
      */
     recent_agent_profiles: Array<AgentProfileSummary>;
+    /**
+     * The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
+     */
+    referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
+    today: OrgOverviewToday;
+    usage: OrgOverviewUsage;
+};
+
+export type OrgOverviewAgentProfileReference = {
+    id: AgentProfileId;
+    name: ResourceName;
+    /**
+     * Agents, not counting subagents, launched from the profile, including archived ones.
+     */
+    agent_count: number;
+};
+
+/**
+ * Activity since the start of today in `timezone`, across the readable projects in `projects`.
+ */
+export type OrgOverviewToday = {
+    /**
+     * Agents created today, not counting subagents.
+     */
+    agents_created: number;
+    /**
+     * Messages sent to agents today, not counting messages to or from subagents.
+     */
+    messages_sent: number;
+};
+
+/**
+ * Model usage over the last 30 days in `timezone`, today included, across the readable projects in `projects`.
+ */
+export type OrgOverviewUsage = {
+    totals: UsageTotals;
+    /**
+     * Agents, not counting subagents, that made at least one model call.
+     */
+    active_agents: number;
+    /**
+     * The configured models with the most tokens, most first, up to eight. Usage from any other model still counts toward every total.
+     */
+    models: Array<OrgOverviewUsageModel>;
+    /**
+     * The agent profiles with the most tokens, most first, up to eight. Usage from a subagent counts toward the subagent's own profile.
+     */
+    profiles: Array<OrgOverviewUsageProfile>;
+    /**
+     * One entry per day, oldest first and ending today, including days without usage.
+     */
+    days: Array<OrgOverviewUsageDay>;
+};
+
+export type OrgOverviewUsageModel = {
+    id: ConfiguredModelId;
+    /**
+     * Configured model name, resolved even if the model has since been deleted.
+     */
+    name: ResourceName;
+    totals: UsageTotals;
+};
+
+export type OrgOverviewUsageProfile = {
+    /**
+     * Omitted for usage from agents launched without a profile.
+     */
+    id?: AgentProfileId;
+    /**
+     * Agent profile name, resolved even if the profile has since been deleted. Omitted along with `id`.
+     */
+    name?: ResourceName;
+    totals: UsageTotals;
+};
+
+export type OrgOverviewUsageDay = {
+    /**
+     * Start of the day in `timezone`.
+     */
+    start: Timestamp;
+    /**
+     * All usage in the day, including models and profiles missing from `models` and `profiles`.
+     */
+    totals: UsageTotals;
+    /**
+     * Tokens in the day for each model in `models` that has any, in `models` order.
+     */
+    models: Array<OrgOverviewUsageDayModel>;
+    /**
+     * Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
+     */
+    profiles: Array<OrgOverviewUsageDayProfile>;
+};
+
+export type OrgOverviewUsageDayModel = {
+    id: ConfiguredModelId;
+    /**
+     * Input plus output tokens.
+     */
+    tokens: number;
+};
+
+export type OrgOverviewUsageDayProfile = {
+    /**
+     * Omitted for usage from agents launched without a profile.
+     */
+    id?: AgentProfileId;
+    /**
+     * Input plus output tokens.
+     */
+    tokens: number;
 };
 
 /**
@@ -4824,11 +4935,20 @@ export type GetOrgOverviewData = {
     path: {
         orgID: OrganizationId;
     };
-    query?: never;
+    query?: {
+        /**
+         * IANA time zone that decides where today and each day of `usage` start.
+         */
+        timezone?: string;
+    };
     url: '/orgs/{orgID}/overview';
 };
 
 export type GetOrgOverviewErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
     /**
      * Authentication is required or invalid.
      */

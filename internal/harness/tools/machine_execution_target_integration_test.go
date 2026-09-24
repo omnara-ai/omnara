@@ -14,7 +14,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
@@ -31,6 +30,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -359,30 +359,7 @@ tools:
 	if !found {
 		t.Fatal("inspect_machine permission interaction not found")
 	}
-	resolvedBy, err := executionstore.OmnaraActorParams(
-		toolsTestOrgID,
-		toolsTestUserPrincipal(fixture.UserID),
-	)
-	if err != nil {
-		t.Fatalf("build inspect_machine permission actor: %v", err)
-	}
-	if _, err := fixture.Store.Execution().ResolveAgentInteraction(
-		ctx,
-		executionstore.ResolveAgentInteractionInput{
-			ProjectID: toolsTestProjectID,
-			AgentID:   launch.Agent.ID,
-			ID:        interaction.ID,
-			Resolution: interactionform.Resolution{
-				Answers: []interactionform.Answer{{
-					OptionIndices: []int{toolpermission.AllowOptionIndex},
-				}},
-			},
-			Actor: resolvedBy,
-		},
-	); err != nil {
-		t.Fatalf("approve inspect_machine permission: %v", err)
-	}
-
+	approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), interaction, fixture.UserID)
 	inspectResult, err := executor.Dispatch(ctx, turn, inspectCall)
 	if err != nil {
 		t.Fatalf("dispatch inspect_machine: %v", err)
@@ -550,27 +527,7 @@ func TestApprovedImplicitMachineTargetChangeFailsTerminally(t *testing.T) {
 	if !found {
 		t.Fatal("run permission interaction not found")
 	}
-	resolution := interactionform.Resolution{
-		Answers: []interactionform.Answer{{
-			OptionIndices: []int{toolpermission.AllowOptionIndex},
-		}},
-	}
-	resolvedBy, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(fixture.UserID))
-	if err != nil {
-		t.Fatalf("omnara actor params: %v", err)
-	}
-	if _, err := fixture.Store.Execution().ResolveAgentInteraction(
-		ctx,
-		executionstore.ResolveAgentInteractionInput{
-			ProjectID:  toolsTestProjectID,
-			AgentID:    fixture.Launch.Agent.ID,
-			ID:         interaction.ID,
-			Resolution: resolution,
-			Actor:      resolvedBy,
-		},
-	); err != nil {
-		t.Fatalf("approve run permission: %v", err)
-	}
+	approveToolPermissionForTest(t, ctx, fixture.Store.Execution(), interaction, fixture.UserID)
 	if _, err := fixture.Pool.Exec(
 		ctx,
 		`UPDATE agent_machine_bindings
@@ -867,13 +824,21 @@ func TestCreateMachineRejectsInvalidOverridesBeforeApproval(t *testing.T) {
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {
 				t.Fatalf("prepare create permission: %v", err)
 			}
-			_, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
+			interaction, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
 				ctx, toolsTestProjectID, fixture.Launch.Agent.ID, toolCalls[i].ID,
 				executionstore.AgentInteractionKindPermission,
 			)
 			valid := call.ID == "valid-size"
 			if err != nil || found != valid {
 				t.Fatalf("permission interaction: found=%t want=%t err=%v", found, valid, err)
+			}
+			if valid {
+				var request toolpermission.Request
+				require.NoError(t, json.Unmarshal(interaction.Request, &request))
+				require.JSONEq(t,
+					`{"machine_pool_id":"`+poolPublicIDForTest(t, fixture.MachinePool.ID)+`","cpu":1,"memory_mb":1024}`,
+					string(request.Authorization.Input),
+				)
 			}
 			record, err := fixture.Store.Execution().GetToolCall(
 				ctx, toolsTestProjectID, fixture.Launch.Agent.ID, toolCalls[i].ID,
@@ -907,7 +872,7 @@ func TestCreateMachineCompletesWithDurableProvisioningIntent(t *testing.T) {
 	badCall := model.ToolCall{
 		ID:    "call_create-boundary-invalid-pool",
 		Name:  "create_machine",
-		Input: json.RawMessage(`{"machine_pool_name":"missing"}`),
+		Input: json.RawMessage(`{"machine_pool_id":"mpo_aaaaaaaaaaaaaaaaaaaaaaaaae"}`),
 	}
 	toolCalls, lock, admitted, contextRecord := createMachineToolCallsForDirectStoreTest(
 		t,
@@ -1573,21 +1538,7 @@ func TestApprovedMachineDeletionCanBeReconciled(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("load delete permission: found=%t err=%v", found, err)
 	}
-	actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(userID))
-	if err != nil {
-		t.Fatalf("build delete permission actor: %v", err)
-	}
-	if _, err := store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
-		ProjectID: toolsTestProjectID,
-		AgentID:   launch.Agent.ID,
-		ID:        interaction.ID,
-		Resolution: interactionform.Resolution{
-			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
-		},
-		Actor: actor,
-	}); err != nil {
-		t.Fatalf("approve delete permission: %v", err)
-	}
+	approveToolPermissionForTest(t, ctx, store.Execution(), interaction, userID)
 	dispatchResult, err := executor.Dispatch(ctx, turn, call)
 	if err != nil {
 		t.Fatalf("dispatch delete machine: %v", err)
@@ -2100,14 +2051,18 @@ func TestReadProcessAfterTerminalWakesAsleepMachine(t *testing.T) {
 	}
 }
 
-type machineDispatchFixture struct {
+type machineDispatchEnvironment struct {
 	Pool        *pgxpool.Pool
 	Store       *storage.Store
 	UserID      uuid.UUID
 	MachinePool executionstore.MachinePoolRecord
 	Config      executionstore.AgentConfigRecord
-	Launch      executionstore.LaunchAgentResult
 	Now         time.Time
+}
+
+type machineDispatchFixture struct {
+	machineDispatchEnvironment
+	Launch executionstore.LaunchAgentResult
 }
 
 type testPoolMachineManager struct {
@@ -2190,6 +2145,24 @@ func newMachineDispatchFixtureWithManagement(
 	label string,
 	managementKind management.Kind,
 ) machineDispatchFixture {
+	t.Helper()
+	environment := newMachineDispatchEnvironment(t, ctx, label, managementKind)
+	launch, err := environment.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: toolsTestProjectID, AgentConfigID: environment.Config.ID,
+		LaunchedBy: toolsTestUserPrincipal(environment.UserID), IdempotencyKey: "tools-machine-dispatch-launch-" + label,
+	})
+	if err != nil {
+		t.Fatalf("launch machine dispatch agent: %v", err)
+	}
+	return machineDispatchFixture{machineDispatchEnvironment: environment, Launch: launch}
+}
+
+func newMachineDispatchEnvironment(
+	t *testing.T,
+	ctx context.Context,
+	label string,
+	managementKind management.Kind,
+) machineDispatchEnvironment {
 	t.Helper()
 	pool := integrationdb.OpenMigratedPool(t, ctx, "../../../migrations")
 	store := storage.NewStore(
@@ -2365,25 +2338,12 @@ tools:
 	if err != nil {
 		t.Fatalf("create machine dispatch config: %v", err)
 	}
-	launch, err := store.Execution().LaunchAgent(
-		ctx,
-		executionstore.LaunchAgentInput{
-			ProjectID:      toolsTestProjectID,
-			AgentConfigID:  config.ID,
-			LaunchedBy:     toolsTestUserPrincipal(user.ID),
-			IdempotencyKey: "tools-machine-dispatch-launch-" + label,
-		},
-	)
-	if err != nil {
-		t.Fatalf("launch machine dispatch agent: %v", err)
-	}
-	return machineDispatchFixture{
+	return machineDispatchEnvironment{
 		Pool:        pool,
 		Store:       store,
 		UserID:      user.ID,
 		MachinePool: machinePool,
 		Config:      config,
-		Launch:      launch,
 		Now:         now,
 	}
 }

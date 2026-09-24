@@ -145,42 +145,6 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 	}
 }
 
-func TestPrepareProjectsMachinePoolsOnlyForEnabledTools(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	withoutTools, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			AvailableMachinePools: []modelcontext.MachinePoolRef{{
-				MachinePoolName: "Build Pool",
-			}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare without tools: %v", err)
-	}
-	if strings.Contains(string(withoutTools.Body), "Build Pool") {
-		t.Fatalf("machine pool context leaked without usable tools: %s", withoutTools.Body)
-	}
-
-	withTools, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			ToolSpecs: []modelcontext.ToolSpec{
-				{Name: toolcatalog.ToolNameCreateMachine},
-			},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare with tools: %v", err)
-	}
-	body := string(withTools.Body)
-	if !strings.Contains(body, "no machine pools are currently available") {
-		t.Fatalf("missing empty machine pool context for enabled tools: %s", body)
-	}
-}
-
 func TestPrepareKeepsCompletedToolExchangeBeforeLaterUserTurnWithoutDuplicatingAssistantText(t *testing.T) {
 	client := Client{
 		ModelProviderConfigID: testModelProviderConfigID,

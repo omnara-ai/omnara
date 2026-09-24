@@ -70,16 +70,6 @@ func (ProjectionNormalizer) Normalize(bundle Bundle) error {
 	if len(bundle.Messages) > 0 && lastCheckpointEnd > 0 && bundle.Messages[0].Sequence <= lastCheckpointEnd {
 		return fmt.Errorf("transcript tail overlaps checkpoint range")
 	}
-	seenAvailableMachinePools := map[string]bool{}
-	for _, pool := range bundle.AvailableMachinePools {
-		if pool.MachinePoolName == "" {
-			return fmt.Errorf("machine pool name is required")
-		}
-		if seenAvailableMachinePools[pool.MachinePoolName] {
-			return fmt.Errorf("duplicate machine pool in context: %s", pool.MachinePoolName)
-		}
-		seenAvailableMachinePools[pool.MachinePoolName] = true
-	}
 	seenToolResults := map[string]bool{}
 	for _, result := range bundle.ToolResults {
 		if result.ToolCallID == "" || result.Name == "" {

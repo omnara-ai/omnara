@@ -1,8 +1,8 @@
 -- +goose Up
 
--- Goose commits each migration separately: reject unfinished work before SQL45
--- changes the schema needed by the old release to stop it. Go46 rechecks under lock.
--- Keep this legacy-policy preflight in sync with Go46's frozen translator.
+-- Goose commits each migration separately: reject unfinished work before SQL46
+-- changes the schema needed by the old release to stop it. Go47 rechecks under lock.
+-- Keep this legacy-policy preflight in sync with Go47's frozen translator.
 -- +goose StatementBegin
 DO $$
 DECLARE conflicting_config uuid; conflicting_tool text; unfinished_agent uuid;

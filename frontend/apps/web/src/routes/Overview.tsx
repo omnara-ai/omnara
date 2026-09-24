@@ -3,8 +3,12 @@ import { useState } from 'react'
 
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
-import { RecentAgentsSection } from '@/components/overview/RecentAgents'
+import { OverviewSummary } from '@/components/overview/OverviewSummary'
+import { UsageOverview } from '@/components/overview/UsageOverview'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { canManageOrg } from '@/lib/permissions'
+import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 export function Overview() {
@@ -27,7 +31,7 @@ export function Overview() {
     overview != null && manageableProject != null && (needsOnboarding || profileSeen)
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-8">
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-12">
       <PageBreadcrumb
         items={[
           { id: 'organization', label: activeOrg.name },
@@ -45,14 +49,26 @@ export function Overview() {
             project={manageableProject}
           />
         </div>
+      ) : overview ? (
+        <>
+          <OverviewSummary overview={overview} />
+          <UsageOverview usage={overview.usage} canViewReport={canManageOrg(activeOrg.role)} />
+        </>
       ) : (
-        <RecentAgentsSection
-          overview={overview}
-          isError={overviewQuery.isError}
-          onRetry={() => {
-            void overviewQuery.refetch()
-          }}
-        />
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-destructive text-sm" role="alert">
+            {errorMessage(overviewQuery.error, 'Could not load the overview.')}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void overviewQuery.refetch()
+            }}
+          >
+            Retry
+          </Button>
+        </div>
       )}
     </div>
   )

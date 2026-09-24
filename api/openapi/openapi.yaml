@@ -572,9 +572,19 @@ paths:
       summary: Get org overview
       description: >-
         Returns the data backing the web app's overview page: the caller's visible
-        projects plus the most recently active agents and most recently updated
-        agent profiles across every project the caller can read. Internal to the
-        web app and subject to change without notice.
+        projects, the most recently active agents and most recently updated agent
+        profiles, today's activity, and the last 30 days of model usage across the
+        projects the caller can read. Internal to the web app and subject to change
+        without notice.
+      parameters:
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            default: UTC
+            maxLength: 64
+          description: IANA time zone that decides where today and each day of `usage` start.
       responses:
         '200':
           description: Overview data for the organization.
@@ -582,6 +592,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrgOverviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -13733,7 +13745,7 @@ components:
     OrgOverviewResponse:
       type: object
       additionalProperties: false
-      required: [projects, recent_agents, recent_agent_profiles]
+      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles, today, usage]
       properties:
         projects:
           type: array
@@ -13754,6 +13766,155 @@ components:
             projects, ordered by updated_at descending.
           items:
             $ref: '#/components/schemas/AgentProfileSummary'
+        referenced_agent_profiles:
+          type: array
+          description: >-
+            The agent profiles that recent_agents and recent_agent_profiles
+            reference, with how many agents were launched from each. Profiles
+            since deleted are omitted.
+          items:
+            $ref: '#/components/schemas/OrgOverviewAgentProfileReference'
+        today:
+          $ref: '#/components/schemas/OrgOverviewToday'
+        usage:
+          $ref: '#/components/schemas/OrgOverviewUsage'
+    OrgOverviewAgentProfileReference:
+      type: object
+      additionalProperties: false
+      required: [id, name, agent_count]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentProfileID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+        agent_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Agents, not counting subagents, launched from the profile, including archived ones.
+    OrgOverviewToday:
+      type: object
+      additionalProperties: false
+      description: Activity since the start of today in `timezone`, across the readable projects in `projects`.
+      required: [agents_created, messages_sent]
+      properties:
+        agents_created:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Agents created today, not counting subagents.
+        messages_sent:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Messages sent to agents today, not counting messages to or from subagents.
+    OrgOverviewUsage:
+      type: object
+      additionalProperties: false
+      description: >-
+        Model usage over the last 30 days in `timezone`, today included, across the
+        readable projects in `projects`.
+      required: [totals, active_agents, models, profiles, days]
+      properties:
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+        active_agents:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Agents, not counting subagents, that made at least one model call.
+        models:
+          type: array
+          description: >-
+            The configured models with the most tokens, most first, up to eight.
+            Usage from any other model still counts toward every total.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageModel'
+        profiles:
+          type: array
+          description: >-
+            The agent profiles with the most tokens, most first, up to eight. Usage
+            from a subagent counts toward the subagent's own profile.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageProfile'
+        days:
+          type: array
+          description: One entry per day, oldest first and ending today, including days without usage.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageDay'
+    OrgOverviewUsageModel:
+      type: object
+      additionalProperties: false
+      required: [id, name, totals]
+      properties:
+        id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          description: Configured model name, resolved even if the model has since been deleted.
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+    OrgOverviewUsageProfile:
+      type: object
+      additionalProperties: false
+      required: [totals]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentProfileID'
+          description: Omitted for usage from agents launched without a profile.
+        name:
+          $ref: '#/components/schemas/ResourceName'
+          description: >-
+            Agent profile name, resolved even if the profile has since been deleted.
+            Omitted along with `id`.
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+    OrgOverviewUsageDay:
+      type: object
+      additionalProperties: false
+      required: [start, totals, models, profiles]
+      properties:
+        start:
+          $ref: '#/components/schemas/Timestamp'
+          description: Start of the day in `timezone`.
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+          description: All usage in the day, including models and profiles missing from `models` and `profiles`.
+        models:
+          type: array
+          description: Tokens in the day for each model in `models` that has any, in `models` order.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageDayModel'
+        profiles:
+          type: array
+          description: Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
+          items:
+            $ref: '#/components/schemas/OrgOverviewUsageDayProfile'
+    OrgOverviewUsageDayModel:
+      type: object
+      additionalProperties: false
+      required: [id, tokens]
+      properties:
+        id:
+          $ref: '#/components/schemas/ConfiguredModelID'
+        tokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Input plus output tokens.
+    OrgOverviewUsageDayProfile:
+      type: object
+      additionalProperties: false
+      required: [tokens]
+      properties:
+        id:
+          $ref: '#/components/schemas/AgentProfileID'
+          description: Omitted for usage from agents launched without a profile.
+        tokens:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Input plus output tokens.
     UsageTokenTotals:
       type: object
       additionalProperties: false

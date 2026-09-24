@@ -1,4 +1,4 @@
--- Schema-44 inventory of the gates in migrations/000045_composable_integrations.sql.
+-- Schema-44/45 inventory of the gates in migrations/000046_composable_integrations.sql.
 -- Run with psql -X -v ON_ERROR_STOP=1. Every blocker result must be empty.
 BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 
@@ -9,9 +9,9 @@ FROM goose_db_version;
 DO $preflight$
 BEGIN
     IF pg_is_in_recovery() OR
-       (SELECT max(version_id) FILTER (WHERE is_applied) FROM goose_db_version)
-           IS DISTINCT FROM 44 THEN
-        RAISE EXCEPTION 'preflight requires the schema-44 writer';
+       coalesce((SELECT max(version_id) FILTER (WHERE is_applied) FROM goose_db_version), 0)
+           NOT IN (44, 45) THEN
+        RAISE EXCEPTION 'preflight requires a schema-44 or schema-45 writer';
     END IF;
 END;
 $preflight$;

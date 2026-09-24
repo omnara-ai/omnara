@@ -34,10 +34,7 @@ func TestModelWindowForRequestReservesSmallerRequestAllowance(t *testing.T) {
 func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
 	body := json.RawMessage(`{"request":true}`)
 	bundle := modelcontext.Bundle{
-		AvailableMachinePools: []modelcontext.MachinePoolRef{{
-			MachinePoolName: "provider-omits-this-field",
-			Description:     strings.Repeat("internal metadata ", 10_000),
-		}},
+		SystemPrompt: strings.Repeat("internal metadata ", 10_000),
 	}
 	client := prepareForSendClient{
 		prepared:     PreparedRequest{Body: body},

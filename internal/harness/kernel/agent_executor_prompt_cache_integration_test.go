@@ -165,10 +165,9 @@ skills:
 	}
 	if !modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSkill) ||
 		!modelcontext.HasTool(last.ToolSpecs, "lookup_customer") ||
-		len(last.AvailableMachinePools) != 1 ||
 		len(last.ToolResults) != 1 ||
 		!strings.Contains(last.SystemPrompt, "<available_skills>") {
-		t.Fatalf("final bundle lacks the expected tools, pool, tool result, or skill catalog: %+v", last)
+		t.Fatalf("final bundle lacks the expected tools, tool result, or skill catalog: %+v", last)
 	}
 
 	routes := []struct {
