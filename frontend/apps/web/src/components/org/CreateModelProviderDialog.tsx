@@ -6,11 +6,9 @@ import type {
 } from '@omnara/sdk'
 import { type SyntheticEvent, useRef, useState } from 'react'
 
-import {
-  CombinedEnvOverlayEditor,
-  OverridesCollapsible,
-} from '@/components/machines/MachineOverrideFields'
-import { envFromRows, secretEnvFromRows } from '@/components/machines/machineOverrides'
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
+import { recordFromSecretRows, recordFromTextRows } from '@/components/key-value/keyValueRows'
+import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
 import { Button } from '@/components/ui/button'
 import {
@@ -67,8 +65,8 @@ function modelProviderRequest(
   const common = {
     name: values.name,
     credential_secret_id: values.secretId,
-    headers: envFromRows(values.headerRows),
-    secret_headers: secretEnvFromRows(values.secretHeaderRows),
+    headers: recordFromTextRows(values.headerRows),
+    secret_headers: recordFromSecretRows(values.secretHeaderRows),
   }
   if (values.provider === 'custom') {
     return { ...common, api_format: values.apiFormat, base_url: values.baseUrl.trim() }
@@ -412,19 +410,19 @@ export function CreateModelProviderDialog({
                   kind={credential.kind}
                 />
                 <OverridesCollapsible title="Advanced">
-                  <CombinedEnvOverlayEditor
+                  <KeyValueEditor
                     orgId={orgId}
                     enabled={open}
                     label="Headers"
                     itemLabel="Header"
                     keyPlaceholder="Header-Name"
-                    envRows={values.headerRows}
-                    secretEnvRows={values.secretHeaderRows}
-                    onChange={({ envRows, secretEnvRows }) => {
+                    textRows={values.headerRows}
+                    secretRows={values.secretHeaderRows}
+                    onChange={({ textRows, secretRows }) => {
                       setValues((prev) => ({
                         ...prev,
-                        headerRows: envRows,
-                        secretHeaderRows: secretEnvRows,
+                        headerRows: textRows,
+                        secretHeaderRows: secretRows,
                       }))
                     }}
                   />

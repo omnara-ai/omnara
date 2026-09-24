@@ -1,7 +1,7 @@
 import { type MachinePool } from '@omnara/sdk'
 
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
 import {
-  CombinedEnvOverlayEditor,
   OverridesCollapsible,
   ProviderOptionsOverrideFields,
 } from '@/components/machines/MachineOverrideFields'
@@ -160,14 +160,17 @@ export function PoolGrantOverrideFields({
           />
         </Field>
       </div>
-      <CombinedEnvOverlayEditor
+      <KeyValueEditor
         orgId={orgId}
         projectId={projectId}
         enabled={enabled}
-        envRows={values.envRows}
-        secretEnvRows={values.secretEnvRows}
-        onChange={(rows) => {
-          onChange({ ...values, ...rows })
+        label="Environment variables"
+        itemLabel="Variable"
+        keyPlaceholder="NAME"
+        textRows={values.envRows}
+        secretRows={values.secretEnvRows}
+        onChange={({ textRows, secretRows }) => {
+          onChange({ ...values, envRows: textRows, secretEnvRows: secretRows })
         }}
       />
       <Field>

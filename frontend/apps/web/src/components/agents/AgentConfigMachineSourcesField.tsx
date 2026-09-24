@@ -15,7 +15,7 @@ import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCa
 import { PillTabs } from '@/components/agents/PillTabs'
 import { type BasicMachineSource, newMachineSource } from '@/components/agents/useAgentBuilderForm'
 import { ChevronRightIcon, PlusIcon, Trash2Icon } from '@/components/icons'
-import { CombinedEnvOverlayEditor } from '@/components/machines/MachineOverrideFields'
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 import { Button } from '@/components/ui/button'
 import { CollapseBody } from '@/components/ui/collapse-body'
@@ -297,14 +297,17 @@ export function AgentConfigMachineSourcesField({
                       }}
                     />
                   </Field>
-                  <CombinedEnvOverlayEditor
+                  <KeyValueEditor
                     orgId={orgId}
                     projectId={projectId}
                     enabled
-                    envRows={source.envRows}
-                    secretEnvRows={source.secretEnvRows}
-                    onChange={(rows) => {
-                      updateSource(source.id, rows)
+                    label="Environment variables"
+                    itemLabel="Variable"
+                    keyPlaceholder="NAME"
+                    textRows={source.envRows}
+                    secretRows={source.secretEnvRows}
+                    onChange={({ textRows, secretRows }) => {
+                      updateSource(source.id, { envRows: textRows, secretEnvRows: secretRows })
                     }}
                   />
                   <SourceOverridesSection

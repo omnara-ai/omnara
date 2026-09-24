@@ -1,20 +1,22 @@
 import type { CreateMachinePoolRequest, MachinePool, UpdateMachinePoolRequest } from '@omnara/sdk'
 
 import {
-  envFromRows,
-  type EnvOverlayRow,
-  envOverlayRowsValid,
-  envRowsFromRecord,
+  recordFromSecretRows,
+  recordFromTextRows,
+  type SecretRow,
+  secretRowsFromRecord,
+  secretRowsValid,
+  type TextRow,
+  textRowsFromRecord,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
+import {
   numberDraft,
   optionalInt,
   optionalIntOrNull,
   optionalNonNegativeInt32Valid,
   optionalPoolIdleDeletionMinutesValid,
   optionalPositiveInt32Valid,
-  secretEnvFromRows,
-  type SecretEnvOverlayRow,
-  secretEnvOverlayRowsValid,
-  secretEnvRowsFromRecord,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
 import {
@@ -49,8 +51,8 @@ export interface MachinePoolFormValues {
   location: string
   startupScript: string
   cwd: string
-  envRows: EnvOverlayRow[]
-  secretEnvRows: SecretEnvOverlayRow[]
+  envRows: TextRow[]
+  secretEnvRows: SecretRow[]
   cpu: string
   memoryGb: string
   maxMachines: string
@@ -194,8 +196,8 @@ export function machinePoolFormValid(
     maxMachinesValid &&
     cpuValid &&
     memoryValid &&
-    envOverlayRowsValid(values.envRows) &&
-    secretEnvOverlayRowsValid(values.secretEnvRows) &&
+    textRowsValid(values.envRows) &&
+    secretRowsValid(values.secretEnvRows) &&
     optionalPositiveInt32Valid(values.maxMachineCpu) &&
     optionalPoolIdleDeletionMinutesValid(values.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(values.maxMachineMemoryGb, { optional: true }) &&
@@ -216,8 +218,8 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     description: stringOrUndefined(values.description),
     provider_auth_secret_id: values.secretId,
     max_total_machines: maxMachines,
-    default_machine_env: envFromRows(values.envRows),
-    default_machine_secret_env: secretEnvFromRows(values.secretEnvRows),
+    default_machine_env: recordFromTextRows(values.envRows),
+    default_machine_secret_env: recordFromSecretRows(values.secretEnvRows),
     default_cwd: stringOrUndefined(values.cwd),
     runtime_protection_enabled: values.runtimeProtectionEnabled,
     delete_after_idle_minutes: optionalInt(values.deleteAfterIdleMinutes),
@@ -309,8 +311,8 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
     location: options[definition.location.key] ?? '',
     startupScript: options.startup_script ?? '',
     cwd: pool.default_cwd,
-    envRows: envRowsFromRecord(pool.default_machine_env),
-    secretEnvRows: secretEnvRowsFromRecord(pool.default_machine_secret_env),
+    envRows: textRowsFromRecord(pool.default_machine_env),
+    secretEnvRows: secretRowsFromRecord(pool.default_machine_secret_env),
     cpu: numberDraft(cpuValue) || machinePoolFormDefaults.cpu,
     memoryGb: memoryGbDraft(memoryValue) || machinePoolFormDefaults.memoryGb,
     maxMachines: numberDraft(pool.max_total_machines),
@@ -365,8 +367,8 @@ export function machinePoolUpdateRequest(
   const common = {
     name: values.name,
     description: values.description.trim(),
-    default_machine_env: envFromRows(values.envRows) ?? {},
-    default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},
+    default_machine_env: recordFromTextRows(values.envRows) ?? {},
+    default_machine_secret_env: recordFromSecretRows(values.secretEnvRows) ?? {},
     default_machine_provider_options: defaultMachineProviderOptions,
     default_cwd: values.cwd.trim(),
     provider_auth_secret_id: values.secretId,
@@ -453,8 +455,8 @@ function clusterMachinePoolUpdateRequest(
       : pool.default_machine_memory_mb
   const memoryMb = memoryMbFromDraft(values.memoryGb, originalMemoryMb)
   const common = {
-    default_machine_env: envFromRows(values.envRows) ?? {},
-    default_machine_secret_env: secretEnvFromRows(values.secretEnvRows) ?? {},
+    default_machine_env: recordFromTextRows(values.envRows) ?? {},
+    default_machine_secret_env: recordFromSecretRows(values.secretEnvRows) ?? {},
     delete_after_idle_minutes: optionalIntOrNull(values.deleteAfterIdleMinutes),
     min_machine_memory_mb: optionalMemoryMbOrNull(
       values.minMachineMemoryGb,

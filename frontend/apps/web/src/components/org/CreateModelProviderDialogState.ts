@@ -5,11 +5,11 @@ import type {
 } from '@omnara/sdk'
 
 import {
-  type EnvOverlayRow,
-  envOverlayRowsValid,
-  type SecretEnvOverlayRow,
-  secretEnvOverlayRowsValid,
-} from '@/components/machines/machineOverrides'
+  type SecretRow,
+  secretRowsValid,
+  type TextRow,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
 import { resourceNameValid } from '@/lib/resource-name'
 
 import {
@@ -92,8 +92,8 @@ export interface CreateModelProviderFormValues {
   apiFormat: ModelApiFormat
   baseUrl: string
   secretId: string
-  headerRows: EnvOverlayRow[]
-  secretHeaderRows: SecretEnvOverlayRow[]
+  headerRows: TextRow[]
+  secretHeaderRows: SecretRow[]
 }
 
 export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
@@ -115,8 +115,8 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
     values.secretId !== '' &&
     (values.provider !== 'bedrock' || awsRegionPattern.test(values.region.trim())) &&
     (values.provider !== 'custom' || baseUrlPattern.test(values.baseUrl.trim())) &&
-    envOverlayRowsValid(values.headerRows) &&
-    secretEnvOverlayRowsValid(values.secretHeaderRows)
+    textRowsValid(values.headerRows) &&
+    secretRowsValid(values.secretHeaderRows)
   )
 }
 

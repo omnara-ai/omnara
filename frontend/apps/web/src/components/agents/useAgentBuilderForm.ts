@@ -27,17 +27,19 @@ import {
 import type { BasicTool } from '@/components/agents/AgentConfigToolsField'
 import { useAgentBuilderTools } from '@/components/agents/useAgentBuilderTools'
 import {
+  overlayFromSecretRows,
+  overlayFromTextRows,
+  type SecretRow,
+  secretRowsValid,
+  type TextRow,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
+import {
   emptyProviderOptions,
-  envOverlayFromRows,
-  type EnvOverlayRow,
-  envOverlayRowsValid,
   optionalIdleDeletionMinutesValid,
   optionalPositiveInt32Valid,
   type ProviderOptionsDraft,
   providerOptionsOverlay,
-  secretEnvOverlayFromRows,
-  type SecretEnvOverlayRow,
-  secretEnvOverlayRowsValid,
 } from '@/components/machines/machineOverrides'
 import { isMachinePoolProvider } from '@/components/org/machinePoolProviders'
 import { memoryGbDraftValid, memoryGbToMb } from '@/lib/machine-memory'
@@ -71,8 +73,8 @@ export interface BasicMachineSource {
   machineCpu: string
   machineMemoryGb: string
   providerOptions: ProviderOptionsDraft
-  envRows: EnvOverlayRow[]
-  secretEnvRows: SecretEnvOverlayRow[]
+  envRows: TextRow[]
+  secretEnvRows: SecretRow[]
 }
 
 export interface BasicConfig {
@@ -265,8 +267,8 @@ function machineCountValid(value: string) {
 function machineSourceValid(source: BasicMachineSource) {
   return (
     resourceNameValid(source.name) &&
-    envOverlayRowsValid(source.envRows) &&
-    secretEnvOverlayRowsValid(source.secretEnvRows) &&
+    textRowsValid(source.envRows) &&
+    secretRowsValid(source.secretEnvRows) &&
     (source.kind === 'machine' ||
       (machineCountValid(source.initialNumMachines) &&
         machineCountValid(source.maxMachines) &&
@@ -438,8 +440,8 @@ function machineSourceComparable(source: BasicMachineSource) {
     machineCpu: source.machineCpu,
     machineMemoryGb: source.machineMemoryGb,
     providerOptions: { ...source.providerOptions },
-    env: envOverlayFromRows(source.envRows) ?? null,
-    secretEnv: secretEnvOverlayFromRows(source.secretEnvRows) ?? null,
+    env: overlayFromTextRows(source.envRows) ?? null,
+    secretEnv: overlayFromSecretRows(source.secretEnvRows) ?? null,
   }
 }
 
@@ -487,9 +489,9 @@ function machineSourceWire(source: BasicMachineSource): PoolEntry | MachineEntry
 
 function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachineSource) {
   if (source.defaultCwd.trim() !== '') wire.cwd = source.defaultCwd.trim()
-  const envOverlay = envOverlayFromRows(source.envRows)
+  const envOverlay = overlayFromTextRows(source.envRows)
   if (envOverlay) wire.env_overlay = envOverlay
-  const secretEnvOverlay = secretEnvOverlayFromRows(source.secretEnvRows)
+  const secretEnvOverlay = overlayFromSecretRows(source.secretEnvRows)
   if (secretEnvOverlay) wire.secret_env_overlay = secretEnvOverlay
 }
 
