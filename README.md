@@ -56,7 +56,7 @@ $ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
 - <ins><strong>Durable agents</strong></ins>. Agent state is committed
   atomically to Postgres. Agents recover automatically from crashes, restarts,
   and temporary machine disconnects.
-- <ins><strong>Machines</strong></ins>. Use sandboxes from Blaxel, Daytona, Modal,
+- <ins><strong>Machines</strong></ins>. Use sandboxes from Blaxel, Daytona, Modal, Tenki,
   or Unikraft (more coming soon), or connect your own laptop or VM. An agent
   can run with no machines or use several at once. These can be sandboxes, your own
   machines, or both. You can add or remove machines while the agent is running.
@@ -155,6 +155,22 @@ make test-service-e2e
 Provider-backed live tests are available through the `make test-live-*` targets
 and require the corresponding credentials. CI runs them on every push to `main`;
 to run them on a pull request, add the `live-tests` label.
+
+For Tenki, set `TENKI_API_KEY` to a workspace API key and install `cloudflared`, then run:
+
+```sh
+make db-up
+make test-live-tenki-provider test-live-tenki-e2e
+```
+
+These tests create billable Tenki VMs and delete their own sessions during cleanup.
+The provider test exercises lost-create-response recovery, execution, ownership checks,
+and deletion. The service E2E runs the local API, worker, PostgreSQL, and Redis with a
+branch-built daemon inside Tenki. It verifies registration, environment delivery,
+command output, files, stdin, process control, API/worker recovery, and pool deletion.
+Only model responses are scripted. The test uses a temporary public Cloudflare tunnel
+for the daemon connection and binary download; no model API key is needed.
+CI runs these tests on main pushes and manual runs when `TENKI_API_KEY` is configured.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for generated-code workflows and pull
 request expectations.

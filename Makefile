@@ -69,7 +69,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	test-service-e2e \
 	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
-	test-live-api-format-switching test-live-sandbox-providers test-live \
+	test-live-api-format-switching test-live-sandbox-providers test-live-tenki-provider test-live-tenki-e2e test-live \
 	docs-openapi docs-openapi-check
 
 help:
@@ -496,8 +496,20 @@ test-live-sandbox-providers:
 		./internal/machinepool/providers/blaxel \
 		./internal/machinepool/providers/daytona \
 		./internal/machinepool/providers/modal \
+		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Blaxel|Daytona|Modal|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Blaxel|Daytona|Modal|Tenki|Unikraft)ProviderLiveSmoke$$'
+
+test-live-tenki-provider: ## Run the real Tenki provider lifecycle test
+	@$(LOAD_DOTENV); \
+	: "$${TENKI_API_KEY:?TENKI_API_KEY is required}"; \
+	OMNARA_REQUIRE_TENKI_LIVE=1 $(GO) test -count=1 -v -timeout=8m ./internal/machinepool/providers/tenki -run '^TestTenkiProviderLiveSmoke$$'
+
+test-live-tenki-e2e: ## Run Omnara services and the branch daemon against a real Tenki VM (requires cloudflared)
+	@$(LOAD_DOTENV); \
+	: "$${TENKI_API_KEY:?TENKI_API_KEY is required}"; \
+	command -v cloudflared >/dev/null || { echo 'cloudflared is required'; exit 1; }; \
+	OMNARA_REQUIRE_TENKI_LIVE=1 $(SERVICE_E2E_ENV) $(GO) test -count=1 -v -timeout=20m -tags='integration servicee2e live' ./internal/e2e -run '^TestServiceE2ELiveTenki$$'
 
 test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 

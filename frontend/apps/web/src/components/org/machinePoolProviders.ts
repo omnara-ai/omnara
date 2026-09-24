@@ -1,17 +1,19 @@
 import type { CreateMachinePoolRequest, MachinePool } from '@omnara/sdk'
 
+import { memoryGbDraft, memoryGbToMb } from '@/lib/machine-memory'
 import { providerOptionStrings } from '@/lib/provider-options'
 
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
+    optional?: boolean
     key: string
     label: string
     placeholder: string
     description?: string
     descriptionHref?: string
   }
-  location: {
+  location?: {
     key: string
     label: string
     placeholder: string
@@ -31,6 +33,10 @@ interface MachinePoolProviderDefinition {
     emptyDescription: string
     defaultSecretName: string
     secretValuePlaceholder: string
+  }
+  resourceBounds?: {
+    cpu: { min: number; max: number }
+    memoryMb: { min: number; max: number; step: number }
   }
   resources: {
     cpu: MachinePoolResourceMode
@@ -147,11 +153,52 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
+const tenki: MachinePoolProviderDefinition = {
+  label: 'Tenki',
+  resource: {
+    key: 'image',
+    label: 'Image (optional)',
+    placeholder: 'Tenki base image',
+    optional: true,
+    description:
+      'Leave empty to use the Tenki base image, or enter a Tenki registry image reference.',
+    descriptionHref: 'https://tenki.cloud/docs/sandbox/quickstart',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+  resourceBounds: {
+    cpu: { min: 1, max: 16 },
+    memoryMb: { min: 512, max: 65536, step: 2 },
+  },
+}
+
+export const machinePoolProviderDefinitions: Record<
   MachinePoolProvider,
   MachinePoolProviderDefinition
->
+> = { unikraft, blaxel, daytona, modal, tenki }
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)
+}
+
+export function machinePoolResourcesInBounds(
+  provider: MachinePoolProvider,
+  cpu: string,
+  memoryGb: string,
+) {
+  const bounds = machinePoolProviderDefinitions[provider].resourceBounds
+  if (!bounds) return true
+  const cores = Number(cpu)
+  const memoryMb = memoryGbToMb(memoryGb)
+  return (
+    cores >= bounds.cpu.min &&
+    cores <= bounds.cpu.max &&
+    memoryMb >= bounds.memoryMb.min &&
+    memoryMb <= bounds.memoryMb.max &&
+    memoryMb % bounds.memoryMb.step === 0
+  )
+}
+
+export function machinePoolMemoryDraft(provider: MachinePoolProvider, memoryMb: number | null) {
+  const bounds = machinePoolProviderDefinitions[provider].resourceBounds
+  return bounds && memoryMb !== null ? String(memoryMb / 1024) : memoryGbDraft(memoryMb)
 }

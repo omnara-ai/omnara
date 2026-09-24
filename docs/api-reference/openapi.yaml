@@ -11731,7 +11731,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [unikraft, modal]
+                  enum: [unikraft, modal, tenki]
                 default_machine_cpu:
                   type: integer
                   format: int32

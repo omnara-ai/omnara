@@ -1,6 +1,6 @@
 ---
 title: Machine pools
-description: On-demand machine capacity from Blaxel, Unikraft Cloud, Daytona, or Modal
+description: On-demand machine capacity from Blaxel, Unikraft Cloud, Daytona, Modal, or Tenki
 icon: "layer-group"
 ---
 
@@ -12,7 +12,7 @@ A machine pool lets Omnara create machines from a sandbox provider when an agent
 Omnara gives you two ways to run pool machines:
 
 - **Omnara-managed pools** — ready-to-use sandboxes. Omnara manages the sandbox provider account, credentials, and default machine environment.
-- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, or Modal account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies.
+- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, Modal, or Tenki account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies.
 
 ## What persists
 
@@ -38,7 +38,7 @@ The agent's conversation, event history, and uploaded artifacts remain in Omnara
 
 Runtime protection is an optional pool setting that defaults to disabled. When enabled, Omnara may delete a provider sandbox that remains running after its daemon becomes inactive. Out-of-band work that keeps a sandbox running without its daemon is therefore not supported on a protected pool.
 
-Blaxel, Daytona, Modal, and Unikraft pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
+Blaxel, Daytona, Modal, Tenki, and Unikraft pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
 
 ## Create a pool
 
@@ -59,7 +59,7 @@ The Modal app defaults to `omnara` and is created automatically on first provisi
   <PoolsCreate />
 </Tab>
 <Tab title="Dashboard">
-  1. On the **Machines** page, click **New pool** and choose Blaxel, Unikraft, Daytona, or Modal.
+  1. On the **Machines** page, click **New pool** and choose Blaxel, Unikraft, Daytona, Modal, or Tenki.
   2. Name the pool and select its provider credential secret. Use **New secret** to create one without leaving the dialog.
   3. Enter the image or snapshot, provider settings, machine size, and capacity limits. You can also set a startup script, working directory, and environment variables.
   4. Optionally grant the pool to projects, then create it.
@@ -119,3 +119,13 @@ By default, Omnara creates one machine at launch and allows one machine in total
 <Info>
 Full schema and playground: [Create machine pool](/api-reference/endpoints/machine-pools/create-machine-pool) · [Update machine pool](/api-reference/endpoints/machine-pools/update-machine-pool) · [Pool grants](/api-reference/endpoints/machine-pools/create-project-machine-pool-grant).
 </Info>
+
+## Tenki pools
+
+Store your Tenki workspace API key as an organization-owned secret and select **Tenki** when creating a pool. CPU and memory defaults and maximums are required. Leave **Image** empty to use Tenki's Ubuntu base image, or supply a Tenki registry image reference. No region or workspace field is required; the key selects the workspace.
+
+Tenki machines use 1–16 vCPU, 512–65536 MiB of memory in 2 MiB increments, and a 20 GiB root disk by default. Set `disk_size_gb` (5–100) in provider options through the API or configuration file to change disk size. Custom images must support the `tenki` user, `/home/tenki`, `flock`, and the usual daemon installer dependencies. Startup scripts run as `tenki`; use `sudo` for system package installation.
+
+Omnara creates sticky sessions and owns their cleanup. Configure idle deletion and enable runtime protection to reclaim unused machines. Tenki's automatic idle pause is disabled; pause/resume and persistent-volume management are not exposed by this integration. Guest data is lost when the session is terminated. The provider credential remains in Omnara; daemon credentials and machine environment are installed through the authenticated data plane under a private directory in the guest.
+
+Tenki does not deduplicate session creation. Omnara records each machine's creation attempt durably and sends at most one create request. After a lost response, retries discover the session by ownership metadata. If the request never reached Tenki, that machine's provisioning eventually fails instead of risking a duplicate session; launch a replacement machine.
