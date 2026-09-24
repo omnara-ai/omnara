@@ -18,6 +18,20 @@ CROSS JOIN LATERAL (
 ORDER BY page.id
 LIMIT sqlc.arg(row_limit);
 
+-- name: CountUnclaimedIntegrationRuntimes :one
+SELECT count(*)
+FROM project_integrations integration
+JOIN projects project ON project.id = integration.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = integration.org_id AND org.deleted_at IS NULL
+WHERE integration.integration_type = ANY(sqlc.arg(integration_types)::text[])
+  AND integration.state = 'active' AND integration.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM integration_runtime runtime
+      WHERE runtime.project_id = integration.project_id AND runtime.integration_id = integration.id
+        AND runtime.runtime_key = sqlc.arg(runtime_key)
+        AND runtime.claim_expires_at > statement_timestamp()
+  );
+
 -- name: GetIntegrationRuntimeFailure :one
 SELECT coalesce(runtime.last_error, '') AS message, runtime.available_at AS retry_at
 FROM integration_runtime runtime

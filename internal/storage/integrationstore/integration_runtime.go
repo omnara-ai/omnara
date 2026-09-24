@@ -19,6 +19,8 @@ import (
 
 var ErrIntegrationRuntimeLeaseLost = errors.New("integration runtime lease lost")
 
+const DiscordRuntimeKey = "discord/shard/0"
+
 type IntegrationRuntimeRevision struct {
 	ProjectID, IntegrationID uuid.UUID
 	Key                      string
@@ -39,6 +41,13 @@ type IntegrationRuntimeClaim struct {
 type IntegrationRuntimeFailure struct {
 	Message string
 	RetryAt time.Time
+}
+
+func (s *Store) CountUnclaimedDiscordIntegrations(ctx context.Context) (int64, error) {
+	return s.q.CountUnclaimedIntegrationRuntimes(ctx, dbsqlc.CountUnclaimedIntegrationRuntimesParams{
+		IntegrationTypes: integrationdefinition.IntegrationTypesForProvider(integrationdefinition.ProviderDiscord),
+		RuntimeKey:       DiscordRuntimeKey,
+	})
 }
 
 func (s *Store) GetIntegrationRuntimeFailure(

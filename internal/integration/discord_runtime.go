@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
@@ -28,6 +29,7 @@ type DiscordRuntime struct {
 	HTTPClient   *http.Client
 	Log          *slog.Logger
 	Capacity     int
+	Metrics      *metrics.DiscordRuntimeRecorder
 	runShard     func(context.Context, discord.ShardConfig, *discord.Checkpoint, discord.CommitDispatch) error
 }
 
@@ -37,8 +39,10 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 	}
 	capacity := r.Capacity
 	if capacity <= 0 {
-		capacity = 64
+		capacity = 1024
 	}
+	r.Metrics.RecordCapacity(capacity)
+	defer r.Metrics.RecordClaims(0)
 	log := r.Log
 	if log == nil {
 		log = slog.Default()
@@ -56,6 +60,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 			return nil
 		case integrationID := <-done:
 			delete(active, integrationID)
+			r.Metrics.RecordClaims(len(active))
 		case <-timer.C:
 			if len(active) < capacity {
 				scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -91,7 +96,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 						}
 						revision := integrationstore.IntegrationRuntimeRevision{
 							ProjectID: integrationSetup.ProjectID, IntegrationID: integrationSetup.ID,
-							Key: "discord/shard/0", SetupRevision: integrationSetup.SetupRevision,
+							Key: integrationstore.DiscordRuntimeKey, SetupRevision: integrationSetup.SetupRevision,
 							CredentialVersionID: secret.Secret.CurrentVersionID,
 						}
 						started := time.Now()
@@ -104,6 +109,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 							continue
 						}
 						active[integrationSetup.ID] = true
+						r.Metrics.RecordClaims(len(active))
 						jobs.Add(1)
 						go func() {
 							defer jobs.Done()

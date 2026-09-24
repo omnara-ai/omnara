@@ -221,7 +221,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	workerDiscordCapacity, err := getenvInt("OMNARA_WORKER_DISCORD_CAPACITY", 64)
+	workerDiscordCapacity, err := getenvInt("OMNARA_WORKER_DISCORD_CAPACITY", 1024)
 	if err != nil {
 		return Config{}, err
 	}

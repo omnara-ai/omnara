@@ -48,8 +48,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.EventWebhookPerOrgConcurrency != 128 {
 		t.Fatalf("expected default per-org event webhook concurrency 128, got %d", cfg.EventWebhookPerOrgConcurrency)
 	}
-	if cfg.WorkerDiscordCapacity != 64 {
-		t.Fatalf("expected default Discord capacity 64, got %d", cfg.WorkerDiscordCapacity)
+	if cfg.WorkerDiscordCapacity != 1024 {
+		t.Fatalf("expected default Discord capacity 1024, got %d", cfg.WorkerDiscordCapacity)
 	}
 	if cfg.WorkerInboxCapacity != 4 {
 		t.Fatalf("expected default worker inbox capacity 4, got %d", cfg.WorkerInboxCapacity)

@@ -246,6 +246,7 @@ func main() {
 	}()
 	discordRuntime := integrationruntime.DiscordRuntime{
 		Capacity:     cfg.WorkerDiscordCapacity,
+		Metrics:      metrics.NewDiscordRuntimeRecorder(metricSet),
 		Integrations: store.Integrations(),
 		Secrets:      store.Secrets(),
 		Redis:        redisClient,

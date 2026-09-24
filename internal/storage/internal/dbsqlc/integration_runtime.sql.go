@@ -95,6 +95,33 @@ func (q *Queries) ClaimIntegrationRuntime(ctx context.Context, arg ClaimIntegrat
 	return i, err
 }
 
+const countUnclaimedIntegrationRuntimes = `-- name: CountUnclaimedIntegrationRuntimes :one
+SELECT count(*)
+FROM project_integrations integration
+JOIN projects project ON project.id = integration.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = integration.org_id AND org.deleted_at IS NULL
+WHERE integration.integration_type = ANY($1::text[])
+  AND integration.state = 'active' AND integration.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM integration_runtime runtime
+      WHERE runtime.project_id = integration.project_id AND runtime.integration_id = integration.id
+        AND runtime.runtime_key = $2
+        AND runtime.claim_expires_at > statement_timestamp()
+  )
+`
+
+type CountUnclaimedIntegrationRuntimesParams struct {
+	IntegrationTypes []string
+	RuntimeKey       string
+}
+
+func (q *Queries) CountUnclaimedIntegrationRuntimes(ctx context.Context, arg CountUnclaimedIntegrationRuntimesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUnclaimedIntegrationRuntimes, arg.IntegrationTypes, arg.RuntimeKey)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getIntegrationRuntimeFailure = `-- name: GetIntegrationRuntimeFailure :one
 SELECT coalesce(runtime.last_error, '') AS message, runtime.available_at AS retry_at
 FROM integration_runtime runtime

@@ -133,6 +133,13 @@ func main() {
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
+	discordRuntimeRecorder := metrics.NewDiscordRuntimeDemandRecorder(metricSet)
+	discordRuntimeDone := make(chan struct{})
+	go func() {
+		defer close(discordRuntimeDone)
+		runDiscordRuntimeMetricsLoop(ctx, logger, store.Integrations(),
+			discordRuntimeRecorder)
+	}()
 
 	machineLoopDone := make(chan struct{})
 	go func() {
@@ -220,6 +227,7 @@ func main() {
 	<-idleAgentArchiveLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
+	<-discordRuntimeDone
 	<-defaultModelProviderDone
 	if exitCode != 0 {
 		os.Exit(exitCode)

@@ -29,7 +29,6 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY` | Soft cap on concurrent event webhook deliveries per org across workers; use the same value on every worker | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
 | `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
-| `OMNARA_WORKER_DISCORD_CAPACITY` | Maximum concurrent Discord integration Gateway sessions per worker process; positive integer | `64` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |

@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -392,11 +394,13 @@ func TestDiscordRuntimeScanClaimsAvailableIntegrationsWithinCapacity(t *testing.
 	require.NoError(t, err)
 	require.True(t, found)
 	started := make(chan discord.ShardConfig, len(integrations))
+	metricSet := metrics.New()
 	r := DiscordRuntime{
 		Integrations: f.store.Integrations(),
 		Secrets:      f.store.Secrets(),
 		Redis:        integrationredis.OpenClient(t),
 		Capacity:     2,
+		Metrics:      metrics.NewDiscordRuntimeRecorder(metricSet),
 		HTTPClient: &http.Client{Transport: discordRuntimeTransport(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
 				Body: io.NopCloser(strings.NewReader(`{"url":"wss://gateway.discord.gg","shards":1,
@@ -421,8 +425,19 @@ func TestDiscordRuntimeScanClaimsAvailableIntegrationsWithinCapacity(t *testing.
 			t.Fatal("available integrations did not start", ctx.Err())
 		}
 	}
+	scrape := func() string {
+		response := httptest.NewRecorder()
+		metricSet.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, metrics.ScrapePath, nil))
+		return response.Body.String()
+	}
+	require.Contains(t, scrape(), "omnara_discord_runtime_claims 2\n")
+	require.Contains(t, scrape(), "omnara_discord_runtime_capacity 2\n")
+	unclaimed, err := f.store.Integrations().CountUnclaimedDiscordIntegrations(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), unclaimed)
 	cancel()
 	require.NoError(t, <-done)
+	require.Contains(t, scrape(), "omnara_discord_runtime_claims 0\n")
 	require.ElementsMatch(t, []string{integrations[1].ProviderTenantID, integrations[2].ProviderTenantID}, seen)
 	require.Empty(t, started, "the capacity limit must leave the last integration unstarted")
 	require.NoError(t, f.store.Integrations().RenewIntegrationRuntime(t.Context(), owner.Lease, discordRuntimeLease))

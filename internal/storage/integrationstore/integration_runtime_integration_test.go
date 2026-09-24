@@ -144,6 +144,56 @@ func newIntegrationRuntimeFixture(
 	return f, secretStore, integration, version.ID
 }
 
+func TestUnclaimedDiscordIntegrations(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{
+		"new", "claimed", "expired", "retry_wait", "other_key", "disconnected", "deleted", "project_deleted", "org_deleted",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			f, _, integration, version := newIntegrationRuntimeFixture(t)
+			want := int64(1)
+			switch scenario {
+			case "claimed", "expired", "retry_wait", "other_key":
+				runtimeKey := integrationstore.DiscordRuntimeKey
+				if scenario == "other_key" {
+					runtimeKey = "different-connection"
+				}
+				claim, found, err := f.store.ClaimIntegrationRuntime(f.ctx, integrationstore.IntegrationRuntimeRevision{
+					ProjectID: f.project, IntegrationID: integration.ID, Key: runtimeKey,
+					SetupRevision: integration.SetupRevision, CredentialVersionID: version,
+				}, time.Minute)
+				require.NoError(t, err)
+				require.True(t, found)
+				switch scenario {
+				case "claimed":
+					want = 0
+				case "expired":
+					f.exec(t, `UPDATE integration_runtime SET claim_expires_at=now()-interval '1 second'
+WHERE integration_id=$1`, integration.ID)
+				case "retry_wait":
+					require.NoError(t, f.store.ReleaseIntegrationRuntime(f.ctx, claim.Lease, time.Hour, "retrying"))
+				}
+			case "disconnected":
+				f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, integration.ID)
+				want = 0
+			case "deleted":
+				f.exec(t, `UPDATE project_integrations SET deleted_at=now() WHERE id=$1`, integration.ID)
+				want = 0
+			case "project_deleted":
+				f.exec(t, `UPDATE projects SET deleted_at=now() WHERE id=$1`, f.project)
+				want = 0
+			case "org_deleted":
+				f.exec(t, `UPDATE orgs SET deleted_at=now() WHERE id=$1`, f.org)
+				want = 0
+			}
+			count, err := f.store.CountUnclaimedDiscordIntegrations(f.ctx)
+			require.NoError(t, err)
+			require.Equal(t, want, count)
+		})
+	}
+}
+
 func TestIntegrationRuntimeFailureUsesCurrentSetupAndCredential(t *testing.T) {
 	for _, scenario := range []string{
 		"failed", "retry_due", "reclaimed", "stale_response", "setup_changed", "rotated",
