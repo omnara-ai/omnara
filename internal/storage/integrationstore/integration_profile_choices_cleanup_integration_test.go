@@ -4,7 +4,6 @@ package integrationstore_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -25,9 +24,6 @@ func TestIntegrationProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *tes
 			decided := f.claim(t)
 			f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 				if err := work.FreezePlan(f.ctx, f.selectionPlan(t, f.integration.ID, "support")); err != nil {
-					return err
-				}
-				if err := work.PrepareSlot(f.ctx, "chosen", json.RawMessage(`{"digest":"frozen"}`)); err != nil {
 					return err
 				}
 				return work.Fail(f.ctx, "launch failed")

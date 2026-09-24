@@ -542,7 +542,7 @@ func seedListAgentsSlackTarget(
 	require.NoError(t, err)
 	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
 		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
-	_, err = store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	_, err = store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
 		ctx,

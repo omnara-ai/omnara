@@ -745,7 +745,7 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 	require.Len(t, plan, 1)
 	var agentID uuid.UUID
 	for key := range plan {
-		result, err := f.store.Execution().AdmitInboxLaunchSlot(ctx, selected.Lease(), key)
+		result, err := f.store.Execution().AdmitInboxLaunchSlot(ctx, selected.Lease(), key, nil)
 		require.NoError(t, err)
 		agentID = result.Agent.ID
 	}

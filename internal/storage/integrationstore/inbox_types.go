@@ -62,7 +62,6 @@ type IntegrationInboxRecord struct {
 	Payload        []byte
 	Events         json.RawMessage
 	Plan           json.RawMessage
-	Progress       json.RawMessage // Outcomes only; admission identities come from Plan.
 	ClaimToken     uuid.UUID
 }
 

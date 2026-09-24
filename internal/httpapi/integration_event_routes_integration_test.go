@@ -3081,7 +3081,7 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 		)
 		require.Equal(t, "received", response["ok"])
 		worker := slackJourneyWorker(fixture.Project, fixture.Slack)
-		var frozenPlan, frozenProgress json.RawMessage
+		var frozenPlan json.RawMessage
 		for attempt := 1; attempt <= integrationstore.IntegrationInboxMaxAttempts; attempt++ {
 			if attempt > 1 {
 				_, err := pool.Exec(ctx,
@@ -3095,24 +3095,22 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 				errors.Is(consumeErr, storeerr.ErrStateTransitionConflict) ||
 					errors.Is(consumeErr, storeerr.ErrManagedWorkAdmissionDenied),
 				"attempt %d: %v", attempt, consumeErr)
-			var plan, progress json.RawMessage
+			var plan json.RawMessage
 			var state, lastError string
 			var attempts int
 			var completed, retryScheduled bool
 			require.NoError(t, pool.QueryRow(ctx, `
-SELECT plan,progress,state,last_error,attempt_count,completed_at IS NOT NULL,available_at > updated_at
+SELECT plan,state,last_error,attempt_count,completed_at IS NOT NULL,available_at > updated_at
 FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 `, fixture.Project.ProjectUUID, "slack:"+eventID).Scan(
-				&plan, &progress, &state, &lastError, &attempts, &completed, &retryScheduled))
+				&plan, &state, &lastError, &attempts, &completed, &retryScheduled))
 			require.Equal(t, attempt, attempts)
 			require.NotEmpty(t, lastError)
 			require.NotEqual(t, "{}", string(plan))
-			require.NotContains(t, string(progress), "committed")
 			if attempt == 1 {
-				frozenPlan, frozenProgress = plan, progress
+				frozenPlan = plan
 			} else {
 				require.JSONEq(t, string(frozenPlan), string(plan), "retries retain the frozen plan")
-				require.JSONEq(t, string(frozenProgress), string(progress), "failure notices do not write slot progress")
 			}
 			if attempt < integrationstore.IntegrationInboxMaxAttempts {
 				require.Equal(t, "pending", state)

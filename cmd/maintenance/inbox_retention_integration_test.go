@@ -81,26 +81,25 @@ event_webhook:
 		ids.ProjectID, deleted)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
- (project_id,integration_id,receipt_key,payload,state,completed_at,plan,progress)
- VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}','{}'),
-        ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"slot":{"identity":"frozen"}}',
-         '{"slot":{"prepared":{"digest":"frozen"}}}'),
-        ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',statement_timestamp(),'{}','{}'),
-        ($1,$2,'pending','pending callback'::bytea,'pending',NULL,NULL,'{}')`, ids.ProjectID, live, disconnected)
+ (project_id,integration_id,receipt_key,payload,state,completed_at,plan)
+ VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}'),
+        ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"slot":{"identity":"frozen"}}'),
+        ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',statement_timestamp(),'{}'),
+        ($1,$2,'pending','pending callback'::bytea,'pending',NULL,NULL)`, ids.ProjectID, live, disconnected)
 	require.NoError(t, err)
 	type retainedReceipt struct {
-		key, state, payload, plan, progress string
+		key, state, payload, plan string
 	}
 	readRetained := func() []retainedReceipt {
 		rows, err := pool.Query(ctx, `SELECT receipt_key,state,convert_from(payload,'UTF8'),
- coalesce(plan::text,''),progress::text FROM integration_inbox
+ coalesce(plan::text,'') FROM integration_inbox
  WHERE receipt_key IN ('recent','failed','disabled-failed','pending') ORDER BY receipt_key`)
 		require.NoError(t, err)
 		defer rows.Close()
 		var result []retainedReceipt
 		for rows.Next() {
 			var row retainedReceipt
-			require.NoError(t, rows.Scan(&row.key, &row.state, &row.payload, &row.plan, &row.progress))
+			require.NoError(t, rows.Scan(&row.key, &row.state, &row.payload, &row.plan))
 			result = append(result, row)
 		}
 		require.NoError(t, rows.Err())

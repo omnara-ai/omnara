@@ -136,7 +136,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			results, err := consumer.Consume(ctx, receipt.Lease())
 			require.NoError(t, err)
 			if scenario == "active sibling with file" {
-				require.Equal(t, 1, execution.checks[archivedKey], "initial full pass must settle the later archived slot")
+				require.Zero(t, execution.checks[archivedKey], "archival settles the recipient before live authority checks")
 				require.Greater(t, execution.checks[activeKey], 1, "provider requests must recheck live authority")
 			}
 			require.Len(t, results, count)

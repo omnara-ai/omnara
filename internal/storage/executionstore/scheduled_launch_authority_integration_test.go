@@ -37,7 +37,7 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled")
+	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled", nil)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	f.assertAbsent(t, "scheduled")
 
@@ -47,7 +47,7 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
-	launch, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled")
+	launch, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "scheduled", nil)
 	require.NoError(t, err)
 	require.True(t, launch.Created)
 	require.Equal(t, slot.AgentID, launch.Agent.ID)

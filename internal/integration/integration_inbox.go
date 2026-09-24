@@ -67,15 +67,21 @@ type IntegrationExecutionStore interface {
 		integrationstore.ConversationAddress,
 	) error
 	GetAgentProfile(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentProfileRecord, error)
+	GetIntegrationInboxOutcomes(
+		context.Context, integrationstore.IntegrationInboxRecord,
+	) (map[string]executionstore.InboxSlotOutcome, error)
+	CompleteIntegrationInbox(context.Context, integrationstore.IntegrationInboxLease) error
 	AdmitInboxLaunchSlot(
 		context.Context,
 		integrationstore.IntegrationInboxLease,
 		string,
+		[]artifactstore.PreparedArtifact,
 	) (executionstore.LaunchAgentResult, error)
 	AdmitInboxInputSlot(
 		context.Context,
 		integrationstore.IntegrationInboxLease,
 		string,
+		[]artifactstore.PreparedArtifact,
 	) (executionstore.InboxInputResult, error)
 }
 
@@ -107,51 +113,6 @@ func NewIntegrationRouter(
 	return &IntegrationRouter{execution: execution, integrations: integrations}
 }
 
-func (r *IntegrationRouter) Prepare(
-	ctx context.Context,
-	lease integrationstore.IntegrationInboxLease,
-	slot string,
-	artifacts []artifactstore.PreparedArtifact,
-) error {
-	value, err := json.Marshal(executionstore.InboxInputPreparation{Artifacts: artifacts})
-	if err != nil {
-		return err
-	}
-	return r.integrations.WithIntegrationInboxLease(
-		ctx,
-		lease,
-		func(work *integrationstore.IntegrationInboxLeaseTx) error {
-			plan, err := decodeIntegrationInboxPlan(work.Receipt().Plan)
-			if err != nil {
-				return err
-			}
-			planned, exists := plan[slot]
-			if !exists || len(planned.ArtifactIDs) != len(artifacts) {
-				return fmt.Errorf("preparation differs from frozen files")
-			}
-			ids := make(map[uuid.UUID]bool, len(planned.ArtifactIDs))
-			for _, id := range planned.ArtifactIDs {
-				ids[id] = true
-			}
-			for _, artifact := range artifacts {
-				if !ids[artifact.ID] {
-					return fmt.Errorf("preparation contains an unplanned or duplicate artifact")
-				}
-				delete(ids, artifact.ID)
-				if err := artifact.Validate(); err != nil {
-					return err
-				}
-				for _, file := range planned.Files {
-					if file.ArtifactID == artifact.ID && file.Expected != nil && *file.Expected != artifact {
-						return fmt.Errorf("prepared artifact differs from frozen content")
-					}
-				}
-			}
-			return work.PrepareSlot(ctx, slot, value)
-		},
-	)
-}
-
 type IntegrationSlotAdmission struct {
 	Slot   string
 	Launch *executionstore.LaunchAgentResult
@@ -161,6 +122,7 @@ type IntegrationSlotAdmission struct {
 func (r *IntegrationRouter) Admit(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
+	prepared map[string][]artifactstore.PreparedArtifact,
 ) ([]IntegrationSlotAdmission, error) {
 	receipt, err := r.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
@@ -188,11 +150,11 @@ func (r *IntegrationRouter) Admit(
 	for _, key := range keys {
 		result := IntegrationSlotAdmission{Slot: key}
 		if plan[key].Launch != nil {
-			value, admitErr := r.execution.AdmitInboxLaunchSlot(ctx, lease, key)
+			value, admitErr := r.execution.AdmitInboxLaunchSlot(ctx, lease, key, prepared[key])
 			err = admitErr
 			result.Launch = &value
 		} else {
-			value, admitErr := r.execution.AdmitInboxInputSlot(ctx, lease, key)
+			value, admitErr := r.execution.AdmitInboxInputSlot(ctx, lease, key, prepared[key])
 			err = admitErr
 			result.Input = &value
 		}
@@ -208,11 +170,7 @@ func (r *IntegrationRouter) Admit(
 	if receipt.State == integrationstore.IntegrationInboxCompleted {
 		return results, nil
 	}
-	err = r.integrations.WithIntegrationInboxLease(
-		ctx,
-		lease,
-		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Complete(ctx) },
-	)
+	err = r.execution.CompleteIntegrationInbox(ctx, lease)
 	if err != nil {
 		if latest, readErr := r.integrations.GetIntegrationInbox(
 			ctx,

@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
@@ -126,7 +125,7 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 		ContentBlocks: json.RawMessage(
 			`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`,
 		),
-		Files: []IntegrationPlannedFile{{ArtifactID: placeholder, ProviderFileID: "F123"}},
+		Files: []IntegrationPlannedFile{failedIntegrationFile(placeholder, []byte("review"))},
 		Actor: integrationTestActor(t, integrationSetup, "U123"),
 	}
 	plans := make([]IntegrationInboxPlan, 2)
@@ -188,30 +187,14 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 			},
 		)
 	require.NoError(t, err)
-	prepare := func(key string, slot IntegrationInboxSlot) {
-		file := slot.Files[0]
-		err := router.Prepare(
-			ctx,
-			receipt.Lease(),
-			key,
-			[]artifactstore.PreparedArtifact{
-				{
-					ID:          file.ArtifactID,
-					Filename:    "review.txt",
-					ContentType: "text/plain",
-					Digest:      blobstore.ContentDigest([]byte("review")),
-					SizeBytes:   6,
-				},
-			},
-		)
-		require.NoError(t, err)
-	}
+	prepared := make(map[string][]artifactstore.PreparedArtifact)
 	for key, slot := range plan {
 		if slot.Selection.Slot == "a" {
-			prepare(key, slot)
+			require.NotNil(t, slot.Files[0].Expected)
+			prepared[key] = []artifactstore.PreparedArtifact{*slot.Files[0].Expected}
 		}
 	}
-	results, err := router.Admit(ctx, receipt.Lease())
+	results, err := router.Admit(ctx, receipt.Lease(), prepared)
 	require.Error(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "a", plan[results[0].Slot].Selection.Slot)
@@ -228,7 +211,7 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 	partialPlan, err := freezeTestIntegrationEvents(ctx, router, partialReceipt.Lease(), []IntegrationEvent{partialEvent})
 	require.NoError(t, err)
 	require.Len(t, partialPlan, 1)
-	_, err = router.Admit(ctx, partialReceipt.Lease())
+	_, err = router.Admit(ctx, partialReceipt.Lease(), nil)
 	require.NoError(t, err)
 	recovered, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), nil)
 	require.NoError(t, err)
@@ -237,14 +220,24 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 	recoveredJSON, err := json.Marshal(recovered)
 	require.NoError(t, err)
 	require.JSONEq(t, string(originalJSON), string(recoveredJSON))
-	for key, slot := range recovered {
+	var pendingArtifacts []uuid.UUID
+	for _, slot := range recovered {
 		if slot.Selection.Slot == "b" {
-			prepare(key, slot)
+			pendingArtifacts = slot.ArtifactIDs
 		}
 	}
-	results, err = router.Admit(ctx, receipt.Lease())
+	retryUploads := &integrationConsumerUploads{}
+	retryProvider := &integrationConsumerProvider{file: IntegrationInboxFile{
+		Content: []byte("review"), ContentType: "text/plain",
+	}}
+	retryConsumer := NewIntegrationInboxConsumer(router, integrations, retryUploads,
+		map[string]IntegrationInboxProvider{"slack": retryProvider}, nil, testIntegrationLaunchWorkflow(router))
+	results, err = retryConsumer.Consume(ctx, receipt.Lease())
 	require.NoError(t, err)
 	require.Len(t, results, 2)
+	require.Equal(t, pendingArtifacts, retryUploads.probed, "delivered slots must not re-read their uploaded files")
+	require.Equal(t, 1, retryProvider.downloads)
+	require.Equal(t, 1, retryUploads.uploads)
 	for _, result := range results {
 		config, _, err := store.Execution().GetAgentConfig(ctx, ids.ProjectID, result.Launch.Agent.CurrentConfigID)
 		require.NoError(t, err)
@@ -267,7 +260,7 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 		require.Nil(t, slot.Selection)
 		require.NotNil(t, slot.Subscription)
 	}
-	_, err = router.Admit(ctx, receipts[1-winner].Lease())
+	_, err = router.Admit(ctx, receipts[1-winner].Lease(), nil)
 	require.NoError(t, err)
 	consumerReceipt := claim("consumer")
 	event.SemanticKey = "message:consumer"
@@ -294,7 +287,7 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 	}
 	_, err = pool.Exec(ctx, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, integrationSetup)
 	require.NoError(t, err)
-	results, err = router.Admit(ctx, receipt.Lease())
+	results, err = router.Admit(ctx, receipt.Lease(), nil)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 	for _, result := range results {
@@ -419,7 +412,7 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 					empty, err := freezeTestIntegrationEvents(ctx, router, follow.Lease(), []IntegrationEvent{event})
 					require.NoError(t, err)
 					require.Empty(t, empty)
-					_, err = router.Admit(ctx, follow.Lease())
+					_, err = router.Admit(ctx, follow.Lease(), nil)
 					require.NoError(t, err)
 					completed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, follow.ID)
 					require.NoError(t, err)
@@ -435,7 +428,7 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 				fresh, err := freezeTestIntegrationEvents(ctx, router, mention.Lease(), []IntegrationEvent{mentioned})
 				require.NoError(t, err)
 				require.Len(t, fresh, 1)
-				_, err = router.Admit(ctx, mention.Lease())
+				_, err = router.Admit(ctx, mention.Lease(), nil)
 				require.NoError(t, err)
 			} else {
 				_, err = freezeTestIntegrationEvents(ctx, router, follow.Lease(), []IntegrationEvent{event})
@@ -456,10 +449,10 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 			empty, err := freezeTestIntegrationEvents(ctx, router, other.Lease(), []IntegrationEvent{unrelated})
 			require.NoError(t, err)
 			require.Empty(t, empty)
-			_, err = router.Admit(ctx, other.Lease())
+			_, err = router.Admit(ctx, other.Lease(), nil)
 			require.NoError(t, err)
 			if ownerState == integrationstore.IntegrationInboxFailed {
-				_, err = router.Admit(ctx, owner.Lease())
+				_, err = router.Admit(ctx, owner.Lease(), nil)
 				require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 				return
 			}
@@ -470,15 +463,15 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 			if ownerState != integrationstore.IntegrationInboxProcessing {
 				owner = claim()
 			}
-			_, err = router.Admit(ctx, owner.Lease())
+			_, err = router.Admit(ctx, owner.Lease(), nil)
 			require.NoError(t, err)
 			continued, err := freezeTestIntegrationEvents(ctx, router, follow.Lease(), []IntegrationEvent{event})
 			require.NoError(t, err)
 			require.Len(t, continued, 1)
-			results, err := router.Admit(ctx, follow.Lease())
+			results, err := router.Admit(ctx, follow.Lease(), nil)
 			require.NoError(t, err)
 			require.True(t, results[0].Input.Created)
-			results, err = router.Admit(ctx, follow.Lease())
+			results, err = router.Admit(ctx, follow.Lease(), nil)
 			require.NoError(t, err)
 			require.False(t, results[0].Input.Created)
 		})

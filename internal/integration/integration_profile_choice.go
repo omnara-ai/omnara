@@ -8,12 +8,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type IntegrationProfileNames interface {
+type IntegrationProfileChoiceExecution interface {
 	GetAgentProfileDisplayNames(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]string, error)
+	GetIntegrationInboxOutcomes(
+		context.Context, integrationstore.IntegrationInboxRecord,
+	) (map[string]executionstore.InboxSlotOutcome, error)
 }
 
 type IntegrationProfileChoiceProvider interface {
@@ -25,14 +29,16 @@ type IntegrationProfileChoiceProvider interface {
 
 type ChatIntegrationLauncher struct {
 	store     *integrationstore.Store
-	profiles  IntegrationProfileNames
+	execution IntegrationProfileChoiceExecution
 	providers map[string]IntegrationInboxProvider
 }
 
 func NewChatIntegrationLauncher(
-	store *integrationstore.Store, profiles IntegrationProfileNames, providers map[string]IntegrationInboxProvider,
+	store *integrationstore.Store,
+	execution IntegrationProfileChoiceExecution,
+	providers map[string]IntegrationInboxProvider,
 ) *ChatIntegrationLauncher {
-	return &ChatIntegrationLauncher{store: store, profiles: profiles, providers: providers}
+	return &ChatIntegrationLauncher{store: store, execution: execution, providers: providers}
 }
 
 func integrationChoiceSourceKey(event IntegrationEvent) string {
@@ -90,7 +96,7 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 		for _, intent := range profiles {
 			ids = append(ids, intent.ProfileID)
 		}
-		names, err := l.profiles.GetAgentProfileDisplayNames(ctx, input.Integration.ProjectID, ids)
+		names, err := l.execution.GetAgentProfileDisplayNames(ctx, input.Integration.ProjectID, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -180,12 +186,12 @@ func (l *ChatIntegrationLauncher) selectedChoiceIntent(
 		if err != nil {
 			return nil, err
 		}
-		var progress map[string]map[string]json.RawMessage
-		if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
+		outcomes, err := l.execution.GetIntegrationInboxOutcomes(ctx, receipt)
+		if err != nil {
 			return nil, err
 		}
 		for key := range plan {
-			if _, committed := progress[key]["committed"]; committed {
+			if outcomes[key] == executionstore.InboxSlotDelivered {
 				return choiceIntent(choice), nil
 			}
 		}

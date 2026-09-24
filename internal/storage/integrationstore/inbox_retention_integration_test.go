@@ -28,14 +28,8 @@ func TestInboxRetentionUsesTerminalAgeAndSkipsLockedReceipts(t *testing.T) {
 					if err := work.FreezePlan(f.ctx, json.RawMessage(`{"slot":{"planned":"identity"}}`)); err != nil {
 						return err
 					}
-					if err := work.PrepareSlot(f.ctx, "slot", json.RawMessage(`{"digest":"frozen"}`)); err != nil {
-						return err
-					}
 					if state == integrationstore.IntegrationInboxFailed {
 						return work.Fail(f.ctx, "launch failed")
-					}
-					if err := work.CommitSlot(f.ctx, "slot", json.RawMessage(`{"admitted":true}`)); err != nil {
-						return err
 					}
 					return work.Complete(f.ctx)
 				})
@@ -69,7 +63,7 @@ func TestInboxRetentionUsesTerminalAgeAndSkipsLockedReceipts(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, want, count)
 			}
-			require.Equal(t, recent, f.read(t, recent.ID), "retained payload, plan and progress stay intact")
+			require.Equal(t, recent, f.read(t, recent.ID), "retained payload and plan stay intact")
 			require.Equal(t, processing, f.read(t, processing.ID))
 			require.Equal(t, pending, f.read(t, pending.ID))
 			replayed, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{

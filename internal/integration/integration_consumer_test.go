@@ -14,15 +14,17 @@ import (
 
 type integrationConsumerUploads struct {
 	present bool
+	probed  []uuid.UUID
 	uploads int
 	content []byte
 }
 
 func (s *integrationConsumerUploads) PreparedArtifactUploaded(
-	context.Context,
-	uuid.UUID,
-	artifactstore.PreparedArtifact,
+	_ context.Context,
+	_ uuid.UUID,
+	prepared artifactstore.PreparedArtifact,
 ) (bool, error) {
+	s.probed = append(s.probed, prepared.ID)
 	return s.present, nil
 }
 

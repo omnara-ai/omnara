@@ -113,14 +113,12 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 	if len(plan) != 1 {
 		return nil, fmt.Errorf("%w: invalid scheduled launch plan", ErrScheduledActionFailed)
 	}
-	var progress map[string]struct {
-		Committed json.RawMessage `json:"committed"`
-	}
-	if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
+	outcomes, err := h.router.execution.GetIntegrationInboxOutcomes(ctx, receipt)
+	if err != nil {
 		return nil, err
 	}
 	for key, slot := range plan {
-		if len(progress[key].Committed) != 0 {
+		if outcomes[key] != executionstore.InboxSlotPending {
 			continue
 		}
 		kind, ref, err := slot.Scope.Conversation()
@@ -136,7 +134,7 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 			return nil, err
 		}
 	}
-	return h.router.Admit(ctx, lease)
+	return h.router.Admit(ctx, lease, nil)
 }
 
 func (r *IntegrationRouter) FreezeScheduledLaunch(

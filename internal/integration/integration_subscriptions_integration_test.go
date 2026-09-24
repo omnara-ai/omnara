@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage"
-	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -20,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *testing.T) {
+func TestIntegrationConsumerSameExpansionSubscriptionAdmitsMessagesAndMedia(t *testing.T) {
 	t.Parallel()
 	_, store, ids, integrationID := integrationWorkerFixture(t)
 	ctx := t.Context()
@@ -63,7 +61,7 @@ func TestIntegrationRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *tes
 	placeholder := uuid.New()
 	media.SemanticKey = "a:files"
 	media.ContentBlocks = json.RawMessage(`[{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`)
-	media.Files = []IntegrationPlannedFile{{ArtifactID: placeholder, ProviderFileID: "F123"}}
+	media.Files = []IntegrationPlannedFile{failedIntegrationFile(placeholder, []byte("review"))}
 	router := NewIntegrationRouter(store.Execution(), store.Integrations())
 	plan, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), []IntegrationEvent{event, reply, media})
 	require.NoError(t, err)
@@ -76,21 +74,22 @@ func TestIntegrationRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *tes
 		}
 	}
 	require.NotEqual(t, uuid.Nil, plannedAgent)
-	for key, slot := range plan {
+	for _, slot := range plan {
 		require.Equal(t, plannedAgent, slot.AgentID)
 		if slot.Input != nil {
 			require.NotNil(t, slot.Subscription)
 		}
-		if len(slot.Files) != 0 {
-			require.NoError(t, router.Prepare(ctx, receipt.Lease(), key, []artifactstore.PreparedArtifact{{
-				ID: slot.Files[0].ArtifactID, Filename: "review.txt", ContentType: "text/plain",
-				Digest: blobstore.ContentDigest([]byte("review")), SizeBytes: 6,
-			}}))
-		}
 	}
-	results, err := router.Admit(ctx, receipt.Lease())
+	uploads := &integrationConsumerUploads{}
+	provider := &integrationConsumerProvider{file: IntegrationInboxFile{
+		Content: []byte("review"), ContentType: "text/plain",
+	}}
+	consumer := NewIntegrationInboxConsumer(router, store.Integrations(), uploads,
+		map[string]IntegrationInboxProvider{"slack": provider}, nil, testIntegrationLaunchWorkflow(router))
+	results, err := consumer.Consume(ctx, receipt.Lease())
 	require.NoError(t, err)
 	require.Len(t, results, 3)
+	require.Equal(t, 1, uploads.uploads)
 	require.NotNil(t, results[0].Launch, "admission must launch before later expansion inputs")
 	require.True(t, results[0].Launch.Created)
 	for _, result := range results[1:] {
@@ -107,7 +106,7 @@ func TestIntegrationRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *tes
 	require.NoError(t, err)
 	require.Len(t, subscriptions.Subscriptions, 1)
 	require.Equal(t, plannedAgent, subscriptions.Subscriptions[0].AgentID)
-	replayed, err := router.Admit(ctx, receipt.Lease())
+	replayed, err := router.Admit(ctx, receipt.Lease(), nil)
 	require.NoError(t, err)
 	require.Len(t, replayed, 3)
 	require.False(t, replayed[0].Launch.Created)
@@ -167,7 +166,7 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 	plan, err := router.Freeze(ctx, excludedReceipt.Lease(), []IntegrationEvent{event})
 	require.NoError(t, err)
 	require.Empty(t, plan)
-	_, err = router.Admit(ctx, excludedReceipt.Lease())
+	_, err = router.Admit(ctx, excludedReceipt.Lease(), nil)
 	require.NoError(t, err)
 	integration, err = store.Integrations().UpdateProjectIntegration(
 		ctx, integration.ID, integrationstore.SaveProjectIntegrationInput{
@@ -196,7 +195,7 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 	plan, err = router.Freeze(ctx, unforwarded.Lease(), decided)
 	require.NoError(t, err)
 	require.Empty(t, plan, "an existing subscription does not receive PR-open without a launch decision")
-	_, err = router.Admit(ctx, unforwarded.Lease())
+	_, err = router.Admit(ctx, unforwarded.Lease(), nil)
 	require.NoError(t, err)
 	receipt := capture("included")
 	plan, err = router.Freeze(ctx, receipt.Lease(), []IntegrationEvent{event})
@@ -209,7 +208,7 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
 	_, err = router.Freeze(ctx, receipt.Lease(), []IntegrationEvent{excluded})
 	require.NoError(t, err)
-	results, err := router.Admit(ctx, receipt.Lease())
+	results, err := router.Admit(ctx, receipt.Lease(), nil)
 	require.Error(t, err)
 	require.Empty(t, results)
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
@@ -221,12 +220,12 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 		conversation,
 	)
 	require.NotEqual(t, original.ID, replacement.ID)
-	results, err = router.Admit(ctx, receipt.Lease())
+	results, err = router.Admit(ctx, receipt.Lease(), nil)
 	require.NoError(t, err, "a matching live attachment may authorize already frozen work")
 	require.Len(t, results, 1)
 	require.True(t, results[0].Input.Created)
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
-	results, err = router.Admit(ctx, receipt.Lease())
+	results, err = router.Admit(ctx, receipt.Lease(), nil)
 	require.NoError(t, err)
 	require.False(t, results[0].Input.Created)
 	subscriptions, err := store.Integrations().ListIntegrationSubscriptions(

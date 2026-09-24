@@ -268,8 +268,6 @@ CREATE TABLE integration_inbox (
     CHECK (source = 'provider' OR events IS NULL),
     events jsonb CHECK (jsonb_typeof(events) = 'array' AND octet_length(events::text) <= 262144),
     plan jsonb CHECK (jsonb_typeof(plan) = 'object' AND octet_length(plan::text) <= 262144),
-    progress jsonb NOT NULL DEFAULT '{}'::jsonb
-        CHECK (jsonb_typeof(progress) = 'object' AND octet_length(progress::text) <= 262144),
     state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'processing', 'completed', 'failed')),
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 8),
     available_at timestamptz NOT NULL DEFAULT now(),

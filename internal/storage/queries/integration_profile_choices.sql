@@ -51,7 +51,7 @@ LIMIT 1;
 INSERT INTO integration_inbox(project_id, integration_id, receipt_key, payload, events)
 VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), sqlc.arg(payload), sqlc.arg(events))
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- Menu expiry must not remove the source replay barrier before its inbox receipt expires.
 -- name: CleanupExpiredIntegrationProfileChoices :execrows

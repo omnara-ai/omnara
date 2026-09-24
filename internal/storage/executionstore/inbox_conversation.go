@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -16,8 +17,8 @@ import (
 // It does not grant authority for other recipients in the same conversation.
 var ErrInboxRecipientSettled = errors.New("inbox recipient is already settled")
 
-// CheckInboxConversationAuthority also durably settles archived input recipients
-// before provider preparation, returning ErrInboxRecipientSettled on success.
+// CheckInboxConversationAuthority recognizes historical delivery and terminal
+// archival before provider preparation, without persisting a separate outcome.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -28,11 +29,42 @@ func (s *Store) CheckInboxConversationAuthority(
 	if err != nil {
 		return err
 	}
-	var slots map[string]struct {
+	raw, err := inboxPlanSlot(snapshot, key)
+	if err != nil {
+		return err
+	}
+	var envelope struct {
 		Launch *InboxLaunchPlan `json:"launch"`
 	}
-	if json.Unmarshal(snapshot.Plan, &slots) != nil {
+	if json.Unmarshal(raw, &envelope) != nil {
 		return storeerr.ErrInvalidRequest
+	}
+	var launch InboxLaunchSlot
+	var input InboxInputSlot
+	if envelope.Launch != nil {
+		launch, err = decodeInboxLaunchSlot(snapshot, raw)
+		if err != nil {
+			return err
+		}
+		if launch.Selection.Address != address {
+			return storeerr.ErrUnauthorized
+		}
+	} else {
+		input, _, err = decodeInboxInputSlot(snapshot, raw)
+		if err != nil {
+			return err
+		}
+		if input.Input.Origin.Address != address {
+			return storeerr.ErrUnauthorized
+		}
+	}
+	if result, err := resolveInboxSlotOutcome(
+		ctx, s.q, snapshot, raw,
+	); err != nil || result.Outcome != InboxSlotPending {
+		if err != nil {
+			return err
+		}
+		return ErrInboxRecipientSettled
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -41,18 +73,8 @@ func (s *Store) CheckInboxConversationAuthority(
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
 	var resources []uuid.UUID
-	if slots[key].Launch != nil {
-		slot, progress, err := decodeInboxLaunchSlot(snapshot, key)
-		if err != nil {
-			return err
-		}
-		if slot.Selection.Address != address {
-			return storeerr.ErrUnauthorized
-		}
-		if progress.Committed != nil {
-			return ErrInboxRecipientSettled
-		}
-		resources, err = launchIntegrationIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID))
+	if envelope.Launch != nil {
+		resources, err = launchIntegrationIDsTx(ctx, q, launch.Launch.launchInput(lease.ProjectID))
 		if err != nil {
 			return err
 		}
@@ -65,35 +87,24 @@ func (s *Store) CheckInboxConversationAuthority(
 	if !sameJSON(snapshot.Plan, locked.Plan) {
 		return storeerr.ErrIdempotencyConflict
 	}
-	if err := integrationstore.LockIntegrationsTx(
-		ctx,
-		tx,
-		lease.ProjectID,
-		resources,
-		locked.IntegrationID,
-	); err != nil {
-		return err
-	}
-	if err := lockIntegrationConversationsTx(
-		ctx,
-		tx,
-		lease.ProjectID,
-		AgentInputOrigin{IntegrationID: locked.IntegrationID, Address: address},
-	); err != nil {
-		return err
-	}
-	if slots[key].Launch != nil {
-		slot, progress, err := decodeInboxLaunchSlot(locked, key)
+	if result, err := resolveInboxSlotOutcome(ctx, q, locked, raw); err != nil || result.Outcome != InboxSlotPending {
 		if err != nil {
 			return err
 		}
-		if progress.Committed != nil {
-			return ErrInboxRecipientSettled
-		}
-		if _, err := lockAgentProfileTx(ctx, q, lease.ProjectID, slot.Launch.ProfileID); err != nil {
+		return ErrInboxRecipientSettled
+	}
+	if err := integrationstore.LockIntegrationsTx(ctx, tx, lease.ProjectID, resources, locked.IntegrationID); err != nil {
+		return err
+	}
+	if err := lockIntegrationConversationsTx(ctx, tx, lease.ProjectID,
+		AgentInputOrigin{IntegrationID: locked.IntegrationID, Address: address}); err != nil {
+		return err
+	}
+	if envelope.Launch != nil {
+		if _, err := lockAgentProfileTx(ctx, q, lease.ProjectID, launch.Launch.ProfileID); err != nil {
 			return err
 		}
-		config, err := loadAgentConfigTx(ctx, q, lease.ProjectID, slot.Launch.AgentConfigID)
+		config, err := loadAgentConfigTx(ctx, q, lease.ProjectID, launch.Launch.AgentConfigID)
 		if err != nil {
 			return err
 		}
@@ -101,42 +112,22 @@ func (s *Store) CheckInboxConversationAuthority(
 			return err
 		}
 	} else {
-		slot, progress, _, err := decodeInboxInputSlot(locked, key)
-		if err != nil {
+		if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+			ProjectID: lease.ProjectID, AgentID: input.AgentID,
+		}}); err != nil {
 			return err
 		}
-		if slot.Input.Origin.Address != address {
-			return storeerr.ErrUnauthorized
-		}
-		if progress.Committed != nil {
-			return ErrInboxRecipientSettled
-		}
-		settled, err := s.settleArchivedInboxInputTx(ctx, tx, work, key, slot)
-		if err != nil {
-			return err
-		}
-		if settled != nil {
-			if err := tx.Commit(ctx); err != nil {
+		if result, err := resolveInboxInputOutcome(ctx, q, input); err != nil || result.Outcome != InboxSlotPending {
+			if err != nil {
 				return err
 			}
 			return ErrInboxRecipientSettled
 		}
-		if slot.Subscription != nil {
-			if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {
+		if input.Subscription != nil {
+			if err := validateInboxSubscriptionTx(ctx, tx, input); err != nil {
 				return err
 			}
 		}
 	}
-	_, err = q.ReadIntegrationInboxLease(
-		ctx,
-		dbsqlc.ReadIntegrationInboxLeaseParams{
-			ProjectID:  lease.ProjectID,
-			ID:         lease.ReceiptID,
-			ClaimToken: lease.Token,
-		},
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return integrationstore.ErrIntegrationInboxLeaseLost
-	}
-	return err
+	return work.CheckLease(ctx)
 }

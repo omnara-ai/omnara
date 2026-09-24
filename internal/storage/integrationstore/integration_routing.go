@@ -26,7 +26,7 @@ func (s *Store) IntegrationRoutingCandidatesForInbox(
 	if work == nil {
 		return IntegrationRoutingCandidates{}, storeerr.InvalidRequest(errors.New("inbox lease transaction is required"))
 	}
-	if err := work.checkLease(ctx); err != nil {
+	if err := work.CheckLease(ctx); err != nil {
 		return IntegrationRoutingCandidates{}, err
 	}
 	if err := LockConversationTx(
@@ -38,7 +38,7 @@ func (s *Store) IntegrationRoutingCandidatesForInbox(
 	); err != nil {
 		return IntegrationRoutingCandidates{}, err
 	}
-	if err := work.checkLease(ctx); err != nil {
+	if err := work.CheckLease(ctx); err != nil {
 		return IntegrationRoutingCandidates{}, err
 	}
 	return s.IntegrationRoutingCandidatesTx(

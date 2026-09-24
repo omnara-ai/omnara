@@ -91,7 +91,7 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 	require.NotEqual(t, uuid.Nil, abandonedAgent)
 	_, err = pool.Exec(ctx, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, profile.ID)
 	require.NoError(t, err)
-	results, err := router.Admit(ctx, first.Lease())
+	results, err := router.Admit(ctx, first.Lease(), nil)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.Len(t, results, 1)
 	require.True(t, results[0].Input.Created)
@@ -114,7 +114,7 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 			require.NotEqual(t, abandonedAgent, slot.AgentID)
 		}
 	}
-	results, err = router.Admit(ctx, second.Lease())
+	results, err = router.Admit(ctx, second.Lease(), nil)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 	var launches, inputReplays int

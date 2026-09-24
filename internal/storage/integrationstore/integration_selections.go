@@ -51,13 +51,13 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledIntegrationSelection(
 ) error {
 	// Zero-recipient events must wait for accepted choices and first-launch plans,
 	// or follow-ups could be dropped before their agent exists.
-	if err := w.checkLease(ctx); err != nil {
+	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
 	if err := LockConversationTx(ctx, w.tx, w.record.ProjectID, w.record.IntegrationID, address); err != nil {
 		return err
 	}
-	if err := w.checkLease(ctx); err != nil {
+	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
 	if err := w.checkUnplannedIntegrationProfileChoice(ctx, address); err != nil {

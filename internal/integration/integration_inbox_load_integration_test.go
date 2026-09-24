@@ -166,11 +166,11 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		var created time.Time
 		err := inbox.WithIntegrationInboxLease(callCtx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			created = work.Receipt().CreatedAt
-			if err := work.FreezePlan(callCtx, json.RawMessage(`{}`)); err != nil {
-				return err
-			}
-			return work.Complete(callCtx)
+			return work.FreezePlan(callCtx, json.RawMessage(`{}`))
 		})
+		if err == nil {
+			err = store.Execution().CompleteIntegrationInbox(callCtx, lease)
+		}
 		if err == nil {
 			completion.add(time.Since(started))
 			age.add(time.Since(created))

@@ -257,7 +257,6 @@ func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
 		Payload:    row.Payload,
 		Events:     events,
 		Plan:       plan,
-		Progress:   row.Progress,
 		ClaimToken: storeutil.IDFromPtr(row.ClaimToken),
 	}
 }

@@ -150,7 +150,6 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	retained, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, retained.State)
-	require.JSONEq(t, `{}`, string(retained.Progress))
 	require.JSONEq(t, string(raw), string(retained.Plan))
 	require.Len(t, blobs.content, 2, "only durable history and the failed deletion remain")
 	blobs.failKey = ""
@@ -176,7 +175,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	require.Len(t, blobs.deleted, before, "failed database reads must never authorize deletion")
 }
 
-func TestFailedIntegrationInboxCleanupProtectsCommittedSlots(t *testing.T) {
+func TestFailedIntegrationInboxCleanupProtectsDurableArtifacts(t *testing.T) {
 	ctx := t.Context()
 	pool, store, ids, integrationID := integrationWorkerFixture(t)
 	inbox := store.Integrations()
@@ -253,19 +252,18 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			if err := work.FreezePlan(ctx, raw); err != nil {
 				return err
 			}
-			if err := work.CommitSlot(ctx, "partial", json.RawMessage(`{"input":"already committed"}`)); err != nil {
-				return err
-			}
 			return work.Fail(ctx, "retained partial admission")
 		}))
+	_, err = pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`,
+		ids.OrgID, ids.ProviderAdminUserID)
+	require.NoError(t, err)
+	_, _, err = store.Execution().ArchiveAgent(ctx, ids.ProjectID, agentID,
+		identitystore.NewUserPrincipal(ids.ProviderAdminUserID))
+	require.NoError(t, err)
 	cleaner := &failedArtifactCleanupSpy{Store: artifacts}
 	require.NoError(t, CleanupTerminalIntegrationInboxArtifacts(ctx, inbox, cleaner, ids.ProjectID, receipt.ID))
-	require.Equal(
-		t,
-		[]uuid.UUID{unused.ArtifactID},
-		cleaner.attempted,
-		"committed slot must never reach deletion helper",
-	)
+	require.ElementsMatch(t, []uuid.UUID{unused.ArtifactID, durable.ID}, cleaner.attempted,
+		"every planned artifact is checked against durable ownership")
 	require.Equal(t, []string{"artifacts/" + plannedAgent.String() + "/" + unused.ArtifactID.String()}, blobs.deleted)
 	require.Len(t, blobs.content, 1)
 	stored, _, err := artifacts.GetArtifactBlob(ctx, ids.ProjectID, agentID, durable.ID)
@@ -298,7 +296,7 @@ func (s *archivingInboxArtifacts) UploadPreparedArtifact(
 
 func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T) {
 	for _, scenario := range []string{
-		"archive during upload", "already prepared", "cleanup failure leaves orphan", "live sibling failure",
+		"archive during upload", "uploaded before retry", "cleanup failure leaves orphan", "live sibling failure",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -367,16 +365,15 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 				} else {
 					liveKey = key
 				}
-				if scenario == "already prepared" {
+				if scenario == "uploaded before retry" {
 					prepared := *slot.Files[0].Expected
 					require.NoError(t, artifacts.Store.UploadPreparedArtifact(ctx, slot.AgentID, prepared, content))
-					require.NoError(t, router.Prepare(ctx, receipt.Lease(), key, []artifactstore.PreparedArtifact{prepared}))
 				}
 			}
 			skippedArtifact, liveArtifact := plan[skippedKey].ArtifactIDs[0], plan[liveKey].ArtifactIDs[0]
 			skippedBlob := "artifacts/" + agents[0].String() + "/" + skippedArtifact.String()
 			liveBlob := "artifacts/" + agents[1].String() + "/" + liveArtifact.String()
-			if scenario == "already prepared" {
+			if scenario == "uploaded before retry" {
 				require.NoError(t, artifacts.archive())
 			}
 			if scenario == "cleanup failure leaves orphan" {

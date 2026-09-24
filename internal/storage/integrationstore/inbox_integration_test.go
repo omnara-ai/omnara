@@ -161,7 +161,6 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 		`UPDATE integration_inbox SET payload=''::bytea WHERE id=$1`,
 		`UPDATE integration_inbox SET receipt_key=repeat('x',513) WHERE id=$1`,
 		`UPDATE integration_inbox SET plan=jsonb_build_object('x',repeat('x',262145)) WHERE id=$1`,
-		`UPDATE integration_inbox SET progress=jsonb_build_object('x',repeat('x',262145)) WHERE id=$1`,
 		`UPDATE integration_inbox SET last_error=repeat('x',4097) WHERE id=$1`,
 		`UPDATE integration_inbox SET attempt_count=9 WHERE id=$1`,
 		`UPDATE integration_inbox SET state='failed' WHERE id=$1`,
@@ -227,10 +226,7 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	r := f.claim(t)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
 		plan := json.RawMessage(`{"slot":{"agent_id":"pinned","artifact_id":"pinned-blob"}}`)
-		if err := w.FreezePlan(f.ctx, plan); err != nil {
-			return err
-		}
-		return w.PrepareSlot(f.ctx, "slot", json.RawMessage(`{"digest":"original","size":3}`))
+		return w.FreezePlan(f.ctx, plan)
 	})
 	original := f.read(t, r.ID)
 	for attempt := 1; attempt <= integrationstore.IntegrationInboxMaxAttempts; attempt++ {
@@ -252,7 +248,6 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	require.Nil(t, final.ClaimExpiresAt)
 	require.Equal(t, uuid.Nil, final.ClaimToken)
 	require.JSONEq(t, string(original.Plan), string(final.Plan))
-	require.JSONEq(t, string(original.Progress), string(final.Progress))
 	_, ok, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.project, IntegrationID: f.integrationID, LeaseDuration: time.Minute,
 	})
@@ -261,86 +256,101 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	require.NotNil(t, final.CompletedAt)
 }
 
-func TestInboxFrozenSlotsPreparationAndAtomicProgress(t *testing.T) {
+func TestInboxFrozenPlanRetryAndAtomicCompletion(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	f.accept(t, "slots")
 	r := f.claim(t)
 	plan := json.RawMessage(`{"one":{"agent_id":"one"},"two":{"agent_id":"two"}}`)
-	prepared := json.RawMessage(`{"digest":"sha256:test","size":5}`)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := w.FreezePlan(f.ctx, plan); err != nil {
-			return err
-		}
-		return w.PrepareSlot(f.ctx, "one", prepared)
+		return w.FreezePlan(f.ctx, plan)
 	})
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
 		snapshot := w.Receipt()
 		snapshot.Plan[0] = 'x'
-		if err := w.FreezePlan(f.ctx, plan); err != nil {
-			return err
-		}
-		return w.PrepareSlot(f.ctx, "one", prepared)
+		require.JSONEq(t, string(plan), string(w.Receipt().Plan))
+		return w.FreezePlan(f.ctx, plan)
 	})
-	for _, apply := range []func(*integrationstore.IntegrationInboxLeaseTx) error{
-		func(w *integrationstore.IntegrationInboxLeaseTx) error {
-			return w.FreezePlan(f.ctx, json.RawMessage(`{"one":{"agent_id":"replacement"}}`))
-		},
-		func(w *integrationstore.IntegrationInboxLeaseTx) error {
-			return w.PrepareSlot(f.ctx, "one", json.RawMessage(`{"digest":"changed"}`))
-		},
-		func(w *integrationstore.IntegrationInboxLeaseTx) error {
-			return w.CommitSlot(f.ctx, "missing", json.RawMessage(`{}`))
-		},
-		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.Complete(f.ctx) },
-	} {
-		require.Error(t, f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), apply))
-	}
+	err := f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
+		return w.FreezePlan(f.ctx, json.RawMessage(`{"one":{"agent_id":"replacement"}}`))
+	})
+	require.ErrorIs(t, err, storeerr.ErrConflict)
+	original := f.read(t, r.ID)
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(f.ctx) }()
 	w, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
 	require.NoError(t, err)
 	_, err = tx.Exec(f.ctx, `UPDATE users SET display_name='admitted' WHERE id=$1`, f.user)
 	require.NoError(t, err)
-	require.NoError(t, w.CommitSlot(f.ctx, "one", json.RawMessage(`{"input_id":"first"}`)))
+	require.NoError(t, w.Complete(f.ctx))
 	require.NoError(t, tx.Rollback(f.ctx))
 	var display string
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
 	require.NotEqual(t, "admitted", display)
-	require.NotContains(t, string(f.read(t, r.ID).Progress), "committed")
+	require.Equal(t, original, f.read(t, r.ID), "completion and caller writes roll back together")
+
+	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
+		return w.Retry(f.ctx, time.Second, "temporarily unavailable")
+	})
+	pending := f.read(t, r.ID)
+	require.Equal(t, integrationstore.IntegrationInboxPending, pending.State)
+	require.Equal(t, original.Plan, pending.Plan)
+	f.exec(t, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, r.ID)
+	reclaimed := f.claim(t)
+	require.NotEqual(t, r.ClaimToken, reclaimed.ClaimToken)
+	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
+		return w.Complete(f.ctx)
+	})
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
+
 	tx, err = f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
-	w, err = f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
+	w, err = f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, reclaimed.Lease())
 	require.NoError(t, err)
 	_, err = tx.Exec(f.ctx, `UPDATE users SET display_name='admitted' WHERE id=$1`, f.user)
 	require.NoError(t, err)
-	require.NoError(t, w.CommitSlot(f.ctx, "one", json.RawMessage(`{"input_id":"first"}`)))
+	require.NoError(t, w.Complete(f.ctx))
 	require.NoError(t, tx.Commit(f.ctx))
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
 	require.Equal(t, "admitted", display)
-	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.Retry(f.ctx, time.Second, "second slot temporarily unavailable")
-	})
-	f.exec(t, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, r.ID)
-	r = f.claim(t)
-	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.CommitSlot(f.ctx, "one", json.RawMessage(`{"input_id":"replacement"}`))
-	})
-	require.ErrorIs(t, err, storeerr.ErrConflict)
-	original := f.read(t, r.ID)
-	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.Fail(f.ctx, "second slot failed") })
-	failed := f.read(t, r.ID)
-	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
-	require.NotNil(t, failed.CompletedAt)
-	require.Equal(t, original.Plan, failed.Plan)
-	require.Equal(t, original.Progress, failed.Progress)
-	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.CommitSlot(f.ctx, "two", json.RawMessage(`{"input_id":"late"}`))
-	})
+	completed := f.read(t, r.ID)
+	require.Equal(t, integrationstore.IntegrationInboxCompleted, completed.State)
+	require.NotNil(t, completed.CompletedAt)
+	require.Nil(t, completed.ClaimExpiresAt)
+	require.Equal(t, uuid.Nil, completed.ClaimToken)
+	require.Empty(t, completed.LastError)
+	require.Equal(t, original.Plan, completed.Plan)
+	err = f.store.WithIntegrationInboxLease(f.ctx, reclaimed.Lease(),
+		func(w *integrationstore.IntegrationInboxLeaseTx) error {
+			return w.Retry(f.ctx, time.Second, "late retry")
+		})
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
-	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
-	require.Equal(t, "admitted", display)
+}
+
+func TestInboxCompleteRequiresValidFrozenPlan(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, plan string }{
+		{"unplanned", ""},
+		{"invalid slot", `{"slot":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newInboxFixture(t)
+			f.accept(t, "invalid-plan")
+			r := f.claim(t)
+			if tc.plan != "" {
+				f.exec(t, `UPDATE integration_inbox SET plan=$2::jsonb WHERE id=$1`, r.ID, tc.plan)
+			}
+			before := f.read(t, r.ID)
+			err := f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
+				return w.Complete(f.ctx)
+			})
+			require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
+			require.Equal(t, before, f.read(t, r.ID))
+		})
+	}
 }
 
 func TestInboxLeaseRevalidatedAfterLockWaitAndInsideTransaction(t *testing.T) {
@@ -372,11 +382,18 @@ func TestInboxLeaseRevalidatedAfterLockWaitAndInsideTransaction(t *testing.T) {
 	defer func() { _ = tx.Rollback(f.ctx) }()
 	w, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
 	require.NoError(t, err)
+	_, err = tx.Exec(f.ctx, `UPDATE users SET display_name='expired admission' WHERE id=$1`, f.user)
+	require.NoError(t, err)
 	_, err = tx.Exec(f.ctx,
 		`UPDATE integration_inbox SET claim_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, r.ID)
 	require.NoError(t, err)
+	require.ErrorIs(t, w.CheckLease(f.ctx), integrationstore.ErrIntegrationInboxLeaseLost)
 	require.ErrorIs(t, w.FreezePlan(f.ctx, json.RawMessage(`{}`)), integrationstore.ErrIntegrationInboxLeaseLost)
+	require.ErrorIs(t, w.Complete(f.ctx), integrationstore.ErrIntegrationInboxLeaseLost)
 	require.NoError(t, tx.Rollback(f.ctx))
+	var display string
+	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT display_name FROM users WHERE id=$1`, f.user).Scan(&display))
+	require.NotEqual(t, "expired admission", display)
 }
 
 func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
@@ -514,14 +531,11 @@ func TestInboxRejectsDeletedProjectAndOrganization(t *testing.T) {
 	}
 }
 
-func TestInboxMultipleHandlesCannotOverwritePreparedStages(t *testing.T) {
+func TestInboxMultipleHandlesObserveFrozenPlanAndTerminalState(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	f.accept(t, "shared-transaction")
 	r := f.claim(t)
-	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.FreezePlan(f.ctx, json.RawMessage(`{"one":{},"two":{}}`))
-	})
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
@@ -529,16 +543,15 @@ func TestInboxMultipleHandlesCannotOverwritePreparedStages(t *testing.T) {
 	require.NoError(t, err)
 	second, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
 	require.NoError(t, err)
-	require.NoError(t, first.PrepareSlot(f.ctx, "one", json.RawMessage(`{"digest":"first"}`)))
-	require.NoError(t, second.PrepareSlot(f.ctx, "two", json.RawMessage(`{"digest":"second"}`)))
-	require.NoError(t, first.CommitSlot(f.ctx, "one", json.RawMessage(`{"input":"first"}`)))
-	require.NoError(t, second.CommitSlot(f.ctx, "two", json.RawMessage(`{"input":"second"}`)))
-	require.NoError(t, first.Complete(f.ctx))
+	plan := json.RawMessage(`{"one":{},"two":{}}`)
+	require.NoError(t, first.FreezePlan(f.ctx, plan))
+	require.ErrorIs(t, second.FreezePlan(f.ctx, json.RawMessage(`{"replacement":{}}`)), storeerr.ErrConflict)
+	require.NoError(t, second.Complete(f.ctx))
+	require.ErrorIs(t, first.Complete(f.ctx), integrationstore.ErrIntegrationInboxLeaseLost)
 	require.NoError(t, tx.Commit(f.ctx))
-	require.JSONEq(t, `{
- "one":{"prepared":{"digest":"first"},"committed":{"input":"first"}},
- "two":{"prepared":{"digest":"second"},"committed":{"input":"second"}}
-}`, string(f.read(t, r.ID).Progress))
+	completed := f.read(t, r.ID)
+	require.Equal(t, integrationstore.IntegrationInboxCompleted, completed.State)
+	require.JSONEq(t, string(plan), string(completed.Plan))
 }
 
 func TestInboxDisableWaitsForAtomicAdmission(t *testing.T) {
@@ -582,14 +595,7 @@ func TestInboxJSONBNormalizedSizeBoundaryIsExplicitAndAtomic(t *testing.T) {
 	require.Empty(t, f.read(t, r.ID).Plan)
 	fits := json.RawMessage(prefix + strings.Repeat("x", remaining-32) + suffix)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(f.ctx, fits) })
-	overhead := len(`{"slot":{"prepared":{"data":""}}}`)
-	preparationBytes := strings.Repeat("x", integrationstore.IntegrationInboxMaxPlanBytes-overhead)
-	preparation := json.RawMessage(`{"data":"` + preparationBytes + `"}`)
-	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.PrepareSlot(f.ctx, "slot", preparation)
-	})
-	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	require.JSONEq(t, `{}`, string(f.read(t, r.ID).Progress))
+	require.JSONEq(t, string(fits), string(f.read(t, r.ID).Plan))
 }
 
 func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {

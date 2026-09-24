@@ -30,14 +30,14 @@ func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	_, err = f.store.pool.Exec(f.ctx,
 		`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_test_deliveries CHECK (false) NOT VALID`)
 	require.NoError(t, err)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", nil)
 	require.ErrorContains(t, err, "enqueue event webhook")
 	f.assertAbsent(t, "a")
-	assertInboxWebhookProgress(t, f.integrationActivationFixture, before)
+	assertInboxWebhookPending(t, f.integrationActivationFixture, before)
 	assertInboxWebhookCount(t, f.integrationActivationFixture, f.slots["a"].AgentID, "agent_input", 0)
 	_, err = f.store.pool.Exec(f.ctx, `ALTER TABLE event_webhook_deliveries DROP CONSTRAINT reject_test_deliveries`)
 	require.NoError(t, err)
-	result, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+	result, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", nil)
 	require.NoError(t, err)
 	require.True(t, result.Created)
 	assertInboxWebhookCount(t, f.integrationActivationFixture, result.Agent.ID, "agent_input", 1)
@@ -53,7 +53,7 @@ func TestInboxLaunchEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	require.Len(t, claim.Model.AdmittedInputTurn.Inputs, 1)
 	require.Equal(t, result.AgentInput.ID, claim.Model.AdmittedInputTurn.Inputs[0].ID)
 	assertInboxWebhookCount(t, f.integrationActivationFixture, result.Agent.ID, "agent_input", 2)
-	replayed, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a")
+	replayed, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", nil)
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, result.Agent.ID, replayed.Agent.ID)
@@ -75,9 +75,9 @@ func TestInboxInputEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	_, err = f.store.pool.Exec(f.ctx,
 		`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_test_deliveries CHECK (false) NOT VALID`)
 	require.NoError(t, err)
-	_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+	_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	require.ErrorContains(t, err, "enqueue event webhook")
-	assertInboxWebhookProgress(t, f.activation(), before)
+	assertInboxWebhookPending(t, f.activation(), before)
 	assertInboxWebhookCount(t, f.activation(), f.process.AgentID, "tool_result", 0)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, prompt.ID).State)
 	var inputs int
@@ -88,20 +88,20 @@ func TestInboxInputEventWebhookEnqueueIsAtomicAndReplayable(t *testing.T) {
 	_, err = f.store.pool.Exec(f.ctx, `ALTER TABLE event_webhook_deliveries DROP CONSTRAINT reject_test_deliveries`)
 	require.NoError(t, err)
 
-	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.True(t, result.Created)
 	require.Equal(t, []uuid.UUID{prompt.ID}, result.CanceledInteractionIDs)
 	require.Equal(t, executionstore.AgentInteractionStateCanceled, f.read(t, prompt.ID).State)
 	assertInboxWebhookCount(t, f.activation(), f.process.AgentID, "tool_result", 1)
-	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, result.AgentInput.ID, replayed.AgentInput.ID)
 	assertInboxWebhookCount(t, f.activation(), f.process.AgentID, "tool_result", 1)
 }
 
-func assertInboxWebhookProgress(
+func assertInboxWebhookPending(
 	t *testing.T,
 	f integrationActivationFixture,
 	before integrationstore.IntegrationInboxRecord,
@@ -109,7 +109,12 @@ func assertInboxWebhookProgress(
 	t.Helper()
 	after, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, before.ID)
 	require.NoError(t, err)
-	require.JSONEq(t, string(before.Progress), string(after.Progress))
+	outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, after)
+	require.NoError(t, err)
+	require.NotEmpty(t, outcomes)
+	for _, outcome := range outcomes {
+		require.Equal(t, executionstore.InboxSlotPending, outcome)
+	}
 }
 
 func assertInboxWebhookCount(

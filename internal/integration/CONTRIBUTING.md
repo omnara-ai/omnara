@@ -124,7 +124,8 @@ because early routing can discard events before the launcher runs.
 Normalize provider events outside database transactions. Launcher policy decides
 which profiles or agents to select; the router freezes those decisions and config
 identities before provider preparation. Storage atomically commits each recipient's
-agent/input, subscriptions, artifacts and progress. Provider and blob I/O never run
+agent/input, subscriptions and artifacts. Retry and completion checks read those
+durable records; the inbox does not duplicate their outcomes. Provider and blob I/O never run
 under those locks. Preserve semantic event IDs separately from delivery IDs.
 
 Forwarding policy is applied during planning, including prefiltering, launcher
@@ -136,7 +137,9 @@ checks routing membership and ownership, without duplicating event policy or
 persisting policy snapshots. The shipped Slack/Discord policies forward messages;
 GitHub forwards comments, reviews and commits, while PR-open is launch-only.
 
-Retries reuse frozen membership and prepared artifact identities. Failed receipts
+Retries reuse frozen membership and artifact identities. Upload readiness is checked
+within each attempt; incomplete file deliveries can verify previously uploaded
+bytes again. Already-delivered work bypasses provider and upload preparation. Failed receipts
 are terminal after the bounded budget: unfinished reservations release, committed
 work remains, and old choice buttons cannot restart failed launches. Cleanup must
 retain chooser source identity while its linked receipt exists. Incoming messages
@@ -145,10 +148,10 @@ are not strictly FIFO. Operational timing, retention and metrics belong in
 
 Failure notices and cleanup of unreferenced prepared uploads are best effort after
 the terminal commit. Crashes or lease recovery can skip them; retained database
-receipts are not a general blob garbage collector. A committed archived-recipient
-skip settles work without delivering it; its unused uploads can be cleaned after
-receipt completion or failure. Cleanup must preserve delivered slots and durable
-artifact references, including archived history.
+receipts are not a general blob garbage collector. An archived recipient with no delivered input
+is settled without delivery. Once the receipt is terminal, its unique planned
+artifact IDs cannot be admitted by another attempt. Cleanup checks actual artifact
+rows so delivered files, including archived history, remain intact.
 
 Use `integration_states` for small workflow records keyed by integration, kind and key, optionally
 indexed by conversation. A launcher can need state before an agent exists. Define

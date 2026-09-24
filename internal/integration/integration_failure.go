@@ -2,11 +2,11 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -21,26 +21,27 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(ctx context.Context, projectI
 	}
 	message := inboxFailureMessage
 	unfinished := true
+	var failures []error
 	var plan IntegrationInboxPlan
 	if len(receipt.Plan) != 0 {
 		plan, err = decodeIntegrationInboxPlan(receipt.Plan)
 		if err != nil {
 			return err
 		}
-		var progress map[string]integrationInboxSlotProgress
-		if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
-			return err
-		}
+		outcomes, err := c.router.execution.GetIntegrationInboxOutcomes(ctx, receipt)
 		unfinished = false
-		for key := range plan {
-			if progress[key].Committed == nil {
-				unfinished = true
-			} else if progress[key].delivered() {
-				message = "I couldn't deliver this request to every agent. Some agents have already received it."
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			for _, outcome := range outcomes {
+				if outcome == executionstore.InboxSlotPending {
+					unfinished = true
+				} else if outcome == executionstore.InboxSlotDelivered {
+					message = "I couldn't deliver this request to every agent. Some agents have already received it."
+				}
 			}
 		}
 	}
-	var failures []error
 	if unfinished {
 		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		integration, err := c.inbox.GetProjectIntegrationByID(noticeCtx, receipt.IntegrationID)

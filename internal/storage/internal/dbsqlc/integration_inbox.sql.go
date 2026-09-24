@@ -27,7 +27,7 @@ SET state = 'processing', attempt_count = inbox.attempt_count + 1,
     claim_expires_at = statement_timestamp() + $2::bigint * interval '1 millisecond',
     updated_at = statement_timestamp()
 FROM candidate WHERE inbox.id = candidate.id
-RETURNING inbox.id, inbox.project_id, inbox.integration_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.events, inbox.plan, inbox.progress, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at
+RETURNING inbox.id, inbox.project_id, inbox.integration_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.events, inbox.plan, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at
 `
 
 type ClaimIntegrationInboxReceiptParams struct {
@@ -54,7 +54,6 @@ func (q *Queries) ClaimIntegrationInboxReceipt(ctx context.Context, arg ClaimInt
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,
@@ -253,7 +252,7 @@ func (q *Queries) FreezeIntegrationInboxPlan(ctx context.Context, arg FreezeInte
 }
 
 const getIntegrationInboxReceipt = `-- name: GetIntegrationInboxReceipt :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = $1 AND id = $2
 `
@@ -275,7 +274,6 @@ func (q *Queries) GetIntegrationInboxReceipt(ctx context.Context, arg GetIntegra
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,
@@ -290,7 +288,7 @@ func (q *Queries) GetIntegrationInboxReceipt(ctx context.Context, arg GetIntegra
 }
 
 const getIntegrationInboxReceiptByKey = `-- name: GetIntegrationInboxReceiptByKey :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = $1 AND integration_id = $2
   AND receipt_key = $3
@@ -314,7 +312,6 @@ func (q *Queries) GetIntegrationInboxReceiptByKey(ctx context.Context, arg GetIn
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,
@@ -332,7 +329,7 @@ const insertIntegrationInboxReceipt = `-- name: InsertIntegrationInboxReceipt :o
 INSERT INTO integration_inbox (project_id, integration_id, receipt_key, payload)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 `
 
 type InsertIntegrationInboxReceiptParams struct {
@@ -359,7 +356,6 @@ func (q *Queries) InsertIntegrationInboxReceipt(ctx context.Context, arg InsertI
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,
@@ -377,7 +373,7 @@ const insertScheduledIntegrationEventReceipt = `-- name: InsertScheduledIntegrat
 INSERT INTO integration_inbox (project_id, integration_id, receipt_key, payload, source)
 VALUES ($1, $2, $3, $4, 'scheduled')
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 `
 
 type InsertScheduledIntegrationEventReceiptParams struct {
@@ -404,7 +400,6 @@ func (q *Queries) InsertScheduledIntegrationEventReceipt(ctx context.Context, ar
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,
@@ -526,7 +521,7 @@ func (q *Queries) OldestReadyIntegrationInboxLag(ctx context.Context) (float64, 
 }
 
 const readIntegrationInboxLease = `-- name: ReadIntegrationInboxLease :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
+SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
 WHERE project_id = $1 AND id = $2
   AND state = 'processing' AND claim_token = $3::uuid
   AND claim_expires_at > statement_timestamp()
@@ -550,7 +545,6 @@ func (q *Queries) ReadIntegrationInboxLease(ctx context.Context, arg ReadIntegra
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,
@@ -628,35 +622,6 @@ func (q *Queries) RetryIntegrationInboxReceipt(ctx context.Context, arg RetryInt
 	result, err := q.db.Exec(ctx, retryIntegrationInboxReceipt,
 		arg.DelayMilliseconds,
 		arg.LastError,
-		arg.ProjectID,
-		arg.ID,
-		arg.ClaimToken,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const updateIntegrationInboxProgress = `-- name: UpdateIntegrationInboxProgress :execrows
-UPDATE integration_inbox
-SET progress = $1::jsonb, updated_at = statement_timestamp()
-WHERE project_id = $2 AND id = $3
-  AND state = 'processing' AND claim_token = $4::uuid
-  AND claim_expires_at > statement_timestamp()
-  AND plan IS NOT NULL
-`
-
-type UpdateIntegrationInboxProgressParams struct {
-	Progress   json.RawMessage
-	ProjectID  uuid.UUID
-	ID         uuid.UUID
-	ClaimToken uuid.UUID
-}
-
-func (q *Queries) UpdateIntegrationInboxProgress(ctx context.Context, arg UpdateIntegrationInboxProgressParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateIntegrationInboxProgress,
-		arg.Progress,
 		arg.ProjectID,
 		arg.ID,
 		arg.ClaimToken,

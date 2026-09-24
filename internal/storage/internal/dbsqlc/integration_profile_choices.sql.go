@@ -189,7 +189,7 @@ const insertIntegrationProfileChoiceInboxReceipt = `-- name: InsertIntegrationPr
 INSERT INTO integration_inbox(project_id, integration_id, receipt_key, payload, events)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, progress, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 `
 
 type InsertIntegrationProfileChoiceInboxReceiptParams struct {
@@ -218,7 +218,6 @@ func (q *Queries) InsertIntegrationProfileChoiceInboxReceipt(ctx context.Context
 		&i.Source,
 		&i.Events,
 		&i.Plan,
-		&i.Progress,
 		&i.State,
 		&i.AttemptCount,
 		&i.AvailableAt,

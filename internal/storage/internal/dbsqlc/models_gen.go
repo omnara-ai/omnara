@@ -234,7 +234,6 @@ type IntegrationInbox struct {
 	Source         string
 	Events         *json.RawMessage
 	Plan           *json.RawMessage
-	Progress       json.RawMessage
 	State          string
 	AttemptCount   int32
 	AvailableAt    time.Time

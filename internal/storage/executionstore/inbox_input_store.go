@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
@@ -21,6 +22,8 @@ type InboxMessageSibling struct {
 }
 
 type InboxInputSlot struct {
+	Scope        integrationdefinition.Scope  `json:"scope"`
+	Files        []InboxPlannedFile           `json:"files,omitempty"`
 	Sibling      *InboxMessageSibling         `json:"sibling,omitempty"`
 	AgentID      uuid.UUID                    `json:"agent_id"`
 	Input        CreateAgentContentInputInput `json:"input"`
@@ -32,37 +35,21 @@ type InboxSubscriptionAuthority struct {
 	Alternatives []integrationstore.ConversationAddress `json:"alternatives"`
 }
 
-type InboxInputPreparation struct {
-	Artifacts []artifactstore.PreparedArtifact `json:"artifacts"`
-}
-
 type InboxInputSkipReason string
 
 const InboxInputSkipAgentArchived InboxInputSkipReason = "agent_archived"
-
-type inboxInputCommit struct {
-	Skipped          InboxInputSkipReason `json:"skipped,omitempty"`
-	IdempotencyKey   string               `json:"idempotency_key"`
-	InputID          uuid.UUID            `json:"input_id"`
-	TargetID         uuid.UUID            `json:"target_id"`
-	IdempotencyScope string               `json:"idempotency_scope"`
-}
-
-type inboxInputProgress struct {
-	Prepared  *InboxInputPreparation `json:"prepared"`
-	Committed *inboxInputCommit      `json:"committed"`
-}
 
 func (s *Store) AdmitInboxInputSlot(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
+	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
 	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || slotKey == "" {
 		return InboxInputResult{}, storeerr.InvalidRequest(errors.New("inbox lease and slot are required"))
 	}
 	return storeutil.RetryTransaction(ctx, "admit_inbox_input_slot", func() (InboxInputResult, error) {
-		return s.admitInboxInputSlotOnce(ctx, lease, slotKey)
+		return s.admitInboxInputSlotOnce(ctx, lease, slotKey, artifacts)
 	})
 }
 
@@ -70,17 +57,27 @@ func (s *Store) admitInboxInputSlotOnce(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	slotKey string,
+	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
 	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	slot, progress, _, err := decodeInboxInputSlot(snapshot, slotKey)
+	raw, err := inboxPlanSlot(snapshot, slotKey)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if progress.Committed != nil {
-		return s.replayInboxInput(ctx, slot, *progress.Committed)
+	slot, blocks, err := decodeInboxInputSlot(snapshot, raw)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	if outcome, err := resolveInboxInputOutcome(
+		ctx, s.q, slot,
+	); err != nil || outcome.Outcome != InboxSlotPending {
+		if err != nil {
+			return InboxInputResult{}, err
+		}
+		return replayInboxInput(ctx, s.q, slot, outcome)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -90,12 +87,10 @@ func (s *Store) admitInboxInputSlotOnce(
 	work, err := s.integrations.LockIntegrationInboxLeaseTx(ctx, tx, lease)
 	if err != nil {
 		_ = tx.Rollback(ctx)
-		latest, readErr := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
-		if readErr == nil {
-			latestSlot, latestProgress, _, decodeErr := decodeInboxInputSlot(latest, slotKey)
-			if decodeErr == nil && latestProgress.Committed != nil {
-				return s.replayInboxInput(ctx, latestSlot, *latestProgress.Committed)
-			}
+		if outcome, readErr := resolveInboxInputOutcome(
+			ctx, s.q, slot,
+		); readErr == nil && outcome.Outcome != InboxSlotPending {
+			return replayInboxInput(ctx, s.q, slot, outcome)
 		}
 		return InboxInputResult{}, err
 	}
@@ -103,18 +98,7 @@ func (s *Store) admitInboxInputSlotOnce(
 	if !sameJSON(snapshot.Plan, locked.Plan) {
 		return InboxInputResult{}, storeerr.ErrIdempotencyConflict
 	}
-	slot, progress, blocks, err := decodeInboxInputSlot(locked, slotKey)
-	if err != nil {
-		return InboxInputResult{}, err
-	}
-	if progress.Committed != nil {
-		_ = tx.Rollback(ctx)
-		return s.replayInboxInput(ctx, slot, *progress.Committed)
-	}
-	slot.Input, _, err = s.resolveInputOriginTx(ctx, tx, slot.Input)
-	if err != nil {
-		return InboxInputResult{}, err
-	}
+	q := dbsqlc.New(tx)
 	if err := integrationstore.LockConversationTx(
 		ctx,
 		tx,
@@ -124,115 +108,46 @@ func (s *Store) admitInboxInputSlotOnce(
 	); err != nil {
 		return InboxInputResult{}, err
 	}
-	settled, err := s.settleArchivedInboxInputTx(ctx, tx, work, slotKey, slot)
+	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
+		ProjectID: lease.ProjectID, AgentID: slot.AgentID,
+	}}); err != nil {
+		return InboxInputResult{}, err
+	}
+	outcome, err := resolveInboxInputOutcome(ctx, q, slot)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if settled != nil {
-		if err := tx.Commit(ctx); err != nil {
+	if outcome.Outcome != InboxSlotPending {
+		return replayInboxInput(ctx, q, slot, outcome)
+	}
+	artifacts, err = validateInboxPreparedArtifacts(slot.ArtifactIDs, slot.Files, blocks, artifacts)
+	if err != nil {
+		return InboxInputResult{}, err
+	}
+	if outcome.SiblingDelivered {
+		supplemental := []CreateContentBlockInput{{
+			BlockKind: ContentBlockKindText, TextContent: slot.Sibling.AttachmentNotice,
+			Metadata: map[string]string{"omnara_hidden": "true"},
+		}}
+		for _, block := range blocks {
+			if block.ArtifactID != uuid.Nil {
+				block.Ordinal = int32(len(supplemental))
+				supplemental = append(supplemental, block)
+			}
+		}
+		blocks = supplemental
+		slot.Input.ContentBlocks, err = marshalAgentInputContentBlocks(blocks)
+		if err != nil {
 			return InboxInputResult{}, err
 		}
-		return *settled, nil
+		slot.Input.CancelOpenInteractions = false
 	}
-	var artifacts []artifactstore.PreparedArtifact
-	if progress.Prepared != nil {
-		artifacts = progress.Prepared.Artifacts
-	}
-	artifacts, err = validateInboxPreparedArtifacts(slot.ArtifactIDs, blocks, artifacts)
-	if err != nil {
-		return InboxInputResult{}, err
+	if slot.Subscription != nil {
+		if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {
+			return InboxInputResult{}, err
+		}
 	}
 	notifications := s.newTxNotifications()
-	if slot.Sibling != nil {
-		_, own, err := loadAgentInputByIdempotencyMaybeTx(
-			ctx,
-			tx,
-			slot.Input.ProjectID,
-			slot.AgentID,
-			slot.Input.IdempotencyScope,
-			slot.Input.IdempotencyKey,
-		)
-		if err != nil {
-			return InboxInputResult{}, err
-		}
-		if !own {
-			companion := slot.Input
-			companion.IdempotencyKey = slot.Sibling.Key
-			prior, found, err := s.originContentReplayTx(
-				ctx,
-				tx,
-				companion,
-			)
-			if err != nil {
-				return InboxInputResult{}, err
-			}
-			if found && slot.Sibling.AttachmentNotice == "" {
-				committed, err := json.Marshal(
-					inboxInputCommit{
-						InputID:          prior.AgentInput.ID,
-						TargetID:         prior.AgentInput.IntegrationTargetID,
-						IdempotencyScope: prior.AgentInput.IdempotencyScope,
-						IdempotencyKey:   companion.IdempotencyKey,
-					},
-				)
-				if err != nil {
-					return InboxInputResult{}, err
-				}
-				if err := work.CommitSlot(ctx, slotKey, committed); err != nil {
-					return InboxInputResult{}, err
-				}
-				if err := s.commitTxWithNotifications(
-					ctx,
-					tx,
-					notifications,
-					"admit inbox message sibling",
-				); err != nil {
-					return InboxInputResult{}, err
-				}
-				return prior, nil
-			}
-			if found {
-				supplemental := []CreateContentBlockInput{
-					{
-						BlockKind:   ContentBlockKindText,
-						TextContent: slot.Sibling.AttachmentNotice,
-						Metadata:    map[string]string{"omnara_hidden": "true"},
-					},
-				}
-				for _, block := range blocks {
-					if block.ArtifactID != uuid.Nil {
-						block.Ordinal = int32(len(supplemental))
-						supplemental = append(supplemental, block)
-					}
-				}
-				blocks = supplemental
-				slot.Input.ContentBlocks, err = marshalAgentInputContentBlocks(blocks)
-				if err != nil {
-					return InboxInputResult{}, err
-				}
-				slot.Input.CancelOpenInteractions = false
-			}
-		}
-	}
-
-	if slot.Subscription != nil {
-		_, replay, err := loadAgentInputByIdempotencyMaybeTx(
-			ctx,
-			tx,
-			slot.Input.ProjectID,
-			slot.AgentID,
-			slot.Input.IdempotencyScope,
-			slot.Input.IdempotencyKey,
-		)
-		if err != nil {
-			return InboxInputResult{}, err
-		}
-		if !replay {
-			if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {
-				return InboxInputResult{}, err
-			}
-		}
-	}
 	result, err := s.admitOriginContentTx(
 		ctx,
 		tx,
@@ -244,18 +159,7 @@ func (s *Store) admitInboxInputSlotOnce(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	committed, err := json.Marshal(
-		inboxInputCommit{
-			IdempotencyKey:   slot.Input.IdempotencyKey,
-			InputID:          result.AgentInput.ID,
-			TargetID:         result.AgentInput.IntegrationTargetID,
-			IdempotencyScope: result.AgentInput.IdempotencyScope,
-		},
-	)
-	if err != nil {
-		return InboxInputResult{}, err
-	}
-	if err := work.CommitSlot(ctx, slotKey, committed); err != nil {
+	if err := work.CheckLease(ctx); err != nil {
 		return InboxInputResult{}, err
 	}
 	if err := s.commitTxWithNotifications(ctx, tx, notifications, "admit inbox input slot"); err != nil {
@@ -264,83 +168,19 @@ func (s *Store) admitInboxInputSlotOnce(
 	return result, nil
 }
 
-// settleArchivedInboxInputTx runs after locking the inbox lease and conversation.
-// Holding the agent lock makes archival terminal for this slot, but a delivery
-// that won the race still replays as delivered. Missing subscriptions are not
-// terminal: restoring the same address/type/event can authorize a later retry.
-// A non-nil result has been recorded in progress; the caller must commit tx.
-func (s *Store) settleArchivedInboxInputTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	work *integrationstore.IntegrationInboxLeaseTx,
-	key string,
-	slot InboxInputSlot,
-) (*InboxInputResult, error) {
-	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
-		ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID,
-	}}); err != nil {
-		return nil, err
-	}
-	agent, err := loadAgentInProjectTx(ctx, tx, slot.Input.ProjectID, slot.AgentID)
-	if err != nil || agent.State != AgentStateArchived {
-		return nil, err
-	}
-	slot.Input, _, err = s.resolveInputOriginTx(ctx, tx, slot.Input)
-	if err != nil {
-		return nil, err
-	}
-	result, found, err := s.originContentReplayTx(ctx, tx, slot.Input)
-	if err != nil {
-		return nil, err
-	}
-	if !found && slot.Sibling != nil && slot.Sibling.AttachmentNotice == "" {
-		companion := slot.Input
-		companion.IdempotencyKey = slot.Sibling.Key
-		result, found, err = s.originContentReplayTx(ctx, tx, companion)
-		if err != nil {
-			return nil, err
-		}
-	}
-	var committed []byte
-	if found {
-		committed, err = json.Marshal(inboxInputCommit{
-			IdempotencyKey: result.AgentInput.InputIdempotencyKey,
-			InputID:        result.AgentInput.ID, TargetID: result.AgentInput.IntegrationTargetID,
-			IdempotencyScope: result.AgentInput.IdempotencyScope,
-		})
-	} else {
-		result = InboxInputResult{Skipped: InboxInputSkipAgentArchived}
-		committed, err = json.Marshal(struct {
-			Skipped InboxInputSkipReason `json:"skipped"`
-		}{Skipped: result.Skipped})
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := work.CommitSlot(ctx, key, committed); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 func decodeInboxInputSlot(
 	receipt integrationstore.IntegrationInboxRecord,
-	key string,
-) (InboxInputSlot, inboxInputProgress, []CreateContentBlockInput, error) {
+	raw json.RawMessage,
+) (InboxInputSlot, []CreateContentBlockInput, error) {
 	var slot InboxInputSlot
-	var progress inboxInputProgress
-	fail := func() (InboxInputSlot, inboxInputProgress, []CreateContentBlockInput, error) {
-		return slot, progress, nil, storeerr.InvalidRequest(errors.New("invalid frozen existing-agent input slot"))
-	}
-	var slots map[string]json.RawMessage
-	if json.Unmarshal(receipt.Plan, &slots) != nil || len(slots[key]) == 0 {
-		return fail()
+	fail := func() (InboxInputSlot, []CreateContentBlockInput, error) {
+		return slot, nil, storeerr.InvalidRequest(errors.New("invalid frozen existing-agent input slot"))
 	}
 	var envelope map[string]json.RawMessage
-	if json.Unmarshal(slots[key], &envelope) != nil || envelope["selection"] != nil {
+	if json.Unmarshal(raw, &envelope) != nil || envelope["selection"] != nil {
 		return fail()
 	}
-	if json.Unmarshal(slots[key], &slot) != nil || slot.AgentID == uuid.Nil {
+	if json.Unmarshal(raw, &slot) != nil || slot.AgentID == uuid.Nil {
 		return fail()
 	}
 	if (slot.Input.ProjectID != uuid.Nil && slot.Input.ProjectID != receipt.ProjectID) ||
@@ -358,50 +198,21 @@ func decodeInboxInputSlot(
 	var err error
 	slot.Input, blocks, err = prepareOriginContentInput(slot.Input)
 	if err != nil {
-		return slot, progress, nil, err
+		return slot, nil, err
 	}
-	var stages map[string]json.RawMessage
-	if json.Unmarshal(receipt.Progress, &stages) != nil {
-		return fail()
+	slot.Input.IdempotencyScope, err = inboxInputScope(slot.Scope, receipt.IntegrationID)
+	if err != nil {
+		return slot, nil, err
 	}
-	if raw := stages[key]; len(raw) != 0 && json.Unmarshal(raw, &progress) != nil {
-		return fail()
-	}
-	return slot, progress, blocks, nil
+	return slot, blocks, nil
 }
 
-func (s *Store) replayInboxInput(
-	ctx context.Context,
-	slot InboxInputSlot,
-	committed inboxInputCommit,
+func replayInboxInput(
+	ctx context.Context, q *dbsqlc.Queries, slot InboxInputSlot, outcome inboxSlotResult,
 ) (InboxInputResult, error) {
-	if committed.Skipped != "" {
-		if committed.Skipped != InboxInputSkipAgentArchived || committed.InputID != uuid.Nil ||
-			committed.TargetID != uuid.Nil || committed.IdempotencyKey != "" || committed.IdempotencyScope != "" {
-			return InboxInputResult{}, storeerr.ErrIdempotencyConflict
-		}
-		return InboxInputResult{Skipped: committed.Skipped}, nil
+	if outcome.Outcome == InboxSlotSkipped {
+		return InboxInputResult{Skipped: InboxInputSkipAgentArchived}, nil
 	}
-	if committed.InputID == uuid.Nil || committed.TargetID == uuid.Nil || committed.IdempotencyScope == "" {
-		return InboxInputResult{}, storeerr.ErrIdempotencyConflict
-	}
-	key := committed.IdempotencyKey
-	if key == "" {
-		key = slot.Input.IdempotencyKey
-	}
-	row, err := s.q.GetAgentInputByIdempotency(ctx, dbsqlc.GetAgentInputByIdempotencyParams{
-		ProjectID:           slot.Input.ProjectID,
-		AgentID:             slot.AgentID,
-		IdempotencyScope:    committed.IdempotencyScope,
-		InputIdempotencyKey: key,
-	})
-	if err != nil {
-		return InboxInputResult{}, err
-	}
-	record := agentInputRecordFromIdempotencySQLC(row)
-	if record.ID != committed.InputID || record.IntegrationTargetID != committed.TargetID {
-		return InboxInputResult{}, storeerr.ErrIdempotencyConflict
-	}
-	content, err := agentInputContentBlocks(ctx, s.q, slot.Input.ProjectID, slot.AgentID, []uuid.UUID{record.ID})
-	return InboxInputResult{AgentInput: record, ContentBlocks: content[record.ID]}, err
+	content, err := agentInputContentBlocks(ctx, q, slot.Input.ProjectID, slot.AgentID, []uuid.UUID{outcome.Input.ID})
+	return InboxInputResult{AgentInput: outcome.Input, ContentBlocks: content[outcome.Input.ID]}, err
 }

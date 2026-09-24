@@ -119,7 +119,7 @@ func (c *IntegrationInboxConsumer) Consume(
 		if err != nil {
 			return nil, err
 		}
-		return c.router.Admit(ctx, lease)
+		return c.router.Admit(ctx, lease, nil)
 	}
 	err = c.inbox.WithIntegrationInboxLease(
 		ctx,
@@ -170,7 +170,7 @@ func (c *IntegrationInboxConsumer) Consume(
 				return nil, err
 			}
 			if unrouted {
-				return c.router.Admit(ctx, lease)
+				return c.router.Admit(ctx, lease, nil)
 			}
 			if c.launchers == nil {
 				return nil, fmt.Errorf("integration launcher workflow is required")
@@ -192,8 +192,8 @@ func (c *IntegrationInboxConsumer) Consume(
 	if err != nil {
 		return nil, err
 	}
-	var progress map[string]integrationInboxSlotProgress
-	if err = json.Unmarshal(receipt.Progress, &progress); err != nil {
+	outcomes, err := c.router.execution.GetIntegrationInboxOutcomes(ctx, receipt)
+	if err != nil {
 		return nil, err
 	}
 	keys := make([]string, 0, len(plan))
@@ -216,7 +216,7 @@ func (c *IntegrationInboxConsumer) Consume(
 		}
 		conversations := map[integrationstore.ConversationAddress]conversation{}
 		for _, key := range keys {
-			if progress[key].Committed != nil {
+			if outcomes[key] != executionstore.InboxSlotPending {
 				continue
 			}
 			scope := plan[key].Scope
@@ -234,68 +234,54 @@ func (c *IntegrationInboxConsumer) Consume(
 			conversations[address] = group
 		}
 		for address, group := range conversations {
-			checkRecipients := func(ctx context.Context, settleAll bool) error {
-				authorized := false
+			checkRecipients := func(ctx context.Context) error {
 				var failures []error
 				for _, key := range group.recipients {
 					if err := c.router.execution.CheckInboxConversationAuthority(ctx, lease, key, address); err == nil {
-						if !settleAll {
-							return nil
-						}
-						authorized = true
+						return nil
 					} else if !errors.Is(err, executionstore.ErrInboxRecipientSettled) {
 						failures = append(failures, err)
 					}
-				}
-				if authorized {
-					return nil
 				}
 				if len(failures) == 0 {
 					return executionstore.ErrInboxRecipientSettled
 				}
 				return errors.Join(failures...)
 			}
-			// Settle every archived recipient once before per-request authority checks.
-			if err := checkRecipients(ctx, true); err != nil {
+			if err := checkRecipients(ctx); err != nil {
 				if errors.Is(err, executionstore.ErrInboxRecipientSettled) {
 					continue
 				}
 				return nil, err
 			}
-			authority := func(ctx context.Context) error { return checkRecipients(ctx, false) }
-			if err := preparer.PrepareConversation(ctx, integrationSetup, receipt.Payload, group.scope, authority); err != nil &&
+			if err := preparer.PrepareConversation(
+				ctx, integrationSetup, receipt.Payload, group.scope, checkRecipients,
+			); err != nil &&
 				!errors.Is(err, executionstore.ErrInboxRecipientSettled) {
 				return nil, err
 			}
-		}
-		// Authority checks may settle archived recipients while preparing siblings.
-		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(receipt.Progress, &progress); err != nil {
-			return nil, err
 		}
 	}
 	cache := expansion.Files
 	if cache == nil {
 		cache = map[string]IntegrationInboxFile{}
 	}
+	prepared := make(map[string][]artifactstore.PreparedArtifact)
 	preparationFailures := make(map[string]error)
 	for _, key := range keys {
 		slot := plan[key]
-		if len(slot.Files) == 0 || len(progress[key].Prepared) != 0 || progress[key].Committed != nil {
+		if len(slot.Files) == 0 || outcomes[key] != executionstore.InboxSlotPending {
 			continue
 		}
-		prepared, err := c.prepareFiles(ctx, adapter, integrationSetup, receipt.Payload, slot, cache)
+		files, err := c.prepareFiles(ctx, adapter, integrationSetup, receipt.Payload, slot, cache)
 		if err == nil {
-			err = c.router.Prepare(ctx, lease, key, prepared)
+			prepared[key] = files
 		}
 		if err != nil {
 			preparationFailures[key] = err
 		}
 	}
-	results, err := c.router.Admit(ctx, lease)
+	results, err := c.router.Admit(ctx, lease, prepared)
 	for _, result := range results {
 		if result.Input != nil && result.Input.Skipped == executionstore.InboxInputSkipAgentArchived {
 			delete(preparationFailures, result.Slot)

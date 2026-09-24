@@ -18,8 +18,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// IntegrationInboxLeaseTx must contain both admission and CommitSlot so lease expiry
-// cannot leave admitted input without committed progress. Roll back on any error.
+// IntegrationInboxLeaseTx fences receipt mutations and execution admission in a
+// caller-owned transaction. CheckLease must succeed after admission writes and
+// before commit. Roll back on any error.
 type IntegrationInboxLeaseTx struct {
 	tx     pgx.Tx
 	q      *dbsqlc.Queries
@@ -75,7 +76,6 @@ func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 	r.Payload = bytes.Clone(r.Payload)
 	r.Events = bytes.Clone(r.Events)
 	r.Plan = bytes.Clone(r.Plan)
-	r.Progress = bytes.Clone(r.Progress)
 	if r.ClaimExpiresAt != nil {
 		v := *r.ClaimExpiresAt
 		r.ClaimExpiresAt = &v
@@ -88,7 +88,7 @@ func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 }
 
 func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawMessage) error {
-	if err := w.checkLease(ctx); err != nil {
+	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
 	if _, err := inboxSlots(plan); err != nil {
@@ -113,80 +113,15 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 	return nil
 }
 
-func (w *IntegrationInboxLeaseTx) PrepareSlot(ctx context.Context, slot string, prepared json.RawMessage) error {
-	return w.writeSlotStage(ctx, slot, "prepared", prepared)
-}
-
-func (w *IntegrationInboxLeaseTx) CommitSlot(ctx context.Context, slot string, result json.RawMessage) error {
-	return w.writeSlotStage(ctx, slot, "committed", result)
-}
-
-func (w *IntegrationInboxLeaseTx) writeSlotStage(ctx context.Context, slot, stage string, value json.RawMessage) error {
-	if err := w.checkLease(ctx); err != nil {
-		return err
-	}
-	plan, err := inboxSlots(w.record.Plan)
-	if err != nil {
-		return err
-	}
-	if _, ok := plan[slot]; !ok {
-		return inboxInvalid("slot is not in the frozen inbox plan")
-	}
-	if _, err := inboxObject(value); err != nil {
-		return err
-	}
-	var progress map[string]map[string]json.RawMessage
-	if err := json.Unmarshal(w.record.Progress, &progress); err != nil {
-		return fmt.Errorf("decode inbox progress: %w", err)
-	}
-	stages := progress[slot]
-	if stages == nil {
-		stages = make(map[string]json.RawMessage)
-		progress[slot] = stages
-	}
-	if existing, ok := stages[stage]; ok {
-		if !jsoncanonical.Equal(existing, value) {
-			return storeerr.ErrConflict
-		}
-		return nil
-	}
-	if stage == "prepared" && stages["committed"] != nil {
-		return storeerr.ErrStateTransitionConflict
-	}
-	stages[stage] = bytes.Clone(value)
-	encoded, err := json.Marshal(progress)
-	if err != nil {
-		return fmt.Errorf("encode inbox progress: %w", err)
-	}
-	if _, err := inboxObject(encoded); err != nil {
-		return err
-	}
-	rows, err := w.q.UpdateIntegrationInboxProgress(ctx, dbsqlc.UpdateIntegrationInboxProgressParams{
-		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token, Progress: encoded,
-	})
-	if err := inboxLeaseMutation("update inbox progress", rows, err); err != nil {
-		return err
-	}
-	w.record.Progress = encoded
-	return nil
-}
-
+// Complete marks a planned receipt terminal under its current lease. The caller
+// must verify every planned outcome in this transaction first; executionstore's
+// CompleteIntegrationInbox owns that settlement invariant.
 func (w *IntegrationInboxLeaseTx) Complete(ctx context.Context) error {
-	if err := w.checkLease(ctx); err != nil {
+	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
-	plan, err := inboxSlots(w.record.Plan)
-	if err != nil {
+	if _, err := inboxSlots(w.record.Plan); err != nil {
 		return err
-	}
-	var progress map[string]map[string]json.RawMessage
-	if err := json.Unmarshal(w.record.Progress, &progress); err != nil {
-		return fmt.Errorf("decode inbox progress: %w", err)
-	}
-	for slot := range plan {
-		if progress[slot]["committed"] == nil {
-			return storeerr.ErrStateTransitionConflict
-		}
 	}
 	rows, err := w.q.CompleteIntegrationInboxReceipt(ctx, dbsqlc.CompleteIntegrationInboxReceiptParams{
 		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
@@ -214,7 +149,9 @@ func (w *IntegrationInboxLeaseTx) Fail(ctx context.Context, reason string) error
 	return inboxLeaseMutation("fail inbox", rows, err)
 }
 
-func (w *IntegrationInboxLeaseTx) checkLease(ctx context.Context) error {
+// CheckLease refreshes the receipt and validates its lease using a fresh database
+// statement. Call it after domain writes to fence expiry during admission lock waits.
+func (w *IntegrationInboxLeaseTx) CheckLease(ctx context.Context) error {
 	row, err := w.q.ReadIntegrationInboxLease(ctx, dbsqlc.ReadIntegrationInboxLeaseParams{
 		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
 	})
@@ -225,7 +162,7 @@ func (w *IntegrationInboxLeaseTx) checkLease(ctx context.Context) error {
 		return fmt.Errorf("validate inbox lease: %w", err)
 	}
 	// Refresh even under an already-held row lock: another handle in the same
-	// caller-owned transaction may have appended a stage since this snapshot.
+	// caller-owned transaction may have frozen the plan since this snapshot.
 	w.record = inboxRecord(row)
 	return nil
 }
@@ -259,8 +196,7 @@ func inboxLeaseMutation(operation string, rows int64, err error) error {
 		// jsonb expansion can exceed the durable bound even when raw-byte validation passed.
 		var databaseError *pgconn.PgError
 		if errors.As(err, &databaseError) && databaseError.Code == "23514" &&
-			(databaseError.ConstraintName == "integration_inbox_plan_check" ||
-				databaseError.ConstraintName == "integration_inbox_progress_check") {
+			databaseError.ConstraintName == "integration_inbox_plan_check" {
 			return storeerr.InvalidRequest(fmt.Errorf("%s: normalized inbox JSON exceeds durable bounds: %w", operation, err))
 		}
 		return fmt.Errorf("%s: %w", operation, err)

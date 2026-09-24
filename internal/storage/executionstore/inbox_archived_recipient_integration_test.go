@@ -3,7 +3,6 @@
 package executionstore_test
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -26,17 +25,19 @@ func TestInboxInputArchivedRecipientSettlesWithoutPreparation(t *testing.T) {
 	receipt := freezeInboxInput(t, f, slot, "archived-recipient", time.Minute)
 	_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, agent.Agent.ID, userPrincipal(f.user.ID))
 	require.NoError(t, err)
-	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err, "archived recipients need no provider preparation")
 	require.Equal(t, executionstore.InboxInputResult{Skipped: executionstore.InboxInputSkipAgentArchived}, result)
 	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
 		f.ctx, receipt.Lease(), "recipient", slot.Input.Origin.Address), executionstore.ErrInboxRecipientSettled)
 	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
 		f.ctx, receipt.Lease(), "recipient", integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:9.9"}),
-		storeerr.ErrUnauthorized, "settled progress never authorizes another conversation")
+		storeerr.ErrUnauthorized, "settled outcomes never authorize another conversation")
 	saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"recipient":{"committed":{"skipped":"agent_archived"}}}`, string(saved.Progress))
+	outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, saved)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InboxSlotSkipped, outcomes["recipient"])
 	for _, table := range []string{"agent_inputs", "artifacts", "integration_targets"} {
 		var count int
 		query := "SELECT count(*) FROM " + table + " WHERE agent_id=$1"
@@ -46,10 +47,9 @@ func TestInboxInputArchivedRecipientSettlesWithoutPreparation(t *testing.T) {
 		require.NoError(t, f.store.pool.QueryRow(f.ctx, query, agent.Agent.ID).Scan(&count))
 		require.Zero(t, count, table)
 	}
-	require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, receipt.Lease(),
-		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Complete(f.ctx) }))
+	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, receipt.Lease()))
 	f.disable(t)
-	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err, "completed skips replay without reacquiring authority")
 	require.Equal(t, result, replayed)
 }
@@ -65,7 +65,7 @@ func TestInboxInputArchivedRecipientReplaysPriorDelivery(t *testing.T) {
 			slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:prior")
 			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 			first := freezeInboxInput(t, f, slot, "prior-delivery", time.Minute)
-			prior, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, first.Lease(), "recipient")
+			prior, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, first.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.True(t, prior.Created)
 			if scenario != "same input" {
@@ -79,7 +79,7 @@ func TestInboxInputArchivedRecipientReplaysPriorDelivery(t *testing.T) {
 			pending := freezeInboxInput(t, f, slot, "duplicate-delivery", time.Minute)
 			_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, agent.Agent.ID, userPrincipal(f.user.ID))
 			require.NoError(t, err)
-			result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient")
+			result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.False(t, result.Created)
 			if scenario == "supplemental files" {
@@ -89,7 +89,7 @@ func TestInboxInputArchivedRecipientReplaysPriorDelivery(t *testing.T) {
 				require.Empty(t, result.Skipped, "already delivered input stays delivered")
 				require.Equal(t, prior.AgentInput.ID, result.AgentInput.ID)
 			}
-			replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient")
+			replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient", nil)
 			require.NoError(t, err)
 			require.Equal(t, result.Skipped, replayed.Skipped)
 			require.Equal(t, result.AgentInput.ID, replayed.AgentInput.ID)
@@ -122,7 +122,7 @@ func TestInboxInputArchiveRechecksStateAfterAgentLockWait(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
 	admission := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
-		return f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+		return f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 2)
 	require.NoError(t, blocker.Commit(f.ctx))
@@ -139,7 +139,9 @@ func TestInboxInputArchiveRechecksStateAfterAgentLockWait(t *testing.T) {
 	require.Zero(t, inputs, "inbox settlement must not admit content after archival")
 	saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"recipient":{"committed":{"skipped":"agent_archived"}}}`, string(saved.Progress))
+	outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, saved)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InboxSlotSkipped, outcomes["recipient"])
 }
 
 func TestInboxInputMissingRecipientDoesNotSettle(t *testing.T) {
@@ -148,11 +150,70 @@ func TestInboxInputMissingRecipientDoesNotSettle(t *testing.T) {
 	slot := inboxInputPlan(t, uuid.New(), f.integration, "message:missing")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	receipt := freezeInboxInput(t, f, slot, "missing-recipient", time.Minute)
-	_, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
+	_, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 	require.NoError(t, err)
-	var progress map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(saved.Progress, &progress))
-	require.Empty(t, progress, "only a verified archived row may settle as skipped")
+	outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, saved)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InboxSlotPending, outcomes["recipient"],
+		"a missing recipient is pending, never skipped")
+	require.ErrorIs(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, receipt.Lease()),
+		storeerr.ErrStateTransitionConflict)
+}
+
+func TestInboxInputOutcomesSurviveArchivalAndDeletedTargets(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationActivationFixture(t)
+	agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "historical-recipient"))
+	require.NoError(t, err)
+	slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:delivered")
+	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	delivered := freezeInboxInput(t, f, slot, "historical-delivered", time.Minute)
+	input, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, delivered.Lease(), "recipient", nil)
+	require.NoError(t, err)
+	slot.Input.IdempotencyKey = "message:skipped"
+	slot = withInboxFile(t, slot)
+	pending := freezeInboxInput(t, f, slot, "historical-skipped", time.Minute)
+	_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, agent.Agent.ID, userPrincipal(f.user.ID))
+	require.NoError(t, err)
+	// Resolve archival before any admission or upload attempt for the pending slot.
+	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
+		f.ctx, pending.Lease(), "recipient", slot.Input.Origin.Address), executionstore.ErrInboxRecipientSettled)
+	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, pending.Lease()))
+	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, delivered.Lease()))
+	require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
+	var deleted bool
+	require.NoError(t, f.store.pool.QueryRow(f.ctx,
+		`SELECT deleted_at IS NOT NULL FROM integration_targets WHERE id=$1`, input.AgentInput.IntegrationTargetID,
+	).Scan(&deleted))
+	require.True(t, deleted)
+	for _, tc := range []struct {
+		receipt integrationstore.IntegrationInboxRecord
+		outcome executionstore.InboxSlotOutcome
+	}{
+		{delivered, executionstore.InboxSlotDelivered},
+		{pending, executionstore.InboxSlotSkipped},
+	} {
+		saved, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, tc.receipt.ID)
+		require.NoError(t, err)
+		outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, saved)
+		require.NoError(t, err)
+		require.Equal(t, tc.outcome, outcomes["recipient"])
+		replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, tc.receipt.Lease(), "recipient", nil)
+		require.NoError(t, err, "settled work replays after its lease and live authority end")
+		require.False(t, replayed.Created)
+		if tc.outcome == executionstore.InboxSlotDelivered {
+			require.Equal(t, input.AgentInput.ID, replayed.AgentInput.ID)
+			require.Equal(t, input.AgentInput.IntegrationTargetID, replayed.AgentInput.IntegrationTargetID)
+			require.Empty(t, replayed.Skipped)
+		} else {
+			require.Equal(t, executionstore.InboxInputSkipAgentArchived, replayed.Skipped)
+			require.Equal(t, uuid.Nil, replayed.AgentInput.ID)
+		}
+		require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
+			f.ctx, tc.receipt.Lease(), "recipient", slot.Input.Origin.Address), executionstore.ErrInboxRecipientSettled)
+		require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(f.ctx, tc.receipt.Lease(), "recipient",
+			integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:9.9"}), storeerr.ErrUnauthorized)
+	}
 }

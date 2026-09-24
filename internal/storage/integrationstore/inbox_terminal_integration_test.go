@@ -56,10 +56,7 @@ func freezeInboxSelection(
 	f.accept(t, name)
 	receipt := f.claim(t)
 	f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.FreezePlan(f.ctx, plan); err != nil {
-			return err
-		}
-		return work.PrepareSlot(f.ctx, "a", json.RawMessage(`{"digest":"pinned-media-evidence"}`))
+		return work.FreezePlan(f.ctx, plan)
 	})
 	return f.read(t, receipt.ID), selection
 }
@@ -84,7 +81,6 @@ func TestInboxTerminalFailureRetainsDedupeAndReleasesSelection(t *testing.T) {
 	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
 	require.NotNil(t, failed.CompletedAt)
 	require.Equal(t, receipt.Plan, failed.Plan)
-	require.Equal(t, receipt.Progress, failed.Progress)
 	replay, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID:     f.project,
 		IntegrationID: f.integrationID,
@@ -102,7 +98,7 @@ func TestInboxTerminalFailureRetainsDedupeAndReleasesSelection(t *testing.T) {
 	require.False(t, claimed)
 	err = f.store.WithIntegrationInboxLease(f.ctx, receipt.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
-			return work.CommitSlot(f.ctx, "a", json.RawMessage(`{"admitted":true}`))
+			return work.Complete(f.ctx)
 		})
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 	f.accept(t, "fresh-event")
@@ -166,9 +162,6 @@ func TestInboxTerminalFailurePreservesRetainedTargets(t *testing.T) {
  VALUES($1,$2,$3,'thread','C123:1.2','a',
   CASE WHEN $4 THEN now() ELSE NULL END,now(),now())`,
 				f.project, launch.Agent.ID, selection.IntegrationID, retired)
-			f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-				return work.CommitSlot(f.ctx, "a", json.RawMessage(`{"admitted":true}`))
-			})
 			failed := failInboxSelection(t, f, receipt)
 			f.accept(t, "replacement")
 			replacement := f.claim(t)

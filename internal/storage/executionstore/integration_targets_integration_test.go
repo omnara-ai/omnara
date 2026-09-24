@@ -401,7 +401,7 @@ func TestProjectIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
 		t.Fatalf("lock project integration: %v", err)
 	}
 	targetDone := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
-		return store.Execution().AdmitInboxInputSlot(ctx, lease, "recipient")
+		return store.Execution().AdmitInboxInputSlot(ctx, lease, "recipient", nil)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	deleteDone := integrationdb.RunAsyncError(func() error {
@@ -477,7 +477,7 @@ func TestProjectIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	targetDone := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
-		return store.Execution().AdmitInboxInputSlot(ctx, lateLease, "recipient")
+		return store.Execution().AdmitInboxInputSlot(ctx, lateLease, "recipient", nil)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleShared", 1)
 
@@ -1064,7 +1064,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 	fixture := integrationActivationFixture{ctx: ctx, store: store}
 	receipt := freezeInboxInput(t, fixture, slot, "first", time.Minute)
-	first, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	first, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil {
 		t.Fatalf("admit first input and target: %v", err)
 	}
@@ -1073,7 +1073,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	wrongTenant.Input.Origin.Address = slot.Input.Origin.Address
 	wrongTenant.Input.Actor.ProviderTenantID = "T_WRONG"
 	wrongReceipt := freezeInboxInput(t, fixture, wrongTenant, "wrong-tenant", time.Minute)
-	_, err = store.Execution().AdmitInboxInputSlot(ctx, wrongReceipt.Lease(), "recipient")
+	_, err = store.Execution().AdmitInboxInputSlot(ctx, wrongReceipt.Lease(), "recipient", nil)
 	if err == nil {
 		t.Fatal("integration input with the wrong provider tenant succeeded")
 	}
@@ -1105,7 +1105,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	slot.Input.IdempotencyKey = "Ev-second"
 	slot.Input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"second"}]`)
 	secondReceipt := freezeInboxInput(t, fixture, slot, "second", time.Minute)
-	second, err := store.Execution().AdmitInboxInputSlot(ctx, secondReceipt.Lease(), "recipient")
+	second, err := store.Execution().AdmitInboxInputSlot(ctx, secondReceipt.Lease(), "recipient", nil)
 	if err != nil {
 		t.Fatalf("admit second input and target: %v", err)
 	}
@@ -1123,7 +1123,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	if secondAgent.IntegrationTargetID != uuid.Nil {
 		t.Fatalf("origin without an authorized handler selected target %s", secondAgent.IntegrationTargetID)
 	}
-	replayed, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	replayed, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || replayed.AgentInput.ID != firstInput.ID {
 		t.Fatalf("replayed input = %+v, err=%v; want %s", replayed, err, firstInput.ID)
 	}
@@ -1148,11 +1148,11 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	); err != nil {
 		t.Fatalf("disable input install: %v", err)
 	}
-	disabledReplay, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	disabledReplay, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || disabledReplay.AgentInput.ID != firstInput.ID {
 		t.Fatalf("disabled replay = %+v, err=%v; want %s", disabledReplay, err, firstInput.ID)
 	}
-	_, err = store.Execution().AdmitInboxInputSlot(ctx, lateReceipt.Lease(), "recipient")
+	_, err = store.Execution().AdmitInboxInputSlot(ctx, lateReceipt.Lease(), "recipient", nil)
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("new input on disabled install error = %v, want ErrUnauthorized", err)
 	}
@@ -1241,7 +1241,7 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 				time.Minute,
 			)
 			createInput := func() (executionstore.AgentInputRecord, error) {
-				result, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+				result, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 				return result.AgentInput, err
 			}
 			changeInstall := func() error {
@@ -1383,7 +1383,7 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 	}
 	fixture := integrationActivationFixture{ctx: ctx, store: store}
 	receipt := freezeInboxInput(t, fixture, slot, "verified", time.Minute)
-	created, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	created, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || created.AgentInput.IntegrationTargetID != target.ID {
 		t.Fatalf("verified provider input: %+v %v", created, err)
 	}
@@ -1392,7 +1392,7 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 	if _, err := store.Execution().AdmitInboxInputSlot(
 		ctx,
 		wrong.Lease(),
-		"recipient",
+		"recipient", nil,
 	); !errors.Is(
 		err,
 		storeerr.ErrUnauthorized,
@@ -1430,7 +1430,7 @@ func admitIntegrationOrigin(
 ) (executionstore.InboxInputResult, error) {
 	t.Helper()
 	lease := prepareIntegrationOrigin(t, ctx, store, agentID, integrationID, address)
-	return store.Execution().AdmitInboxInputSlot(ctx, lease, "recipient")
+	return store.Execution().AdmitInboxInputSlot(ctx, lease, "recipient", nil)
 }
 
 func createIntegrationProjectAdmin(
@@ -1638,7 +1638,7 @@ func mustCreateIntegrationInput(
 		uuid.NewString(),
 		time.Minute,
 	)
-	result, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient")
+	result, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil {
 		t.Fatalf("admit integration input: %v", err)
 	}

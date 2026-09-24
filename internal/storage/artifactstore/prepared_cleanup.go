@@ -16,10 +16,9 @@ func (s *Store) DeleteUnreferencedPreparedArtifact(
 	ctx context.Context,
 	projectID, agentID, artifactID uuid.UUID,
 ) error {
-	// The caller must establish a terminal receipt and an undelivered slot before
-	// deletion; that fences admission, so the reference check and blob deletion
-	// need no shared transaction. Durable artifact rows retain archived history.
-	// A stale uploader can still recreate unused bytes afterward.
+	// The caller must establish a terminal receipt that minted this artifact ID.
+	// No attempt can then admit it; durable artifact rows retain delivered files,
+	// including archived history. A stale uploader can still recreate unused bytes.
 	if projectID == uuid.Nil || agentID == uuid.Nil || artifactID == uuid.Nil {
 		return storeerr.InvalidRequest(errors.New("project, planned agent and artifact IDs are required"))
 	}

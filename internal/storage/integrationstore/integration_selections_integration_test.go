@@ -113,7 +113,7 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 	require.JSONEq(t, string(blockedPlan), string(f.read(t, receipts[1-winner].ID).Plan))
 	err = store.WithIntegrationInboxLease(f.ctx, receipts[winner].Lease(),
 		func(lease *integrationstore.IntegrationInboxLeaseTx) error {
-			return lease.CommitSlot(f.ctx, "a", json.RawMessage(`{"admitted":true}`))
+			return lease.Complete(f.ctx)
 		})
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 }

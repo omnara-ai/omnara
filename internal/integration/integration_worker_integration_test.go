@@ -18,6 +18,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -75,6 +77,27 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	pool, store, ids, integrationSetup := integrationWorkerFixture(t)
 	inbox := store.Integrations()
 	ctx := t.Context()
+	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+	integration, err := inbox.GetProjectIntegration(ctx, ids.ProjectID, integrationSetup)
+	require.NoError(t, err)
+	var agents []uuid.UUID
+	for range 2 {
+		launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+			ProjectID: ids.ProjectID, AgentConfigID: base.ID,
+			LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
+		})
+		require.NoError(t, err)
+		agents = append(agents, launched.Agent.ID)
+		createTestIntegrationSubscription(t, store, integration, launched.Agent.ID, `{"channel_id":"C123"}`)
+	}
+	router := NewIntegrationRouter(store.Execution(), inbox)
+	event := IntegrationEvent{
+		Event: integrationdefinition.Event{Kind: "message",
+			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
+		ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
+		Actor:         integrationTestActor(t, integrationSetup, "U123"),
+	}
 	receipt, _, err := inbox.AcceptIntegrationReceipt(
 		ctx,
 		integrationstore.VerifiedIntegrationReceipt{
@@ -86,25 +109,25 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	)
 	require.NoError(t, err)
 	transient := &discord.APIError{Code: discord.RateLimited, RetryAfter: time.Hour}
+	var admissions []executionstore.InboxInputResult
 	consumer := integrationWorkerConsumerFunc(
 		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
-			err := inbox.WithIntegrationInboxLease(
-				ctx,
-				lease,
-				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					if err := work.FreezePlan(
-						ctx,
-						json.RawMessage(`{"a":{"agent":"pinned-a"},"b":{"agent":"pinned-b"}}`),
-					); err != nil {
-						return err
+			event.SemanticKey = lease.ReceiptID.String()
+			plan, err := freezeTestIntegrationEvents(ctx, router, lease, []IntegrationEvent{event})
+			if err != nil {
+				return nil, err
+			}
+			for key, slot := range plan {
+				if slot.AgentID == agents[0] {
+					result, err := store.Execution().AdmitInboxInputSlot(ctx, lease, key, nil)
+					if err != nil {
+						return nil, err
 					}
-					if err := work.PrepareSlot(ctx, "a", json.RawMessage(`{"files":[]}`)); err != nil {
-						return err
-					}
-					return work.CommitSlot(ctx, "a", json.RawMessage(`{"input":"committed-a"}`))
-				},
-			)
-			return nil, errors.Join(err, transient)
+					admissions = append(admissions, result)
+					return []IntegrationSlotAdmission{{Slot: key, Input: &result}}, transient
+				}
+			}
+			return nil, errors.New("fixture did not route the first recipient")
 		},
 	)
 	finalizations := 0
@@ -124,7 +147,20 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.IntegrationInboxPending, first.State)
 	require.Contains(t, first.LastError, transient.Error())
-	require.Contains(t, string(first.Progress), "committed-a")
+	require.Len(t, admissions, 1)
+	require.True(t, admissions[0].Created)
+	outcomes, err := store.Execution().GetIntegrationInboxOutcomes(ctx, first)
+	require.NoError(t, err)
+	var plan IntegrationInboxPlan
+	require.NoError(t, json.Unmarshal(first.Plan, &plan))
+	require.Len(t, plan, 2)
+	for key, slot := range plan {
+		if slot.AgentID == agents[0] {
+			require.Equal(t, executionstore.InboxSlotDelivered, outcomes[key])
+		} else {
+			require.Equal(t, executionstore.InboxSlotPending, outcomes[key])
+		}
+	}
 	require.Zero(t, finalizations, "no failure notice during retry")
 	require.WithinDuration(t, time.Now().Add(time.Hour), first.AvailableAt, 5*time.Second)
 	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=7,available_at=now() WHERE id=$1`, receipt.ID)
@@ -137,7 +173,12 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
 	require.Equal(t, 8, failed.AttemptCount)
 	require.JSONEq(t, string(first.Plan), string(failed.Plan))
-	require.JSONEq(t, string(first.Progress), string(failed.Progress))
+	require.Len(t, admissions, 2)
+	require.False(t, admissions[1].Created)
+	require.Equal(t, admissions[0].AgentInput.ID, admissions[1].AgentInput.ID)
+	failedOutcomes, err := store.Execution().GetIntegrationInboxOutcomes(ctx, failed)
+	require.NoError(t, err)
+	require.Equal(t, outcomes, failedOutcomes, "exhaustion preserves the delivered input and pending sibling")
 	require.Contains(t, failed.LastError, transient.Error())
 	require.Equal(t, 1, finalizations)
 	require.NotNil(t, failed.CompletedAt)
@@ -207,16 +248,14 @@ func TestIntegrationInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T)
 					func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Fail(ctx, "stale") },
 				)
 				require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
-				return nil, inbox.WithIntegrationInboxLease(
-					ctx,
-					lease,
+				err = inbox.WithIntegrationInboxLease(ctx, lease,
 					func(work *integrationstore.IntegrationInboxLeaseTx) error {
-						if err := work.FreezePlan(ctx, json.RawMessage(`{}`)); err != nil {
-							return err
-						}
-						return work.Complete(ctx)
-					},
-				)
+						return work.FreezePlan(ctx, json.RawMessage(`{}`))
+					})
+				if err != nil {
+					return nil, err
+				}
+				return nil, store.Execution().CompleteIntegrationInbox(ctx, lease)
 			},
 		),
 		IntegrationInboxWorkerOptions{},
@@ -265,12 +304,12 @@ func TestIntegrationInboxWorkerSlowReceiptDoesNotBlockSameIntegration(t *testing
 				ctx,
 				lease,
 				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					if err := work.FreezePlan(ctx, json.RawMessage(`{}`)); err != nil {
-						return err
-					}
-					return work.Complete(ctx)
+					return work.FreezePlan(ctx, json.RawMessage(`{}`))
 				},
 			)
+			if err == nil {
+				err = store.Execution().CompleteIntegrationInbox(ctx, lease)
+			}
 			fastCompleted <- err
 			return nil, err
 		},

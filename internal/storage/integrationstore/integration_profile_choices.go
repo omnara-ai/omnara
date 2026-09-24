@@ -43,7 +43,7 @@ func (s *Store) EnsureIntegrationProfileChoice(
 	if err != nil {
 		return result, false, err
 	}
-	if err := work.checkLease(ctx); err != nil {
+	if err := work.CheckLease(ctx); err != nil {
 		return result, false, err
 	}
 	result = row

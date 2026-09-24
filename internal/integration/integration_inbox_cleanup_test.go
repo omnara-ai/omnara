@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +27,7 @@ func (s *cleanupCountingInbox) GetIntegrationInbox(
 type cleanupReplayExecution struct{ IntegrationExecutionStore }
 
 func (cleanupReplayExecution) AdmitInboxInputSlot(
-	context.Context, integrationstore.IntegrationInboxLease, string,
+	context.Context, integrationstore.IntegrationInboxLease, string, []artifactstore.PreparedArtifact,
 ) (executionstore.InboxInputResult, error) {
 	return executionstore.InboxInputResult{Skipped: executionstore.InboxInputSkipAgentArchived}, nil
 }
@@ -49,7 +49,7 @@ func TestIntegrationInboxConsumerCleanupReadsOnlyForPlannedArtifacts(t *testing.
 			inbox := &cleanupCountingInbox{integrationPlanStore: integrationPlanStore{
 				receipt: integrationstore.IntegrationInboxRecord{
 					ID: receiptID, ProjectID: projectID, State: integrationstore.IntegrationInboxCompleted,
-					Plan: raw, Progress: json.RawMessage(`{"slot":{"committed":{"skipped":"agent_archived"}}}`),
+					Plan: raw,
 				},
 			}}
 			artifacts := &failedInboxArtifacts{}
@@ -61,40 +61,25 @@ func TestIntegrationInboxConsumerCleanupReadsOnlyForPlannedArtifacts(t *testing.
 			require.NoError(t, err)
 			if scenario == "file" {
 				require.Equal(t, 3, inbox.reads, "completed replay still attempts unused-upload cleanup")
-				require.Equal(t, plan["slot"].ArtifactIDs, artifacts.deleted)
+				require.Equal(t, plan["slot"].ArtifactIDs, artifacts.checked)
 			} else {
 				require.Equal(t, 2, inbox.reads, "only consumer and router reads; no cleanup read")
-				require.Empty(t, artifacts.deleted)
+				require.Empty(t, artifacts.checked)
 			}
 		})
 	}
 }
 
-func TestIntegrationInboxCleanupRequiresTerminalReceiptAndProtectsDelivery(t *testing.T) {
+func TestIntegrationInboxCleanupChecksAllPlannedArtifactsOnlyAfterTerminalReceipt(t *testing.T) {
 	for _, scenario := range []struct {
 		name        string
 		state       integrationstore.IntegrationInboxState
-		progress    string
-		wantDeleted bool
-		wantError   bool
+		wantChecked bool
 	}{
-		{"pending", integrationstore.IntegrationInboxPending, `{}`, false, false},
-		{
-			"processing with skip", integrationstore.IntegrationInboxProcessing,
-			`{"a":{"committed":{"skipped":"agent_archived"}}}`, false, false,
-		},
-		{
-			"completed skip", integrationstore.IntegrationInboxCompleted,
-			`{"a":{"committed":{"skipped":"agent_archived"}},"b":{"committed":{"skipped":"agent_archived"}}}`, true, false,
-		},
-		{
-			"completed missing settlement", integrationstore.IntegrationInboxCompleted,
-			`{"a":{"committed":{"skipped":"agent_archived"}}}`, false, true,
-		},
-		{
-			"unknown outcome protected", integrationstore.IntegrationInboxFailed,
-			`{"a":{"committed":{"skipped":"unknown"}},"b":{"committed":{}}}`, false, false,
-		},
+		{"pending", integrationstore.IntegrationInboxPending, false},
+		{"processing", integrationstore.IntegrationInboxProcessing, false},
+		{"completed", integrationstore.IntegrationInboxCompleted, true},
+		{"failed", integrationstore.IntegrationInboxFailed, true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			projectID, receiptID, agentID := uuid.New(), uuid.New(), uuid.New()
@@ -109,20 +94,16 @@ func TestIntegrationInboxCleanupRequiresTerminalReceiptAndProtectsDelivery(t *te
 			require.NoError(t, err)
 			receipt := integrationstore.IntegrationInboxRecord{
 				ID: receiptID, ProjectID: projectID, State: scenario.state,
-				Plan: plan, Progress: json.RawMessage(scenario.progress),
+				Plan: plan,
 			}
 			inbox := &integrationPlanStore{receipt: receipt}
 			artifacts := &failedInboxArtifacts{}
 			err = CleanupTerminalIntegrationInboxArtifacts(t.Context(), inbox, artifacts, projectID, receiptID)
-			if scenario.wantError {
-				require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+			require.NoError(t, err)
+			if scenario.wantChecked {
+				require.ElementsMatch(t, artifactIDs, artifacts.checked)
 			} else {
-				require.NoError(t, err)
-			}
-			if scenario.wantDeleted {
-				require.ElementsMatch(t, artifactIDs, artifacts.deleted)
-			} else {
-				require.Empty(t, artifacts.deleted)
+				require.Empty(t, artifacts.checked)
 			}
 			require.Equal(t, receipt, inbox.receipt)
 		})

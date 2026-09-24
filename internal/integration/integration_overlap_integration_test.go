@@ -76,17 +76,17 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 			require.Len(t, slot.Launch.Subscriptions, 1)
 			require.Equal(t, integration.ID, slot.Launch.Subscriptions[0].IntegrationID)
 		}
-		results, err := router.Admit(ctx, receipt.Lease())
+		results, err := router.Admit(ctx, receipt.Lease(), nil)
 		require.NoError(t, err)
 		require.Len(t, results, 1)
 		require.True(t, results[0].Launch.Created)
 		agents[integration.ID] = results[0].Launch.Agent.ID
-		results, err = router.Admit(ctx, receipt.Lease())
+		results, err = router.Admit(ctx, receipt.Lease(), nil)
 		require.NoError(t, err)
 		require.False(t, results[0].Launch.Created)
 		wrongProject := receipt.Lease()
 		wrongProject.ProjectID = uuid.New()
-		_, err = router.Admit(ctx, wrongProject)
+		_, err = router.Admit(ctx, wrongProject, nil)
 		require.ErrorIs(t, err, storeerr.ErrNotFound)
 	}
 	require.NotEqual(t, agents[integrations[0].ID], agents[integrations[1].ID])
@@ -109,7 +109,7 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 				require.Equal(t, []integrationstore.ConversationAddress{{Kind: "thread", Ref: "C123:1.2"}},
 					slot.Subscription.Alternatives)
 			}
-			results, err := router.Admit(ctx, receipt.Lease())
+			results, err := router.Admit(ctx, receipt.Lease(), nil)
 			require.NoError(t, err)
 			require.Equal(t, !replay, results[0].Input.Created)
 		}
@@ -159,7 +159,7 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 		if _, err := freezeTestIntegrationEvents(ctx, router, lease, []IntegrationEvent{next}); err != nil {
 			return nil, err
 		}
-		return router.Admit(ctx, lease)
+		return router.Admit(ctx, lease, nil)
 	}), IntegrationInboxWorkerOptions{})
 	require.ErrorIs(t, worker.consume(ctx, receipt), ErrIntegrationLaunchUnavailable)
 	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, receipt.ID)
@@ -215,7 +215,7 @@ func TestIntegrationRouterDirectedSettledIntentWithoutSubscription(t *testing.T)
 	plan, err := freezeTestIntegrationEvents(ctx, router, initial.Lease(), []IntegrationEvent{event})
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
-	results, err := router.Admit(ctx, initial.Lease())
+	results, err := router.Admit(ctx, initial.Lease(), nil)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.True(t, results[0].Launch.Created)
@@ -254,7 +254,7 @@ func TestIntegrationRouterDirectedSettledIntentWithoutSubscription(t *testing.T)
 		} else {
 			require.Empty(t, plan)
 		}
-		results, err = router.Admit(ctx, next.Lease())
+		results, err = router.Admit(ctx, next.Lease(), nil)
 		require.NoError(t, err)
 		if directed {
 			require.Len(t, results, 1)

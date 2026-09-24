@@ -139,7 +139,7 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 				require.Len(t, plan, 2)
 				archive()
 			}
-			admitted, err := router.Admit(ctx, receipt.Lease())
+			admitted, err := router.Admit(ctx, receipt.Lease(), nil)
 			require.NoError(t, err)
 			require.Len(t, admitted, len(plan))
 			var delivered uuid.UUID
@@ -157,7 +157,7 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 			saved, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 			require.NoError(t, err)
 			require.Equal(t, integrationstore.IntegrationInboxCompleted, saved.State)
-			replayed, err := router.Admit(ctx, receipt.Lease())
+			replayed, err := router.Admit(ctx, receipt.Lease(), nil)
 			require.NoError(t, err)
 			for _, result := range replayed {
 				require.False(t, result.Input.Created)
