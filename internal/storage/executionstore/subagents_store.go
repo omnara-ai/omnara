@@ -29,7 +29,6 @@ const (
 	SubagentMessageKindContentFiltered = "content_filtered"
 	SubagentMessageKindFailed          = "failed"
 	SubagentMessageKindQuestion        = "question"
-	SubagentMessageKindCanceled        = "canceled"
 
 	SubagentStateRunning              = "running"
 	SubagentStateIdle                 = "idle"
@@ -446,8 +445,6 @@ func subagentMessageText(child AgentRecord, childPublicID string, message subage
 	case SubagentMessageKindQuestion:
 		header = label + " asked a question and is paused until a human answers it. " +
 			"Messaging it with send_agent_message cancels the question."
-	case SubagentMessageKindCanceled:
-		header = label + " was canceled."
 	default:
 		header = label + ":"
 	}
@@ -749,7 +746,10 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 	if child.State != AgentStateActive {
 		return storeerr.InvalidRequest(errors.New("subagent is archived"))
 	}
-	if err := lockAgentWithParentTx(ctx, t.tx, t.q, child.ProjectID, child.ID); err != nil {
+	if err := lifecyclelock.Agents(ctx, t.tx, []lifecyclelock.AgentRef{{
+		ProjectID: child.ProjectID,
+		AgentID:   child.ID,
+	}}); err != nil {
 		return err
 	}
 	parent, err := loadAgentInProjectTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)

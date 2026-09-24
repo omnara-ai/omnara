@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -435,53 +434,6 @@ func TestLaunchSubagentRejectsForeignParentAndDepthLimit(t *testing.T) {
 	)
 	if !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("spawn at depth %d: err = %v, want invalid request", agentconfig.MaxSubagentDepth, err)
-	}
-}
-
-func TestSubagentArchiveDoesNotMessageParent(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	pool := openIntegrationDB(t, ctx)
-	seedMigratedDB(t, ctx, pool)
-	store := newIntegrationStore(pool)
-	user := mustCreateProjectDeveloperUser(t, ctx, store, "subagent-notify@example.com", "Subagent Notify")
-	profile := mustCreateConfigAndProfileBookmarkFromYAML(
-		t, ctx, store, "subagent-notify", "Subagent Notify", subagentParentYAML,
-	)
-	parentLaunch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-		ProjectID:      testProjectID,
-		ProfileID:      profile.ID,
-		AgentConfigID:  profile.CurrentConfigID,
-		LaunchedBy:     userPrincipal(user.ID),
-		IdempotencyKey: "subagent-notify-parent",
-	})
-	if err != nil {
-		t.Fatalf("launch parent: %v", err)
-	}
-	parent := parentLaunch.Agent
-	child, err := spawnSubagentForTest(
-		t, ctx, store, parent, profile.CurrentConfigID, "notify", "subagent-notify-child", nil,
-	)
-	if err != nil {
-		t.Fatalf("spawn subagent: %v", err)
-	}
-	if _, _, err := store.Execution().ArchiveAgent(
-		ctx, testProjectID, child.Agent.ID, userPrincipal(user.ID),
-	); err != nil {
-		t.Fatalf("archive subagent: %v", err)
-	}
-	var parentInputs int
-	if err := pool.QueryRow(
-		ctx,
-		`SELECT count(*) FROM agent_inputs
-		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message'`,
-		testProjectID,
-		parent.ID,
-	).Scan(&parentInputs); err != nil {
-		t.Fatalf("count parent subagent messages: %v", err)
-	}
-	if parentInputs != 0 {
-		t.Fatalf("parent subagent messages after archive = %d, want 0", parentInputs)
 	}
 }
 
@@ -1051,30 +1003,6 @@ func TestStopSubagentCancelsThenArchives(t *testing.T) {
 	}
 	if interactionState != string(executionstore.AgentInteractionStateCanceled) {
 		t.Fatalf("child question state after cancel = %q, want canceled", interactionState)
-	}
-	var kinds []string
-	rows, err := pool.Query(
-		ctx,
-		`SELECT metadata->'subagent_message'->>'kind' FROM agent_inputs
-		 WHERE project_id = $1 AND agent_id = $2 AND idempotency_scope = 'subagent_message' ORDER BY queued_at`,
-		testProjectID, parent.ID,
-	)
-	if err != nil {
-		t.Fatalf("load parent notifications: %v", err)
-	}
-	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			t.Fatalf("scan parent notification: %v", err)
-		}
-		kinds = append(kinds, kind)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate parent notifications: %v", err)
-	}
-	if !slices.Contains(kinds, executionstore.SubagentMessageKindCanceled) {
-		t.Fatalf("parent notifications after cancel = %v, want a canceled message", kinds)
 	}
 	subagents, err := store.Execution().ListSubagents(ctx, testProjectID, parent.ID)
 	if err != nil {
