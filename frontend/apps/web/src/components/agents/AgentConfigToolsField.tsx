@@ -37,7 +37,7 @@ const toolDescriptions = new Map([
   ['list_processes', 'List commands and processes that are currently running.'],
   ['create_machine', 'Create another machine for the agent to use.'],
   ['delete_machine', 'Delete a machine created for the agent.'],
-  ['list_machines', 'List the machines available to the agent.'],
+  ['list_machines', 'List the machines and machine pools available to the agent.'],
   ['inspect_machine', 'View details about a machine available to the agent.'],
   ['read_file', "Read a text file in Omnara's virtual filesystem."],
   ['search_files', "Search text inside files in Omnara's virtual filesystem."],

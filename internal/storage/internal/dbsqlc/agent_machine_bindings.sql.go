@@ -1039,6 +1039,7 @@ SELECT binding.machine_id,
        coalesce(current_runtime.state_reason_code, '') AS connection_state_reason,
        coalesce(machine.lifecycle_reason_code, '') AS lifecycle_reason_code,
        machine.lifecycle_reason_message,
+       machine.machine_pool_id,
        coalesce(pool.name, '') AS machine_pool_name,
        (binding.state = 'attached' AND pmgrant.id IS NULL)::boolean AS project_grant_missing,
        coalesce((
@@ -1101,6 +1102,7 @@ type SelectAgentMachineObservationsRow struct {
 	ConnectionStateReason  string
 	LifecycleReasonCode    string
 	LifecycleReasonMessage string
+	MachinePoolID          *uuid.UUID
 	MachinePoolName        string
 	ProjectGrantMissing    bool
 	Executable             bool
@@ -1138,6 +1140,7 @@ func (q *Queries) SelectAgentMachineObservations(ctx context.Context, arg Select
 			&i.ConnectionStateReason,
 			&i.LifecycleReasonCode,
 			&i.LifecycleReasonMessage,
+			&i.MachinePoolID,
 			&i.MachinePoolName,
 			&i.ProjectGrantMissing,
 			&i.Executable,

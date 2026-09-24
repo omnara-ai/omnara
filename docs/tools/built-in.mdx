@@ -151,7 +151,7 @@ These tools let an agent inspect its BYO and pool-backed machines, and create or
 
 ### `create_machine`
 
-Creates a machine from an available pool. Specify `machine_pool_name` only when the config provides more than one pool. Optional `cpu` and `memory_mb` override the defaults where supported, within pool and project limits.
+Creates a machine from an available pool. Use `list_machines` to discover pools, then pass the selected `machine_pool_id`. You can omit the ID when only one pool is available. Pool names are for display; renaming a pool does not change which pool an ID selects. Optional `cpu` and `memory_mb` override the defaults where supported, within pool and project limits.
 
 ### `delete_machine`
 
@@ -159,9 +159,11 @@ Deletes a pool-backed machine. Requires `machine_id`.
 
 ### `list_machines` / `inspect_machine`
 
-`list_machines` lists the agent's BYO and pool-backed machines. `inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Results include `cpu` and `memory_mb` when known and identify the machine's `source_kind` and `binding_kind`; only pool bindings can be passed to `delete_machine`.
+`list_machines` lists the agent's BYO and pool-backed machines, plus pools from its config that have an active project grant. Pools are included even when they have no machines yet. Each pool includes its `machine_pool_id`, `machine_pool_name`, and configured description. Pools also expose supported resource overrides, effective defaults, and CPU/memory limits.
 
-When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call to continue listing.
+`inspect_machine` shows whether a specific machine is ready to run commands; provide `machine_id` when the agent has more than one. Machine results include `cpu` and `memory_mb` when known, identify `source_kind` and `binding_kind`, and include `machine_pool_id` for pool-backed machines. Only pool bindings can be passed to `delete_machine`.
+
+When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call to continue listing. Pools are listed first, followed by machines. If `list_machines` is disabled, provide the agent with any needed pool IDs, supported resource overrides, and limits in its instructions.
 
 ## Files
 

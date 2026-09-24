@@ -64,6 +64,25 @@ func toolsTestUserPrincipal(userID uuid.UUID) identitystore.PrincipalRecord {
 	return identitystore.PrincipalRecord{Type: identitystore.PrincipalTypeUser, ID: userID}
 }
 
+func approveToolPermissionForTest(
+	t *testing.T,
+	ctx context.Context,
+	store *executionstore.Store,
+	interaction executionstore.AgentInteractionRecord,
+	userID uuid.UUID,
+) {
+	t.Helper()
+	actor, err := executionstore.OmnaraActorParams(toolsTestOrgID, toolsTestUserPrincipal(userID))
+	require.NoError(t, err)
+	_, err = store.ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: interaction.ProjectID, AgentID: interaction.AgentID, ID: interaction.ID, Actor: actor,
+		Resolution: interactionform.Resolution{
+			Answers: []interactionform.Answer{{OptionIndices: []int{toolpermission.AllowOptionIndex}}},
+		},
+	})
+	require.NoError(t, err)
+}
+
 func integrationToolInteraction(
 	t *testing.T,
 	ctx context.Context,

@@ -144,14 +144,11 @@ func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
 	}
 }
 
-func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
+func TestPrepareProjectsIntegrationTargetsOnlyForEnabledTools(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	withoutTools, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{
 			SystemPrompt: "sys",
-			AvailableMachinePools: []modelcontext.MachinePoolRef{{
-				MachinePoolName: "Build Pool",
-			}},
 			IntegrationTargets: []modelcontext.IntegrationTargetRef{{
 				TargetRef: "slack-abcd",
 				Provider:  "slack",
@@ -162,8 +159,7 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare without tools: %v", err)
 	}
-	if strings.Contains(string(withoutTools.Body), "Build Pool") ||
-		strings.Contains(string(withoutTools.Body), "slack-abcd") {
+	if strings.Contains(string(withoutTools.Body), "slack-abcd") {
 		t.Fatalf("runtime resource context leaked without usable tools: %s", withoutTools.Body)
 	}
 
@@ -171,7 +167,6 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 		Context: modelcontext.Bundle{
 			SystemPrompt: "sys",
 			ToolSpecs: []modelcontext.ToolSpec{
-				{Name: toolcatalog.ToolNameCreateMachine},
 				{Name: toolcatalog.ToolNameSendIntegrationMessage},
 			},
 		},
@@ -181,8 +176,7 @@ func TestPrepareProjectsRuntimeResourcesOnlyForEnabledTools(t *testing.T) {
 		t.Fatalf("prepare with tools: %v", err)
 	}
 	body := string(withTools.Body)
-	if !strings.Contains(body, "no machine pools are currently available") ||
-		!strings.Contains(body, "No external integration targets are currently available") {
+	if !strings.Contains(body, "No external integration targets are currently available") {
 		t.Fatalf("missing empty resource context for enabled tools: %s", body)
 	}
 }
