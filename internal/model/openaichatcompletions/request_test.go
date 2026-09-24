@@ -1100,7 +1100,7 @@ func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastMessage(t *testing
 	}
 }
 
-func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *testing.T) {
+func TestPrepareMarksOpenRouterCacheBreakpointsOnSystemAndLastUserMessage(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath,
 		ProviderModelSlug: "anthropic/claude-sonnet-4",
 		APIVariant:        modelprotocol.APIVariantOpenRouter,
@@ -1110,10 +1110,6 @@ func TestPrepareMarksOpenRouterCacheBreakpointBeforeTrailingSystemContext(t *tes
 		Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser,
 			Content: json.RawMessage(`[{"type":"text","text":"hi"}]`),
 		}},
-		ToolSpecs: []modelcontext.ToolSpec{
-			{Name: toolcatalog.ToolNameCreateMachine},
-			{Name: toolcatalog.ToolNameAskQuestion},
-		},
 	}})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)

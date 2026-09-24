@@ -164,14 +164,11 @@ func validateToolNames(specs []modelcontext.ToolSpec) error {
 }
 
 func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
-	blocks := []textBlock{{Type: "text", Text: modelcontext.ProjectedSystemPrompt(bundle)}}
-	if control != nil {
-		blocks[len(blocks)-1].CacheControl = control
+	prompt := modelcontext.ProjectedSystemPrompt(bundle)
+	if control == nil {
+		return prompt
 	}
-	if len(blocks) == 1 && blocks[0].CacheControl == nil {
-		return blocks[0].Text
-	}
-	return blocks
+	return []textBlock{{Type: "text", Text: prompt, CacheControl: control}}
 }
 
 func buildMessages(

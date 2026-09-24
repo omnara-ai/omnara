@@ -16,7 +16,6 @@ import (
 type responsesRole string
 
 const (
-	responsesRoleSystem    responsesRole = "system"
 	responsesRoleUser      responsesRole = "user"
 	responsesRoleAssistant responsesRole = "assistant"
 )
