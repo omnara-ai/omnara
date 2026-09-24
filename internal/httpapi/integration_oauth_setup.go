@@ -1,0 +1,320 @@
+package httpapi
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
+	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
+	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+)
+
+func (s strictOpenAPIServer) CreateProjectIntegrationOAuthSetup(
+	ctx context.Context,
+	request openapi.CreateProjectIntegrationOAuthSetupRequestObject,
+) (openapi.CreateProjectIntegrationOAuthSetupResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.createIntegrationOAuthSetup(ctx, scope, request.IntegrationID, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.CreateProjectIntegrationOAuthSetup201JSONResponse(*result), nil
+}
+
+func (s strictOpenAPIServer) createIntegrationOAuthSetup(
+	ctx context.Context,
+	scope projectScopeRecord,
+	integrationRef string,
+	body *openapi.CreateIntegrationOAuthSetupRequest,
+) (*openapi.IntegrationOAuthSetup, error) {
+	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
+			"integration OAuth setup requires a configured public URL and secret encryption keys")
+	}
+	integration, err := s.projectIntegrationForSetup(ctx, scope, integrationRef)
+	if err != nil {
+		return nil, err
+	}
+	if integration.Provider != integrationstore.IntegrationProviderSlack {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"this integration does not support Slack OAuth setup",
+		)
+	}
+	principal, principalErr := userPrincipalFromContext(ctx)
+	if principalErr != nil {
+		return nil, *principalErr
+	}
+	if body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	provider := integration.Provider
+	clientID := strings.TrimSpace(body.ClientId)
+	clientSecret := strings.TrimSpace(body.ClientSecret)
+	signingSecret := strings.TrimSpace(body.SigningSecret)
+	if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
+	}
+	if clientID == "" || clientSecret == "" || signingSecret == "" {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"client_id, client_secret, and signing_secret are required",
+		)
+	}
+	now := time.Now().UTC()
+	flowID, err := uuid.NewV7()
+	if err != nil {
+		logpkg.Error(ctx, fmt.Errorf("generate integration oauth flow id: %w", err))
+		return nil, fmt.Errorf("internal server error")
+	}
+	expiresAt := now.Add(integrationOAuthStateTTL)
+	returnTo := ""
+	if body.ReturnTo != nil {
+		returnTo = *body.ReturnTo
+	}
+	stateToken, err := s.server.encodeIntegrationOAuthState(ctx, integrationOAuthState{
+		FlowID:            flowID,
+		OrgID:             scope.project.OrgID,
+		ProjectID:         scope.project.ID,
+		IntegrationID:     integration.ID,
+		SetupRevision:     integration.SetupRevision,
+		InstalledByUserID: principal.ID,
+		Provider:          provider,
+		ClientID:          clientID,
+		ClientSecret:      clientSecret,
+		SigningSecret:     signingSecret,
+		ExpiresAt:         expiresAt,
+		ReturnTo:          returnTo,
+	})
+	if err != nil {
+		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
+			return nil, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"request fields are too large for the OAuth state parameter",
+			)
+		}
+		logpkg.Error(ctx, fmt.Errorf("start integration oauth flow: %w", err))
+		return nil, fmt.Errorf("state generation failed")
+	}
+	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
+	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
+	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
+	installURL, err := s.server.integrationOAuthAuthorizeURL(
+		provider,
+		clientID,
+		redirectURI,
+		stateToken,
+	)
+	if err != nil {
+		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
+			return nil, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"request fields are too large for the oauth state parameter",
+			)
+		}
+		logpkg.Error(ctx, fmt.Errorf("build integration oauth authorization URL: %w", err))
+		return nil, fmt.Errorf("internal server error")
+	}
+	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+	}
+	return &openapi.IntegrationOAuthSetup{
+		IntegrationId: integrationRef,
+		SetupRevision: integration.SetupRevision,
+		Provider:      provider,
+		FlowId:        publicFlowID,
+		OauthUrl:      installURL,
+		RedirectUri:   redirectURI,
+		EventsUrl:     eventsURL,
+		ActionsUrl:    actionsURL,
+		ExpiresAt:     expiresAt,
+	}, nil
+}
+
+func (s strictOpenAPIServer) CreateProjectIntegrationSlackSetup(
+	ctx context.Context,
+	request openapi.CreateProjectIntegrationSlackSetupRequestObject,
+) (openapi.CreateProjectIntegrationSlackSetupResponseObject, error) {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.createSlackSetup(ctx, scope, request.IntegrationID, request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.CreateProjectIntegrationSlackSetup201JSONResponse(*result), nil
+}
+
+func (s strictOpenAPIServer) createSlackSetup(
+	ctx context.Context,
+	scope projectScopeRecord,
+	integrationRef string,
+	body *openapi.CreateSlackSetupRequest,
+) (*openapi.SlackSetup, error) {
+	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
+			"slack setup requires a configured public URL and secret encryption keys")
+	}
+	if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
+	}
+	integration, err := s.projectIntegrationForSetup(ctx, scope, integrationRef)
+	if err != nil {
+		return nil, err
+	}
+	if integration.Provider != integrationstore.IntegrationProviderSlack {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"this integration does not support Slack OAuth setup",
+		)
+	}
+	principal, principalErr := userPrincipalFromContext(ctx)
+	if principalErr != nil {
+		return nil, *principalErr
+	}
+	if body == nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
+	}
+	if integration.ProviderAccountRef != "" {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"this integration already has a Slack identity; reconnect through OAuth setup",
+		)
+	}
+	appName := strings.TrimSpace(body.AppName)
+	appConfigurationToken := strings.TrimSpace(body.AppConfigurationToken)
+	if appName == "" || appConfigurationToken == "" {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"app_name and app_configuration_token are required",
+		)
+	}
+	if utf8.RuneCountInString(appName) > slack.AppNameMaxRunes {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"app_name must be 35 characters or fewer",
+		)
+	}
+	if strings.EqualFold(appName, "slackbot") {
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"Slack reserves this app name. Choose a different name.",
+		)
+	}
+	appIcon, err := slackSetupAppIcon(*body)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
+	}
+	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
+	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
+	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
+	outboundCtx, cancel := context.WithTimeout(ctx, integrationOAuthTimeout)
+	defer cancel()
+	manifestApp, err := slack.CreateManifestApp(
+		outboundCtx,
+		s.server.slackOAuth,
+		appConfigurationToken,
+		slack.BuildAppManifest(appName, eventsURL, actionsURL, redirectURI),
+	)
+	if err != nil {
+		logpkg.Error(ctx, fmt.Errorf("create slack app manifest: %w", err))
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"slack app creation failed: "+err.Error(),
+		)
+	}
+	iconCtx, iconCancel := context.WithTimeout(outboundCtx, 3*time.Second)
+	defer iconCancel()
+	if err := slack.SetAppIcon(
+		iconCtx,
+		s.server.slackOAuth,
+		appConfigurationToken,
+		manifestApp.AppID,
+		appIcon,
+	); err != nil {
+		logpkg.Error(ctx, fmt.Errorf("set slack app icon: %w", err))
+	}
+	now := time.Now().UTC()
+	flowID, err := uuid.NewV7()
+	if err != nil {
+		logpkg.Error(ctx, fmt.Errorf("generate slack oauth flow id: %w", err))
+		return nil, fmt.Errorf("internal server error")
+	}
+	expiresAt := now.Add(integrationOAuthStateTTL)
+	returnTo := ""
+	if body.ReturnTo != nil {
+		returnTo = *body.ReturnTo
+	}
+	stateToken, err := s.server.encodeIntegrationOAuthState(ctx, integrationOAuthState{
+		FlowID:            flowID,
+		OrgID:             scope.project.OrgID,
+		ProjectID:         scope.project.ID,
+		IntegrationID:     integration.ID,
+		SetupRevision:     integration.SetupRevision,
+		InstalledByUserID: principal.ID,
+		Provider:          integrationstore.IntegrationProviderSlack,
+		ClientID:          manifestApp.ClientID,
+		ClientSecret:      manifestApp.ClientSecret,
+		SigningSecret:     manifestApp.SigningSecret,
+		BotDisplayName:    appName,
+		ExpiresAt:         expiresAt,
+		ReturnTo:          returnTo,
+	})
+	if err != nil {
+		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
+			return nil, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"request fields are too large for the oauth state parameter",
+			)
+		}
+		logpkg.Error(ctx, fmt.Errorf("start slack oauth flow: %w", err))
+		return nil, fmt.Errorf("state generation failed")
+	}
+	installURL, err := s.server.integrationOAuthAuthorizeURL(
+		integrationstore.IntegrationProviderSlack,
+		manifestApp.ClientID,
+		redirectURI,
+		stateToken,
+	)
+	if err != nil {
+		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
+			return nil, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"request fields are too large for the oauth state parameter",
+			)
+		}
+		logpkg.Error(ctx, fmt.Errorf("build slack oauth authorization URL: %w", err))
+		return nil, fmt.Errorf("internal server error")
+	}
+	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
+	if err != nil {
+		logpkg.Error(ctx, err)
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
+	}
+	return &openapi.SlackSetup{
+		IntegrationId: integrationRef,
+		SetupRevision: integration.SetupRevision,
+		Provider:      integrationstore.IntegrationProviderSlack,
+		FlowId:        publicFlowID,
+		SlackAppId:    manifestApp.AppID,
+		OauthUrl:      installURL,
+		RedirectUri:   redirectURI,
+		EventsUrl:     eventsURL,
+		ActionsUrl:    actionsURL,
+		ExpiresAt:     expiresAt,
+	}, nil
+}

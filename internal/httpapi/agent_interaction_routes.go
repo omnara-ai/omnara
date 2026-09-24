@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -150,6 +151,7 @@ func (s strictOpenAPIServer) resolveAgentInteraction(
 	if err != nil {
 		return nil, err
 	}
+	s.server.dismissInteractionAsync(ctx, record)
 	return openapi.ResolveAgentInteraction200JSONResponse(response), nil
 }
 
@@ -175,14 +177,6 @@ func publicInteractionResolution(
 		return interactionform.Resolution{}, err
 	}
 	return normalized, nil
-}
-
-func marshalJSON(value any) (json.RawMessage, error) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	return body, nil
 }
 
 func agentInteractionResponseFromRecord(
@@ -224,6 +218,36 @@ func agentInteractionResponseFromRecord(
 		Request:         openAPIInteractionForm(request),
 		CreatedAt:       record.CreatedAt,
 		ResolvedAt:      timePtrFromZero(record.ResolvedAt),
+	}
+	destination, err := record.CapturedDestination()
+	if err != nil {
+		return openapi.AgentInteraction{}, err
+	}
+	if destination != nil {
+		integrationID, err := publicID(publicid.KindProjectIntegration, destination.IntegrationID)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		targetID, err := publicID(publicid.KindIntegrationTarget, destination.IntegrationTargetID)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		response.Destination = &openapi.AgentInteractionDestination{
+			IntegrationType:     openapi.IntegrationType(destination.IntegrationType),
+			HandlerKey:          destination.HandlerKey,
+			IntegrationId:       integrationID,
+			IntegrationTargetId: targetID,
+			Address: openapi.IntegrationConversationAddress{
+				Kind: destination.Address.Kind, Ref: destination.Address.Ref,
+			},
+		}
+	}
+	if len(record.PresentationReceipt) != 0 {
+		var receipt openapi.InteractionPresentationReceipt
+		if err := json.Unmarshal(record.PresentationReceipt, &receipt); err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		response.PresentationReceipt = &receipt
 	}
 	if record.InteractionKind == executionstore.AgentInteractionKindPermission {
 		permissionRequest, err := toolpermission.ParseRequest(record.Request)
@@ -302,4 +326,18 @@ func timePtrFromZero(value time.Time) *time.Time {
 		return nil
 	}
 	return &value
+}
+
+func (s *Server) dismissInteractionAsync(ctx context.Context, record executionstore.AgentInteractionRecord) {
+	if len(record.PresentationReceipt) == 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		presenter := integrationruntime.InteractionPresenter{Store: s.store, HTTPClient: s.integrationHTTPClient, Log: s.log}
+		if err := presenter.Dismiss(ctx, record); err != nil {
+			s.log.Warn("interaction dismissal failed", "interaction_id", record.ID, "error", err)
+		}
+	}()
 }

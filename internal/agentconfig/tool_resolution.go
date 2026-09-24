@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"sync"
 
@@ -18,28 +19,33 @@ type ResolvedTool struct {
 	Permission toolpermission.Selection
 }
 
-func compileTools(source AgentConfigSource) (map[string]ToolCompiled, error) {
+func compileTools(
+	source AgentConfigSource,
+	opts CompileOptions,
+) (map[string]ToolCompiled, error) {
 	tools := maps.Clone(source.Tools)
-	for _, name := range missingDefaultToolNames(source) {
-		if tools == nil {
-			tools = make(map[string]AgentConfigToolSource)
-		}
+	defaults := missingDefaultToolNames(source)
+	if tools == nil {
+		tools = map[string]AgentConfigToolSource{}
+	}
+	for _, name := range defaults {
 		tools[name] = AgentConfigToolSource{}
 	}
 	compiled := make(map[string]ToolCompiled, len(tools))
-	if len(tools) == 0 {
-		return compiled, nil
-	}
 	catalog, err := toolcatalog.Default()
 	if err != nil {
 		return nil, err
 	}
-	for name, tool := range tools {
+	for _, name := range slices.Sorted(maps.Keys(tools)) {
+		tool := tools[name]
 		enabled := tool.Enabled == nil || *tool.Enabled
 		var entry ToolCompiled
-		if tool.Type == toolcatalog.ToolTypeCustom {
+		switch {
+		case toolcatalog.UsesIntegrationToolNamespace(name):
+			entry, err = compileIntegrationTool(name, tool, opts)
+		case tool.Type == toolcatalog.ToolTypeCustom:
 			entry, err = compileCustomTool(name, tool, enabled, catalog)
-		} else {
+		default:
 			entry, err = compileBuiltInTool(name, tool, enabled, catalog)
 		}
 		if err != nil {
@@ -54,7 +60,7 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 	schema := agentConfigSourceSchema()
 	schema.Required = nil
 	for name := range *schema.Properties {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
+		if !toolSourceField(name) {
 			delete(*schema.Properties, name)
 		}
 	}
@@ -66,6 +72,10 @@ var compiledToolSourceSchema = sync.OnceValues(func() (*kjsonschema.Schema, erro
 })
 
 func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
+	return ToolsFromSourceWithOptions(format, raw, CompileOptions{})
+}
+
+func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOptions) ([]ResolvedTool, error) {
 	jsonSource, root, err := sourceJSON(format, raw)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
@@ -78,7 +88,7 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 		return nil, fmt.Errorf("agent config source must be an object")
 	}
 	for name := range fields {
-		if name != "tools" && name != "machine_sources" && name != "skills" && name != "subagents" && name != "mcp" {
+		if !toolSourceField(name) {
 			delete(fields, name)
 		}
 	}
@@ -101,7 +111,8 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	if err := json.Unmarshal(jsonSource, &source); err != nil {
 		return nil, err
 	}
-	tools, err := compileTools(source)
+	opts = cacheIntegrationResolver(opts)
+	tools, err := compileTools(source, opts)
 	if err != nil {
 		return nil, validationErrorFrom(err, root)
 	}
@@ -111,4 +122,13 @@ func ToolsFromSource(format SourceFormat, raw []byte) ([]ResolvedTool, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil
+}
+
+func toolSourceField(name string) bool {
+	switch name {
+	case "tools", "machine_sources", "skills", "subagents", "mcp", "interaction_handlers":
+		return true
+	default:
+		return false
+	}
 }

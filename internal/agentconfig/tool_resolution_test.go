@@ -25,7 +25,7 @@ func TestMissingDefaultToolNamesDoesNotModifySource(t *testing.T) {
 			t.Fatalf("returned an already configured tool: %s", name)
 		}
 	}
-	compiled, err := compileTools(source)
+	compiled, err := compileTools(source, CompileOptions{})
 	if err != nil || len(compiled) != 13 || compiled["run_command"].Enabled {
 		t.Fatalf("compile tools: %+v, %v", compiled, err)
 	}
@@ -44,8 +44,8 @@ func TestResolvedToolsMatchRuntime(t *testing.T) {
 		"skills: [" + skillID + "]\n",
 		"subagents: {worker: {type: self}}\n",
 		"subagents: {worker: {type: self}}\nskills: [" + skillID + "]\ntools:\n  spawn_agent: {enabled: false}\n  read_agent: {permission: {mode: always_ask}}\n",
-		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  send_integration_message: {enabled: false}\n",
-		"tools:\n  send_integration_message: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
+		"machine_sources: [{machine_pool_name: build-pool}]\nskills: [" + skillID + "]\ntools:\n  run_command: {enabled: false}\n  delete_machine: {permission: {mode: always_ask}}\n  skill: {enabled: false}\n  web_search: {enabled: false}\n",
+		"tools:\n  web_search: {}\n  custom_tool: {type: custom, description: Test, input_schema: {type: object}, permission: {mode: always_ask}}\n",
 	} {
 		t.Run(source, func(t *testing.T) {
 			opts := testMachineSourceCompileOptions(t)

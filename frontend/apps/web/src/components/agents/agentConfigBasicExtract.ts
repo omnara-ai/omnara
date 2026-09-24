@@ -1,4 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
+import { zConfigIntegrationCapabilitySource } from '@omnara/sdk/zod'
 import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
@@ -140,6 +141,7 @@ const basicDocument = z.looseObject({
   model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
+  interaction_handlers: z.record(z.string(), zConfigIntegrationCapabilitySource).optional(),
   skills: z.array(z.string()).optional(),
   mcp: z.record(z.string(), mcpEntry).optional(),
   event_webhook: z
@@ -190,6 +192,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     modelName: doc.model?.name ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
+    interactionHandlers: doc.interaction_handlers ?? {},
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),
     eventWebhookEvents: doc.event_webhook ? (doc.event_webhook.events ?? []) : ['tool_call_update'],
     eventWebhookUrl: doc.event_webhook?.url ?? '',

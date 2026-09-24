@@ -1587,23 +1587,6 @@ func (q *Queries) DeleteProjectCronTriggers(ctx context.Context, arg DeleteProje
 	return err
 }
 
-const deleteProjectIntegrationInstalls = `-- name: DeleteProjectIntegrationInstalls :exec
-UPDATE integration_installs
-SET credential_secret_id = NULL, deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
-WHERE org_id = $1 AND project_id = $2 AND deleted_at IS NULL
-`
-
-type DeleteProjectIntegrationInstallsParams struct {
-	OrgID     uuid.UUID
-	ProjectID uuid.UUID
-}
-
-// Clearing the credential releases the secret for the deletion below.
-func (q *Queries) DeleteProjectIntegrationInstalls(ctx context.Context, arg DeleteProjectIntegrationInstallsParams) error {
-	_, err := q.db.Exec(ctx, deleteProjectIntegrationInstalls, arg.OrgID, arg.ProjectID)
-	return err
-}
-
 const deleteProjectIntegrationTargets = `-- name: DeleteProjectIntegrationTargets :exec
 UPDATE integration_targets SET deleted_at = transaction_timestamp(), updated_at = transaction_timestamp()
 WHERE project_id = $1 AND deleted_at IS NULL
@@ -2058,8 +2041,8 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM integration_installs install
-    WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id
+    SELECT 1 FROM project_integrations integration
+    WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
   )
 `
 
@@ -4321,7 +4304,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4402,7 +4385,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `
@@ -4941,7 +4924,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM integration_installs install WHERE install.org_id = secret.org_id AND install.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced
 `

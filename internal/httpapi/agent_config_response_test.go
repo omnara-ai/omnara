@@ -32,7 +32,10 @@ func TestPublicCompiledDefinition(t *testing.T) {
 		],
 		"tools":{"custom":{"enabled":true,"type":"custom","permission":{"mode":"always_allow","parameters":{"count":9007199254740993}},"deferred":true,"description":"a < b & c",
 			"input_schema":{"type":"object","properties":{"value":{"const":18446744073709551615},"number":{"const":1.234567890123456789}}}},
-			"skill":{"enabled":false,"type":"built_in","permission":{"mode":"always_allow","parameters":{}}}},
+			"skill":{"enabled":false,"type":"built_in","permission":{"mode":"always_allow","parameters":{}}},
+			"int__chat__post_message":{"integration_id":"UUID","enabled":true,"permission":{"mode":"always_ask","parameters":{}},"deferred":true},
+			"int__chat__read":{"integration_id":"UUID","enabled":false,"permission":{"mode":"always_allow","parameters":{}}}},
+		"interaction_handlers":{"chat":{"integration_id":"UUID"}},
 		"mcp":{"docs":{"url":"https://example.com","default_enabled":false,"permission":{"mode":"always_ask","parameters":{}},"deferred":true,
 			"auth":{"type":"sigv4","secret_id":"UUID","region":"us-west-2","service":"execute-api"},
 			"tools":{"read":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}},"deferred":false},"inherit":{}}},
@@ -60,6 +63,7 @@ func TestPublicCompiledDefinition(t *testing.T) {
 		`"signing_secret_id":"`+id.String()+`"`, `"signing_secret_id":"`+public(publicid.KindSecret)+`"`,
 		`"id":"`+id.String()+`"`, `"id":"`+public(publicid.KindSkill)+`"`,
 		`"profile_id":"`+id.String()+`"`, `"profile_id":"`+public(publicid.KindAgentProfile)+`"`,
+		`"integration_id":"`+id.String()+`"`, `"integration_id":"`+public(publicid.KindProjectIntegration)+`"`,
 	).Replace(source)
 	decode := func(raw []byte) any {
 		var value any
@@ -106,10 +110,23 @@ func TestCompiledConfigVariants(t *testing.T) {
 	require.NoError(t, err)
 	secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
 	require.NoError(t, err)
+	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, uuid.New())
+	require.NoError(t, err)
 	for _, test := range []struct {
 		schema, raw string
 		valid       bool
 	}{
+		{"CompiledIntegrationCapability", `{"integration_id":"INTEGRATION"}`, true},
+		{"CompiledIntegrationCapability", `{}`, false},
+		{"CompiledIntegrationCapability", `{"integration_id":"11111111-1111-4111-8111-111111111111"}`, false},
+		{"CompiledIntegrationCapability", `{"integration_id":"PROFILE"}`, false},
+		{
+			"CompiledTool",
+			`{"integration_id":"INTEGRATION","enabled":true,"permission":{"mode":"always_allow","parameters":{}}}`,
+			true,
+		},
+		{"CompiledTool", `{"integration_id":"11111111-1111-4111-8111-111111111111","enabled":true,
+            "permission":{"mode":"always_allow","parameters":{}}}`, false},
 		{"CompiledSubagent", `{"type":"self"}`, true},
 		{"CompiledSubagent", `{"type":"profile","profile_id":"PROFILE"}`, true},
 		{"CompiledSubagent", `{"type":"profile"}`, false},
@@ -129,7 +146,7 @@ func TestCompiledConfigVariants(t *testing.T) {
 	} {
 		t.Run(test.schema+"/"+test.raw, func(t *testing.T) {
 			t.Parallel()
-			raw := strings.NewReplacer("PROFILE", profileID, "SECRET", secretID).Replace(test.raw)
+			raw := strings.NewReplacer("PROFILE", profileID, "SECRET", secretID, "INTEGRATION", integrationID).Replace(test.raw)
 			var value any
 			require.NoError(t, json.Unmarshal([]byte(raw), &value))
 			err := spec.Components.Schemas[test.schema].Value.VisitJSON(value)
@@ -165,6 +182,9 @@ func TestPublicCompiledDefinitionInvalid(t *testing.T) {
 		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"subagents":{"child":{"type":"unknown"}}}`,
 		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"subagents":{"child":{"type":"profile"}}}`,
 		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"mcp":{"docs":{"auth":{"type":"unknown","secret_id":"11111111-1111-4111-8111-111111111111"}}}}`,
+		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"interaction_handlers":{"chat":{}}}`,
+		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"interaction_handlers":{"chat":{"integration_id":"not-a-uuid"}}}`,
+		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"tools":{"int__chat__read":{"integration_id":"not-a-uuid"}}}`,
 	} {
 		t.Run(source, func(t *testing.T) {
 			t.Parallel()

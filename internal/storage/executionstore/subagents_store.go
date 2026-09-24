@@ -572,20 +572,22 @@ func (s *Store) ListAgentInteractions(
 	for _, row := range rows {
 		result.Interactions = append(result.Interactions, AgentTreeInteraction{
 			AgentInteractionRecord: agentInteractionRecordFromSQLC(dbsqlc.AgentInteractionReadProjection{
-				ID:                 row.ID,
-				ProjectID:          row.ProjectID,
-				AgentID:            row.AgentID,
-				TurnID:             row.TurnID,
-				ModelCallContextID: row.ModelCallContextID,
-				ToolCallID:         row.ToolCallID,
-				ProviderCallID:     row.ProviderCallID,
-				InteractionKind:    row.InteractionKind,
-				State:              row.State,
-				Request:            row.Request,
-				Resolution:         row.Resolution,
-				ResolvedByInputID:  row.ResolvedByInputID,
-				CreatedAt:          row.CreatedAt,
-				ResolvedAt:         row.ResolvedAt,
+				ID:                  row.ID,
+				ProjectID:           row.ProjectID,
+				AgentID:             row.AgentID,
+				TurnID:              row.TurnID,
+				ModelCallContextID:  row.ModelCallContextID,
+				ToolCallID:          row.ToolCallID,
+				ProviderCallID:      row.ProviderCallID,
+				InteractionKind:     row.InteractionKind,
+				State:               row.State,
+				Request:             row.Request,
+				Resolution:          row.Resolution,
+				ResolvedByInputID:   row.ResolvedByInputID,
+				CreatedAt:           row.CreatedAt,
+				ResolvedAt:          row.ResolvedAt,
+				Destination:         row.Destination,
+				PresentationReceipt: row.PresentationReceipt,
 			}),
 			AgentName:   row.AgentName,
 			SubagentKey: row.SubagentKey,
@@ -760,7 +762,7 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 	if err != nil {
 		return err
 	}
-	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, child.ID, actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, actor)
 	if err != nil {
 		return err
 	}

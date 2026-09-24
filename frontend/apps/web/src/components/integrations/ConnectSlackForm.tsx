@@ -1,0 +1,422 @@
+import {
+  useCreateProjectIntegrationOAuthSetup,
+  useCreateProjectIntegrationSlackSetup,
+  useOmnaraClient,
+} from '@omnara/react'
+import type { IntegrationOAuthSetup, ProjectIntegration } from '@omnara/sdk'
+import { createFormHook, createFormHookContexts, formOptions } from '@tanstack/react-form'
+import { type ReactNode, useState } from 'react'
+
+import { Button } from '@/components/ui/button'
+import {
+  CheckboxField,
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+
+import {
+  noAppIcon,
+  slackAppIconPayload,
+  slackAppNameMaxLength,
+  slackConnectionFormValid,
+} from './ConnectSlackFormState'
+import { projectIntegrationFormError } from './projectIntegrationFormState'
+import { ProjectIntegrationNameField } from './ProjectIntegrationNameField'
+import { ProjectIntegrationSetupGroup } from './ProjectIntegrationSetupGroup'
+import { SlackAppIconField } from './SlackAppIconField'
+import { useProjectIntegrationDraft } from './useProjectIntegrationDraft'
+import { useSlackAuthorization } from './useSlackAuthorization'
+
+const { fieldContext, formContext } = createFormHookContexts()
+const { useAppForm, withForm } = createFormHook({
+  fieldComponents: {},
+  formComponents: {},
+  fieldContext,
+  formContext,
+})
+
+const slackSetupForm = formOptions({
+  defaultValues: {
+    clientId: '',
+    clientSecret: '',
+    signingSecret: '',
+    appName: 'Omnara',
+    appConfigurationToken: '',
+    appIcon: noAppIcon,
+  },
+})
+
+interface SlackConnectionProps {
+  orgId: string
+  projectId: string
+  integration?: ProjectIntegration
+  onConnected?: (integration: ProjectIntegration) => void
+  onCancel?: () => void
+  footerAction?: ReactNode
+}
+
+export function ConnectSlackForm({
+  orgId,
+  projectId,
+  integration: existing,
+  onConnected,
+  onCancel,
+  footerAction,
+}: SlackConnectionProps) {
+  const { integration, name, setName, ensureIntegration } = useProjectIntegrationDraft(
+    orgId,
+    projectId,
+    'slack_thread',
+    existing,
+  )
+  const createOAuthSetup = useCreateProjectIntegrationOAuthSetup(orgId, projectId)
+  const createSlackSetup = useCreateProjectIntegrationSlackSetup(orgId, projectId)
+  const reconnect = Boolean(integration?.provider_tenant_id)
+  const [existingAppSelected, setExistingAppSelected] = useState(false)
+  const existingApp = reconnect || existingAppSelected
+  const [error, setError] = useState('')
+  const authorization = useSlackAuthorization(orgId, projectId, onConnected)
+  const form = useAppForm({
+    ...slackSetupForm,
+    onSubmit: async ({ value }) => {
+      if (!slackSetupValid(existingApp, value)) return
+      setError('')
+      await startSetup(value).catch((cause: unknown) => {
+        setError(projectIntegrationFormError(cause, 'Could not start integration setup'))
+      })
+    },
+  })
+  async function startSetup(value: typeof slackSetupForm.defaultValues) {
+    const icon = existingApp ? undefined : await slackAppIconPayload(value.appIcon)
+    const draft = await ensureIntegration()
+    const returnTo = `/projects/${projectId}/integrations/${draft.id}`
+    const setup = existingApp
+      ? await createOAuthSetup.mutateAsync({
+          integrationID: draft.id,
+          client_id: value.clientId.trim(),
+          client_secret: value.clientSecret.trim(),
+          signing_secret: value.signingSecret.trim(),
+          return_to: returnTo,
+        })
+      : await createSlackSetup.mutateAsync({
+          integrationID: draft.id,
+          app_name: value.appName.trim(),
+          app_configuration_token: value.appConfigurationToken.trim(),
+          icon,
+          return_to: returnTo,
+        })
+    if (setup.integration_id !== draft.id) {
+      setError('Authorization returned a different integration. Please try again.')
+    } else {
+      authorization.start(setup)
+    }
+  }
+
+  const methodToggle = reconnect ? null : (
+    <CheckboxField
+      label="Use an existing Slack app"
+      checked={existingApp}
+      onChange={(event) => {
+        if (form.state.values.appIcon.kind === 'checking') {
+          form.setFieldValue('appIcon', noAppIcon)
+        }
+        setExistingAppSelected(event.target.checked)
+      }}
+    />
+  )
+
+  return (
+    <div>
+      {authorization.pending && !authorization.failure ? (
+        <SlackAuthorizationPending
+          pending={authorization.pending}
+          isError={authorization.checkFailed}
+          onRetry={authorization.recheck}
+        />
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            void form.handleSubmit()
+          }}
+        >
+          <FieldGroup className="gap-8 text-sm">
+            <div className="flex flex-col gap-2">
+              <h2 className="font-medium">{reconnect ? 'Reconnect Slack' : 'Connect Slack'}</h2>
+              <p className="text-muted-foreground">
+                {reconnect
+                  ? 'Reconnect the same Slack app and workspace. Your launch settings are kept.'
+                  : 'Connect your Slack app to this integration, then authorize it in Slack and choose which agents people can start.'}
+              </p>
+            </div>
+            <div className="flex flex-col gap-8">
+              {!existing && (
+                <form.Subscribe selector={(state) => state.isSubmitting}>
+                  {(isSubmitting) => (
+                    <fieldset disabled={isSubmitting}>
+                      <ProjectIntegrationSetupGroup
+                        title="Name in Omnara"
+                        hint="A permanent name for this integration in your project."
+                      >
+                        <ProjectIntegrationNameField
+                          name={name}
+                          onChange={setName}
+                          saved={integration}
+                        />
+                      </ProjectIntegrationSetupGroup>
+                    </fieldset>
+                  )}
+                </form.Subscribe>
+              )}
+              <SlackSetupFields form={form} reconnect={reconnect} existingApp={existingApp}>
+                {methodToggle}
+              </SlackSetupFields>
+            </div>
+            {(error || authorization.failure) && (
+              <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+                {error || authorization.failure}
+              </p>
+            )}
+            <form.Subscribe
+              selector={(state) =>
+                [slackSetupValid(existingApp, state.values), state.isSubmitting] as const
+              }
+            >
+              {([valid, isSubmitting]) => (
+                <fieldset
+                  disabled={isSubmitting}
+                  className="flex flex-wrap items-start justify-end gap-2"
+                >
+                  {footerAction}
+                  {onCancel && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isSubmitting}
+                      onClick={onCancel}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  <Button type="submit" disabled={isSubmitting || !valid} loading={isSubmitting}>
+                    {!existing
+                      ? 'Create and connect'
+                      : reconnect
+                        ? 'Reconnect integration'
+                        : 'Connect integration'}
+                  </Button>
+                </fieldset>
+              )}
+            </form.Subscribe>
+          </FieldGroup>
+        </form>
+      )}
+    </div>
+  )
+}
+
+const SlackSetupFields = withForm({
+  ...slackSetupForm,
+  props: { reconnect: false, existingApp: false },
+  render: function Render({ form, reconnect, existingApp, children }) {
+    return (
+      <>
+        <ProjectIntegrationSetupGroup
+          title="Slack app"
+          hint={
+            reconnect
+              ? 'Find the Client ID in Basic Information in your Slack app settings.'
+              : 'Use an existing Slack app, or let Omnara create one for you.'
+          }
+        >
+          {children}
+          {existingApp ? (
+            <form.Field name="clientId">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor="clientId">Client ID</FieldLabel>
+                  <Input
+                    id="clientId"
+                    required
+                    autoComplete="off"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value)
+                    }}
+                  />
+                </Field>
+              )}
+            </form.Field>
+          ) : (
+            <>
+              <form.Field name="appName">
+                {(field) => (
+                  <Field>
+                    <FieldLabel htmlFor="slack-app-name">Name in Slack</FieldLabel>
+                    <Input
+                      id="slack-app-name"
+                      required
+                      value={field.state.value}
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
+                      }}
+                    />
+                    {Array.from(field.state.value.trim()).length > slackAppNameMaxLength && (
+                      <FieldDescription className="text-destructive">
+                        App name must be 35 characters or fewer.
+                      </FieldDescription>
+                    )}
+                  </Field>
+                )}
+              </form.Field>
+              <form.Field name="appIcon">
+                {(field) => (
+                  <SlackAppIconField value={field.state.value} onChange={field.handleChange} />
+                )}
+              </form.Field>
+            </>
+          )}
+        </ProjectIntegrationSetupGroup>
+        <ProjectIntegrationSetupGroup
+          title="Credentials"
+          hint={
+            existingApp
+              ? 'Find these in Basic Information in your Slack app settings.'
+              : 'An app configuration token lets Omnara create and configure your Slack app.'
+          }
+        >
+          {existingApp ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {(
+                [
+                  ['clientSecret', 'Client secret'],
+                  ['signingSecret', 'Signing secret'],
+                ] as const
+              ).map(([name, label]) => (
+                <form.Field key={name} name={name}>
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor={name}>{label}</FieldLabel>
+                      <Input
+                        id={name}
+                        required
+                        type="password"
+                        autoComplete="new-password"
+                        value={field.state.value}
+                        onChange={(event) => {
+                          field.handleChange(event.target.value)
+                        }}
+                      />
+                    </Field>
+                  )}
+                </form.Field>
+              ))}
+            </div>
+          ) : (
+            <form.Field name="appConfigurationToken">
+              {(field) => (
+                <Field>
+                  <FieldLabel htmlFor="slack-app-configuration-token">
+                    App configuration token
+                  </FieldLabel>
+                  <Input
+                    id="slack-app-configuration-token"
+                    required
+                    type="password"
+                    autoComplete="new-password"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value)
+                    }}
+                  />
+                  <FieldDescription>
+                    Open{' '}
+                    <a
+                      href="https://api.slack.com/apps"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-foreground underline underline-offset-2"
+                    >
+                      Slack app settings
+                    </a>
+                    , click Generate Token, and select a workspace. Copy only the Access Token and
+                    paste it here.
+                  </FieldDescription>
+                </Field>
+              )}
+            </form.Field>
+          )}
+        </ProjectIntegrationSetupGroup>
+        {existingApp && <SlackAppUrls />}
+      </>
+    )
+  },
+})
+
+function slackSetupValid(existingApp: boolean, values: typeof slackSetupForm.defaultValues) {
+  if (!existingApp) return slackConnectionFormValid(values)
+  return [values.clientId, values.clientSecret, values.signingSecret].every(
+    (value) => value.trim() !== '',
+  )
+}
+
+function SlackAppUrls() {
+  const client = useOmnaraClient()
+  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
+  return (
+    <ProjectIntegrationSetupGroup
+      title="In Slack"
+      hint="Configure these URLs in your Slack app before authorizing."
+    >
+      <div className="text-muted-foreground flex flex-col gap-2 break-all text-sm">
+        <p>
+          OAuth redirect: <code>{apiOrigin}/api/integrations/oauth/callback</code>
+        </p>
+        <p>
+          Events: <code>{apiOrigin}/api/integrations/slack/events</code>
+        </p>
+        <p>
+          Interactivity: <code>{apiOrigin}/api/integrations/slack/actions</code>
+        </p>
+      </div>
+    </ProjectIntegrationSetupGroup>
+  )
+}
+
+function SlackAuthorizationPending({
+  pending,
+  isError,
+  onRetry,
+}: {
+  pending: IntegrationOAuthSetup
+  isError: boolean
+  onRetry: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-4 text-sm">
+      <p>
+        Authorize your Slack app in Slack, then return here. This page updates when authorization
+        completes.
+      </p>
+      <Button asChild>
+        <a href={pending.oauth_url} target="_blank" rel="noopener noreferrer">
+          Authorize in Slack
+        </a>
+      </Button>
+      {isError && (
+        <p role="alert">
+          Could not check authorization.{' '}
+          <Button variant="link" onClick={onRetry}>
+            Check again
+          </Button>
+        </p>
+      )}
+      <p className="text-muted-foreground">
+        Authorization expires at {new Date(pending.expires_at).toLocaleTimeString()}.
+      </p>
+    </div>
+  )
+}

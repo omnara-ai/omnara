@@ -22,7 +22,7 @@ type PromptActionValue struct {
 	Type                string `json:"type"`
 	InteractionID       string `json:"interaction_id"`
 	AgentID             string `json:"agent_id"`
-	IntegrationTargetID string `json:"integration_target_id"`
+	IntegrationTargetID string `json:"integration_target_id"` // Stored in existing Slack messages.
 }
 
 const (
@@ -43,32 +43,35 @@ func PromptPayload(target MessageTarget, text string, blocks []map[string]any) (
 	return json.Marshal(payload)
 }
 
-func PostPrompt(
+func PostPromptReceipt(
 	ctx context.Context,
 	client *http.Client,
 	target MessageTarget,
 	payload json.RawMessage,
-) (APIResult, error) {
+) (string, APIResult, error) {
 	var out postMessageResponse
 	result, err := callJSON(ctx, client, target.BotToken, "chat.postMessage", payload, &out)
 	if err != nil {
-		return APIResult{}, err
+		return "", APIResult{}, err
 	}
 	if result.RateLimited || result.TransientFailure || result.PermanentFailure || result.DeliveryUnknown {
-		return result, nil
+		return "", result, nil
 	}
 	if !out.OK {
-		return ErrorResult(out.Error), nil
+		return "", ErrorResult(out.Error), nil
 	}
-	return APIResult{}, nil
+	if out.TS == "" || out.Channel != target.Channel {
+		return "", APIResult{DeliveryUnknown: true}, nil
+	}
+	return out.TS, APIResult{}, nil
 }
 
-func ReconcilePrompt(
+func ReconcilePromptReceipt(
 	ctx context.Context,
 	client *http.Client,
 	target MessageTarget,
 	interactionID string,
-) (bool, APIResult, error) {
+) (string, APIResult, error) {
 	values := url.Values{
 		"channel":   {target.Channel},
 		"inclusive": {"true"},
@@ -92,106 +95,47 @@ func ReconcilePrompt(
 		)
 		if err != nil || result.RateLimited || result.TransientFailure || result.PermanentFailure ||
 			result.DeliveryUnknown {
-			return false, result, err
+			return "", result, err
 		}
 		if !out.OK {
-			return false, ErrorResult(out.Error), nil
+			return "", ErrorResult(out.Error), nil
 		}
 		for _, message := range out.Messages {
 			if interactionPromptMessage(message, []string{interactionID}) {
-				return true, APIResult{}, nil
+				return message.TS, APIResult{}, nil
 			}
 		}
 		nextCursor := strings.TrimSpace(out.ResponseMetadata.NextCursor)
 		if nextCursor == "" {
-			return false, APIResult{}, nil
+			return "", APIResult{}, nil
 		}
 		values.Set("cursor", nextCursor)
 	}
-	return false, APIResult{
+	return "", APIResult{
 		DeliveryUnknown: true,
 		Message:         "integration prompt readback exceeded its page limit",
 	}, nil
 }
 
-func DismissInteractionPrompts(
+func DismissPrompt(
 	ctx context.Context,
-	config OAuthConfig,
-	token string,
-	event Event,
-	interactionIDs []string,
+	client *http.Client,
+	target MessageTarget,
+	messageID, text string,
 ) (APIResult, error) {
-	method := "conversations.history"
-	values := url.Values{
-		"channel":   {event.Channel},
-		"latest":    {event.TS},
-		"inclusive": {"false"},
+	body, err := json.Marshal(map[string]any{"channel": target.Channel, "ts": messageID,
+		"text": PromptLabel(text), "blocks": []any{}})
+	if err != nil {
+		return APIResult{}, err
 	}
-	if event.ThreadTS != "" && event.ThreadTS != event.TS {
-		method = "conversations.replies"
-		values.Set("ts", event.ThreadTS)
+	var out postMessageResponse
+	result, err := callJSON(ctx, client, target.BotToken, "chat.update", body, &out)
+	if err == nil && !result.RateLimited && !result.TransientFailure && !result.PermanentFailure &&
+		!result.DeliveryUnknown &&
+		!out.OK {
+		result = ErrorResult(out.Error)
 	}
-	messages, result, err := fetchHistory(ctx, config, token, method, values)
-	if err != nil || result.RateLimited || result.TransientFailure || result.PermanentFailure ||
-		result.DeliveryUnknown {
-		return result, err
-	}
-	var missingMessageFailure APIResult
-	for _, message := range messages {
-		if message.TS == "" || !interactionPromptMessage(message, interactionIDs) {
-			continue
-		}
-		label := PromptLabel(message.Text)
-		dismissed := "Dismissed because a newer message was sent."
-		body, err := json.Marshal(map[string]any{
-			"channel": event.Channel,
-			"ts":      message.TS,
-			"as_user": true,
-			"text":    PromptLabel(label + "\n" + dismissed),
-			"blocks": []map[string]any{
-				sectionBlock(label),
-				{
-					"type": "context",
-					"elements": []map[string]any{
-						{"type": "plain_text", "text": dismissed},
-					},
-				},
-			},
-		})
-		if err != nil {
-			return APIResult{}, err
-		}
-		var out postMessageResponse
-		result, err = callJSONAt(
-			ctx,
-			config.HTTPClient,
-			config.APIURL,
-			token,
-			"chat.update",
-			body,
-			&out,
-		)
-		if err != nil || result.RateLimited || result.TransientFailure ||
-			result.DeliveryUnknown {
-			return result, err
-		}
-		if !out.OK && !result.PermanentFailure {
-			result = ErrorResult(out.Error)
-		}
-		if result.RateLimited || result.TransientFailure || result.DeliveryUnknown {
-			return result, nil
-		}
-		if !result.PermanentFailure {
-			continue
-		}
-		if result.ProviderCode != "message_not_found" {
-			return result, nil
-		}
-		if !missingMessageFailure.PermanentFailure {
-			missingMessageFailure = result
-		}
-	}
-	return missingMessageFailure, nil
+	return result, err
 }
 
 func interactionPromptMessage(message HistoryMessage, interactionIDs []string) bool {
@@ -263,6 +207,24 @@ func InteractionFormPromptBlocks(
 				"text": promptText(question.Prompt, promptInputLabelLimit),
 			},
 		})
+		for _, option := range question.Options {
+			if !option.AllowsText {
+				continue
+			}
+			blocks = append(blocks, map[string]any{
+				"type":     "input",
+				"block_id": questionBlockID(index) + "_text",
+				"optional": true,
+				"label":    map[string]any{"type": "plain_text", "text": "Text for your selected option"},
+				"element": map[string]any{
+					"type":       "plain_text_input",
+					"action_id":  PromptAnswerAction,
+					"multiline":  true,
+					"max_length": 3000,
+				},
+			})
+			break
+		}
 	}
 	blocks = append(blocks, map[string]any{
 		"type": "actions",
@@ -274,7 +236,7 @@ func InteractionFormPromptBlocks(
 }
 
 func interactionFormSupportedInMessage(value interactionform.Form) bool {
-	if len(value.Questions)+2 > 50 {
+	if len(value.Questions)*2+2 > 50 {
 		return false
 	}
 	for _, question := range value.Questions {

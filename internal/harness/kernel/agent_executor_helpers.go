@@ -77,9 +77,7 @@ func (e AgentExecutor) configuredToolExecutor() tools.Executor {
 	if executor.SigV4CredentialCache == nil {
 		executor.SigV4CredentialCache = e.SigV4CredentialCache
 	}
-	if executor.Now == nil {
-		executor.Now = e.now
-	}
+
 	if executor.MCPInitializationBackoff == nil {
 		executor.MCPInitializationBackoff = e.MCPInitializationBackoff
 	}

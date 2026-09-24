@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
+import { createBasicConfigSession, emptyBasicConfig } from '@/components/agents/useAgentBuilderForm'
 import { agentBuilderToolsSource } from '@/components/agents/useAgentBuilderTools'
 
 describe('agentBuilderToolsSource', () => {
@@ -34,6 +34,7 @@ describe('agentBuilderToolsSource', () => {
       }),
     )
     expect(payload).toEqual({
+      interaction_handlers: {},
       tools: {
         web_search: { type: 'built_in' },
         web_fetch: { type: 'built_in', permission: { mode: 'always_ask' }, deferred: true },
@@ -51,5 +52,51 @@ describe('agentBuilderToolsSource', () => {
       skills: [],
       subagents: {},
     })
+  })
+
+  it('preserves independent capabilities and tool permissions through builder edits', () => {
+    const tool = { permission: { mode: 'always_ask' }, deferred: true }
+    const handler = {}
+    const source = {
+      instruction: 'Review',
+      tools: { int__chat__post_message: tool },
+      interaction_handlers: { chat: handler },
+      event_webhook: {
+        url: 'https://example.com/events',
+        events: ['tool_call_update'],
+        signing_secret_id: 'sec_example',
+      },
+    }
+    const session = createBasicConfigSession(JSON.stringify(source))
+    if (session.initialDraft === null)
+      throw new Error('Integration source must support builder preview')
+    const changed = { ...session.initialDraft, instruction: 'Updated instruction' }
+    const preview: unknown = JSON.parse(agentBuilderToolsSource(changed))
+    expect(preview).toMatchObject({
+      tools: { int__chat__post_message: tool },
+      interaction_handlers: source.interaction_handlers,
+    })
+    const updated = createBasicConfigSession(session.apply(changed)).initialDraft
+    expect(updated?.interactionHandlers).toEqual(source.interaction_handlers)
+    expect(updated?.eventWebhookUrl).toBe(source.event_webhook.url)
+    expect(updated?.eventWebhookEvents).toEqual(source.event_webhook.events)
+    expect(updated?.eventWebhookSigningSecretId).toBe(source.event_webhook.signing_secret_id)
+    expect(updated?.tools[0]).toEqual({
+      name: 'int__chat__post_message',
+      permission: { mode: 'always_ask', parameters: {} },
+      deferred: true,
+    })
+    const webhookEdit = {
+      ...changed,
+      eventWebhookUrl: 'https://example.com/updated',
+      eventWebhookEvents: ['model_output', 'tool_call_update'],
+    }
+    const restored = createBasicConfigSession(
+      createBasicConfigSession('').apply(webhookEdit),
+    ).initialDraft
+    expect(restored?.interactionHandlers).toEqual(changed.interactionHandlers)
+    expect(restored?.tools).toEqual(changed.tools)
+    expect(restored?.eventWebhookUrl).toBe(webhookEdit.eventWebhookUrl)
+    expect(restored?.eventWebhookEvents).toEqual(webhookEdit.eventWebhookEvents)
   })
 })

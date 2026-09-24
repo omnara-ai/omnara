@@ -3,7 +3,6 @@ package openairesponses
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -11,23 +10,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
-
-func openAITextMessage(role modelprotocol.MessageRole, text string) modelcontext.Message {
-	return modelcontext.Message{
-		Role:     role,
-		Sequence: 1,
-		Content:  json.RawMessage(`[{"type":"text","text":` + strconv.Quote(text) + `}]`),
-	}
-}
 
 func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{Messages: []modelcontext.Message{
 			{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-			{Sequence: 2, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
+			{
+				Sequence: 2,
+				Role:     modelprotocol.RoleAssistant,
+				Content:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
 		}},
 	})
 	if err != nil {
@@ -65,7 +59,13 @@ func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	}
 	for i, want := range wantContentTypes {
 		if len(payload.Input[i].Content) != 1 || payload.Input[i].Content[0].Type != want {
-			t.Fatalf("input %d content = %+v, want one %q part; payload=%s", i, payload.Input[i].Content, want, prepared.Body)
+			t.Fatalf(
+				"input %d content = %+v, want one %q part; payload=%s",
+				i,
+				payload.Input[i].Content,
+				want,
+				prepared.Body,
+			)
 		}
 	}
 	if strings.Contains(string(prepared.Body), "Message from omnara_user") {
@@ -93,7 +93,9 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
 					ContentParts: json.RawMessage(
 						`[{"type":"structured_data","value":{"outcome":"succeeded"}},{"type":"structured_data","value":` +
-							string(canonicalValue) + `}]`,
+							string(
+								canonicalValue,
+							) + `}]`,
 					),
 				},
 			},
@@ -127,71 +129,6 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 	t.Fatalf("function_call_output not found in payload: %s", prepared.Body)
 }
 
-func TestPrepareIncludesIntegrationTargetsAtEndOfProviderInput(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
-		SystemPrompt: "sys",
-		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
-		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameSendIntegrationMessage}},
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef:       "slack-abcd",
-			DurableID:       "internal-target-id",
-			Provider:        "slack",
-			ProviderRefKind: "thread",
-			Label:           "slack thread C123:1712345678.000100",
-			IsCurrent:       true,
-		}},
-	}})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload struct {
-		Input []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode prepared payload: %v", err)
-	}
-	if len(payload.Input) != 2 {
-		t.Fatalf("expected message and integration targets, got %d: %s", len(payload.Input), prepared.Body)
-	}
-	last := payload.Input[len(payload.Input)-1]
-	var lastContent string
-	if err := json.Unmarshal(last.Content, &lastContent); err != nil {
-		t.Fatalf("system content not a string: %s", last.Content)
-	}
-	if last.Role != string(responsesRoleSystem) || !strings.Contains(lastContent, "External integration targets") ||
-		!strings.Contains(lastContent, "slack-abcd") ||
-		!strings.Contains(lastContent, `"is_current":true`) {
-		t.Fatalf("expected integration targets as final provider input item, got %+v in %s", last, prepared.Body)
-	}
-	if strings.Contains(lastContent, "internal-target-id") {
-		t.Fatalf("integration target content leaked durable id: %s", lastContent)
-	}
-}
-
-func TestPrepareOmitsIntegrationTargetsForAskQuestion(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{Context: modelcontext.Bundle{
-		SystemPrompt: "sys",
-		Messages:     []modelcontext.Message{openAITextMessage(modelprotocol.RoleUser, "latest user message")},
-		ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameAskQuestion}},
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef: "slack-abcd",
-			Provider:  "slack",
-		}},
-	}})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if strings.Contains(string(prepared.Body), "External integration targets") ||
-		strings.Contains(string(prepared.Body), "slack-abcd") {
-		t.Fatalf("integration target context leaked into ask_question request: %s", prepared.Body)
-	}
-}
-
 func TestPrepareRejectsStructuredDataOutsideToolResults(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "gpt-test"}
 	content := json.RawMessage(
@@ -216,7 +153,11 @@ func TestPreparePassesThroughAssistantMessageRole(t *testing.T) {
 	prepared, err := client.Prepare(
 		context.Background(),
 		model.PrepareInput{Context: modelcontext.Bundle{SystemPrompt: "sys", Messages: []modelcontext.Message{
-			{Sequence: 1, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"agent says hi"}]`)},
+			{
+				Sequence: 1,
+				Role:     modelprotocol.RoleAssistant,
+				Content:  json.RawMessage(`[{"type":"text","text":"agent says hi"}]`),
+			},
 		}}},
 	)
 	if err != nil {

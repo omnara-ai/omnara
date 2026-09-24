@@ -60,13 +60,6 @@ type MarkToolCallReadyInput struct {
 	RuntimeLockID uuid.UUID
 }
 
-type ReleaseToolCallRuntimeOwnershipInput struct {
-	ProjectID     uuid.UUID
-	AgentID       uuid.UUID
-	ToolCallID    uuid.UUID
-	RuntimeLockID uuid.UUID
-}
-
 type RequeueRuntimeToolCallInput struct {
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
@@ -257,77 +250,6 @@ func (s *Store) MarkToolCallReady(
 		return ToolCallRecord{}, err
 	}
 	return record, nil
-}
-
-func (s *Store) ReleaseToolCallRuntimeOwnership(
-	ctx context.Context,
-	input ReleaseToolCallRuntimeOwnershipInput,
-) error {
-	if input.ProjectID == uuid.Nil || input.AgentID == uuid.Nil || input.ToolCallID == uuid.Nil ||
-		input.RuntimeLockID == uuid.Nil {
-		return errors.New("project, agent, tool call, and runtime lock are required")
-	}
-	txNotifications := s.newTxNotifications()
-	tx, qtx, err := s.beginAgentRuntimeOwnedMutation(
-		ctx,
-		input.ProjectID,
-		input.AgentID,
-		input.RuntimeLockID,
-	)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	changed, err := qtx.ReleaseToolCallRuntimeOwnership(
-		ctx,
-		dbsqlc.ReleaseToolCallRuntimeOwnershipParams{
-			ProjectID:     input.ProjectID,
-			AgentID:       input.AgentID,
-			ID:            input.ToolCallID,
-			RuntimeLockID: input.RuntimeLockID,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("release tool call runtime ownership: %w", err)
-	}
-	if changed == 0 {
-		existing, err := qtx.GetToolCallDispatchState(
-			ctx,
-			dbsqlc.GetToolCallDispatchStateParams{
-				ProjectID: input.ProjectID,
-				AgentID:   input.AgentID,
-				ID:        input.ToolCallID,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("load tool call after runtime ownership release miss: %w", err)
-		}
-		alreadyReleased := existing.State == string(ToolCallStateCompleted) ||
-			existing.State == string(ToolCallStateWaiting)
-		if !alreadyReleased {
-			if existing.State == string(ToolCallStateRunning) &&
-				existing.RuntimeLockID != nil &&
-				*existing.RuntimeLockID == input.RuntimeLockID {
-				return storeerr.ErrInvalidToolCallDisposition
-			}
-			return storeerr.ErrIdempotencyConflict
-		}
-	} else {
-		txNotifications.AddToolCallUpdate(
-			input.AgentID,
-			input.ToolCallID,
-			string(ToolCallStateWaiting),
-		)
-	}
-	if err := s.commitTxWithNotifications(
-		ctx,
-		tx,
-		txNotifications,
-		"release tool call runtime ownership",
-	); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (s *Store) RequeueRuntimeToolCall(

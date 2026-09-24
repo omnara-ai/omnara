@@ -72,23 +72,3 @@ WHERE project_id = sqlc.arg(project_id)
   AND provider_tenant_id IS NOT DISTINCT FROM sqlc.narg(provider_tenant_id)
   AND provider_user_id = sqlc.arg(provider_user_id)
   AND display_name IS DISTINCT FROM sqlc.arg(display_name)::text;
-
--- name: ActorMatchesIntegrationTarget :one
-SELECT EXISTS (
-  SELECT 1
-  FROM actors actor
-  JOIN integration_targets target
-    ON target.project_id = sqlc.arg(project_id)
-   AND target.agent_id = sqlc.arg(agent_id)
-   AND target.id = sqlc.arg(integration_target_id)
-   AND target.deleted_at IS NULL
-  JOIN integration_installs install
-    ON install.project_id = target.project_id
-   AND install.id = target.integration_install_id
-   AND install.state = 'active'
-   AND install.deleted_at IS NULL
-  WHERE actor.id = sqlc.arg(actor_id)
-    AND actor.project_id = target.project_id
-    AND actor.provider = install.provider
-    AND actor.provider_tenant_id = install.provider_tenant_id
-) AS matches;

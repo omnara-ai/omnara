@@ -1,5 +1,9 @@
 {
   "$defs": {
+    "AgentConfigIntegrationCapabilitySource": {
+      "additionalProperties": false,
+      "type": "object"
+    },
     "AgentConfigMCPAuthSource": {
       "additionalProperties": false,
       "properties": {
@@ -565,6 +569,16 @@
       "pattern": "\\S",
       "type": "string"
     },
+    "interaction_handlers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfigIntegrationCapabilitySource"
+      },
+      "propertyNames": {
+        "pattern": "^[a-zA-Z][a-zA-Z0-9-]{0,31}$",
+        "type": "string"
+      },
+      "type": "object"
+    },
     "machine_sources": {
       "anyOf": [
         {
@@ -633,8 +647,17 @@
       "propertyNames": {
         "allOf": [
           {
-            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "maxLength": 64,
+                "pattern": "^int__[a-zA-Z][a-zA-Z0-9-]{0,31}__[a-zA-Z][a-zA-Z0-9_-]*$",
+                "type": "string"
+              }
+            ]
           },
           {
             "not": {

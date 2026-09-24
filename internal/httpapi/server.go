@@ -16,7 +16,8 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	httpauth "github.com/omnara-ai/omnara/internal/httpapi/auth"
-	"github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/mcpregistry"
@@ -34,9 +35,10 @@ import (
 )
 
 type Server struct {
+	githubClientConfig                  github.Config
+	discordClientConfig                 discord.Config
 	log                                 *slog.Logger
 	store                               *storage.Store
-	integrations                        *integration.Service
 	skills                              *skillstore.Store
 	authLimiter                         httpauth.RateLimiter
 	authOAuthStates                     httpauth.OAuthStateStore
@@ -70,6 +72,7 @@ type Server struct {
 	mcpOAuthHTTPClient                  *http.Client
 	mcpClient                           mcp.Client
 	sigV4CredentialCache                *sigv4.CredentialCache
+	integrationHTTPClient               *http.Client
 	slackOAuth                          SlackOAuthConfig
 	secretKeyWrapper                    secrets.KeyWrapper
 	authHTTPClient                      *http.Client
@@ -81,15 +84,13 @@ type Server struct {
 	apiDispatch                         atomic.Pointer[http.Handler]
 	webAssets                           fs.FS
 	closeOnce                           sync.Once
-
-	machinePoolManager *machinepool.Manager
-
-	daemonRuntimeLeaseDuration        time.Duration
-	daemonSocketFallbackDrainInterval time.Duration
-	daemonSocketFallbackDrainJitter   time.Duration
-	agentEventReconciliationInterval  time.Duration
-	skillDownloadSigningKey           []byte
-	timer                             clock.Clock
+	machinePoolManager                  *machinepool.Manager
+	daemonRuntimeLeaseDuration          time.Duration
+	daemonSocketFallbackDrainInterval   time.Duration
+	daemonSocketFallbackDrainJitter     time.Duration
+	agentEventReconciliationInterval    time.Duration
+	skillDownloadSigningKey             []byte
+	timer                               clock.Clock
 }
 
 func WithTimer(timer clock.Clock) Option {
@@ -219,6 +220,12 @@ func WithHostedCredentialProvisioner(provisioner modelprovider.HostedCredentialP
 func WithSlackOAuth(config SlackOAuthConfig) Option {
 	return func(s *Server) {
 		s.slackOAuth = config
+	}
+}
+
+func WithIntegrationHTTPClient(client *http.Client) Option {
+	return func(s *Server) {
+		s.integrationHTTPClient = client
 	}
 }
 
@@ -372,7 +379,6 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	var compromiseRevoker httpauth.CompromiseRevoker
 	if store != nil {
 		server.skills = store.Skills()
-		server.integrations = integration.New(store.Execution(), store.Integrations())
 		authStore = store.Identity()
 		compromiseRevoker = store.AccountSecurity()
 	}

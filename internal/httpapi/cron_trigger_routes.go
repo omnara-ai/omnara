@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/google/uuid"
@@ -47,13 +48,17 @@ func (s strictOpenAPIServer) createCronTrigger(
 	if request.Params.IdempotencyKey != nil {
 		idempotencyKey = *request.Params.IdempotencyKey
 	}
+	messageTemplate := ""
+	if request.Body.MessageTemplate != nil {
+		messageTemplate = *request.Body.MessageTemplate
+	}
 	trigger, err := s.server.store.Execution().CreateCronTrigger(ctx, executionstore.CreateCronTriggerInput{
 		ProjectID:       project.ID,
 		Name:            request.Body.Name,
 		Target:          target,
 		CronExpression:  request.Body.Cron,
 		Timezone:        timezone,
-		MessageTemplate: request.Body.MessageTemplate,
+		MessageTemplate: messageTemplate,
 		Enabled:         enabled,
 		IdempotencyKey:  idempotencyKey,
 	})
@@ -105,7 +110,17 @@ func (s strictOpenAPIServer) listCronTriggers(
 		}
 		filters.AgentID = agentID
 	}
-	extra := struct{ AgentProfileID, AgentID string }{}
+	if params.IntegrationId != nil {
+		integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, *params.IntegrationId)
+		if !ok {
+			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration_id")
+		}
+		filters.IntegrationID = integrationID
+	}
+	extra := struct{ AgentProfileID, AgentID, IntegrationID string }{}
+	if filters.IntegrationID != uuid.Nil {
+		extra.IntegrationID = filters.IntegrationID.String()
+	}
 	if filters.AgentProfileID != uuid.Nil {
 		extra.AgentProfileID = filters.AgentProfileID.String()
 	}
@@ -273,6 +288,31 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 		)
 	}
 	switch kind {
+	case string(executionstore.CronTriggerTargetIntegration):
+		target, err := input.AsIntegrationCronTriggerTarget()
+		if err != nil {
+			return executionstore.CronTriggerTarget{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"invalid integration target",
+			)
+		}
+		integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, target.IntegrationId)
+		if !ok {
+			return executionstore.CronTriggerTarget{}, apierror.FromCode(
+				openapi.ErrorCodeInvalidRequest,
+				"invalid target integration_id",
+			)
+		}
+		settings, err := json.Marshal(target.Settings)
+		if err != nil {
+			return executionstore.CronTriggerTarget{}, err
+		}
+		return executionstore.CronTriggerTarget{
+			Kind:     executionstore.CronTriggerTargetIntegration,
+			ID:       integrationID,
+			Settings: settings,
+		}, nil
+
 	case string(executionstore.CronTriggerTargetAgent):
 		target, err := input.AsAgentCronTriggerTarget()
 		if err != nil {
@@ -327,6 +367,22 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi.CronTriggerTarget, error) {
 	var response openapi.CronTriggerTarget
 	switch target.Kind {
+	case executionstore.CronTriggerTargetIntegration:
+		integrationID, err := publicID(publicid.KindProjectIntegration, target.ID)
+		if err != nil {
+			return response, err
+		}
+		integrationTarget := openapi.IntegrationCronTriggerTarget{
+			Type:          openapi.IntegrationCronTriggerTargetTypeIntegration,
+			IntegrationId: integrationID,
+		}
+		if err := json.Unmarshal(target.Settings, &integrationTarget.Settings); err != nil {
+			return response, err
+		}
+		if err := response.FromIntegrationCronTriggerTarget(integrationTarget); err != nil {
+			return response, err
+		}
+
 	case executionstore.CronTriggerTargetAgent:
 		agentID, err := publicID(publicid.KindAgent, target.ID)
 		if err != nil {
@@ -379,6 +435,10 @@ func cronTriggerResponseFromRecord(
 	if err != nil {
 		return openapi.CronTrigger{}, err
 	}
+	var message *string
+	if record.Target.Kind != executionstore.CronTriggerTargetIntegration {
+		message = &record.MessageTemplate
+	}
 	return openapi.CronTrigger{
 		Id:              id,
 		OrgId:           orgID,
@@ -387,11 +447,12 @@ func cronTriggerResponseFromRecord(
 		Target:          target,
 		Cron:            record.CronExpression,
 		Timezone:        record.Timezone,
-		MessageTemplate: record.MessageTemplate,
+		MessageTemplate: message,
 		Enabled:         record.Enabled,
 		LastFiredAt:     nullableFromPtr(record.LastFiredAt),
 		NextFireAt:      nullableFromPtr(record.NextFireAfter),
 		FailureReport:   nullableFromPtr(cronTriggerFailureReportResponse(record.FailureReport)),
+		LastRun:         nullableFromPtr(cronTriggerLastRunResponse(record.LastRun)),
 		CreatedAt:       record.CreatedAt,
 		UpdatedAt:       record.UpdatedAt,
 	}, nil
@@ -407,5 +468,17 @@ func cronTriggerFailureReportResponse(
 		Message:   report.Message,
 		WillRetry: report.WillRetry,
 		FailedAt:  report.FailedAt,
+	}
+}
+
+func cronTriggerLastRunResponse(run *executionstore.CronTriggerLastRun) *openapi.CronTriggerLastRun {
+	if run == nil {
+		return nil
+	}
+	return &openapi.CronTriggerLastRun{
+		State:          openapi.CronTriggerLastRunState(run.State),
+		CreatedAt:      run.CreatedAt,
+		UpdatedAt:      run.UpdatedAt,
+		FailureMessage: nullableFromPtr(run.FailureMessage),
 	}
 }

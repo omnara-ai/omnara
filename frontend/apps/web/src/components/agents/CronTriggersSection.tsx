@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { formatDateTime } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
+import { cn } from '@/lib/utils'
 
 const nextFireFormatter = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
@@ -33,22 +34,48 @@ function nextFireLabel(value: string) {
   return ` · next ${nextFireFormatter.format(date)}`
 }
 
-export function CronTriggersList({
-  orgId,
-  projectId,
-  canManage,
-  filters,
-  emptyMessage,
-  emptyState,
-}: {
+function integrationRunLabel(trigger: CronTrigger) {
+  if (!trigger.last_run) {
+    return trigger.last_fired_at ? 'Last run: details not retained' : 'Not run yet'
+  }
+  switch (trigger.last_run.state) {
+    case 'queued':
+      return 'Last run: queued'
+    case 'processing':
+      return 'Last run: processing'
+    case 'completed':
+      return 'Last run: integration action completed'
+    case 'failed':
+      return `Last run: ${trigger.last_run.failure_message ?? 'failed'}`
+  }
+}
+
+interface CronTriggersListProps {
   orgId: string
   projectId: string
   canManage: boolean
-  filters: CronTriggerListFilters
   emptyMessage: string
   emptyState?: ReactNode
-}) {
-  const query = useCronTriggers(orgId, projectId, { filters })
+  plain?: boolean
+}
+
+export function CronTriggersList({
+  filters,
+  ...props
+}: CronTriggersListProps & { filters: CronTriggerListFilters }) {
+  const query = useCronTriggers(props.orgId, props.projectId, { filters })
+  return <CronTriggersListContent {...props} query={query} />
+}
+
+export function CronTriggersListContent({
+  orgId,
+  projectId,
+  canManage,
+  emptyMessage,
+  emptyState,
+  plain = false,
+  query,
+}: CronTriggersListProps & { query: ReturnType<typeof useCronTriggers> }) {
   const triggers = useInfiniteQueryItems(query)
   const updateTrigger = useUpdateCronTrigger(orgId, projectId)
   const deleteTrigger = useDeleteCronTrigger(orgId, projectId)
@@ -57,9 +84,17 @@ export function CronTriggersList({
   return (
     <div className="flex flex-col gap-2">
       {triggers.length > 0 ? (
-        <ul className="bg-background flex flex-col divide-y rounded-md border">
+        <ul
+          className={cn(
+            'flex flex-col divide-y',
+            plain ? 'border-y' : 'bg-background rounded-md border',
+          )}
+        >
           {triggers.map((trigger) => (
-            <li key={trigger.id} className="flex items-center justify-between gap-3 px-3 py-2">
+            <li
+              key={trigger.id}
+              className={cn('flex items-center justify-between gap-3 py-2', !plain && 'px-3')}
+            >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <div className="flex min-w-0 items-center gap-2 text-sm">
                   <Tooltip>
@@ -83,7 +118,7 @@ export function CronTriggersList({
                       align="start"
                       className="max-w-sm whitespace-pre-wrap px-4 py-2 text-left text-sm leading-relaxed"
                     >
-                      {trigger.message_template}
+                      {trigger.message_template ?? 'Scheduled integration action'}
                     </TooltipContent>
                   </Tooltip>
                   {trigger.failure_report && <Badge variant="destructive">Failing</Badge>}
@@ -94,6 +129,19 @@ export function CronTriggersList({
                     ` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}
                   {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
                 </p>
+                {trigger.target.type === 'integration' && (
+                  <p className="text-muted-foreground break-words text-xs">
+                    {integrationRunLabel(trigger)}
+                    {trigger.last_run && (
+                      <>
+                        {' · '}
+                        <time dateTime={trigger.last_run.updated_at}>
+                          {formatDateTime(trigger.last_run.updated_at)}
+                        </time>
+                      </>
+                    )}
+                  </p>
+                )}
                 {trigger.failure_report && (
                   <p className="text-destructive break-words text-xs">
                     Failed {formatDateTime(trigger.failure_report.failed_at)}:{' '}
@@ -179,11 +227,14 @@ export function CronTriggersList({
           </Button>
         </div>
       ) : (
-        (emptyState ?? (
+        (emptyState ??
+        (plain ? (
+          <p className="text-muted-foreground text-sm">{emptyMessage}</p>
+        ) : (
           <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
             {emptyMessage}
           </div>
-        ))
+        )))
       )}
       {query.hasNextPage && (
         <Button

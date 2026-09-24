@@ -129,7 +129,21 @@ The builder displays these defaults under **Tools → Other tools** without writ
 
 Existing machine configs gain missing machine-tool defaults only when saved again. The builder previews that saved result, not the tools currently stored for an existing config.
 
-Slack's `send_integration_message` remains contextual: it is available in Slack conversations without being added to the saved config, unless explicitly disabled. The builder only shows this tool when it is explicitly listed in the config.
+### Integration capabilities
+
+Create a project integration first, then reference its tools as
+`tools.int__<integration-name>__<operation>`. Tool entries contain enabled state, deferred
+loading and permissions; handler entries use `interaction_handlers: {integration-name: {}}`.
+The shipped tools use immutable integration-agent context established by a provider or
+scheduled launch. They fail before provider I/O if no conversation is assigned. Their interaction handlers use the same assigned conversation and accept empty
+selection arguments.
+Incoming subscriptions belong to the integration and are attached through launch requests
+or the integration subscriptions API, not config. Removing a tool or changing config does
+not remove subscriptions.
+
+Integration names resolve to immutable IDs when compiled, while credentials remain live
+on the integration. See [Integrations](/integrations/overview) for examples and provider launchers.
+Integration tools, subscriptions and interaction handlers are not inherited by spawned subagents.
 
 ### Deferred tools
 

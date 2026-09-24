@@ -11,19 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
-
-func WithImplicitIntegrationMessageTool(
-	contract agentconfig.RuntimeContract,
-	targets []integrationstore.IntegrationTargetSummary,
-) (agentconfig.RuntimeContract, error) {
-	if len(targets) == 0 {
-		return contract, nil
-	}
-	return contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
-}
 
 func RuntimeContractToolSpecs(
 	ctx context.Context,
@@ -37,7 +26,22 @@ func RuntimeContractToolSpecs(
 	if err != nil {
 		return nil, err
 	}
-	for _, tool := range contract.Tools {
+	integrations, err := store.ResolveIntegrationDefinitions(ctx, projectID, contract.ReferencedIntegrationIDs())
+	if err != nil {
+		return nil, err
+	}
+	prepared, err := agentconfig.PrepareIntegrationTools(
+		agentconfig.Compiled{
+			Tools:               contract.IntegrationTools,
+			InteractionHandlers: contract.InteractionHandlers,
+		},
+		integrations,
+	)
+	if err != nil {
+		return nil, err
+	}
+	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared...)
+	for _, tool := range runtimeTools {
 		if tool.Name == "" {
 			return nil, fmt.Errorf(
 				"agent config for agent %s/%s has unnamed tool",

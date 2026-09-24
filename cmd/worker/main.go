@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -19,6 +20,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/kernel"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	workerpkg "github.com/omnara-ai/omnara/internal/harness/worker"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integration/discord"
+	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/mcp"
@@ -232,6 +238,91 @@ func main() {
 		defer close(cronTriggerDone)
 		runCronTriggerFireLoop(ctx, log, cronTriggerService, cronTriggerFireInterval)
 	}()
+	discordRuntime := integrationruntime.DiscordRuntime{
+		Capacity:     cfg.WorkerDiscordCapacity,
+		Metrics:      metrics.NewDiscordRuntimeRecorder(metricSet),
+		Integrations: store.Integrations(),
+		Secrets:      store.Secrets(),
+		Redis:        redisClient,
+		HTTPClient:   integrationHTTPClient,
+		Log:          log,
+	}
+	discordDone := make(chan struct{})
+	var discordRunErr error
+	go func() {
+		defer close(discordDone)
+		discordRunErr = discordRuntime.Run(ctx)
+		if discordRunErr != nil {
+			cancel()
+		}
+	}()
+	integrationRouter := integrationruntime.NewIntegrationRouter(store.Execution(), store.Integrations())
+	slackProvider := integrationruntime.NewSlackIntegrationInboxProvider(
+		slack.OAuthConfig{HTTPClient: integrationHTTPClient},
+		store.Secrets(),
+		store.Integrations(),
+		store.Execution(),
+	)
+	discordProvider := integrationruntime.NewDiscordIntegrationInboxProvider(
+		discord.Config{HTTPClient: integrationHTTPClient},
+		store.Secrets(),
+		store.Integrations(),
+	)
+	integrationProviders := map[string]integrationruntime.IntegrationInboxProvider{
+		"slack":   slackProvider,
+		"discord": discordProvider,
+		"github":  integrationruntime.NewGitHubIntegrationInboxProvider(github.Config{HTTPClient: integrationHTTPClient}, store.Secrets(), store.Integrations()),
+	}
+	chatLauncher := integrationruntime.NewChatIntegrationLauncher(
+		store.Integrations(),
+		store.Execution(),
+		integrationProviders,
+	)
+	integrationLaunchers := integrationruntime.NewIntegrationLaunchWorkflow(
+		integrationRouter,
+		map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
+			integrationdefinition.SlackThread:   chatLauncher.Decide,
+			integrationdefinition.DiscordThread: chatLauncher.Decide,
+			integrationdefinition.GitHubPR:      integrationruntime.EverySlotIntegrationLauncher,
+		},
+	)
+	integrationLaunchers.Log = log
+	integrationConsumer := integrationruntime.NewIntegrationInboxConsumer(
+		integrationRouter,
+		store.Integrations(),
+		store.Artifacts(),
+		integrationProviders,
+		integrationruntime.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log},
+		integrationLaunchers,
+		integrationruntime.WithIntegrationScheduledHandlers(
+			map[integrationdefinition.Type]integrationruntime.IntegrationScheduledHandler{
+				integrationdefinition.SlackThread: integrationruntime.NewThreadIntegrationScheduledHandler(
+					integrationRouter, store.Integrations(), slackProvider,
+				).Handle,
+				integrationdefinition.DiscordThread: integrationruntime.NewThreadIntegrationScheduledHandler(
+					integrationRouter, store.Integrations(), discordProvider,
+				).Handle,
+			},
+		),
+	)
+	integrationConsumer.Log = log
+	integrationWorker := integrationruntime.NewIntegrationInboxWorker(
+		store.Integrations(),
+		integrationConsumer,
+		integrationruntime.IntegrationInboxWorkerOptions{
+			Log: log, MachinePools: machinePoolManager, Capacity: cfg.WorkerInboxCapacity,
+			Metrics: metrics.NewIntegrationInboxRecorder(metricSet),
+		},
+	)
+	integrationsDone := make(chan struct{})
+	var integrationsRunErr error
+	go func() {
+		defer close(integrationsDone)
+		integrationsRunErr = integrationWorker.Run(ctx)
+		if integrationsRunErr != nil {
+			cancel()
+		}
+	}()
 
 	eventWebhooks := eventwebhook.New(
 		store.Execution(), log, cfg.WorkerEventWebhookConcurrency, cfg.EventWebhookPerOrgConcurrency,
@@ -247,7 +338,7 @@ func main() {
 	case err := <-workerErr:
 		cancel()
 		<-healthErr
-		if err != nil && signalCtx.Err() == nil {
+		if err != nil && !errors.Is(err, context.Canceled) && signalCtx.Err() == nil {
 			log.Error("kernel worker failed", "error", err)
 			exitCode = 1
 		}
@@ -257,7 +348,7 @@ func main() {
 		if err != nil {
 			log.Error("worker health and metrics server failed", "error", err)
 			exitCode = 1
-		} else if workerRunErr != nil && signalCtx.Err() == nil {
+		} else if workerRunErr != nil && !errors.Is(workerRunErr, context.Canceled) && signalCtx.Err() == nil {
 			log.Error("kernel worker failed", "error", workerRunErr)
 			exitCode = 1
 		}
@@ -267,6 +358,16 @@ func main() {
 		<-workerErr
 	}
 	<-cronTriggerDone
+	<-discordDone
+	if discordRunErr != nil && signalCtx.Err() == nil {
+		log.Error("Discord runtime failed", "error", discordRunErr)
+		exitCode = 1
+	}
+	<-integrationsDone
+	if integrationsRunErr != nil && signalCtx.Err() == nil {
+		log.Error("integration inbox worker failed", "error", integrationsRunErr)
+		exitCode = 1
+	}
 	<-eventWebhookDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {
@@ -310,6 +411,7 @@ func runCronTriggerFireLoop(
 				"fired due cron triggers",
 				"claimed", stats.Claimed,
 				"launched", stats.Launched,
+				"queued", stats.Queued,
 				"inputs", stats.Inputs,
 				"disabled", stats.Disabled,
 				"failures", stats.Failures,

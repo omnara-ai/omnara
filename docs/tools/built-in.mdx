@@ -4,7 +4,7 @@ description: Use built-in tools for web search, commands, machines, integrations
 icon: "toolbox"
 ---
 
-Omnara includes built-in tools for common agent tasks. Add a tool by name under `tools:` in the agent's config. Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
+Omnara includes built-in tools for common agent tasks. Add ordinary tools by name under `tools:` in the agent's config. Integration tools use names such as `int__engineering__post_message` and the credentials of that project [integration](/integrations/overview). Built-in tools default to `always_allow`, but you can [change the permission](/tools/permissions) for each one.
 
 This page explains what each tool does and the inputs it accepts. To retrieve the current catalog programmatically, use [`GET /tool-catalog`](/tools/permissions#check-available-tools).
 
@@ -18,7 +18,7 @@ The tools are grouped by what they do:
 | Processes | `read_process`, `write_process`, `stop_process`, `list_processes` |
 | Machines | `create_machine`, `delete_machine`, `list_machines`, `inspect_machine` |
 | Files | `upload_file`, `download_file`, `read_file`, `search_files` |
-| Integrations | `send_integration_message`, `set_integration_target` |
+| Integrations | Integration-specific tools; `list_interaction_handlers`, `set_interaction_handler` |
 | Skills | `skill` |
 | Tool loading | `tool_search` |
 
@@ -169,7 +169,7 @@ When `list_machines` returns `next_cursor`, pass it as `cursor` in the next call
 
 `path` addresses files stored in Omnara, not files on an attached machine. Currently, `/artifacts` is the destination for creating an artifact, and `/artifacts/<artifact_id>` identifies an existing artifact.
 
-When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Adding the Slack messaging tool at runtime does not add retrieval tools.
+When compiling a config with enabled tools or MCP servers, Omnara adds missing `read_file` and `search_files` entries to the compiled config, leaving the source unchanged. Explicit tool permissions and `enabled: false` settings take precedence. These two tools access the agent's artifacts directly and do not require an attached machine. Integration-contributed tools are compiled with the config too.
 
 ### `upload_file`
 
@@ -177,7 +177,7 @@ Use `upload_file` to copy a file from an attached machine into Omnara's virtual 
 
 Files must be non-empty and may be up to 10 MiB. The upload process has a 30-second execution timeout.
 
-On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver one or more through an external integration, take the artifact ID from the final component of each `/artifacts/<artifact_id>` path and pass those IDs in `artifact_ids` to `send_integration_message`.
+On success, the artifact appears in the conversation and the durable tool result contains its `path` and a `media_ref` that clients can use to display or download it. The returned `path` can be passed directly to `download_file`; `source` and `destination` refer to paths on the selected machine. The artifact's contents are not added to later model context. To deliver an artifact through an integration, use a tool that supports attachments. The artifact ID is the final component of its `/artifacts/<artifact_id>` path; the integration tool’s schema describes how to supply it.
 
 ### `download_file`
 
@@ -229,15 +229,32 @@ Explicitly disabling both retrieval tools does not disable overflow handling. Th
 
 Existing media references remain inline so their attachments remain available to the model and clients. Consequently, 50 KiB is an overflow threshold, not a hard limit on the rewritten result: many retained media references can still exceed it. Media-only results are not offloaded.
 
-## Integrations
+## Integration tools
 
-### `send_integration_message`
+Select [integration tools](/integrations/overview) by qualified name, such as
+`int__engineering__post_message`. An integration owns its credentials and defines its
+tools' argument schemas and conversation requirements. See its guide and catalog
+for available operations, arguments and pagination. Tool declarations have no
+hidden `config`. Credential access, live integration state and ordinary permission govern
+execution. Ordinary model output remains in Omnara.
 
-Sends a message to the agent's current [integration target](/integrations/slack#how-slack-conversations-map-to-agents), such as a Slack thread or DM. Requires `text`; pass `artifact_ids` to attach artifacts owned by the agent. For agents reached through an integration, only messages sent with this tool are visible there; ordinary model output remains in Omnara. This tool supports only `always_allow`.
+Subscriptions control incoming forwarding independently of enabled tools. Manage
+them from the integration's [Conversations list or subscriptions API](/integrations/overview#stop-forwarding).
 
-### `set_integration_target`
+### `list_interaction_handlers` / `set_interaction_handler`
 
-Changes where future integration messages and [approval or question prompts](/events/interactions) are sent. Requires `target_ref`.
+Select these tools explicitly under `tools`, or use an integration launcher that supplies
+an interaction handler and adds them, preserving explicit tool settings. They
+are not global defaults.
+`list_interaction_handlers` accepts `cursor` and `limit`, returning handler keys,
+descriptions, eligible destinations and argument schemas. Its current selection is included
+independently of pagination. No eligible handlers means an empty list.
+
+`set_interaction_handler` takes a `handler` key and `args` matching its schema.
+An integration may infer the destination from its agent state; in that case its
+schema accepts empty arguments. Use `{"handler":null,"args":{}}` for dashboard only.
+The choice persists for future questions and approvals; existing prompts keep their
+captured destination. A new provider input can select its eligible handler automatically.
 
 ## Subagents
 

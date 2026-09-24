@@ -10,7 +10,6 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/cronschedule"
 	"github.com/omnara-ai/omnara/internal/machinepool"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -37,6 +36,7 @@ func NewService(
 
 type FireStats struct {
 	Claimed  int
+	Queued   int
 	Launched int
 	Inputs   int
 	Disabled int
@@ -56,6 +56,22 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 		)
 	}
 	for _, trigger := range claim.Claimed {
+		if trigger.Target.Kind == executionstore.CronTriggerTargetIntegration {
+			queued, err := s.execution.CreateCronTriggerIntegrationEvent(ctx, trigger)
+			if err != nil {
+				stats.Failures++
+				s.logger.Error("queue scheduled integration action", "cron_trigger_id", trigger.TriggerID, "error", err)
+				if recordErr := s.execution.RecordCronTriggerFailure(ctx, executionstore.CronTriggerFailureParams{
+					ProjectID: trigger.ProjectID, TriggerID: trigger.TriggerID, ClaimToken: trigger.ClaimToken,
+					Message: "Scheduled integration action could not be queued.", WillRetry: true,
+				}); recordErr != nil {
+					s.logger.Error("record integration cron failure", "cron_trigger_id", trigger.TriggerID, "error", recordErr)
+				}
+			} else if queued {
+				stats.Queued++
+			}
+			continue // Handoff owns completion, including cancellation and skips.
+		}
 		fired := false
 		if err := s.fireTrigger(ctx, trigger); err != nil {
 			stats.Failures++
@@ -87,14 +103,12 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 			}
 		} else {
 			fired = true
-			switch trigger.Target.Kind {
-			case executionstore.CronTriggerTargetAgentProfile:
-				stats.Launched++
-			case executionstore.CronTriggerTargetAgent:
+			if trigger.Target.Kind == executionstore.CronTriggerTargetAgent {
 				stats.Inputs++
 				// Agent input delivery completes the firing in the same transaction.
 				continue
 			}
+			stats.Launched++
 		}
 		if err := s.execution.CompleteCronTriggerFiring(ctx, executionstore.CompleteCronTriggerFiringInput{
 			ProjectID:  trigger.ProjectID,
@@ -114,10 +128,17 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 }
 
 func (s *Service) fireTrigger(ctx context.Context, trigger executionstore.ClaimedCronTrigger) error {
-	message, err := cronschedule.RenderMessage(
-		trigger.MessageTemplate,
-		cronschedule.MessageData(trigger.Name, trigger.FiredAt, trigger.LastFiredAt),
+	data, err := cronschedule.OccurrenceMessageData(
+		trigger.Name,
+		trigger.FiredAt,
+		trigger.LastFiredAt,
+		trigger.DueAt,
+		trigger.Timezone,
 	)
+	if err != nil {
+		return fmt.Errorf("cron trigger timezone: %s: %w", err.Error(), storeerr.ErrInvalidRequest)
+	}
+	message, err := cronschedule.RenderMessage(trigger.MessageTemplate, data)
 	if err != nil {
 		return fmt.Errorf("render cron trigger message: %s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
@@ -142,7 +163,7 @@ func (s *Service) launchFromProfile(
 	if err != nil {
 		return fmt.Errorf("load target agent profile: %w", err)
 	}
-	actor, err := cronTriggerActorParams(trigger)
+	actor, err := executionstore.CronTriggerActor(trigger.OrgID, trigger.TriggerID, trigger.Name)
 	if err != nil {
 		return err
 	}
@@ -178,7 +199,7 @@ func (s *Service) sendAgentInput(
 	message string,
 	idempotencyKey string,
 ) error {
-	actor, err := cronTriggerActorParams(trigger)
+	actor, err := executionstore.CronTriggerActor(trigger.OrgID, trigger.TriggerID, trigger.Name)
 	if err != nil {
 		return err
 	}
@@ -195,26 +216,6 @@ func (s *Service) sendAgentInput(
 		return fmt.Errorf("send cron trigger input: %w", err)
 	}
 	return nil
-}
-
-func cronTriggerActorParams(
-	trigger executionstore.ClaimedCronTrigger,
-) (*executionstore.ActorParams, error) {
-	tenantID, err := publicid.Encode(publicid.KindOrganization, trigger.OrgID)
-	if err != nil {
-		return nil, fmt.Errorf("encode cron trigger actor tenant: %w", err)
-	}
-	providerUserID, err := publicid.Encode(publicid.KindCronTrigger, trigger.TriggerID)
-	if err != nil {
-		return nil, fmt.Errorf("encode cron trigger actor: %w", err)
-	}
-	displayName := trigger.Name
-	return &executionstore.ActorParams{
-		Provider:         executionstore.ActorProviderOmnara,
-		ProviderTenantID: tenantID,
-		ProviderUserID:   providerUserID,
-		DisplayName:      &displayName,
-	}, nil
 }
 
 func permanentFireError(err error) bool {

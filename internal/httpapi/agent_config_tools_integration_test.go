@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveAgentConfigTools(t *testing.T) {
@@ -47,6 +49,8 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	}
 	for _, item := range tools {
 		tool := testutil.RequireType[map[string]any](t, item)
+		require.NotEqual(t, toolcatalog.ToolNameListInteractionHandlers, tool["name"], "interaction tools are explicit")
+		require.NotEqual(t, toolcatalog.ToolNameSetInteractionHandler, tool["name"], "interaction tools are explicit")
 		if tool["name"] == "run_command" {
 			permission := testutil.RequireType[map[string]any](t, tool["permission"])
 			if tool["enabled"] != false || permission["mode"] != "always_ask" {
@@ -56,15 +60,16 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	}
 	empty := map[string]any{"source": `{"instruction":"","model":{}}`, "source_format": "json"}
 	response := request(empty, project.AdminToken, http.StatusOK)
-	if len(testutil.RequireType[[]any](t, response["tools"])) != 0 {
-		t.Fatalf("unexpected contextual tools: %v", response)
-	}
+	require.Empty(t, testutil.RequireType[[]any](t, response["tools"]), "ordinary configs grant no interaction tools")
 	mcp := request(map[string]any{
 		"source": `{"mcp":{"docs":{"url":"https://example.com/mcp","default_enabled":false}}}`, "source_format": "json",
 	}, project.AdminToken, http.StatusOK)
-	if len(testutil.RequireType[[]any](t, mcp["tools"])) != 2 {
-		t.Fatalf("MCP-only config missing retrieval tools: %v", mcp)
+	var mcpToolNames []string
+	for _, item := range testutil.RequireType[[]any](t, mcp["tools"]) {
+		tool := testutil.RequireType[map[string]any](t, item)
+		mcpToolNames = append(mcpToolNames, testutil.RequireType[string](t, tool["name"]))
 	}
+	require.ElementsMatch(t, []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles}, mcpToolNames)
 	for _, body := range []map[string]any{
 		{}, {"source": "{}"}, {"source_format": "json"},
 		{"source": "tools: {run_command: {enabled: nope}}", "source_format": "yaml"},
@@ -76,4 +81,43 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	}
 	request(empty, "", http.StatusUnauthorized)
 	request(empty, other.AdminToken, http.StatusNotFound)
+}
+
+func TestResolveAgentConfigToolsWithProjectIntegration(t *testing.T) {
+	t.Parallel()
+	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
+	project := bootstrapPublicHTTPProject(t, handler, "preview-integration")
+	integration := createSlackHTTPIntegration(t, t.Context(), project, "A123", "T123", "Support")
+	name := "int__" + integration.Name + "__read"
+	entry := map[string]any{}
+	source := map[string]any{"tools": map[string]any{name: entry}}
+	preview := func(scope publicHTTPProject, status int) map[string]any {
+		t.Helper()
+		return requestJSONWithHeaders(t, handler, http.MethodPost, scope.ProjectPath+"/agent-configs/tools",
+			projectIntegrationHTTPJSON(
+				t,
+				map[string]any{"source_format": "json", "source": projectIntegrationHTTPJSON(t, source)},
+			),
+			"", status, authHeaders(scope.AdminToken))
+	}
+	toolsByName := func(response map[string]any) map[string]map[string]any {
+		t.Helper()
+		result := map[string]map[string]any{}
+		for _, item := range testutil.RequireType[[]any](t, response["tools"]) {
+			tool := testutil.RequireType[map[string]any](t, item)
+			result[testutil.RequireType[string](t, tool["name"])] = tool
+		}
+		return result
+	}
+	tools := toolsByName(preview(project, http.StatusOK))
+	require.Equal(t, true, tools[name]["enabled"])
+	require.NotContains(t, tools, "int__"+integration.Name+"__post_message")
+	entry["enabled"] = false
+	entry["permission"] = map[string]any{"mode": "always_deny"}
+	tools = toolsByName(preview(project, http.StatusOK))
+	require.Equal(t, false, tools[name]["enabled"])
+	require.Equal(t, "always_deny", testutil.RequireType[map[string]any](t, tools[name]["permission"])["mode"])
+	other := projectIntegrationHTTPSecondProject(t, handler, project)
+	rejected := preview(other, http.StatusBadRequest)
+	require.Contains(t, projectIntegrationHTTPJSON(t, rejected), "/tools/"+name)
 }

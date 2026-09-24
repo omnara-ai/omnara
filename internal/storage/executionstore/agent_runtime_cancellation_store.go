@@ -51,7 +51,7 @@ func (s *Store) CancelAgent(
 	}}); err != nil {
 		return CancelAgentResult{}, err
 	}
-	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, input.Actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, qtx, input.ProjectID, input.Actor)
 	if err != nil {
 		return CancelAgentResult{}, err
 	}

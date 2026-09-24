@@ -42,7 +42,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type ProjectIntegration, type SaveProjectIntegrationRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -181,11 +181,11 @@ your time today") is a good outcome — never pad it. For each item:
 - link: https://x.com/i/status/<tweet id>
 - suggested action: reply, track the author, or ignore
 
-Deliver. When this conversation is driven through an integration such as
-Slack, send the digest with send_integration_message — the external user
-only sees messages sent that way. Otherwise present the digest directly in
-the conversation. If someone replies asking for a draft, write the reply
-text for a human to post. Never post to X yourself.
+Deliver. When a Slack integration provides an int__<integration-name>__post_message tool,
+use that tool to send the digest to the conversation that launched you.
+The external user only sees messages sent with that tool. Otherwise present
+the digest directly in the conversation. If someone replies asking for a
+draft, write the reply text for a human to post. Never post to X yourself.
 `,
   model: {
     provider_config: 'omnara-openrouter', // default model provider config in your org
@@ -206,8 +206,6 @@ text for a human to post. Never post to X yourself.
     inspect_machine: {},
     web_search: {},
     web_fetch: {},
-    send_integration_message: { permission: { mode: 'always_allow' } },
-    set_integration_target: {},
   },
 }
 
@@ -259,35 +257,18 @@ console.log('agent:  ', launch.agent.id)
 console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${launch.agent.id}`)
 console.log()
 
-// Print events until the agent's turn ends — a model output whose stop
-// reason is anything but a tool call. If the stream drops, reconnect from
-// the last seen sequence.
-let after = 0
-for (let done = false; !done; ) {
-  const { stream } = await openAgentEventStream({
-    client,
-    path: agentPath,
-    query: { after_sequence: after },
-  })
-  try {
-    for await (const frame of stream) {
-      if (!('event_kind' in frame)) continue
-      after = Math.max(after, frame.sequence)
-      if (frame.event_kind === 'model_output') {
-        for (const block of frame.content_blocks) {
-          if (block.type === 'text' && block.text.trim()) console.log('\nagent:', block.text)
-          else if (block.type === 'tool_call') console.log('\ntool:', block.name)
-        }
-        if (frame.stop_reason !== 'tool_use') {
-          done = true // the turn ended: digest delivered
-          break
-        }
-      } else if (frame.event_kind === 'tool_result') {
-        console.log('  ->', frame.outcome)
-      }
+// Print events until the agent's turn ends. The SDK reconnects from the
+// last seen sequence if the stream drops.
+for await (const frame of openAgentEventStream({ client, path: agentPath })) {
+  if (!('event_kind' in frame)) continue
+  if (frame.event_kind === 'model_output') {
+    for (const block of frame.content_blocks) {
+      if (block.type === 'text' && block.text.trim()) console.log('\nagent:', block.text)
+      else if (block.type === 'tool_call') console.log('\ntool:', block.name)
     }
-  } catch {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    if (frame.stop_reason !== 'tool_use') break // the turn ended: digest delivered
+  } else if (frame.event_kind === 'tool_result') {
+    console.log('  ->', frame.outcome)
   }
 }
 
@@ -299,7 +280,8 @@ console.log('\nDone. The agent stays available — message it from the console o
 // One-time setup:
 //
 // 1. Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` — create the token at
-//    [api.slack.com/apps](https://api.slack.com/apps).
+//    [api.slack.com/apps](https://api.slack.com/apps). Also set
+//    `SLACK_WORKSPACE_ID` to the workspace you will install into (T…).
 // 2. Rerun this file (or just this section) and open the printed OAuth URL
 //    to install the Slack app.
 // 3. Invite the bot to a channel (`/invite @your-bot`) and mention it.
@@ -313,13 +295,52 @@ console.log('\nDone. The agent stays available — message it from the console o
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
 
 if (slackAppConfigurationToken) {
-  const { data: slack } = await sdk.createSlackSetup({
-    client,
-    path: { ...path, agentProfileID: profile.id },
-    body: { app_name: 'X Signal Agent', app_configuration_token: slackAppConfigurationToken },
-  })
-  console.log('open this URL to install the Slack app:')
-  console.log(slack.oauth_url)
+  const workspaceID = env.SLACK_WORKSPACE_ID?.trim()
+  if (!workspaceID) throw new Error('set SLACK_WORKSPACE_ID in .env to connect Slack')
+
+  const integrationName = 'x-signal-agent'
+  let existingIntegration: ProjectIntegration | undefined
+  let cursor: string | undefined
+  do {
+    const { data: integrations } = await sdk.listProjectIntegrations({ client, path, query: { cursor } })
+    existingIntegration = integrations.data.find((integration) => integration.name === integrationName)
+    cursor = integrations.next_cursor ?? undefined
+  } while (!existingIntegration && cursor)
+
+  if (existingIntegration && existingIntegration.integration_type !== 'slack_thread') {
+    throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
+  }
+  // The integration owns its launcher profile. Launching from Slack supplies the
+  // namespaced tools, integration-owned thread subscription, and interaction handler to the agent.
+  const body: SaveProjectIntegrationRequest = {
+    name: integrationName,
+    integration_type: 'slack_thread',
+    settings: {
+      launcher: {
+        trigger: 'mention',
+        scope_kind: 'workspace',
+        scope_ref: workspaceID,
+        slots: [{ key: 'default', agent_profile_id: profile.id }],
+      },
+    },
+  }
+  const { data: integration } = existingIntegration
+    ? await sdk.updateProjectIntegration({ client, path: { ...path, integrationID: existingIntegration.id }, body })
+    : await sdk.createProjectIntegration({ client, path, body })
+
+  if (integration.state === 'active') {
+    console.log('Slack integration already connected:', integration.name, integration.id)
+  } else if (integration.provider_account_ref) {
+    console.log('Reconnect this Slack integration in the project Integrations page:', integration.name, integration.id)
+  } else {
+    const { data: slack } = await sdk.createProjectIntegrationSlackSetup({
+      client,
+      path: { ...path, integrationID: integration.id },
+      body: { app_name: 'X Signal Agent', app_configuration_token: slackAppConfigurationToken },
+    })
+    console.log('open this URL to install the Slack app:')
+    console.log(slack.oauth_url)
+  }
 } else {
   console.log('skipped — set SLACK_APP_CONFIGURATION_TOKEN in .env to connect Slack')
 }
@@ -333,7 +354,7 @@ if (slackAppConfigurationToken) {
 //
 // Scheduled runs have no Slack thread, so their digests land in the Omnara
 // console. For daily digests in a Slack channel, mention the bot there once
-// — each firing then delivers to that thread.
+// and point the trigger at that agent instead of the profile.
 
 // %%
 // Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.

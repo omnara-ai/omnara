@@ -1,5 +1,5 @@
 import type { Secret } from '@omnara/sdk'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useId, useState } from 'react'
 
 import { PillTabs } from '@/components/agents/PillTabs'
 import { ChevronDownIcon, PlusIcon, Trash2Icon } from '@/components/icons'
@@ -152,6 +152,7 @@ export function CombinedEnvOverlayEditor({
   secretEnvRows: SecretEnvOverlayRow[]
   onChange: (rows: { envRows: EnvOverlayRow[]; secretEnvRows: SecretEnvOverlayRow[] }) => void
 }) {
+  const titleId = useId()
   function updateEnvRow(id: string, patch: Partial<EnvOverlayRow>) {
     onChange({
       envRows: envRows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
@@ -198,9 +199,11 @@ export function CombinedEnvOverlayEditor({
     })
   }
   return (
-    <Field>
+    <Field aria-labelledby={titleId}>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel>Environment variables</FieldLabel>
+        <div id={titleId} className="type-label">
+          Environment variables
+        </div>
         <Button
           type="button"
           size="sm"

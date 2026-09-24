@@ -28,9 +28,65 @@ All configuration is via environment variables. Use `.env.example` in the repo a
 | `OMNARA_WORKER_EVENT_WEBHOOK_CONCURRENCY` | Maximum event webhook deliveries in flight per worker process | `128` | No |
 | `OMNARA_EVENT_WEBHOOK_PER_ORG_CONCURRENCY` | Soft cap on concurrent event webhook deliveries per org across workers; use the same value on every worker | `128` | No |
 | `OMNARA_WORKER_CAPACITY` | Maximum agent turns executed concurrently by each worker process | `4` | No |
+| `OMNARA_WORKER_INBOX_CAPACITY` | Maximum integration inbox receipts processed concurrently per worker process; integer from 1 through 100 | `4` | No |
 | `OMNARA_WORKER_ASYNC_TOOL_CAPACITY` | Maximum runtime-owned asynchronous tool calls in flight per worker process | `32` | No |
 | `OMNARA_WORKER_BACKGROUND_TOOL_CAPACITY` | Background tool concurrency and in-memory queue capacity per worker process | `8` | No |
 | `OMNARA_MAINTENANCE_INTERVAL` | Maintenance loop interval (Go duration) | `1s` | No |
+
+### Integration inbox operation
+
+Inbox concurrency is independent of agent-turn concurrency. All worker activity
+shares the database pool; raising inbox capacity does not raise its connection
+limit. Start with the default pool of 10 maximum connections and measure queue
+lag and database contention before increasing concurrency or replica counts.
+
+Workers sample `omnara_integration_inbox_oldest_ready_lag_seconds` about every 30 seconds,
+including while every consumer is busy. This measures time since `available_at`
+for the oldest due pending receipt, including inactive integrations awaiting recovery;
+future retry delays and processing leases are excluded. Scrapes read cached
+values and never query the inbox. The metric has no integration or project labels and
+reports zero for an empty ready queue, or `NaN` before sampling or after a failed
+sample. Check `omnara_integration_inbox_lag_sample_last_success_timestamp_seconds` for
+freshness; it remains unchanged on failure. Each worker observes the same global
+queue, so compare the maximum lag across workers rather than summing it.
+
+Expired claims and inactive pending work each receive their own 100-row recovery
+allowance. Full batches continue for a one-second soft budget, checked between
+recovery calls. The current call (two SQL statements) may finish beyond that
+budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget
+exhaustion retries after one second; drained queues return to 30-second polling.
+The lag query has its own one-second deadline and runs at most once per 30 seconds.
+
+Inbox retention runs concurrently with the other core maintenance tasks. Completed/failed receipts
+become eligible for deletion seven days after finishing, measured by the database
+clock. Locks or cleanup backlogs can delay deletion. Deleting the integration, project or
+organization can purge receipts earlier; disconnecting an integration preserves normal
+retention.
+Terminal and deleted-scope cleanup each drain 100-row transactions with a 250 ms
+soft budget checked between batches. The current batch may finish beyond that
+budget without cancellation. Each cleanup pass has a five-second hard deadline,
+and the two passes run concurrently, so their deadlines overlap. The next core
+tick waits for all tasks; these deadlines do not bound the entire tick. Hard
+timeouts are logged as errors. Each batch is atomic, but cancellation can race
+commit, so a failed call may have an uncertain result. Logged counts include only
+confirmed deletions; the next tick safely continues from remaining rows.
+Normal soft-budget exhaustion is logged as
+`budget_exhausted=true`. Failed receipts are terminal, release unfinished launch
+reservations, and follow the same retention policy. Pending and processing
+receipts are never removed by terminal retention. Deleting a receipt ends its
+transport deduplication window; exceptionally late replays can be accepted again.
+Accepted agent history is independent and remains intact. Newer messages may pass
+an older receipt waiting to retry.
+
+The opt-in `TestIntegrationInboxLocalLoad` experiment runs with `OMNARA_INBOX_LOAD=1`
+and the normal local test database URL. A September 2026 PostgreSQL 18 run against
+100,000 historical receipts completed about 289 receipts/s with four consumers
+and ten connections, or 639/s with sixteen consumers and twenty connections.
+Neither reached 1,000 completions/s; admission outpaced completion. Empty recipient
+plans make these optimistic local results, not production agent-delivery capacity.
+At 1,000 receipts/s, seven-day retention implies about 605 million rows, which this
+experiment did not test. Measure representative routing, payloads, retained history
+and competing workloads before sizing deployment capacity.
 
 ## Database and Redis
 

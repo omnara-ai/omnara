@@ -133,6 +133,13 @@ func main() {
 	)
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	runtimeRecorder := metrics.NewProviderRuntimeRecorder(metricSet)
+	discordRuntimeRecorder := metrics.NewDiscordRuntimeDemandRecorder(metricSet)
+	discordRuntimeDone := make(chan struct{})
+	go func() {
+		defer close(discordRuntimeDone)
+		runDiscordRuntimeMetricsLoop(ctx, logger, store.Integrations(),
+			discordRuntimeRecorder)
+	}()
 
 	machineLoopDone := make(chan struct{})
 	go func() {
@@ -220,6 +227,7 @@ func main() {
 	<-idleAgentArchiveLoopDone
 	<-runtimeDiscoveryDone
 	<-runtimeRecheckDone
+	<-discordRuntimeDone
 	<-defaultModelProviderDone
 	if exitCode != 0 {
 		os.Exit(exitCode)
@@ -379,6 +387,9 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 	expireProcessToolsOutcome := completedMaintenanceOutcome(ctx, result.ExpireProcessToolsErr)
 	webhookCleanupOutcome := completedMaintenanceOutcome(ctx, result.WebhookCleanupErr)
 	authCleanupOutcome := completedMaintenanceOutcome(ctx, result.AuthCleanupErr)
+	statesOutcome := completedMaintenanceOutcome(ctx, result.IntegrationStatesCleanupErr)
+	completedInboxOutcome := completedMaintenanceOutcome(ctx, result.CompletedInboxCleanupErr)
+	deletedInboxOutcome := completedMaintenanceOutcome(ctx, result.DeletedInboxCleanupErr)
 	authCleanupDeleted := result.AuthCleanup.DeletedInactiveTokens > 0 ||
 		result.AuthCleanup.DeletedBrowserSessions > 0 ||
 		result.AuthCleanup.DeletedAbandonedUsers > 0 ||
@@ -389,7 +400,10 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 		result.ExpiredDaemonRuntimes > 0 ||
 		result.ExpiredProcessTools > 0 ||
 		authCleanupDeleted ||
-		result.DeletedWebhooks > 0
+		result.DeletedWebhooks > 0 ||
+		result.DeletedIntegrationStates > 0 ||
+		result.CompletedInbox > 0 ||
+		result.DeletedInbox > 0
 	logent.MaintenanceLoopResult(
 		ctx,
 		result.ReapedRuntimeLocks,
@@ -400,9 +414,29 @@ func reportCoreMaintenanceResult(ctx context.Context, log *slog.Logger, result m
 			expireDaemonRuntimesOutcome.err,
 			expireProcessToolsOutcome.err,
 			authCleanupOutcome.err,
+			completedInboxOutcome.err,
+			deletedInboxOutcome.err,
+			statesOutcome.err,
 			webhookCleanupOutcome.err,
 		),
 	)
+	if statesOutcome.err != nil {
+		log.Error("cleanup integration states", "error", statesOutcome.err)
+	} else if !statesOutcome.interrupted && result.DeletedIntegrationStates > 0 {
+		log.Info("cleaned integration states", "count", result.DeletedIntegrationStates)
+	}
+	if completedInboxOutcome.err != nil {
+		log.Error("cleanup completed integration inbox", "count", result.CompletedInbox, "error", completedInboxOutcome.err)
+	} else if !completedInboxOutcome.interrupted && (result.CompletedInbox > 0 || result.CompletedInboxBudgetExhausted) {
+		log.Info("cleaned completed integration inbox", "count", result.CompletedInbox,
+			"retention", maintenance.IntegrationInboxRetention, "budget_exhausted", result.CompletedInboxBudgetExhausted)
+	}
+	if deletedInboxOutcome.err != nil {
+		log.Error("cleanup deleted integration inbox", "count", result.DeletedInbox, "error", deletedInboxOutcome.err)
+	} else if !deletedInboxOutcome.interrupted && (result.DeletedInbox > 0 || result.DeletedInboxBudgetExhausted) {
+		log.Info("cleaned deleted integration inbox", "count", result.DeletedInbox,
+			"budget_exhausted", result.DeletedInboxBudgetExhausted)
+	}
 	if expireDaemonRuntimesOutcome.err != nil {
 		log.Error("expire daemon runtimes", "error", expireDaemonRuntimesOutcome.err)
 	} else if !expireDaemonRuntimesOutcome.interrupted && result.ExpiredDaemonRuntimes > 0 {

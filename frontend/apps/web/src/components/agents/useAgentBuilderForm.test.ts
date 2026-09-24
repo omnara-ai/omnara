@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
+import { mcpToolEnabled, unexposableMcpTools } from '@/components/agents/agentConfigMcp'
 import { emptyProviderOptions } from '@/components/machines/machineOverrides'
 
 import {
@@ -9,14 +10,10 @@ import {
   type BasicMcpServer,
   createBasicConfigSession,
   emptyBasicConfig,
-  mcpToolEnabled,
-  unexposableMcpTools,
 } from './useAgentBuilderForm'
 
 const fullConfig: BasicConfig = {
-  eventWebhookEvents: ['tool_call_update'],
-  eventWebhookUrl: '',
-  eventWebhookSigningSecretId: '',
+  ...emptyBasicConfig,
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',
   modelName: 'claude-sonnet-5',
@@ -530,22 +527,7 @@ mcp:
 
 describe('createBasicConfigSession apply', () => {
   it('keeps an empty source empty for an untouched form', () => {
-    const emptyConfig: BasicConfig = {
-      eventWebhookEvents: ['tool_call_update'],
-      eventWebhookUrl: '',
-      eventWebhookSigningSecretId: '',
-      instruction: '',
-      providerConfig: '',
-      modelName: '',
-      machineSources: [],
-      tools: [],
-      mcpServers: [],
-      skillIds: [],
-      subagents: [],
-      maxSubagents: '',
-      maxDepth: '',
-    }
-    expect(applyToSource('', emptyConfig)).toBe('')
+    expect(applyToSource('', emptyBasicConfig)).toBe('')
   })
 
   it('returns the source verbatim when the draft matches it', () => {

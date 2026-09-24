@@ -41,6 +41,16 @@ func options(
 	base agentconfig.CompileOptions,
 ) agentconfig.CompileOptions {
 	opts := base
+	opts.ResolveIntegrationName = func(name string) (agentconfig.IntegrationResolution, error) {
+		integration, err := store.Integrations().GetProjectIntegrationByName(ctx, projectID, name)
+		if err != nil {
+			return agentconfig.IntegrationResolution{}, err
+		}
+		return agentconfig.IntegrationResolution{
+			IntegrationID:   integration.ID,
+			IntegrationType: integration.IntegrationType,
+		}, nil
+	}
 	opts.ValidateSecretID = func(secretID uuid.UUID, expectedKind secrets.Kind) error {
 		return store.Secrets().ValidateProjectSecretReference(ctx, orgID, projectID, secretID, expectedKind)
 	}

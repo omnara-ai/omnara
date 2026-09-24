@@ -102,7 +102,7 @@ export type AgentProfileId = string;
 
 export type CronTriggerId = string;
 
-export type IntegrationInstallId = string;
+export type IntegrationTargetId = string;
 
 export type AgentEventId = string;
 
@@ -825,7 +825,6 @@ export type McpoAuthStartResponse = {
 };
 
 export type CreateIntegrationOAuthSetupRequest = {
-    provider?: string;
     client_id: string;
     client_secret: string;
     signing_secret: string;
@@ -833,34 +832,28 @@ export type CreateIntegrationOAuthSetupRequest = {
 };
 
 /**
- * A provider app installation that connects an agent profile or a single agent to an external app. Exactly one of agent_profile_id and agent_id is set. Provider credentials are never returned.
+ * Registered integration implementation; independent of the saved integration's name and immutable ID.
  */
-export type IntegrationInstall = {
-    id: IntegrationInstallId;
-    org_id: OrganizationId;
-    project_id: ProjectId;
-    agent_profile_id?: AgentProfileId;
-    agent_id?: AgentId;
-    provider: string;
-    integration_kind: string;
-    connection_mode: string;
-    state: 'active' | 'disabled';
-    provider_tenant_id: string;
-    provider_account_ref: string;
-    provider_agent_display_name: string;
-    created_at: Timestamp;
-    updated_at: Timestamp;
-};
+export type IntegrationType = 'slack_thread' | 'discord_thread' | 'github_pr';
 
-export type ListIntegrationInstallsResponse = {
-    data: Array<IntegrationInstall>;
-    /**
-     * Opaque cursor for the next page, or null when this is the last page.
-     */
-    next_cursor: string | null;
+/**
+ * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
+ */
+export type IntegrationProviderDisplayName = string;
+
+/**
+ * Non-secret provider configuration, validated for the selected provider. Slack and GitHub integrations require an empty object. Discord accepts only public_key (optional, a 32-byte hex-encoded Ed25519 verification key for interaction callbacks). Omnara manages one Gateway connection per Discord integration. Credentials and integration behavior are not accepted here.
+ */
+export type IntegrationProviderConfig = {
+    [key: string]: unknown;
 };
 
 export type IntegrationOAuthSetup = {
+    integration_id: ProjectIntegrationId;
+    /**
+     * Integration setup revision captured by this authorization flow.
+     */
+    setup_revision: number;
     provider: string;
     flow_id: IntegrationOAuthFlowId;
     oauth_url: string;
@@ -868,6 +861,58 @@ export type IntegrationOAuthSetup = {
     events_url: string;
     actions_url: string;
     expires_at: Timestamp;
+};
+
+export type CreateGitHubSetupRequest = {
+    expected_setup_revision: number;
+    /**
+     * Initial GitHub App name suggestion. Defaults to the saved Omnara integration name; GitHub may change it during registration.
+     */
+    app_name?: string;
+    /**
+     * GitHub organization login. Omit to register under a personal account.
+     */
+    organization?: string;
+};
+
+export type GitHubSetup = {
+    integration_id: ProjectIntegrationId;
+    setup_revision: number;
+    registration_url: string;
+    /**
+     * Server-authored GitHub App manifest. Serialize this object to the manifest form field when posting to registration_url.
+     */
+    manifest: {
+        [key: string]: unknown;
+    };
+    expires_at: Timestamp;
+};
+
+export type InspectGitHubInstallationsRequest = {
+    credentials_secret_ref: SecretId;
+    page?: number;
+};
+
+export type GitHubInstallations = {
+    provider_app_id: string;
+    name: string;
+    slug: string;
+    /**
+     * Verified GitHub App installation URL. Its state may carry the public credential secret ID as a recovery hint, never credentials or authorization.
+     */
+    install_url: string;
+    installations: Array<GitHubSetupInstallation>;
+    next_page?: number;
+};
+
+export type GitHubSetupInstallation = {
+    id: string;
+    /**
+     * Provider-verified installation account login.
+     */
+    account: string;
+    account_type?: string;
+    settings_url: string;
 };
 
 export type CreateSlackSetupRequest = {
@@ -883,6 +928,11 @@ export type SlackSetupIcon = {
 };
 
 export type SlackSetup = {
+    integration_id: ProjectIntegrationId;
+    /**
+     * Integration setup revision captured by this authorization flow.
+     */
+    setup_revision: number;
     provider: string;
     flow_id: IntegrationOAuthFlowId;
     slack_app_id: string;
@@ -1193,6 +1243,9 @@ export type CompiledAgentConfig = {
         [key: string]: CompiledMcpServer;
     };
     event_webhook?: CompiledEventWebhook;
+    interaction_handlers?: {
+        [key: string]: CompiledIntegrationCapability;
+    };
     skills?: Array<CompiledSkill>;
     subagents?: {
         [key: string]: CompiledSubagent;
@@ -1241,6 +1294,7 @@ export type CompiledMachineSource = {
 };
 
 export type CompiledTool = {
+    integration_id?: ProjectIntegrationId;
     enabled: boolean;
     type?: 'built_in' | 'custom';
     permission: ToolPermissionSelection;
@@ -1249,6 +1303,10 @@ export type CompiledTool = {
     input_schema?: {
         [key: string]: unknown;
     };
+};
+
+export type CompiledIntegrationCapability = {
+    integration_id: ProjectIntegrationId;
 };
 
 export type CompiledMcpServer = {
@@ -1412,11 +1470,24 @@ export type AgentProfileCronTriggerTarget = {
     agent_profile_id: AgentProfileId;
 };
 
+export type IntegrationCronTriggerTarget = {
+    type: 'integration';
+    integration_id: ProjectIntegrationId;
+    /**
+     * Settings validated by the target integration's published schedule input schema. Each accepted occurrence retains its own copy. Integration resource references are resolved when the integration handles the occurrence.
+     */
+    settings: {
+        [key: string]: unknown;
+    };
+};
+
 export type CronTriggerTarget = ({
     type: 'agent';
 } & AgentCronTriggerTarget) | ({
     type: 'profile';
-} & AgentProfileCronTriggerTarget);
+} & AgentProfileCronTriggerTarget) | ({
+    type: 'integration';
+} & IntegrationCronTriggerTarget);
 
 /**
  * Standard five-field cron expression (minute, hour, day of month, month, day of week). `TZ=`/`CRON_TZ=` prefixes are rejected; set the `timezone` field instead.
@@ -1429,7 +1500,7 @@ export type CronExpression = string;
 export type CronTimezone = string;
 
 /**
- * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, and `last_fired_at` fields. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
+ * Go text/template rendered on each firing to produce the message sent to the target. The template receives a `trigger` value with `name`, `fired_at`, `last_fired_at`, and `local_date` fields. Timestamps remain UTC; local_date is the scheduled occurrence's ISO date in the schedule timezone. Required for agent and profile targets; omitted for integration targets, which use their own settings. Rendering is capped at 64 KiB of output and one second of wall-clock time, and `printf` width and precision specifiers are capped at 1024; a firing whose template fails to render is recorded in `failure_report` without sending a message.
  */
 export type CronMessageTemplate = string;
 
@@ -1455,13 +1526,13 @@ export type CreateCronTriggerRequest = {
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone?: CronTimezone;
-    message_template: CronMessageTemplate;
+    message_template?: CronMessageTemplate;
     enabled?: boolean;
 };
 
 export type UpdateCronTriggerRequest = {
     /**
-     * Updates target options. The target type and ID cannot change. Omitted delivery_mode preserves the current mode.
+     * Updates target options. The target type and ID cannot change. Integration settings can change for future occurrences. Omitted delivery_mode preserves the current mode.
      */
     target?: CronTriggerTarget;
     name?: ResourceName;
@@ -1469,6 +1540,21 @@ export type UpdateCronTriggerRequest = {
     timezone?: CronTimezone;
     message_template?: CronMessageTemplate;
     enabled?: boolean;
+};
+
+/**
+ * State of the latest accepted scheduled integration action. Completed means the integration handled the occurrence; it does not indicate completion of any agent task that action started.
+ */
+export type CronTriggerLastRunState = 'queued' | 'processing' | 'completed' | 'failed';
+
+export type CronTriggerLastRun = {
+    state: CronTriggerLastRunState;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    /**
+     * Coarse scheduled action failure description; no raw provider errors.
+     */
+    failure_message: string | null;
 };
 
 export type CronTrigger = {
@@ -1479,10 +1565,10 @@ export type CronTrigger = {
     target: CronTriggerTarget;
     cron: CronExpression;
     timezone: CronTimezone;
-    message_template: CronMessageTemplate;
+    message_template?: CronMessageTemplate;
     enabled: boolean;
     /**
-     * When the trigger last fired, or null if it has never fired.
+     * When the trigger last fired, or null if it has never fired. For integration targets this means durable inbox handoff.
      */
     last_fired_at: Timestamp | null;
     /**
@@ -1493,6 +1579,10 @@ export type CronTrigger = {
      * Most recent failed firing, or null if no firing has failed since the last successful firing.
      */
     failure_report: CronTriggerFailureReport | null;
+    /**
+     * Status of the latest accepted scheduled integration launch, scoped to this project and integration. Null for ordinary cron, before any launch is accepted, or when retained details have expired. Never falls back to an older launch. Schedule firing failures remain separate in failure_report. Deleting or disabling a schedule does not cancel launch work already accepted by the integration.
+     */
+    last_run: CronTriggerLastRun | null;
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -1512,7 +1602,38 @@ export type CreateAgentRequest = {
      * Optional agent name. Omit to inherit the profile name when present; send an empty string to leave the agent unnamed.
      */
     name?: AgentName;
+    /**
+     * Optional initial text message. Mutually exclusive with initial_input.
+     */
     message?: string;
+    /**
+     * Additional integration tool entries (int__<integration-name>__<operation>) and optional list_interaction_handlers or set_interaction_handler tools for this agent. Other tool names are not accepted here. Existing config entries win unchanged. Requires project management permission. The derived config is created atomically with the agent and initial input; the profile is unchanged.
+     */
+    tools?: {
+        [key: string]: ConfigToolSource;
+    };
+    /**
+     * Integration-owned conversation subscriptions attached atomically with launch and initial input. Requires project management permission. Subscriptions alone preserve the pinned config. Launch replay never adds or restores subscriptions.
+     */
+    subscriptions?: Array<IntegrationSubscriptionAttachment>;
+    /**
+     * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
+     */
+    interaction_handlers?: {
+        [key: string]: ConfigIntegrationCapabilitySource;
+    };
+    initial_input?: AgentLaunchInitialInput;
+};
+
+/**
+ * Initial queued text input, committed atomically with the agent and any derived config. Mutually exclusive with message. Initial inline media is not supported; upload it through the agent input endpoint after launch.
+ */
+export type AgentLaunchInitialInput = {
+    content_blocks: Array<TextContentBlock>;
+    /**
+     * Optional external actor for API key authentication. User-authenticated requests must omit this field. Without it, the authenticated user or API key is the actor.
+     */
+    actor?: ExternalActorParams;
 };
 
 export type Agent = {
@@ -1832,6 +1953,14 @@ export type Metadata = {
  */
 export type MachineMetadata = {
     [key: string]: string;
+};
+
+/**
+ * A provider conversation address scoped to one integration. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
+ */
+export type IntegrationConversationAddress = {
+    kind: string;
+    ref: string;
 };
 
 export type CreateAgentInputRequest = {
@@ -2336,6 +2465,24 @@ export type ResolveAgentInteractionRequest = {
     actor?: ExternalActorParams;
 };
 
+/**
+ * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
+ */
+export type AgentInteractionDestination = {
+    integration_type: IntegrationType;
+    handler_key: string;
+    integration_id: ProjectIntegrationId;
+    integration_target_id: IntegrationTargetId;
+    address: IntegrationConversationAddress;
+};
+
+/**
+ * Confirmed provider presentation metadata, when recorded. This is not an execution grant or a delivery guarantee. Absence does not prove a remote send failed. Customer-hosted presenters maintain their own delivery records.
+ */
+export type InteractionPresentationReceipt = {
+    [key: string]: unknown;
+};
+
 export type AgentInteraction = {
     id: AgentInteractionId;
     org_id: OrganizationId;
@@ -2359,7 +2506,12 @@ export type AgentInteraction = {
     request: InteractionForm;
     resolution?: InteractionResolution;
     /**
-     * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
+     * Captured built-in integration destination. Absent for dashboard-only or older interactions; never reconstructed from the current agent selection.
+     */
+    destination?: AgentInteractionDestination;
+    presentation_receipt?: InteractionPresentationReceipt;
+    /**
+     * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on resolutions without an attributed input. The input's actor_id attributes the resolution.
      */
     resolved_by_input_id?: AgentInputId;
     created_at: Timestamp;
@@ -2367,16 +2519,22 @@ export type AgentInteraction = {
 };
 
 /**
- * omnara for project members, an integration provider such as slack, or external for API-managed actors.
+ * omnara for Omnara identities, integration for hosted integration senders, slack for historical Slack identities, or external for API-managed actors.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'external';
+export type ActorProvider = 'omnara' | 'slack' | 'integration' | 'external';
 
 export type Actor = {
     id: ActorId;
     org_id: OrganizationId;
     project_id: ProjectId;
     provider: ActorProvider;
+    /**
+     * Identity namespace. For integration actors, the configured project integration public ID; for historical Slack actors, the workspace ID. Retained for attribution after integration deletion.
+     */
     provider_tenant_id?: string;
+    /**
+     * Stable sender identifier within the actor identity namespace.
+     */
     provider_user_id: string;
     display_name?: string;
     metadata: Metadata;
@@ -2385,7 +2543,7 @@ export type Actor = {
 };
 
 /**
- * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and integration providers own their own actor identities.
+ * Identity and attributes of an external actor. Actors are upserted by (provider_tenant_id, provider_user_id) with the external provider. Omitted attributes keep their stored values; provided attributes are overwritten, including empty values. omnara actors are implicit and hosted integrations own their own actor identities.
  */
 export type ExternalActorParams = {
     provider_tenant_id?: string;
@@ -2486,13 +2644,25 @@ export type AwsCredentialsSecretMaterial = {
     external_id?: string;
 };
 
+export type GitHubAppCredentialsSecretMaterial = {
+    kind: 'github_app_credentials';
+    app_id: string;
+    /**
+     * Unencrypted RSA private key in PEM format. Stored encrypted.
+     */
+    private_key: string;
+    webhook_secret: string;
+};
+
 export type SecretMaterial = ({
     kind: 'generic';
 } & GenericSecretMaterial) | ({
     kind: 'oauth_token_set';
 } & OAuthTokenSetSecretMaterial) | ({
     kind: 'aws_credentials';
-} & AwsCredentialsSecretMaterial);
+} & AwsCredentialsSecretMaterial) | ({
+    kind: 'github_app_credentials';
+} & GitHubAppCredentialsSecretMaterial);
 
 export type CreateSecretRequest = {
     owner: SecretOwnerInput;
@@ -2514,7 +2684,7 @@ export type SecretGrantCreateRequest = {
     target_project_id: ProjectId;
 };
 
-export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials';
+export type SecretKind = 'generic' | 'oauth_token_set' | 'slack_app_credentials' | 'aws_credentials' | 'github_app_credentials';
 
 export type Secret = {
     id: SecretId;
@@ -3602,6 +3772,223 @@ export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
 
+export type ProjectIntegrationId = string;
+
+export type IntegrationLaunchSlot = unknown & {
+    key: string;
+    agent_profile_id?: AgentProfileId;
+    agent_id?: AgentId;
+};
+
+export type IntegrationLauncher = {
+    /**
+     * Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
+     */
+    trigger: string;
+    /**
+     * Required with scope_ref for Slack and GitHub. Omit for Discord; mentions can launch in every server where the bot is installed and permitted.
+     */
+    scope_kind?: string;
+    /**
+     * Provider identifier for the Slack or GitHub launcher scope. Omit for Discord; server and channel launch filters are not supported.
+     */
+    scope_ref?: string;
+    /**
+     * Integration-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
+     */
+    slots: Array<IntegrationLaunchSlot>;
+};
+
+export type ProjectIntegrationSettings = {
+    launcher?: IntegrationLauncher;
+};
+
+/**
+ * Creates a disconnected integration, or updates its launcher settings. Name and integration_type are immutable. Configure credentials through this integration's setup endpoints.
+ */
+export type SaveProjectIntegrationRequest = {
+    name: ProjectIntegrationName;
+    integration_type: IntegrationType;
+    settings: ProjectIntegrationSettings;
+};
+
+export type ProjectIntegration = {
+    id: ProjectIntegrationId;
+    project_id: ProjectId;
+    name: ProjectIntegrationName;
+    integration_type: IntegrationType;
+    state: ProjectIntegrationState;
+    /**
+     * Credential and transport revision. Launcher edits leave this value unchanged.
+     */
+    setup_revision: number;
+    last_oauth_flow_id?: IntegrationOAuthFlowId;
+    runtime_failure?: ProjectIntegrationRuntimeFailure;
+    settings: ProjectIntegrationSettings;
+    provider_tenant_id: string;
+    provider_account_ref: string;
+    provider_agent_display_name: IntegrationProviderDisplayName;
+    credential_secret_id?: SecretId;
+    provider_config: IntegrationProviderConfig;
+    capabilities: IntegrationCapabilities;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+};
+
+/**
+ * Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
+ */
+export type ProjectIntegrationRuntimeFailure = {
+    /**
+     * Connection failure recorded by the integration runtime.
+     */
+    message: string;
+    /**
+     * Earliest time the runtime may retry. A retry can start later.
+     */
+    retry_at: Timestamp;
+};
+
+export type ListProjectIntegrationsResponse = {
+    data: Array<ProjectIntegration>;
+    next_cursor: string | null;
+};
+
+export type ConfigAgentToolInputSchema = {
+    properties?: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    required?: Array<string>;
+    type: 'object';
+};
+
+export type ConfigIntegrationCapabilitySource = {
+    [key: string]: never;
+};
+
+export type ConfigToolPermissionSelection = {
+    mode: string;
+    parameters?: {
+        [key: string]: unknown;
+    };
+};
+
+export type ConfigToolSource = {
+    deferred?: boolean;
+    description?: string;
+    enabled?: boolean | null;
+    input_schema?: ConfigAgentToolInputSchema;
+    permission?: ConfigToolPermissionSelection;
+    type?: 'built_in' | 'custom';
+};
+
+/**
+ * Immutable, project-unique integration name used in config keys and qualified tool names.
+ */
+export type ProjectIntegrationName = string;
+
+export type ProjectIntegrationState = 'active' | 'disconnected';
+
+/**
+ * Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
+ */
+export type ConfigureProjectIntegrationRequest = {
+    expected_setup_revision: number;
+    provider_tenant_id: string;
+    /**
+     * Required GitHub Installation ID. Optional for Discord; an explicitly supplied bot User ID must match the token.
+     */
+    provider_account_ref?: string;
+    /**
+     * Optional display label. Discord credential verification defaults to the bot's current name when omitted; cached settings saves preserve the saved label.
+     */
+    provider_agent_display_name?: IntegrationProviderDisplayName;
+    credential_secret_id: SecretId;
+    /**
+     * Omit to preserve current provider settings. A supplied object replaces them; include every setting you intend to retain.
+     */
+    provider_config?: IntegrationProviderConfig;
+};
+
+export type IntegrationCapabilityDefinition = {
+    description?: string;
+    /**
+     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
+     */
+    input_schema: {
+        [key: string]: unknown;
+    };
+};
+
+export type IntegrationSubscriptionId = string;
+
+/**
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ */
+export type IntegrationSubscriptionConversation = {
+    [key: string]: unknown;
+};
+
+export type IntegrationSubscriptionAttachment = {
+    integration_id: ProjectIntegrationId;
+    conversation: IntegrationSubscriptionConversation;
+};
+
+export type CreateIntegrationSubscriptionRequest = {
+    agent_id: AgentId;
+    conversation: IntegrationSubscriptionConversation;
+};
+
+export type IntegrationSubscription = {
+    id: IntegrationSubscriptionId;
+    project_id: ProjectId;
+    integration_id: ProjectIntegrationId;
+    agent_id: AgentId;
+    agent_name: AgentName;
+    conversation: IntegrationSubscriptionConversation;
+    created_at: Timestamp;
+};
+
+export type ListIntegrationSubscriptionsResponse = {
+    data: Array<IntegrationSubscription>;
+    /**
+     * Opaque cursor for the next page, or null when this is the last page.
+     */
+    next_cursor: string | null;
+};
+
+export type IntegrationSubscriptionDefinition = {
+    /**
+     * Schema for one concrete provider conversation address.
+     */
+    conversation_schema: {
+        [key: string]: unknown;
+    };
+};
+
+export type IntegrationCapabilities = {
+    tools: {
+        [key: string]: IntegrationCapabilityDefinition;
+    };
+    /**
+     * Present when the integration supports forwarding from a conversation. The integration owns forwarding policy.
+     */
+    subscription?: IntegrationSubscriptionDefinition;
+    interaction_handler?: IntegrationCapabilityDefinition;
+    schedule?: IntegrationCapabilityDefinition;
+};
+
+export type IntegrationDefinition = {
+    integration_type: IntegrationType;
+    capabilities: IntegrationCapabilities;
+};
+
+export type ListIntegrationDefinitionsResponse = {
+    data: Array<IntegrationDefinition>;
+};
+
 /**
  * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
  */
@@ -3688,16 +4075,6 @@ export type SecretOwnerProjectIdFilter = ProjectId;
  * Filter to secrets that have a version created by this MCP OAuth flow.
  */
 export type SecretMcpoAuthFlowIdFilter = McpoAuthFlowId;
-
-/**
- * Only return integration installs bound to this agent profile.
- */
-export type IntegrationInstallAgentProfileFilter = AgentProfileId;
-
-/**
- * Only return the integration install completed by this OAuth setup flow.
- */
-export type IntegrationInstallOAuthFlowIdFilter = IntegrationOAuthFlowId;
 
 /**
  * Filter a project inventory by how the secret became available.
@@ -7593,157 +7970,6 @@ export type DeleteSecretGrantResponses = {
 
 export type DeleteSecretGrantResponse = DeleteSecretGrantResponses[keyof DeleteSecretGrantResponses];
 
-export type ListIntegrationInstallsData = {
-    body?: never;
-    path: {
-        orgID: string;
-        projectID: string;
-    };
-    query?: {
-        /**
-         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
-         */
-        name?: string;
-        /**
-         * Only return integration installs bound to this agent profile.
-         */
-        agent_profile_id?: AgentProfileId;
-        /**
-         * Only return the integration install completed by this OAuth setup flow.
-         */
-        oauth_flow_id?: IntegrationOAuthFlowId;
-        sort?: ResourceListSort;
-        /**
-         * Maximum number of items to return in one page.
-         */
-        limit?: number;
-        /**
-         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
-         */
-        cursor?: string;
-    };
-    url: '/orgs/{orgID}/projects/{projectID}/integration-installs';
-};
-
-export type ListIntegrationInstallsErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type ListIntegrationInstallsError = ListIntegrationInstallsErrors[keyof ListIntegrationInstallsErrors];
-
-export type ListIntegrationInstallsResponses = {
-    /**
-     * Integration installs in the project, newest first.
-     */
-    200: ListIntegrationInstallsResponse;
-};
-
-export type ListIntegrationInstallsResponse2 = ListIntegrationInstallsResponses[keyof ListIntegrationInstallsResponses];
-
-export type DeleteIntegrationInstallData = {
-    body?: never;
-    path: {
-        orgID: string;
-        projectID: string;
-        integrationInstallID: string;
-    };
-    query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/integration-installs/{integrationInstallID}';
-};
-
-export type DeleteIntegrationInstallErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type DeleteIntegrationInstallError = DeleteIntegrationInstallErrors[keyof DeleteIntegrationInstallErrors];
-
-export type DeleteIntegrationInstallResponses = {
-    /**
-     * Integration install deleted.
-     */
-    204: void;
-};
-
-export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
-
 export type ResolveAgentConfigToolsData = {
     body: ResolveAgentConfigToolsRequest;
     path: {
@@ -8650,18 +8876,18 @@ export type UpdateAgentProfileResponses = {
 
 export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof UpdateAgentProfileResponses];
 
-export type CreateIntegrationOAuthSetupData = {
+export type CreateProjectIntegrationOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
-        agentProfileID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/integration-oauth/setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup';
 };
 
-export type CreateIntegrationOAuthSetupErrors = {
+export type CreateProjectIntegrationOAuthSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8708,29 +8934,29 @@ export type CreateIntegrationOAuthSetupErrors = {
     };
 };
 
-export type CreateIntegrationOAuthSetupError = CreateIntegrationOAuthSetupErrors[keyof CreateIntegrationOAuthSetupErrors];
+export type CreateProjectIntegrationOAuthSetupError = CreateProjectIntegrationOAuthSetupErrors[keyof CreateProjectIntegrationOAuthSetupErrors];
 
-export type CreateIntegrationOAuthSetupResponses = {
+export type CreateProjectIntegrationOAuthSetupResponses = {
     /**
      * Integration OAuth setup created.
      */
     201: IntegrationOAuthSetup;
 };
 
-export type CreateIntegrationOAuthSetupResponse = CreateIntegrationOAuthSetupResponses[keyof CreateIntegrationOAuthSetupResponses];
+export type CreateProjectIntegrationOAuthSetupResponse = CreateProjectIntegrationOAuthSetupResponses[keyof CreateProjectIntegrationOAuthSetupResponses];
 
-export type CreateSlackSetupData = {
+export type CreateProjectIntegrationSlackSetupData = {
     body: CreateSlackSetupRequest;
     path: {
-        orgID: string;
-        projectID: string;
-        agentProfileID: string;
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
     };
     query?: never;
-    url: '/orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/slack-setup';
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup';
 };
 
-export type CreateSlackSetupErrors = {
+export type CreateProjectIntegrationSlackSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8777,16 +9003,154 @@ export type CreateSlackSetupErrors = {
     };
 };
 
-export type CreateSlackSetupError = CreateSlackSetupErrors[keyof CreateSlackSetupErrors];
+export type CreateProjectIntegrationSlackSetupError = CreateProjectIntegrationSlackSetupErrors[keyof CreateProjectIntegrationSlackSetupErrors];
 
-export type CreateSlackSetupResponses = {
+export type CreateProjectIntegrationSlackSetupResponses = {
     /**
      * Slack app created and OAuth setup started.
      */
     201: SlackSetup;
 };
 
-export type CreateSlackSetupResponse = CreateSlackSetupResponses[keyof CreateSlackSetupResponses];
+export type CreateProjectIntegrationSlackSetupResponse = CreateProjectIntegrationSlackSetupResponses[keyof CreateProjectIntegrationSlackSetupResponses];
+
+export type CreateProjectIntegrationGitHubSetupData = {
+    body: CreateGitHubSetupRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup';
+};
+
+export type CreateProjectIntegrationGitHubSetupErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateProjectIntegrationGitHubSetupError = CreateProjectIntegrationGitHubSetupErrors[keyof CreateProjectIntegrationGitHubSetupErrors];
+
+export type CreateProjectIntegrationGitHubSetupResponses = {
+    /**
+     * GitHub setup information verified.
+     */
+    201: GitHubSetup;
+};
+
+export type CreateProjectIntegrationGitHubSetupResponse = CreateProjectIntegrationGitHubSetupResponses[keyof CreateProjectIntegrationGitHubSetupResponses];
+
+export type InspectProjectIntegrationGitHubInstallationsData = {
+    body: InspectGitHubInstallationsRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations';
+};
+
+export type InspectProjectIntegrationGitHubInstallationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type InspectProjectIntegrationGitHubInstallationsError = InspectProjectIntegrationGitHubInstallationsErrors[keyof InspectProjectIntegrationGitHubInstallationsErrors];
+
+export type InspectProjectIntegrationGitHubInstallationsResponses = {
+    /**
+     * GitHub setup information verified.
+     */
+    200: GitHubInstallations;
+};
+
+export type InspectProjectIntegrationGitHubInstallationsResponse = InspectProjectIntegrationGitHubInstallationsResponses[keyof InspectProjectIntegrationGitHubInstallationsResponses];
 
 export type ListCronTriggersData = {
     body?: never;
@@ -8807,6 +9171,10 @@ export type ListCronTriggersData = {
          * Only return triggers targeting this agent profile.
          */
         agent_profile_id?: AgentProfileId;
+        /**
+         * Only return scheduled launches for this integration.
+         */
+        integration_id?: ProjectIntegrationId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -14386,3 +14754,746 @@ export type DownloadDaemonArtifactResponses = {
 };
 
 export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
+
+export type ListProjectIntegrationsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integrations';
+};
+
+export type ListProjectIntegrationsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListProjectIntegrationsError = ListProjectIntegrationsErrors[keyof ListProjectIntegrationsErrors];
+
+export type ListProjectIntegrationsResponses = {
+    /**
+     * List project integrations.
+     */
+    200: ListProjectIntegrationsResponse;
+};
+
+export type ListProjectIntegrationsResponse2 = ListProjectIntegrationsResponses[keyof ListProjectIntegrationsResponses];
+
+export type CreateProjectIntegrationData = {
+    body: SaveProjectIntegrationRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations';
+};
+
+export type CreateProjectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateProjectIntegrationError = CreateProjectIntegrationErrors[keyof CreateProjectIntegrationErrors];
+
+export type CreateProjectIntegrationResponses = {
+    /**
+     * Create an integration and optional launcher.
+     */
+    201: ProjectIntegration;
+};
+
+export type CreateProjectIntegrationResponse = CreateProjectIntegrationResponses[keyof CreateProjectIntegrationResponses];
+
+export type DeleteProjectIntegrationData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
+};
+
+export type DeleteProjectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteProjectIntegrationError = DeleteProjectIntegrationErrors[keyof DeleteProjectIntegrationErrors];
+
+export type DeleteProjectIntegrationResponses = {
+    /**
+     * Delete integration setup and revoke its capabilities.
+     */
+    204: void;
+};
+
+export type DeleteProjectIntegrationResponse = DeleteProjectIntegrationResponses[keyof DeleteProjectIntegrationResponses];
+
+export type GetProjectIntegrationData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
+};
+
+export type GetProjectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetProjectIntegrationError = GetProjectIntegrationErrors[keyof GetProjectIntegrationErrors];
+
+export type GetProjectIntegrationResponses = {
+    /**
+     * Get project integration.
+     */
+    200: ProjectIntegration;
+};
+
+export type GetProjectIntegrationResponse = GetProjectIntegrationResponses[keyof GetProjectIntegrationResponses];
+
+export type UpdateProjectIntegrationData = {
+    body: SaveProjectIntegrationRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
+};
+
+export type UpdateProjectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type UpdateProjectIntegrationError = UpdateProjectIntegrationErrors[keyof UpdateProjectIntegrationErrors];
+
+export type UpdateProjectIntegrationResponses = {
+    /**
+     * Update integration launcher settings.
+     */
+    200: ProjectIntegration;
+};
+
+export type UpdateProjectIntegrationResponse = UpdateProjectIntegrationResponses[keyof UpdateProjectIntegrationResponses];
+
+export type ListIntegrationSubscriptionsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: {
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
+};
+
+export type ListIntegrationSubscriptionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationSubscriptionsError = ListIntegrationSubscriptionsErrors[keyof ListIntegrationSubscriptionsErrors];
+
+export type ListIntegrationSubscriptionsResponses = {
+    /**
+     * Integration conversation subscriptions.
+     */
+    200: ListIntegrationSubscriptionsResponse;
+};
+
+export type ListIntegrationSubscriptionsResponse2 = ListIntegrationSubscriptionsResponses[keyof ListIntegrationSubscriptionsResponses];
+
+export type CreateIntegrationSubscriptionData = {
+    body: CreateIntegrationSubscriptionRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
+};
+
+export type CreateIntegrationSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type CreateIntegrationSubscriptionError = CreateIntegrationSubscriptionErrors[keyof CreateIntegrationSubscriptionErrors];
+
+export type CreateIntegrationSubscriptionResponses = {
+    /**
+     * Created or existing subscription.
+     */
+    201: IntegrationSubscription;
+};
+
+export type CreateIntegrationSubscriptionResponse = CreateIntegrationSubscriptionResponses[keyof CreateIntegrationSubscriptionResponses];
+
+export type DeleteIntegrationSubscriptionData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+        subscriptionID: IntegrationSubscriptionId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}';
+};
+
+export type DeleteIntegrationSubscriptionErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DeleteIntegrationSubscriptionError = DeleteIntegrationSubscriptionErrors[keyof DeleteIntegrationSubscriptionErrors];
+
+export type DeleteIntegrationSubscriptionResponses = {
+    /**
+     * Subscription removed or already absent.
+     */
+    204: void;
+};
+
+export type DeleteIntegrationSubscriptionResponse = DeleteIntegrationSubscriptionResponses[keyof DeleteIntegrationSubscriptionResponses];
+
+export type ConfigureProjectIntegrationData = {
+    body: ConfigureProjectIntegrationRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup';
+};
+
+export type ConfigureProjectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ConfigureProjectIntegrationError = ConfigureProjectIntegrationErrors[keyof ConfigureProjectIntegrationErrors];
+
+export type ConfigureProjectIntegrationResponses = {
+    /**
+     * Integration setup.
+     */
+    200: ProjectIntegration;
+};
+
+export type ConfigureProjectIntegrationResponse = ConfigureProjectIntegrationResponses[keyof ConfigureProjectIntegrationResponses];
+
+export type DisconnectProjectIntegrationData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+        integrationID: ProjectIntegrationId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect';
+};
+
+export type DisconnectProjectIntegrationErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type DisconnectProjectIntegrationError = DisconnectProjectIntegrationErrors[keyof DisconnectProjectIntegrationErrors];
+
+export type DisconnectProjectIntegrationResponses = {
+    /**
+     * Integration setup.
+     */
+    200: ProjectIntegration;
+};
+
+export type DisconnectProjectIntegrationResponse = DisconnectProjectIntegrationResponses[keyof DisconnectProjectIntegrationResponses];
+
+export type ListIntegrationDefinitionsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/integration-definitions';
+};
+
+export type ListIntegrationDefinitionsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListIntegrationDefinitionsError = ListIntegrationDefinitionsErrors[keyof ListIntegrationDefinitionsErrors];
+
+export type ListIntegrationDefinitionsResponses = {
+    /**
+     * The code-defined integration catalog.
+     */
+    200: ListIntegrationDefinitionsResponse;
+};
+
+export type ListIntegrationDefinitionsResponse2 = ListIntegrationDefinitionsResponses[keyof ListIntegrationDefinitionsResponses];

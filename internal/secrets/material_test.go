@@ -82,6 +82,20 @@ func TestCanonicalizeMaterial(t *testing.T) {
 			wantKind: KindAWSCredentials,
 		},
 		{
+			name: "github app credentials",
+			material: GitHubAppCredentialsMaterial{
+				AppID:         "123",
+				PrivateKey:    "private-key",
+				WebhookSecret: "signing-secret",
+			},
+			wantKind: KindGitHubAppCredentials,
+		},
+		{
+			name:     "github app without webhook authentication",
+			material: GitHubAppCredentialsMaterial{AppID: "123", PrivateKey: "private-key"},
+			wantErr:  true,
+		},
+		{
 			name: "aws external id without role",
 			material: AWSCredentialsMaterial{
 				AccessKeyID:     "AKIAEXAMPLE",

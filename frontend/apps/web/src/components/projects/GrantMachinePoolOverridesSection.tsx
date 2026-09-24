@@ -170,8 +170,10 @@ export function PoolGrantOverrideFields({
           onChange({ ...values, ...rows })
         }}
       />
-      <Field>
-        <FieldLabel>Limits</FieldLabel>
+      <Field aria-labelledby={`${idPrefix}-limits`}>
+        <div id={`${idPrefix}-limits`} className="type-label">
+          Limits
+        </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <NumberField
             id={`${idPrefix}-delete-after-idle`}

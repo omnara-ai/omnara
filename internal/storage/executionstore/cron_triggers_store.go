@@ -2,6 +2,7 @@ package executionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/cronschedule"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcename"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
@@ -21,6 +25,7 @@ import (
 type CronTriggerTargetKind string
 
 const (
+	CronTriggerTargetIntegration  CronTriggerTargetKind = "integration"
 	CronTriggerTargetAgent        CronTriggerTargetKind = "agent"
 	CronTriggerTargetAgentProfile CronTriggerTargetKind = "profile"
 )
@@ -33,6 +38,7 @@ const (
 )
 
 type CronTriggerTarget struct {
+	Settings     json.RawMessage
 	Kind         CronTriggerTargetKind
 	ID           uuid.UUID
 	DeliveryMode CronTriggerDeliveryMode
@@ -74,11 +80,28 @@ type CronTriggerRecord struct {
 	LastFiredAt     *time.Time                `json:"last_fired_at"`
 	NextFireAfter   *time.Time                `json:"next_fire_after"`
 	FailureReport   *CronTriggerFailureReport `json:"failure_report"`
+	LastRun         *CronTriggerLastRun       `json:"last_run"`
 	IdempotencyKey  string                    `json:"-"`
 	CreatedAt       time.Time                 `json:"created_at"`
 	UpdatedAt       time.Time                 `json:"updated_at"`
 	Created         bool                      `json:"-"`
 }
+
+type CronTriggerLastRun struct {
+	State          CronTriggerLastRunState `json:"state"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
+	FailureMessage *string                 `json:"failure_message"`
+}
+
+type CronTriggerLastRunState string
+
+const (
+	CronTriggerLastRunQueued     CronTriggerLastRunState = "queued"
+	CronTriggerLastRunProcessing CronTriggerLastRunState = "processing"
+	CronTriggerLastRunCompleted  CronTriggerLastRunState = "completed"
+	CronTriggerLastRunFailed     CronTriggerLastRunState = "failed"
+)
 
 type CronTriggerFailureReport struct {
 	Message   string    `json:"message"`
@@ -104,11 +127,12 @@ func (s *Store) CreateCronTrigger(
 	if input.Target.ID == uuid.Nil {
 		return CronTriggerRecord{}, errors.New("cron trigger target is required")
 	}
-	if input.Target.Kind != CronTriggerTargetAgent && input.Target.Kind != CronTriggerTargetAgentProfile {
-		return CronTriggerRecord{}, errors.New("unsupported cron trigger target kind")
+	if input.Target.Kind != CronTriggerTargetAgent && input.Target.Kind != CronTriggerTargetAgentProfile &&
+		input.Target.Kind != CronTriggerTargetIntegration {
+		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("unsupported cron trigger target kind"))
 	}
-	if input.MessageTemplate == "" {
-		return CronTriggerRecord{}, errors.New("cron trigger message template is required")
+	if input.Target.Kind != CronTriggerTargetIntegration && input.MessageTemplate == "" {
+		return CronTriggerRecord{}, storeerr.InvalidRequest(errors.New("cron trigger message template is required"))
 	}
 	if input.Timezone == "" {
 		input.Timezone = "UTC"
@@ -122,8 +146,8 @@ func (s *Store) CreateCronTrigger(
 	if err := cronschedule.Validate(input.CronExpression, input.Timezone); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
-	if err := cronschedule.ValidateMessageTemplate(input.MessageTemplate); err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
+	if err := validateCronTriggerContent(input.Target, input.MessageTemplate); err != nil {
+		return CronTriggerRecord{}, err
 	}
 	input.IdempotencyKey = cronTriggerCreateIdempotencyKey(input.IdempotencyKey)
 
@@ -143,6 +167,17 @@ func (s *Store) CreateCronTrigger(
 		return CronTriggerRecord{}, err
 	}
 	switch input.Target.Kind {
+	case CronTriggerTargetIntegration:
+		if err := integrationstore.LockIntegrationsTx(ctx, tx, input.ProjectID, nil, input.Target.ID); err != nil {
+			return CronTriggerRecord{}, err
+		}
+		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, input.Target.ID)
+		if err != nil {
+			return CronTriggerRecord{}, err
+		}
+		if err := validateCronIntegrationTarget(&input.Target, integration); err != nil {
+			return CronTriggerRecord{}, err
+		}
 	case CronTriggerTargetAgentProfile:
 		if _, err := lockAgentProfileTx(ctx, qtx, input.ProjectID, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
@@ -225,6 +260,7 @@ type ListCronTriggersForProjectInput struct {
 }
 
 type CronTriggerListFilters struct {
+	IntegrationID  uuid.UUID
 	AgentProfileID uuid.UUID
 	AgentID        uuid.UUID
 }
@@ -254,6 +290,7 @@ func (s *Store) ListCronTriggersForProject(
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
 		CursorKey: input.List.After.Key, CursorID: input.List.After.ID,
+		IntegrationID:  storeutil.IDFromNil(input.Filters.IntegrationID),
 		AgentProfileID: storeutil.IDFromNil(input.Filters.AgentProfileID),
 		AgentID:        storeutil.IDFromNil(input.Filters.AgentID),
 	}
@@ -328,7 +365,7 @@ func (s *Store) UpdateCronTrigger(
 		record.Timezone = *input.Timezone
 	}
 	if input.MessageTemplate != nil {
-		if *input.MessageTemplate == "" {
+		if record.Target.Kind != CronTriggerTargetIntegration && *input.MessageTemplate == "" {
 			return CronTriggerRecord{}, fmt.Errorf(
 				"cron trigger message template cannot be empty: %w",
 				storeerr.ErrInvalidRequest,
@@ -343,6 +380,7 @@ func (s *Store) UpdateCronTrigger(
 				storeerr.ErrInvalidRequest,
 			)
 		}
+		record.Target.Settings = input.Target.Settings
 		if input.Target.DeliveryMode != "" {
 			record.Target.DeliveryMode = input.Target.DeliveryMode
 		}
@@ -356,8 +394,17 @@ func (s *Store) UpdateCronTrigger(
 	if err := cronschedule.Validate(record.CronExpression, record.Timezone); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
 	}
-	if err := cronschedule.ValidateMessageTemplate(record.MessageTemplate); err != nil {
-		return CronTriggerRecord{}, fmt.Errorf("%s: %w", err.Error(), storeerr.ErrInvalidRequest)
+	if err := validateCronTriggerContent(record.Target, record.MessageTemplate); err != nil {
+		return CronTriggerRecord{}, err
+	}
+	if record.Target.Kind == CronTriggerTargetIntegration {
+		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, record.Target.ID)
+		if err != nil {
+			return CronTriggerRecord{}, err
+		}
+		if err := validateCronIntegrationTarget(&record.Target, integration); err != nil {
+			return CronTriggerRecord{}, err
+		}
 	}
 	scheduleChanged := record.CronExpression != previous.CronExpression ||
 		record.Timezone != previous.Timezone
@@ -373,15 +420,16 @@ func (s *Store) UpdateCronTrigger(
 		nextFireAfter = &next
 	}
 	row, err := qtx.UpdateCronTrigger(ctx, dbsqlc.UpdateCronTriggerParams{
-		Name:            record.Name,
-		CronExpression:  record.CronExpression,
-		Timezone:        record.Timezone,
-		MessageTemplate: record.MessageTemplate,
-		DeliveryMode:    cronTriggerDeliveryModeColumn(record.Target),
-		Enabled:         record.Enabled,
-		NextFireAfter:   nextFireAfter,
-		ProjectID:       input.ProjectID,
-		ID:              input.TriggerID,
+		Name:                record.Name,
+		CronExpression:      record.CronExpression,
+		Timezone:            record.Timezone,
+		MessageTemplate:     record.MessageTemplate,
+		DeliveryMode:        cronTriggerDeliveryModeColumn(record.Target),
+		IntegrationSettings: cronIntegrationSettingsColumn(record.Target),
+		Enabled:             record.Enabled,
+		NextFireAfter:       nextFireAfter,
+		ProjectID:           input.ProjectID,
+		ID:                  input.TriggerID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return CronTriggerRecord{}, storeerr.ErrNotFound
@@ -402,6 +450,7 @@ func (s *Store) UpdateCronTrigger(
 	if err := tx.Commit(ctx); err != nil {
 		return CronTriggerRecord{}, fmt.Errorf("commit update cron trigger: %w", err)
 	}
+	updated.LastRun = record.LastRun
 	return updated, nil
 }
 
@@ -447,6 +496,9 @@ func insertCronTriggerTx(
 		IdempotencyKey:  storeutil.TextFromEmpty(input.IdempotencyKey),
 	}
 	switch input.Target.Kind {
+	case CronTriggerTargetIntegration:
+		params.IntegrationID = &input.Target.ID
+		params.IntegrationSettings = cronIntegrationSettingsColumn(input.Target)
 	case CronTriggerTargetAgentProfile:
 		params.AgentProfileID = &input.Target.ID
 	case CronTriggerTargetAgent:
@@ -478,7 +530,7 @@ func insertCronTriggerTx(
 		return CronTriggerRecord{}, false, err
 	}
 	if record.Name != input.Name ||
-		record.Target != input.Target ||
+		!cronTriggerTargetsEqual(record.Target, input.Target) ||
 		record.CronExpression != input.CronExpression ||
 		record.Timezone != input.Timezone ||
 		record.MessageTemplate != input.MessageTemplate ||
@@ -529,6 +581,7 @@ func loadCronTriggerByIdempotencyKeyTx(
 }
 
 type ClaimedCronTrigger struct {
+	Timezone        string
 	TriggerID       uuid.UUID
 	ClaimToken      uuid.UUID
 	OrgID           uuid.UUID
@@ -598,12 +651,19 @@ func (s *Store) ClaimDueCronTriggers(
 			return ClaimDueCronTriggersResult{}, fmt.Errorf("claim cron trigger: %w", err)
 		}
 		result.Claimed = append(result.Claimed, ClaimedCronTrigger{
-			TriggerID:       row.ID,
-			ClaimToken:      claimToken,
-			OrgID:           row.OrgID,
-			ProjectID:       row.ProjectID,
-			Name:            row.Name,
-			Target:          cronTriggerTargetFromColumns(row.AgentProfileID, row.AgentID, row.DeliveryMode),
+			Timezone:   row.Timezone,
+			TriggerID:  row.ID,
+			ClaimToken: claimToken,
+			OrgID:      row.OrgID,
+			ProjectID:  row.ProjectID,
+			Name:       row.Name,
+			Target: cronTriggerTargetFromColumns(
+				row.AgentProfileID,
+				row.AgentID,
+				row.DeliveryMode,
+				row.IntegrationID,
+				row.IntegrationSettings,
+			),
 			MessageTemplate: row.MessageTemplate,
 			DueAt:           storeutil.TimeOrZero(row.NextFireAfter),
 			FiredAt:         now,
@@ -747,7 +807,22 @@ func cronTriggerNextFireTx(
 	return next, nil
 }
 
-func cronTriggerTargetFromColumns(agentProfileID, agentID *uuid.UUID, deliveryMode string) CronTriggerTarget {
+func cronTriggerTargetFromColumns(
+	agentProfileID, agentID *uuid.UUID,
+	deliveryMode string,
+	integrationID *uuid.UUID,
+	settings *json.RawMessage,
+) CronTriggerTarget {
+	if integrationID != nil {
+		target := CronTriggerTarget{
+			Kind: CronTriggerTargetIntegration,
+			ID:   *integrationID,
+		}
+		if settings != nil {
+			target.Settings = *settings
+		}
+		return target
+	}
 	if agentProfileID != nil {
 		return CronTriggerTarget{Kind: CronTriggerTargetAgentProfile, ID: *agentProfileID}
 	}
@@ -759,7 +834,7 @@ func cronTriggerTargetFromColumns(agentProfileID, agentID *uuid.UUID, deliveryMo
 }
 
 func validateCronTriggerDeliveryMode(kind CronTriggerTargetKind, mode CronTriggerDeliveryMode) error {
-	if kind == CronTriggerTargetAgentProfile {
+	if kind == CronTriggerTargetAgentProfile || kind == CronTriggerTargetIntegration {
 		if mode != "" {
 			return fmt.Errorf("delivery mode is only supported for agent targets: %w", storeerr.ErrInvalidRequest)
 		}
@@ -782,8 +857,57 @@ func cronTriggerCreateIdempotencyKey(key string) string {
 }
 
 func cronTriggerDeliveryModeColumn(target CronTriggerTarget) string {
-	if target.Kind == CronTriggerTargetAgentProfile {
+	if target.Kind == CronTriggerTargetAgentProfile || target.Kind == CronTriggerTargetIntegration {
 		return string(CronTriggerDeliveryModeQueued)
 	}
 	return string(target.DeliveryMode)
+}
+
+func cronIntegrationSettingsColumn(target CronTriggerTarget) *json.RawMessage {
+	if target.Kind != CronTriggerTargetIntegration {
+		return nil
+	}
+	return &target.Settings
+}
+
+func cronTriggerTargetsEqual(a, b CronTriggerTarget) bool {
+	if a.Kind != b.Kind || a.ID != b.ID || a.DeliveryMode != b.DeliveryMode {
+		return false
+	}
+	if a.Settings == nil || b.Settings == nil {
+		return a.Settings == nil && b.Settings == nil
+	}
+	// PostgreSQL jsonb reformats canonical JSON on read.
+	return jsoncanonical.Equal(a.Settings, b.Settings)
+}
+
+func validateCronIntegrationTarget(
+	target *CronTriggerTarget,
+	integration integrationstore.ProjectIntegrationRecord,
+) error {
+	canonical, err := integrationdefinition.ValidateScheduleSettings(integration.IntegrationType, target.Settings)
+	if err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	target.Settings = canonical
+	return nil
+}
+
+func validateCronTriggerContent(target CronTriggerTarget, message string) error {
+	if target.Kind == CronTriggerTargetIntegration {
+		if len(target.Settings) == 0 {
+			return storeerr.InvalidRequest(errors.New("integration schedule settings are required"))
+		}
+		if message != "" {
+			return storeerr.InvalidRequest(errors.New("message template is only supported for agent and profile targets"))
+		}
+		return nil
+	}
+	if target.Settings != nil {
+		return storeerr.InvalidRequest(errors.New("integration schedule settings require an integration target"))
+	}
+	if err := cronschedule.ValidateMessageTemplate(message); err != nil {
+		return storeerr.InvalidRequest(err)
+	}
+	return nil
 }

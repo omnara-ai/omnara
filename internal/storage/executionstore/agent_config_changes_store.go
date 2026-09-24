@@ -76,6 +76,9 @@ func (s *Store) changeAgentConfigOnce(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
+	if err := lockConfigChangeIntegrationsTx(ctx, tx, qtx, input); err != nil {
+		return ChangeAgentConfigResult{}, err
+	}
 	if err := qtx.LockAgentMachineSources(
 		ctx,
 		dbsqlc.LockAgentMachineSourcesParams{AgentID: input.AgentID},
@@ -92,23 +95,9 @@ func (s *Store) changeAgentConfigOnce(
 	if agent.ParentAgentID != nil {
 		return ChangeAgentConfigResult{}, storeerr.InvalidRequest(errors.New("subagent configurations are read-only"))
 	}
-	idempotentReplay := false
-	if input.IdempotencyKey != "" {
-		_, replayErr := qtx.GetAgentInputByIdempotency(
-			ctx,
-			dbsqlc.GetAgentInputByIdempotencyParams{
-				ProjectID:           input.ProjectID,
-				AgentID:             input.AgentID,
-				IdempotencyScope:    "agent_config_change",
-				InputIdempotencyKey: input.IdempotencyKey,
-			},
-		)
-		switch {
-		case replayErr == nil:
-			idempotentReplay = true
-		case !errors.Is(replayErr, pgx.ErrNoRows):
-			return ChangeAgentConfigResult{}, fmt.Errorf("load idempotent config change: %w", replayErr)
-		}
+	idempotentReplay, err := configChangeReplayExistsTx(ctx, qtx, input)
+	if err != nil {
+		return ChangeAgentConfigResult{}, err
 	}
 	if !idempotentReplay && AgentState(agent.State) != AgentStateActive {
 		return ChangeAgentConfigResult{}, storeerr.ErrStateTransitionConflict
@@ -130,7 +119,7 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, err
 	}
-	if input.ExpectedCurrentConfigID != uuid.Nil &&
+	if !idempotentReplay && input.ExpectedCurrentConfigID != uuid.Nil &&
 		agent.CurrentConfigID != input.ExpectedCurrentConfigID &&
 		agent.CurrentConfigID != config.ID {
 		return ChangeAgentConfigResult{}, fmt.Errorf(
@@ -219,6 +208,9 @@ func (s *Store) changeAgentConfigOnce(
 			return ChangeAgentConfigResult{}, fmt.Errorf("reload agent after config change: %w", err)
 		}
 		if currentAgent.CurrentConfigID == config.ID {
+			if _, err := s.ReconcileInteractionSelectionTx(ctx, tx, input.ProjectID, input.AgentID); err != nil {
+				return ChangeAgentConfigResult{}, err
+			}
 			deleteMachines, err = s.reconcileAgentMachineSourcesTx(
 				ctx,
 				txNotifications,
@@ -376,7 +368,7 @@ func activateLockedAuthorizedAgentConfigTx(
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}
-		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, input.AgentID, actorParams, uuid.Nil)
+		actorID, err = resolveActorTx(ctx, qtx, input.ProjectID, actorParams)
 		if err != nil {
 			return AgentConfigChangeRecord{}, err
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,9 +21,7 @@ const (
 	readbackPageLimit    = 100
 	readbackMaxPages     = 8
 
-	MessageMarkerEventType     = "omnara_integration_message"
-	AgentRequestFailureMessage = "I couldn't complete this request. " +
-		"Please try again later or contact this bot's owner."
+	MessageMarkerEventType = "omnara_integration_message"
 )
 
 type MessageTarget struct {
@@ -33,6 +32,7 @@ type MessageTarget struct {
 }
 
 type APIResult struct {
+	StatusCode       int
 	MessageID        string
 	Code             string
 	ProviderCode     string
@@ -43,6 +43,22 @@ type APIResult struct {
 	DeliveryUnknown  bool
 	Message          string
 }
+
+type APIError struct {
+	Result APIResult
+}
+
+func (e *APIError) Error() string {
+	if e.Result.Message != "" {
+		return e.Result.Message
+	}
+	if e.Result.Code != "" {
+		return "slack " + e.Result.Code
+	}
+	return "slack request failed"
+}
+
+func (e *APIError) RetryDelay() time.Duration { return e.Result.RetryAfter }
 
 type postMessageResponse struct {
 	OK      bool   `json:"ok"`
@@ -73,7 +89,7 @@ type readbackMessage struct {
 
 func Destination(kind, ref string) (channel, threadTS string, err error) {
 	switch kind {
-	case "dm":
+	case "channel", "dm":
 		if ref == "" {
 			return "", "", errors.New("slack dm target is missing channel")
 		}
@@ -286,12 +302,24 @@ func callFormAt(
 	return doRequest(client, req, out)
 }
 
-func doRequest(client *http.Client, req *http.Request, out any) (APIResult, error) {
+func doRequest(client *http.Client, req *http.Request, out any) (result APIResult, requestErr error) {
 	resp, err := httpClientWithoutRedirects(client).Do(req)
 	if err != nil {
+		var rejected *requestCheckError
+		if errors.As(err, &rejected) {
+			return APIResult{}, rejected.cause
+		}
 		return APIResult{DeliveryUnknown: true, Message: err.Error()}, nil
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			result.StatusCode = resp.StatusCode
+		}
+		if result.RateLimited || result.TransientFailure || result.DeliveryUnknown {
+			result.RetryAfter = max(result.RetryAfter, retryAfter(resp.Header.Get("Retry-After")))
+		}
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter := retryAfter(resp.Header.Get("Retry-After"))
 		return APIResult{RateLimited: true, RetryAfter: retryAfter, Message: "slack rate limited the request"}, nil
@@ -304,7 +332,7 @@ func doRequest(client *http.Client, req *http.Request, out any) (APIResult, erro
 		if code := slackErrorCode(body); code != "" {
 			result := ErrorResult(code)
 			if resp.StatusCode < 500 || result.RateLimited || result.TransientFailure ||
-				result.Code == "integration_disabled" {
+				result.Code == "integration_disconnected" {
 				return result, nil
 			}
 			return APIResult{
@@ -341,11 +369,11 @@ func endpointURL(apiURL, method string) string {
 }
 
 func retryAfter(raw string) time.Duration {
-	seconds, err := strconv.Atoi(strings.TrimSpace(raw))
+	seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || seconds <= 0 {
 		return 0
 	}
-	return time.Duration(seconds) * time.Second
+	return time.Duration(min(seconds, math.MaxInt64/int64(time.Second))) * time.Second
 }
 
 func slackTimestamp(t time.Time) string {
@@ -364,10 +392,10 @@ func ErrorResult(code string) APIResult {
 		return APIResult{Code: "transient_failure", ProviderCode: code, TransientFailure: true, Message: message}
 	case "not_authed", "invalid_auth", "account_inactive", "token_revoked":
 		return APIResult{
-			Code:             "integration_disabled",
+			Code:             "integration_disconnected",
 			ProviderCode:     code,
 			PermanentFailure: true,
-			Message:          "integration is disabled or credentials are invalid",
+			Message:          "integration is disconnected or credentials are invalid",
 		}
 	default:
 		return APIResult{Code: "permanent_failure", ProviderCode: code, PermanentFailure: true, Message: message}

@@ -23,7 +23,9 @@ SELECT
     max_live_machines_per_org,
     max_active_byo_daemon_tokens_per_machine,
     max_non_terminal_processes_per_agent,
-    max_active_cron_triggers_per_project
+    max_active_cron_triggers_per_project,
+    max_active_project_integrations_per_project,
+    max_active_integration_subscriptions_per_agent
 FROM effective_resource_limits
 WHERE org_id = sqlc.arg(org_id);
 

@@ -34,10 +34,7 @@ func TestModelWindowForRequestReservesSmallerRequestAllowance(t *testing.T) {
 func TestPrepareForSendIgnoresProviderNeutralBundleSize(t *testing.T) {
 	body := json.RawMessage(`{"request":true}`)
 	bundle := modelcontext.Bundle{
-		IntegrationTargets: []modelcontext.IntegrationTargetRef{{
-			TargetRef: "provider-omits-this-field",
-			Label:     strings.Repeat("internal metadata ", 10_000),
-		}},
+		SystemPrompt: strings.Repeat("internal metadata ", 10_000),
 	}
 	client := prepareForSendClient{
 		prepared:     PreparedRequest{Body: body},

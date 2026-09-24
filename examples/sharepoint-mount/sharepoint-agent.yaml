@@ -23,9 +23,10 @@ instruction: |
     with the docx module.
   Reading files this way is always safe; only writing needs user confirmation.
 
-  When this conversation is driven through an integration such as Slack, the
-  external user only sees messages you send with send_integration_message —
-  use it for every answer or update they should see.
+  When a Slack integration launcher provides an int__<integration-name>__post_message tool,
+  use it for every answer or update in the conversation that launched you.
+  The external user only sees messages sent with that tool. Otherwise answer
+  directly in the Omnara conversation.
 model:
   provider_config: oai
   name: gpt-5.5
@@ -43,9 +44,3 @@ tools:
   list_machines: {}
   inspect_machine: {}
   ask_question: {}
-  # Integration targets (e.g. a Slack channel bound at launch): the send tool
-  # delivers user-visible replies; the target tool switches conversations.
-  send_integration_message:
-    permission:
-      mode: always_allow
-  set_integration_target: {}

@@ -18,6 +18,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/management"
@@ -352,6 +353,34 @@ tools:
 
 func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 	t.Parallel()
+	tests := map[string]func(*executionstore.LaunchAgentInput){
+		"missing config": func(input *executionstore.LaunchAgentInput) {
+			input.AgentConfigID = testID("missing-concurrent-retry-config")
+		},
+		"invalid initial content": func(input *executionstore.LaunchAgentInput) {
+			input.InitialInput = &executionstore.LaunchInitialInput{ContentBlocks: json.RawMessage(`{}`)}
+		},
+		"missing origin integration": func(input *executionstore.LaunchAgentInput) {
+			input.InitialInput = &executionstore.LaunchInitialInput{
+				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"losing input"}]`),
+				SemanticEventKey: "losing-event",
+				Origin: &executionstore.LaunchInputOrigin{
+					IntegrationID: testID("missing-concurrent-retry-integration"),
+					Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
+				},
+			}
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			testConcurrentSameKeyLaunchIgnoresLosingBody(t, mutate)
+		})
+	}
+}
+
+func testConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T, mutate func(*executionstore.LaunchAgentInput)) {
+	t.Helper()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
@@ -380,6 +409,14 @@ tools: {}
 	)
 
 	const idempotencyKey = "idem-concurrent-same-key-launch"
+	losingInput := executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, AgentConfigID: profile.CurrentConfigID,
+		LaunchedBy: userPrincipal(user.ID), IdempotencyKey: idempotencyKey,
+	}
+	mutate(&losingInput)
+	if _, err := store.Execution().LaunchAgent(ctx, losingInput); err == nil {
+		t.Fatal("invalid losing body succeeded without an existing launch")
+	}
 	blocker, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin idempotency lock blocker: %v", err)
@@ -418,12 +455,7 @@ tools: {}
 
 	replayDone := make(chan launchOutcome, 1)
 	go func() {
-		result, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
-			ProjectID:      testProjectID,
-			AgentConfigID:  testID("missing-concurrent-retry-config"),
-			LaunchedBy:     userPrincipal(user.ID),
-			IdempotencyKey: idempotencyKey,
-		})
+		result, err := store.Execution().LaunchAgent(ctx, losingInput)
 		replayDone <- launchOutcome{result: result, err: err}
 	}()
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentLaunchIdempotencyKey", 2)
@@ -642,7 +674,14 @@ tools:
 	}
 	var generatedGrants int
 	for _, binding := range result.MachineBindings {
-		generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, binding.MachineID)
+		generatedGrant := getProjectMachineGrantByMachineForTest(
+			t,
+			ctx,
+			store,
+			testOrgID,
+			testProjectID,
+			binding.MachineID,
+		)
 		if generatedGrant.SourceKind != "pool" || generatedGrant.ProjectMachinePoolGrantID != defaultPoolGrantID {
 			t.Fatalf(
 				"generated grant source_kind=%q project_machine_pool_grant_id=%s, want pool %s",
@@ -754,13 +793,16 @@ func TestArchiveAgentMarksPoolMachinesDeletingAndStopsExecution(t *testing.T) {
 		"idem-archive-agent",
 	)
 
-	backlogInput, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID:      testProjectID,
-		AgentID:        result.Agent.ID,
-		Actor:          mustOmnaraActorParams(t, user.ID),
-		ContentBlocks:  json.RawMessage(`[{"type":"text","text":"queued before archive"}]`),
-		IdempotencyKey: "idem-archive-agent-backlog-input",
-	})
+	backlogInput, _, _, err := store.Execution().CreateAgentContentInput(
+		ctx,
+		executionstore.CreateAgentContentInputInput{
+			ProjectID:      testProjectID,
+			AgentID:        result.Agent.ID,
+			Actor:          mustOmnaraActorParams(t, user.ID),
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"queued before archive"}]`),
+			IdempotencyKey: "idem-archive-agent-backlog-input",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create queued backlog input: %v", err)
 	}
@@ -954,7 +996,8 @@ WHERE agent.project_id = $1
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT count(*)::integer FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
-		testProjectID, result.Agent.ID,
+		testProjectID,
+		result.Agent.ID,
 	).
 		Scan(&wakeups); err != nil {
 		t.Fatalf("count archived wakeups: %v", err)
@@ -1356,7 +1399,11 @@ tools:
 		t.Fatalf("removed pool config replay = %+v, want %+v", replayedRemoval.ConfigChange, removed.ConfigChange)
 	}
 	if len(replayedRemoval.DeleteMachines) != len(removed.DeleteMachines) {
-		t.Fatalf("replayed pool source deletions = %+v, want %+v", replayedRemoval.DeleteMachines, removed.DeleteMachines)
+		t.Fatalf(
+			"replayed pool source deletions = %+v, want %+v",
+			replayedRemoval.DeleteMachines,
+			removed.DeleteMachines,
+		)
 	}
 	for _, machine := range replayedRemoval.DeleteMachines {
 		if !removedIDs[machine.ID] {
@@ -2057,7 +2104,14 @@ tools:
 		if !sameJSON(binding.Metadata, json.RawMessage(`{}`)) {
 			t.Fatalf("pool binding metadata = %s, want empty object", binding.Metadata)
 		}
-		generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, binding.MachineID)
+		generatedGrant := getProjectMachineGrantByMachineForTest(
+			t,
+			ctx,
+			store,
+			testOrgID,
+			testProjectID,
+			binding.MachineID,
+		)
 		if generatedGrant.ProjectMachinePoolGrantID != poolGrant.ID || generatedGrant.SourceKind != "pool" {
 			t.Fatalf("unexpected generated grant %d: %+v binding=%+v", slotIndex, generatedGrant, binding)
 		}
@@ -2301,7 +2355,10 @@ func TestLaunchAgentMultiplePoolSourcesKeepSourceOrder(t *testing.T) {
 	now := time.Date(2026, 5, 21, 9, 12, 30, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		storagetest.CreateVerifiedUserInput{Email: "launch-two-pools@example.com", DisplayName: "Launch Two Pools User"},
+		storagetest.CreateVerifiedUserInput{
+			Email:       "launch-two-pools@example.com",
+			DisplayName: "Launch Two Pools User",
+		},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -2414,7 +2471,14 @@ tools:
 			t.Fatalf("binding %d has missing or duplicate machine ID: %+v", index, result.MachineBindings)
 		}
 		seenMachines[binding.MachineID] = true
-		generatedGrant := getProjectMachineGrantByMachineForTest(t, ctx, store, testOrgID, testProjectID, binding.MachineID)
+		generatedGrant := getProjectMachineGrantByMachineForTest(
+			t,
+			ctx,
+			store,
+			testOrgID,
+			testProjectID,
+			binding.MachineID,
+		)
 		if generatedGrant.ProjectMachinePoolGrantID != want[index].grantID {
 			t.Fatalf(
 				"binding %d generated grant pool mismatch: grant=%+v want pool grant %s",
@@ -2454,7 +2518,10 @@ func TestLaunchAgentZeroInitialPoolValidatesGrantWithoutCreatingMachines(t *test
 	now := time.Date(2026, 5, 21, 9, 13, 0, 0, time.UTC)
 	user, err := store.Identity().CreateVerifiedUser(
 		ctx,
-		storagetest.CreateVerifiedUserInput{Email: "launch-pool-zero@example.com", DisplayName: "Launch Pool Zero User"},
+		storagetest.CreateVerifiedUserInput{
+			Email:       "launch-pool-zero@example.com",
+			DisplayName: "Launch Pool Zero User",
+		},
 	)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
@@ -2803,8 +2870,14 @@ tools:
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
-		Scan(&bindings); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`,
+		testProjectID,
+	).
+		Scan(
+			&bindings,
+		); err != nil {
 		t.Fatalf("count machine bindings: %v", err)
 	}
 	if agents != 0 || machines != 0 || grants != 0 || bindings != 0 {
@@ -2955,8 +3028,14 @@ tools:
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
-		Scan(&bindings); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`,
+		testProjectID,
+	).
+		Scan(
+			&bindings,
+		); err != nil {
 		t.Fatalf("count machine bindings: %v", err)
 	}
 	if agents != 0 || machines != 0 || grants != 0 || bindings != 0 {
@@ -3253,7 +3332,8 @@ tools:
 			if err := pool.QueryRow(
 				ctx,
 				`SELECT count(*)::int FROM project_machine_grants WHERE project_id = $1 AND project_machine_pool_grant_id = $2`,
-				testProjectID, poolGrant.ID,
+				testProjectID,
+				poolGrant.ID,
 			).
 				Scan(&grants); err != nil {
 				t.Fatalf("count generated grants: %v", err)
@@ -4862,8 +4942,14 @@ tools:
 		Scan(&grants); err != nil {
 		t.Fatalf("count generated grants: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`, testProjectID).
-		Scan(&bindings); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*)::int FROM agent_machine_bindings WHERE project_id = $1`,
+		testProjectID,
+	).
+		Scan(
+			&bindings,
+		); err != nil {
 		t.Fatalf("count machine bindings: %v", err)
 	}
 	if agents != 0 || machines != 1 || grants != 1 || bindings != 1 {
@@ -5171,7 +5257,11 @@ model:
 	if !retryClaim.Created || !retryClaim.Claimed || retryClaim.Context.AttemptNumber != 2 ||
 		retryClaim.Context.InputEventSequence != initialClaim.Context.InputEventSequence ||
 		retryClaim.Context.ConfiguredModelRevisionID != updated.CurrentRevisionID {
-		t.Fatalf("same-frontier retry = %+v, want attempt 2 on current revision %s", retryClaim, updated.CurrentRevisionID)
+		t.Fatalf(
+			"same-frontier retry = %+v, want attempt 2 on current revision %s",
+			retryClaim,
+			updated.CurrentRevisionID,
+		)
 	}
 	if err := executionstore.IntegrationValidateResponseEnvelopeForModelCallContext(
 		ctx,
@@ -5248,7 +5338,11 @@ model:
 	if !newFrontierClaim.Created || !newFrontierClaim.Claimed ||
 		newFrontierClaim.Context.AttemptNumber != 1 ||
 		newFrontierClaim.Context.ConfiguredModelRevisionID != updated.CurrentRevisionID {
-		t.Fatalf("new-frontier context = %+v, want attempt 1 on revision %s", newFrontierClaim, updated.CurrentRevisionID)
+		t.Fatalf(
+			"new-frontier context = %+v, want attempt 1 on revision %s",
+			newFrontierClaim,
+			updated.CurrentRevisionID,
+		)
 	}
 	if err := executionstore.IntegrationValidateResponseEnvelopeForModelCallContext(
 		ctx,

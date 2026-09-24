@@ -1,7 +1,7 @@
 import { useServerInfo, useServerInfoLookup, useServers } from '@omnara/react'
 import { type FocusEvent, type KeyboardEvent, useId, useRef, useState } from 'react'
 
-import { mcpServerNameMaxLength } from '@/components/agents/useAgentBuilderForm'
+import { mcpServerNameMaxLength } from '@/components/agents/agentConfigMcp'
 import {
   registryServerEntries,
   type RegistryServerEntry,

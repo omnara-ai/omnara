@@ -8,13 +8,13 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Store) IntegrationSetTargetRefGenerator(generator func(string) (string, error)) {
-	s.targetRefGenerator = generator
-}
-
-func (s *Store) DeleteIntegrationInstallOnceForIntegration(
+func (s *Store) DeleteProjectIntegrationOnceForIntegration(
 	ctx context.Context,
-	projectID, installID uuid.UUID,
+	projectID, integrationID uuid.UUID,
 ) error {
-	return s.deleteIntegrationInstallOnce(ctx, projectID, installID)
+	integration, err := s.GetProjectIntegration(ctx, projectID, integrationID)
+	if err != nil {
+		return err
+	}
+	return s.deleteProjectIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
 }

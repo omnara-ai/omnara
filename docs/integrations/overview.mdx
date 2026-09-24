@@ -1,0 +1,303 @@
+---
+title: Integrations
+description: Connect project-owned integrations, subscribe conversations, and choose tools and interaction handlers
+icon: "puzzle-piece"
+---
+
+An integration connects your project to a service such as Slack, Discord or GitHub. It
+owns the provider setup, credentials and optional launch behavior. Create it once,
+then select its tools and handlers in agent configs and attach conversations to
+agents. Customers running their own service
+can use the ordinary [inputs, custom tools and interaction APIs](/integrations/custom-integrations).
+
+## Create an integration
+
+Open **Integrations** under your project and select an integration type. If you already have integrations,
+choose **Add integration** first. Enter its unique name and connection details together
+on the setup page, then choose launch profiles after connecting. If connection
+fails, retrying reuses the saved integration and credentials. You can also reopen the
+saved integration from **Integrations** to finish later. The name follows the
+same rules as an MCP server name: a letter followed by letters, digits or hyphens,
+up to 32 characters. Names and integration types cannot be changed after creation.
+
+The integration type identifies its behavior: `slack_thread`, `discord_thread` or
+`github_pr`. Create and update requests use `integration_type`, for example:
+
+```json
+{"name":"engineering","integration_type":"slack_thread","settings":{}}
+```
+
+`GET /orgs/{orgID}/projects/{projectID}/integration-definitions` lists each registered
+`integration_type` and its `capabilities`. Saved integrations also expose `integration_type`; neither
+record includes a provider classification. Saved integrations use `itg_` IDs;
+profile choices use `ipc_` IDs, while agent interactions keep `int_` IDs.
+Code contributors register a precise
+behavior type without an `omnara.` prefix, following the
+[integration implementation guide](https://github.com/omnara-ai/omnara/blob/main/internal/integration/CONTRIBUTING.md).
+
+A saved integration starts disconnected. Connecting verifies its provider identity and
+saves a reference to encrypted credentials. Add profiles and a launcher when
+provider events should start agents. Schedules and interaction handlers can be used
+without an event launcher. The shipped thread and PR tools require the conversation
+assigned by their integration when launching an agent.
+There is no separate connection object to create or share. Two integrations configured
+with the same bot remain independent setups, with separate credential updates
+and lifecycle. Avoid overlapping launchers for the same conversation: duplicate
+menus, agents or replies are possible.
+
+The detail page shows setup state, launch settings, available capabilities and a
+paginated **Conversations** list with each destination agent.
+Changing offered profiles affects future launches. Disconnecting stops provider
+access and conversation forwarding. It does not queue incoming events for replay
+after reconnection. Its conversations remain visible and can still be removed
+while disconnected. Deleting an integration removes its schedules and
+subscriptions and releases its credential reference. Neither action removes agents, their history, or messages already
+posted in the provider. Agents remain usable through the dashboard and API.
+
+See the [Slack](/integrations/slack), [Discord](/integrations/discord) and
+[GitHub](/integrations/github) guides for connection steps and provider permissions.
+
+## Select capabilities independently
+
+An integration can supply tools, a subscription capability and one interaction handler.
+A tool lets the model act; an integration-owned subscription forwards incoming events to
+an agent; a handler presents questions and approvals outside the dashboard.
+Configs select tools and handlers. Launch requests or the subscriptions API attach
+conversations independently of config.
+The launcher is separate: it decides whether and how to start agents.
+
+For example, a Slack integration named `engineering` adds its tools and interaction
+handler when it launches an agent. The resulting config includes entries like these:
+
+```yaml
+instruction: |
+  Answer requests in the Slack conversation that launched you.
+model:
+  provider_config: my-provider
+  name: my-model
+tools:
+  ask_question: {}
+  int__engineering__read: {}
+  int__engineering__post_message: {}
+  list_interaction_handlers: {}
+  set_interaction_handler: {}
+interaction_handlers:
+  engineering: {}
+```
+
+Tools use `int__<integration-name>__<operation>`, with one entry per integration and operation.
+Tool entries select enabled state, deferred loading and permissions. Handler entries
+are empty objects. Slack and Discord handlers use the agent's assigned conversation,
+so selecting one takes `{"handler":"engineering","args":{}}`. Listing handlers shows
+only eligible choices and their destinations. Selecting a handler never grants access
+to another conversation.
+The catalog exposes the static argument schema in
+`capabilities.tools[operation].input_schema` and
+`capabilities.interaction_handler.input_schema`.
+
+A provider or scheduled launch records one immutable conversation for that integration
+and agent. Slack and Discord tools use that conversation; GitHub tools use that pull
+request. Calls contain only the action and pagination arguments, such as
+`{"text":"Update"}` or `{"section":"files","page":2}`. These tools fail before contacting
+the provider if the agent has no assigned conversation. Adding a subscription or
+selecting an interaction handler does not establish or change sending context.
+
+Integrations can also define standalone tools that use the integration's credentials without a
+launcher, subscription or assigned conversation. The tool's implementation defines
+which resources it can access; ordinary tool permissions still apply.
+
+The integration's credential permissions remain the provider access boundary; Omnara also
+checks project ownership, current integration status and ordinary
+[tool permission](/tools/permissions). The
+[OpenAPI contract](/api-reference/openapi.yaml) defines the catalog and launch API.
+
+Names are resolved to immutable integration IDs, not integration types, when the config is
+compiled. Deleting an integration and reusing its name does not redirect old agents. Re-save profiles that should
+use the replacement integration before their launchers run; old pinned references are not
+automatically rebound. Credentials are loaded
+live, so rotation does not require rewriting configs. A pending tool call cannot
+silently acquire a different integration, sending context or permission after a config change.
+
+## Subscribe a conversation
+
+A subscription connects one integration, one agent and one concrete provider
+conversation. Multiple integrations or conversations can forward to the same agent.
+Subscriptions belong to the integration: saving, activating or changing an agent config
+never adds or removes them. Source YAML has no `listeners` block.
+
+The integration and integration-definition catalog expose the optional
+`capabilities.subscription.conversation_schema`. Integrations without this capability
+cannot accept subscriptions. Each attachment identifies the integration and one flat
+provider conversation address. The integration determines which incoming activity
+it forwards.
+
+For an existing agent, send this body to
+`POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions`:
+
+```json
+{
+  "agent_id": "YOUR_AGENT_ID",
+  "conversation": {"channel_id": "C123", "thread_ts": "111.222333"}
+}
+```
+
+For a new agent, include `subscriptions` in its
+[launch request](/agents/overview#attach-integrations-and-an-initial-input-atomically).
+Each attachment has `integration_id` and `conversation`.
+The subscriptions and initial input are committed with the agent before its first
+step. Attaching only subscriptions does not derive a new config.
+
+Use `GET` on the same integration subscriptions path with `limit` and optional `cursor`
+to list conversations. The response contains `data` and `next_cursor`; each row
+includes its `isub_…` ID, integration, project, agent ID/name, concrete conversation
+and creation time. Listing requires project read permission;
+creation and deletion require project management permission.
+
+### Stop forwarding
+
+Open the integration's **Conversations** section and choose **Stop forwarding**, or call
+`DELETE /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions/{subscriptionID}`.
+This stops incoming forwarding for that subscription. The agent, sending tools,
+interaction handlers and history remain. A stopped selected thread does not
+launch a replacement agent on the next mention. Explicitly attach the conversation
+again through the API to resume forwarding. Independent existing-agent launcher
+slots and already accepted chooser handoffs are not canceled by this deletion.
+
+Repeating an active attachment returns the same subscription. A fresh attachment
+after deletion receives a new ID, so retrying an old DELETE cannot remove the new attachment. Integration disconnection preserves subscriptions;
+integration deletion or agent archival removes them.
+
+Sending and receiving are independent. Posting a message does not create or
+restore subscriptions. To start a fresh scheduled agent in a new thread, configure
+an integration schedule; the launch assigns its sending conversation and reply subscription.
+
+## Launch from provider events
+
+[Slack](/integrations/slack) and [Discord](/integrations/discord) create thread
+agents from mentions. With one offered profile, the agent starts immediately.
+With several profiles, the bot presents a selection menu and starts only the
+chosen profile. [GitHub](/integrations/github) can start work from a PR mention
+or PR creation; its launcher runs each configured slot.
+
+A profile launch derives a config with the integration's tools and supported interaction
+handler, and separately attaches a subscription for that conversation. The profile
+stays unchanged. Existing explicit entries win as complete entries, including
+disabled tools and permissions. The launcher adds missing entries only; the
+capability additions are the same for every conversation using that profile and
+integration. The destination belongs to the integration-agent context, not the derived config.
+An existing-agent launcher slot forwards input without adding capabilities or
+sending context.
+
+The create-agent API accepts `tools` and `interaction_handlers` when deriving a
+config from a pinned config or profile, plus independent `subscriptions`
+attachments. Config authoring and integration management require project management permission. Integration credential setup requires a
+user session or personal access token, except guided GitHub registration and
+installation discovery, which require a browser session. Organization API keys
+can perform ordinary runtime work. Integration capabilities and runtime subscriptions are not inherited by subagents.
+
+Ordinary model output stays in Omnara. Posting externally requires an integration tool.
+
+## Start a new thread on a schedule
+
+Open an integration that supports scheduled threads from the project's **Integrations** page and
+choose **Add schedule**. Select one profile, the parent channel, the schedule and timezone,
+an opening-message template, and the task to give the agent. Mention launches
+and schedules are independent; the same integration can use either or both.
+
+For each occurrence, the integration posts the opening message and then launches a fresh
+agent in its thread. The agent receives thread tools, a reply subscription, and an
+interaction handler before its first step. The profile's existing explicit
+entries still win. Ask the agent to post its report using the integration tool; normal
+model output remains in Omnara. Replies in Monday's thread continue Monday's
+agent, while Tuesday's run creates a new thread and agent.
+
+Both templates support the existing cron variables. `{{.trigger.local_date}}`
+is the occurrence's scheduled date in its timezone, formatted `YYYY-MM-DD`.
+The task's `message_template` source and rendered message each have a 65,536
+UTF-8 byte limit. Variables can expand, so runtime validation remains authoritative
+even when the source fits the published schema's `maxLength`.
+See the provider guide for opening-message limits and supported destinations:
+[Slack scheduled threads](/integrations/slack#scheduled-threads) or
+[Discord scheduled threads](/integrations/discord#scheduled-threads).
+
+Schedules use the ordinary cron API with an integration target. The integration catalog publishes
+the schema for `settings`; cron does not interpret those fields:
+
+```json
+{
+  "name": "Daily engineering update",
+  "cron": "0 9 * * 1-5",
+  "timezone": "America/Los_Angeles",
+  "target": {
+    "type": "integration",
+    "integration_id": "YOUR_INTEGRATION_ID",
+    "settings": {
+      "agent_profile_id": "YOUR_PROFILE_ID",
+      "channel_id": "C123",
+      "opening_message_template": "Engineering update — {{.trigger.local_date}}",
+      "message_template": "Review today's activity and post a summary in this thread."
+    }
+  }
+}
+```
+
+The schedule shows whether the latest run is queued, processing, completed or failed, alongside its last update time. **Completed** means the integration handled
+that scheduled occurrence. For the thread integrations, that means the agent started;
+it does not mean the agent finished its task or posted a report. Run details expire with
+inbox retention. A disconnected integration skips an occurrence with a visible failure;
+later scheduled occurrences can run after reconnection. Disabling or deleting a
+schedule stops future firings; it does not cancel work already accepted by the
+integration. The target integration is fixed. Settings, including the thread integration's profile, can
+change for future occurrences; an accepted occurrence retains its settings.
+Deleting the integration deletes its schedules. Deleting a profile does not delete integration
+schedules that reference it: those runs fail visibly until the settings are corrected.
+
+The thread integration resolves the profile's current configuration while building its
+launch plan. Once saved, that plan keeps the same configuration across retries.
+An opening message can remain if the later agent launch fails. Once the thread's
+launch plan is saved, retries reuse that thread. A reported uncertain send or a
+failure saving the plan after publication fails the run. If a crash, lost lease,
+or database outage prevents saving either the plan or the failure, recovery may
+post another opening and leave the earlier heading unused. Each occurrence
+still admits at most one agent. Questions and approvals remain available in the
+dashboard if provider delivery fails.
+
+## Route questions and approvals
+
+When an integration exports an interaction handler, its launcher adds that handler and
+the `list_interaction_handlers` and `set_interaction_handler` tools. Launchers
+preserve tools and handlers already configured in the profile,
+including explicit tool permissions and disabled entries. Manual configs can add
+these built-ins under `tools`. Ordinary configs receive neither automatically.
+The selected handler can change at runtime without changing the config. The list is
+paginated and returns eligible handlers, their argument schemas and destinations,
+plus the current selection independently of the page. The model discovers these
+through the list tool; Omnara does not append routing information to model requests.
+
+The shipped Slack and Discord handlers use the agent's assigned conversation.
+Select one with empty arguments:
+
+```json
+{"handler":"engineering","args":{}}
+```
+
+A subscription alone does not grant interaction access, and adding a handler to a
+config does not assign a conversation. Anyone able to respond in an eligible provider
+conversation can answer its questions and approvals without an Omnara account.
+Use explicit tool permissions to restrict or disable `set_interaction_handler`
+when the model should not change the selected handler.
+
+Use `{"handler":null,"args":{}}` for dashboard only. A newly accepted provider input
+selects its unique eligible handler. An ineligible origin clears the selection;
+an input without a provider origin preserves it. Each interaction captures its
+destination when created, so changing the selection does not move an existing prompt.
+
+The dashboard remains available if provider presentation fails. Removing a handler,
+disconnecting its integration, or losing its assigned conversation invalidates external
+callbacks. Captured interaction responses identify the integration, target and address.
+See [interactions](/events/interactions) for answering through the API.
+
+For an existing Slack deployment, use the coordinated
+[maintenance cutover](/self-hosting/composable-integrations-cutover). Inbound events retry automatically with a bounded budget. Terminal failures
+release unfinished launches, preserve accepted work, and remain for seven days
+for diagnostics. See [failed integration events](/self-hosting/composable-integrations-cutover#failed-integration-events).

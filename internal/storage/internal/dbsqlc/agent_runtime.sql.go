@@ -264,20 +264,20 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 const insertAgent = `-- name: InsertAgent :one
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
-        $1, $2, 'active', $3,
-        $4, $5, $6,
-        $7, $8,
-        $9,
+        coalesce($1::uuid, uuidv7()), $2, $3, 'active', $4,
+        $5, $6, $7,
+        $8, $9,
+        $10,
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id
-    WHERE project.org_id = $1
-      AND project.id = $2
+    WHERE project.org_id = $2
+      AND project.id = $3
       AND project.deleted_at IS NULL
       AND org.deleted_at IS NULL
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
@@ -306,6 +306,7 @@ LEFT JOIN model_provider_configs model_provider_config
 `
 
 type InsertAgentParams struct {
+	ID                      *uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	Name                    string
@@ -341,6 +342,7 @@ type InsertAgentRow struct {
 // Display-only model names must still resolve after the model or provider config is soft deleted.
 func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (InsertAgentRow, error) {
 	row := q.db.QueryRow(ctx, insertAgent,
+		arg.ID,
 		arg.OrgID,
 		arg.ProjectID,
 		arg.Name,
@@ -391,7 +393,7 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_type, '') AS integration_target_integration_type,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
        coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
@@ -403,11 +405,9 @@ SELECT agent.id,
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-         WHEN 'integration_provider' THEN lower(install.provider)
          WHEN 'integration_target_kind' THEN lower(target.provider_ref_kind)
        END::text AS sort_key,
        CASE $7::text
-         WHEN 'integration_provider' THEN target.id IS NULL
          WHEN 'integration_target_kind' THEN target.id IS NULL
          ELSE false
        END AS sort_is_null
@@ -417,9 +417,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN project_integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -433,17 +433,16 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = $8
   AND ($9::boolean OR agent.state = 'active')
   AND ($10::text = '' OR agent.name ILIKE $10::text ESCAPE '\')
-  AND (COALESCE(cardinality($11::text[]), 0) = 0 OR install.provider = ANY($11::text[]))
-  AND (COALESCE(cardinality($12::text[]), 0) = 0 OR target.provider_ref_kind = ANY($12::text[]))
-  AND ($13::boolean IS NULL OR (target.id IS NOT NULL) = $13::boolean)
-  AND ($14::uuid IS NULL OR agent.agent_profile_id = $14::uuid)
-  AND ($15::uuid IS NULL OR agent.parent_agent_id = $15::uuid)
-  AND ($16::boolean OR $15::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND (COALESCE(cardinality($11::text[]), 0) = 0 OR target.provider_ref_kind = ANY($11::text[]))
+  AND ($12::boolean IS NULL OR (target.id IS NOT NULL) = $12::boolean)
+  AND ($13::uuid IS NULL OR agent.agent_profile_id = $13::uuid)
+  AND ($14::uuid IS NULL OR agent.parent_agent_id = $14::uuid)
+  AND ($15::boolean OR $14::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
-       archived_at, parent_agent_id, subagent_key, integration_target_provider,
+       archived_at, parent_agent_id, subagent_key, integration_target_integration_type,
        integration_target_provider_tenant_id, integration_target_provider_ref,
        integration_target_provider_ref_kind,
        integration_target_display_name, model_name,
@@ -474,7 +473,6 @@ type ListAgentsForProjectParams struct {
 	ProjectID              uuid.UUID
 	IncludeArchived        bool
 	NamePattern            string
-	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
 	AgentProfileID         *uuid.UUID
@@ -498,7 +496,7 @@ type ListAgentsForProjectRow struct {
 	ArchivedAt                        *time.Time
 	ParentAgentID                     *uuid.UUID
 	SubagentKey                       string
-	IntegrationTargetProvider         string
+	IntegrationTargetIntegrationType  string
 	IntegrationTargetProviderTenantID string
 	IntegrationTargetProviderRef      string
 	IntegrationTargetProviderRefKind  string
@@ -521,7 +519,6 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.ProjectID,
 		arg.IncludeArchived,
 		arg.NamePattern,
-		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
 		arg.HasIntegrationTarget,
 		arg.AgentProfileID,
@@ -551,7 +548,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 			&i.ArchivedAt,
 			&i.ParentAgentID,
 			&i.SubagentKey,
-			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetIntegrationType,
 			&i.IntegrationTargetProviderTenantID,
 			&i.IntegrationTargetProviderRef,
 			&i.IntegrationTargetProviderRefKind,
@@ -587,7 +584,7 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_type, '') AS integration_target_integration_type,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
        coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
@@ -600,9 +597,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN project_integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -616,25 +613,23 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = $1
   AND ($2::boolean OR agent.state = 'active')
   AND ($3::text = '' OR agent.name ILIKE $3::text ESCAPE '\')
-  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR install.provider = ANY($4::text[]))
-  AND (COALESCE(cardinality($5::text[]), 0) = 0 OR target.provider_ref_kind = ANY($5::text[]))
-  AND ($6::boolean IS NULL OR (target.id IS NOT NULL) = $6::boolean)
-  AND ($7::uuid IS NULL OR agent.agent_profile_id = $7::uuid)
-  AND ($8::uuid IS NULL OR agent.parent_agent_id = $8::uuid)
-  AND ($9::boolean OR $8::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR target.provider_ref_kind = ANY($4::text[]))
+  AND ($5::boolean IS NULL OR (target.id IS NOT NULL) = $5::boolean)
+  AND ($6::uuid IS NULL OR agent.agent_profile_id = $6::uuid)
+  AND ($7::uuid IS NULL OR agent.parent_agent_id = $7::uuid)
+  AND ($8::boolean OR $7::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
   AND (
-    $10::boolean = false
-    OR (agent.created_at, agent.id) < ($11::timestamptz, $12::uuid)
+    $9::boolean = false
+    OR (agent.created_at, agent.id) < ($10::timestamptz, $11::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $13::bigint
+LIMIT $12::bigint
 `
 
 type ListAgentsForProjectByCreatedAtDescParams struct {
 	ProjectID              uuid.UUID
 	IncludeArchived        bool
 	NamePattern            string
-	IntegrationProviders   []string
 	IntegrationTargetKinds []string
 	HasIntegrationTarget   *bool
 	AgentProfileID         *uuid.UUID
@@ -662,7 +657,7 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 	ArchivedAt                        *time.Time
 	ParentAgentID                     *uuid.UUID
 	SubagentKey                       string
-	IntegrationTargetProvider         string
+	IntegrationTargetIntegrationType  string
 	IntegrationTargetProviderTenantID string
 	IntegrationTargetProviderRef      string
 	IntegrationTargetProviderRefKind  string
@@ -676,7 +671,6 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 		arg.ProjectID,
 		arg.IncludeArchived,
 		arg.NamePattern,
-		arg.IntegrationProviders,
 		arg.IntegrationTargetKinds,
 		arg.HasIntegrationTarget,
 		arg.AgentProfileID,
@@ -710,7 +704,7 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 			&i.ArchivedAt,
 			&i.ParentAgentID,
 			&i.SubagentKey,
-			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetIntegrationType,
 			&i.IntegrationTargetProviderTenantID,
 			&i.IntegrationTargetProviderRef,
 			&i.IntegrationTargetProviderRefKind,
@@ -744,7 +738,7 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_type, '') AS integration_target_integration_type,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
        coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
@@ -757,9 +751,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN project_integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -798,7 +792,7 @@ type ListRecentAgentsForProjectsRow struct {
 	ArchivedAt                        *time.Time
 	ParentAgentID                     *uuid.UUID
 	SubagentKey                       string
-	IntegrationTargetProvider         string
+	IntegrationTargetIntegrationType  string
 	IntegrationTargetProviderTenantID string
 	IntegrationTargetProviderRef      string
 	IntegrationTargetProviderRefKind  string
@@ -832,7 +826,7 @@ func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecen
 			&i.ArchivedAt,
 			&i.ParentAgentID,
 			&i.SubagentKey,
-			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetIntegrationType,
 			&i.IntegrationTargetProviderTenantID,
 			&i.IntegrationTargetProviderRef,
 			&i.IntegrationTargetProviderRefKind,

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
@@ -40,19 +42,20 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 		expectedTopology{transactional: true, background: true},
 	)
 	add(
-		[]string{"list_machines", "inspect_machine", "set_integration_target"},
+		[]string{"list_machines", "inspect_machine",
+			"list_interaction_handlers", "set_interaction_handler"},
 		expectedTopology{transactional: true},
 	)
 	add(
 		[]string{"ask_question"},
-		expectedTopology{transactional: true, async: true},
+		expectedTopology{transactional: true, background: true},
 	)
 	add(
 		[]string{"read_agent", "send_agent_message", "list_agents", "tool_search"},
 		expectedTopology{transactional: true},
 	)
 	add(
-		[]string{"send_integration_message", "web_search", "web_fetch", "skill", "read_file", "search_files"},
+		[]string{"web_search", "web_fetch", "skill", "read_file", "search_files"},
 		expectedTopology{async: true},
 	)
 
@@ -196,47 +199,40 @@ func TestAskQuestionImplementationValidatorBinding(t *testing.T) {
 	}
 }
 
-func TestIntegrationMessageImplementationValidatorBinding(t *testing.T) {
-	artifactID, err := publicid.Encode(
-		publicid.KindArtifact,
-		integrationToolTestID("integration-message-validator"),
+func TestIntegrationMessageArtifactArguments(t *testing.T) {
+	definition, ok := toolcatalog.LookupIntegrationTool(
+		integrationdefinition.SlackThread,
+		toolcatalog.IntegrationOperationPostMessage,
 	)
+	require.True(t, ok)
+	entry, err := definition.Prepare(toolcatalog.IntegrationToolName("chat", toolcatalog.IntegrationOperationPostMessage))
 	require.NoError(t, err)
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":["`+artifactID+`"]}`),
-	); err != nil {
-		t.Fatalf("valid integration message rejected: %v", err)
+	artifactIDs := make([]string, 21)
+	for index := range artifactIDs {
+		id, err := publicid.Encode(publicid.KindArtifact, integrationToolTestID(fmt.Sprintf("artifact-%d", index)))
+		require.NoError(t, err)
+		artifactIDs[index] = id
 	}
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[]}`),
-	); err != nil {
-		t.Fatalf("empty artifact_ids rejected: %v", err)
+	for _, input := range []string{
+		`{"text":"hello","artifact_ids":["` + artifactIDs[0] + `"]}`,
+		`{"text":"hello","artifact_ids":[]}`,
+	} {
+		err := jsonschema.Validate(entry.InputSchema, json.RawMessage(input))
+		require.NoError(t, err)
 	}
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":null}`),
-	); err == nil {
-		t.Fatal("null artifact_ids accepted")
+	for _, input := range []string{`{"text":"hello","artifact_ids":null}`, `{"text":"hello","artifact_ids":[""]}`} {
+		err := jsonschema.Validate(entry.InputSchema, json.RawMessage(input))
+		require.Error(t, err)
 	}
-	if err := validateRegisteredToolInput(
-		"send_integration_message",
-		json.RawMessage(`{"text":"hello","artifact_ids":[""]}`),
-	); err == nil {
-		t.Fatal("empty artifact ID accepted")
-	}
-	tooManyArtifactIDs := make([]string, 21)
-	for index := range tooManyArtifactIDs {
-		tooManyArtifactIDs[index] = artifactID
-	}
-	tooManyInput, err := json.Marshal(map[string]any{
-		"text":         "hello",
-		"artifact_ids": tooManyArtifactIDs,
-	})
-	require.NoError(t, err)
-	if err := validateRegisteredToolInput("send_integration_message", tooManyInput); err == nil {
-		t.Fatal("more than 20 artifact IDs accepted")
+	for _, count := range []int{20, 21} {
+		input, err := json.Marshal(map[string]any{"text": "hello", "artifact_ids": artifactIDs[:count]})
+		require.NoError(t, err)
+		err = jsonschema.Validate(entry.InputSchema, input)
+		if count == 20 {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err, "more than 20 distinct artifact IDs must fail")
+		}
 	}
 }
 

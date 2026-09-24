@@ -3,12 +3,12 @@
 -- Display-only model names must still resolve after the model or provider config is soft deleted.
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
-        sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
+        coalesce(sqlc.narg(id)::uuid, uuidv7()), sqlc.arg(org_id), sqlc.arg(project_id), 'active', sqlc.arg(name),
         sqlc.narg(agent_profile_id), sqlc.arg(current_config_id), sqlc.narg(idempotency_key),
         sqlc.narg(parent_agent_id), sqlc.arg(subagent_key),
         sqlc.narg(archive_after_idle_minutes),
@@ -122,7 +122,7 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_type, '') AS integration_target_integration_type,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
        coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
@@ -134,11 +134,9 @@ SELECT agent.id,
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-         WHEN 'integration_provider' THEN lower(install.provider)
          WHEN 'integration_target_kind' THEN lower(target.provider_ref_kind)
        END::text AS sort_key,
        CASE sqlc.arg(sort_field)::text
-         WHEN 'integration_provider' THEN target.id IS NULL
          WHEN 'integration_target_kind' THEN target.id IS NULL
          ELSE false
        END AS sort_is_null
@@ -148,9 +146,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN project_integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -164,7 +162,6 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
@@ -174,7 +171,7 @@ WHERE agent.project_id = sqlc.arg(project_id)
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
-       archived_at, parent_agent_id, subagent_key, integration_target_provider,
+       archived_at, parent_agent_id, subagent_key, integration_target_integration_type,
        integration_target_provider_tenant_id, integration_target_provider_ref,
        integration_target_provider_ref_kind,
        integration_target_display_name, model_name,
@@ -209,7 +206,7 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_type, '') AS integration_target_integration_type,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
        coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
@@ -222,9 +219,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN project_integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -238,7 +235,6 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (COALESCE(cardinality(sqlc.arg(integration_providers)::text[]), 0) = 0 OR install.provider = ANY(sqlc.arg(integration_providers)::text[]))
   AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.provider_ref_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
   AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
@@ -267,7 +263,7 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_type, '') AS integration_target_integration_type,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
        coalesce(target.provider_ref, '') AS integration_target_provider_ref,
        coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
@@ -280,9 +276,9 @@ LEFT JOIN integration_targets target
  AND target.agent_id = agent.id
  AND target.id = agent.integration_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN project_integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id

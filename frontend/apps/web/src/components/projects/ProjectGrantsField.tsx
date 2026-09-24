@@ -1,6 +1,6 @@
 import { useProjects } from '@omnara/react'
 import type { VisibleProject } from '@omnara/sdk'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { createResourceMultiCombobox } from '@/components/ui/resource-multi-combobox'
@@ -50,6 +50,7 @@ export function ProjectGrantsField({
   excludedProjectIds?: string[]
   isProjectEligible: (project: VisibleProject) => boolean
 }) {
+  const inputId = useId()
   const projectsQuery = useProjects(orgId)
   const excludedProjectIdSet = new Set(excludedProjectIds)
   const projects = useInfiniteQueryItems(projectsQuery).filter(
@@ -59,8 +60,9 @@ export function ProjectGrantsField({
 
   return (
     <Field>
-      <FieldLabel>Project grants</FieldLabel>
+      <FieldLabel htmlFor={inputId}>Project grants</FieldLabel>
       <ProjectMultiCombobox
+        id={inputId}
         items={projects}
         value={selectedProjects}
         onValueChange={(nextProjects) => {

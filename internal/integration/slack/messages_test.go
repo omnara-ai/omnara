@@ -122,7 +122,7 @@ func TestReconcileMessagePaginatesReadback(t *testing.T) {
 					"messages": []any{map[string]any{
 						"ts": "222.333",
 						"metadata": map[string]any{
-							"event_type": MessageMarkerEventType,
+							"event_type": "omnara_integration_message",
 							"event_payload": map[string]any{
 								"agent_id":         "agt-test",
 								"provider_call_id": "call-test",

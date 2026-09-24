@@ -102,16 +102,8 @@ tools:
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
 	}
-	if err := store.Execution().ReleaseToolCallRuntimeOwnership(
-		ctx,
-		executionstore.ReleaseToolCallRuntimeOwnershipInput{
-			ProjectID:     testProjectID,
-			AgentID:       launch.Agent.ID,
-			ToolCallID:    questionToolCallID,
-			RuntimeLockID: runtimeLock.ID,
-		},
-	); err != nil {
-		t.Fatalf("release question tool call: %v", err)
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatal("question must commit into durable waiting")
 	}
 
 	lockTx, err := store.pool.Begin(ctx)

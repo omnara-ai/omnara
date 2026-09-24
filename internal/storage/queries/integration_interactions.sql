@@ -1,0 +1,55 @@
+-- name: GetInteractionSelection :one
+SELECT current_config_id, integration_target_id,
+       coalesce(interaction_handler_key, '') AS handler_key
+FROM agents
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(agent_id);
+
+-- name: GetInteractionCallbackAgent :one
+SELECT agent_id
+FROM agent_interaction_read_projection
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(interaction_id)
+  AND destination ->> 'integration_id' = sqlc.arg(integration_id)::text;
+
+-- name: SetInteractionSelection :execrows
+UPDATE agents
+SET integration_target_id = sqlc.narg(target_id)::uuid,
+    interaction_handler_key = sqlc.narg(handler_key)::text,
+    updated_at = statement_timestamp()
+WHERE agents.project_id = sqlc.arg(project_id) AND agents.id = sqlc.arg(agent_id)
+  AND ((sqlc.narg(target_id)::uuid IS NULL AND sqlc.narg(handler_key)::text IS NULL)
+    OR (sqlc.narg(handler_key)::text <> '' AND EXISTS (
+      SELECT 1 FROM integration_targets target
+      JOIN project_integrations integration
+        ON integration.project_id = target.project_id
+       AND integration.id = target.integration_id
+      WHERE target.project_id = agents.project_id AND target.agent_id = agents.id
+        AND target.id = sqlc.narg(target_id)::uuid AND target.deleted_at IS NULL
+        AND integration.deleted_at IS NULL AND integration.state = 'active'
+    )));
+
+-- name: GetInteractionDestinationTarget :one
+SELECT target.id, target.integration_id AS integration_id,
+       target.provider_ref_kind, target.provider_ref, target.display_name,
+       integration.state AS integration_state
+FROM integration_targets target
+JOIN project_integrations integration
+  ON integration.project_id = target.project_id AND integration.id = target.integration_id
+WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)
+  AND target.id = sqlc.arg(target_id) AND target.deleted_at IS NULL
+  AND integration.deleted_at IS NULL;
+
+-- name: RecordAgentInteractionPresentationReceipt :execrows
+UPDATE agent_interactions interaction
+SET presentation_receipt = sqlc.arg(receipt)::jsonb
+WHERE interaction.agent_id = sqlc.arg(agent_id) AND interaction.id = sqlc.arg(id)
+  AND interaction.destination = sqlc.arg(destination)::jsonb
+  AND interaction.presentation_receipt IS NULL
+  AND EXISTS (
+    SELECT 1 FROM agents agent
+    WHERE agent.project_id = sqlc.arg(project_id) AND agent.id = interaction.agent_id
+  );
+
+-- name: GetInteractionCallbackIntegrationID :one
+SELECT (destination ->> 'integration_id')::uuid AS integration_id
+FROM agent_interactions
+WHERE id = $1 AND destination ->> 'integration_id' IS NOT NULL;

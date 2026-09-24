@@ -18,16 +18,17 @@ import (
 )
 
 type RuntimeContract struct {
-	Instruction     string
-	Model           ModelCompiled
-	MachineSources  []RuntimeMachine
-	Tools           []RuntimeTool
-	MCPServers      []RuntimeMCPServer
-	Skills          []SkillCompiled
-	Subagents       map[string]SubagentCompiled
-	MaxSubagents    *int
-	MaxDepth        *int
-	configuredTools map[string]struct{}
+	Instruction         string
+	Model               ModelCompiled
+	MachineSources      []RuntimeMachine
+	Tools               []RuntimeTool
+	MCPServers          []RuntimeMCPServer
+	IntegrationTools    map[string]ToolCompiled
+	InteractionHandlers map[string]IntegrationCapabilityCompiled
+	Skills              []SkillCompiled
+	Subagents           map[string]SubagentCompiled
+	MaxSubagents        *int
+	MaxDepth            *int
 }
 
 func (contract RuntimeContract) SubagentDepthLimit() int {
@@ -39,30 +40,12 @@ func (contract RuntimeContract) SubagentKeys() []string {
 }
 
 func (contract RuntimeContract) RequiresModelToolSupport() bool {
-	return len(contract.Tools) > 0 || len(contract.MCPServers) > 0
-}
-
-func (contract RuntimeContract) WithImplicitBuiltInTool(name string) (RuntimeContract, error) {
-	if _, configured := contract.configuredTools[name]; configured {
-		return contract, nil
-	}
-	for _, tool := range contract.Tools {
-		if tool.Name == name {
-			return contract, nil
+	for _, tool := range contract.IntegrationTools {
+		if tool.Enabled {
+			return true
 		}
 	}
-	catalog, err := toolcatalog.Default()
-	if err != nil {
-		return RuntimeContract{}, err
-	}
-	entry, ok := catalog.Lookup(name)
-	if !ok {
-		return RuntimeContract{}, fmt.Errorf("built-in tool %q is not registered", name)
-	}
-	contract.Tools = append([]RuntimeTool(nil), contract.Tools...)
-	contract.Tools = append(contract.Tools, runtimeBuiltInTool(entry, entry.DefaultPermission))
-	sort.Slice(contract.Tools, func(i, j int) bool { return contract.Tools[i].Name < contract.Tools[j].Name })
-	return contract, nil
+	return len(contract.Tools) > 0 || len(contract.MCPServers) > 0
 }
 
 type RuntimeTool struct {
@@ -118,6 +101,9 @@ func RuntimeContractFromCompiled(
 		}
 		return RuntimeContract{}, fmt.Errorf("parse compiled agent config: %w", err)
 	}
+	if err := validateCompiledIntegrations(compiled); err != nil {
+		return RuntimeContract{}, fmt.Errorf("compiled integration capabilities: %w", err)
+	}
 	tools, err := runtimeTools(compiled.Tools)
 	if err != nil {
 		return RuntimeContract{}, err
@@ -126,26 +112,28 @@ func RuntimeContractFromCompiled(
 	if err != nil {
 		return RuntimeContract{}, err
 	}
-	configuredTools := make(map[string]struct{}, len(compiled.Tools))
-	for name := range compiled.Tools {
-		configuredTools[name] = struct{}{}
-	}
 	contract := RuntimeContract{
-		Instruction:     compiled.Instruction,
-		Model:           compiled.Model,
-		MachineSources:  runtimeMachineSources(compiled.MachineSources),
-		Tools:           tools,
-		MCPServers:      mcpServers,
-		Skills:          compiled.Skills,
-		Subagents:       compiled.Subagents,
-		MaxSubagents:    compiled.MaxSubagents,
-		MaxDepth:        compiled.MaxDepth,
-		configuredTools: configuredTools,
+		Instruction:         compiled.Instruction,
+		Model:               compiled.Model,
+		MachineSources:      runtimeMachineSources(compiled.MachineSources),
+		Tools:               tools,
+		MCPServers:          mcpServers,
+		IntegrationTools:    integrationToolsFromCompiled(compiled),
+		InteractionHandlers: compiled.InteractionHandlers,
+		Skills:              compiled.Skills,
+		Subagents:           compiled.Subagents,
+		MaxSubagents:        compiled.MaxSubagents,
+		MaxDepth:            compiled.MaxDepth,
 	}
 	return contract, nil
 }
 
 func (contract RuntimeContract) DefersAnyTool() bool {
+	for _, tool := range contract.IntegrationTools {
+		if tool.Enabled && tool.Deferred {
+			return true
+		}
+	}
 	for _, tool := range contract.Tools {
 		if tool.Deferred {
 			return true
@@ -186,6 +174,9 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 	out := make([]RuntimeTool, 0, len(names))
 	for _, name := range names {
 		tool := compiled[name]
+		if toolcatalog.UsesIntegrationToolNamespace(name) {
+			continue
+		}
 		entry, builtInName := catalog.Lookup(name)
 		if err := validateRuntimeTool(name, tool, entry, builtInName); err != nil {
 			return nil, err
@@ -233,9 +224,12 @@ func validateRuntimeTool(
 	entry toolcatalog.Entry,
 	builtInName bool,
 ) error {
+	if tool.Type != "" && tool.Type != toolcatalog.ToolTypeBuiltIn && tool.Type != toolcatalog.ToolTypeCustom {
+		return fmt.Errorf("compiled tool %q has unsupported type", name)
+	}
 	if tool.Type == toolcatalog.ToolTypeCustom {
-		if toolcatalog.UsesMCPRuntimeNamespace(name) {
-			return fmt.Errorf("compiled custom tool %q uses the reserved MCP tool namespace", name)
+		if toolcatalog.UsesMCPRuntimeNamespace(name) || toolcatalog.UsesIntegrationToolNamespace(name) {
+			return fmt.Errorf("compiled custom tool %q uses a reserved integration or MCP tool namespace", name)
 		}
 		if toolcatalog.IsReservedWireToolName(name) {
 			return fmt.Errorf("compiled custom tool %q uses a reserved name", name)

@@ -73,6 +73,14 @@ func SubagentCompiledFrom(
 ) Compiled {
 	child := base
 	child.Tools = copyTools(base.Tools)
+	child.InteractionHandlers = nil
+	child.MCP = maps.Clone(base.MCP)
+	for name, tool := range child.Tools {
+		if tool.IntegrationID != uuid.Nil || toolcatalog.UsesIntegrationToolNamespace(name) ||
+			toolcatalog.IsInteractionHandlerTool(name) {
+			delete(child.Tools, name)
+		}
+	}
 	child.MaxDepth = depth.MaxDepth
 	if subagent.InstructionAppend != "" {
 		child.Instruction = strings.TrimSpace(base.Instruction) + "\n\n" + subagent.InstructionAppend

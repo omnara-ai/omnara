@@ -12,6 +12,11 @@ import { type BasicConfig, emptyBasicConfig } from './useAgentBuilderForm'
 const draft: BasicConfig = {
   ...emptyBasicConfig,
   instruction: 'Research things',
+  interactionHandlers: { chat: {} },
+  tools: [{ name: 'int__chat__read', permission: null, deferred: true }],
+  eventWebhookUrl: 'https://example.com/events',
+  eventWebhookEvents: ['model_output'],
+  eventWebhookSigningSecretId: 'sec_webhook',
   mcpServers: [
     {
       id: 'server_1',

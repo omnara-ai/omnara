@@ -89,7 +89,7 @@ func TestLiveOpenRouterChatCompletionsText(t *testing.T) {
 	}
 	if !sawBYOK || !sawNonBYOK {
 		t.Fatalf(
-			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK integrations or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
+			"live OpenRouter account/model matrix must exercise both accounting routes; check BYOK apps or refresh the hardcoded models (BYOK=%t, non-BYOK=%t)",
 			sawBYOK,
 			sawNonBYOK,
 		)

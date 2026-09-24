@@ -7,30 +7,26 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-func IntegrationInstall(ctx context.Context, install integrationstore.IntegrationInstallRecord) {
+func Integration(ctx context.Context, install integrationstore.ProjectIntegrationRecord) {
 	log.Attach(ctx, log.Fields{
-		"org.id":                                   install.OrgID,
-		"project.id":                               install.ProjectID,
-		"integration_install.id":                   install.ID,
-		"integration_install.provider":             install.Provider,
-		"integration_install.state":                string(install.State),
-		"integration_install.agent_profile_id":     install.AgentProfileID,
-		"integration_install.agent_id":             install.AgentID,
-		"integration_install.integration_kind":     install.IntegrationKind,
-		"integration_install.connection_mode":      install.ConnectionMode,
-		"integration_install.provider_tenant_id":   install.ProviderTenantID,
-		"integration_install.provider_account_ref": install.ProviderAccountRef,
-		"integration_install.installed_by_user_id": install.InstalledByUserID,
+		"org.id":                           install.OrgID,
+		"project.id":                       install.ProjectID,
+		"integration.id":                   install.ID,
+		"integration.provider":             install.Provider,
+		"integration.state":                string(install.State),
+		"integration.provider_tenant_id":   install.ProviderTenantID,
+		"integration.provider_account_ref": install.ProviderAccountRef,
+		"integration.installed_by_user_id": install.InstalledByUserID,
 	})
 }
 
 func IntegrationEvent(
 	ctx context.Context,
-	install integrationstore.IntegrationInstallRecord,
+	install integrationstore.ProjectIntegrationRecord,
 	classification string,
 	eventType string,
 ) {
-	IntegrationInstall(ctx, install)
+	Integration(ctx, install)
 	log.Attach(ctx, log.Fields{
 		"integration_event.classification": classification,
 		"integration_event.type":           eventType,

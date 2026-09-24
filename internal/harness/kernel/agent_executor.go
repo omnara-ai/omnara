@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -22,18 +22,16 @@ import (
 )
 
 type AgentExecutor struct {
-	Store                *storage.Store
-	ContextBuilder       modelcontext.Builder
-	ModelResolver        model.Resolver
-	MCP                  mcp.Client
-	MCPAuthHTTPClient    *http.Client
-	SigV4CredentialCache *sigv4.CredentialCache
-	ToolExecutor         tools.Executor
-	Now                  func() time.Time
-
-	StreamPublisher notifications.AgentStreamDeltaPublisher
-	StreamLog       *slog.Logger
-
+	Store                    *storage.Store
+	ContextBuilder           modelcontext.Builder
+	ModelResolver            model.Resolver
+	MCP                      mcp.Client
+	MCPAuthHTTPClient        *http.Client
+	SigV4CredentialCache     *sigv4.CredentialCache
+	ToolExecutor             tools.Executor
+	Now                      func() time.Time
+	StreamPublisher          notifications.AgentStreamDeltaPublisher
+	StreamLog                *slog.Logger
 	MCPInitializationBackoff func(attempt int) time.Duration
 	ModelRetryDelay          func(time.Duration) time.Duration
 }
@@ -118,7 +116,7 @@ func (e AgentExecutor) postIntegrationRuntimeError(
 	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
 		postCtx,
 		toToolTurn(input),
-		slack.AgentRequestFailureMessage,
+		integrationruntime.AgentRequestFailureMessage,
 	)
 }
 
@@ -131,7 +129,8 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 		len(input.InputIDs) == 0 ||
 		input.OpeningEventSequence <= 0 {
 		return errors.New(
-			"model work organization, project, agent, turn, runtime lock, opening inputs, and opening event sequence are required",
+			"model work organization, project, agent, turn, runtime lock, opening inputs, " +
+				"and opening event sequence are required",
 		)
 	}
 	switch input.Kind {

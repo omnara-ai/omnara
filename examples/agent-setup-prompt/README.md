@@ -41,10 +41,14 @@ and retry — don't skip ahead.
      b. "You are a research assistant. Search the web, fetch sources,
         and run code on your machine when analysis helps. Cite your
         sources."
-   - every built-in tool except create_machine and delete_machine —
-     list them from GET /tool-catalog. Include send_integration_message
-     and set_integration_target only if I chose Slack; omit both if I
-     didn't
+   - ordinary built-in tools except create_machine and delete_machine —
+     list them from GET /tool-catalog. Select list_interaction_handlers and
+     set_interaction_handler explicitly if configuring handlers manually. If I
+     chose Slack, its integration launcher below supplies these tools, namespaced read/send tools,
+     an integration-owned thread subscription and an interaction handler to agents it launches;
+     leave integration tools out of the base profile. Tell the agent to use the
+     available int__<integration-name>__post_message tool for answers and updates
+     in Slack, or reply directly in Omnara when no Slack tool is available
    - the granted model and pool
    - if a PAT was collected: create a project-owned secret from the
      temp file without reading or printing its value, delete the
@@ -60,9 +64,20 @@ and retry — don't skip ahead.
    — the conversation lives there; I can keep using it in the browser
    anytime.
 
-5. If I chose Slack: ask for an app configuration token from
-   https://api.slack.com/apps (under "Your App Configuration
-   Tokens"), call the profile's slack-setup endpoint, and open the
-   returned oauth_url in my browser for me to approve within 10
-   minutes. Once approved, tell me to open Slack and @-mention the
-   bot in any channel to start a conversation, or DM it for a persistent one-on-one agent.
+5. If I chose Slack: ask for the Slack workspace ID (T…) and an app
+   configuration token from https://api.slack.com/apps (under "Your App
+   Configuration Tokens"). Create a project integration with an immutable name
+   such as "team-chat", integration_type "slack_thread", and
+   settings.launcher {trigger: "mention", scope_kind: "workspace",
+   scope_ref: <workspace ID>, slots: [{key: "default",
+   agent_profile_id: <profile ID>}]}. Use the returned integration ID with
+   POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup, sending
+   app_name and app_configuration_token. Open the returned oauth_url in my
+   browser for me to approve before expires_at. Once approved, tell me to
+   invite the bot to a channel in that workspace and @-mention it to start a
+   conversation, or DM it for a persistent one-on-one agent.
+
+For an existing native Slack deployment, use the coordinated maintenance cutover
+at https://docs.omnara.com/self-hosting/composable-integrations-cutover before this setup.
+It preserves prior sending scopes as integration-agent context and does not create
+subscriptions or interaction handlers for old conversations.

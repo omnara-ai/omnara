@@ -193,9 +193,6 @@ func buildMessages(
 	if bundle.ContextCheckpoint != nil {
 		capacity++
 	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
 	messages := make([]chatMessage, 0, capacity)
 	if systemPrompt := modelcontext.ProjectedSystemPrompt(bundle); strings.TrimSpace(systemPrompt) != "" {
 		messages = append(messages, chatMessage{Role: chatRoleSystem, Content: systemPrompt})
@@ -226,12 +223,6 @@ func buildMessages(
 		if ok {
 			messages = append(messages, message)
 		}
-	}
-	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
-		messages = append(messages, chatMessage{
-			Role:    chatRoleSystem,
-			Content: modelcontext.IntegrationTargetsContent(bundle.IntegrationTargets),
-		})
 	}
 	if len(messages) == 0 {
 		return []chatMessage{{Role: chatRoleUser, Content: "Continue."}}, nil

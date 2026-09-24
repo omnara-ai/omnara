@@ -1,6 +1,7 @@
 import { useUpdateConfiguredModel } from '@omnara/react'
 import { type ConfiguredModel } from '@omnara/sdk'
 import { useForm } from '@tanstack/react-form'
+import { useId } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -33,6 +34,7 @@ export function EditConfiguredModelDialog({
   orgId: string
   model: ConfiguredModel
 }) {
+  const idPrefix = useId()
   const mutation = useUpdateConfiguredModel(orgId)
   const defaultValues = {
     name: model.name,
@@ -88,8 +90,9 @@ export function EditConfiguredModelDialog({
             <form.Field name="name">
               {(field) => (
                 <Field>
-                  <FieldLabel>Name</FieldLabel>
+                  <FieldLabel htmlFor={`${idPrefix}-name`}>Name</FieldLabel>
                   <Input
+                    id={`${idPrefix}-name`}
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
@@ -102,8 +105,9 @@ export function EditConfiguredModelDialog({
             <form.Field name="slug">
               {(field) => (
                 <Field>
-                  <FieldLabel>Provider model slug</FieldLabel>
+                  <FieldLabel htmlFor={`${idPrefix}-slug`}>Provider model slug</FieldLabel>
                   <Input
+                    id={`${idPrefix}-slug`}
                     value={field.state.value}
                     onChange={(event) => {
                       field.handleChange(event.target.value)
@@ -115,8 +119,9 @@ export function EditConfiguredModelDialog({
             <form.Field name="contextWindowTokens">
               {(field) => (
                 <Field>
-                  <FieldLabel>Context window</FieldLabel>
+                  <FieldLabel htmlFor={`${idPrefix}-context-window`}>Context window</FieldLabel>
                   <Input
+                    id={`${idPrefix}-context-window`}
                     type="number"
                     min="2"
                     value={field.state.value}
@@ -131,8 +136,9 @@ export function EditConfiguredModelDialog({
               <form.Field name="maxOutputTokens">
                 {(field) => (
                   <Field>
-                    <FieldLabel>Maximum output</FieldLabel>
+                    <FieldLabel htmlFor={`${idPrefix}-max-output`}>Maximum output</FieldLabel>
                     <Input
+                      id={`${idPrefix}-max-output`}
                       type="number"
                       min="1"
                       step="1"
@@ -151,8 +157,9 @@ export function EditConfiguredModelDialog({
               <form.Field name="defaultMaxOutputTokens">
                 {(field) => (
                   <Field>
-                    <FieldLabel>Default output</FieldLabel>
+                    <FieldLabel htmlFor={`${idPrefix}-default-output`}>Default output</FieldLabel>
                     <Input
+                      id={`${idPrefix}-default-output`}
                       type="number"
                       min="1"
                       step="1"

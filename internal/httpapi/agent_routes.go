@@ -9,15 +9,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
 	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/log/logent"
 	"github.com/omnara-ai/omnara/internal/machinepool"
@@ -25,7 +22,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -324,273 +320,6 @@ func (s strictOpenAPIServer) deleteAgentProfile(
 	return openapi.DeleteAgentProfile204Response{}, nil
 }
 
-func (s strictOpenAPIServer) CreateIntegrationOAuthSetup(
-	ctx context.Context,
-	request openapi.CreateIntegrationOAuthSetupRequestObject,
-) (openapi.CreateIntegrationOAuthSetupResponseObject, error) {
-	scope, err := projectScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.createIntegrationOAuthSetup(ctx, request, scope.project)
-}
-
-func (s strictOpenAPIServer) createIntegrationOAuthSetup(
-	ctx context.Context,
-	request openapi.CreateIntegrationOAuthSetupRequestObject,
-	project identitystore.ProjectRecord,
-) (openapi.CreateIntegrationOAuthSetupResponseObject, error) {
-	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
-			"integration oauth requires a configured public URL and secret encryption keys")
-	}
-	agentProfileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, request.AgentProfileID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	if request.Body == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
-	}
-	principal, _ := principalFromContext(ctx)
-	provider := integrationstore.IntegrationProviderSlack
-	if request.Body.Provider != nil {
-		provider = strings.TrimSpace(*request.Body.Provider)
-	}
-	if provider == "" {
-		provider = integrationstore.IntegrationProviderSlack
-	}
-	clientID := strings.TrimSpace(request.Body.ClientId)
-	clientSecret := strings.TrimSpace(request.Body.ClientSecret)
-	signingSecret := strings.TrimSpace(request.Body.SigningSecret)
-	if !supportedIntegrationOAuthProvider(provider) {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "unsupported integration provider")
-	}
-	if provider == integrationstore.IntegrationProviderSlack {
-		if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
-			return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
-		}
-	}
-	if clientID == "" || clientSecret == "" || signingSecret == "" {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"client_id, client_secret, and signing_secret are required",
-		)
-	}
-	profile, err := s.server.store.Execution().GetAgentProfile(ctx, project.ID, agentProfileID)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	flowID, err := uuid.NewV7()
-	if err != nil {
-		logpkg.Error(ctx, fmt.Errorf("generate integration oauth flow id: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	expiresAt := now.Add(integrationOAuthStateTTL)
-	returnTo := ""
-	if request.Body.ReturnTo != nil {
-		returnTo = *request.Body.ReturnTo
-	}
-	stateToken, err := s.server.encodeIntegrationOAuthState(ctx, integrationOAuthState{
-		FlowID:            flowID,
-		OrgID:             project.OrgID,
-		ProjectID:         project.ID,
-		AgentProfileID:    agentProfileID,
-		InstalledByUserID: principal.ID,
-		Provider:          provider,
-		ClientID:          clientID,
-		ClientSecret:      clientSecret,
-		SigningSecret:     signingSecret,
-		ExpiresAt:         expiresAt,
-		ReturnTo:          returnTo,
-	})
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("start integration oauth flow: %w", err))
-		return nil, fmt.Errorf("state generation failed")
-	}
-	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
-	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
-	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
-	installURL, err := s.server.integrationOAuthAuthorizeURL(provider, clientID, redirectURI, stateToken)
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("build integration oauth authorization URL: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
-	if err != nil {
-		logpkg.Error(ctx, err)
-		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
-	}
-	return openapi.CreateIntegrationOAuthSetup201JSONResponse(openapi.IntegrationOAuthSetup{
-		Provider:    provider,
-		FlowId:      publicFlowID,
-		OauthUrl:    installURL,
-		RedirectUri: redirectURI,
-		EventsUrl:   eventsURL,
-		ActionsUrl:  actionsURL,
-		ExpiresAt:   expiresAt,
-	}), nil
-}
-
-func (s strictOpenAPIServer) CreateSlackSetup(
-	ctx context.Context,
-	request openapi.CreateSlackSetupRequestObject,
-) (openapi.CreateSlackSetupResponseObject, error) {
-	scope, err := projectScopeFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.createSlackSetup(ctx, request, scope.project)
-}
-
-func (s strictOpenAPIServer) createSlackSetup(
-	ctx context.Context,
-	request openapi.CreateSlackSetupRequestObject,
-	project identitystore.ProjectRecord,
-) (openapi.CreateSlackSetupResponseObject, error) {
-	if s.server.publicURL == "" || s.server.secretKeyWrapper == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
-			"slack setup requires a configured public URL and secret encryption keys")
-	}
-	if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
-	}
-	agentProfileID, ok := parseOpenAPIPublicID(publicid.KindAgentProfile, request.AgentProfileID)
-	if !ok {
-		return nil, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
-	if request.Body == nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
-	}
-	principal, _ := principalFromContext(ctx)
-	appName := strings.TrimSpace(request.Body.AppName)
-	appConfigurationToken := strings.TrimSpace(request.Body.AppConfigurationToken)
-	if appName == "" || appConfigurationToken == "" {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "app_name and app_configuration_token are required")
-	}
-	if utf8.RuneCountInString(appName) > slack.AppNameMaxRunes {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "app_name must be 35 characters or fewer")
-	}
-	if strings.EqualFold(appName, "slackbot") {
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeInvalidRequest,
-			"Slack reserves this app name. Choose a different name.",
-		)
-	}
-	profile, err := s.server.store.Execution().GetAgentProfile(ctx, project.ID, agentProfileID)
-	if err != nil {
-		return nil, apierror.ProjectScoped(err)
-	}
-	if err := s.server.validateIntegrationSendSetupConfig(ctx, profile.CurrentConfig); err != nil {
-		return nil, err
-	}
-	appIcon, err := slackSetupAppIcon(*request.Body)
-	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, err.Error())
-	}
-	redirectURI := s.server.absolutePublicURL(integrationOAuthCallbackPath)
-	eventsURL := s.server.absolutePublicURL(integrationEventsPath)
-	actionsURL := s.server.absolutePublicURL(integrationActionsPath)
-	outboundCtx, cancel := context.WithTimeout(ctx, integrationOAuthTimeout)
-	defer cancel()
-	app, err := slack.CreateManifestApp(
-		outboundCtx,
-		s.server.slackOAuth,
-		appConfigurationToken,
-		slack.BuildAppManifest(appName, eventsURL, actionsURL, redirectURI),
-	)
-	if err != nil {
-		logpkg.Error(ctx, fmt.Errorf("create slack app manifest: %w", err))
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "slack app creation failed: "+err.Error())
-	}
-	iconCtx, iconCancel := context.WithTimeout(outboundCtx, 3*time.Second)
-	defer iconCancel()
-	if err := slack.SetAppIcon(iconCtx, s.server.slackOAuth, appConfigurationToken, app.AppID, appIcon); err != nil {
-		logpkg.Error(ctx, fmt.Errorf("set slack app icon: %w", err))
-	}
-	now := time.Now().UTC()
-	flowID, err := uuid.NewV7()
-	if err != nil {
-		logpkg.Error(ctx, fmt.Errorf("generate slack oauth flow id: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	expiresAt := now.Add(integrationOAuthStateTTL)
-	returnTo := ""
-	if request.Body.ReturnTo != nil {
-		returnTo = *request.Body.ReturnTo
-	}
-	stateToken, err := s.server.encodeIntegrationOAuthState(ctx, integrationOAuthState{
-		FlowID:            flowID,
-		OrgID:             project.OrgID,
-		ProjectID:         project.ID,
-		AgentProfileID:    agentProfileID,
-		InstalledByUserID: principal.ID,
-		Provider:          integrationstore.IntegrationProviderSlack,
-		ClientID:          app.ClientID,
-		ClientSecret:      app.ClientSecret,
-		SigningSecret:     app.SigningSecret,
-		BotDisplayName:    appName,
-		ExpiresAt:         expiresAt,
-		ReturnTo:          returnTo,
-	})
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("start slack oauth flow: %w", err))
-		return nil, fmt.Errorf("state generation failed")
-	}
-	installURL, err := s.server.integrationOAuthAuthorizeURL(
-		integrationstore.IntegrationProviderSlack,
-		app.ClientID,
-		redirectURI,
-		stateToken,
-	)
-	if err != nil {
-		if errors.Is(err, errIntegrationOAuthStateTooLarge) {
-			return nil, apierror.FromCode(
-				openapi.ErrorCodeInvalidRequest,
-				"request fields are too large for the oauth state parameter",
-			)
-		}
-		logpkg.Error(ctx, fmt.Errorf("build slack oauth authorization URL: %w", err))
-		return nil, fmt.Errorf("internal server error")
-	}
-	publicFlowID, err := publicID(publicid.KindIntegrationOAuthFlow, flowID)
-	if err != nil {
-		logpkg.Error(ctx, err)
-		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error")
-	}
-	return openapi.CreateSlackSetup201JSONResponse(openapi.SlackSetup{
-		Provider:    integrationstore.IntegrationProviderSlack,
-		FlowId:      publicFlowID,
-		SlackAppId:  app.AppID,
-		OauthUrl:    installURL,
-		RedirectUri: redirectURI,
-		EventsUrl:   eventsURL,
-		ActionsUrl:  actionsURL,
-		ExpiresAt:   expiresAt,
-	}), nil
-}
-
 func (s strictOpenAPIServer) GetAgent(
 	ctx context.Context,
 	request openapi.GetAgentRequestObject,
@@ -806,7 +535,7 @@ func (s strictOpenAPIServer) createAgent(
 	if request.Body.Message != nil {
 		message = *request.Body.Message
 	}
-	result, err := s.server.store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+	input := executionstore.LaunchAgentInput{
 		ProjectID:      project.ID,
 		ProfileID:      profileID,
 		AgentConfigID:  configID,
@@ -814,7 +543,25 @@ func (s strictOpenAPIServer) createAgent(
 		Name:           request.Body.Name,
 		Message:        message,
 		IdempotencyKey: idempotencyKey,
-	})
+	}
+	// Replay before resolving integration references, which may have been deleted since launch.
+	// The kernel repeats this lookup under the launch key lock before writing.
+	if replay, found, err := s.server.store.Execution().GetAgentLaunchReplay(
+		ctx, project.ID, idempotencyKey,
+	); err != nil {
+		return nil, apierror.ProjectScoped(err)
+	} else if found {
+		response, err := currentAgentEnvelope(replay)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.CreateAgent200JSONResponse(response), nil
+	}
+	input, err := s.preparePublicAgentLaunch(ctx, project, principal, *request.Body, input)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.server.store.Execution().LaunchAgent(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}

@@ -42,20 +42,13 @@ const testRouter = createRouter({
 
 const alwaysAllowProfile: ToolPermissionProfile = {
   default_permission: { mode: 'always_allow', parameters: {} },
-  permission_modes: [
-    {
-      name: 'always_allow',
-      label: 'Always allow',
-      description: 'Always allow.',
-      parameters_schema: {},
-    },
-    {
-      name: 'always_ask',
-      label: 'Always ask',
-      description: 'Always ask.',
-      parameters_schema: {},
-    },
-  ],
+  permission_modes: (
+    [
+      ['always_allow', 'Always allow'],
+      ['always_ask', 'Always ask'],
+      ['always_deny', 'Always deny'],
+    ] as const
+  ).map(([name, label]) => ({ name, label, description: label, parameters_schema: {} })),
 }
 
 const catalog: ToolCatalog = {
@@ -66,6 +59,12 @@ const catalog: ToolCatalog = {
       default_permission: alwaysAllowProfile.default_permission,
       permission_modes: alwaysAllowProfile.permission_modes,
     },
+    ...['list_interaction_handlers', 'set_interaction_handler'].map((name) => ({
+      name,
+      description: name,
+      implicit: false,
+      ...alwaysAllowProfile,
+    })),
   ],
   custom_tool_permissions: alwaysAllowProfile,
   mcp_tool_permissions: {
@@ -85,7 +84,6 @@ const includedCatalog: ToolCatalog = {
     'create_machine',
     'delete_machine',
     'skill',
-    'send_integration_message',
     'read_file',
     'search_files',
     ...subagentToolNames,
@@ -94,10 +92,7 @@ const includedCatalog: ToolCatalog = {
     description: name,
     implicit: true,
     default_permission: alwaysAllowProfile.default_permission,
-    permission_modes:
-      name === 'send_integration_message'
-        ? alwaysAllowProfile.permission_modes.slice(0, 1)
-        : alwaysAllowProfile.permission_modes,
+    permission_modes: alwaysAllowProfile.permission_modes,
   })),
 }
 
@@ -486,6 +481,7 @@ it('does not offer the Slack tool when it is absent from the source', async () =
     {
       source_format: 'json',
       source: JSON.stringify({
+        interaction_handlers: {},
         tools: { web_search: { type: 'built_in', permission: { mode: 'always_ask' } } },
         mcp: {},
         machine_sources: [],

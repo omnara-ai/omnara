@@ -44,7 +44,6 @@ export {
   useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
-  useCreateSlackSetup,
   useDeleteAgentProfile,
   useRenameAgentProfile,
   useUpdateAgentProfile,
@@ -71,12 +70,10 @@ export {
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
 export {
-  type IntegrationInstallListFilters,
-  type IntegrationInstallListOptions,
-  type IntegrationInstallListSort,
-  useDeleteIntegrationInstall,
-  useIntegrationInstalls,
-} from './domains/integration-installs'
+  useCreateIntegrationSubscription,
+  useDeleteIntegrationSubscription,
+  useIntegrationSubscriptions,
+} from './domains/integration-subscriptions'
 export {
   useAcceptInvitation,
   useDeclineInvitation,
@@ -202,6 +199,21 @@ export {
   useUpdateProjectMachinePoolGrant,
   useUpdateProjectModelGrant,
 } from './domains/project-grants'
+export {
+  useConfigureProjectIntegration,
+  useCreateProjectIntegration,
+  useCreateProjectIntegrationGitHubSetup,
+  useCreateProjectIntegrationOAuthSetup,
+  useCreateProjectIntegrationSlackSetup,
+  useDeleteProjectIntegration,
+  useDisconnectProjectIntegration,
+  useInspectProjectIntegrationGitHubInstallations,
+  useIntegrationDefinitions,
+  useProjectIntegration,
+  useProjectIntegrationOAuthCompletion,
+  useProjectIntegrations,
+  useUpdateProjectIntegration,
+} from './domains/project-integrations'
 export { useCreateProject, useProjects, useVisibleProjectsList } from './domains/projects'
 export {
   type ProjectAvailableSecretListFilters,

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 )
@@ -11,14 +12,16 @@ import (
 func (s strictOpenAPIServer) ResolveAgentConfigTools(
 	ctx context.Context, request openapi.ResolveAgentConfigToolsRequestObject,
 ) (openapi.ResolveAgentConfigToolsResponseObject, error) {
-	if _, err := projectScopeFromContext(ctx); err != nil {
+	scope, err := projectScopeFromContext(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	entries, err := agentconfig.ToolsFromSource(
-		agentconfig.SourceFormat(request.Body.SourceFormat), []byte(request.Body.Source),
+	entries, err := agentconfigcompile.ToolsFromSource(
+		ctx, s.server.store, scope.project.OrgID, scope.project.ID, s.server.agentConfigOptions,
+		agentconfig.SourceFormat(request.Body.SourceFormat), request.Body.Source,
 	)
 	if err != nil {
 		return nil, agentConfigCompileError(err)
