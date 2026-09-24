@@ -141,16 +141,17 @@ Select `interaction_handlers: {support: {}}` in an agent config to expose the
 handler. For manual configs, also select `list_interaction_handlers` and
 `set_interaction_handler` under `tools` to let the model choose a destination.
 The Discord launcher adds the handler and both tools automatically, preserving explicit settings.
-The model chooses it with `set_interaction_handler`, supplying a complete
-`channel_id` and optional `thread_id` and `guild_id` in `args`. Sending context does
-not restrict this selection. Incoming provider input automatically selects the
-full origin address, including on launch. Questions remain answerable in the dashboard if Discord
+The handler uses the thread assigned when the integration launches the agent.
+Select it with `{"handler":"support","args":{}}`; the model does not supply
+channel, thread or server IDs. The list tool shows the assigned destination. Adding
+a handler to a manual config does not create an assignment. Incoming messages from
+the assigned thread select the handler automatically, including on launch. Questions remain answerable in the dashboard if Discord
 presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration. A bot used only for messages with one
 profile can omit the public key.
 
-Discord interaction notifications run independently of the waiting agent. Queued
-notifications survive a busy worker queue or a restart before delivery starts.
+Discord interaction notifications run independently of the waiting agent. Delivery is
+best effort: a full worker queue or restart can lose the external notification.
 Omnara retries only safe failures, with a bounded retry budget. If delivery may
 have succeeded, it does not automatically post another copy; a crash during
 sending can leave a prompt missing or unconfirmed. The interaction remains

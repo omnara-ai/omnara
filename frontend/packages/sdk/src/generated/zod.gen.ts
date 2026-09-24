@@ -3028,7 +3028,6 @@ export const zAgentInteractionDestination = z.object({
     integration_type: zIntegrationType,
     handler_key: z.string(),
     integration_id: zProjectIntegrationId,
-    args: z.record(z.string(), z.unknown()),
     integration_target_id: zIntegrationTargetId,
     address: zIntegrationConversationAddress
 });

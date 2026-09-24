@@ -14,7 +14,7 @@ import (
 )
 
 const clearDeletedIntegrationTargetsFromAgents = `-- name: ClearDeletedIntegrationTargetsFromAgents :exec
-UPDATE agents agent SET integration_target_id = NULL, interaction_handler_key = NULL, interaction_handler_args = NULL, updated_at = statement_timestamp()
+UPDATE agents agent SET integration_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
 WHERE agent.project_id = $1
   AND agent.integration_target_id IN (
     SELECT target.id FROM integration_targets target

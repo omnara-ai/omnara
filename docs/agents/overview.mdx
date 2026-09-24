@@ -52,7 +52,7 @@ The separate `subscriptions` array attaches integration-owned conversations to t
 agent, using `integration_id` and `conversation`. The integration determines which
 activity is forwarded. Subscriptions alone leave the pinned config unchanged. Ordinary API attachments do not establish
 sending context. The shipped integration tools require context assigned by a provider or
-scheduled launch. Handler selection independently takes a complete destination.
+scheduled launch. Their interaction handlers use that same assigned conversation.
 Adding tools, handlers or subscriptions requires project management permission; operating an existing
 config requires only agent operate permission.
 

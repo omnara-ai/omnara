@@ -4215,7 +4215,7 @@ func createInteractionForAgent(
 			_, err := store.Execution().ExecuteToolCall(ctx, executionstore.ExecuteToolCallInput{
 				ProjectID: project.ProjectUUID, AgentID: agentID, ToolCallID: record.ID, RuntimeLockID: runtime.ID,
 			}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-				return executionstore.SetInteractionHandlerForToolCall(executionstore.InteractionSelection{
+				return executionstore.SetInteractionHandlerForToolCall(executionstore.SelectInteractionHandlerInput{
 					HandlerKey: selection.Handler, Args: selection.Args,
 				}, executionstore.ToolCallCompletionInput{
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,

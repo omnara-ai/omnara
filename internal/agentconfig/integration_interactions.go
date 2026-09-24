@@ -19,9 +19,10 @@ type HandlerSelection struct {
 	Destination   integrationdefinition.Scope `json:"destination"`
 }
 type InteractionHandlerEntry struct {
-	Handler     string          `json:"handler"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Destination integrationdefinition.Scope `json:"destination"`
+	Handler     string                      `json:"handler"`
+	Description string                      `json:"description"`
+	InputSchema json.RawMessage             `json:"input_schema"`
 }
 type InteractionHandlerPage struct {
 	Handlers   []InteractionHandlerEntry `json:"handlers"`
@@ -30,7 +31,7 @@ type InteractionHandlerPage struct {
 }
 
 func ListInteractionHandlers(
-	handlers map[string]PreparedIntegrationInteractionHandler,
+	handlers map[string]InteractionHandlerEntry,
 	selection *HandlerSelection,
 	cursor string,
 	limit int,
@@ -56,10 +57,8 @@ func ListInteractionHandlers(
 			continue
 		}
 		handler := handlers[key]
-		page.Handlers = append(
-			page.Handlers,
-			InteractionHandlerEntry{Handler: key, Description: handler.Description, InputSchema: handler.InputSchema},
-		)
+		handler.Handler = key
+		page.Handlers = append(page.Handlers, handler)
 		if len(page.Handlers) == limit {
 			if index+1 < len(keys) {
 				page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(key))

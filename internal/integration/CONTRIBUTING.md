@@ -92,12 +92,18 @@ Launch attachments commit with the agent and initial input. Deleting a subscript
 stops forwarding but retains selection history, so the next comment cannot launch
 a replacement for a stopped conversation.
 
-Interaction destinations are independent of sending context. Accepted input
-origins can select a handler; the model can change it. Each question or approval
+The shipped interaction handlers resolve the assigned conversation from integration
+state and accept empty arguments. Shared storage looks up its existing target;
+selection does not create targets or grants. Accepted eligible input
+origins select a handler; an ineligible origin clears the selection, while an input
+without an origin preserves it. The model can change the selection. Each question or approval
 captures its destination. Callback owner IDs only route the request: verify that
 owner's signature, live setup and captured conversation before resolving it.
 Presentation failures leave the interaction available through the dashboard/API.
-Presentation claims are one-shot, so a crash can lose the external notification.
+Notifications use the nonblocking background runner after creation commits, with
+bounded in-memory retries. A full queue or restart can lose the external notification;
+there is no durable presentation queue. Confirmed receipts support callbacks and
+dismissal, including sends that finish after cancellation.
 
 Use `executionstore.IntegrationActorParams` for sender attribution. Actors use `integration` and
 the saved integration's public ID, without a foreign key that would erase history on

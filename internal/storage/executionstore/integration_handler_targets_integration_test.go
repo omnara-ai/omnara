@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -22,7 +21,7 @@ import (
 func handlerSelectionPlan(key, args string) executionstore.ToolCallPlan {
 	return func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 		return executionstore.SetInteractionHandlerForToolCall(
-			executionstore.InteractionSelection{HandlerKey: key, Args: json.RawMessage(args)},
+			executionstore.SelectInteractionHandlerInput{HandlerKey: key, Args: json.RawMessage(args)},
 			executionstore.ToolCallCompletionInput{
 				Outcome:            executionstore.ToolResultOutcomeSucceeded,
 				ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
@@ -48,56 +47,76 @@ func (f integrationInteractionFixture) selectionCall(t *testing.T) executionstor
 	}
 }
 
-func TestIntegrationHandlerSelectionCreatesAndReusesTargets(t *testing.T) {
+func TestIntegrationHandlerSelectionRequiresAssignedTarget(t *testing.T) {
 	t.Parallel()
-	f := newIntegrationInteractionFixture(t)
-	config, err := f.store.Execution().
-		CreateAgentConfig(f.ctx, f.definition(t, "handler without catalog", f.handlers))
-	require.NoError(t, err)
-	launch, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
-		ProjectID:      testProjectID,
-		AgentConfigID:  config.ID,
-		LaunchedBy:     userPrincipal(f.user.ID),
-		IdempotencyKey: "handler",
-	})
-	require.NoError(t, err)
-	var count int
-	require.NoError(
-		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, launch.Agent.ID).
-			Scan(&count),
-	)
-	require.Zero(t, count, "config save and activation create no handler targets")
-	lock, err := f.store.Execution().
-		AcquireAgentRuntimeLock(f.ctx, testProjectID, launch.Agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
-	require.NoError(t, err)
-	f.process = processDaemonFixture{
-		Store:   f.store,
-		AgentID: launch.Agent.ID,
-		UserID:  f.user.ID,
-		Lock:    lock,
+	for _, test := range []string{"assigned", "unassigned", "invalid-state", "invalid-address", "missing-target"} {
+		t.Run(test, func(t *testing.T) {
+			t.Parallel()
+			f := newIntegrationInteractionFixture(t)
+			switch test {
+			case "unassigned":
+				_, err := f.store.pool.Exec(
+					f.ctx,
+					`DELETE FROM integration_states WHERE integration_id=$1 AND kind='agent_conversation'`,
+					f.integration.ID,
+				)
+				require.NoError(t, err)
+			case "invalid-state", "invalid-address":
+				data := `{"unexpected":true}`
+				if test == "invalid-address" {
+					data = `{"kind":"thread","ref":"invalid"}`
+				}
+				_, err := f.store.pool.Exec(
+					f.ctx,
+					`UPDATE integration_states SET data=$2 WHERE integration_id=$1 AND kind='agent_conversation'`,
+					f.integration.ID,
+					data,
+				)
+				require.NoError(t, err)
+			case "missing-target":
+				_, err := f.store.pool.Exec(
+					f.ctx,
+					`UPDATE integration_targets SET deleted_at=now() WHERE id=$1`,
+					f.a.ID,
+				)
+				require.NoError(t, err)
+			}
+			var before, after int
+			require.NoError(
+				t,
+				f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, f.process.AgentID).
+					Scan(&before),
+			)
+			if test != "assigned" && test != "missing-target" {
+				require.Equal(t, executionstore.InteractionSelection{}, f.selectOrigin(t, f.a.ID))
+			}
+			call := f.selectionCall(t)
+			for attempt := range 2 {
+				if attempt > 0 && test == "assigned" {
+					call = f.selectionCall(t)
+				}
+				_, err := f.store.Execution().ExecuteToolCall(f.ctx, call, handlerSelectionPlan("chat", `{}`))
+				if test == "assigned" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+				}
+			}
+			require.NoError(
+				t,
+				f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, f.process.AgentID).
+					Scan(&after),
+			)
+			require.Equal(t, before, after)
+			selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			if test == "assigned" {
+				require.Equal(t, f.a.ID, selected.IntegrationTargetID)
+			} else {
+				require.Equal(t, executionstore.InteractionSelection{}, selected)
+			}
+		})
 	}
-	for range 2 {
-		_, err = f.store.Execution().
-			ExecuteToolCall(f.ctx, f.selectionCall(t),
-				handlerSelectionPlan("chat", `{"channel_id":"C777","thread_ts":"111.222"}`))
-		require.NoError(t, err)
-	}
-	require.NoError(
-		t,
-		f.store.pool.QueryRow(f.ctx, `SELECT count(*) FROM integration_targets WHERE agent_id=$1`, launch.Agent.ID).
-			Scan(&count),
-	)
-	require.Equal(t, 1, count, "selection creates and reuses canonical attribution")
-	f.disable(t)
-	replay, err := f.store.Execution().LaunchAgent(f.ctx, executionstore.LaunchAgentInput{
-		ProjectID:      testProjectID,
-		AgentConfigID:  config.ID,
-		LaunchedBy:     userPrincipal(f.user.ID),
-		IdempotencyKey: "handler",
-	})
-	require.NoError(t, err)
-	require.False(t, replay.Created)
 }
 
 func TestIntegrationHandlerActivationClearsRevokedSelectionAndPreservesCapture(t *testing.T) {
@@ -114,31 +133,6 @@ func TestIntegrationHandlerActivationClearsRevokedSelectionAndPreservesCapture(t
 	require.JSONEq(t, string(prompt.Destination), string(f.read(t, prompt.ID).Destination))
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
 	require.NoError(t, err, "revocation preserves attribution/history")
-}
-
-func TestIntegrationHandlerSelectionConversationGatePrecedesAgentLock(t *testing.T) {
-	t.Parallel()
-	f := newIntegrationInteractionFixture(t)
-	input := f.selectionCall(t)
-	blocker := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(t, integrationstore.LockConversationTx(f.ctx, blocker, testProjectID, f.integration.ID,
-		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:555.666"}))
-	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
-		return f.store.Execution().
-			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"555.666"}`))
-	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationConversation", 1)
-	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
-	defer cancel()
-	_, err := dbsqlc.New(blocker).
-		LockAgentInProject(lockCtx, dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: f.process.AgentID})
-	require.NoError(t, err, "selection must not hold the agent while waiting for a conversation")
-	require.NoError(t, blocker.Commit(f.ctx))
-	integrationdb.AwaitSuccess(t, done, "handler selection")
-	selection, err := f.store.Execution().
-		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
-	require.NoError(t, err)
-	require.NotEqual(t, f.a.ID, selection.IntegrationTargetID)
 }
 
 func TestIntegrationHandlerPendingSelectionCannotAcquireChangedAuthority(t *testing.T) {
@@ -170,7 +164,7 @@ func TestIntegrationHandlerPendingSelectionCannotAcquireChangedAuthority(t *test
 			require.NoError(t, err)
 			done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 				return f.store.Execution().
-					ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"111.222"}`))
+					ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{}`))
 			})
 			integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
 			_, err = activation.Exec(
@@ -219,7 +213,7 @@ func TestIntegrationHandlerSelectionIntegrationGatePrecedesAgentLock(t *testing.
 	)
 	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
 		return f.store.Execution().
-			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{"channel_id":"C123","thread_ts":"555.666"}`))
+			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", `{}`))
 	})
 	integrationdb.WaitForNamedLockWaiters(
 		t,
@@ -257,7 +251,7 @@ func TestIntegrationHandlerSelectionValidatesArgsWithoutMutation(t *testing.T) {
 	initial := f.selectOrigin(t, f.a.ID)
 	input := f.selectionCall(t)
 	for _, args := range []string{
-		`{}`, `{"channel_id":"C123","thread_ts":"invalid"}`, `{"integration_id":"replacement"}`, `{"extra":true}`, `null`, `[]`,
+		`{"channel_id":"C123","thread_ts":"111.222"}`, `{"channel_id":"C123","thread_ts":"invalid"}`, `{"integration_id":"replacement"}`, `{"extra":true}`, `null`, `[]`,
 	} {
 		_, err := f.store.Execution().
 			ExecuteToolCall(f.ctx, input, handlerSelectionPlan("chat", args))

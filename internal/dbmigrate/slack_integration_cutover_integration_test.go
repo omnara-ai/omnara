@@ -389,7 +389,7 @@ tools:
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object(
 				 'agents',(SELECT jsonb_agg(to_jsonb(a)-'current_config_id'-'next_event_sequence'
                  -'integration_target_id'-'updated_at'
-                 -'interaction_handler_key'-'interaction_handler_args' ORDER BY a.id) FROM agents a),
+                 -'interaction_handler_key' ORDER BY a.id) FROM agents a),
 				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'integration_id'
                   -'selection_slot'-'target_ref')
                   || jsonb_build_object('integration_id',
@@ -875,7 +875,7 @@ tools:
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT count(*) FROM agents WHERE integration_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL OR interaction_handler_args IS NOT NULL`,
+					`SELECT count(*) FROM agents WHERE integration_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL`,
 				).
 					Scan(
 						&pointers,
@@ -1089,7 +1089,7 @@ func assertSlackCutoverInputGuards(
         VALUES($1,$2,'received','content','queued',$3,now())`, projectID, otherAgentID, targetID)
 	require.ErrorContains(t, err, "agent_inputs_project_id_agent_id_integration_target_id_fkey")
 	_, err = db.ExecContext(ctx,
-		`UPDATE agents SET integration_target_id=$2,interaction_handler_key='int__slack__default',interaction_handler_args='{}'
+		`UPDATE agents SET integration_target_id=$2,interaction_handler_key='int__slack__default'
         WHERE id=$1`, otherAgentID, targetID)
 	require.ErrorContains(t, err, "agents_project_id_id_integration_target_id_fkey")
 	_, err = db.ExecContext(ctx,

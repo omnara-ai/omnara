@@ -48,7 +48,7 @@ func TestBuiltInToolImplementationRegistryMatchesCatalog(t *testing.T) {
 	)
 	add(
 		[]string{"ask_question"},
-		expectedTopology{transactional: true},
+		expectedTopology{transactional: true, background: true},
 	)
 	add(
 		[]string{"read_agent", "send_agent_message", "list_agents", "tool_search"},

@@ -51,7 +51,7 @@ type capturedHTTPFixture struct {
 }
 
 type capturedHTTPFixtureOptions struct {
-	handlerArgs      map[string]any
+	slackDM          bool
 	prepareOnly      bool
 	providerOverride func(http.ResponseWriter, *http.Request) bool
 }
@@ -84,6 +84,10 @@ func newCapturedHTTPFixtureWithDismiss(
 	if len(options) != 0 {
 		opts = options[0]
 	}
+	slackChannel, slackThread := "C123", "111.222"
+	if opts.slackDM {
+		slackChannel, slackThread = "D123", ""
+	}
 	dismissed := make(chan struct{}, 8)
 	prompts := make(chan map[string]any, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -101,8 +105,14 @@ func newCapturedHTTPFixtureWithDismiss(
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
+			assert.Equal(t, slackChannel, payload["channel"])
+			if slackThread == "" {
+				assert.Empty(t, payload["thread_ts"])
+			} else {
+				assert.Equal(t, slackThread, payload["thread_ts"])
+			}
 			prompts <- payload
-			writeJSON(w, 200, map[string]any{"ok": true, "channel": "C123", "ts": "222.333"})
+			writeJSON(w, 200, map[string]any{"ok": true, "channel": slackChannel, "ts": "222.333"})
 		case "/api/chat.update":
 			if dismiss != nil {
 				dismiss(w, r)
@@ -115,9 +125,9 @@ func newCapturedHTTPFixtureWithDismiss(
 			writeJSON(w, 200, map[string]any{"id": "200", "bot": true})
 		case "/api/v10/applications/@me":
 			writeJSON(w, 200, map[string]any{"id": "100"})
-		case "/api/v10/channels/300":
-			writeJSON(w, 200, map[string]any{"id": "300", "guild_id": "500", "type": 0})
-		case "/api/v10/channels/300/messages", "/api/v10/channels/300/messages/400":
+		case "/api/v10/channels/301":
+			writeJSON(w, 200, map[string]any{"id": "301", "parent_id": "300", "guild_id": "500", "type": 11})
+		case "/api/v10/channels/301/messages", "/api/v10/channels/301/messages/400":
 			var payload map[string]any
 			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
 				http.Error(w, "invalid request", http.StatusBadRequest)
@@ -131,7 +141,8 @@ func newCapturedHTTPFixtureWithDismiss(
 				200,
 				map[string]any{
 					"id":         "400",
-					"channel_id": "300",
+					"channel_id": "301",
+					"guild_id":   "500",
 					"author":     map[string]any{"id": "200"},
 					"nonce":      payload["nonce"],
 				},
@@ -155,7 +166,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	material := secrets.Material(secrets.GenericMaterial{Value: "test-bot-token"})
-	tenant, account, ref := "100", "200", "300"
+	tenant, account, ref := "100", "200", "300:301"
 	config := json.RawMessage(`{"public_key":"` + hex.EncodeToString(publicKey) + `"}`)
 	identity := json.RawMessage(`{}`)
 	if provider == "slack" {
@@ -165,7 +176,10 @@ func newCapturedHTTPFixtureWithDismiss(
 			ClientSecret:  "client-secret",
 			SigningSecret: "signing-secret",
 		}
-		tenant, account, ref, config = "T123", "A123", "C123", json.RawMessage(`{}`)
+		tenant, account, ref, config = "T123", "A123", slackChannel, json.RawMessage(`{}`)
+		if slackThread != "" {
+			ref += ":" + slackThread
+		}
 		identity = json.RawMessage(`{"bot_user_id":"U_BOT"}`)
 	}
 	secret, _, err := project.Store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
@@ -254,21 +268,30 @@ func newCapturedHTTPFixtureWithDismiss(
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	address := integrationstore.ConversationAddress{Kind: "channel", Ref: ref}
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: ref}
+	if provider == "slack" && opts.slackDM {
+		address.Kind = "dm"
+	}
 	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, project.ProjectUUID, nil, integration.ID))
 	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, integration.ID, address))
 	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agentUUID)
 	require.NoError(t, err)
+	require.NoError(t, project.Store.Integrations().AssignAgentIntegrationConversationTx(
+		ctx, tx, project.ProjectUUID, agentUUID, integration.ID, address,
+	))
 	origin, err := project.Store.Integrations().
 		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 			ProjectID: project.ProjectUUID, AgentID: agentUUID, IntegrationID: integration.ID,
 			Address: address,
 		})
 	require.NoError(t, err)
-	_, err = project.Store.Execution().SelectInteractionDestinationForOriginTx(
+	selection, err := project.Store.Execution().SelectInteractionDestinationForOriginTx(
 		ctx, tx, project.ProjectUUID, agentUUID, origin.ID,
 	)
 	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{
+		HandlerKey: "support", IntegrationTargetID: origin.ID,
+	}, selection)
 	require.NoError(t, tx.Commit(ctx))
 	requestJSONWithHeaders(
 		t,
@@ -282,17 +305,6 @@ func newCapturedHTTPFixtureWithDismiss(
 		201,
 		authHeaders(project.AdminToken),
 	)
-	var selectionCalls []model.ToolCall
-	if opts.handlerArgs != nil {
-		args := map[string]any{"channel_id": ref}
-		for key, value := range opts.handlerArgs {
-			args[key] = value
-		}
-		selectionCalls = append(selectionCalls, model.ToolCall{
-			ID: "call_select_handler", Name: toolcatalog.ToolNameSetInteractionHandler,
-			Input: json.RawMessage(projectIntegrationHTTPJSON(t, map[string]any{"handler": "support", "args": args})),
-		})
-	}
 	record := createInteractionForAgent(
 		t,
 		ctx,
@@ -301,8 +313,17 @@ func newCapturedHTTPFixtureWithDismiss(
 		mustPublicHTTPID(t, publicid.KindAgent, agentID),
 		"captured",
 		kind,
-		selectionCalls...,
+		model.ToolCall{
+			ID: "call_select_handler", Name: toolcatalog.ToolNameSetInteractionHandler,
+			Input: json.RawMessage(`{"handler":"support","args":{}}`),
+		},
 	)
+	destination, err := record.CapturedDestination()
+	require.NoError(t, err)
+	require.Equal(t, &executionstore.InteractionDestination{
+		IntegrationType: integrationType, HandlerKey: "support", IntegrationID: integration.ID,
+		IntegrationTargetID: origin.ID, Address: address,
+	}, destination)
 	presenter := integrationruntime.InteractionPresenter{Store: project.Store, HTTPClient: client}
 	if !opts.prepareOnly {
 		require.NoError(t, presenter.Present(ctx, project.ProjectUUID, record.AgentID, record.ID))
@@ -328,9 +349,9 @@ func (f capturedHTTPFixture) discordRequest(
 		discord.CustomID{InteractionID: testPublicID(t, publicid.KindAgentInteraction, f.record.ID), Action: action},
 	)
 	require.NoError(t, err)
-	channel := "300"
+	channel := "301"
 	if wrongSurface {
-		channel = "301"
+		channel = "302"
 	}
 	kind := 3
 	data := map[string]any{"custom_id": id}
@@ -404,12 +425,12 @@ func (f capturedHTTPFixture) slackRequest(
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal([]byte(values.Get("payload")), &payload))
-	channel := "C123"
+	channel, thread, _ := strings.Cut(destination.Address.Ref, ":")
 	if wrongSurface {
 		channel = "C_OTHER"
 	}
 	payload["channel"] = map[string]any{"id": channel}
-	payload["message"] = map[string]any{"ts": "222.333"}
+	payload["message"] = map[string]any{"ts": "222.333", "thread_ts": thread}
 	for _, change := range changes {
 		change(payload)
 	}
@@ -524,7 +545,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 				_, err = f.pool.Exec(
 					t.Context(),
-					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE id=$1",
+					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL WHERE id=$1",
 					f.record.AgentID,
 				)
 				require.NoError(t, err)
@@ -542,6 +563,8 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.Equal(t, executionstore.AgentInteractionStateResolved, current.State)
 				require.NotEqual(t, uuid.Nil, current.ResolvedByInputID)
 				require.Equal(t, f.record.Request, current.Request)
+				require.JSONEq(t, string(f.record.Destination), string(current.Destination))
+				require.JSONEq(t, string(f.record.PresentationReceipt), string(current.PresentationReceipt))
 				form, err := current.Form()
 				require.NoError(t, err)
 				resolution, err := interactionform.ParseResolution(form, current.Resolution)
@@ -617,43 +640,84 @@ func TestCapturedDiscordModalTextAndReplay(t *testing.T) {
 
 func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 	for _, provider := range []string{"slack", "discord"} {
-		t.Run(provider, func(t *testing.T) {
-			f := newCapturedHTTPFixture(t, provider, "question")
-			_, err := f.project.Store.Integrations().DisconnectProjectIntegration(
-				t.Context(), integrationstore.DisconnectProjectIntegrationInput{
-					ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
-					ExpectedSetupRevision: &f.integration.SetupRevision,
-				},
-			)
-			require.NoError(t, err)
-			if provider == "slack" {
-				f.callbackStatus = http.StatusForbidden
-				f.slackRequest(t, false)
-			} else {
-				f.callbackStatus = http.StatusForbidden
-				f.discordRequest(t, "c0", false, false)
-			}
-			path := f.project.ProjectPath + "/agents/" + testPublicID(
-				t,
-				publicid.KindAgent,
-				f.record.AgentID,
-			) + "/interactions/" + testPublicID(
-				t,
-				publicid.KindAgentInteraction,
-				f.record.ID,
-			) + "/resolve"
-			response := requestJSONWithHeaders(
-				t,
-				f.handler,
-				http.MethodPost,
-				path,
-				`{"answers":[{"option_indices":[0]}]}`,
-				"",
-				200,
-				f.project.adminBrowserAuthHeaders(),
-			)
-			require.Equal(t, "resolved", response["state"])
-		})
+		for _, revoked := range []string{"integration", "assignment", "target"} {
+			t.Run(provider+"/"+revoked, func(t *testing.T) {
+				f := newCapturedHTTPFixture(t, provider, "question")
+				switch revoked {
+				case "integration":
+					_, err := f.project.Store.Integrations().DisconnectProjectIntegration(
+						t.Context(), integrationstore.DisconnectProjectIntegrationInput{
+							ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
+							ExpectedSetupRevision: &f.integration.SetupRevision,
+						},
+					)
+					require.NoError(t, err)
+					f.callbackStatus = http.StatusForbidden
+				case "assignment":
+					changed, err := f.pool.Exec(t.Context(), `DELETE FROM integration_states
+					WHERE project_id=$1 AND integration_id=$2 AND kind='agent_conversation' AND key=$3`,
+						f.project.ProjectUUID, f.integration.ID, f.record.AgentID.String())
+					require.NoError(t, err)
+					require.EqualValues(t, 1, changed.RowsAffected())
+					var targets int
+					require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM integration_targets
+					WHERE project_id=$1 AND agent_id=$2 AND integration_id=$3 AND deleted_at IS NULL`,
+						f.project.ProjectUUID, f.record.AgentID, f.integration.ID).Scan(&targets))
+					require.Equal(t, 1, targets, "target history survives removal of the agent assignment")
+				case "target":
+					destination, err := f.record.CapturedDestination()
+					require.NoError(t, err)
+					changed, err := f.pool.Exec(t.Context(),
+						`UPDATE integration_targets SET deleted_at=now() WHERE id=$1`,
+						destination.IntegrationTargetID)
+					require.NoError(t, err)
+					require.EqualValues(t, 1, changed.RowsAffected())
+				}
+				selected, err := f.project.Store.Execution().GetSelectedInteractionDestination(
+					t.Context(), f.project.ProjectUUID, f.record.AgentID)
+				require.NoError(t, err)
+				require.Nil(t, selected)
+				if provider == "slack" {
+					response := f.slackRequest(t, false)
+					if revoked != "integration" {
+						require.Equal(t, "ignored", response["ok"])
+					}
+				} else {
+					response := f.discordRequest(t, "c0", false, false)
+					if revoked != "integration" {
+						require.Equal(t, float64(4), response["type"])
+					}
+				}
+				current, found, err := f.project.Store.Execution().GetAgentInteraction(
+					t.Context(), f.project.ProjectUUID, f.record.AgentID, f.record.ID)
+				require.NoError(t, err)
+				require.True(t, found)
+				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+				require.Equal(t, uuid.Nil, current.ResolvedByInputID)
+				require.JSONEq(t, string(f.record.Destination), string(current.Destination))
+				require.JSONEq(t, string(f.record.PresentationReceipt), string(current.PresentationReceipt))
+				path := f.project.ProjectPath + "/agents/" + testPublicID(
+					t,
+					publicid.KindAgent,
+					f.record.AgentID,
+				) + "/interactions/" + testPublicID(
+					t,
+					publicid.KindAgentInteraction,
+					f.record.ID,
+				) + "/resolve"
+				response := requestJSONWithHeaders(
+					t,
+					f.handler,
+					http.MethodPost,
+					path,
+					`{"answers":[{"option_indices":[0]}]}`,
+					"",
+					200,
+					f.project.adminBrowserAuthHeaders(),
+				)
+				require.Equal(t, "resolved", response["state"])
+			})
+		}
 	}
 }
 
@@ -705,9 +769,26 @@ func TestSlackActionsQuestionSubmissionRequiresAnswer(t *testing.T) {
 	require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 }
 
-func TestCapturedSlackRootPromptRemainsValidAfterThreadReply(t *testing.T) {
+func TestCapturedSlackCallbackRequiresAssignedThread(t *testing.T) {
 	t.Parallel()
 	f := newCapturedHTTPFixture(t, "slack", "question")
+	for _, thread := range []string{"", "222.333", "999.888"} {
+		wrong := f.slackRequest(t, false, func(payload map[string]any) {
+			payload["message"] = map[string]any{"ts": "222.333", "thread_ts": thread}
+		})
+		require.Equal(t, "ignored", wrong["ok"])
+		current, found, err := f.project.Store.Execution().
+			GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+	}
+	require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
+}
+
+func TestCapturedSlackDMRootPromptRemainsValidAfterThreadReply(t *testing.T) {
+	t.Parallel()
+	f := newCapturedHTTPFixtureWithDismiss(t, "slack", "question", nil, capturedHTTPFixtureOptions{slackDM: true})
 	wrong := f.slackRequest(t, false, func(payload map[string]any) {
 		payload["message"] = map[string]any{"ts": "222.333", "thread_ts": "111.222"}
 	})
@@ -834,7 +915,6 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
 				require.Equal(t, map[string]any{
 					"integration_type":      string(f.integration.IntegrationType),
-					"args":                  map[string]any{"channel_id": destination.Address.Ref},
 					"handler_key":           "support",
 					"integration_id":        testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
 					"integration_target_id": testPublicID(t, publicid.KindIntegrationTarget, destination.IntegrationTargetID),
@@ -985,55 +1065,184 @@ func (f capturedHTTPFixture) runtimeLockID(t *testing.T) uuid.UUID {
 	return id
 }
 
-func TestCapturedDiscordGuildGuardsPromptAndRuntimeMessage(t *testing.T) {
+func TestCapturedDiscordThreadGuardsPromptAndRuntimeMessage(t *testing.T) {
 	for _, operation := range []string{"prompt", "runtime"} {
-		t.Run(operation, func(t *testing.T) {
+		for _, resource := range []struct {
+			name, parent, guild string
+			kind                int
+		}{
+			{"wrong_parent", "999", "500", 11},
+			{"not_a_thread", "300", "500", 0},
+			{"missing_guild", "300", "", 11},
+		} {
+			t.Run(operation+"/"+resource.name, func(t *testing.T) {
+				var sends atomic.Int32
+				f := newCapturedHTTPFixtureWithDismiss(t, "discord", "question", nil, capturedHTTPFixtureOptions{
+					prepareOnly: true,
+					providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
+						if r.URL.Path == "/api/v10/channels/301" {
+							writeJSON(w, http.StatusOK, map[string]any{
+								"id": "301", "parent_id": resource.parent,
+								"guild_id": resource.guild, "type": resource.kind,
+							})
+							return true
+						}
+						if r.Method == http.MethodPost {
+							sends.Add(1)
+						}
+						return false
+					},
+				})
+				p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+				var err error
+				if operation == "prompt" {
+					err = p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
+				} else {
+					err = p.PostRuntimeMessage(t.Context(), f.integration.ProjectID,
+						f.record.AgentID, f.runtimeLockID(t), "status")
+				}
+				var providerErr *discord.APIError
+				require.ErrorAs(t, err, &providerErr)
+				require.Equal(t, discord.ScopeMismatch, providerErr.Code)
+				require.Zero(t, sends.Load(), "the assigned thread resource must be verified before any provider send")
+				current, found, err := f.project.Store.Execution().
+					GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
+				require.NoError(t, err)
+				require.True(t, found)
+				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+				require.Empty(t, current.PresentationReceipt)
+			})
+		}
+	}
+}
+
+func TestCapturedDiscordPresentationRejectsInvalidReceipt(t *testing.T) {
+	for _, field := range []string{"guild_id", "channel_id", "author", "nonce"} {
+		t.Run(field, func(t *testing.T) {
 			var sends atomic.Int32
 			f := newCapturedHTTPFixtureWithDismiss(t, "discord", "question", nil, capturedHTTPFixtureOptions{
-				handlerArgs: map[string]any{"guild_id": "500"}, prepareOnly: true,
+				prepareOnly: true,
 				providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
-					if r.URL.Path == "/api/v10/channels/300" {
-						writeJSON(w, http.StatusOK, map[string]any{"id": "300", "guild_id": "999", "type": 0})
+					if r.Method != http.MethodPost || r.URL.Path != "/api/v10/channels/301/messages" {
+						return false
+					}
+					var payload map[string]any
+					if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
+						w.WriteHeader(http.StatusBadRequest)
 						return true
 					}
-					if r.Method == http.MethodPost {
-						sends.Add(1)
+					sends.Add(1)
+					message := map[string]any{
+						"id": "400", "channel_id": "301", "guild_id": "500",
+						"author": map[string]any{"id": "200"}, "nonce": payload["nonce"],
 					}
-					return false
+					message[field] = "999"
+					if field == "author" {
+						message[field] = map[string]any{"id": "201"}
+					}
+					writeJSON(w, http.StatusOK, message)
+					return true
 				},
 			})
 			p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
-			var err error
-			if operation == "prompt" {
-				err = p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
-			} else {
-				err = p.PostRuntimeMessage(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
-			}
+			err := p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 			var providerErr *discord.APIError
 			require.ErrorAs(t, err, &providerErr)
-			require.Equal(t, discord.ScopeMismatch, providerErr.Code)
-			require.Zero(t, sends.Load(), "explicit guild must be checked before any provider send")
+			require.Equal(t, discord.DeliveryUnknown, providerErr.Code)
+			require.EqualValues(t, 1, sends.Load(), "an unverified send must not be repeated")
 			current, found, err := f.project.Store.Execution().
 				GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 			require.Empty(t, current.PresentationReceipt)
+			require.Equal(t, float64(4), f.discordRequest(t, "c0", false, false)["type"])
 		})
 	}
 }
 
-func TestCapturedDiscordCallbackRequiresCapturedGuild(t *testing.T) {
-	f := newCapturedHTTPFixtureWithDismiss(t, "discord", "permission", nil,
-		capturedHTTPFixtureOptions{handlerArgs: map[string]any{"guild_id": "500"}})
-	for _, guild := range []string{"999", ""} {
-		for _, action := range []string{"c0", "t1"} {
-			response := f.discordRequest(t, action, false, false, func(body map[string]any) { body["guild_id"] = guild })
-			require.Equal(t, float64(4), response["type"], "wrong guild cannot resolve or open a modal")
-			current, _, err := f.project.Store.Execution().
-				GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
+func TestCapturedInteractionFailedSendLeavesDashboardAvailable(t *testing.T) {
+	for _, provider := range []string{"slack", "discord"} {
+		t.Run(provider, func(t *testing.T) {
+			var sends atomic.Int32
+			f := newCapturedHTTPFixtureWithDismiss(t, provider, "question", nil, capturedHTTPFixtureOptions{
+				prepareOnly: true,
+				providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
+					switch r.URL.Path {
+					case "/api/chat.postMessage":
+						sends.Add(1)
+						writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "channel_not_found"})
+						return true
+					case "/api/v10/channels/301/messages":
+						sends.Add(1)
+						writeJSON(w, http.StatusForbidden, map[string]any{
+							"code": 50013, "message": "Missing Permissions",
+						})
+						return true
+					default:
+						return false
+					}
+				},
+			})
+			p := integrationruntime.InteractionPresenter{Store: f.project.Store, HTTPClient: f.client}
+			require.Error(t, p.Present(t.Context(), f.project.ProjectUUID, f.record.AgentID, f.record.ID))
+			require.EqualValues(t, 1, sends.Load())
+			if provider == "slack" {
+				require.Equal(t, "ignored", f.slackRequest(t, false)["ok"])
+			} else {
+				require.Equal(t, float64(4), f.discordRequest(t, "c0", false, false)["type"])
+			}
+			current, found, err := f.project.Store.Execution().GetAgentInteraction(
+				t.Context(), f.project.ProjectUUID, f.record.AgentID, f.record.ID)
 			require.NoError(t, err)
+			require.True(t, found)
 			require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+			require.Empty(t, current.PresentationReceipt)
+			require.Equal(t, uuid.Nil, current.ResolvedByInputID)
+			require.JSONEq(t, string(f.record.Destination), string(current.Destination))
+			path := f.project.ProjectPath + "/agents/" + testPublicID(t, publicid.KindAgent, f.record.AgentID) +
+				"/interactions/" + testPublicID(t, publicid.KindAgentInteraction, f.record.ID) + "/resolve"
+			response := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
+				`{"answers":[{"option_indices":[0]}]}`, "", http.StatusOK, f.project.adminBrowserAuthHeaders())
+			require.Equal(t, "resolved", response["state"])
+			require.EqualValues(t, 1, sends.Load(), "dashboard resolution must not retry a failed presentation")
+		})
+	}
+}
+
+func TestCapturedDiscordCallbackRequiresReceiptAndBot(t *testing.T) {
+	f := newCapturedHTTPFixture(t, "discord", "permission")
+	for _, test := range []struct {
+		name   string
+		change func(map[string]any)
+	}{
+		{"missing_message", func(body map[string]any) { delete(body, "message") }},
+		{"wrong_message", func(body map[string]any) {
+			testutil.RequireType[map[string]any](t, body["message"])["id"] = "401"
+		}},
+		{"wrong_message_channel", func(body map[string]any) {
+			testutil.RequireType[map[string]any](t, body["message"])["channel_id"] = "300"
+		}},
+		{"wrong_callback_channel", func(body map[string]any) { body["channel_id"] = "300" }},
+		{"wrong_bot", func(body map[string]any) {
+			testutil.RequireType[map[string]any](t, body["message"])["author"] = map[string]any{"id": "201"}
+		}},
+	} {
+		for _, action := range []struct {
+			name, value string
+			modal       bool
+		}{{"choice", "c0", false}, {"open_modal", "t1", false}, {"submit_modal", "t1", true}} {
+			t.Run(test.name+"/"+action.name, func(t *testing.T) {
+				response := f.discordRequest(t, action.value, action.modal, false, test.change)
+				require.Equal(t, float64(4), response["type"],
+					"an invalid receipt or bot cannot resolve or open a modal")
+				current, found, err := f.project.Store.Execution().
+					GetAgentInteraction(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
+				require.NoError(t, err)
+				require.True(t, found)
+				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
+				require.Equal(t, uuid.Nil, current.ResolvedByInputID)
+			})
 		}
 	}
 	require.Equal(t, float64(6), f.discordRequest(t, "c0", false, false)["type"])
@@ -1145,7 +1354,7 @@ func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
 			if r.Method != http.MethodPatch {
 				return false
 			}
-			assert.Equal(t, "/api/v10/channels/300/messages/400", r.URL.Path)
+			assert.Equal(t, "/api/v10/channels/301/messages/400", r.URL.Path)
 			var payload map[string]any
 			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload)) {
 				w.WriteHeader(http.StatusBadRequest)
@@ -1155,7 +1364,7 @@ func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
 			assert.Equal(t, []any{}, payload["components"], "dismissal must clear the original buttons")
 			dismissals.Add(1)
 			writeJSON(w, http.StatusOK, map[string]any{
-				"id": "400", "channel_id": "300", "author": map[string]any{"id": "200"},
+				"id": "400", "channel_id": "301", "author": map[string]any{"id": "200"},
 			})
 			return true
 		},

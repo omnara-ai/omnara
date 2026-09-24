@@ -30,20 +30,21 @@ func TestHandlerAuthorityPinsCurrentIntegration(t *testing.T) {
 }
 
 func TestHandlerPaginationKeepsCurrentSelectionOutsidePage(t *testing.T) {
-	handler := PreparedIntegrationInteractionHandler{
-		IntegrationID: publicidTestID(120),
-		PreparedInteractionHandler: integrationdefinition.PreparedInteractionHandler{
-			Description: "Slack",
-			InputSchema: []byte(`{"type":"object"}`),
-		},
+	handler := InteractionHandlerEntry{
+		Description: "Slack",
+		InputSchema: []byte(`{"type":"object"}`),
+		Destination: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123"}},
 	}
-	handlers := map[string]PreparedIntegrationInteractionHandler{"alpha": handler, "beta": handler, "gamma": handler}
-	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, handler.IntegrationID)
+	handlers := map[string]InteractionHandlerEntry{"alpha": handler, "beta": handler, "gamma": handler}
+	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, publicidTestID(120))
 	require.NoError(t, err)
-	selection := &HandlerSelection{Handler: "gamma", IntegrationID: integrationID, Args: []byte(`{"channel_id":"C123"}`)}
+	selection := &HandlerSelection{
+		Handler: "gamma", IntegrationID: integrationID, Args: []byte(`{}`), Destination: handler.Destination,
+	}
 	first, err := ListInteractionHandlers(handlers, selection, "", 1)
 	require.NoError(t, err)
 	require.Equal(t, "alpha", first.Handlers[0].Handler)
+	require.Equal(t, handler.Destination, first.Handlers[0].Destination)
 	require.Equal(t, selection, first.Selection)
 	require.NotEmpty(t, first.NextCursor)
 	second, err := ListInteractionHandlers(handlers, selection, first.NextCursor, 1)

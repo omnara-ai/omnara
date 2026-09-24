@@ -10230,7 +10230,7 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/ConfigIntegrationCapabilitySource'
-          description: Additional integration interaction handlers, keyed by immutable integration name with empty object values. Handler destination arguments are supplied at runtime. Existing entries win unchanged. Requires project management permission.
+          description: Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
         initial_input:
           $ref: '#/components/schemas/AgentLaunchInitialInput'
     AgentLaunchInitialInput:
@@ -11701,7 +11701,7 @@ components:
     AgentInteractionDestination:
       type: object
       additionalProperties: false
-      required: [integration_type, handler_key, integration_id, args, integration_target_id, address]
+      required: [integration_type, handler_key, integration_id, integration_target_id, address]
       description: Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
       properties:
         integration_type:
@@ -11710,10 +11710,6 @@ components:
           type: string
         integration_id:
           $ref: '#/components/schemas/ProjectIntegrationID'
-        args:
-          description: Complete provider destination arguments captured at selection, independent of integration-agent sending context.
-          type: object
-          additionalProperties: true
         integration_target_id:
           $ref: '#/components/schemas/IntegrationTargetID'
         address:
@@ -11760,7 +11756,7 @@ components:
         presentation_receipt:
           $ref: '#/components/schemas/InteractionPresentationReceipt'
         resolved_by_input_id:
-          description: The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
+          description: The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on resolutions without an attributed input. The input's actor_id attributes the resolution.
           $ref: '#/components/schemas/AgentInputID'
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -14414,7 +14410,7 @@ components:
         input_schema:
           type: object
           additionalProperties: true
-          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Handler selection requires a complete destination independently of tool context.
+          description: Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
     IntegrationSubscriptionID:
       type: string
       pattern: '^isub_[a-z2-7]{26}$'

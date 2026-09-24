@@ -12,6 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const getAssignedIntegrationConversationTarget = `-- name: GetAssignedIntegrationConversationTarget :one
+SELECT target.id
+FROM integration_targets target
+JOIN project_integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
+WHERE target.project_id = $1 AND target.agent_id = $2
+  AND target.integration_id = $3 AND target.provider_ref_kind = $4
+  AND target.provider_ref = $5 AND target.deleted_at IS NULL
+  AND integration.deleted_at IS NULL AND integration.state = 'active'
+`
+
+type GetAssignedIntegrationConversationTargetParams struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	Kind          string
+	Ref           string
+}
+
+func (q *Queries) GetAssignedIntegrationConversationTarget(ctx context.Context, arg GetAssignedIntegrationConversationTargetParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getAssignedIntegrationConversationTarget,
+		arg.ProjectID,
+		arg.AgentID,
+		arg.IntegrationID,
+		arg.Kind,
+		arg.Ref,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertAgentIntegrationConversation = `-- name: InsertAgentIntegrationConversation :execrows
 INSERT INTO integration_states(project_id, integration_id, kind, key, data)
 SELECT agent.project_id, integration.id, $1, agent.id::text, $2

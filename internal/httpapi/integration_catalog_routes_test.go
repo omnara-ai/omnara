@@ -92,8 +92,10 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			require.NotNil(t, handler)
 			schema, err := json.Marshal(handler.InputSchema)
 			require.NoError(t, err)
-			require.NoError(t, jsonschema.Validate(schema, destination))
-			require.Error(t, jsonschema.Validate(schema, json.RawMessage(`{}`)), "selection requires an explicit complete destination")
+			require.NoError(t, jsonschema.Validate(schema, json.RawMessage(`{}`)))
+			require.Error(t, jsonschema.Validate(schema, destination),
+				"handlers use the agent's assigned conversation")
+			require.Error(t, jsonschema.Validate(schema, json.RawMessage(`{"unexpected":true}`)))
 		})
 	}
 	require.Equal(t, 8, toolCount)

@@ -195,32 +195,29 @@ func TestParseConversationRejectsParentAndMismatchedAddresses(t *testing.T) {
 	require.JSONEq(t, `{"guild_id":"111","channel_id":"123","thread_id":"456"}`, string(raw))
 }
 
-func TestInteractionHandlersRequireCompleteIndependentDestinations(t *testing.T) {
+func TestInteractionHandlersUseAssignedConversation(t *testing.T) {
 	for _, test := range []struct {
 		integrationType Type
-		args            string
-	}{
-		{SlackThread, `{"channel_id":"C123","thread_ts":"1.2"}`},
-		{SlackThread, `{"channel_id":"C456"}`},
-		{DiscordThread, `{"channel_id":"123","thread_id":"456"}`},
-		{DiscordThread, `{"guild_id":"789","channel_id":"123"}`},
-	} {
-		t.Run(string(test.integrationType)+test.args, func(t *testing.T) {
+		kind            string
+		ref             string
+	}{{SlackThread, "thread", "C123:1.2"}, {SlackThread, "dm", "D123"}, {DiscordThread, "thread", "123:456"}} {
+		t.Run(string(test.integrationType), func(t *testing.T) {
 			d, _ := Lookup(test.integrationType)
 			prepared, err := d.InteractionHandler.Prepare()
 			require.NoError(t, err)
-			require.NoError(t, jsonschema.Validate(prepared.InputSchema, []byte(test.args)))
-			require.Error(t, jsonschema.Validate(prepared.InputSchema, []byte(`{}`)))
-			_, err = d.InteractionHandler.ResolveArgs([]byte(`{}`))
+			require.NoError(t, jsonschema.Validate(prepared.InputSchema, []byte(`{}`)))
+			scope, err := ParseConversation(d.Provider, test.kind, test.ref)
+			require.NoError(t, err)
+			kind, ref, err := scope.Conversation()
+			require.NoError(t, err)
+			require.Equal(t, test.kind, kind)
+			require.Equal(t, test.ref, ref)
+			for _, args := range []string{`{"channel_id":"C123"}`, `{"guild_id":"789"}`, `null`, `[]`} {
+				err = d.InteractionHandler.ValidateArgs([]byte(args))
+				require.Error(t, err)
+			}
+			_, err = ParseConversation(d.Provider, "thread", "invalid")
 			require.Error(t, err)
-			destination, err := d.InteractionHandler.ResolveArgs([]byte(test.args))
-			require.NoError(t, err)
-			origin, err := destination.ConversationJSON()
-			require.NoError(t, err)
-			require.JSONEq(t, test.args, string(origin))
-			resolved, err := d.InteractionHandler.ResolveArgs(origin)
-			require.NoError(t, err)
-			require.Equal(t, destination, resolved)
 		})
 	}
 	github, _ := Lookup(GitHubPR)

@@ -232,13 +232,8 @@ func agentInteractionResponseFromRecord(
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
-		var args map[string]interface{}
-		if err := json.Unmarshal(destination.Args, &args); err != nil {
-			return openapi.AgentInteraction{}, err
-		}
 		response.Destination = &openapi.AgentInteractionDestination{
 			IntegrationType:     openapi.IntegrationType(destination.IntegrationType),
-			Args:                args,
 			HandlerKey:          destination.HandlerKey,
 			IntegrationId:       integrationID,
 			IntegrationTargetId: targetID,

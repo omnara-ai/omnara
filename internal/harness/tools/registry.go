@@ -306,8 +306,12 @@ func builtInToolRegistrations() []toolRegistration {
 		{
 			name:                   toolcatalog.ToolNameAskQuestion,
 			semanticInputValidator: validateQuestionInput,
-			handler:                toolHandler{Transactional: prepareStructuredQuestion},
-			permissionModes:        commonPermissionModeHandlers(genericPermissionChallenge),
+			handler: toolHandler{
+				Transactional:        prepareStructuredQuestion,
+				Background:           presentStructuredQuestion,
+				BackgroundBestEffort: true,
+			},
+			permissionModes: commonPermissionModeHandlers(genericPermissionChallenge),
 		},
 		{
 			name:                   toolcatalog.ToolNameWebSearch,

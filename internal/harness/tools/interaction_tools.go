@@ -28,8 +28,8 @@ func validateQuestionInput(input json.RawMessage) error {
 	return err
 }
 
-// Presentation is discovered by the worker after this transaction commits;
-// dispatch must not depend on presentation queue capacity or provider I/O.
+// The background hook presents the committed interaction once, best effort.
+// A dropped or failed presentation leaves the dashboard interaction available.
 func prepareStructuredQuestion(
 	ctx context.Context,
 	call transactionalToolContext,
@@ -46,6 +46,17 @@ func prepareStructuredQuestion(
 		),
 		nil,
 	), nil
+}
+
+func presentStructuredQuestion(ctx context.Context, call backgroundToolContext) error {
+	interaction, ok := call.CommandResult.(executionstore.AgentInteractionRecord)
+	if !ok {
+		return fmt.Errorf("ask_question command result is %T, want AgentInteractionRecord", call.CommandResult)
+	}
+	if len(interaction.Destination) == 0 {
+		return nil
+	}
+	return call.Executor.interactionPresenter().Present(ctx, interaction.ProjectID, interaction.AgentID, interaction.ID)
 }
 
 func askQuestionForm(raw json.RawMessage) (interactionform.Form, error) {

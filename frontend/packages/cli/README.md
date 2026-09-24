@@ -109,7 +109,7 @@ For the shipped thread and PR tools, destinations come from the integration-agen
 conversation context assigned by provider/scheduled launches. These tools fail
 without that context; their arguments cannot choose another destination. Integrations can
 also define standalone tools that use their credentials without a conversation.
-Handler selection always supplies a complete destination independently.
+Shipped interaction handlers use the assigned conversation and accept empty arguments.
 Incoming subscriptions belong to the integration and are attached via
 launch requests or the integration subscriptions API; configs have no `listeners` block.
 `integrations get` and `integrations definitions` show optional

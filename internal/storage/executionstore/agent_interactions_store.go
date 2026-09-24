@@ -110,7 +110,7 @@ func (s *Store) CreatePermissionInteraction(
 	); err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	destination, err := captureInteractionDestinationTx(ctx, qtx, input.ProjectID, input.AgentID)
+	destination, err := captureInteractionDestinationTx(ctx, tx, input.ProjectID, input.AgentID)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}
@@ -198,7 +198,7 @@ func (t *toolCallTransaction) createQuestionInteraction(
 	if err := t.lockForMutation(ctx); err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	destination, err := captureInteractionDestinationTx(ctx, t.q, t.input.ProjectID, t.input.AgentID)
+	destination, err := captureInteractionDestinationTx(ctx, t.tx, t.input.ProjectID, t.input.AgentID)
 	if err != nil {
 		return AgentInteractionRecord{}, err
 	}

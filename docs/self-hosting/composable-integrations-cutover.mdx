@@ -81,15 +81,15 @@ for the package in their Node runtime.
 New configs select `int__<name>__<operation>` under `tools`, retaining enabled state,
 deferred loading and permissions. `interaction_handlers` maps integration names to `{}`.
 Catalog tools and handlers expose static `input_schema`. Captured interaction
-destinations contain the captured `integration_type` and complete `args`. See the
+destinations contain the captured integration identity, target and canonical address. See the
 [OpenAPI contract](/api-reference/openapi.yaml).
 
 Hosted and scheduled launches establish one immutable sending conversation per
 integration and agent. Tools always use it; calls have no destination arguments. Migrated
 Slack agents retain their original thread, channel or DM destination. An agent
 without an assigned conversation cannot execute these tools. Handler selection
-still takes complete arguments independently, and accepted provider input selects
-the complete origin automatically. Subscriptions never establish sending context.
+uses the assigned conversation with empty arguments. An eligible provider origin
+selects its handler automatically. Subscriptions never establish sending context.
 Integration schedules use the cron API's `target.settings` for their destination and templates.
 Receive subscriptions belong to integrations: use launch
 `subscriptions` attachments or `/integrations/{integrationID}/subscriptions` to attach existing

@@ -3,6 +3,8 @@ package integrationdefinition
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/omnara-ai/omnara/internal/jsonschema"
 )
 
 type SubscriptionDefinition struct {
@@ -33,19 +35,21 @@ type PreparedInteractionHandler struct {
 }
 
 func (d InteractionHandlerDefinition) Prepare() (PreparedInteractionHandler, error) {
-	properties, required, err := DestinationProperties(d.Provider)
-	if err != nil {
-		return PreparedInteractionHandler{}, err
-	}
-	schema, err := objectSchema(properties, required)
+	schema, err := objectSchema(map[string]any{}, nil)
 	if err != nil {
 		return PreparedInteractionHandler{}, err
 	}
 	return PreparedInteractionHandler{
-		Description: "Questions and approvals at the supplied " + d.Provider + " destination.",
+		Description: "Questions and approvals in this agent's assigned " + d.Provider +
+			" conversation. Select with empty args.",
 		InputSchema: schema,
 	}, nil
 }
-func (d InteractionHandlerDefinition) ResolveArgs(args json.RawMessage) (Scope, error) {
-	return ResolveDestination(d.Provider, args)
+
+func (d InteractionHandlerDefinition) ValidateArgs(args json.RawMessage) error {
+	prepared, err := d.Prepare()
+	if err != nil {
+		return err
+	}
+	return jsonschema.Validate(prepared.InputSchema, args)
 }

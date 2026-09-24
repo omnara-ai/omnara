@@ -32,7 +32,11 @@ func (s *Store) AssignAgentIntegrationConversationTx(
 		return err
 	}
 	rows, err := dbsqlc.New(tx).InsertAgentIntegrationConversation(ctx, dbsqlc.InsertAgentIntegrationConversationParams{
-		ProjectID: projectID, AgentID: agentID, IntegrationID: integrationID, Kind: agentConversationStateKind, Data: data,
+		ProjectID:     projectID,
+		AgentID:       agentID,
+		IntegrationID: integrationID,
+		Kind:          agentConversationStateKind,
+		Data:          data,
 	})
 	if storeutil.IsUniqueViolationOnConstraint(err, "integration_states_project_id_integration_id_kind_key_key") {
 		return storeerr.ErrConflict
@@ -49,7 +53,15 @@ func (s *Store) AssignAgentIntegrationConversationTx(
 func (s *Store) GetAgentIntegrationConversation(
 	ctx context.Context, projectID, agentID, integrationID uuid.UUID,
 ) (ConversationAddress, bool, error) {
-	state, err := s.q.GetIntegrationStateByKey(ctx, dbsqlc.GetIntegrationStateByKeyParams{
+	return getAgentIntegrationConversation(ctx, s.q, projectID, agentID, integrationID)
+}
+
+func getAgentIntegrationConversation(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, agentID, integrationID uuid.UUID,
+) (ConversationAddress, bool, error) {
+	state, err := q.GetIntegrationStateByKey(ctx, dbsqlc.GetIntegrationStateByKeyParams{
 		ProjectID: projectID, IntegrationID: integrationID, Kind: agentConversationStateKind, Key: agentID.String(),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -62,10 +74,43 @@ func (s *Store) GetAgentIntegrationConversation(
 	decoder := json.NewDecoder(bytes.NewReader(state.Data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&address); err != nil {
-		return address, false, fmt.Errorf("decode agent integration conversation: %w", err)
+		return address, false, storeerr.InvalidRequest(fmt.Errorf("decode agent integration conversation: %w", err))
 	}
 	if err := address.Validate(); err != nil {
 		return address, false, err
 	}
 	return address, true, nil
+}
+
+type AgentIntegrationConversationTarget struct {
+	ID      uuid.UUID
+	Address ConversationAddress
+}
+
+func GetAgentIntegrationConversationTargetTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID, integrationID uuid.UUID,
+) (AgentIntegrationConversationTarget, bool, error) {
+	q := dbsqlc.New(tx)
+	address, found, err := getAgentIntegrationConversation(ctx, q, projectID, agentID, integrationID)
+	if errors.Is(err, storeerr.ErrInvalidRequest) {
+		return AgentIntegrationConversationTarget{}, false, nil
+	}
+	if err != nil || !found {
+		return AgentIntegrationConversationTarget{}, false, err
+	}
+	targetID, err := q.GetAssignedIntegrationConversationTarget(
+		ctx,
+		dbsqlc.GetAssignedIntegrationConversationTargetParams{
+			ProjectID: projectID, AgentID: agentID, IntegrationID: integrationID, Kind: address.Kind, Ref: address.Ref,
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentIntegrationConversationTarget{}, false, nil
+	}
+	if err != nil {
+		return AgentIntegrationConversationTarget{}, false, err
+	}
+	return AgentIntegrationConversationTarget{ID: targetID, Address: address}, true, nil
 }

@@ -52,13 +52,14 @@ func TestInteractionPresenterLateReceiptAfterCancelDismisses(t *testing.T) {
 		`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
 		f.Now,
 	)
+	runner, waitPresentation := newQuestionPresentationRunner(t, ctx)
 	executor := Executor{
+		BackgroundRunner:      runner,
 		Store:                 f.Store,
 		IntegrationHTTPClient: integrationProviderTestClient(server),
 	}
 	_, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
-	waitPresentation := enqueuePendingQuestionPresentations(t, ctx, executor)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
@@ -116,13 +117,14 @@ func TestInteractionPresenterRechecksIntegrationBeforeRetry(t *testing.T) {
 	}()
 	call := f.recordToolCall(t, ctx, "revoked-question", "ask_question",
 		`{"questions":[{"prompt":"Proceed?","options":[{"label":"Yes"},{"label":"No"}]}]}`, f.Now)
+	runner, waitPresentation := newQuestionPresentationRunner(t, ctx)
 	executor := Executor{
+		BackgroundRunner:      runner,
 		Store:                 f.Store,
 		IntegrationHTTPClient: integrationProviderTestClient(server),
 	}
 	_, err := executor.Dispatch(ctx, f.turn(), call)
 	require.NoError(t, err)
-	waitPresentation := enqueuePendingQuestionPresentations(t, ctx, executor)
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):

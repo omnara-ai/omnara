@@ -92,7 +92,7 @@ func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetIn
 
 const getInteractionSelection = `-- name: GetInteractionSelection :one
 SELECT current_config_id, integration_target_id,
-       coalesce(interaction_handler_key, '') AS handler_key, interaction_handler_args AS handler_args
+       coalesce(interaction_handler_key, '') AS handler_key
 FROM agents
 WHERE project_id = $1 AND id = $2
 `
@@ -106,18 +106,12 @@ type GetInteractionSelectionRow struct {
 	CurrentConfigID     uuid.UUID
 	IntegrationTargetID *uuid.UUID
 	HandlerKey          string
-	HandlerArgs         *json.RawMessage
 }
 
 func (q *Queries) GetInteractionSelection(ctx context.Context, arg GetInteractionSelectionParams) (GetInteractionSelectionRow, error) {
 	row := q.db.QueryRow(ctx, getInteractionSelection, arg.ProjectID, arg.AgentID)
 	var i GetInteractionSelectionRow
-	err := row.Scan(
-		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
-		&i.HandlerKey,
-		&i.HandlerArgs,
-	)
+	err := row.Scan(&i.CurrentConfigID, &i.IntegrationTargetID, &i.HandlerKey)
 	return i, err
 }
 
@@ -159,11 +153,10 @@ const setInteractionSelection = `-- name: SetInteractionSelection :execrows
 UPDATE agents
 SET integration_target_id = $1::uuid,
     interaction_handler_key = $2::text,
-    interaction_handler_args = $3::jsonb,
     updated_at = statement_timestamp()
-WHERE agents.project_id = $4 AND agents.id = $5
-  AND (($1::uuid IS NULL AND $2::text IS NULL AND $3::jsonb IS NULL)
-    OR ($2::text <> '' AND jsonb_typeof($3::jsonb) = 'object' AND EXISTS (
+WHERE agents.project_id = $3 AND agents.id = $4
+  AND (($1::uuid IS NULL AND $2::text IS NULL)
+    OR ($2::text <> '' AND EXISTS (
       SELECT 1 FROM integration_targets target
       JOIN project_integrations integration
         ON integration.project_id = target.project_id
@@ -175,18 +168,16 @@ WHERE agents.project_id = $4 AND agents.id = $5
 `
 
 type SetInteractionSelectionParams struct {
-	TargetID    *uuid.UUID
-	HandlerKey  *string
-	HandlerArgs *json.RawMessage
-	ProjectID   uuid.UUID
-	AgentID     uuid.UUID
+	TargetID   *uuid.UUID
+	HandlerKey *string
+	ProjectID  uuid.UUID
+	AgentID    uuid.UUID
 }
 
 func (q *Queries) SetInteractionSelection(ctx context.Context, arg SetInteractionSelectionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setInteractionSelection,
 		arg.TargetID,
 		arg.HandlerKey,
-		arg.HandlerArgs,
 		arg.ProjectID,
 		arg.AgentID,
 	)

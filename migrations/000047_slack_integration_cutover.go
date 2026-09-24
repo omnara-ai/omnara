@@ -577,7 +577,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, integrations map[st
 	}
 	_, err = tx.ExecContext(
 		ctx,
-		`UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL, interaction_handler_args=NULL WHERE integration_target_id IS NOT NULL`,
+		`UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL WHERE integration_target_id IS NOT NULL`,
 	)
 	return err
 }

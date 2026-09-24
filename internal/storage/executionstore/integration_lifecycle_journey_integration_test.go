@@ -51,7 +51,7 @@ func TestIntegrationDeletionClearsInteractionSelectionAndReleasesCredentials(t *
 	require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection, "delete clears target, handler and args together")
+	require.Equal(t, executionstore.InteractionSelection{}, selection, "delete clears target and handler together")
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, err = f.store.Integrations().GetProjectIntegration(f.ctx, testProjectID, f.integration.ID)

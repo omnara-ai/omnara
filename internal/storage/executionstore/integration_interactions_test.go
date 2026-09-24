@@ -14,34 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationInteractionOriginArguments(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct {
-		name, provider, kind, ref, args string
-	}{
-		{"Slack thread", "slack", "thread", "C123:111.222", `{"channel_id":"C123","thread_ts":"111.222"}`},
-		{"Slack channel", "slack", "channel", "C123", `{"channel_id":"C123"}`},
-		{"DM", "slack", "dm", "D123", `{"channel_id":"D123"}`},
-		{"DM kind matters", "slack", "channel", "D123", ""},
-		{"malformed thread", "slack", "thread", "C123:not-a-timestamp", ""},
-		{"malformed address", "slack", "thread", "C123", ""},
-		{"Discord thread", "discord", "thread", "20:30", `{"channel_id":"20","thread_id":"30"}`},
-		{"Discord has no DM kind", "discord", "dm", "20", ""},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			args, ok := interactionArgsForOrigin(
-				test.provider,
-				integrationstore.ConversationAddress{Kind: test.kind, Ref: test.ref},
-			)
-			require.Equal(t, test.args != "", ok)
-			if ok {
-				require.JSONEq(t, test.args, string(args))
-			}
-		})
-	}
-}
-
 func TestIntegrationInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	t.Parallel()
 	destination := InteractionDestination{
@@ -49,7 +21,6 @@ func TestIntegrationInteractionSnapshotAndReceiptBounds(t *testing.T) {
 		HandlerKey:          "chat",
 		IntegrationID:       uuid.New(),
 		IntegrationTargetID: uuid.New(),
-		Args:                json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
 		Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
 	}
 	raw, err := json.Marshal(destination)
@@ -73,13 +44,8 @@ func TestIntegrationInteractionSnapshotAndReceiptBounds(t *testing.T) {
 		func(d *InteractionDestination) { d.IntegrationType = integrationdefinition.GitHubPR },
 		func(d *InteractionDestination) { d.IntegrationType = "slack_unregistered" },
 		func(d *InteractionDestination) { d.IntegrationType = "" },
-		func(d *InteractionDestination) { d.Address.Ref = "C456:111.222" },
-		func(d *InteractionDestination) {
-			d.Args = json.RawMessage(`{"channel_id":"C456","thread_ts":"111.222"}`)
-		},
-		func(d *InteractionDestination) {
-			d.Args = json.RawMessage(`{"thread_ts":"111.222"}`)
-		},
+		func(d *InteractionDestination) { d.Address.Ref = "not-a-thread" },
+		func(d *InteractionDestination) { d.Address.Kind = "unknown" },
 	} {
 		changed := destination
 		change(&changed)
@@ -101,33 +67,6 @@ func TestIntegrationInteractionSnapshotAndReceiptBounds(t *testing.T) {
 			InteractionReceiptMaxBytes,
 		),
 	)
-}
-
-func TestIntegrationInteractionSnapshotEqualityChecksAllAuthority(t *testing.T) {
-	t.Parallel()
-	original := InteractionDestination{
-		IntegrationType:     integrationdefinition.SlackThread,
-		HandlerKey:          "chat",
-		IntegrationID:       uuid.New(),
-		IntegrationTargetID: uuid.New(),
-		Args:                json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
-		Address:             integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"},
-	}
-	equal := original
-	equal.Args = json.RawMessage(`{ "channel_id" : "C123", "thread_ts":"111.222" }`)
-	require.True(t, sameInteractionDestination(original, equal))
-	for _, change := range []func(*InteractionDestination){
-		func(d *InteractionDestination) { d.HandlerKey = "replacement" },
-		func(d *InteractionDestination) { d.IntegrationID = uuid.New() },
-		func(d *InteractionDestination) { d.IntegrationTargetID = uuid.New() },
-		func(d *InteractionDestination) { d.IntegrationType = integrationdefinition.DiscordThread },
-		func(d *InteractionDestination) { d.Args = json.RawMessage(`{}`) },
-		func(d *InteractionDestination) { d.Address.Ref = "C123:333.444" },
-	} {
-		changed := original
-		change(&changed)
-		require.False(t, sameInteractionDestination(original, changed))
-	}
 }
 
 func TestIntegrationInteractionPendingSelectionToolPermission(t *testing.T) {

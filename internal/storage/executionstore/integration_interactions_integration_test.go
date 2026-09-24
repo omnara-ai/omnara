@@ -68,6 +68,32 @@ func newIntegrationInteractionFixture(t *testing.T) integrationInteractionFixtur
 	f.change(t, f.handlers)
 	f.a = f.target(t, f.process.AgentID, "C123:111.222")
 	f.b = f.target(t, f.process.AgentID, "C456:333.444")
+	tx := integrationdb.BeginTx(t, ctx, f.store.pool)
+	require.NoError(t, lifecyclelock.EnterActiveProject(ctx, tx, testOrgID, testProjectID))
+	require.NoError(
+		t,
+		integrationstore.LockIntegrationsTx(
+			ctx,
+			tx,
+			testProjectID,
+			[]uuid.UUID{f.integration.ID, f.otherIntegration.ID},
+		),
+	)
+	require.NoError(
+		t,
+		lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{ProjectID: testProjectID, AgentID: f.process.AgentID}}),
+	)
+	for _, target := range []integrationstore.IntegrationTargetRecord{f.a, f.b} {
+		require.NoError(
+			t,
+			f.store.Integrations().
+				AssignAgentIntegrationConversationTx(
+					ctx, tx, testProjectID, f.process.AgentID, target.IntegrationID,
+					integrationstore.ConversationAddress{Kind: target.ProviderRefKind, Ref: target.ProviderRef},
+				),
+		)
+	}
+	require.NoError(t, tx.Commit(ctx))
 	return f
 }
 
@@ -186,7 +212,10 @@ func (f integrationInteractionFixture) disable(t *testing.T) {
 	changed, err := f.store.Integrations().
 		DisconnectProjectIntegration(
 			f.ctx,
-			integrationstore.DisconnectProjectIntegrationInput{ProjectID: testProjectID, IntegrationID: f.integration.ID},
+			integrationstore.DisconnectProjectIntegrationInput{
+				ProjectID:     testProjectID,
+				IntegrationID: f.integration.ID,
+			},
 		)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -212,9 +241,7 @@ func (f integrationInteractionFixture) selectOrigin(
 	require.NoError(t, err)
 	require.Equal(t, selection.HandlerKey, stored.HandlerKey)
 	require.Equal(t, selection.IntegrationTargetID, stored.IntegrationTargetID)
-	if selection.HandlerKey != "" {
-		require.JSONEq(t, string(selection.Args), string(stored.Args))
-	}
+
 	return stored
 }
 
@@ -349,9 +376,9 @@ func TestIntegrationInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 	selectCommand := func(key string) executionstore.ToolCallPlan {
 		return func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 			return executionstore.SetInteractionHandlerForToolCall(
-				executionstore.InteractionSelection{
+				executionstore.SelectInteractionHandlerInput{
 					HandlerKey: key,
-					Args:       json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`),
+					Args:       json.RawMessage(`{}`),
 				},
 				executionstore.ToolCallCompletionInput{
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
@@ -380,7 +407,9 @@ func TestIntegrationInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 
 func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testing.T) {
 	t.Parallel()
-	for _, revoke := range []string{"handler removed", "integration disconnected"} {
+	for _, revoke := range []string{
+		"handler removed", "integration disconnected", "assignment removed", "assignment malformed", "assignment changed",
+	} {
 		t.Run(revoke, func(t *testing.T) {
 			t.Parallel()
 			f := newIntegrationInteractionFixture(t)
@@ -392,6 +421,26 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 				f.change(t, f.handlers)
 			case "integration disconnected":
 				f.disable(t)
+			case "assignment removed":
+				_, err := f.store.pool.Exec(
+					f.ctx,
+					`DELETE FROM integration_states WHERE integration_id=$1 AND kind='agent_conversation'`,
+					f.integration.ID,
+				)
+				require.NoError(t, err)
+			case "assignment malformed", "assignment changed":
+				data := `{"unexpected":true}`
+				if revoke == "assignment changed" {
+					data = `{"kind":"thread","ref":"C999:777.888"}`
+				}
+				_, err := f.store.pool.Exec(
+					f.ctx,
+					`UPDATE integration_states SET data=$2 WHERE integration_id=$1 AND kind='agent_conversation'`,
+					f.integration.ID,
+					data,
+				)
+				require.NoError(t, err)
+
 			}
 			tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 			_, err := dbsqlc.New(tx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
@@ -886,12 +935,7 @@ func TestInteractionSelectionDatabaseRequiresCompleteSelection(t *testing.T) {
 	for _, fields := range []string{
 		"integration_target_id=$2",
 		"interaction_handler_key='chat'",
-		"interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_key='chat'",
-		"interaction_handler_key='chat', interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_key='', interaction_handler_args='{}'::jsonb",
-		"integration_target_id=$2, interaction_handler_key='chat', interaction_handler_args='null'::jsonb",
+		"integration_target_id=$2, interaction_handler_key=''",
 	} {
 		args := []any{f.process.AgentID}
 		if strings.Contains(fields, "$2") {

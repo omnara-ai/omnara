@@ -247,14 +247,14 @@ Select these tools explicitly under `tools`, or use an integration launcher that
 an interaction handler and adds them, preserving explicit tool settings. They
 are not global defaults.
 `list_interaction_handlers` accepts `cursor` and `limit`, returning handler keys,
-descriptions and effective argument schemas. Its current selection is included
-independently of pagination. No configured handlers means an empty list.
+descriptions, eligible destinations and argument schemas. Its current selection is included
+independently of pagination. No eligible handlers means an empty list.
 
-`set_interaction_handler` takes a `handler` key and the complete destination
-described by that handler's schema in `args`. Use `{"handler":null,"args":{}}` for
-dashboard only. Handler selection is independent of the integration's sending context. The choice
-persists for future questions and approvals; existing prompts keep their captured
-destination. A new provider input can select its matching handler automatically.
+`set_interaction_handler` takes a `handler` key and `args` matching its schema.
+An integration may infer the destination from its agent state; in that case its
+schema accepts empty arguments. Use `{"handler":null,"args":{}}` for dashboard only.
+The choice persists for future questions and approvals; existing prompts keep their
+captured destination. A new provider input can select its eligible handler automatically.
 
 ## Subagents
 

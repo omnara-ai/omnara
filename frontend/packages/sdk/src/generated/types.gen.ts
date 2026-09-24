@@ -1617,7 +1617,7 @@ export type CreateAgentRequest = {
      */
     subscriptions?: Array<IntegrationSubscriptionAttachment>;
     /**
-     * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Handler destination arguments are supplied at runtime. Existing entries win unchanged. Requires project management permission.
+     * Additional integration interaction handlers, keyed by immutable integration name with empty object values. Slack and Discord handlers require an assigned conversation and accept empty runtime args. Adding a handler does not assign a conversation. Existing entries win unchanged. Requires project management permission.
      */
     interaction_handlers?: {
         [key: string]: ConfigIntegrationCapabilitySource;
@@ -2472,12 +2472,6 @@ export type AgentInteractionDestination = {
     integration_type: IntegrationType;
     handler_key: string;
     integration_id: ProjectIntegrationId;
-    /**
-     * Complete provider destination arguments captured at selection, independent of integration-agent sending context.
-     */
-    args: {
-        [key: string]: unknown;
-    };
     integration_target_id: IntegrationTargetId;
     address: IntegrationConversationAddress;
 };
@@ -2517,7 +2511,7 @@ export type AgentInteraction = {
     destination?: AgentInteractionDestination;
     presentation_receipt?: InteractionPresentationReceipt;
     /**
-     * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on system resolutions such as prompt delivery failure. The input's actor_id attributes the resolution.
+     * The agent input that resolved the interaction — the submitted response, the content input that superseded it, or the cancel control input. Absent on open interactions and on resolutions without an attributed input. The input's actor_id attributes the resolution.
      */
     resolved_by_input_id?: AgentInputId;
     created_at: Timestamp;
@@ -3921,7 +3915,7 @@ export type ConfigureProjectIntegrationRequest = {
 export type IntegrationCapabilityDefinition = {
     description?: string;
     /**
-     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Handler selection requires a complete destination independently of tool context.
+     * Static argument schema for this operation or interaction handler. Shipped integration tools accept action arguments and use the conversation assigned at launch; execution fails if no conversation is assigned. Shipped interaction handlers use the assigned conversation and accept empty arguments.
      */
     input_schema: {
         [key: string]: unknown;

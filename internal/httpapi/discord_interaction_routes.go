@@ -237,7 +237,7 @@ func (s *Server) resolveDiscordInteraction(
 	if scope.ThreadID != "" {
 		channel = scope.ThreadID
 	}
-	if channel != input.ChannelID || (scope.GuildID != "" && scope.GuildID != input.GuildID) {
+	if channel != input.ChannelID {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
 	_, err = s.store.Execution().GetAgentInteractionForPresentation(ctx, record.ProjectID, record.AgentID, record.ID)

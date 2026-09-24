@@ -493,7 +493,7 @@ func attachKernelSlackHandler(
 	)
 	require.NoError(t, err)
 	integrationID := install.ID
-	channel, thread, found := strings.Cut(providerRef, ":")
+	_, _, found := strings.Cut(providerRef, ":")
 	require.True(t, found, "runtime-message fixture requires a Slack thread")
 	if source.InteractionHandlers == nil {
 		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigIntegrationCapabilitySource)
@@ -555,15 +555,18 @@ func attachKernelSlackHandler(
 			Address: address,
 		})
 	require.NoError(t, err)
+	require.NoError(
+		t,
+		fixture.Store.Integrations().
+			AssignAgentIntegrationConversationTx(ctx, tx, kernelTestProjectID, agentID, install.ID, address),
+	)
 	selection, err := fixture.Store.Execution().SelectInteractionDestinationForOriginTx(
 		ctx, tx, kernelTestProjectID, agentID, target.ID,
 	)
 	require.NoError(t, err)
 	require.Equal(t, target.ID, selection.IntegrationTargetID)
 	require.Equal(t, handlerKey, selection.HandlerKey)
-	expected, err := json.Marshal(map[string]string{"channel_id": channel, "thread_ts": thread})
-	require.NoError(t, err)
-	require.JSONEq(t, string(expected), string(selection.Args))
+
 	require.NoError(t, tx.Commit(ctx))
 	return botToken
 }

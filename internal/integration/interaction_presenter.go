@@ -161,18 +161,15 @@ func DiscordInteractionScope(destination executionstore.InteractionDestination) 
 	if integrationdefinition.ProviderForType(destination.IntegrationType) != integrationdefinition.ProviderDiscord {
 		return discord.Scope{}, storeerr.ErrUnauthorized
 	}
-	scope, err := integrationdefinition.ResolveDestination(integrationdefinition.ProviderDiscord, destination.Args)
+	scope, err := integrationdefinition.ParseConversation(
+		integrationdefinition.ProviderDiscord,
+		destination.Address.Kind,
+		destination.Address.Ref,
+	)
 	if err != nil {
 		return discord.Scope{}, err
 	}
-	kind, ref, err := scope.Conversation()
-	if err != nil {
-		return discord.Scope{}, err
-	}
-	if destination.Address != (integrationstore.ConversationAddress{Kind: kind, Ref: ref}) {
-		return discord.Scope{}, storeerr.ErrUnauthorized
-	}
-	return discord.Scope{GuildID: scope.Discord.GuildID, ChannelID: scope.Discord.ChannelID,
+	return discord.Scope{ChannelID: scope.Discord.ChannelID,
 		ThreadID: scope.Discord.ThreadID}, nil
 }
 
@@ -180,8 +177,11 @@ func (p InteractionPresenter) discordClient(
 	ctx context.Context, access interactionAccess, check func(context.Context) error,
 ) (*discord.Client, error) {
 	client, err := discord.NewClient(discord.Config{HTTPClient: p.HTTPClient, BeforeRequest: check,
-		Credentials: discord.Credentials{ApplicationID: access.integrationSetup.ProviderTenantID,
-			BotUserID: access.integrationSetup.ProviderAccountRef, BotToken: access.credential.Payload[secrets.KeyValue]}})
+		Credentials: discord.Credentials{
+			ApplicationID: access.integrationSetup.ProviderTenantID,
+			BotUserID:     access.integrationSetup.ProviderAccountRef,
+			BotToken:      access.credential.Payload[secrets.KeyValue],
+		}})
 	if err != nil {
 		return nil, err
 	}
@@ -250,12 +250,6 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	}
 	if len(record.PresentationReceipt) != 0 {
 		return nil
-	}
-	// Claims are permanent because an unconfirmed provider send may have succeeded;
-	// retrying publication could duplicate the prompt.
-	claimed, err := p.Store.Execution().ClaimInteractionPresentation(ctx, projectID, agentID, id)
-	if err != nil || !claimed {
-		return err
 	}
 	checkAuthority := func(ctx context.Context) error {
 		current, err := p.Store.Execution().GetAgentInteractionForPresentation(ctx, projectID, agentID, id)
@@ -382,9 +376,9 @@ func slackPromptError(result slack.APIResult, err error) error {
 	return nil
 }
 
-// Only use this for reads before publication. The permanent presentation claim
-// remains owned by this attempt; neither a send nor an ambiguous send result may
-// enter this loop. Discord retries its identity/channel reads in its HTTP client.
+// Only use this for reads before publication; neither a send nor an ambiguous
+// send result may enter this loop. Discord retries its identity/channel reads
+// in its HTTP client.
 func retryInteractionPreflight(ctx context.Context, read func() error) error {
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {

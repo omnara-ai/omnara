@@ -228,12 +228,6 @@ func main() {
 		AsyncToolCapacity: cfg.WorkerAsyncToolCapacity,
 		ControlSubscriber: redisBus,
 	})
-	presentationsDone := make(chan struct{})
-	go func() {
-		defer close(presentationsDone)
-		presenter := integrationruntime.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log}
-		presenter.RunPending(ctx, backgroundRunner)
-	}()
 	workerErr := make(chan error, 1)
 	go func() {
 		workerErr <- kernelWorker.Run(ctx)
@@ -374,7 +368,6 @@ func main() {
 		log.Error("integration inbox worker failed", "error", integrationsRunErr)
 		exitCode = 1
 	}
-	<-presentationsDone
 	<-eventWebhookDone
 	backgroundRunner.Shutdown()
 	if exitCode != 0 {

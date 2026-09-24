@@ -135,8 +135,8 @@ Create a project integration first, then reference its tools as
 `tools.int__<integration-name>__<operation>`. Tool entries contain enabled state, deferred
 loading and permissions; handler entries use `interaction_handlers: {integration-name: {}}`.
 The shipped tools use immutable integration-agent context established by a provider or
-scheduled launch. They fail before provider I/O if no conversation is assigned. Handler selection
-always takes complete destination arguments and is independent of sending context.
+scheduled launch. They fail before provider I/O if no conversation is assigned. Their interaction handlers use the same assigned conversation and accept empty
+selection arguments.
 Incoming subscriptions belong to the integration and are attached through launch requests
 or the integration subscriptions API, not config. Removing a tool or changing config does
 not remove subscriptions.

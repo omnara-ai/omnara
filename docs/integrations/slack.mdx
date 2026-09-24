@@ -121,13 +121,15 @@ Add `interaction_handlers: {engineering: {}}` to offer Slack questions and appro
 For manual configs, also select `list_interaction_handlers` and
 `set_interaction_handler` under `tools` to let the model choose a destination.
 The Slack launcher adds the handler and both tools automatically, preserving explicit settings.
-The model selects it with `set_interaction_handler` and complete `channel_id` plus
-optional `thread_ts` arguments, independently of sending context. Incoming provider
-messages select the handler with their full origin address automatically, including
-the first launch input. The dashboard always remains available.
+The handler uses the conversation assigned when the integration launches the agent.
+Select it with `{"handler":"engineering","args":{}}`; the model does not supply
+channel or thread IDs. The list tool shows the assigned destination. Adding a
+handler to a manual config does not create an assignment or grant another conversation.
+Incoming messages from the assigned conversation select the handler automatically,
+including the first launch input. The dashboard always remains available.
 
-Slack interaction notifications run independently of the waiting agent. Queued
-notifications survive a busy worker queue or a restart before delivery starts.
+Slack interaction notifications run independently of the waiting agent. Delivery is
+best effort: a full worker queue or restart can lose the external notification.
 Omnara retries only safe failures, with a bounded retry budget. If delivery may
 have succeeded, it does not automatically post another copy; a crash during
 sending can leave a prompt missing or unconfirmed. The interaction remains

@@ -86,7 +86,7 @@ func setInteractionHandler(
 	); err != nil {
 		return nil, err
 	}
-	selection := executionstore.InteractionSelection{Args: input.Args}
+	selection := executionstore.SelectInteractionHandlerInput{Args: input.Args}
 	var current *setInteractionHandlerRequest
 	if input.Handler != nil {
 		selection.HandlerKey = *input.Handler

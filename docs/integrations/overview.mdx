@@ -66,19 +66,19 @@ Configs select tools and handlers. Launch requests or the subscriptions API atta
 conversations independently of config.
 The launcher is separate: it decides whether and how to start agents.
 
-For example, a profile selected by a GitHub integration named `reviews` can also use the
-interaction handler of a Slack integration named `engineering`. Its config can include:
+For example, a Slack integration named `engineering` adds its tools and interaction
+handler when it launches an agent. The resulting config includes entries like these:
 
 ```yaml
 instruction: |
-  Review the pull request that launched you. Select engineering as your interaction
-  handler with channel_id C123 before requesting approval.
+  Answer requests in the Slack conversation that launched you.
 model:
   provider_config: my-provider
   name: my-model
 tools:
   ask_question: {}
-  int__reviews__read: {}
+  int__engineering__read: {}
+  int__engineering__post_message: {}
   list_interaction_handlers: {}
   set_interaction_handler: {}
 interaction_handlers:
@@ -87,8 +87,10 @@ interaction_handlers:
 
 Tools use `int__<integration-name>__<operation>`, with one entry per integration and operation.
 Tool entries select enabled state, deferred loading and permissions. Handler entries
-are empty objects. Interaction handlers take destination arguments; the shipped
-thread and PR tools use the conversation assigned at launch.
+are empty objects. Slack and Discord handlers use the agent's assigned conversation,
+so selecting one takes `{"handler":"engineering","args":{}}`. Listing handlers shows
+only eligible choices and their destinations. Selecting a handler never grants access
+to another conversation.
 The catalog exposes the static argument schema in
 `capabilities.tools[operation].input_schema` and
 `capabilities.interaction_handler.input_schema`.
@@ -267,36 +269,32 @@ the `list_interaction_handlers` and `set_interaction_handler` tools. Launchers
 preserve tools and handlers already configured in the profile,
 including explicit tool permissions and disabled entries. Manual configs can add
 these built-ins under `tools`. Ordinary configs receive neither automatically.
-Destinations can change at runtime without changing the config. The list is
-paginated and returns each handler's description and static argument schema,
-plus the current selection independently of the page. The model selects a handler
-and destination arguments, or uses `{"handler": null, "args": {}}` for dashboard only.
-The model discovers handlers and the current selection through the list tool;
-Omnara does not append this routing information to model requests.
+The selected handler can change at runtime without changing the config. The list is
+paginated and returns eligible handlers, their argument schemas and destinations,
+plus the current selection independently of the page. The model discovers these
+through the list tool; Omnara does not append routing information to model requests.
 
-Selecting a handler requires complete destination arguments, independently of the
-integration's sending context. For example:
+The shipped Slack and Discord handlers use the agent's assigned conversation.
+Select one with empty arguments:
 
 ```json
-{"handler":"engineering","args":{"channel_id":"C123","thread_ts":"111.222333"}}
+{"handler":"engineering","args":{}}
 ```
 
-A handler may use another conversation accessible to the integration; it is not restricted
-to the sending context. Anyone able to respond in that provider conversation can
-answer its questions and approvals; they do not need an Omnara account. Choose a
-destination whose audience you trust to make those decisions.
+A subscription alone does not grant interaction access, and adding a handler to a
+config does not assign a conversation. Anyone able to respond in an eligible provider
+conversation can answer its questions and approvals without an Omnara account.
 Use explicit tool permissions to restrict or disable `set_interaction_handler`
-when the model should not choose another destination.
+when the model should not change the selected handler.
 
-A newly accepted provider input selects a unique matching handler with the complete
-origin address for future interactions, including the initial launch input. No
-matching handler means dashboard only; an input without a provider origin preserves
-the selection. Each interaction captures its destination
-when created, so changing the selection does not move an existing prompt.
+Use `{"handler":null,"args":{}}` for dashboard only. A newly accepted provider input
+selects its unique eligible handler. An ineligible origin clears the selection;
+an input without a provider origin preserves it. Each interaction captures its
+destination when created, so changing the selection does not move an existing prompt.
 
 The dashboard remains available if provider presentation fails. Removing a handler,
-disconnecting its integration, or replacing the pinned integration invalidates old external
-callbacks. Captured interaction responses contain complete destination `args`.
+disconnecting its integration, or losing its assigned conversation invalidates external
+callbacks. Captured interaction responses identify the integration, target and address.
 See [interactions](/events/interactions) for answering through the API.
 
 For an existing Slack deployment, use the coordinated

@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/stretchr/testify/require"
@@ -38,10 +39,16 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(t *testing.T
 		"C123:111.222",
 	)
 	tx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, testOrgID, testProjectID))
+	require.NoError(t, integrationstore.LockIntegrationsTx(f.ctx, tx, testProjectID, nil, f.integration.ID))
 	_, err = dbsqlc.New(tx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: launch.Agent.ID,
 	})
 	require.NoError(t, err)
+	require.NoError(t, f.store.Integrations().AssignAgentIntegrationConversationTx(
+		f.ctx, tx, testProjectID, launch.Agent.ID, f.integration.ID,
+		integrationstore.ConversationAddress{Kind: target.ProviderRefKind, Ref: target.ProviderRef},
+	))
 	selection, err := f.store.Execution().SelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, target.ID,
 	)

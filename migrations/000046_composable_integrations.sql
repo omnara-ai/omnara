@@ -372,22 +372,13 @@ UPDATE agents SET integration_target_id = NULL WHERE integration_target_id IS NO
 
 ALTER TABLE agents
     ADD COLUMN interaction_handler_key text,
-    ADD COLUMN interaction_handler_args jsonb,
     ADD CHECK (
-        (integration_target_id IS NULL AND interaction_handler_key IS NULL AND interaction_handler_args IS NULL)
+        (integration_target_id IS NULL AND interaction_handler_key IS NULL)
         OR (integration_target_id IS NOT NULL AND interaction_handler_key IS NOT NULL
-            AND interaction_handler_key <> '' AND interaction_handler_args IS NOT NULL
-            AND jsonb_typeof(interaction_handler_args) = 'object'));
+            AND interaction_handler_key <> ''));
 ALTER TABLE agent_interactions
     ADD COLUMN destination jsonb CHECK (destination IS NULL OR (jsonb_typeof(destination) = 'object' AND octet_length(destination::text) <= 4096)),
-    ADD COLUMN presentation_receipt jsonb CHECK (presentation_receipt IS NULL OR (destination IS NOT NULL AND jsonb_typeof(presentation_receipt) = 'object' AND octet_length(presentation_receipt::text) <= 16384)),
-    ADD COLUMN presentation_attempted_at timestamptz
-        CHECK (presentation_attempted_at IS NULL OR destination IS NOT NULL);
-
-CREATE INDEX agent_interactions_pending_presentation_idx
-    ON agent_interactions ((destination ->> 'integration_type'), created_at, agent_id, id)
-    WHERE state = 'open' AND destination IS NOT NULL
-      AND presentation_attempted_at IS NULL AND presentation_receipt IS NULL;
+    ADD COLUMN presentation_receipt jsonb CHECK (presentation_receipt IS NULL OR (destination IS NOT NULL AND jsonb_typeof(presentation_receipt) = 'object' AND octet_length(presentation_receipt::text) <= 16384));
 
 CREATE OR REPLACE VIEW agent_interaction_read_projection AS
 SELECT interaction.id,
@@ -421,18 +412,10 @@ BEGIN
             USING ERRCODE = '25006';
     END IF;
     IF TG_OP = 'INSERT' THEN
-        IF NEW.state <> 'open' OR NEW.presentation_receipt IS NOT NULL
-           OR NEW.presentation_attempted_at IS NOT NULL THEN
+        IF NEW.state <> 'open' OR NEW.presentation_receipt IS NOT NULL THEN
             RAISE EXCEPTION 'agent_interactions must be inserted in open state'
                 USING ERRCODE = '23514';
         END IF;
-        RETURN NEW;
-    END IF;
-
-    IF OLD.state = 'open' AND OLD.destination IS NOT NULL
-       AND OLD.presentation_attempted_at IS NULL AND NEW.presentation_attempted_at IS NOT NULL
-       AND OLD.presentation_receipt IS NULL
-       AND (to_jsonb(OLD) - 'presentation_attempted_at') = (to_jsonb(NEW) - 'presentation_attempted_at') THEN
         RETURN NEW;
     END IF;
 
@@ -458,7 +441,6 @@ BEGIN
        OR OLD.request IS DISTINCT FROM NEW.request
        OR OLD.created_at IS DISTINCT FROM NEW.created_at
        OR OLD.destination IS DISTINCT FROM NEW.destination
-       OR OLD.presentation_attempted_at IS DISTINCT FROM NEW.presentation_attempted_at
        OR OLD.presentation_receipt IS DISTINCT FROM NEW.presentation_receipt THEN
         RAISE EXCEPTION 'agent_interaction lineage is immutable'
             USING ERRCODE = '25006';

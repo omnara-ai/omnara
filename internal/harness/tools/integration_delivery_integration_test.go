@@ -268,7 +268,9 @@ func TestQuestionDispatchCommitsDurableWaitBeforePrompt(t *testing.T) {
 		`{"questions":[{"prompt":"Ship it?","options":[{"label":"Yes"},{"label":"No"}]}]}`,
 		fixture.Now.Add(21*time.Second),
 	)
+	runner, waitPresentation := newQuestionPresentationRunner(t, ctx)
 	executor := Executor{
+		BackgroundRunner:      runner,
 		Store:                 fixture.Store,
 		IntegrationHTTPClient: integrationProviderTestClient(server),
 	}
@@ -283,7 +285,6 @@ func TestQuestionDispatchCommitsDurableWaitBeforePrompt(t *testing.T) {
 	if result.Disposition != DispatchDeferred {
 		t.Fatalf("question disposition = %d, want deferred", result.Disposition)
 	}
-	waitPresentation := enqueuePendingQuestionPresentations(t, ctx, executor)
 	select {
 	case <-requestStarted:
 	case <-time.After(5 * time.Second):
@@ -863,7 +864,10 @@ WHERE id = $1`,
 }
 
 func newIntegrationToolFixture(t *testing.T, ctx context.Context, label string) integrationToolFixture {
-	return newIntegrationToolFixtureWithMCP(t, ctx, label, false)
+	f := newIntegrationToolFixtureWithMCP(t, ctx, label, false)
+	f.Target = seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, f.Install,
+		integrationstore.ConversationAddress{Kind: f.Target.ProviderRefKind, Ref: f.Target.ProviderRef})
+	return f
 }
 
 func newIntegrationToolFixtureWithMCP(
@@ -1485,6 +1489,10 @@ func dispatchToolAndDrainAsync(
 	call model.ToolCall,
 ) (Result, error) {
 	t.Helper()
+	var waitPresentation func() error
+	if call.Name == toolcatalog.ToolNameAskQuestion && executor.BackgroundRunner == nil {
+		executor.BackgroundRunner, waitPresentation = newQuestionPresentationRunner(t, ctx)
+	}
 	scope := NewAsyncExecutionScope(nil)
 	result, err := executor.Dispatch(WithAsyncExecutionScope(ctx, scope), turn, call)
 	scope.Seal()
@@ -1496,8 +1504,7 @@ func dispatchToolAndDrainAsync(
 	if err != nil {
 		return result, err
 	}
-	if call.Name == toolcatalog.ToolNameAskQuestion {
-		waitPresentation := enqueuePendingQuestionPresentations(t, ctx, executor)
+	if waitPresentation != nil {
 		if err := waitPresentation(); err != nil {
 			t.Logf("question presentation failed; dashboard remains available: %v", err)
 		}

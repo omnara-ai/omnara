@@ -433,7 +433,6 @@ func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *test
 	require.NoError(t, err)
 	require.Equal(t, "other", selected.HandlerKey)
 	require.Equal(t, f.b.ID, selected.IntegrationTargetID)
-	require.JSONEq(t, `{"channel_id":"C456","thread_ts":"333.444"}`, string(selected.Args))
 	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
 		ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: mustOmnaraActorParams(t, f.user.ID),
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Dashboard note"}]`), IdempotencyKey: "originless",
@@ -442,6 +441,38 @@ func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *test
 	after, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, selected, after)
+}
+
+func TestInboxSubscriptionInputDoesNotGrantInteractionDestination(t *testing.T) {
+	t.Parallel()
+	f := newIntegrationInteractionFixture(t)
+	f.selectOrigin(t, f.a.ID)
+	subscription, err := f.store.Integrations().CreateIntegrationSubscription(f.ctx,
+		integrationstore.CreateIntegrationSubscriptionInput{
+			OrgID: testOrgID, ProjectID: testProjectID, IntegrationID: f.integration.ID, AgentID: f.process.AgentID,
+			Conversation: json.RawMessage(`{"channel_id":"C999","thread_ts":"777.888"}`),
+		})
+	require.NoError(t, err)
+	slot := inboxInputPlan(t, f.process.AgentID, f.integration, "second-thread")
+	slot.Input.Origin.Address = subscription.Address
+	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
+		Alternatives: []integrationstore.ConversationAddress{subscription.Address},
+	}
+	receipt := freezeInboxInput(t, f.activation(), slot, "second-thread", time.Minute)
+	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+	require.NoError(t, err)
+	require.True(t, result.Created)
+	selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{}, selected)
+	assigned, found, err := f.store.Integrations().GetAgentIntegrationConversation(
+		f.ctx, testProjectID, f.process.AgentID, f.integration.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, f.a.ProviderRef, assigned.Ref)
+	destination, err := f.store.Execution().GetSelectedInteractionDestination(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Nil(t, destination)
 }
 
 func TestOrdinaryContentInputExternalActorPreservesSelectionAndRejectsOrigin(t *testing.T) {
