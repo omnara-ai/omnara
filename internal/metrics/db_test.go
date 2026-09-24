@@ -143,9 +143,6 @@ func TestDBRecorderAttachesWideEventQueryData(t *testing.T) {
 		t.Fatalf("db.queries.0.name = %v, want GetAgent", got)
 	}
 	assertJSONNumber(t, record, "db.queries.0.duration_ms", 15)
-	if got, _ := record["db.queries.1.error"].(string); got != "postgres" {
-		t.Fatalf("db.queries.1.error = %v, want postgres", record["db.queries.1.error"])
-	}
 	if got := record["db.queries.1.error_kind"]; got != "postgres" {
 		t.Fatalf("db.queries.1.error_kind = %v, want postgres", got)
 	}
@@ -154,39 +151,6 @@ func TestDBRecorderAttachesWideEventQueryData(t *testing.T) {
 	}
 	assertJSONNumber(t, record, "db.queries.error_count", 1)
 	assertJSONNumber(t, record, "db.queries.duration_ms_sum", 20)
-}
-
-func TestDBRecorderScrubsTraceErrors(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, nil))
-
-	set := New()
-	recorder := NewDBRecorder(set, SubsystemDB)
-	ctx := log.WithLogger(context.Background(), logger)
-	event := log.NewEvent(ctx, "test.event")
-	ctx = log.WithEvent(ctx, event)
-
-	traceCtx := recorder.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{
-		SQL: "-- name: Connect :exec\nSELECT 1",
-	})
-	recorder.TraceQueryEnd(traceCtx, nil, pgx.TraceQueryEndData{
-		Err: &pgconn.PgError{
-			SeverityUnlocalized: "ERROR",
-			Message:             "connect postgres://user:pass@db.example/app?sslpassword=secret failed token=tok_123",
-		},
-	})
-	event.Done(context.Background())
-
-	var record map[string]any
-	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &record); err != nil {
-		t.Fatalf("decode log record: %v\n%s", err, buf.String())
-	}
-	got, _ := record["db.queries.0.error"].(string)
-	for _, forbidden := range []string{"user:pass@", "sslpassword=secret", "tok_123"} {
-		if strings.Contains(got, forbidden) {
-			t.Fatalf("db trace error leaked %q in %q", forbidden, got)
-		}
-	}
 }
 
 func TestDBQueryResult(t *testing.T) {
@@ -461,7 +425,7 @@ func TestDBRecorderWrappedWriteTimeout(t *testing.T) {
 				t.Fatal(err)
 			}
 			for key, want := range map[string]string{
-				"name": "AuthenticateBrowserSession", "error": "driver_timeout", "error_kind": "driver_timeout",
+				"name": "AuthenticateBrowserSession", "error_kind": "driver_timeout",
 				"error_severity": "unknown",
 				"cancel_source":  tt.source,
 			} {

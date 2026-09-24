@@ -80,7 +80,7 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 			if event["http.status_code"] != float64(http.StatusSwitchingProtocols) {
 				t.Fatal("socket status changed")
 			}
-			if event["db.queries.0.error"] != "context_canceled" {
+			if event["db.queries.0.error_kind"] != "context_canceled" {
 				t.Fatal("DB error classification changed")
 			}
 		})

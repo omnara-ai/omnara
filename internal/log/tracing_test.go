@@ -52,7 +52,7 @@ func TestTracingFlushesFlattenedRecordsAndAggregates(t *testing.T) {
 		"db.queries.count":                 2,
 		"db.queries.truncated_count":       0,
 		"db.queries.0.name":                "GetAgent",
-		"db.queries.1.error":               "postgres",
+		"db.queries.1.error_kind":          "postgres",
 		"db.queries.duration_ms_sum":       int64(42),
 		"db.queries.duration_ms_max":       int64(30),
 		"db.queries.rows_sum":              int64(1),

@@ -131,7 +131,6 @@ func (e *Event) flushDBQueries() {
 		out[prefix+"duration_ms"] = record.Duration.Milliseconds()
 		out[prefix+"rows"] = record.Rows
 		if record.Cause != nil {
-			out[prefix+"error"] = record.ErrorKind
 			out[prefix+"error_kind"] = record.ErrorKind
 			if record.SQLState != "" {
 				out[prefix+"sqlstate"] = record.SQLState
