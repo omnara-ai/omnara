@@ -210,6 +210,14 @@ func usageReportResponse(records []executionstore.ModelUsageRecord) (openapi.Usa
 	}, nil
 }
 
+func usageTotalsResponse(totals executionstore.ModelUsageTotals) openapi.UsageTotals {
+	return openapi.UsageTotals{
+		ModelCalls: totals.ModelCalls,
+		Tokens:     usageTokenTotalsResponse(totals),
+		Cost:       usageCostTotalsResponse(totals),
+	}
+}
+
 func usageTokenTotalsResponse(totals executionstore.ModelUsageTotals) openapi.UsageTokenTotals {
 	return openapi.UsageTokenTotals{
 		InputTokensTotal:      totals.InputTokensTotal,

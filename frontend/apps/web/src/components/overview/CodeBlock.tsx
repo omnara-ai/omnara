@@ -79,6 +79,12 @@ function JsonSegment({ json }: { json: string }) {
 const codePanelClass =
   'bg-card/70 relative overflow-hidden rounded-2xl shadow-[0_10px_32px_-20px_rgba(0,0,0,0.14)] backdrop-blur-md'
 
+export const panelHintClass =
+  'text-primary items-center gap-1 text-[12px] dark:text-[color-mix(in_oklab,var(--primary)_60%,white)]'
+
+export const tabTriggerClass =
+  'text-muted-foreground hover:text-foreground data-[state=active]:bg-foreground/10! data-[state=active]:text-foreground! dark:data-[state=active]:bg-foreground/15! data-[state=active]:shadow-xs h-9 shrink-0 rounded-md px-3 text-[12.5px] font-medium transition-[color,background-color] after:hidden sm:h-7'
+
 function CodePanelRing() {
   return (
     <div
@@ -233,18 +239,14 @@ export function CodeTabsBlock({
             className="w-full max-w-full justify-start gap-1 overflow-x-auto p-0 sm:w-fit"
           >
             {tabs.map((tab) => (
-              <TabsTrigger
-                key={tab.value}
-                value={tab.value}
-                className="text-muted-foreground hover:text-foreground data-[state=active]:bg-foreground/10! data-[state=active]:text-foreground! dark:data-[state=active]:bg-foreground/15! data-[state=active]:shadow-xs h-9 shrink-0 rounded-md px-3 text-[12.5px] font-medium transition-[color,background-color] after:hidden sm:h-7"
-              >
+              <TabsTrigger key={tab.value} value={tab.value} className={tabTriggerClass}>
                 {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>
           <div className="flex items-center gap-1.5 self-end sm:self-auto">
             {active?.hint && (
-              <span className="text-primary hidden items-center gap-1 text-[12px] sm:flex dark:text-[color-mix(in_oklab,var(--primary)_60%,white)]">
+              <span className={cn(panelHintClass, 'hidden sm:flex')}>
                 {active.hint}
                 <ArrowRight className="size-3.5" aria-hidden="true" />
               </span>

@@ -379,7 +379,7 @@ export const getOrgOverviewQueryKey = (options: Options<GetOrgOverviewData>) => 
 /**
  * Get org overview
  *
- * Returns the data backing the web app's overview page: the caller's visible projects plus the most recently active agents and most recently updated agent profiles across every project the caller can read. Internal to the web app and subject to change without notice.
+ * Returns the data backing the web app's overview page: the caller's visible projects, the most recently active agents and most recently updated agent profiles, today's activity, and the last 30 days of model usage across the projects the caller can read. Internal to the web app and subject to change without notice.
  */
 export const getOrgOverviewOptions = (options: Options<GetOrgOverviewData>) => queryOptions<GetOrgOverviewResponse, GetOrgOverviewError, GetOrgOverviewResponse, ReturnType<typeof getOrgOverviewQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {

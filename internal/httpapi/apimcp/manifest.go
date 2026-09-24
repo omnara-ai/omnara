@@ -14,7 +14,6 @@ var Tools = []Tool{
 
 	{Name: "orgs_list", Title: "List organizations", OperationID: "listOrganizations"},
 	{Name: "orgs_create", Title: "Create organization", OperationID: "createOrganization"},
-	{Name: "orgs_overview", Title: "Get organization overview", OperationID: "getOrgOverview"},
 
 	{Name: "projects_list", Title: "List projects", OperationID: "listVisibleProjects"},
 	{Name: "projects_create", Title: "Create project", OperationID: "createProject"},

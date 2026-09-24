@@ -288,6 +288,20 @@ WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
 ORDER BY profile.updated_at DESC, profile.id DESC
 LIMIT sqlc.arg(row_limit)::bigint;
 
+-- name: ListAgentProfilesWithAgentCounts :many
+SELECT profile.id,
+       profile.name,
+       count(agent.id)::bigint AS agent_count
+FROM agent_profiles profile
+LEFT JOIN agents agent ON agent.project_id = profile.project_id
+  AND agent.agent_profile_id = profile.id
+  AND agent.parent_agent_id IS NULL
+WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND profile.id = ANY(sqlc.arg(profile_ids)::uuid[])
+  AND profile.deleted_at IS NULL
+GROUP BY profile.id, profile.name
+ORDER BY profile.id;
+
 -- name: LockAgentProfile :one
 SELECT profile.id
 FROM agent_profiles profile

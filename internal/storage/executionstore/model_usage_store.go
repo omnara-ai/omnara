@@ -189,19 +189,27 @@ func (s *Store) sumModelUsage(
 }
 
 func SumModelUsageTotals(records []ModelUsageRecord) (ModelUsageTotals, error) {
-	totals := ModelUsageTotals{ProviderReportedCostUSD: "0"}
-	costs := make([]string, 0, len(records)+1)
-	costs = append(costs, "0")
+	totals := make([]ModelUsageTotals, 0, len(records))
 	for _, record := range records {
-		totals.ModelCalls += record.Totals.ModelCalls
-		totals.ModelCallsWithReportedCost += record.Totals.ModelCallsWithReportedCost
-		totals.InputTokensTotal += record.Totals.InputTokensTotal
-		totals.UncachedInputTokens += record.Totals.UncachedInputTokens
-		totals.CacheReadInputTokens += record.Totals.CacheReadInputTokens
-		totals.CacheWriteInputTokens += record.Totals.CacheWriteInputTokens
-		totals.OutputTokensTotal += record.Totals.OutputTokensTotal
-		totals.ReasoningOutputTokens += record.Totals.ReasoningOutputTokens
-		costs = append(costs, string(record.Totals.ProviderReportedCostUSD))
+		totals = append(totals, record.Totals)
+	}
+	return sumModelUsageTotals(totals)
+}
+
+func sumModelUsageTotals(items []ModelUsageTotals) (ModelUsageTotals, error) {
+	var totals ModelUsageTotals
+	costs := make([]string, 0, len(items)+1)
+	costs = append(costs, "0")
+	for _, item := range items {
+		totals.ModelCalls += item.ModelCalls
+		totals.ModelCallsWithReportedCost += item.ModelCallsWithReportedCost
+		totals.InputTokensTotal += item.InputTokensTotal
+		totals.UncachedInputTokens += item.UncachedInputTokens
+		totals.CacheReadInputTokens += item.CacheReadInputTokens
+		totals.CacheWriteInputTokens += item.CacheWriteInputTokens
+		totals.OutputTokensTotal += item.OutputTokensTotal
+		totals.ReasoningOutputTokens += item.ReasoningOutputTokens
+		costs = append(costs, string(item.ProviderReportedCostUSD))
 	}
 	cost, ok := modelenvelope.SumProviderReportedCostUSD(costs...)
 	if !ok {
