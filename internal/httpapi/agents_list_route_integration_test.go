@@ -527,6 +527,9 @@ func seedListAgentsSlackTarget(
 	actor, err := executionstore.IntegrationActorParams(install.ID, "ULISTINPUT", nil)
 	require.NoError(t, err)
 	plan, err := json.Marshal(map[string]executionstore.InboxInputSlot{"recipient": {
+		Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{
+			ChannelID: "C0BAK8REEGY", ThreadTS: "1783382417.000100",
+		}},
 		AgentID: agent.ID, Input: executionstore.CreateAgentContentInputInput{
 			Origin: &executionstore.AgentInputOrigin{
 				IntegrationID: install.ID,
