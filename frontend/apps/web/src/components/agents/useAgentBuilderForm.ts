@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
+import { Document, isNode, type Node } from 'yaml'
 
 import {
   extractBasicConfig,
   type MachineEntry,
   normalizeMultiline,
+  parseSourceDocument,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
@@ -274,16 +275,6 @@ function machineSourceValid(source: BasicMachineSource) {
         optionalPositiveInt32Valid(source.machineCpu) &&
         memoryGbDraftValid(source.machineMemoryGb, { optional: true })))
   )
-}
-
-function parseSourceDocument(source: string): Document | null {
-  try {
-    const doc = parseDocument(source)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
-    return doc
-  } catch {
-    return null
-  }
 }
 
 type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject

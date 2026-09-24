@@ -71,15 +71,11 @@ func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (j
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = map[string]string{"type": "auto"}
 	}
-	return apivariantbody.MarshalWithAPIVariantOptions(
-		c.APIVariantOptions,
-		payload,
-		anthropicMessagesOwnedFields()...,
-	)
-}
-
-func anthropicMessagesOwnedFields() []string {
-	return []string{
+	supportsReasoning := c.ModelCapabilities.SupportsReasoning
+	if input.Policy.SupportsReasoning != nil {
+		supportsReasoning = *input.Policy.SupportsReasoning
+	}
+	ownedFields := []string{
 		"model",
 		"stream",
 		"max_tokens",
@@ -88,16 +84,82 @@ func anthropicMessagesOwnedFields() []string {
 		"tools",
 		"tool_choice",
 	}
+	if supportsReasoning && input.Policy.ReasoningEffort != "" {
+		options, err := decodeAPIVariantOptions(c.APIVariantOptions)
+		if err != nil {
+			return nil, err
+		}
+		payload.OutputConfig, err = outputConfigWithEffort(options["output_config"], input.Policy.ReasoningEffort)
+		if err != nil {
+			return nil, err
+		}
+		ownedFields = append(ownedFields, "output_config")
+		thinkingOff, err := thinkingDisabled(options["thinking"])
+		if err != nil {
+			return nil, err
+		}
+		if thinkingOff {
+			payload.Thinking = &thinkingConfig{Type: "adaptive"}
+			ownedFields = append(ownedFields, "thinking")
+		}
+	}
+	return apivariantbody.MarshalWithAPIVariantOptions(c.APIVariantOptions, payload, ownedFields...)
+}
+
+func decodeAPIVariantOptions(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	raw = bytes.TrimSpace(raw)
+	options := map[string]json.RawMessage{}
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return options, nil
+	}
+	if err := json.Unmarshal(raw, &options); err != nil {
+		return nil, fmt.Errorf("api_variant_options must be a JSON object: %w", err)
+	}
+	return options, nil
+}
+
+func outputConfigWithEffort(raw json.RawMessage, effort string) (map[string]json.RawMessage, error) {
+	config := map[string]json.RawMessage{}
+	if len(raw) > 0 && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		if err := json.Unmarshal(raw, &config); err != nil || config == nil {
+			return nil, fmt.Errorf("api_variant_options.output_config must be a JSON object")
+		}
+	}
+	encodedEffort, err := json.Marshal(effort)
+	if err != nil {
+		return nil, err
+	}
+	config["effort"] = encodedEffort
+	return config, nil
+}
+
+func thinkingDisabled(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return true, nil
+	}
+	var thinking struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &thinking); err != nil {
+		return false, fmt.Errorf("api_variant_options.thinking must be a JSON object: %w", err)
+	}
+	return thinking.Type == "disabled", nil
 }
 
 type messagesRequest struct {
-	Model      string            `json:"model"`
-	Stream     bool              `json:"stream"`
-	MaxTokens  int               `json:"max_tokens"`
-	System     any               `json:"system,omitempty"`
-	Messages   []message         `json:"messages"`
-	Tools      []toolDefinition  `json:"tools,omitempty"`
-	ToolChoice map[string]string `json:"tool_choice,omitempty"`
+	Model        string                     `json:"model"`
+	Stream       bool                       `json:"stream"`
+	MaxTokens    int                        `json:"max_tokens"`
+	System       any                        `json:"system,omitempty"`
+	Messages     []message                  `json:"messages"`
+	Tools        []toolDefinition           `json:"tools,omitempty"`
+	ToolChoice   map[string]string          `json:"tool_choice,omitempty"`
+	OutputConfig map[string]json.RawMessage `json:"output_config,omitempty"`
+	Thinking     *thinkingConfig            `json:"thinking,omitempty"`
+}
+
+type thinkingConfig struct {
+	Type string `json:"type"`
 }
 
 type anthropicRole string
