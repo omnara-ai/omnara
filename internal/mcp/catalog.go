@@ -338,12 +338,11 @@ func (m Manager) refreshCatalogUntil(
 			},
 		)
 		if err != nil {
-			return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
-				"%w: acquire mcp catalog refresh lease for %s: %w",
-				ErrInternal,
+			return executionstore.MCPServerCatalogRecord{}, internalFailure(fmt.Errorf(
+				"acquire mcp catalog refresh lease for %s: %w",
 				identity.EndpointURL,
 				err,
-			)
+			))
 		}
 		if acquired {
 			if refreshed(current) {
@@ -358,10 +357,7 @@ func (m Manager) refreshCatalogUntil(
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - catalogRefreshOwnerHeadroom
 			return m.fetchCatalogAsLeaseOwner(ctx, identity, current, owner, ownerTimeout, fetch)
 		}
-		if current.RefreshError != "" {
-			return executionstore.MCPServerCatalogRecord{}, errors.New(current.RefreshError)
-		}
-		if catalogServes(current, statelessOnly) {
+		if current.RefreshError == "" && catalogServes(current, statelessOnly) {
 			return current, nil
 		}
 		if attempt >= maxWaits {
@@ -444,12 +440,11 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 		ToolsFreshFor:      m.catalogFreshFor(contents.Listing.Cache),
 	})
 	if err != nil {
-		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
-			"%w: store mcp catalog for %s: %w",
-			ErrInternal,
+		return executionstore.MCPServerCatalogRecord{}, internalFailure(fmt.Errorf(
+			"store mcp catalog for %s: %w",
 			identity.EndpointURL,
 			err,
-		)
+		))
 	}
 	return fetched, nil
 }
@@ -466,7 +461,7 @@ func (m Manager) markCatalogRefreshFailed(
 	if err := m.Execution.MarkMCPServerCatalogRefreshFailed(
 		ctx, identity.OrgID, current.ID, owner, sanitizeInitializationError(cause.Error()),
 	); err != nil {
-		return fmt.Errorf("%w: mark mcp catalog refresh failed for %s: %w", ErrInternal, identity.EndpointURL, err)
+		return internalFailure(fmt.Errorf("mark mcp catalog refresh failed for %s: %w", identity.EndpointURL, err))
 	}
 	return nil
 }

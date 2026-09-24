@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 
 	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -195,8 +196,23 @@ func IsRetryableConnectionFailure(cause error) bool {
 	if errors.As(cause, &opErr) || errors.As(cause, &dnsErr) || errors.Is(cause, io.ErrUnexpectedEOF) {
 		return true
 	}
+	var urlErr *url.Error
+	if errors.As(cause, &urlErr) && errors.Is(urlErr.Err, io.EOF) {
+		return true
+	}
+	var rpcErr *RPCError
+	if errors.As(cause, &rpcErr) && rpcErr.Code == jsonrpc.CodeInternalError {
+		return true
+	}
 	if status, ok := HTTPStatus(cause); ok {
 		return isRetryableHTTPStatus(status)
 	}
 	return false
+}
+
+func internalFailure(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrInternal, err)
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -431,6 +432,12 @@ func TestMCPServerToolsFailureMapsErrorOrigins(t *testing.T) {
 			err:        fmt.Errorf("%w: lease is busy", mcp.ErrRefreshBusy),
 			wantCode:   openapi.ErrorCodeConflict,
 			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "upstream json-rpc internal error",
+			err:        &mcp.RPCError{Code: jsonrpc.CodeInternalError, Message: "boom", HTTPStatus: http.StatusOK},
+			wantCode:   openapi.ErrorCodeUpstreamUnavailable,
+			wantStatus: http.StatusFailedDependency,
 		},
 		{
 			name: "credential refresh transient",

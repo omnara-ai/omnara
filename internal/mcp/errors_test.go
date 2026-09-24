@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 
+	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/ssrf"
 )
 
@@ -42,6 +45,22 @@ func TestIsRetryableConnectionFailureClassifiesTransportErrors(t *testing.T) {
 			want: true,
 		},
 		{name: "unexpected eof", err: fmt.Errorf("read body: %w", io.ErrUnexpectedEOF), want: true},
+		{
+			name: "connection closed before a response",
+			err:  &url.Error{Op: "Post", URL: "https://mcp.example", Err: io.EOF},
+			want: true,
+		},
+		{name: "eof outside the http client", err: fmt.Errorf("decode body: %w", io.EOF), want: false},
+		{
+			name: "json-rpc internal error",
+			err:  &RPCError{Code: jsonrpc.CodeInternalError, Message: "boom", HTTPStatus: http.StatusOK},
+			want: true,
+		},
+		{
+			name: "json-rpc invalid params",
+			err:  &RPCError{Code: jsonrpc.CodeInvalidParams, Message: "bad", HTTPStatus: http.StatusOK},
+			want: false,
+		},
 		{name: "deadline exceeded", err: context.DeadlineExceeded, want: true},
 		{name: "canceled", err: context.Canceled, want: false},
 		{name: "blocked address", err: fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress), want: false},
@@ -56,5 +75,18 @@ func TestIsRetryableConnectionFailureClassifiesTransportErrors(t *testing.T) {
 				t.Fatalf("IsRetryableConnectionFailure(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestInternalFailureKeepsCallerCancellationDistinct(t *testing.T) {
+	canceled := internalFailure(fmt.Errorf("store mcp catalog: %w", context.Canceled))
+	if errors.Is(canceled, ErrInternal) || !errutil.OnlyMatches(canceled, context.Canceled) {
+		t.Fatalf("internalFailure(canceled) = %v, want cancellation only", canceled)
+	}
+	if failed := internalFailure(errors.New("connection reset")); !errors.Is(failed, ErrInternal) {
+		t.Fatalf("internalFailure() = %v, want ErrInternal", failed)
+	}
+	if failed := wrapStoreErr(fmt.Errorf("load secret: %w", context.Canceled)); errors.Is(failed, ErrInternal) {
+		t.Fatalf("wrapStoreErr(canceled) = %v, want no ErrInternal", failed)
 	}
 }

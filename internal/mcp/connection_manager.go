@@ -508,7 +508,7 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			},
 		)
 		if err != nil {
-			return "", uuid.Nil, fmt.Errorf("%w: acquire mcp oauth refresh lease for %q: %w", ErrInternal, serverKey, err)
+			return "", uuid.Nil, internalFailure(fmt.Errorf("acquire mcp oauth refresh lease for %q: %w", serverKey, err))
 		}
 		if acquired {
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - oauthRefreshOwnerHeadroom
@@ -662,7 +662,7 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 				}
 			}
 		}
-		return "", uuid.Nil, fmt.Errorf("%w: store refreshed mcp oauth token for %q: %w", ErrInternal, serverKey, err)
+		return "", uuid.Nil, internalFailure(fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err))
 	}
 	return refreshed.AccessToken, rotated.CurrentVersionID, nil
 }
@@ -712,5 +712,5 @@ func wrapStoreErr(err error) error {
 	if storeerr.IsNotFound(err) {
 		return err
 	}
-	return fmt.Errorf("%w: %w", ErrInternal, err)
+	return internalFailure(err)
 }

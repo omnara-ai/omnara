@@ -143,8 +143,8 @@ func serverInfoFromMeta(meta json.RawMessage) (json.RawMessage, error) {
 	if !ok || len(info) == 0 || string(info) == "null" {
 		return json.RawMessage(`{}`), nil
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(info, &object); err != nil {
+	var implementation sdkmcp.Implementation
+	if err := json.Unmarshal(info, &implementation); err != nil {
 		return nil, fmt.Errorf("mcp: decode server info: %w", err)
 	}
 	return info, nil
