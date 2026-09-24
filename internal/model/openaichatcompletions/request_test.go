@@ -16,7 +16,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/model/route"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
-	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func TestPrepareBuildsChatCompletionsPayload(t *testing.T) {
