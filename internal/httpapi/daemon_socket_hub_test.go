@@ -199,7 +199,7 @@ func TestDaemonSocketIgnoresDrainAfterClose(t *testing.T) {
 	socket := newTestDaemonSocket(t, &daemonSocket{})
 	socket.close(websocket.StatusNormalClosure, "test")
 
-	socket.enqueueDrain(context.Background())
+	socket.enqueueDrain()
 
 	socket.workMu.Lock()
 	defer socket.workMu.Unlock()

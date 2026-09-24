@@ -17,8 +17,10 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -1603,5 +1605,127 @@ func readSocketMessageOfType(
 			continue
 		}
 		t.Fatalf("unexpected %s while waiting for %s: %+v", msg.Type, wantType, msg)
+	}
+}
+
+type socketDrainQueryTracer struct {
+	pgx.QueryTracer
+	calls                               int
+	initial, started, canceled, release chan struct{}
+}
+
+func (tracer *socketDrainQueryTracer) TraceQueryStart(
+	ctx context.Context,
+	conn *pgx.Conn,
+	data pgx.TraceQueryStartData,
+) context.Context {
+	ctx = tracer.QueryTracer.TraceQueryStart(ctx, conn, data)
+	if strings.HasPrefix(data.SQL, "-- name: ListDaemonProcessOffers :many") {
+		tracer.calls++
+		switch tracer.calls {
+		case 1:
+			close(tracer.initial)
+		case 2:
+			close(tracer.started)
+			<-ctx.Done()
+			close(tracer.canceled)
+			<-tracer.release
+		}
+	}
+	return ctx
+}
+
+func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
+	for _, tt := range []struct {
+		name, source string
+		localClose   websocket.StatusCode
+	}{
+		{name: "transport failure", source: "socket_failure"},
+		{name: "normal local close", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
+		{name: "local policy failure", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tracer := &socketDrainQueryTracer{
+				QueryTracer: metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB),
+				initial:     make(chan struct{}), started: make(chan struct{}),
+				canceled: make(chan struct{}), release: make(chan struct{}),
+			}
+			pool := poolWithQueryTracer(t, t.Context(), openIntegrationDB(t, t.Context()), tracer)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			hub := &daemonSocketHub{
+				presence:  newDaemonSocketRouteTestPresence(),
+				byMachine: map[uuid.UUID]*daemonSocket{}, byRuntime: map[uuid.UUID]*daemonSocket{},
+				fallbackDrainInterval: time.Hour,
+			}
+			backend := &Server{store: storage.NewStore(pool), daemonHub: hub}
+			buf, logger := newRequestEventCapture()
+			ready := make(chan *daemonSocket, 1)
+			finished := make(chan struct{})
+			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := websocket.Accept(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer func() { _ = conn.CloseNow() }()
+				socket := newDaemonSocket(backend, daemonprotocol.NewBackendSocket(conn, ""),
+					uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), false)
+				ready <- socket
+				socket.run(r.Context())
+			}))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(finished)
+				handler.ServeHTTP(w, r)
+			}))
+			t.Cleanup(server.Close)
+			release := sync.OnceFunc(func() { close(tracer.release) })
+			t.Cleanup(release)
+			conn, response, err := websocket.Dial(ctx, server.URL, nil)
+			if response != nil && response.Body != nil {
+				t.Cleanup(func() { _ = response.Body.Close() })
+			}
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.CloseNow() })
+			wait := func(done <-chan struct{}) {
+				t.Helper()
+				select {
+				case <-done:
+				case <-ctx.Done():
+					t.Fatal("socket drain did not finish: ", ctx.Err())
+				}
+			}
+			wait(tracer.initial)
+			socket := <-ready
+			socket.workMu.Lock()
+			initialDrain := socket.drainDone
+			socket.workMu.Unlock()
+			wait(initialDrain)
+			hub.handleWakeup(context.Background(), notifications.WakeupMessage{
+				Type: notifications.WakeupTypeDaemonWork, MachineID: socket.machineID,
+			})
+			wait(tracer.started)
+			if tt.localClose != 0 {
+				go socket.close(tt.localClose, "test close")
+			} else {
+				require.NoError(t, conn.CloseNow())
+			}
+			wait(tracer.canceled)
+			select {
+			case <-finished:
+				t.Fatal("request finished before drain query completion")
+			case <-time.After(100 * time.Millisecond):
+			}
+			release()
+			if tt.localClose != 0 {
+				_, _, _ = conn.Read(ctx)
+			}
+			wait(finished)
+			event := decodeRequestEvent(t, buf)
+			require.Equal(t, "ListDaemonProcessOffers", event["db.queries.2.name"])
+			require.Equal(t, "context_canceled", event["db.queries.2.error_kind"])
+			require.Equal(t, tt.source, event["db.queries.2.cancel_source"])
+			require.Equal(t, float64(1), event["db.queries.error_count"])
+		})
 	}
 }

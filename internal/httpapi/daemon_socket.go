@@ -32,6 +32,8 @@ type daemonSocket struct {
 	workMu            sync.Mutex
 	drainQueued       bool
 	drainRunning      bool
+	drainDone         chan struct{}
+	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
 	leaseRenewAfter   time.Time
@@ -105,29 +107,26 @@ func (s *daemonSocket) authority() executionstore.DaemonRuntimeAuthority {
 	}
 }
 
-func (s *daemonSocket) enqueueDrain(ctx context.Context) bool {
+func (s *daemonSocket) enqueueDrain() bool {
+	s.workMu.Lock()
+	defer s.workMu.Unlock()
 	select {
 	case <-s.done:
 		return false
 	default:
 	}
-	s.workMu.Lock()
-	if s.drainRunning {
-		if s.drainQueued {
-			s.workMu.Unlock()
-			return false
-		}
-		s.drainQueued = true
-		s.workMu.Unlock()
-		return true
-	}
 	if s.drainQueued {
-		s.workMu.Unlock()
 		return false
 	}
 	s.drainQueued = true
-	s.workMu.Unlock()
-	go s.drainLoop(ctx)
+	if !s.drainRunning {
+		done := make(chan struct{})
+		s.drainDone = done
+		go func() {
+			defer close(done)
+			s.drain()
+		}()
+	}
 	return true
 }
 
@@ -166,6 +165,8 @@ func (s *daemonSocket) close(code websocket.StatusCode, reason string) {
 func (s *daemonSocket) run(ctx context.Context) {
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	s.drain = func() { s.drainLoop(runCtx) }
+	s.server.daemonHub.register(s)
 	defer func() {
 		s.server.daemonHub.unregister(s)
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -179,7 +180,7 @@ func (s *daemonSocket) run(ctx context.Context) {
 		defer close(writerDone)
 		cancel(s.cancellationCause(s.writeLoop(runCtx)))
 	}()
-	s.enqueueDrain(runCtx)
+	s.enqueueDrain()
 	fallbackDrainTimer := time.NewTimer(s.server.daemonHub.fallbackDrainDelay(s.connectionID))
 	defer fallbackDrainTimer.Stop()
 	go func() {
@@ -188,7 +189,7 @@ func (s *daemonSocket) run(ctx context.Context) {
 			case <-runCtx.Done():
 				return
 			case <-fallbackDrainTimer.C:
-				if s.enqueueDrain(runCtx) {
+				if s.enqueueDrain() {
 					s.recordSocketEvent("work_drain", "queued", "fallback_timer")
 				}
 				fallbackDrainTimer.Reset(s.server.daemonHub.fallbackDrainDelay(s.connectionID))
@@ -197,7 +198,13 @@ func (s *daemonSocket) run(ctx context.Context) {
 	}()
 	cancel(s.cancellationCause(s.readLoop(runCtx)))
 	s.close(websocket.StatusNormalClosure, "closing")
+	s.workMu.Lock()
+	drainDone := s.drainDone
+	s.workMu.Unlock()
 	<-writerDone
+	if drainDone != nil {
+		<-drainDone
+	}
 }
 
 func stableJitterDuration(value string, maxDuration time.Duration) time.Duration {
@@ -404,7 +411,7 @@ func (s *daemonSocket) handleHeartbeat(ctx context.Context, msg daemonprotocol.M
 	}
 	if renewedLease && s.drainAfterRenewal {
 		s.drainAfterRenewal = false
-		s.enqueueDrain(ctx)
+		s.enqueueDrain()
 	}
 	s.enqueueOrClose(
 		daemonprotocol.Message{

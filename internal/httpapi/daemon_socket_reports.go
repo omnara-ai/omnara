@@ -41,7 +41,7 @@ func (s *daemonSocket) handleProcessAccept(ctx context.Context, msg daemonprotoc
 		Type:      daemonprotocol.MessageProcessAcceptAck,
 		ProcessID: processPublicID,
 	})
-	s.enqueueDrain(ctx)
+	s.enqueueDrain()
 	return nil
 }
 
@@ -91,7 +91,7 @@ func (s *daemonSocket) handleActionAccept(ctx context.Context, msg daemonprotoco
 			},
 		},
 	)
-	s.enqueueDrain(ctx)
+	s.enqueueDrain()
 	return nil
 }
 
@@ -132,7 +132,7 @@ func (s *daemonSocket) handleReport(ctx context.Context, msg daemonprotocol.Mess
 		},
 	)
 	s.recordSocketEvent("report", string(ackStatus), "none")
-	s.enqueueDrain(ctx)
+	s.enqueueDrain()
 	return nil
 }
 
