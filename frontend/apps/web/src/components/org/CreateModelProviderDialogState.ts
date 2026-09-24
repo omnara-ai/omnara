@@ -1,4 +1,8 @@
-import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
+import type {
+  CreateConfiguredModelRequest,
+  DiscoveredProviderModel,
+  ModelApiFormat,
+} from '@omnara/sdk'
 
 import { resourceNameValid } from '@/lib/resource-name'
 
@@ -12,9 +16,22 @@ export const modelProviderOptions = [
   { value: 'openrouter', label: 'OpenRouter', keyPlaceholder: 'sk-or-v1-…' },
   { value: 'anthropic', label: 'Anthropic', keyPlaceholder: 'sk-ant-…' },
   { value: 'bedrock', label: 'Amazon Bedrock', keyPlaceholder: 'Bedrock API key' },
+  { value: 'custom', label: 'Custom endpoint', keyPlaceholder: 'API key' },
 ] as const
 
 export type ModelProviderOption = (typeof modelProviderOptions)[number]['value']
+
+export const apiFormatOptions = [
+  { value: 'openai-chat-completions', label: 'OpenAI Chat Completions' },
+  { value: 'openai-responses', label: 'OpenAI Responses' },
+  { value: 'anthropic-messages', label: 'Anthropic Messages' },
+] satisfies { value: ModelApiFormat; label: string }[]
+
+export function apiFormatLabel(value: ModelApiFormat) {
+  return apiFormatOptions.find((option) => option.value === value)?.label ?? value
+}
+
+export const baseUrlPattern = /^https?:\/\/\S+$/i
 
 export const bedrockAPIOptions = [
   {
@@ -66,6 +83,8 @@ export interface CreateModelProviderFormValues {
   bedrockAPI: BedrockAPI
   bedrockAuth: BedrockAuth
   region: string
+  apiFormat: ModelApiFormat
+  baseUrl: string
   secretId: string
 }
 
@@ -75,6 +94,8 @@ export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
   bedrockAPI: 'chat-completions-v1',
   bedrockAuth: 'api-key',
   region: 'us-west-2',
+  apiFormat: 'openai-chat-completions',
+  baseUrl: '',
   secretId: '',
 }
 
@@ -82,7 +103,8 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
   return (
     resourceNameValid(values.name) &&
     values.secretId !== '' &&
-    (values.provider !== 'bedrock' || awsRegionPattern.test(values.region.trim()))
+    (values.provider !== 'bedrock' || awsRegionPattern.test(values.region.trim())) &&
+    (values.provider !== 'custom' || baseUrlPattern.test(values.baseUrl.trim()))
   )
 }
 

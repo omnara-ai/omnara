@@ -1,4 +1,5 @@
-import { useProjectMachinePoolGrants, useProjectMachines } from '@omnara/react'
+import { useMachinePool, useProjectMachinePoolGrants, useProjectMachines } from '@omnara/react'
+import type { MachinePoolSummary, ProjectMachinePoolGrant } from '@omnara/sdk'
 import { type ReactNode, useEffect, useState } from 'react'
 
 import { PlusIcon } from '@/components/icons'
@@ -8,7 +9,9 @@ import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { formatMemoryGb } from '@/lib/machine-memory'
 import { useProjectPage } from '@/lib/use-project-page'
+import { cn } from '@/lib/utils'
 
 export interface SelectedPool {
   provider: string
@@ -83,6 +86,7 @@ export function PoolSourceCombobox({
   onChange,
   onUnavailableChange,
   onPoolResolved,
+  onGrantResolved,
 }: {
   id?: string
   required?: boolean
@@ -92,6 +96,7 @@ export function PoolSourceCombobox({
   onChange: (name: string, pool?: SelectedPool) => void
   onUnavailableChange?: (unavailable: boolean) => void
   onPoolResolved?: (pool: SelectedPool) => void
+  onGrantResolved?: (grant: ResolvedPoolGrant | null) => void
 }) {
   const { project } = useProjectPage()
   const [grantOpen, setGrantOpen] = useState(false)
@@ -117,10 +122,14 @@ export function PoolSourceCombobox({
     (item) => item.machine_pool.name === value,
     onUnavailableChange,
   )
-  const resolvedPool = (listedItem ?? lookedUpItem)?.machine_pool
+  const resolvedItem = listedItem ?? lookedUpItem
+  const resolvedPool = resolvedItem?.machine_pool
   useEffect(() => {
     if (resolvedPool) onPoolResolved?.(resolvedPool)
   }, [onPoolResolved, resolvedPool])
+  useEffect(() => {
+    onGrantResolved?.(resolvedItem ?? null)
+  }, [onGrantResolved, resolvedItem])
 
   return (
     <>
@@ -250,4 +259,95 @@ export function MachineSourceCombobox({
       )}
     </>
   )
+}
+
+export interface ResolvedPoolGrant {
+  machine_pool: MachinePoolSummary
+  grant: ProjectMachinePoolGrant
+}
+
+export function PoolGrantSummary({ machine_pool: pool, grant }: ResolvedPoolGrant) {
+  const poolQuery = useMachinePool(pool.org_id, pool.id)
+  const inherited = poolQuery.data
+  const rows: { label: string; value: string | number | null | undefined; inherited?: boolean }[] =
+    [
+      resolve(
+        'Memory',
+        grant.default_machine_memory_mb,
+        inherited?.default_machine_memory_mb,
+        formatMemoryGb,
+      ),
+      resolve('CPU', grant.default_machine_cpu, inherited?.default_machine_cpu),
+      resolve('Max machines', grant.max_total_machines, inherited?.max_total_machines),
+      { label: 'Provider', value: pool.provider },
+      { label: 'Management', value: pool.management_kind },
+      resolve('Min machine CPU', grant.min_machine_cpu, inherited?.min_machine_cpu),
+      resolve(
+        'Min machine memory',
+        grant.min_machine_memory_mb,
+        inherited?.min_machine_memory_mb,
+        formatMemoryGb,
+      ),
+      resolve('Max machine CPU', grant.max_machine_cpu, inherited?.max_machine_cpu),
+      resolve(
+        'Max machine memory',
+        grant.max_machine_memory_mb,
+        inherited?.max_machine_memory_mb,
+        formatMemoryGb,
+      ),
+      resolve('Max total CPU', grant.max_total_cpu, inherited?.max_total_cpu),
+      resolve(
+        'Max total memory',
+        grant.max_total_memory_mb,
+        inherited?.max_total_memory_mb,
+        formatMemoryGb,
+      ),
+    ]
+  const half = Math.ceil(rows.length / 2)
+  const columns = [rows.slice(0, half), rows.slice(half)]
+  return (
+    <div className="flex flex-col gap-2 text-xs">
+      <p className="font-medium">{pool.name}</p>
+      <div className="flex gap-6">
+        {columns.map((column) => (
+          <dl key={column[0]?.label} className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
+            {column.map((row) => {
+              const empty = row.value == null || row.value === ''
+              const unavailable = row.inherited === true && poolQuery.isError
+              return (
+                <div key={row.label} className="contents">
+                  <dt className="text-muted-foreground">{row.label}</dt>
+                  <dd
+                    className={cn(
+                      'text-right tabular-nums',
+                      (empty || row.inherited) && 'text-muted-foreground',
+                    )}
+                  >
+                    {unavailable
+                      ? 'Pool default'
+                      : empty
+                        ? poolQuery.isPending
+                          ? '…'
+                          : 'Unset'
+                        : row.value}
+                  </dd>
+                </div>
+              )
+            })}
+          </dl>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function resolve(
+  label: string,
+  own: number | null,
+  inheritedValue: number | null | undefined,
+  format: (value: number | null | undefined) => string | number | null | undefined = (value) =>
+    value,
+) {
+  if (own != null) return { label, value: format(own) }
+  return { label, value: format(inheritedValue), inherited: true }
 }

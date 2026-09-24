@@ -1,4 +1,5 @@
 import { useAgentProfiles } from '@omnara/react'
+import { useState } from 'react'
 
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import {
@@ -7,18 +8,14 @@ import {
   subagentKeyError,
   type SubagentType,
 } from '@/components/agents/agentConfigSubagents'
-import { PlusIcon, Trash2Icon } from '@/components/icons'
+import { PillTabs } from '@/components/agents/PillTabs'
+import { ChevronRightIcon, PlusIcon, Trash2Icon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import { CollapseBody } from '@/components/ui/collapse-body'
+import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
@@ -35,13 +32,9 @@ const ProfileNameCombobox = createResourceCombobox<ProfileOption>({
 })
 
 const subagentTypeOptions: { value: SubagentType; label: string }[] = [
-  { value: 'profile', label: 'Profile' },
-  { value: 'self', label: 'Copy of this agent' },
+  { value: 'profile', label: 'Agent profile' },
+  { value: 'self', label: 'Clone' },
 ]
-
-function subagentTypeLabel(type: SubagentType) {
-  return subagentTypeOptions.find((option) => option.value === type)?.label ?? type
-}
 
 export function AgentConfigSubagentsField({
   orgId,
@@ -62,10 +55,19 @@ export function AgentConfigSubagentsField({
   onMaxSubagentsChange: (value: string) => void
   onMaxDepthChange: (value: string) => void
 }) {
-  const keyCounts = new Map<string, number>()
-  for (const subagent of subagents) {
-    keyCounts.set(subagent.key, (keyCounts.get(subagent.key) ?? 0) + 1)
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set())
+  function setExpanded(id: string, expanded: boolean) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (expanded) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
   }
+
   const update = (id: string, fields: Partial<BasicSubagent>) => {
     onSubagentsChange(
       subagents.map((subagent) => (subagent.id === id ? { ...subagent, ...fields } : subagent)),
@@ -91,23 +93,39 @@ export function AgentConfigSubagentsField({
       }
     >
       {subagents.length > 0 ? (
-        <div className="space-y-4 px-5 py-4">
-          {subagents.map((subagent) => (
-            <SubagentRow
-              key={subagent.id}
-              orgId={orgId}
-              projectId={projectId}
-              subagent={subagent}
-              duplicateKey={(keyCounts.get(subagent.key) ?? 0) > 1}
-              onChange={(fields) => {
-                update(subagent.id, fields)
-              }}
-              onRemove={() => {
-                onSubagentsChange(subagents.filter((entry) => entry.id !== subagent.id))
-              }}
-            />
-          ))}
-          <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1 px-3 pb-3">
+          {subagents.map((subagent) => {
+            const duplicateName = subagents.some(
+              (candidate) => candidate.id !== subagent.id && candidate.key === subagent.key,
+            )
+            return (
+              <SubagentFields
+                key={subagent.id}
+                orgId={orgId}
+                projectId={projectId}
+                subagent={subagent}
+                expanded={expandedIds.has(subagent.id)}
+                onExpandedChange={(expanded) => {
+                  setExpanded(subagent.id, expanded)
+                }}
+                nameError={
+                  subagent.key === ''
+                    ? undefined
+                    : (subagentKeyError(subagent.key) ??
+                      (duplicateName
+                        ? 'Name must be unique within this configuration.'
+                        : undefined))
+                }
+                onChange={(fields) => {
+                  update(subagent.id, fields)
+                }}
+                onRemove={() => {
+                  onSubagentsChange(subagents.filter((entry) => entry.id !== subagent.id))
+                }}
+              />
+            )
+          })}
+          <div className="grid gap-4 px-2 pt-3 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="agent-config-max-subagents">Max active subagents</FieldLabel>
               <Input
@@ -139,140 +157,152 @@ export function AgentConfigSubagentsField({
   )
 }
 
-function SubagentRow({
+function SubagentFields({
   orgId,
   projectId,
   subagent,
-  duplicateKey,
+  expanded,
+  onExpandedChange,
+  nameError,
   onChange,
   onRemove,
 }: {
   orgId: string
   projectId: string
   subagent: BasicSubagent
-  duplicateKey: boolean
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
+  nameError: string | undefined
   onChange: (fields: Partial<BasicSubagent>) => void
   onRemove: () => void
 }) {
-  const keyError = duplicateKey ? 'Key must be unique.' : subagentKeyError(subagent.key)
   const fieldId = (name: string) => `agent-config-subagent-${subagent.id}-${name}`
+  function edit(fields: Partial<BasicSubagent>) {
+    onExpandedChange(true)
+    onChange(fields)
+  }
   return (
-    <div className="border-border bg-muted/30 space-y-3 rounded-md border p-3">
-      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-        <Field>
-          <FieldLabel htmlFor={fieldId('key')}>Key</FieldLabel>
-          <Input
-            id={fieldId('key')}
-            value={subagent.key}
-            placeholder="researcher"
-            aria-invalid={keyError !== undefined}
-            onChange={(event) => {
-              onChange({ key: event.target.value.trim() })
-            }}
-          />
-          {keyError !== undefined && subagent.key !== '' && <FieldError>{keyError}</FieldError>}
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={fieldId('type')}>Runs</FieldLabel>
-          <Select
-            value={subagent.type}
-            onValueChange={(value) => {
-              const option = subagentTypeOptions.find((candidate) => candidate.value === value)
-              if (option) onChange({ type: option.value })
-            }}
+    <Collapsible
+      open={expanded}
+      onOpenChange={onExpandedChange}
+      className="expanded-surface rounded-xl"
+    >
+      <div className="flex flex-wrap items-center gap-2 py-2 pl-1 pr-2 sm:flex-nowrap">
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="text-muted-foreground group size-10 sm:size-8"
+            aria-label="Toggle subagent details"
           >
-            <SelectTrigger id={fieldId('type')} className="w-full">
-              <SelectValue>{subagentTypeLabel(subagent.type)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {subagentTypeOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+            <ChevronRightIcon className="size-4 transition-transform group-data-[state=open]:rotate-90" />
+          </Button>
+        </CollapsibleTrigger>
+        <PillTabs
+          value={subagent.type}
+          onValueChange={(type) => {
+            edit({ type })
+          }}
+          tabs={subagentTypeOptions}
+        />
+        <Input
+          id={fieldId('name')}
+          className="min-w-0 flex-1"
+          value={subagent.key}
+          placeholder="Subagent name"
+          aria-label="Subagent name"
+          aria-invalid={nameError !== undefined}
+          onChange={(event) => {
+            edit({ key: event.target.value.trim() })
+          }}
+        />
+        {subagent.type === 'profile' && (
+          <div className="min-w-0 flex-1 basis-full sm:basis-auto">
+            <ProfileNameField
+              id={fieldId('profile')}
+              orgId={orgId}
+              projectId={projectId}
+              value={subagent.profileName}
+              onChange={(profileName) => {
+                edit({ profileName })
+              }}
+            />
+          </div>
+        )}
         <Button
           type="button"
           size="icon"
           variant="ghost"
-          className="self-end"
+          className="text-muted-foreground size-10 sm:size-8"
           aria-label={`Remove subagent ${subagent.key || 'entry'}`}
           onClick={onRemove}
         >
           <Trash2Icon />
         </Button>
       </div>
-      {subagent.type === 'profile' && (
-        <Field>
-          <FieldLabel htmlFor={fieldId('profile')}>Agent profile</FieldLabel>
-          <ProfileNameField
-            id={fieldId('profile')}
-            orgId={orgId}
-            projectId={projectId}
-            value={subagent.profileName}
-            onChange={(profileName) => {
-              onChange({ profileName })
-            }}
-          />
-        </Field>
-      )}
-      <Field>
-        <FieldLabel htmlFor={fieldId('description')}>Description</FieldLabel>
-        <Input
-          id={fieldId('description')}
-          value={subagent.description}
-          placeholder="What this subagent is for, shown to the model."
-          onChange={(event) => {
-            onChange({ description: event.target.value })
-          }}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor={fieldId('append')}>Extra instructions</FieldLabel>
-        <Textarea
-          id={fieldId('append')}
-          value={subagent.instructionAppend}
-          placeholder="Appended to the subagent's instruction."
-          className="max-h-48 min-h-16 resize-y"
-          onChange={(event) => {
-            onChange({ instructionAppend: event.target.value })
-          }}
-        />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field>
-          <FieldLabel htmlFor={fieldId('max-instances')}>Max instances</FieldLabel>
-          <Input
-            id={fieldId('max-instances')}
-            inputMode="numeric"
-            value={subagent.maxInstances}
-            placeholder="Unlimited"
-            onChange={(event) => {
-              onChange({ maxInstances: event.target.value.trim() })
-            }}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={fieldId('archive-idle')}>Archive after idle (minutes)</FieldLabel>
-          <Input
-            id={fieldId('archive-idle')}
-            inputMode="numeric"
-            value={subagent.archiveAfterIdleMinutes}
-            placeholder="Never"
-            onChange={(event) => {
-              onChange({ archiveAfterIdleMinutes: event.target.value.trim() })
-            }}
-          />
-        </Field>
-      </div>
-      {subagent.modelOverride !== undefined && (
-        <p className="text-muted-foreground text-xs">
-          This subagent overrides the model in YAML; edit that in the YAML view.
-        </p>
-      )}
-    </div>
+      <CollapseBody open={expanded}>
+        <div className="flex flex-col gap-4 px-3 pb-5 pt-5 sm:pl-11">
+          {nameError && <FieldError>{nameError}</FieldError>}
+          <Field>
+            <FieldLabel htmlFor={fieldId('description')}>Description</FieldLabel>
+            <Input
+              id={fieldId('description')}
+              value={subagent.description}
+              placeholder="Researches a topic and reports back a summary."
+              onChange={(event) => {
+                onChange({ description: event.target.value })
+              }}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={fieldId('append')}>Extra instructions</FieldLabel>
+            <Textarea
+              id={fieldId('append')}
+              value={subagent.instructionAppend}
+              placeholder="Appended to the subagent's instruction."
+              className="max-h-48 min-h-16 resize-y"
+              onChange={(event) => {
+                onChange({ instructionAppend: event.target.value })
+              }}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor={fieldId('max-instances')}>Max instances</FieldLabel>
+              <Input
+                id={fieldId('max-instances')}
+                inputMode="numeric"
+                value={subagent.maxInstances}
+                placeholder="Unlimited"
+                onChange={(event) => {
+                  onChange({ maxInstances: event.target.value.trim() })
+                }}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={fieldId('archive-idle')}>
+                Archive after idle (minutes)
+              </FieldLabel>
+              <Input
+                id={fieldId('archive-idle')}
+                inputMode="numeric"
+                value={subagent.archiveAfterIdleMinutes}
+                placeholder="Never"
+                onChange={(event) => {
+                  onChange({ archiveAfterIdleMinutes: event.target.value.trim() })
+                }}
+              />
+            </Field>
+          </div>
+          {subagent.modelOverride !== undefined && (
+            <p className="text-muted-foreground text-xs">
+              This subagent overrides the model in YAML; edit that in the YAML view.
+            </p>
+          )}
+        </div>
+      </CollapseBody>
+    </Collapsible>
   )
 }
 

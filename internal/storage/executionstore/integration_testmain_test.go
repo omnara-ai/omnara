@@ -343,3 +343,9 @@ func publicResourceID(kind publicid.Kind, id uuid.UUID) string {
 	}
 	return encoded
 }
+
+func (mergingMachinePoolProviders) ConfigurableMachineResources(
+	string,
+) (executionstore.ConfigurableMachineResources, error) {
+	return executionstore.ConfigurableMachineResources{CPU: true, MemoryMB: true}, nil
+}

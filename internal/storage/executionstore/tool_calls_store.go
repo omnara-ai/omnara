@@ -149,6 +149,27 @@ func (s *Store) CompleteToolCall(
 	ctx context.Context,
 	input CompleteToolCallInput,
 ) (ToolCallRecord, error) {
+	parts, err := s.prepareToolResult(ctx, input.ProjectID, input.AgentID, input.ID, input.ResultContentParts)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	input.ResultContentParts = parts
+	record, err := s.completeToolCallOnce(ctx, input)
+	var read *toolResultArtifactReadRequiredError
+	if !errors.As(err, &read) {
+		return record, err
+	}
+	ctx, err = s.loadToolResultForReplay(ctx, read)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	return s.completeToolCallOnce(ctx, input)
+}
+
+func (s *Store) completeToolCallOnce(
+	ctx context.Context,
+	input CompleteToolCallInput,
+) (ToolCallRecord, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -495,6 +516,27 @@ func (s *Store) CompleteRuntimeToolCall(
 	ctx context.Context,
 	input CompleteRuntimeToolCallInput,
 ) (ToolCallRecord, error) {
+	parts, err := s.prepareToolResult(ctx, input.ProjectID, input.AgentID, input.ID, input.ResultContentParts)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	input.ResultContentParts = parts
+	record, err := s.completeRuntimeToolCallOnce(ctx, input)
+	var read *toolResultArtifactReadRequiredError
+	if !errors.As(err, &read) {
+		return record, err
+	}
+	ctx, err = s.loadToolResultForReplay(ctx, read)
+	if err != nil {
+		return ToolCallRecord{}, err
+	}
+	return s.completeRuntimeToolCallOnce(ctx, input)
+}
+
+func (s *Store) completeRuntimeToolCallOnce(
+	ctx context.Context,
+	input CompleteRuntimeToolCallInput,
+) (ToolCallRecord, error) {
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -669,6 +711,11 @@ func (s *Store) CompleteCustomToolCall(
 	ctx context.Context,
 	input CompleteCustomToolCallInput,
 ) (CompleteCustomToolCallResult, error) {
+	parts, err := s.prepareToolResult(ctx, input.ProjectID, input.AgentID, input.ID, input.ContentBlocks)
+	if err != nil {
+		return CompleteCustomToolCallResult{}, err
+	}
+	input.ContentBlocks = parts
 	txNotifications := s.newTxNotifications()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -782,9 +829,6 @@ func completeCustomToolCallTx(
 	}
 	existing, loadErr := getToolCallTx(ctx, tx, input.ProjectID, input.AgentID, input.ID)
 	if loadErr != nil {
-		if errors.Is(loadErr, pgx.ErrNoRows) {
-			return CompleteCustomToolCallResult{}, storeerr.ErrNotFound
-		}
 		return CompleteCustomToolCallResult{}, loadErr
 	}
 	if existing.Type != toolcatalog.ToolTypeCustom {

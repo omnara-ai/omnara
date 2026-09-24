@@ -1,4 +1,8 @@
 .env
+node_modules/
+examples/**/pnpm-lock.yaml
+examples/**/package-lock.json
+examples/**/deno.lock
 .DS_Store
 .local/
 .tools/
@@ -17,7 +21,6 @@ dist/
 
 # Frontend (frontend/): commit source, ignore deps and build output.
 # frontend/apps/web/dist/.gitkeep is kept so //go:embed all:dist always compiles.
-frontend/**/node_modules/
 frontend/apps/web/dist/*
 !frontend/apps/web/dist/.gitkeep
 frontend/apps/web/playwright-report/

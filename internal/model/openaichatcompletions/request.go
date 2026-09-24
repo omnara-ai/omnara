@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 func (p protocol) BuildRequest(ctx context.Context, input model.PrepareInput) (json.RawMessage, error) {
@@ -192,9 +193,6 @@ func buildMessages(
 	if bundle.ContextCheckpoint != nil {
 		capacity++
 	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		capacity++
-	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		capacity++
 	}
@@ -214,7 +212,7 @@ func buildMessages(
 				entry.Message,
 				entry.AssistantContent,
 				entry.ToolResults,
-				bundle.ResolvedMedia,
+				bundle,
 				replayIdentity,
 				policy,
 			)
@@ -228,12 +226,6 @@ func buildMessages(
 		if ok {
 			messages = append(messages, message)
 		}
-	}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		messages = append(messages, chatMessage{
-			Role:    chatRoleSystem,
-			Content: modelcontext.AvailableMachinePoolsContent(bundle.AvailableMachinePools),
-		})
 	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		messages = append(messages, chatMessage{
@@ -279,8 +271,9 @@ func buildTools(specs []modelcontext.ToolSpec, compat compat) []chatToolDefiniti
 	if compat.sendsStrictFalse {
 		strict = new(false)
 	}
-	tools := make([]chatToolDefinition, 0, len(specs))
-	for _, spec := range specs {
+	loaded := modelcontext.LoadedToolSpecs(specs)
+	tools := make([]chatToolDefinition, 0, len(loaded)+1)
+	for _, spec := range loaded {
 		parameters := spec.InputSchema
 		if len(parameters) == 0 {
 			parameters = json.RawMessage(`{"type":"object","properties":{}}`)
@@ -295,6 +288,9 @@ func buildTools(specs []modelcontext.ToolSpec, compat compat) []chatToolDefiniti
 			},
 		})
 	}
+	if modelcontext.DeferredToolsEnabled(specs) {
+		tools = append(tools, callDeferredToolDefinition(compat))
+	}
 	return tools
 }
 
@@ -302,15 +298,16 @@ func assistantMessagesForEntry(
 	source modelcontext.Message,
 	content []modelcontext.AssistantContentEntry,
 	group []modelcontext.ToolResultRef,
-	media map[string]modelcontext.ResolvedMedia,
+	bundle modelcontext.Bundle,
 	replayIdentity modelenvelope.ProviderReplayIdentity,
 	policy model.RequestPolicy,
 ) ([]chatMessage, error) {
 	if policy.AllowsProviderReplay(source.Sequence) {
 		if replay, ok := completeChatReplay(source, content, replayIdentity); ok {
-			return appendToolResultMessages([]chatMessage{replay}, group, media), nil
+			return appendToolResultMessages([]chatMessage{replay}, group, bundle)
 		}
 	}
+	deferred := deferredToolNames(bundle.ToolSpecs)
 	contentParts := make([]json.RawMessage, 0, len(content))
 	for _, entry := range content {
 		switch entry := entry.(type) {
@@ -327,12 +324,22 @@ func assistantMessagesForEntry(
 	}
 	calls := make([]chatToolCall, 0, len(group))
 	for _, result := range group {
+		name := result.Name
+		arguments := toolArguments(result)
+		if deferred[name] {
+			wrapped, err := wrapDeferredToolCall(name, result.Input)
+			if err != nil {
+				return nil, err
+			}
+			name = toolcatalog.ToolNameCallDeferredTool
+			arguments = string(wrapped)
+		}
 		calls = append(calls, chatToolCall{
 			ID:   result.ProviderCallID,
 			Type: "function",
 			Function: chatFunction{
-				Name:      result.Name,
-				Arguments: model.ToolArgumentString(toolArguments(result)),
+				Name:      name,
+				Arguments: model.ToolArgumentString(arguments),
 			},
 		})
 	}
@@ -344,27 +351,38 @@ func assistantMessagesForEntry(
 	if assistant.Content == "" && len(assistant.ToolCalls) == 0 {
 		return nil, nil
 	}
-	return appendToolResultMessages([]chatMessage{assistant}, group, media), nil
+	return appendToolResultMessages([]chatMessage{assistant}, group, bundle)
 }
 
 func appendToolResultMessages(
 	messages []chatMessage,
 	results []modelcontext.ToolResultRef,
-	media map[string]modelcontext.ResolvedMedia,
-) []chatMessage {
+	bundle modelcontext.Bundle,
+) ([]chatMessage, error) {
 	var mediaContent []any
+	deferredEnabled := modelcontext.DeferredToolsEnabled(bundle.ToolSpecs)
 	for _, result := range results {
+		content := toolResultOutput(result, bundle.ResolvedMedia)
+		if deferredEnabled {
+			if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
+				output, err := toolSearchOutputContent(bundle.ToolSpecs, search)
+				if err != nil {
+					return nil, err
+				}
+				content = output
+			}
+		}
 		messages = append(messages, chatMessage{
 			Role:       chatRoleTool,
 			ToolCallID: result.ProviderCallID,
-			Content:    toolResultOutput(result, media),
+			Content:    content,
 		})
-		mediaContent = append(mediaContent, toolResultMediaContent(result, media)...)
+		mediaContent = append(mediaContent, toolResultMediaContent(result, bundle.ResolvedMedia)...)
 	}
 	if len(mediaContent) > 0 {
 		messages = append(messages, chatMessage{Role: chatRoleUser, Content: mediaContent})
 	}
-	return messages
+	return messages, nil
 }
 
 func completeChatReplay(
@@ -430,11 +448,18 @@ func chatReplaySemantics(replay chatResponseMessage) ([]chatReplaySemantic, bool
 			) != nil {
 			return nil, false
 		}
+		name, arguments := unwrapDeferredToolCall(
+			call.Function.Name,
+			json.RawMessage(call.Function.Arguments),
+		)
+		if modelenvelope.ValidateToolInput(arguments) != nil {
+			return nil, false
+		}
 		semantics = append(semantics, chatReplaySemantic{
 			kind:      "tool_call",
 			callID:    call.ID,
-			name:      call.Function.Name,
-			arguments: json.RawMessage(call.Function.Arguments),
+			name:      name,
+			arguments: arguments,
 		})
 	}
 	return semantics, true

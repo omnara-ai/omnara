@@ -38,7 +38,7 @@ func (s strictOpenAPIServer) createMachine(
 	if err != nil {
 		return nil, err
 	}
-	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	secretEnv, err := secretIDsFromPointer(request.Body.SecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (s strictOpenAPIServer) ConnectBYOMachine(
 	if err != nil {
 		return nil, err
 	}
-	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	secretEnv, err := secretIDsFromPointer(request.Body.SecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (s strictOpenAPIServer) UpdateMachine(
 	if err != nil {
 		return nil, err
 	}
-	secretEnv, err := rawJSONFromPointer(request.Body.SecretEnv)
+	secretEnv, err := secretIDsFromPointer(request.Body.SecretEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +340,7 @@ func machineResponse(record executionstore.MachineRecord) (openapi.Machine, erro
 		return openapi.Machine{}, err
 	}
 	var secretEnv map[string]string
-	if err := json.Unmarshal(record.SecretEnv, &secretEnv); err != nil {
+	if err := publicSecretIDs(record.SecretEnv, &secretEnv); err != nil {
 		return openapi.Machine{}, err
 	}
 	var failureReport *openapi.MachineFailureReport

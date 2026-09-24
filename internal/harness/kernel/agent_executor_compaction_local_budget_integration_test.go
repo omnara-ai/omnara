@@ -219,12 +219,10 @@ func TestAgentExecutorCompactionKeepsRecentRawTail(t *testing.T) {
 	}
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       configuredModel.ID,
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

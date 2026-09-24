@@ -21,7 +21,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	orgID, projectID, agentID uuid.UUID,
+	projectID, agentID uuid.UUID,
 	currentContract, nextContract agentconfig.RuntimeContract,
 	nextSources []launchMachineSource,
 ) ([]MachineRecord, error) {
@@ -38,30 +38,30 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 	nextMachines := make(map[uuid.UUID]launchMachineSource, len(nextSources))
 	nextPools := make(map[uuid.UUID]launchMachineSource, len(nextSources))
 	for _, source := range currentSources {
-		if source.MachineID != uuid.Nil {
-			currentMachines[source.MachineID] = source
+		if source.Contract.MachineID != uuid.Nil {
+			currentMachines[source.Contract.MachineID] = source
 		} else {
-			currentPools[source.MachinePoolID] = source
+			currentPools[source.Contract.MachinePoolID] = source
 		}
 	}
 	for _, source := range nextSources {
-		if source.MachineID != uuid.Nil {
-			nextMachines[source.MachineID] = source
+		if source.Contract.MachineID != uuid.Nil {
+			nextMachines[source.Contract.MachineID] = source
 		} else {
-			nextPools[source.MachinePoolID] = source
+			nextPools[source.Contract.MachinePoolID] = source
 		}
 	}
 	var deleteMachines []MachineRecord
 	for _, source := range currentSources {
-		if source.MachineID != uuid.Nil {
-			if _, ok := nextMachines[source.MachineID]; ok {
+		if source.Contract.MachineID != uuid.Nil {
+			if _, ok := nextMachines[source.Contract.MachineID]; ok {
 				continue
 			}
 			grant, err := qtx.GetActiveProjectMachineGrantForMachine(
 				ctx,
 				dbsqlc.GetActiveProjectMachineGrantForMachineParams{
 					ProjectID: projectID,
-					MachineID: source.MachineID,
+					MachineID: source.Contract.MachineID,
 				},
 			)
 			if err == nil {
@@ -87,7 +87,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 				dbsqlc.ReleaseExplicitAgentMachineBindingParams{
 					ProjectID: projectID,
 					AgentID:   agentID,
-					MachineID: source.MachineID,
+					MachineID: source.Contract.MachineID,
 				},
 			)
 			if err != nil {
@@ -95,7 +95,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 			}
 			continue
 		}
-		if _, ok := nextPools[source.MachinePoolID]; ok {
+		if _, ok := nextPools[source.Contract.MachinePoolID]; ok {
 			continue
 		}
 		machineRows, err := qtx.MarkRemovedAgentPoolSourceMachinesDeleting(
@@ -105,7 +105,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 				LifecycleReasonMessage: "cleaning up machine after machine source removal",
 				ProjectID:              projectID,
 				AgentID:                agentID,
-				MachinePoolID:          source.MachinePoolID,
+				MachinePoolID:          source.Contract.MachinePoolID,
 			},
 		)
 		if err != nil {
@@ -120,8 +120,8 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 	}
 	var poolMachines []PoolMachineRecord
 	for _, source := range nextSources {
-		if source.MachineID != uuid.Nil {
-			current, exists := currentMachines[source.MachineID]
+		if source.Contract.MachineID != uuid.Nil {
+			current, exists := currentMachines[source.Contract.MachineID]
 			if !exists {
 				envOverlay, secretEnvOverlay, err := MachineEnvironmentOverlayToColumns(
 					source.BindingConfig.EnvironmentOverlay,
@@ -152,7 +152,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 				dbsqlc.GetAgentMachineBindingByMachineParams{
 					ProjectID:   projectID,
 					AgentID:     agentID,
-					MachineID:   source.MachineID,
+					MachineID:   source.Contract.MachineID,
 					BindingKind: string(MachineBindingKindExplicit),
 				},
 			)
@@ -167,7 +167,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 			}
 			continue
 		}
-		current, exists := currentPools[source.MachinePoolID]
+		current, exists := currentPools[source.Contract.MachinePoolID]
 		if !exists {
 			continue
 		}
@@ -181,7 +181,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 			}
 		}
 		for _, machine := range poolMachines {
-			if machine.Machine.MachinePoolID != source.MachinePoolID ||
+			if machine.Machine.MachinePoolID != source.Contract.MachinePoolID ||
 				machine.Machine.LifecycleState == MachineLifecycleStateDeleting ||
 				machine.Machine.LifecycleState == MachineLifecycleStateDeleteFailed {
 				continue
@@ -193,11 +193,7 @@ func (s *Store) reconcileAgentMachineSourcesTx(
 			if err != nil {
 				return nil, fmt.Errorf("load pool machine environment: %w", err)
 			}
-			if _, err := resolveMachineEnvironmentTx(
-				ctx,
-				qtx,
-				orgID,
-				projectID,
+			if _, err := resolveMachineEnvironment(
 				machineEnvironment,
 				source.BindingConfig.EnvironmentOverlay,
 			); err != nil {

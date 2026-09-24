@@ -4,9 +4,7 @@ package dbmigrate_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -20,12 +18,9 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/dbmigrate"
-	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
@@ -62,61 +57,60 @@ func TestPostgresMigrationsReplayIdempotently(t *testing.T) {
 	}
 }
 
-func TestPostgresDeviceOAuthMigrationPreservesPreviousWriter(t *testing.T) {
+func TestPostgresNullableMCPInitializeError(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
+	ctx := context.Background()
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
-
-	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 27); err != nil {
-		t.Fatalf("apply migrations through version 27: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-INSERT INTO auth_device_flows(
-    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
-)
-VALUES (
-    'pre-migration-device', 'pre-migration-user', 'Omnara CLI', 'CLI token',
-    statement_timestamp(), statement_timestamp() + interval '15 minutes'
-)
-`); err != nil {
-		t.Fatalf("insert pre-migration device flow: %v", err)
-	}
-
-	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
-		t.Fatalf("apply device OAuth migration: %v", err)
-	}
-
-	var backfilledClientID string
-	if err := db.QueryRowContext(ctx, `
-SELECT client_id
-FROM auth_device_flows
-WHERE device_code_hash = 'pre-migration-device'
-`).Scan(&backfilledClientID); err != nil {
-		t.Fatalf("read backfilled device flow: %v", err)
-	}
-	if backfilledClientID != "omnara-cli" {
-		t.Fatalf("backfilled client_id = %q, want omnara-cli", backfilledClientID)
-	}
-
-	var previousWriterClientID string
-	if err := db.QueryRowContext(ctx, `
-INSERT INTO auth_device_flows(
-    device_code_hash, user_code_hash, client_name, token_name, created_at, expires_at
-)
-VALUES (
-    'previous-writer-device', 'previous-writer-user', 'Omnara CLI', 'CLI token',
-    statement_timestamp(), statement_timestamp() + interval '15 minutes'
-)
-RETURNING client_id
-`).Scan(&previousWriterClientID); err != nil {
-		t.Fatalf("insert device flow with previous writer shape: %v", err)
-	}
-	if previousWriterClientID != "omnara-cli" {
-		t.Fatalf("previous writer client_id = %q, want omnara-cli", previousWriterClientID)
+	_, err := db.ExecContext(ctx, `
+CREATE TABLE agent_mcp_connections (
+    id integer PRIMARY KEY,
+    state text NOT NULL,
+    initialize_error text NOT NULL DEFAULT ''
+);
+INSERT INTO agent_mcp_connections VALUES
+    (1, 'ready', ''), (2, 'ready', 'stale error'),
+    (3, 'initializing', ''), (4, 'initializing', 'stale error'),
+    (5, 'failed', ''), (6, 'failed', 'upstream unavailable'),
+    (7, 'expired', ''), (8, 'expired', 'upstream unavailable');
+`)
+	require.NoError(t, err)
+	const name = "000040_nullable_mcp_initialize_error.sql"
+	data, err := os.ReadFile(filepath.Join("../../migrations", name))
+	require.NoError(t, err)
+	provider, err := goose.NewProvider(goose.DialectPostgres, db,
+		fstest.MapFS{name: &fstest.MapFile{Data: data}}, goose.WithDisableGlobalRegistry(true))
+	require.NoError(t, err)
+	_, err = provider.Up(ctx)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO agent_mcp_connections(id, state) VALUES (9, 'initializing')`)
+	require.NoError(t, err)
+	var errorRows string
+	var preservedErrors int
+	var defaultIsNull bool
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT string_agg(id::text, ',' ORDER BY id) FROM agent_mcp_connections
+		 WHERE initialize_error IS NOT NULL`).Scan(&errorRows))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT count(*) FROM agent_mcp_connections
+		 WHERE initialize_error = 'upstream unavailable'`).Scan(&preservedErrors))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT initialize_error IS NULL FROM agent_mcp_connections WHERE id = 9`).Scan(&defaultIsNull))
+	require.Equal(t, "6,8", errorRows)
+	require.Equal(t, 2, preservedErrors)
+	require.True(t, defaultIsNull)
+	for _, state := range []string{"initializing", "ready", "failed", "expired"} {
+		for _, value := range []sql.NullString{{}, {String: "", Valid: true}, {String: "failure", Valid: true}} {
+			_, err := db.ExecContext(ctx,
+				`UPDATE agent_mcp_connections SET state = $1, initialize_error = $2 WHERE id = 9`, state, value)
+			if !value.Valid || (value.String != "" && (state == "failed" || state == "expired")) {
+				require.NoError(t, err, "state=%s error=%+v", state, value)
+			} else {
+				require.ErrorContains(t, err, "agent_mcp_connections_initialize_error_state_check",
+					"state=%s error=%+v", state, value)
+			}
+		}
 	}
 }
 
@@ -192,7 +186,7 @@ func TestPostgresStoredOrgScopeColumnsMatchOwnershipBoundaries(t *testing.T) {
 
 	_, db := openPostgresMigrationTestDB(t, ctx)
 	const expected = "agent_configs,agent_machine_bindings,agents,configured_model_revisions," +
-		"configured_models,daemon_runtimes,integration_installs,machine_daemon_tokens," +
+		"configured_models,daemon_runtimes,event_webhook_deliveries,integration_installs,machine_daemon_tokens," +
 		"machine_online_intervals,machine_pools,machines,mcp_server_catalogs,model_call_contexts," +
 		"model_provider_configs,org_api_keys,org_invitations,org_managed_work_admission," +
 		"org_memberships,org_resource_limit_overrides,process_actions,processes," +
@@ -825,141 +819,6 @@ WHERE id = $1
 	}
 }
 
-func TestPostgresPopulatedVersion20BackfillsConfiguredModelManagementKind(t *testing.T) {
-	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	pool := integrationdb.OpenUnmigratedPool(t, ctx)
-	db := stdlib.OpenDBFromPool(pool)
-	defer func() { _ = db.Close() }()
-
-	if err := applyProductionPostgresMigrationsThrough(t, ctx, db, 20); err != nil {
-		t.Fatalf("apply migrations through version 20: %v", err)
-	}
-	if got := currentPostgresMigrationVersion(t, ctx, db); got != 20 {
-		t.Fatalf("pre-upgrade schema version = %d, want 20", got)
-	}
-
-	orgID := uuid.NewString()
-	secretID := uuid.NewString()
-	secretVersionID := uuid.NewString()
-	tenantProviderID := uuid.NewString()
-	clusterProviderID := uuid.NewString()
-	tx, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO orgs(id, name, created_at, updated_at)
-VALUES ($1, 'v19 populated org', statement_timestamp(), statement_timestamp())
-`, orgID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO secrets(
-    id, org_id, management_kind, owner_kind, name, kind, metadata,
-    current_version_id, created_at, updated_at
-)
-VALUES (
-    $1, $2, 'tenant', 'org', 'v19 tenant provider key', 'generic', '{}'::jsonb,
-    $3, statement_timestamp(), statement_timestamp()
-)
-`, secretID, orgID, secretVersionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO secret_versions(
-    id, org_id, secret_id, version_number, payload_keys, encryption_scheme,
-    key_id, dek_wrapped_by, encrypted_dek, encrypted_dek_nonce, nonce, ciphertext, created_at
-)
-VALUES (
-    $1, $2, $3, 1, ARRAY['value'], 'aes-256-gcm-envelope-v1',
-    'test-key', 'local', decode(repeat('01', 48), 'hex'), decode(repeat('02', 12), 'hex'),
-    decode(repeat('03', 12), 'hex'), decode(repeat('04', 32), 'hex'), statement_timestamp()
-)
-`, secretVersionID, orgID, secretID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO model_provider_configs(
-    id, org_id, management_kind, name, api_format, base_url, endpoint_path,
-    auth_kind, credential_secret_id, created_at, updated_at
-)
-VALUES (
-    $1, $2, 'tenant', 'v19 tenant provider', 'openai-responses',
-    'https://tenant.example.test/v1', '/responses', 'bearer_token', $3,
-    statement_timestamp(), statement_timestamp()
-)
-`, tenantProviderID, orgID, secretID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO model_provider_configs(
-    id, org_id, management_kind, name, api_format, base_url, endpoint_path,
-    auth_kind, credential_secret_id, deleted_at, created_at, updated_at
-)
-VALUES (
-    $1, $2, 'cluster', 'v19 deleted cluster provider', 'openai-responses',
-    'https://cluster.example.test/v1', '/responses', 'bearer_token', NULL,
-    statement_timestamp(), statement_timestamp(), statement_timestamp()
-)
-`, clusterProviderID, orgID); err != nil {
-		t.Fatal(err)
-	}
-	for _, model := range []struct {
-		name       string
-		providerID string
-		deleted    bool
-	}{
-		{name: "cluster legacy model", providerID: clusterProviderID, deleted: true},
-		{name: "tenant legacy model", providerID: tenantProviderID},
-	} {
-		if _, err := tx.ExecContext(ctx, `
-WITH configured_model AS (
-	INSERT INTO configured_models(
-		id, org_id, model_provider_config_id, name, current_revision_id,
-		deleted_at, created_at, updated_at
-	)
-	VALUES (
-		$1, $2, $3, $4, $5,
-		CASE WHEN $6::boolean THEN statement_timestamp() END,
-		statement_timestamp(), statement_timestamp()
-	)
-	RETURNING id, org_id, model_provider_config_id, current_revision_id
-)
-INSERT INTO configured_model_revisions(
-    id, org_id, configured_model_id, model_provider_config_id,
-    provider_model_slug, context_window_tokens, max_output_tokens, created_at
-)
-SELECT current_revision_id, org_id, id, model_provider_config_id,
-       $4, 128000, 8192, statement_timestamp()
-FROM configured_model
-`, uuid.NewString(), orgID, model.providerID, model.name, uuid.NewString(), model.deleted); err != nil {
-			t.Fatalf("insert %s: %v", model.name, err)
-		}
-	}
-	require.NoError(t, tx.Commit())
-
-	if err := applyProductionPostgresMigrations(ctx, db); err != nil {
-		t.Fatalf("upgrade populated version 19 database: %v", err)
-	}
-	var backfilled string
-	require.NoError(t, db.QueryRowContext(ctx, `
-SELECT string_agg(
-    configured_model.name || ':' || configured_model.management_kind || ':' || provider_config.management_kind,
-    ',' ORDER BY configured_model.name
-)
-FROM configured_models configured_model
-JOIN model_provider_configs provider_config
-  ON provider_config.org_id = configured_model.org_id
- AND provider_config.id = configured_model.model_provider_config_id
-WHERE configured_model.org_id = $1
-`, orgID).Scan(&backfilled))
-	const expected = "cluster legacy model:cluster:cluster,tenant legacy model:tenant:tenant"
-	if backfilled != expected {
-		t.Fatalf("backfilled configured model authority = %q, want %q", backfilled, expected)
-	}
-}
-
 func TestPostgresMigrationsUseConfiguredPgTrgmSchema(t *testing.T) {
 	t.Parallel()
 
@@ -1383,89 +1242,4 @@ func generatedDatabaseURL(t *testing.T, pool *pgxpool.Pool) string {
 	}
 	parsed.Path = "/" + pool.Config().ConnConfig.Database
 	return parsed.String()
-}
-
-func TestFileToolCutoverMigration(t *testing.T) {
-	for _, collision := range []bool{false, true} {
-		t.Run(fmt.Sprintf("collision_%v", collision), func(t *testing.T) {
-			ctx := context.Background()
-			pool := integrationdb.OpenUnmigratedPool(t, ctx)
-			db := stdlib.OpenDBFromPool(pool)
-			defer func() { _ = db.Close() }()
-			_, err := db.ExecContext(ctx, `
-				CREATE TABLE agent_configs (
-					id uuid PRIMARY KEY, project_id uuid NOT NULL, source text NOT NULL,
-					source_format text NOT NULL, source_hash text NOT NULL,
-					definition jsonb NOT NULL, compiled_definition jsonb NOT NULL,
-					effective_definition_hash text NOT NULL,
-					UNIQUE(project_id, effective_definition_hash, source_format, source_hash));
-				CREATE FUNCTION reject_config_update() RETURNS trigger LANGUAGE plpgsql AS $$
-				BEGIN RAISE EXCEPTION 'immutable'; END $$;
-				CREATE TRIGGER agent_configs_immutable BEFORE UPDATE OR DELETE ON agent_configs
-				FOR EACH ROW EXECUTE FUNCTION reject_config_update();
-				CREATE TABLE config_references (kind text PRIMARY KEY, config_id uuid REFERENCES agent_configs(id));`)
-			require.NoError(t, err)
-			configID, projectID := uuid.New(), uuid.New()
-			legacy, err := jsoncanonical.Normalize(json.RawMessage(`{"tools":{"upload_artifact":{"enabled":true,"type":"built_in","permission":{"mode":"always_ask","parameters":{}}},"download_artifact":{"enabled":false,"type":"built_in","permission":{"mode":"always_deny","parameters":{}}}}}`))
-			require.NoError(t, err)
-			hash := fmt.Sprintf("%x", sha256.Sum256(legacy))
-			_, err = db.ExecContext(ctx, `
-				INSERT INTO agent_configs VALUES ($1,$2,$3::text,'json',$4,$3::text::jsonb,$3::text::jsonb,$4);
-				`, configID, projectID, string(legacy), hash)
-			require.NoError(t, err)
-			for _, kind := range []string{"agent", "profile_version", "model_context"} {
-				_, err = db.ExecContext(ctx, "INSERT INTO config_references VALUES ($1,$2)", kind, configID)
-				require.NoError(t, err)
-			}
-			if collision {
-				current := strings.ReplaceAll(strings.ReplaceAll(string(legacy), "upload_artifact", "upload_file"),
-					"download_artifact", "download_file")
-				_, err = db.ExecContext(ctx,
-					"INSERT INTO agent_configs VALUES ($1,$2,$3::text,'json',$4,$3::text::jsonb,$3::text::jsonb,$4)",
-					uuid.New(), projectID, current, fmt.Sprintf("%x", sha256.Sum256([]byte(current))))
-				require.NoError(t, err)
-			}
-			var migration *goose.Migration
-			for _, candidate := range schemamigrations.GoMigrations() {
-				if candidate.Version == 37 {
-					migration = candidate
-				}
-			}
-			require.NotNil(t, migration)
-			provider, err := goose.NewProvider(goose.DialectPostgres, db, fstest.MapFS{},
-				goose.WithDisableGlobalRegistry(true), goose.WithGoMigrations(migration))
-			require.NoError(t, err)
-			_, err = provider.Up(ctx)
-			if collision {
-				require.ErrorContains(t, err, "identical")
-			} else {
-				require.NoError(t, err)
-			}
-			var source, sourceHash, effectiveHash string
-			var compiled []byte
-			require.NoError(t, db.QueryRowContext(ctx, `
-				SELECT source, source_hash, compiled_definition, effective_definition_hash
-				FROM agent_configs WHERE id=$1`, configID).Scan(&source, &sourceHash, &compiled, &effectiveHash))
-			if collision {
-				require.Equal(t, string(legacy), source)
-			} else {
-				require.NotContains(t, source, "upload_artifact")
-				require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(source))), sourceHash)
-				contract, err := agentconfig.RuntimeContractFromCompiled(compiled, agentconfig.CompilerVersion, effectiveHash)
-				require.NoError(t, err)
-				require.Len(t, contract.Tools, 1)
-				require.Equal(t, "upload_file", contract.Tools[0].Name)
-				require.Equal(t, "always_ask", contract.Tools[0].Permission.Mode)
-				var references int
-				require.NoError(t, db.QueryRowContext(ctx, `
-					SELECT count(*) FROM config_references r JOIN agent_configs c ON c.id=r.config_id
-					WHERE c.id=$1 AND c.compiled_definition->'tools' ? 'upload_file'`, configID).Scan(&references))
-				require.Equal(t, 3, references)
-				_, err = provider.Up(ctx)
-				require.NoError(t, err)
-			}
-			_, err = db.ExecContext(ctx, "UPDATE agent_configs SET source=source WHERE id=$1", configID)
-			require.ErrorContains(t, err, "immutable")
-		})
-	}
 }

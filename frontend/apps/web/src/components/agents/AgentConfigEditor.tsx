@@ -49,7 +49,7 @@ export function AgentConfigEditorFields({
         </div>
       )}
       {builderSession != null && (
-        <div className={showBuilder ? 'flex flex-col gap-8' : 'hidden'}>
+        <div className={showBuilder ? 'flex flex-col gap-5' : 'hidden'}>
           <AgentConfigModelField
             orgId={orgId}
             projectId={projectId}
@@ -57,7 +57,12 @@ export function AgentConfigEditorFields({
             onChange={editor.form.setModel}
             onUnavailableChange={editor.form.reportModelUnavailable}
           />
-          <AgentConfigBasicForm orgId={orgId} projectId={projectId} form={editor.form} />
+          <AgentConfigBasicForm
+            orgId={orgId}
+            projectId={projectId}
+            form={editor.form}
+            onBeforeOAuthRedirect={editor.suppressUnsavedChangesWarning}
+          />
           <AgentConfigIssueList issues={issues ?? []} />
         </div>
       )}

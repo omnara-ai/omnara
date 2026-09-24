@@ -281,4 +281,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OMNARAD_VERSION: ${{ needs.metadata.outputs.version }}
           RELEASE_SHA: ${{ needs.metadata.outputs.release_sha }}
-        run: go run ./tools/omnarad-release promote --dir release
+        run: |
+          go run ./tools/omnarad-release promote --dir release
+          gh release edit "$GITHUB_REF_NAME" --latest

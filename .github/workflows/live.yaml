@@ -1,0 +1,203 @@
+name: Live Tests
+
+# Runs provider-backed live tests against real credentials. They run on every
+# push to main and on manual dispatch. On pull requests they are opt-in: add the
+# `live-tests` label to the PR. Adding an unrelated label to an already-labeled
+# PR does not retrigger a run. Only users with triage access or higher can add
+# labels. Pull requests from forks never receive repository secrets, so the
+# jobs fail early with a clear message instead of silently skipping.
+
+on:
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-web:
+    name: Live Web Tests
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'live-tests') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'live-tests'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: ${{ github.workflow }}-live-web-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Fail on fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "::error::Live tests cannot run on pull requests from forks because GitHub withholds repository secrets. Push the branch to this repository to run them."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/ci/go.sum
+            tools/goose/go.sum
+            tools/omnaralint/go.sum
+
+      - run: make test-live-web
+        env:
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+
+  live:
+    name: Live Provider Tests
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'live-tests') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'live-tests'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: ${{ github.workflow }}-live-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Fail on fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        run: |
+          echo "::error::Live tests cannot run on pull requests from forks because GitHub withholds repository secrets. Push the branch to this repository to run them."
+          exit 1
+
+      - name: Check live test secrets
+        id: secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BL_API_KEY: ${{ secrets.BL_API_KEY }}
+          BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
+        run: |
+          configured=false
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "openai=false" >> "$GITHUB_OUTPUT"
+            echo "OPENAI_API_KEY is not configured; skipping live OpenAI tests."
+          else
+            echo "openai=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          fi
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "openrouter=false" >> "$GITHUB_OUTPUT"
+            echo "OPENROUTER_API_KEY is not configured; skipping live OpenRouter tests."
+          else
+            echo "openrouter=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          fi
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "anthropic=false" >> "$GITHUB_OUTPUT"
+            echo "ANTHROPIC_API_KEY is not configured; skipping live Anthropic tests."
+          else
+            echo "anthropic=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          fi
+          if { [ -n "$BL_API_KEY" ] && [ -n "$BL_WORKSPACE" ]; } || \
+             [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_KEY" ]; then
+            echo "sandboxes=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          else
+            echo "sandboxes=false" >> "$GITHUB_OUTPUT"
+            echo "No complete sandbox-provider credentials are configured; skipping live sandbox tests."
+          fi
+          if [ -n "$TENKI_API_KEY" ]; then
+            echo "tenki=true" >> "$GITHUB_OUTPUT"
+            configured=true
+          else
+            echo "tenki=false" >> "$GITHUB_OUTPUT"
+            echo "TENKI_API_KEY is not configured; skipping live Tenki E2E."
+          fi
+          echo "configured=$configured" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.secrets.outputs.configured == 'true'
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.secrets.outputs.configured == 'true'
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.secrets.outputs.configured == 'true'
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-live-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-live-
+
+      - uses: ./.github/actions/setup-test-db
+        if: steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.tenki == 'true'
+
+      - run: make test-live-openai-responses
+        if: steps.secrets.outputs.openai == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - run: make test-live-openai-chat-completions
+        if: steps.secrets.outputs.openai == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - run: make test-live-openrouter
+        if: steps.secrets.outputs.openrouter == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - run: make test-live-anthropic
+        if: steps.secrets.outputs.anthropic == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - run: make test-live-api-format-switching
+        if: steps.secrets.outputs.openai == 'true' && steps.secrets.outputs.openrouter == 'true' && steps.secrets.outputs.anthropic == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - run: make test-live-sandbox-providers
+        if: steps.secrets.outputs.sandboxes == 'true'
+        env:
+          BL_API_KEY: ${{ secrets.BL_API_KEY }}
+          BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          UNIKRAFT_API_KEY: ${{ secrets.UNIKRAFT_API_KEY }}
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
+
+      - name: Install cloudflared for Tenki E2E
+        if: steps.secrets.outputs.tenki == 'true'
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-amd64 -o "$RUNNER_TEMP/cloudflared"
+          chmod +x "$RUNNER_TEMP/cloudflared"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - run: make test-live-tenki-provider test-live-tenki-e2e
+        if: steps.secrets.outputs.tenki == 'true'
+        env:
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
+
+      - name: Show database logs on failure
+        if: failure() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.tenki == 'true')
+        run: docker compose logs postgres redis
+
+      - name: Stop test database
+        if: always() && (steps.secrets.outputs.openai == 'true' || steps.secrets.outputs.openrouter == 'true' || steps.secrets.outputs.anthropic == 'true' || steps.secrets.outputs.tenki == 'true')
+        run: docker compose down -v

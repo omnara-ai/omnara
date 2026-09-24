@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react'
 
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { CircleAlert, PlusIcon, Trash2Icon } from '@/components/icons'
+import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
 import { Button } from '@/components/ui/button'
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { skillOwnerLabel } from '@/lib/skills'
+import { useProjectPage } from '@/lib/use-project-page'
 
 const SkillCombobox = createResourceCombobox<Skill>({
   itemKey: (skill) => skill.id,
@@ -42,7 +44,10 @@ export function AgentConfigSkillsField({
   onSelectedIdsChange: (ids: string[]) => void
   onUnavailableIdsChange: (ids: string[]) => void
 }) {
+  const { project } = useProjectPage()
+  const canCreateSkills = project?.access.can_manage ?? false
   const [draftOpen, setDraftOpen] = useState(false)
+  const [createFor, setCreateFor] = useState<{ replacedId?: string } | null>(null)
 
   const [resolvedSkills, setResolvedSkills] = useState<ReadonlyMap<string, Skill>>(new Map())
   const skillById = (id: string) => resolvedSkills.get(id)
@@ -96,12 +101,17 @@ export function AgentConfigSkillsField({
 
   const selectSkill = (skill: Skill, replacedId?: string) => {
     setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
+    const alreadySelected = selectedIds.includes(skill.id)
     if (replacedId === undefined) {
-      onSelectedIdsChange([...selectedIds, skill.id])
+      if (!alreadySelected) onSelectedIdsChange([...selectedIds, skill.id])
       setDraftOpen(false)
-    } else {
-      onSelectedIdsChange(selectedIds.map((id) => (id === replacedId ? skill.id : id)))
+      return
     }
+    onSelectedIdsChange(
+      alreadySelected
+        ? selectedIds.filter((id) => id !== replacedId)
+        : selectedIds.map((id) => (id === replacedId ? skill.id : id)),
+    )
   }
 
   return (
@@ -141,6 +151,13 @@ export function AgentConfigSkillsField({
               onRemove={() => {
                 onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))
               }}
+              onCreateSkill={
+                canCreateSkills
+                  ? () => {
+                      setCreateFor({ replacedId: id })
+                    }
+                  : undefined
+              }
             />
           ))}
           {draftOpen && (
@@ -157,10 +174,30 @@ export function AgentConfigSkillsField({
               onRemove={() => {
                 setDraftOpen(false)
               }}
+              onCreateSkill={
+                canCreateSkills
+                  ? () => {
+                      setCreateFor({})
+                    }
+                  : undefined
+              }
             />
           )}
         </div>
       ) : null}
+      {createFor !== null && (
+        <CreateSkillDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setCreateFor(null)
+          }}
+          orgId={orgId}
+          owner={{ kind: 'project', project_id: projectId }}
+          onCreated={(skill) => {
+            selectSkill(skill, createFor.replacedId)
+          }}
+        />
+      )}
     </AgentConfigSectionCard>
   )
 }
@@ -174,6 +211,7 @@ function SkillEntryRow({
   removeLabel,
   onSelect,
   onRemove,
+  onCreateSkill,
 }: {
   orgId: string
   projectId: string
@@ -183,6 +221,7 @@ function SkillEntryRow({
   removeLabel: string
   onSelect: (skill: Skill) => void
   onRemove: () => void
+  onCreateSkill?: () => void
 }) {
   const search = useTypeaheadSearch()
   const query = useProjectAvailableSkills(orgId, projectId, {
@@ -209,6 +248,18 @@ function SkillEntryRow({
           search={search}
           query={query}
           placeholder={query.isPending ? 'Loading skills…' : 'Search skills…'}
+          action={
+            onCreateSkill && (
+              <button
+                type="button"
+                className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
+                onClick={onCreateSkill}
+              >
+                <PlusIcon className="size-4" />
+                Create skill
+              </button>
+            )
+          }
         />
       </div>
       <Button type="button" size="icon" variant="ghost" aria-label={removeLabel} onClick={onRemove}>
@@ -229,6 +280,7 @@ function SelectedSkillRow({
   onAvailabilityChange,
   onReplace,
   onRemove,
+  onCreateSkill,
 }: {
   orgId: string
   projectId: string
@@ -240,6 +292,7 @@ function SelectedSkillRow({
   onAvailabilityChange: (id: string, available: boolean) => void
   onReplace: (skill: Skill) => void
   onRemove: () => void
+  onCreateSkill?: () => void
 }) {
   const lookupQuery = useProjectAvailableSkills(orgId, projectId, {
     filters: { name: exactNameGlob(skill?.name ?? '') },
@@ -270,6 +323,7 @@ function SelectedSkillRow({
         removeLabel={`Detach ${skill.name}`}
         onSelect={onReplace}
         onRemove={onRemove}
+        onCreateSkill={onCreateSkill}
       />
     )
   }

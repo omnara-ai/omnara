@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
@@ -68,13 +69,14 @@ type RuntimeTool struct {
 	Name        string
 	Type        string
 	Permission  toolpermission.Selection
+	Deferred    bool
 	Description string
 	InputSchema json.RawMessage
 }
 
 type RuntimeMachine struct {
-	MachineID                     string
-	MachinePoolID                 string
+	MachineID                     uuid.UUID
+	MachinePoolID                 uuid.UUID
 	MaxMachines                   int
 	InitialNumMachines            int
 	DeleteAfterIdleMinutes        *int
@@ -82,21 +84,17 @@ type RuntimeMachine struct {
 	MachineCPU                    *int
 	MachineMemoryMB               *int
 	EnvOverlay                    map[string]*string
-	SecretEnvOverlay              map[string]*string
+	SecretEnvOverlay              map[string]*uuid.UUID
 	MachineProviderOptionsOverlay map[string]json.RawMessage
 	Description                   string
 }
 
 func RuntimeContractFromCompiled(
 	compiledJSON json.RawMessage,
-	compilerVersion string,
 	definitionHash string,
 ) (RuntimeContract, error) {
 	if len(compiledJSON) == 0 {
 		return RuntimeContract{}, errors.New("agent config compiled definition is required")
-	}
-	if compilerVersion != CompilerVersion {
-		return RuntimeContract{}, fmt.Errorf("agent config compiler contract %q is not supported", compilerVersion)
 	}
 	canonical := canonicalizeJSON(compiledJSON)
 	sum := sha256.Sum256(canonical)
@@ -144,21 +142,21 @@ func RuntimeContractFromCompiled(
 		MaxDepth:        compiled.MaxDepth,
 		configuredTools: configuredTools,
 	}
-	if len(compiled.Skills) > 0 {
-		contract, err = contract.WithImplicitBuiltInTool(toolcatalog.ToolNameSkill)
-		if err != nil {
-			return RuntimeContract{}, err
-		}
-	}
-	if len(compiled.Subagents) > 0 {
-		for _, name := range toolcatalog.SubagentToolNames() {
-			contract, err = contract.WithImplicitBuiltInTool(name)
-			if err != nil {
-				return RuntimeContract{}, err
-			}
-		}
-	}
 	return contract, nil
+}
+
+func (contract RuntimeContract) DefersAnyTool() bool {
+	for _, tool := range contract.Tools {
+		if tool.Deferred {
+			return true
+		}
+	}
+	for _, server := range contract.MCPServers {
+		if server.DefersAnyTool() {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeMachineSources(compiled []MachineSourceCompiled) []RuntimeMachine {
@@ -200,6 +198,7 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 				Name:        name,
 				Type:        toolcatalog.ToolTypeCustom,
 				Permission:  tool.Permission,
+				Deferred:    tool.Deferred,
 				Description: tool.Description,
 				InputSchema: tool.InputSchema,
 			})
@@ -208,7 +207,9 @@ func runtimeTools(compiled map[string]ToolCompiled) ([]RuntimeTool, error) {
 		if !builtInName {
 			return nil, fmt.Errorf("compiled tool %q is not registered", name)
 		}
-		out = append(out, runtimeBuiltInTool(entry, tool.Permission))
+		runtime := runtimeBuiltInTool(entry, tool.Permission)
+		runtime.Deferred = tool.Deferred
+		out = append(out, runtime)
 	}
 	return out, nil
 }
@@ -236,6 +237,9 @@ func validateRuntimeTool(
 		if toolcatalog.UsesMCPRuntimeNamespace(name) {
 			return fmt.Errorf("compiled custom tool %q uses the reserved MCP tool namespace", name)
 		}
+		if toolcatalog.IsReservedWireToolName(name) {
+			return fmt.Errorf("compiled custom tool %q uses a reserved name", name)
+		}
 		if builtInName {
 			return fmt.Errorf("compiled custom tool %q collides with a built-in tool", name)
 		}
@@ -249,6 +253,9 @@ func validateRuntimeTool(
 	}
 	if !builtInName {
 		return fmt.Errorf("compiled tool %q is not registered", name)
+	}
+	if tool.Deferred && name == toolcatalog.ToolNameToolSearch {
+		return fmt.Errorf("compiled built-in tool %q cannot be deferred", name)
 	}
 	if _, err := toolpermission.ValidateSelection(
 		tool.Permission,

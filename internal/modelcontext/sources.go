@@ -32,10 +32,6 @@ type ExecutionStore interface {
 		afterSequence int64,
 		watermark int64,
 	) ([]executionstore.ToolCallRecord, error)
-	ListMachinePoolSources(
-		ctx context.Context,
-		projectID, agentID, agentConfigID uuid.UUID,
-	) ([]executionstore.MachinePoolSourceRecord, error)
 	GetLatestApplicableContextCheckpoint(
 		ctx context.Context,
 		projectID, agentID uuid.UUID,
@@ -94,7 +90,7 @@ type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
 		projectID uuid.UUID,
-		publicSkillID string,
+		skillID uuid.UUID,
 	) (skillstore.SkillRecord, error)
 }
 

@@ -25,10 +25,7 @@ function DialogOverlay({ className, ...props }: ComponentProps<typeof DialogPrim
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      className={cn(
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 bg-overlay fixed inset-0 z-50',
-        className,
-      )}
+      className={cn('fixed inset-0 z-50', className)}
       {...props}
     />
   )
@@ -48,7 +45,7 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-card fixed left-[50%] top-[50%] z-50 flex max-h-[calc(100svh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col border shadow-lg duration-[var(--duration-panel)] sm:max-w-lg',
+          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 rounded-card fixed left-[50%] top-[50%] z-50 flex max-h-[calc(100svh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] flex-col shadow-[0_24px_64px_-16px_rgba(0,0,0,0.35),0_0_0_1px_rgba(0,0,0,0.04)] duration-[var(--duration-panel)] sm:max-w-lg',
           className,
         )}
         onSubmit={(event) => {

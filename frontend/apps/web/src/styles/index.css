@@ -92,6 +92,9 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -179,10 +182,133 @@
   }
 }
 
+@property --code-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes code-ring-spin {
+  to {
+    --code-ring-angle: 360deg;
+  }
+}
+
+.code-panel-ring,
+.static-panel-ring {
+  padding: 1px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.static-panel-ring {
+  --ring-primary: 80%;
+  --ring-primary-soft: 35%;
+  background: conic-gradient(
+    from 200deg,
+    color-mix(in oklch, var(--primary) var(--ring-primary), transparent),
+    color-mix(in oklch, var(--border) 80%, transparent) 30%,
+    color-mix(in oklch, var(--primary) var(--ring-primary-soft), transparent) 55%,
+    color-mix(in oklch, var(--border) 80%, transparent) 75%,
+    color-mix(in oklch, var(--primary) var(--ring-primary), transparent)
+  );
+}
+
+.dark .static-panel-ring {
+  --ring-primary: 55%;
+  --ring-primary-soft: 20%;
+}
+
+.expanded-surface[data-state='open'] {
+  background: color-mix(in oklab, var(--muted) 35%, var(--card));
+}
+
+.dark .expanded-surface {
+  --color-border: color-mix(in oklab, var(--border) 60%, transparent);
+  --color-input: color-mix(in oklab, var(--input) 60%, transparent);
+}
+
+.code-panel-ring {
+  background: conic-gradient(
+    from var(--code-ring-angle),
+    color-mix(in oklch, var(--primary) 55%, transparent),
+    color-mix(in oklch, var(--border) 80%, transparent) 30%,
+    color-mix(in oklch, var(--primary) 20%, transparent) 55%,
+    color-mix(in oklch, var(--border) 80%, transparent) 75%,
+    color-mix(in oklch, var(--primary) 55%, transparent)
+  );
+  animation: code-ring-spin 14s linear infinite;
+}
+
+.code-panel-body {
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-panel-ring {
+    animation: none;
+  }
+  .code-panel-body {
+    transition: none;
+  }
+}
+
 .code-highlight span {
   color: var(--shiki-light);
 }
 
 .dark .code-highlight span {
   color: var(--shiki-dark);
+}
+
+.collapse-body {
+  transition:
+    height 0.2s ease-out,
+    visibility 0.2s;
+}
+
+@keyframes collapsible-open {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes collapsible-close {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+.collapsible-animate-height {
+  overflow: hidden;
+}
+
+.collapsible-animate-height[data-state='open'] {
+  animation: collapsible-open 0.2s ease-out;
+}
+
+.collapsible-animate-height[data-state='closed'] {
+  animation: collapsible-close 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse-body {
+    transition: none;
+  }
+  .collapsible-animate-height[data-state='open'],
+  .collapsible-animate-height[data-state='closed'] {
+    animation: none;
+  }
 }

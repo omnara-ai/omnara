@@ -22,6 +22,8 @@ const (
 	ToolNameSetIntegrationTarget   = "set_integration_target"
 	ToolNameWebSearch              = "web_search"
 	ToolNameWebFetch               = "web_fetch"
+	ToolNameReadFile               = "read_file"
+	ToolNameSearchFiles            = "search_files"
 	ToolNameUploadFile             = "upload_file"
 	ToolNameDownloadFile           = "download_file"
 	ToolNameSkill                  = "skill"
@@ -30,7 +32,34 @@ const (
 	ToolNameSendAgentMessage       = "send_agent_message"
 	ToolNameStopAgent              = "stop_agent"
 	ToolNameListAgents             = "list_agents"
+	ToolNameToolSearch             = "tool_search"
+	ToolNameCallDeferredTool       = "call_deferred_tool"
+	ToolSearchMaxPatternLength     = 200
+	ToolSearchDefaultResults       = 5
+	ToolSearchMaxResults           = 50
 )
+
+func MachineToolNames() []string {
+	return []string{
+		ToolNameRunCommand,
+		ToolNameWriteProcess,
+		ToolNameReadProcess,
+		ToolNameStopProcess,
+		ToolNameListProcesses,
+		ToolNameListMachines,
+		ToolNameInspectMachine,
+		ToolNameUploadFile,
+		ToolNameDownloadFile,
+	}
+}
+
+func MachinePoolToolNames() []string {
+	return []string{ToolNameCreateMachine, ToolNameDeleteMachine}
+}
+
+func IsReservedWireToolName(name string) bool {
+	return name == ToolNameCallDeferredTool
+}
 
 func SubagentToolNames() []string {
 	return []string{
@@ -44,6 +73,12 @@ func SubagentToolNames() []string {
 
 func IsSubagentToolName(name string) bool {
 	return slices.Contains(SubagentToolNames(), name)
+}
+
+func implicit(name string) bool {
+	return slices.Contains(MachineToolNames(), name) || slices.Contains(MachinePoolToolNames(), name) ||
+		IsSubagentToolName(name) || name == ToolNameSkill || name == ToolNameSendIntegrationMessage ||
+		name == ToolNameReadFile || name == ToolNameSearchFiles || name == ToolNameToolSearch
 }
 
 var toolNamePattern = regexp.MustCompile(ToolNamePattern)

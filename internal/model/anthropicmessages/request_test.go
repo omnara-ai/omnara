@@ -448,51 +448,6 @@ func TestPrepareRejectsToolsWhenModelDoesNotSupportTools(t *testing.T) {
 	}
 }
 
-func TestPrepareIncludesAvailableMachinePoolsInSystemContent(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-			AvailableMachinePools: []modelcontext.MachinePoolRef{{
-				MachinePoolName: "Build Pool",
-				Description:     "Build workers",
-			}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-	system := string(payload["system"])
-	for _, want := range []string{"Available machine pools", "create_machine", "machine_pool_name", "Build Pool"} {
-		if !strings.Contains(system, want) {
-			t.Fatalf("machine pool content missing %q: %s", want, system)
-		}
-	}
-}
-
-func TestPrepareExplainsWhenCreateMachineHasNoAvailablePools(t *testing.T) {
-	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
-	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
-		Context: modelcontext.Bundle{
-			SystemPrompt: "sys",
-			ToolSpecs:    []modelcontext.ToolSpec{{Name: toolcatalog.ToolNameCreateMachine}},
-		},
-		Policy: model.RequestPolicy{MaxOutputTokens: 64},
-	})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if !strings.Contains(string(prepared.Body), "no machine pools are currently available") {
-		t.Fatalf("missing empty machine-pool context: %s", prepared.Body)
-	}
-}
-
 func TestPrepareMergesAPIVariantOptions(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath,
 		ProviderModelSlug: "claude-test",

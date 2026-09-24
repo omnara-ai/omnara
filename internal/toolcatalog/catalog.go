@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 
@@ -20,6 +21,19 @@ const (
 	ToolInputSchemaObject = "object"
 )
 
+const (
+	ArtifactPageBytes        = 4 * 1024
+	MaxReadableArtifactBytes = 48 * 1024 * 1024
+	ReadFileDefaultLines     = 100
+	ReadFileMaxLines         = 200
+	ReadFileDefaultChars     = 512
+	ReadFileMaxChars         = 4096
+	SearchDefaultMatches     = 20
+	SearchMaxMatches         = 100
+	SearchMaxContextLines    = 5
+	SearchMaxPatternBytes    = 1024
+)
+
 func IsPlatformManagedToolType(toolType string) bool {
 	return toolType == ToolTypeBuiltIn || toolType == ToolTypeMCP
 }
@@ -32,9 +46,9 @@ const (
 	stopProcessToolDescription    = "Interrupt or terminate a running process."
 	readProcessToolDescription    = "Read retained process output, optionally waiting briefly for output or completion."
 	listProcessesToolDescription  = "List active processes in the current agent, including process_id values."
-	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_name is only needed when multiple machine pools are available."
+	createMachineToolDescription  = "Request a pool-backed machine for this agent. First call list_machines (if available) to discover machine pools and resource limits and check for a suitable existing machine; use it if executable or wait for it if provisioning. machine_pool_id is only needed when multiple machine pools are available."
 	deleteMachineToolDescription  = "Request deletion of a pool-backed machine."
-	listMachinesToolDescription   = "List BYO and pool-backed machines currently associated with this agent, including machine_id values and current availability."
+	listMachinesToolDescription   = "List this agent's machines and available pools for creating new machines."
 	inspectMachineToolDescription = "Inspect a BYO or pool-backed machine. machine_id is only needed when multiple machines are available."
 	askQuestionToolDescription    = "Ask the human user one or more multiple-choice questions. " +
 		"Omnara appends a text-capable Other choice to every question for free-form user responses."
@@ -52,12 +66,26 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
+	readFileToolDescription = "Read a text file in Omnara's virtual filesystem. " +
+		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
+		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
+		"For large files, call again with the next position returned in the result."
+	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +
+		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +
+		"Returns matching lines with line numbers and optional surrounding lines. " +
+		"Use read_file to read more around a match."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara's virtual filesystem. " +
 		"Currently supports creating artifacts at /artifacts. The file must be regular, non-empty, and at most 10 MiB. " +
 		"Successful uploads return the created file's path."
 	downloadFileToolDescription = "Copy a file from Omnara's virtual filesystem to an attached machine. " +
 		"Currently supports /artifacts/<artifact_id> as path; provide destination. " +
 		"If the download is still running after the initial wait, use the returned process_id with the process tools."
+	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
+		"and load the matches so they can be called as soon as the search returns. " +
+		"Deferred tools are not callable until a search returns them."
+	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
+		"deferred tool's name, description, argument names, and argument descriptions. " +
+		"Prefer broad patterns such as \"weather\" or \"get_.*_data\" over exact names."
 )
 
 type Catalog struct {
@@ -67,6 +95,7 @@ type Catalog struct {
 type Entry struct {
 	Name              string
 	Description       string
+	Implicit          bool
 	DefaultPermission toolpermission.Selection
 	PermissionModes   []toolpermission.ModeDescriptor
 	InputSchema       json.RawMessage
@@ -92,9 +121,10 @@ func buildDefaultCatalog() (Catalog, error) {
 		"type":        "string",
 		"description": "Public machine_id (mch_...) of the pool-backed machine to delete. Use list_machines first if you need the ID.",
 	}
-	machinePoolName := map[string]any{
+	machinePoolID := map[string]any{
 		"type":        "string",
-		"description": "Pass machine_pool_name only when there are multiple machine pools; otherwise omit it.",
+		"pattern":     `^mpo_[a-z2-7]{26}$`,
+		"description": "Public machine_pool_id (mpo_...) returned by list_machines. Omit it when only one machine pool is available.",
 	}
 	processID := map[string]any{
 		"type":        "string",
@@ -219,7 +249,11 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameCreateMachine,
 		createMachineToolDescription,
 		nil,
-		map[string]any{"machine_pool_name": machinePoolName},
+		map[string]any{
+			"machine_pool_id": machinePoolID,
+			"cpu":             map[string]any{"type": "integer", "minimum": 1, "maximum": math.MaxInt32, "description": "vCPU count for this machine. Omit to inherit the pool's effective default; must be supported and within pool limits."},
+			"memory_mb":       map[string]any{"type": "integer", "minimum": 1, "maximum": math.MaxInt32, "description": "Memory in MB for this machine. Omit to inherit the pool's effective default; must be supported and within pool limits."},
+		},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -235,7 +269,10 @@ func buildDefaultCatalog() (Catalog, error) {
 		ToolNameListMachines,
 		listMachinesToolDescription,
 		nil,
-		nil,
+		map[string]any{"cursor": map[string]any{
+			"type": "string", "pattern": `^(mch|mpo)_[a-z2-7]{26}$`,
+			"description": "next_cursor from the previous result. Omit it to start listing.",
+		}},
 	); err != nil {
 		return Catalog{}, err
 	}
@@ -262,6 +299,12 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameWebFetch], err = webFetchTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameReadFile], err = readFileTool(); err != nil {
+		return Catalog{}, err
+	}
+	if entries[ToolNameSearchFiles], err = searchFilesTool(); err != nil {
+		return Catalog{}, err
+	}
 	if entries[ToolNameUploadFile], err = uploadFileTool(machineID); err != nil {
 		return Catalog{}, err
 	}
@@ -286,6 +329,9 @@ func buildDefaultCatalog() (Catalog, error) {
 	if entries[ToolNameListAgents], err = listAgentsTool(); err != nil {
 		return Catalog{}, err
 	}
+	if entries[ToolNameToolSearch], err = toolSearchTool(); err != nil {
+		return Catalog{}, err
+	}
 	for _, entry := range entries {
 		if err := entry.validate(); err != nil {
 			return Catalog{}, err
@@ -307,6 +353,7 @@ func toolEntry(
 	return Entry{
 		Name:              name,
 		Description:       description,
+		Implicit:          implicit(name),
 		DefaultPermission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 		PermissionModes:   toolpermission.CommonModeDescriptors(),
 		InputSchema:       schema,
@@ -386,6 +433,33 @@ func integrationSendTool() (Entry, error) {
 				},
 				"description": "Use artifact IDs; for an upload_file result, use the final component of its /artifacts/<artifact_id> path. " +
 					"Omit this field or use an empty array for text-only messages.",
+			},
+		},
+	)
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.PermissionModes = toolpermission.AlwaysAllowModeDescriptors()
+	return entry, nil
+}
+
+func toolSearchTool() (Entry, error) {
+	entry, err := toolEntry(
+		ToolNameToolSearch,
+		toolSearchToolDescription,
+		[]string{"pattern"},
+		map[string]any{
+			"pattern": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   ToolSearchMaxPatternLength,
+				"description": toolSearchPatternDescription,
+			},
+			"max_results": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ToolSearchMaxResults,
+				"description": fmt.Sprintf("Maximum tools to return. Defaults to %d.", ToolSearchDefaultResults),
 			},
 		},
 	)
@@ -491,6 +565,89 @@ func webFetchTool() (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func readFileTool() (Entry, error) {
+	return toolEntry(
+		ToolNameReadFile,
+		readFileToolDescription,
+		[]string{"path"},
+		map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Exact VFS path /artifacts/<artifact_id>.",
+			},
+			"offset_line": map[string]any{
+				"type":    "integer",
+				"minimum": 1,
+				"description": "Starting line number; defaults to 1 in line mode. " +
+					"To continue, use next_offset_line from the previous result. " +
+					"Cannot be combined with offset_char or limit_chars.",
+			},
+			"limit_lines": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ReadFileMaxLines,
+				"description": "Maximum number of lines to return. Defaults to 100 in line mode; each response contains at most 4 KiB of text.",
+			},
+			"offset_char": map[string]any{
+				"type":    "integer",
+				"minimum": 0,
+				"description": "Starting character position, counting Unicode code points from 0; defaults to 0 in character mode. " +
+					"To continue, use next_offset_char from the previous result. " +
+					"Cannot be combined with offset_line or limit_lines.",
+			},
+			"limit_chars": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     ReadFileMaxChars,
+				"description": "Maximum Unicode code points to return. Defaults to 512 in character mode; each response contains at most 4 KiB of text.",
+			},
+		},
+	)
+}
+
+func searchFilesTool() (Entry, error) {
+	return toolEntry(
+		ToolNameSearchFiles,
+		searchFilesToolDescription,
+		[]string{"path", "pattern"},
+		map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Exact VFS path /artifacts/<artifact_id>.",
+			},
+			"pattern": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"maxLength":   SearchMaxPatternBytes,
+				"description": "RE2 regex, at most 1024 UTF-8 bytes. Case-sensitive by default; use (?i) for case-insensitive matching.",
+			},
+			"max_matches": map[string]any{
+				"type":        "integer",
+				"minimum":     1,
+				"maximum":     SearchMaxMatches,
+				"default":     SearchDefaultMatches,
+				"description": "Maximum matching lines, not occurrences.",
+			},
+			"offset_line": map[string]any{
+				"type":    "integer",
+				"minimum": 1,
+				"default": 1,
+				"description": "Line number to start searching from, starting at 1. " +
+					"To continue, use next_offset_line from the previous result with the same pattern.",
+			},
+			"context_lines": map[string]any{
+				"type":        "integer",
+				"minimum":     0,
+				"maximum":     SearchMaxContextLines,
+				"default":     0,
+				"description": "Lines before and after each matching line.",
+			},
+		},
+	)
 }
 
 func uploadFileTool(machineID map[string]any) (Entry, error) {

@@ -64,14 +64,6 @@ machine_sources:
     max_machines: 1
     initial_num_machines: 0
 tools:
-  run_command:
-    permission:
-      mode: always_allow
-      parameters: {}
-  create_machine:
-    permission:
-      mode: always_allow
-      parameters: {}
   lookup_customer:
     type: custom
     permission:
@@ -159,14 +151,26 @@ skills:
 		bundles = append(bundles, snapshot.Bundle)
 	}
 	last := bundles[len(bundles)-1]
+	dispatchSpecs, err := executor.modelContextToolRuntime(ctx, kernelTestProjectID, agentID,
+		executionstore.ModelCallContextRecord{AgentConfigID: profile.CurrentConfigID}, now)
+	if err != nil {
+		t.Fatalf("reload tool runtime: %v", err)
+	}
+	for _, name := range []string{
+		"run_command", "write_process", "read_process", "stop_process", "list_processes",
+		"create_machine", "delete_machine", "list_machines", "inspect_machine", "upload_file", "download_file",
+	} {
+		if !modelcontext.HasTool(last.ToolSpecs, name) || !modelcontext.HasTool(dispatchSpecs, name) {
+			t.Fatalf("default machine tool %s missing from prompt or dispatch", name)
+		}
+	}
 	if !modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSkill) ||
 		!modelcontext.HasTool(last.ToolSpecs, toolcatalog.ToolNameSendIntegrationMessage) ||
 		!modelcontext.HasTool(last.ToolSpecs, "lookup_customer") ||
-		len(last.AvailableMachinePools) != 1 ||
 		len(last.IntegrationTargets) != 1 ||
 		len(last.ToolResults) != 1 ||
 		!strings.Contains(last.SystemPrompt, "<available_skills>") {
-		t.Fatalf("final bundle lacks the expected tools, pool, target, tool result, or skill catalog: %+v", last)
+		t.Fatalf("final bundle lacks the expected tools, target, tool result, or skill catalog: %+v", last)
 	}
 
 	routes := []struct {

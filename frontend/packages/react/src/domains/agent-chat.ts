@@ -5,18 +5,14 @@ import {
   type OmnaraClient,
 } from '@omnara/sdk'
 import { getAgentOptions } from '@omnara/sdk/tanstack'
-import {
-  type InfiniteData,
-  type QueryClient,
-  type QueryStatus,
-  useQueryClient,
-} from '@tanstack/react-query'
+import { type QueryClient, type QueryStatus, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import { useOmnaraClient } from '../omnara-client'
 import { projectActorsQueryPredicate } from './actors'
-import { agentChatHistoryQueryKey, useAgentChatHistory } from './agent-chat-history'
+import { historyHasEvent, useAgentChatHistory } from './agent-chat-history'
 import {
+  eventsAfterSequence,
   hasToolCalls,
   isControlEvent,
   isTerminalEvent,
@@ -49,7 +45,7 @@ import {
   cacheAgentInputBacklog,
   useAgentInputBacklog,
 } from './agent-input-backlog'
-import { openAgentInteractionsQueryKey } from './agent-interactions'
+import { invalidateSubagentList, openAgentInteractionsQueryKey } from './agent-interactions'
 import { agentUsageQueryPredicate } from './usage'
 
 export type { OmnaraUIMessage } from './agent-chat-messages'
@@ -69,12 +65,16 @@ export type {
 export type AgentChatHistoryStatus = QueryStatus
 
 export interface UseAgentChatResult {
+  events: AgentEvent[]
   messages: OmnaraUIMessage[]
   status: AgentChatStatus
   isWorking: boolean
   error: Error | undefined
+  streamError: Error | undefined
   historyStatus: AgentChatHistoryStatus
   historyError: Error | null
+  retryHistory: () => void
+  reconnect: () => void
   hasOlderMessages: boolean
   isLoadingOlderMessages: boolean
   loadOlderMessages: () => void
@@ -109,6 +109,7 @@ export class AgentChatSession {
     localInputs: [],
     backlogInputs: [],
     error: undefined,
+    streamError: undefined,
     hasOlderEvents: false,
   }
 
@@ -268,13 +269,13 @@ export class AgentChatSession {
   }
 
   private inputEchoLoaded(id: string): boolean {
-    const matches = (event: AgentEvent) =>
-      event.event_kind === 'agent_input' && event.input_idempotency_key === id
-    if (this.events.some(matches)) return true
-    const history = this.queryClient.getQueryData<InfiniteData<{ data: AgentEvent[] }>>(
-      agentChatHistoryQueryKey(this.scope),
+    return this.hasLoadedEvent(
+      (event) => event.event_kind === 'agent_input' && event.input_idempotency_key === id,
     )
-    return history?.pages.some((page) => page.data.some(matches)) ?? false
+  }
+
+  private hasLoadedEvent(matches: (event: AgentEvent) => boolean): boolean {
+    return this.events.some(matches) || historyHasEvent(this.queryClient, this.scope, matches)
   }
 
   private notify(): void {
@@ -285,6 +286,7 @@ export class AgentChatSession {
       localInputs,
       backlogInputs: [],
       error: this.error,
+      streamError: this.errorSource === 'stream' ? this.error : undefined,
       hasOlderEvents: false,
     }
     for (const listener of this.listeners) listener()
@@ -295,10 +297,7 @@ export class AgentChatSession {
     if (this.cursor == null || sequence <= this.cursor) return
     this.cursor = sequence
     this.events = [...this.events, event]
-    if (this.errorSource === 'stream') {
-      this.error = undefined
-      this.errorSource = undefined
-    }
+    this.clearStreamError()
 
     const inputIdempotencyKey =
       event.event_kind === 'agent_input' ? event.input_idempotency_key : undefined
@@ -343,6 +342,9 @@ export class AgentChatSession {
     if (hasToolCalls(event) || event.event_kind === 'tool_result' || isControlEvent(event)) {
       this.invalidateInteractions()
     }
+    void invalidateSubagentList(this.queryClient, this.client, this.scope, event, (matches) =>
+      this.hasLoadedEvent(matches),
+    )
     this.notify()
   }
 
@@ -354,10 +356,7 @@ export class AgentChatSession {
 
   private handleDelta(delta: ModelOutputDelta): void {
     if (this.completedCalls.has(delta.model_call_context_id)) return
-    if (this.errorSource === 'stream') {
-      this.error = undefined
-      this.errorSource = undefined
-    }
+    this.clearStreamError()
     if (delta.event.kind === 'error') {
       this.completedCalls.add(delta.model_call_context_id)
       this.deltas = this.deltas.filter(
@@ -388,6 +387,18 @@ export class AgentChatSession {
   disconnect = (): void => {
     this.runController?.abort()
     this.runController = null
+  }
+
+  reconnect = (): void => {
+    if (this.clearStreamError()) this.notify()
+    this.connect()
+  }
+
+  private clearStreamError(): boolean {
+    if (this.errorSource !== 'stream') return false
+    this.error = undefined
+    this.errorSource = undefined
+    return true
   }
 
   private connect(): void {
@@ -465,11 +476,14 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
   const data = useMemo(
     () => ({
       ...sessionData,
-      events: [...(history.data?.events ?? []), ...sessionData.events],
+      events: [
+        ...(history.data?.events ?? []),
+        ...eventsAfterSequence(sessionData.events, newestLoadedSequence),
+      ],
       backlogInputs: authoritativeBacklogInputs,
       hasOlderEvents,
     }),
-    [authoritativeBacklogInputs, history.data, hasOlderEvents, sessionData],
+    [authoritativeBacklogInputs, history.data, hasOlderEvents, newestLoadedSequence, sessionData],
   )
   const projected = useMemo(() => projectAgentChat(data), [data])
   const inputPlacement =
@@ -478,12 +492,16 @@ export function useAgentChat(scope: AgentChatScope, options: AgentChatOptions): 
       : 'conversation'
 
   return {
+    events: data.events,
     messages: projected.messages,
     status: projected.status,
     isWorking: projected.isWorking,
     error: data.error,
+    streamError: data.streamError,
     historyStatus: history.status,
     historyError: history.error,
+    retryHistory: () => void history.refetch(),
+    reconnect: session.reconnect,
     hasOlderMessages: history.hasNextPage,
     isLoadingOlderMessages: history.isFetchingNextPage,
     loadOlderMessages: () => void history.fetchNextPage(),

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/machinepool"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/notifications"
@@ -23,9 +23,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
-func TestListMachinePoolSourcesUsesCapturedNamesAfterSwap(t *testing.T) {
+func TestListMachinePoolSourcesUsesCurrentNamesAfterSwap(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -103,9 +104,32 @@ tools:
 		t.Fatalf("list machine pool sources: %v", err)
 	}
 	if len(sources) != 2 ||
-		sources[0].MachinePoolName != "First Pool" || sources[0].MachinePoolID != firstPool.ID ||
-		sources[1].MachinePoolName != "Second Pool" || sources[1].MachinePoolID != secondPool.ID {
+		sources[0].MachinePoolName != "Second Pool" || sources[0].MachinePoolID != firstPool.ID ||
+		sources[1].MachinePoolName != "First Pool" || sources[1].MachinePoolID != secondPool.ID {
 		t.Fatalf("machine pool sources after name swap = %+v", sources)
+	}
+	derived, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID:         testProjectID,
+		ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: config.CompiledDefinition,
+		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
+	})
+	if err != nil {
+		t.Fatalf("create source-less config: %v", err)
+	}
+	child, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID: testProjectID, CurrentConfigID: derived.ID,
+	})
+	if err != nil {
+		t.Fatalf("create source-less agent: %v", err)
+	}
+	sources, err = store.Execution().ListMachinePoolSources(ctx, testProjectID, child.ID, derived.ID)
+	if err != nil {
+		t.Fatalf("list source-less machine pool sources: %v", err)
+	}
+	if len(sources) != 2 ||
+		sources[0].MachinePoolName != "Second Pool" || sources[0].MachinePoolID != firstPool.ID ||
+		sources[1].MachinePoolName != "First Pool" || sources[1].MachinePoolID != secondPool.ID {
+		t.Fatalf("source-less machine pool sources after name swap = %+v", sources)
 	}
 }
 
@@ -333,6 +357,110 @@ func TestCreatePoolMachineUsesCurrentSourceWhilePoolRemainsConfigured(t *testing
 	}
 }
 
+func TestLaunchAndCreatePoolMachineAfterEnvironmentSecretDeletion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newProcessDaemonFixture(t, ctx, "deleted_machine_secret")
+	store := newIntegrationStore(fixture.Store.pool, storage.WithMachinePoolProviders(mergingMachinePoolProviders{}))
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "deleted-machine-secret@example.com", "Secret Tester")
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:          testOrgID,
+		OwnerKind:      secretstore.SecretOwnerProject,
+		OwnerProjectID: testProjectID,
+		Name:           "deleted-machine-env",
+		Material:       secrets.GenericMaterial{Value: "secret-value"},
+		Actor:          userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	secretRef := secretPublicIDForTest(t, secret.ID)
+	machinePool := createLaunchTestMachinePool(t, ctx, store, "Deleted Secret Pool", "test.provider",
+		defaultMachineFieldsForTest{
+			DefaultMachineCPU:             1,
+			DefaultMachineMemoryMB:        1024,
+			DefaultMachineEnv:             json.RawMessage(`{"PLAIN":"plain"}`),
+			DefaultMachineProviderOptions: json.RawMessage(`{"image":"test"}`),
+		}, 2, fixture.Now)
+	if _, err := store.Execution().CreateProjectMachinePoolGrant(ctx, projectGrantInputWithDefaultMachineOverlayForTest(
+		executionstore.CreateProjectMachinePoolGrantInput{
+			OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID,
+		},
+		defaultMachineOverlayFieldsForTest{
+			DefaultMachineSecretEnvOverlay: json.RawMessage(`{"GRANT_SECRET":"` + secret.ID.String() + `"}`),
+		},
+	)); err != nil {
+		t.Fatalf("grant machine pool: %v", err)
+	}
+	machine, err := store.Execution().GetMachine(ctx, testOrgID, fixture.MachineID)
+	if err != nil {
+		t.Fatalf("get explicit machine: %v", err)
+	}
+	config := mustCreateAgentConfigFromYAML(t, ctx, store, fmt.Sprintf(`
+instruction: Use machines.
+model:
+  provider_config: openai-prod
+  name: gpt-test
+machine_sources:
+  - machine_name: %q
+    secret_env_overlay:
+      AGENT_SECRET: %s
+  - machine_pool_name: %q
+    max_machines: 2
+    initial_num_machines: 1
+    secret_env_overlay:
+      AGENT_SECRET: %s
+tools:
+  create_machine:
+    type: built_in
+`, machine.DisplayName, secretRef, machinePool.Name, secretRef))
+	if _, err := store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
+		OrgID: testOrgID, SecretID: secret.ID, Actor: userPrincipal(user.ID),
+	}); err != nil {
+		t.Fatalf("delete environment secret: %v", err)
+	}
+	if err := store.Execution().ValidateAgentConfigMachineSources(ctx, testProjectID,
+		config.CompiledDefinition, config.EffectiveDefinitionHash,
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("validate new config with deleted secret = %v, want not found", err)
+	}
+	launch, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: testProjectID, AgentConfigID: config.ID, LaunchedBy: userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("launch saved config after secret deletion: %v", err)
+	}
+	if len(launch.MachineBindings) != 2 || len(launch.ProvisionMachineIDs) != 1 {
+		t.Fatalf("launch did not create explicit and pool bindings: %+v", launch)
+	}
+	lock, err := store.Execution().AcquireAgentRuntimeLock(ctx, testProjectID, launch.Agent.ID,
+		testWorkerProcessID, testAgentRuntimeLockLeaseDuration)
+	if err != nil {
+		t.Fatalf("acquire agent runtime: %v", err)
+	}
+	toolCalls := createPoolMachineToolCalls(t, ctx, store, launch.Agent.ID, user.ID, config.ID, lock,
+		"deleted_secret", []poolMachineToolCallSpec{{Label: "create", Name: "create_machine", Input: json.RawMessage(`{}`)}})
+	created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
+		ProjectID: testProjectID, AgentID: launch.Agent.ID, ToolCallID: toolCalls["create"], RuntimeLockID: lock.ID,
+	}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID})
+	if err != nil {
+		t.Fatalf("agent creates additional machine after secret deletion: %v", err)
+	}
+	for _, machineID := range []uuid.UUID{launch.ProvisionMachineIDs[0], created.Machine.Machine.ID} {
+		claim, found, err := store.Execution().ClaimPoolMachineForProvisioning(ctx, testOrgID, machineID)
+		if err != nil || !found {
+			t.Fatalf("claim machine %s: found=%v err=%v", machineID, found, err)
+		}
+		env, err := store.Execution().ResolvePoolMachineProvisioningEnv(ctx, claim)
+		if err != nil {
+			t.Fatalf("resolve provisioning environment: %v", err)
+		}
+		if len(env) != 1 || env["PLAIN"] != "plain" {
+			t.Fatalf("provisioning environment = %+v, want literal variable only", env)
+		}
+	}
+}
+
 func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -488,7 +616,7 @@ func TestCreatePoolMachineUsesResolvedConfigAndCwd(t *testing.T) {
 	)
 	cwd := "/mutated"
 	env := json.RawMessage(`{"MUTATED":"true"}`)
-	secretEnv := json.RawMessage(`{"MUTATED_SECRET":"` + secretPublicIDForTest(t, projectSecret.ID) + `"}`)
+	secretEnv := json.RawMessage(`{"MUTATED_SECRET":"` + projectSecret.ID.String() + `"}`)
 	updated, err := store.Execution().UpdateMachine(ctx, executionstore.UpdateMachineInput{
 		OrgID:     testOrgID,
 		MachineID: created.Machine.Machine.ID,
@@ -977,7 +1105,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	); err != nil {
 		t.Fatalf("validate config against the zero-cap pool: %v", err)
@@ -2170,4 +2297,180 @@ machine_sources:
   create_machine:
     type: built_in
 `
+}
+
+func TestCreatePoolMachineSizing(t *testing.T) {
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool, storage.WithMachinePoolProviders(machinepool.DefaultCatalog()))
+	user := mustCreateProjectDeveloperUser(t, ctx, store, "sizing@example.com", "Sizing")
+	machinePool := createLaunchTestMachinePool(t, ctx, store, "Sizing Pool", "unikraft", defaultMachineFieldsForTest{
+		DefaultMachineCPU: 1, DefaultMachineMemoryMB: 1024,
+		DefaultMachineProviderOptions: json.RawMessage(`{"image":"test-image","metro":"sfo"}`),
+	}, 8, time.Now())
+	_, err := store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+		OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
+		DefaultMachineCPU: new(2), DefaultMachineMemoryMB: new(4096),
+		MinMachineCPU: new(2), MaxMachineCPU: new(4), MinMachineMemoryMB: new(2048), MaxMachineMemoryMB: new(8192),
+		MaxTotalCPU: new(12), MaxTotalMemoryMB: new(24576),
+	})
+	require.NoError(t, err)
+	config := mustCreateAgentConfigFromYAML(
+		t, ctx, store,
+		agentPoolMachineConfigYAMLWithDefaultMachineFields(machinePool.Name, 8, "    machine_cpu: 3\n"),
+	)
+	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID: testProjectID, CurrentConfigID: config.ID,
+	})
+	require.NoError(t, err)
+	lock, err := store.Execution().AcquireAgentRuntimeLock(
+		ctx, testProjectID, agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration,
+	)
+	require.NoError(t, err)
+	sources, err := store.Execution().ListMachinePoolSources(ctx, testProjectID, agent.ID, config.ID)
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+	require.Equal(t, []string{"cpu", "memory_mb"}, sources[0].SupportedOverrides)
+	require.Equal(t, new(3), sources[0].DefaultCPU)
+	require.Equal(t, new(4096), sources[0].DefaultMemoryMB)
+	require.Equal(t, new(2), sources[0].MinCPU)
+	require.Equal(t, new(4), sources[0].MaxCPU)
+	require.Equal(t, new(2048), sources[0].MinMemoryMB)
+	require.Equal(t, new(8192), sources[0].MaxMemoryMB)
+	tests := []struct {
+		name                string
+		cpu, memory         *int
+		wantCPU, wantMemory int
+		wantError           string
+	}{
+		{name: "defaults", wantCPU: 3, wantMemory: 4096},
+		{name: "cpu only", cpu: new(4), wantCPU: 4, wantMemory: 4096},
+		{name: "memory only", memory: new(8192), wantCPU: 3, wantMemory: 8192},
+		{name: "both", cpu: new(2), memory: new(6144), wantCPU: 2, wantMemory: 6144},
+		{name: "pool maximum", cpu: new(33), wantError: "machine pool per-machine cpu capacity exceeded"},
+		{name: "project cpu maximum", cpu: new(5), wantError: "project machine pool per-machine cpu capacity exceeded"},
+		{
+			name: "project memory maximum", memory: new(16384),
+			wantError: "project machine pool per-machine memory capacity exceeded",
+		},
+		{name: "project cpu minimum", cpu: new(1), wantError: "project machine pool per-machine cpu minimum not met"},
+		{
+			name: "project memory minimum", memory: new(1024),
+			wantError: "project machine pool per-machine memory minimum not met",
+		},
+		{name: "aggregate capacity", wantError: "project machine pool cpu capacity exceeded"},
+	}
+	specs := make([]poolMachineToolCallSpec, 0, len(tests))
+	for _, test := range tests {
+		specs = append(specs, poolMachineToolCallSpec{Label: test.name, Name: "create_machine", Input: json.RawMessage(`{}`)})
+	}
+	calls := createPoolMachineToolCalls(t, ctx, store, agent.ID, user.ID, config.ID, lock, "sizing", specs)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transaction := executionstore.ExecuteToolCallInput{
+				ProjectID: testProjectID, AgentID: agent.ID, ToolCallID: calls[test.name], RuntimeLockID: lock.ID,
+			}
+			input := executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID, CPU: test.cpu, MemoryMB: test.memory}
+			created, err := createPoolMachineForTest(ctx, store, transaction, input)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, new(test.wantCPU), created.Machine.Machine.CPU)
+			require.Equal(t, new(test.wantMemory), created.Machine.Machine.MemoryMB)
+			input.CPU = new(32)
+			replay, err := createPoolMachineForTest(ctx, store, transaction, input)
+			require.NoError(t, err)
+			require.False(t, replay.Created)
+			require.Equal(t, created.Machine.Machine.ID, replay.Machine.Machine.ID)
+			require.Equal(t, created.Machine.Machine.CPU, replay.Machine.Machine.CPU)
+		})
+	}
+	observations, err := store.Execution().ListAgentMachineObservations(ctx, testProjectID, agent.ID)
+	require.NoError(t, err)
+	require.Len(t, observations, 4)
+	for _, observation := range observations {
+		require.NotNil(t, observation.CPU)
+		require.NotNil(t, observation.MemoryMB)
+	}
+	sources, err = store.Execution().ListMachinePoolSources(ctx, testProjectID, agent.ID, config.ID)
+	require.NoError(t, err)
+	require.Equal(t, new(3), sources[0].DefaultCPU)
+	require.Equal(t, new(4096), sources[0].DefaultMemoryMB)
+}
+
+func TestCreatePoolMachineRejectsUnsupportedSizing(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{"blaxel", "daytona"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			pool := openIntegrationDB(t, ctx)
+			seedMigratedDB(t, ctx, pool)
+			store := newIntegrationStore(pool, storage.WithMachinePoolProviders(machinepool.DefaultCatalog()))
+			user := mustCreateProjectDeveloperUser(t, ctx, store, "unsupported@example.com", "Sizing")
+			input := executionstore.CreateMachinePoolInput{
+				OrgID: testOrgID, Name: "Sizing Pool", Provider: provider, MaxTotalMachines: 4,
+				ProviderAuthSecretID:   createMachinePoolProviderAuthSecretForTest(t, ctx, store, "test-token"),
+				DefaultMachineMemoryMB: new(1024), MaxTotalMemoryMB: new(8192), MaxMachineMemoryMB: new(8192),
+			}
+			if provider == "blaxel" {
+				input.ProviderConfig = json.RawMessage(`{"workspace":"test"}`)
+				input.DefaultMachineProviderOptions = json.RawMessage(`{"image":"test-image","region":"us-pdx-1"}`)
+			} else {
+				input.DefaultMachineCPU = new(2)
+				input.MaxTotalCPU = new(8)
+				input.MaxMachineCPU = new(8)
+				input.DefaultMachineProviderOptions = json.RawMessage(`{"snapshot":"test-snapshot","target":"us"}`)
+			}
+			machinePool, err := store.Execution().CreateMachinePool(ctx, input)
+			require.NoError(t, err)
+			_, err = store.Execution().CreateProjectMachinePoolGrant(ctx, executionstore.CreateProjectMachinePoolGrantInput{
+				OrgID: testOrgID, ProjectID: testProjectID, MachinePoolID: machinePool.ID, IdempotencyKey: "sizing",
+			})
+			require.NoError(t, err)
+			config := mustCreateAgentConfigFromYAML(t, ctx, store, agentPoolMachineConfigYAML(machinePool.Name, 4))
+			agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+				ProjectID: testProjectID, CurrentConfigID: config.ID,
+			})
+			require.NoError(t, err)
+			lock, err := store.Execution().AcquireAgentRuntimeLock(
+				ctx, testProjectID, agent.ID, testWorkerProcessID, testAgentRuntimeLockLeaseDuration,
+			)
+			require.NoError(t, err)
+			sources, err := store.Execution().ListMachinePoolSources(ctx, testProjectID, agent.ID, config.ID)
+			require.NoError(t, err)
+			require.Len(t, sources, 1)
+			require.Nil(t, sources[0].DefaultCPU)
+			expected := []string{}
+			if provider == "blaxel" {
+				expected = []string{"memory_mb"}
+			} else {
+				require.Nil(t, sources[0].DefaultMemoryMB)
+			}
+			require.Equal(t, expected, sources[0].SupportedOverrides)
+			calls := createPoolMachineToolCalls(
+				t, ctx, store, agent.ID, user.ID, config.ID, lock, "unsupported", []poolMachineToolCallSpec{
+					{Label: "cpu", Name: "create_machine", Input: json.RawMessage(`{"cpu":2}`)},
+					{Label: "memory", Name: "create_machine", Input: json.RawMessage(`{"memory_mb":2048}`)},
+				},
+			)
+			_, err = createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
+				ProjectID: testProjectID, AgentID: agent.ID, ToolCallID: calls["cpu"], RuntimeLockID: lock.ID,
+			}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID, CPU: new(2)})
+			require.ErrorContains(t, err, "does not support cpu overrides")
+			created, err := createPoolMachineForTest(ctx, store, executionstore.ExecuteToolCallInput{
+				ProjectID: testProjectID, AgentID: agent.ID, ToolCallID: calls["memory"], RuntimeLockID: lock.ID,
+			}, executionstore.CreatePoolMachineInput{MachinePoolID: machinePool.ID, MemoryMB: new(2048)})
+			if provider == "daytona" {
+				require.ErrorContains(t, err, "does not support memory_mb overrides")
+			} else {
+				require.NoError(t, err)
+				require.Nil(t, created.Machine.Machine.CPU)
+				require.Equal(t, new(2048), created.Machine.Machine.MemoryMB)
+			}
+		})
+	}
 }

@@ -44,7 +44,7 @@ export function InviteMemberDialog({
   const inviteMember = useInviteMember(orgId)
   const [state, setState] = useState<InviteMemberState>({
     email: '',
-    role: 'member',
+    role: 'admin',
     status: idle,
   })
   const errorMessage = statusError(state.status)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -103,8 +102,8 @@ skills:
 		t.Fatalf("execute skill-enabled model work: %v", err)
 	}
 	if modelClient.preparedCount() != 1 ||
-		len(modelClient.prepared[0].ToolSpecs) != 1 ||
-		modelClient.prepared[0].ToolSpecs[0].Name != toolcatalog.ToolNameSkill {
+		len(modelClient.prepared[0].ToolSpecs) != 3 ||
+		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.ToolNameSkill {
 		t.Fatalf("skill-enabled prompt tools = %+v, want skill", modelClient.prepared)
 	}
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)
@@ -789,12 +788,10 @@ func (f kernelFixture) kernelAgentConfigInput(
 	compiled := f.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	return executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 }
@@ -835,12 +832,10 @@ tools:
 	compiled := fixture.compileAgentYAMLResolved(t, ctx, sourceYAML)
 	config, err := fixture.Store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  sourceYAML,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	})
 	if err != nil {

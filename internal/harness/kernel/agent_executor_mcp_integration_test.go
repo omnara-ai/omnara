@@ -17,7 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/harness/tools"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
@@ -304,8 +304,8 @@ mcp:
 			mcpClient.listToolsCount,
 		)
 	}
-	if modelClient.preparedCount() != 2 || len(modelClient.prepared[0].ToolSpecs) != 0 ||
-		len(modelClient.prepared[1].ToolSpecs) != 0 {
+	if modelClient.preparedCount() != 2 || !onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs) ||
+		!onlyFileRetrievalTools(modelClient.prepared[1].ToolSpecs) {
 		t.Fatalf(
 			"model retry should continue without mcp tools, prepared=%d first=%+v retry=%+v",
 			modelClient.preparedCount(),
@@ -407,7 +407,7 @@ mcp:
 			mcpClient.listToolsCount,
 		)
 	}
-	if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 0 {
+	if modelClient.preparedCount() != 1 || !onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs) {
 		t.Fatalf(
 			"model should continue without mcp tools, prepared=%d tools=%+v",
 			modelClient.preparedCount(),
@@ -574,12 +574,10 @@ mcp:
 	compiled := fixture.compileAgentYAMLResolved(t, ctx, newSource)
 	nextConfig := executionstore.CreateAgentConfigInput{
 		ProjectID:               kernelTestProjectID,
-		Definition:              json.RawMessage(compiled.CanonicalJSON),
 		Source:                  newSource,
 		SourceFormat:            "yaml",
 		ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 		CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-		CompilerVersion:         agentconfig.CompilerVersion,
 		EffectiveDefinitionHash: compiled.Hash,
 	}
 	var changeErr error
@@ -785,14 +783,14 @@ mcp:
 	if modelClient.preparedCount() != 3 {
 		t.Fatalf("prepared %d requests, want tool call and two continuation attempts", modelClient.preparedCount())
 	}
-	if len(modelClient.prepared[0].ToolSpecs) != 1 ||
-		modelClient.prepared[0].ToolSpecs[0].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
+	if len(modelClient.prepared[0].ToolSpecs) != 3 ||
+		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
 		t.Fatalf("first request should include mcp tool, got %+v", modelClient.prepared[0].ToolSpecs)
 	}
-	if len(modelClient.prepared[1].ToolSpecs) != 0 {
+	if !onlyFileRetrievalTools(modelClient.prepared[1].ToolSpecs) {
 		t.Fatalf("first continuation attempt should remove failed mcp tools, got %+v", modelClient.prepared[1].ToolSpecs)
 	}
-	if len(modelClient.prepared[2].ToolSpecs) != 0 {
+	if !onlyFileRetrievalTools(modelClient.prepared[2].ToolSpecs) {
 		t.Fatalf("retried continuation should keep failed mcp tools removed, got %+v", modelClient.prepared[2].ToolSpecs)
 	}
 	if mcpClient.initializeCount != 2 {
@@ -921,8 +919,8 @@ mcp:
 	if modelClient.preparedCount() != 1 {
 		t.Fatalf("expected model generation to continue, got %d prepares", modelClient.preparedCount())
 	}
-	if len(modelClient.prepared[0].ToolSpecs) != 1 ||
-		modelClient.prepared[0].ToolSpecs[0].Name != toolcatalog.MCPRuntimeToolName("good", "greet") {
+	if len(modelClient.prepared[0].ToolSpecs) != 3 ||
+		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("good", "greet") {
 		t.Fatalf("model should only receive ready mcp tools, got %+v", modelClient.prepared[0].ToolSpecs)
 	}
 	if mcpClient.initializeCount != 2 {
@@ -1109,8 +1107,9 @@ mcp:
 			mcpClient.discoverCount, mcpClient.listToolsCount,
 		)
 	}
-	if secondModel.preparedCount() != 1 || len(secondModel.prepared[0].ToolSpecs) != 1 ||
-		secondModel.prepared[0].ToolSpecs[0].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
+	if secondModel.preparedCount() != 1 || len(secondModel.prepared[0].ToolSpecs) != 3 ||
+		!onlyFileRetrievalTools(secondModel.prepared[0].ToolSpecs[:2]) ||
+		secondModel.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
 		t.Fatalf("second agent did not expose the cached mcp tool: %+v", secondModel.prepared)
 	}
 	secondConn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, second.Agent.ID, "docs")
@@ -1190,7 +1189,9 @@ mcp:
 		if err := executor.ExecuteModelWork(ctx, input); err != nil {
 			t.Fatalf("execute %s: %v", name, err)
 		}
-		if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 1 {
+		if modelClient.preparedCount() != 1 || len(modelClient.prepared[0].ToolSpecs) != 3 ||
+			!onlyFileRetrievalTools(modelClient.prepared[0].ToolSpecs[:2]) ||
+			modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.MCPRuntimeToolName("docs", "greet") {
 			t.Fatalf("%s did not expose the mcp tool: %+v", name, modelClient.prepared)
 		}
 		conn, found, err := fixture.Store.Execution().GetMCPConnection(ctx, kernelTestProjectID, launch.Agent.ID, "docs")
@@ -1573,11 +1574,12 @@ mcp:
 	})
 
 	t.Run("missing credential on a ready connection is recorded", func(t *testing.T) {
-		secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
-		if err != nil {
-			t.Fatal(err)
-		}
-		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: secretID}
+		server.Auth = &agentconfig.RuntimeMCPAuth{Type: agentconfig.MCPAuthTypeBearer, SecretID: uuid.New()}
 		ensureFailed(t, load(t), "read mcp auth secret")
 	})
+}
+
+func onlyFileRetrievalTools(specs []modelcontext.ToolSpec) bool {
+	return len(specs) == 2 && specs[0].Name == toolcatalog.ToolNameReadFile &&
+		specs[1].Name == toolcatalog.ToolNameSearchFiles
 }

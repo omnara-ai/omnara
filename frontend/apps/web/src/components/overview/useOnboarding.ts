@@ -1,7 +1,7 @@
 import { useOrgOverview, usePersonalAccessTokens } from '@omnara/react'
 import {
   type Agent,
-  type AgentProfile,
+  type AgentProfileSummary,
   isCliLoginToken,
   type OrgOverviewResponse,
   type PersonalAccessToken,
@@ -17,9 +17,9 @@ const tokenPageSize = 50
 export interface OnboardingProgress {
   ready: boolean
   cliToken?: PersonalAccessToken
-  agentProfile?: AgentProfile
+  agentProfile?: AgentProfileSummary
   agent?: Agent
-  live: { agentProfile?: AgentProfile; agent?: Agent }
+  live: { agentProfile?: AgentProfileSummary; agent?: Agent }
   steps: {
     cli: { login: StepStatus; createProfile: StepStatus; chat: StepStatus }
     browser: { createProfile: StepStatus; chat: StepStatus }

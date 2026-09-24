@@ -126,6 +126,7 @@ export function AgentComposer({
   cancelPending,
   cancelError,
   canOperate,
+  hidden,
 }: {
   chat: UseAgentChatResult
   model?: AgentConfigModel
@@ -133,6 +134,7 @@ export function AgentComposer({
   cancelPending: boolean
   cancelError?: Error | null
   canOperate: boolean
+  hidden: boolean
 }) {
   const { scrollToEnd } = useMessageScroller()
   const [text, setText] = useState('')
@@ -145,7 +147,7 @@ export function AgentComposer({
   const working = chat.isWorking
   const ready = canOperate && chat.historyStatus === 'success'
   const busy = addingFiles || submitting
-  const acceptsFiles = ready && model != null && !busy
+  const acceptsFiles = !hidden && ready && model != null && !busy
   const canSend = ready && !busy && (text.trim() !== '' || attachments.length > 0)
   const dragging = useWindowFileDrop(acceptsFiles, (files) => {
     void addFiles(files)

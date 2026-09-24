@@ -45,12 +45,19 @@ export function CreateAgentFormView({
     launchError,
     issues,
   } = useCreateAgentSubmission(activeOrg.id, projectId)
-  const { name, setName, mode, dispatchMode, form, switchMode, applyTemplate } = useAgentDraft(
-    catalog,
-    defaultPool,
-    defaultModel,
-    initialTemplate,
-  )
+  const {
+    name,
+    setName,
+    mode,
+    dispatchMode,
+    form,
+    switchMode,
+    applyTemplate,
+    suppressUnsavedChangesWarning,
+  } = useAgentDraft(catalog, defaultPool, defaultModel, initialTemplate, {
+    orgId: activeOrg.id,
+    projectId,
+  })
 
   if (project == null) return null
 
@@ -78,7 +85,7 @@ export function CreateAgentFormView({
       }}
     >
       {/* Negative margins offset the page padding so the scroll region and the pinned bar reach the pane edges. */}
-      <div className="-mx-4 -mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
+      <div className="surface-page relative z-10 -mx-4 -mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-bl-xl px-4 pt-4 sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
         <div className="flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
             items={[
@@ -115,7 +122,7 @@ export function CreateAgentFormView({
             </div>
           </div>
 
-          <FieldGroup className="mx-auto w-full max-w-3xl flex-1 gap-8">
+          <FieldGroup className="mx-auto w-full max-w-3xl flex-1 gap-5">
             <div className={cn(showBuilder && 'grid gap-6 sm:grid-cols-2')}>
               <Field>
                 <RequiredFieldLabel htmlFor="agent-config-name">Name</RequiredFieldLabel>
@@ -141,12 +148,13 @@ export function CreateAgentFormView({
                 />
               )}
             </div>
-            <div className={cn('flex flex-col gap-8', !showBuilder && 'hidden')}>
+            <div className={cn('flex flex-col gap-5', !showBuilder && 'hidden')}>
               <AgentConfigBasicForm
                 orgId={activeOrg.id}
                 projectId={projectId}
                 form={form}
                 agentName={name}
+                onBeforeOAuthRedirect={suppressUnsavedChangesWarning}
               />
               <AgentConfigIssueList issues={issues} />
             </div>

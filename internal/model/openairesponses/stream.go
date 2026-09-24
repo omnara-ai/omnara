@@ -12,6 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/providererrors"
 	"github.com/omnara-ai/omnara/internal/model/route"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 var errOpenAIStreamTerminal = errors.New("openai stream reached a terminal event")
@@ -273,13 +274,16 @@ func (a *openAIStreamAccumulator) handleErrorEvent(event, data string) error {
 		),
 		Source:     a.protocol.errorSource(),
 		StatusCode: a.statusCode,
-		Code: firstNonEmpty(
-			frame.ErrorType,
-			frame.Error.codeText(),
-			frame.Error.Type,
-			providererrors.CodeText(frame.Code),
+		Code: providererrors.UserFacingCode(
+			firstNonEmpty(
+				frame.ErrorType,
+				frame.Error.codeText(),
+				frame.Error.Type,
+				providererrors.CodeText(frame.Code),
+			),
+			message,
 		),
-		Message:    message,
+		Message:    providererrors.UserFacingMessage(message),
 		RequestID:  model.RequestIDFromHeader(a.header),
 		RetryAfter: model.RetryAfterFromHeader(a.header),
 	}
@@ -340,6 +344,17 @@ func (a *openAIStreamAccumulator) handleOutputItemAdded(ctx context.Context, dat
 			Kind:       model.StreamBlockToolUse,
 			ToolCallID: frame.Item.CallID,
 			ToolName:   frame.Item.Name,
+		})
+	case "tool_search_call":
+		if strings.TrimSpace(frame.Item.CallID) == "" {
+			return nil
+		}
+		idx := a.allocBlock()
+		a.itemBlockIndex[frame.Item.ID] = idx
+		a.emit.BlockStart(ctx, idx, model.StreamBlock{
+			Kind:       model.StreamBlockToolUse,
+			ToolCallID: frame.Item.CallID,
+			ToolName:   toolcatalog.ToolNameToolSearch,
 		})
 	case "reasoning":
 		idx := a.allocBlock()

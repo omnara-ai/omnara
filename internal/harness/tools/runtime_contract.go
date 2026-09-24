@@ -42,7 +42,6 @@ func (e Executor) runtimeContractForTurn(
 	}
 	return agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
-		config.CompilerVersion,
 		config.EffectiveDefinitionHash,
 	)
 }

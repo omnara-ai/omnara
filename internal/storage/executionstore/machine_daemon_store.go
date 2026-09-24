@@ -209,6 +209,7 @@ const (
 	MachineFailureStageStartupScript     = "startup_script"
 	MachineFailureStageDaemonInstall     = "daemon_install"
 	MachineFailureStageDaemonUpdate      = "daemon_update"
+	MachineFailureStageDaemonRuntime     = "daemon_runtime"
 	MachineFailureStageDaemonUninstall   = "daemon_uninstall"
 	MachineFailureStageDaemonUninstalled = "daemon_uninstalled"
 )
@@ -288,6 +289,9 @@ func prepareDaemonMachineCreate(
 	metadata, err := input.Metadata.JSON()
 	if err != nil {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, err
+	}
+	if err := validateMachineCwdLength("cwd", input.Cwd); err != nil {
+		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, storeerr.InvalidRequest(err)
 	}
 	if strings.ContainsRune(input.Cwd, 0) {
 		return CreateDaemonMachineInput{}, MachineEnvironment{}, nil, errors.New(
@@ -388,6 +392,9 @@ func (s *Store) updateMachineOnce(ctx context.Context, input UpdateMachineInput)
 	}
 	cwd := locked.Cwd
 	if input.Cwd != nil {
+		if err := validateMachineCwdLength("cwd", *input.Cwd); err != nil {
+			return MachineRecord{}, storeerr.InvalidRequest(err)
+		}
 		cwd = *input.Cwd
 	}
 	if strings.ContainsRune(cwd, 0) {

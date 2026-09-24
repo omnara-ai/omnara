@@ -46,6 +46,9 @@
             }
           ]
         },
+        "deferred": {
+          "type": "boolean"
+        },
         "permission": {
           "$ref": "#/$defs/ToolPermissionSelection"
         },
@@ -72,6 +75,16 @@
     "AgentConfigMCPToolSource": {
       "additionalProperties": false,
       "properties": {
+        "deferred": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "enabled": {
           "anyOf": [
             {
@@ -106,6 +119,7 @@
       ],
       "properties": {
         "cwd": {
+          "maxLength": 4096,
           "type": "string"
         },
         "delete_after_idle_minutes": {
@@ -121,6 +135,7 @@
           ]
         },
         "description": {
+          "maxLength": 4096,
           "type": "string"
         },
         "env_overlay": {
@@ -279,6 +294,14 @@
     },
     "AgentConfigSubagentModelSource": {
       "additionalProperties": false,
+      "dependentRequired": {
+        "name": [
+          "provider_config"
+        ],
+        "provider_config": [
+          "name"
+        ]
+      },
       "properties": {
         "cache_retention": {
           "enum": [
@@ -420,6 +443,9 @@
         "type": "object"
       },
       "properties": {
+        "deferred": {
+          "type": "boolean"
+        },
         "description": {
           "minLength": 1,
           "type": "string"
@@ -479,6 +505,38 @@
       ],
       "type": "object"
     },
+    "EventWebhook": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "items": {
+            "enum": [
+              "agent_input",
+              "model_output",
+              "tool_result",
+              "context_checkpoint",
+              "tool_call_update"
+            ]
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "signing_secret_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "events"
+      ],
+      "type": "object"
+    },
     "ToolPermissionSelection": {
       "additionalProperties": false,
       "properties": {
@@ -499,6 +557,9 @@
   },
   "additionalProperties": false,
   "properties": {
+    "event_webhook": {
+      "$ref": "#/$defs/EventWebhook"
+    },
     "instruction": {
       "minLength": 1,
       "pattern": "\\S",

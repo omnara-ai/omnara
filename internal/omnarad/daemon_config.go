@@ -395,7 +395,7 @@ func validateRuntimeConfig(
 	return config.OmnaraHome, overridden, nil
 }
 
-func runService(ctx context.Context, log *slog.Logger, supervised bool) error {
+func runService(ctx context.Context, log *slog.Logger, supervised, handoff bool) error {
 	runtimeConfig, noUpdate, _, err := loadRuntimeConfig(supervised)
 	if err != nil {
 		return err
@@ -407,7 +407,7 @@ func runService(ctx context.Context, log *slog.Logger, supervised bool) error {
 	if err != nil {
 		return err
 	}
-	return runDaemonService(ctx, runtimeConfig, noUpdate, executable, supervised, log)
+	return runDaemonService(ctx, runtimeConfig, noUpdate, executable, supervised, handoff, log)
 }
 
 func applyRuntimeEnvironment(runtimeConfig *machinedaemon.Config) error {

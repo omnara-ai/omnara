@@ -100,6 +100,7 @@ type CreationGuardedProvider interface {
 }
 
 type Definition interface {
+	ResourcePolicy() MachineResourcePolicy
 	NewProvider(json.RawMessage, RuntimeConfig) (Provider, error)
 	ResolveMachineProviderOptions(
 		defaultOptions map[string]json.RawMessage,

@@ -92,8 +92,8 @@ func anthropicProviderError(
 		Kind:       kind,
 		Source:     source,
 		StatusCode: statusCode,
-		Code:       errorType,
-		Message:    message,
+		Code:       providererrors.UserFacingCode(errorType, message),
+		Message:    providererrors.UserFacingMessage(message),
 		RequestID: firstAnthropicNonEmpty(
 			model.RequestIDFromHeader(header),
 			payload.RequestID,

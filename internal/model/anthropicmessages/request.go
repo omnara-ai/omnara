@@ -136,7 +136,22 @@ type toolDefinition struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"input_schema"`
+	DeferLoading bool            `json:"defer_loading,omitempty"`
 	CacheControl *CacheControl   `json:"cache_control,omitempty"`
+}
+
+type toolReferenceBlock struct {
+	Type     string `json:"type"`
+	ToolName string `json:"tool_name"`
+}
+
+func toolReferenceBlocks(specs []modelcontext.ToolSpec, search modelcontext.ToolSearchResult) []any {
+	definitions := modelcontext.DeferredToolSearchDefinitions(specs, search)
+	blocks := make([]any, 0, len(definitions))
+	for _, definition := range definitions {
+		blocks = append(blocks, toolReferenceBlock{Type: "tool_reference", ToolName: definition.Name})
+	}
+	return blocks
 }
 
 func validateToolNames(specs []modelcontext.ToolSpec) error {
@@ -150,14 +165,6 @@ func validateToolNames(specs []modelcontext.ToolSpec) error {
 
 func systemContent(bundle modelcontext.Bundle, control *CacheControl) any {
 	blocks := []textBlock{{Type: "text", Text: modelcontext.ProjectedSystemPrompt(bundle)}}
-	if modelcontext.MachinePoolContextEnabled(bundle.ToolSpecs) {
-		blocks = append(blocks, textBlock{
-			Type: "text",
-			Text: modelcontext.AvailableMachinePoolsContent(
-				bundle.AvailableMachinePools,
-			),
-		})
-	}
 	if modelcontext.IntegrationTargetContextEnabled(bundle.ToolSpecs) {
 		blocks = append(blocks, textBlock{
 			Type: "text",
@@ -227,10 +234,16 @@ func buildMessages(
 			}
 			resultContent := make([]any, 0, len(entry.ToolResults))
 			for _, result := range entry.ToolResults {
+				content := toolResultContent(result, bundle.ResolvedMedia)
+				if search, ok := modelcontext.ToolSearchResultFromToolResult(result); ok {
+					if references := toolReferenceBlocks(bundle.ToolSpecs, search); len(references) > 0 {
+						content = references
+					}
+				}
 				resultContent = append(resultContent, toolResultBlock{
 					Type:      "tool_result",
 					ToolUseID: toolUseIDByCallID[result.ProviderCallID],
-					Content:   toolResultContent(result, bundle.ResolvedMedia),
+					Content:   content,
 					IsError:   result.Outcome == executionstore.ToolResultOutcomeFailed,
 				})
 			}
@@ -319,7 +332,7 @@ func messageBlocksFromParts(raw json.RawMessage, media map[string]modelcontext.R
 	return renderAnthropicContent(raw, media)
 }
 
-func toolResultContent(result modelcontext.ToolResultRef, media map[string]modelcontext.ResolvedMedia) any {
+func toolResultContent(result modelcontext.ToolResultRef, media map[string]modelcontext.ResolvedMedia) []any {
 	return renderAnthropicContent(result.ContentParts, media)
 }
 
@@ -624,17 +637,30 @@ func sanitizeID(value string) string {
 }
 
 func buildTools(specs []modelcontext.ToolSpec, control *CacheControl) []toolDefinition {
+	loaded := modelcontext.LoadedToolSpecs(specs)
+	deferred := modelcontext.DeferredToolSpecs(specs)
 	tools := make([]toolDefinition, 0, len(specs))
-	for index, spec := range specs {
-		schema := spec.InputSchema
-		if len(schema) == 0 {
-			schema = json.RawMessage(`{"type":"object","properties":{}}`)
-		}
-		def := toolDefinition{Name: spec.Name, Description: spec.Description, InputSchema: schema}
-		if index == len(specs)-1 && control != nil {
+	for index, spec := range loaded {
+		def := toolDefinition{Name: spec.Name, Description: spec.Description, InputSchema: toolInputSchema(spec)}
+		if index == len(loaded)-1 && control != nil {
 			def.CacheControl = control
 		}
 		tools = append(tools, def)
 	}
+	for _, spec := range deferred {
+		tools = append(tools, toolDefinition{
+			Name:         spec.Name,
+			Description:  spec.Description,
+			InputSchema:  toolInputSchema(spec),
+			DeferLoading: true,
+		})
+	}
 	return tools
+}
+
+func toolInputSchema(spec modelcontext.ToolSpec) json.RawMessage {
+	if len(spec.InputSchema) == 0 {
+		return json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	return spec.InputSchema
 }

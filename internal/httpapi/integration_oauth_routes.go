@@ -255,7 +255,6 @@ func (s *Server) cleanupIntegrationOAuthSecret(
 func agentConfigCanUseIntegrationSendTool(config executionstore.AgentConfigRecord) bool {
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		config.CompiledDefinition,
-		config.CompilerVersion,
 		config.EffectiveDefinitionHash,
 	)
 	if err != nil {

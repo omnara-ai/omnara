@@ -1,5 +1,5 @@
 import { type AgentProfileListSort, useAgentProfiles, useCreateAgent } from '@omnara/react'
-import { type AgentProfile, ApiError } from '@omnara/sdk'
+import { type AgentProfileSummary, ApiError } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
@@ -16,6 +16,7 @@ import {
   useListToolbarVisibility,
   useResourceList,
 } from '@/hooks/use-resource-list'
+import { guides } from '@/lib/docs'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useWebConfig } from '@/lib/web-config'
 
@@ -43,7 +44,7 @@ export function AgentProfilesSection({
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [launchError, setLaunchError] = useState<ApiError>()
 
-  async function launch(profile: AgentProfile) {
+  async function launch(profile: AgentProfileSummary) {
     setLaunchError(undefined)
     setLaunchingId(profile.id)
     try {
@@ -83,6 +84,7 @@ export function AgentProfilesSection({
         )}
         <SearchHeader
           title="Agent profiles"
+          guide={guides.agentProfiles}
           toolbar={
             <ResourceListToolbar
               search={list.search}

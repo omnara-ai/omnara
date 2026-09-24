@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -570,7 +569,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(overCapacity.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		overCapacity.Hash); err != nil {
 		t.Fatalf("validate config with max_machines above the pool budget: %v", err)
 	}
@@ -590,7 +588,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(imageOverride.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		imageOverride.Hash); err != nil {
 		t.Fatalf("default pool image override validation error = %v, want allowed overlay", err)
 	}
@@ -1431,7 +1428,7 @@ func TestDefaultPoolGrantAllowsSecretEnvBeforeProjectSecretGrant(t *testing.T) {
 		defaultMachineFieldsForTest{
 			DefaultMachineCPU:             1,
 			DefaultMachineMemoryMB:        1024,
-			DefaultMachineSecretEnv:       json.RawMessage(`{"API_TOKEN":"` + secretPublicIDForTest(t, orgSecret.ID) + `"}`),
+			DefaultMachineSecretEnv:       json.RawMessage(`{"API_TOKEN":"` + orgSecret.ID.String() + `"}`),
 			DefaultMachineProviderOptions: json.RawMessage(`{"image":"default"}`),
 		},
 	))
@@ -1457,7 +1454,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash)
 
 	if err == nil || !strings.Contains(err.Error(), "secret_env.API_TOKEN secret is not available to the project") {
@@ -1475,7 +1471,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash); err != nil {
 		t.Fatalf("validate default pool after secret grant: %v", err)
 	}
@@ -1620,11 +1615,9 @@ tools:
 	change, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
 		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
 			ProjectID:               testProjectID,
-			Definition:              json.RawMessage(compiled.CanonicalJSON),
 			Source:                  updatedYAML,
 			ConfiguredModelID:       parseConfiguredModelID(t, compiled),
 			CompiledDefinition:      json.RawMessage(compiled.CanonicalJSON),
-			CompilerVersion:         agentconfig.CompilerVersion,
 			EffectiveDefinitionHash: compiled.Hash,
 		},
 		AgentID:        result.Agent.ID,
@@ -2910,7 +2903,6 @@ tools:
 		ctx,
 		testProjectID,
 		json.RawMessage(compiled.CanonicalJSON),
-		agentconfig.CompilerVersion,
 		compiled.Hash,
 	); err != nil {
 		t.Fatalf("validate agent config over the pool cpu budget: %v", err)

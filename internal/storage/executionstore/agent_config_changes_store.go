@@ -89,6 +89,9 @@ func (s *Store) changeAgentConfigOnce(
 	if err != nil {
 		return ChangeAgentConfigResult{}, fmt.Errorf("load agent for config change: %w", err)
 	}
+	if agent.ParentAgentID != nil {
+		return ChangeAgentConfigResult{}, storeerr.InvalidRequest(errors.New("subagent configurations are read-only"))
+	}
 	idempotentReplay := false
 	if input.IdempotencyKey != "" {
 		_, replayErr := qtx.GetAgentInputByIdempotency(
@@ -190,7 +193,6 @@ func (s *Store) changeAgentConfigOnce(
 		if err := s.resolveLaunchExplicitMachineSourcesTx(
 			ctx,
 			qtx,
-			project.OrgID,
 			input.ProjectID,
 			nextSources,
 		); err != nil {
@@ -222,7 +224,6 @@ func (s *Store) changeAgentConfigOnce(
 				txNotifications,
 				tx,
 				qtx,
-				project.OrgID,
 				input.ProjectID,
 				input.AgentID,
 				currentContract,
@@ -271,16 +272,8 @@ func validateLiveAgentConfigChangeTx(
 	next CreateAgentConfigInput,
 ) (agentconfig.RuntimeContract, agentconfig.RuntimeContract, error) {
 	next = withDefaultAgentConfigCompilation(next)
-	if next.CompilerVersion != agentconfig.CompilerVersion {
-		return agentconfig.RuntimeContract{}, agentconfig.RuntimeContract{}, fmt.Errorf(
-			"agent config compiler contract %q is not activatable: %w",
-			next.CompilerVersion,
-			storeerr.ErrStateTransitionConflict,
-		)
-	}
 	nextContract, err := agentconfig.RuntimeContractFromCompiled(
 		next.CompiledDefinition,
-		next.CompilerVersion,
 		next.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -298,7 +291,6 @@ func validateLiveAgentConfigChangeTx(
 	}
 	currentContract, err := agentconfig.RuntimeContractFromCompiled(
 		current.CompiledDefinition,
-		current.CompilerVersion,
 		current.EffectiveDefinitionHash,
 	)
 	if err != nil {

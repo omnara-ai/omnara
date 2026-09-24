@@ -482,7 +482,7 @@ func mcpConnectionRecordFromSQLC(row dbsqlc.AgentMcpConnection) MCPConnectionRec
 		ServerCapabilities: normalizedJSON(row.ServerCapabilities),
 		ServerInfo:         normalizedJSON(row.ServerInfo),
 		ToolsSnapshot:      normalizedJSONArray(row.ToolsSnapshot),
-		InitializeError:    row.InitializeError,
+		InitializeError:    stringFromSQLCText(row.InitializeError),
 		Generation:         row.Generation,
 		RequestSequence:    row.RequestSequence,
 		CatalogID:          row.CatalogID,

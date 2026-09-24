@@ -101,7 +101,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		snapshot.AgentConfig.CompiledDefinition,
-		snapshot.AgentConfig.CompilerVersion,
 		snapshot.AgentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {
@@ -147,19 +146,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	bundle.ContextCheckpoint = checkpointRef
 	if len(toolSpecs) > 0 {
 		bundle.ToolSpecs = toolSpecs
-	}
-	if MachinePoolContextEnabled(toolSpecs) {
-		sources, err := b.Store.ListMachinePoolSources(ctx, input.ProjectID, input.AgentID, snapshot.AgentConfig.ID)
-		if err != nil {
-			return Bundle{}, err
-		}
-		bundle.AvailableMachinePools = make([]MachinePoolRef, 0, len(sources))
-		for _, source := range sources {
-			bundle.AvailableMachinePools = append(bundle.AvailableMachinePools, MachinePoolRef{
-				MachinePoolName: source.MachinePoolName,
-				Description:     source.Description,
-			})
-		}
 	}
 	bundle.Messages = messages
 	toolCalls, err := b.Store.ListCompletedToolCallsAtWatermark(
@@ -301,12 +287,12 @@ func loadSkillCatalog(
 	}
 	records := make([]skillstore.SkillRecord, 0, len(contract.Skills))
 	for _, skill := range contract.Skills {
-		record, err := store.GetSkillForDispatch(ctx, projectID, skill.PublicID)
+		record, err := store.GetSkillForDispatch(ctx, projectID, skill.ID)
 		if storeerr.IsNotFound(err) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("resolve skill %s for catalog: %w", skill.PublicID, err)
+			return nil, fmt.Errorf("resolve skill %s for catalog: %w", skill.ID, err)
 		}
 		records = append(records, record)
 	}

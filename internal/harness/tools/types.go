@@ -34,7 +34,7 @@ type SkillStore interface {
 	GetSkillForDispatch(
 		ctx context.Context,
 		projectID uuid.UUID,
-		publicSkillID string,
+		skillID uuid.UUID,
 	) (skillstore.SkillRecord, error)
 }
 
@@ -51,7 +51,9 @@ type Turn struct {
 type ToolSpec struct {
 	Type        string
 	Permission  toolpermission.Selection
+	Description string
 	InputSchema json.RawMessage
+	Deferred    bool
 }
 
 type Executor struct {

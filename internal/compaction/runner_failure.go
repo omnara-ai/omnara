@@ -392,7 +392,6 @@ func compactionModelSelection(
 	}
 	contract, err := agentconfig.RuntimeContractFromCompiled(
 		snapshot.AgentConfig.CompiledDefinition,
-		snapshot.AgentConfig.CompilerVersion,
 		snapshot.AgentConfig.EffectiveDefinitionHash,
 	)
 	if err != nil {

@@ -79,3 +79,15 @@ func (c Catalog) BuildMachineProvisioningIntent(
 	}
 	return definition.BuildMachineProvisioningIntent(policy, machineProvisioning)
 }
+
+func (c Catalog) ConfigurableMachineResources(provider string) (executionstore.ConfigurableMachineResources, error) {
+	definition, ok := c.definition(provider)
+	if !ok {
+		return executionstore.ConfigurableMachineResources{}, fmt.Errorf("machine provider %q is not configured", provider)
+	}
+	policy := definition.ResourcePolicy()
+	return executionstore.ConfigurableMachineResources{
+		CPU:      policy.CPU.Provisioning == providers.MachineResourceConfigured,
+		MemoryMB: policy.MemoryMB.Provisioning == providers.MachineResourceConfigured,
+	}, nil
+}

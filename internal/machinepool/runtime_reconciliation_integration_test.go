@@ -1787,3 +1787,7 @@ func (p *runtimeReconciliationTestProvider) singleCallCount() int {
 
 var _ providers.RuntimeStateObserver = (*runtimeReconciliationTestProvider)(nil)
 var _ providers.MachineWaker = (*runtimeReconciliationTestProvider)(nil)
+
+func (*runtimeReconciliationTestDefinition) ResourcePolicy() providers.MachineResourcePolicy {
+	return providers.MachineResourcePolicy{}
+}

@@ -16,7 +16,7 @@ UPDATE agent_mcp_connections connection
 SET state = 'initializing',
     protocol_version = CASE WHEN connection.state IN ('failed', 'expired') THEN '' ELSE connection.protocol_version END,
     mcp_session_id = CASE WHEN connection.state IN ('failed', 'expired') THEN '' ELSE connection.mcp_session_id END,
-    initialize_error = '',
+    initialize_error = NULL,
     updated_at = transaction_timestamp()
 FROM agents agent
 WHERE agent.project_id = $1
@@ -230,7 +230,7 @@ SET endpoint_url = EXCLUDED.endpoint_url,
     END,
     initialize_error = CASE
       WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.initialize_error
-      ELSE ''
+      ELSE NULL
     END,
     generation = CASE
       WHEN agent_mcp_connections.config_hash = EXCLUDED.config_hash THEN agent_mcp_connections.generation
@@ -416,7 +416,7 @@ SET state = 'failed',
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
     catalog_id = NULL,
-    initialize_error = $1,
+    initialize_error = NULLIF($1::text, ''),
     updated_at = transaction_timestamp()
 FROM agents agent
 WHERE agent.project_id = $2
@@ -482,7 +482,7 @@ SET state = 'ready',
     server_info = '{}'::jsonb,
     tools_snapshot = '[]'::jsonb,
     catalog_id = $3::uuid,
-    initialize_error = '',
+    initialize_error = NULL,
     updated_at = transaction_timestamp()
 FROM agents agent
 WHERE agent.project_id = $4

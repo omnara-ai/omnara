@@ -23,7 +23,7 @@ export function CreateAgentForm() {
   if (toolCatalog.isPending) return <FullPageSpinner />
   if (toolCatalog.isError)
     throw new Error('Failed to load tool catalog', { cause: toolCatalog.error })
-  if (linkedTemplate && !templatesReady) return <FullPageSpinner />
+  if (!templatesReady) return <FullPageSpinner />
 
   return (
     <CreateAgentFormView

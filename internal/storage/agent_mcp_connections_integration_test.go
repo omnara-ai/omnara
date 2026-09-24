@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentMCPConnectionsLifecycle(t *testing.T) {
@@ -63,6 +64,16 @@ mcp:
 	}
 
 	conn := launch.MCPConnections[0]
+	assertInitializeError := func(want *string) {
+		t.Helper()
+		var got *string
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT initialize_error FROM agent_mcp_connections WHERE id = $1`, conn.ID,
+		).Scan(&got))
+		require.Equal(t, want, got)
+	}
+	assertInitializeError(nil)
+	require.Empty(t, conn.InitializeError)
 	if conn.State != executionstore.MCPConnectionStateInitializing || conn.Generation != 1 || conn.RequestSequence != 1 {
 		t.Fatalf("unexpected new mcp connection: %+v", conn)
 	}
@@ -140,6 +151,21 @@ mcp:
 		t.Fatalf("launch replay should return only the current agent: %+v", replayedLaunch)
 	}
 
+	failure := "upstream unavailable"
+	failed, err := store.Execution().MarkMCPConnectionFailed(
+		ctx, testProjectID, launch.Agent.ID, conn.ID, conn.Generation, failure,
+	)
+	require.NoError(t, err)
+	require.Equal(t, failure, failed.InitializeError)
+	assertInitializeError(&failure)
+	retrying, changed, err := store.Execution().BeginMCPConnectionInitialization(
+		ctx, testProjectID, launch.Agent.ID, conn.ID,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Empty(t, retrying.InitializeError)
+	assertInitializeError(nil)
+
 	ready, err := store.Execution().MarkMCPConnectionReady(ctx, executionstore.MarkMCPConnectionReadyInput{
 		ProjectID:          testProjectID,
 		AgentID:            launch.Agent.ID,
@@ -152,6 +178,8 @@ mcp:
 	if err != nil {
 		t.Fatalf("mark ready: %v", err)
 	}
+	assertInitializeError(nil)
+	require.Empty(t, ready.InitializeError)
 	if ready.State != executionstore.MCPConnectionStateReady || ready.MCPSessionID != "remote-session" ||
 		ready.ProtocolVersion != "2025-11-25" || !ready.UsesCatalog() ||
 		!jsoncanonical.Equal(ready.ToolsSnapshot, json.RawMessage(`[{"name":"search"}]`)) {
@@ -271,6 +299,25 @@ mcp:
 		readded[0].MCPSessionID != "" || !readded[0].UpdatedAt.Equal(expired.UpdatedAt) {
 		t.Fatalf("re-added server reused stale connection: %+v", readded)
 	}
+	_, _, err = store.Execution().BeginMCPConnectionInitialization(ctx, testProjectID, launch.Agent.ID, conn.ID)
+	require.NoError(t, err)
+	_, err = store.Execution().MarkMCPConnectionFailed(
+		ctx, testProjectID, launch.Agent.ID, conn.ID, expired.Generation, failure,
+	)
+	require.NoError(t, err)
+	assertInitializeError(&failure)
+	servers := append([]agentconfig.RuntimeMCPServer(nil), launch.MCPServers...)
+	servers[0].URL = "https://changed.example.com/mcp"
+	updated, err := store.Execution().ReconcileAgentMCPConnections(ctx, testProjectID, launch.Agent.ID, servers)
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+	require.Empty(t, updated[0].InitializeError)
+	assertInitializeError(nil)
+	_, err = store.Execution().MarkMCPConnectionFailed(
+		ctx, testProjectID, launch.Agent.ID, conn.ID, updated[0].Generation, "",
+	)
+	require.NoError(t, err)
+	assertInitializeError(nil)
 }
 
 func TestRuntimeMCPServerResolveTool(t *testing.T) {
@@ -290,13 +337,13 @@ func TestRuntimeMCPServerResolveTool(t *testing.T) {
 			"delete": {RemoteName: "delete", Enabled: &disabled},
 		},
 	}
-	if permission, ok := server.ResolveTool("search"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("search resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("search"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAllow {
+		t.Fatalf("search resolution = permission=%+v ok=%t", resolution, ok)
 	}
-	if permission, ok := server.ResolveTool("other"); !ok ||
-		permission.Mode != toolpermission.ModeAlwaysAsk {
-		t.Fatalf("default resolution = permission=%+v ok=%t", permission, ok)
+	if resolution, ok := server.ResolveTool("other"); !ok ||
+		resolution.Permission.Mode != toolpermission.ModeAlwaysAsk {
+		t.Fatalf("default resolution = permission=%+v ok=%t", resolution, ok)
 	}
 	if _, ok := server.ResolveTool("delete"); ok {
 		t.Fatalf("delete should be disabled")

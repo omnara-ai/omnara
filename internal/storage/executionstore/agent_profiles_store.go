@@ -389,6 +389,38 @@ func (s *Store) ListAgentProfilesForProject(
 	return result, nil
 }
 
+type AgentProfileAgentCountRecord struct {
+	ID         uuid.UUID
+	Name       string
+	AgentCount int64
+}
+
+type ListAgentProfilesWithAgentCountsInput struct {
+	ProjectIDs []uuid.UUID
+	ProfileIDs []uuid.UUID
+}
+
+func (s *Store) ListAgentProfilesWithAgentCounts(
+	ctx context.Context,
+	input ListAgentProfilesWithAgentCountsInput,
+) ([]AgentProfileAgentCountRecord, error) {
+	if len(input.ProjectIDs) == 0 || len(input.ProfileIDs) == 0 {
+		return []AgentProfileAgentCountRecord{}, nil
+	}
+	rows, err := s.q.ListAgentProfilesWithAgentCounts(ctx, dbsqlc.ListAgentProfilesWithAgentCountsParams{
+		ProjectIds: input.ProjectIDs,
+		ProfileIds: input.ProfileIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list agent profiles with agent counts: %w", err)
+	}
+	records := make([]AgentProfileAgentCountRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, AgentProfileAgentCountRecord{ID: row.ID, Name: row.Name, AgentCount: row.AgentCount})
+	}
+	return records, nil
+}
+
 type ListRecentAgentProfilesForProjectsInput struct {
 	ProjectIDs []uuid.UUID
 	Limit      int

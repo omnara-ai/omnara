@@ -30,7 +30,7 @@ type Definition struct{}
 var _ providers.Definition = Definition{}
 var _ providers.RuntimeProviderDefinition = Definition{}
 
-func resourcePolicy() providers.MachineResourcePolicy {
+func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{
 			PoolDefault:  providers.MachineResourceRequired,
@@ -111,11 +111,11 @@ func (Definition) ResolveMachineProviderOptions(
 	return provideroptions.Merge(defaults, project, agent)
 }
 
-func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
+func (d Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
 	if err := providers.ValidateMachinePoolResourcePolicy(
 		providers.Tenki,
 		policy,
-		resourcePolicy(),
+		d.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (d Definition) ValidateMachineProvisioning(
 	if err := providers.ValidateMachineProvisioningResourcePolicy(
 		providers.Tenki,
 		config,
-		resourcePolicy(),
+		d.ResourcePolicy(),
 	); err != nil {
 		return err
 	}

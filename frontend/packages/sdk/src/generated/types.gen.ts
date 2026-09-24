@@ -63,17 +63,6 @@ export type Error = {
     code: 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'gone' | 'request_too_large' | 'unsupported_media_type' | 'unprocessable' | 'rate_limited' | 'internal_error' | 'upstream_error' | 'service_unavailable' | 'idempotency_key_conflict' | 'state_transition_conflict' | 'managed_work_admission_denied' | 'pending_work' | 'not_wake_capable' | 'daemon_runtime_unregistered' | 'validation_failed' | 'csrf_check_failed' | 'authentication_unavailable';
 };
 
-export type Warning = {
-    /**
-     * Human-readable warning message. Do not match on it programmatically.
-     */
-    message: string;
-    /**
-     * Stable warning code for programmatic handling.
-     */
-    code: 'missing_recommended_machine_tools';
-};
-
 /**
  * Stable error code carried by 4XX statuses. Subset of the Error code enum whose statuses are client errors.
  */
@@ -904,6 +893,21 @@ export type SlackSetup = {
     expires_at: Timestamp;
 };
 
+export type ResolveAgentConfigToolsRequest = {
+    source: string;
+    source_format: 'yaml' | 'json';
+};
+
+export type ResolvedAgentConfigTools = {
+    tools: Array<ResolvedAgentConfigTool>;
+};
+
+export type ResolvedAgentConfigTool = {
+    name: string;
+    enabled: boolean;
+    permission: ToolPermissionSelection;
+};
+
 export type CreateAgentConfigRequest = {
     source: string;
     source_format: 'yaml' | 'json';
@@ -942,6 +946,10 @@ export type ToolPermissionProfile = {
 export type ToolCatalogEntry = {
     name: string;
     description: string;
+    /**
+     * Whether this tool supports implicit inclusion based on config resources or integration context, even when explicitly configured.
+     */
+    implicit?: boolean;
     default_permission: ToolPermissionSelection;
     permission_modes: Array<ToolPermissionMode>;
 };
@@ -1170,21 +1178,181 @@ export type AgentConfigModel = {
     output_modalities: Array<string>;
 };
 
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export type CompiledAgentConfig = {
+    version?: string;
+    instruction: string;
+    model: CompiledAgentModel;
+    machine_sources?: Array<CompiledMachineSource>;
+    tools?: {
+        [key: string]: CompiledTool;
+    };
+    mcp?: {
+        [key: string]: CompiledMcpServer;
+    };
+    event_webhook?: CompiledEventWebhook;
+    skills?: Array<CompiledSkill>;
+    subagents?: {
+        [key: string]: CompiledSubagent;
+    };
+    max_subagents?: number;
+    max_depth?: number;
+};
+
+export type CompiledEventWebhook = {
+    url: string;
+    events: Array<'agent_input' | 'model_output' | 'tool_result' | 'context_checkpoint' | 'tool_call_update'>;
+    signing_secret_id?: SecretId;
+};
+
+export type CompiledAgentModel = {
+    configured_model_id: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: ModelCacheRetention;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type CompiledModelReasoning = {
+    effort: string;
+};
+
+export type CompiledMachineSource = {
+    machine_id?: MachineId;
+    machine_pool_id?: MachinePoolId;
+    max_machines?: number;
+    initial_num_machines?: number;
+    delete_after_idle_minutes?: number;
+    cwd?: string;
+    machine_cpu?: number;
+    machine_memory_mb?: number;
+    env_overlay?: {
+        [key: string]: string | null;
+    };
+    secret_env_overlay?: {
+        [key: string]: SecretId | null;
+    };
+    machine_provider_options_overlay?: {
+        [key: string]: unknown;
+    };
+    description?: string;
+};
+
+export type CompiledTool = {
+    enabled: boolean;
+    type?: 'built_in' | 'custom';
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    description?: string;
+    input_schema?: {
+        [key: string]: unknown;
+    };
+};
+
+export type CompiledMcpServer = {
+    url: string;
+    auth?: CompiledMcpAuth;
+    default_enabled: boolean;
+    permission: ToolPermissionSelection;
+    deferred?: boolean;
+    tools?: {
+        [key: string]: CompiledMcpTool;
+    };
+};
+
+export type CompiledMcpAuth = ({
+    type: 'bearer';
+} & CompiledMcpAuthBearer) | ({
+    type: 'oauth';
+} & CompiledMcpAuthOAuth) | ({
+    type: 'sigv4';
+} & CompiledMcpAuthSigV4);
+
+export type CompiledMcpAuthBearer = {
+    type: 'bearer';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthOAuth = {
+    type: 'oauth';
+    secret_id: SecretId;
+};
+
+export type CompiledMcpAuthSigV4 = {
+    type: 'sigv4';
+    secret_id: SecretId;
+    service: string;
+    region: string;
+};
+
+export type CompiledMcpTool = {
+    enabled?: boolean;
+    permission?: ToolPermissionSelection;
+    deferred?: boolean;
+};
+
+export type CompiledSkill = {
+    id: SkillId;
+};
+
+export type CompiledSubagent = ({
+    type: 'self';
+} & CompiledSelfSubagent) | ({
+    type: 'profile';
+} & CompiledProfileSubagent);
+
+export type CompiledSelfSubagent = {
+    type: 'self';
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledProfileSubagent = {
+    type: 'profile';
+    profile_id: AgentProfileId;
+    description?: string;
+    model?: CompiledSubagentModel;
+    instruction_append?: string;
+    max_instances?: number;
+    archive_after_idle_minutes?: number;
+};
+
+export type CompiledSubagentModel = {
+    configured_model_id?: ConfiguredModelId;
+    context_window_tokens?: number;
+    default_max_output_tokens?: number;
+    cache_retention?: ModelCacheRetention;
+    reasoning?: CompiledModelReasoning;
+};
+
+export type AgentConfigSummary = {
+    id: AgentConfigId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    source?: string;
+    source_format?: 'yaml' | 'json';
+    effective_definition_hash: string;
+    model: AgentConfigModel;
+    instruction_hash?: string;
+    created_at: Timestamp;
+};
+
 export type AgentConfig = {
     id: AgentConfigId;
     org_id: OrganizationId;
     project_id: ProjectId;
     source?: string;
     source_format?: 'yaml' | 'json';
-    compiler_version?: string;
     effective_definition_hash: string;
     model: AgentConfigModel;
     instruction_hash?: string;
-    /**
-     * Non-blocking diagnostics about the agent config.
-     */
-    warnings?: Array<Warning>;
     created_at: Timestamp;
+    compiled_definition: CompiledAgentConfig;
 };
 
 export type CreateAgentProfileRequest = {
@@ -1201,6 +1369,18 @@ export type RenameAgentProfileRequest = {
     name: ResourceName;
 };
 
+export type AgentProfileSummary = {
+    id: AgentProfileId;
+    org_id: OrganizationId;
+    project_id: ProjectId;
+    name: ResourceName;
+    current_config_id: AgentConfigId;
+    current_generation: number;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+    current_config: AgentConfigSummary;
+};
+
 export type AgentProfile = {
     id: AgentProfileId;
     org_id: OrganizationId;
@@ -1208,13 +1388,13 @@ export type AgentProfile = {
     name: ResourceName;
     current_config_id: AgentConfigId;
     current_generation: number;
-    current_config: AgentConfig;
     created_at: Timestamp;
     updated_at: Timestamp;
+    current_config: AgentConfig;
 };
 
 export type ListAgentProfilesResponse = {
-    data: Array<AgentProfile>;
+    data: Array<AgentProfileSummary>;
     /**
      * Opaque cursor for the next page, or null when this is the last page.
      */
@@ -1603,10 +1783,10 @@ export type AgentMachineBinding = {
 };
 
 /**
- * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports and cleared when the daemon recovers.
+ * The machine's most recent daemon-reported failure. A single slot, overwritten by newer reports. Runtime crash reports remain as historical diagnostics; recovery may clear other failure stages.
  */
 export type MachineFailureReport = {
-    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+    stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
     exit_status?: number;
     output_tail: string;
     output_truncated: boolean;
@@ -1707,7 +1887,7 @@ export type ToolCall = {
 };
 
 /**
- * An ephemeral notification that a tool call entered a lifecycle state. Sent for the streamed agent and for every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
+ * A notification that a tool call entered a lifecycle state. On the event stream, this is ephemeral and sent for the streamed agent and every subagent beneath it, so questions, permission requests, and custom tool calls anywhere in the tree surface here; query the list endpoints with `include_subagents` for the current rows.
  */
 export type ToolCallUpdate = {
     tool_call_id: ToolCallId;
@@ -1837,6 +2017,46 @@ export type ContextCheckpointEvent = {
     summarized_through_event_sequence: AgentSequence;
     summary: string;
     created_at: Timestamp;
+};
+
+/**
+ * JSON body posted to an agent configuration's event webhook. Each event name determines its data schema.
+ */
+export type EventWebhookPayload = ({
+    event: 'agent_input';
+} & EventWebhookAgentInputEvent) | ({
+    event: 'model_output';
+} & EventWebhookModelOutputEvent) | ({
+    event: 'tool_result';
+} & EventWebhookToolResultEvent) | ({
+    event: 'context_checkpoint';
+} & EventWebhookContextCheckpointEvent) | ({
+    event: 'tool_call_update';
+} & EventWebhookToolCallUpdate);
+
+export type EventWebhookAgentInputEvent = {
+    event: 'agent_input';
+    data: AgentInputEvent;
+};
+
+export type EventWebhookModelOutputEvent = {
+    event: 'model_output';
+    data: ModelOutputEvent;
+};
+
+export type EventWebhookToolResultEvent = {
+    event: 'tool_result';
+    data: ToolResultEvent;
+};
+
+export type EventWebhookContextCheckpointEvent = {
+    event: 'context_checkpoint';
+    data: ContextCheckpointEvent;
+};
+
+export type EventWebhookToolCallUpdate = {
+    event: 'tool_call_update';
+    data: ToolCallUpdate;
 };
 
 export type AgentEvent = ({
@@ -3124,7 +3344,118 @@ export type OrgOverviewResponse = {
     /**
      * Most recently updated agent profiles across the caller's readable projects, ordered by updated_at descending.
      */
-    recent_agent_profiles: Array<AgentProfile>;
+    recent_agent_profiles: Array<AgentProfileSummary>;
+    /**
+     * The agent profiles that recent_agents and recent_agent_profiles reference, with how many agents were launched from each. Profiles since deleted are omitted.
+     */
+    referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
+    today: OrgOverviewToday;
+    usage: OrgOverviewUsage;
+};
+
+export type OrgOverviewAgentProfileReference = {
+    id: AgentProfileId;
+    name: ResourceName;
+    /**
+     * Agents, not counting subagents, launched from the profile, including archived ones.
+     */
+    agent_count: number;
+};
+
+/**
+ * Activity since the start of today in `timezone`, across the readable projects in `projects`.
+ */
+export type OrgOverviewToday = {
+    /**
+     * Agents created today, not counting subagents.
+     */
+    agents_created: number;
+    /**
+     * Messages sent to agents today, not counting messages to or from subagents.
+     */
+    messages_sent: number;
+};
+
+/**
+ * Model usage over the last 30 days in `timezone`, today included, across the readable projects in `projects`.
+ */
+export type OrgOverviewUsage = {
+    totals: UsageTotals;
+    /**
+     * Agents, not counting subagents, that made at least one model call.
+     */
+    active_agents: number;
+    /**
+     * The configured models with the most tokens, most first, up to eight. Usage from any other model still counts toward every total.
+     */
+    models: Array<OrgOverviewUsageModel>;
+    /**
+     * The agent profiles with the most tokens, most first, up to eight. Usage from a subagent counts toward the subagent's own profile.
+     */
+    profiles: Array<OrgOverviewUsageProfile>;
+    /**
+     * One entry per day, oldest first and ending today, including days without usage.
+     */
+    days: Array<OrgOverviewUsageDay>;
+};
+
+export type OrgOverviewUsageModel = {
+    id: ConfiguredModelId;
+    /**
+     * Configured model name, resolved even if the model has since been deleted.
+     */
+    name: ResourceName;
+    totals: UsageTotals;
+};
+
+export type OrgOverviewUsageProfile = {
+    /**
+     * Omitted for usage from agents launched without a profile.
+     */
+    id?: AgentProfileId;
+    /**
+     * Agent profile name, resolved even if the profile has since been deleted. Omitted along with `id`.
+     */
+    name?: ResourceName;
+    totals: UsageTotals;
+};
+
+export type OrgOverviewUsageDay = {
+    /**
+     * Start of the day in `timezone`.
+     */
+    start: Timestamp;
+    /**
+     * All usage in the day, including models and profiles missing from `models` and `profiles`.
+     */
+    totals: UsageTotals;
+    /**
+     * Tokens in the day for each model in `models` that has any, in `models` order.
+     */
+    models: Array<OrgOverviewUsageDayModel>;
+    /**
+     * Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
+     */
+    profiles: Array<OrgOverviewUsageDayProfile>;
+};
+
+export type OrgOverviewUsageDayModel = {
+    id: ConfiguredModelId;
+    /**
+     * Input plus output tokens.
+     */
+    tokens: number;
+};
+
+export type OrgOverviewUsageDayProfile = {
+    /**
+     * Omitted for usage from agents launched without a profile.
+     */
+    id?: AgentProfileId;
+    /**
+     * Input plus output tokens.
+     */
+    tokens: number;
 };
 
 /**
@@ -3632,7 +3963,7 @@ export type RecordMachineFailureData = {
     body?: string;
     path?: never;
     query: {
-        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_uninstall' | 'daemon_uninstalled';
+        stage: 'startup_script' | 'daemon_install' | 'daemon_update' | 'daemon_runtime' | 'daemon_uninstall' | 'daemon_uninstalled';
         exit_status?: number;
         capture_status?: number;
         daemon_version?: string;
@@ -4221,11 +4552,20 @@ export type GetOrgOverviewData = {
     path: {
         orgID: OrganizationId;
     };
-    query?: never;
+    query?: {
+        /**
+         * IANA time zone that decides where today and each day of `usage` start.
+         */
+        timezone?: string;
+    };
     url: '/orgs/{orgID}/overview';
 };
 
 export type GetOrgOverviewErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
     /**
      * Authentication is required or invalid.
      */
@@ -7403,6 +7743,60 @@ export type DeleteIntegrationInstallResponses = {
 };
 
 export type DeleteIntegrationInstallResponse = DeleteIntegrationInstallResponses[keyof DeleteIntegrationInstallResponses];
+
+export type ResolveAgentConfigToolsData = {
+    body: ResolveAgentConfigToolsRequest;
+    path: {
+        orgID: OrganizationId;
+        projectID: ProjectId;
+    };
+    query?: never;
+    url: '/orgs/{orgID}/projects/{projectID}/agent-configs/tools';
+};
+
+export type ResolveAgentConfigToolsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+};
+
+export type ResolveAgentConfigToolsError = ResolveAgentConfigToolsErrors[keyof ResolveAgentConfigToolsErrors];
+
+export type ResolveAgentConfigToolsResponses = {
+    /**
+     * Resolved config tools.
+     */
+    200: ResolvedAgentConfigTools;
+};
+
+export type ResolveAgentConfigToolsResponse = ResolveAgentConfigToolsResponses[keyof ResolveAgentConfigToolsResponses];
 
 export type CreateAgentConfigData = {
     body: CreateAgentConfigRequest;

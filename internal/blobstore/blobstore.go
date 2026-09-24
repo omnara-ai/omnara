@@ -51,7 +51,7 @@ type S3Config struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	// UsePathStyle addresses the bucket as a path segment instead of a
-	// subdomain. Required by MinIO and most S3-compatible servers.
+	// subdomain. Required by many S3-compatible servers.
 	UsePathStyle bool
 }
 

@@ -4,10 +4,12 @@ import { useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
+import { SectionTitle } from '@/components/layout/SectionTitle'
 import { InviteMemberDialog } from '@/components/org/InviteMemberDialog'
 import { MemberDetailPanel } from '@/components/org/MemberDetailPanel'
 import { useMembersPage } from '@/components/org/useMembersPage'
 import { Button } from '@/components/ui/button'
+import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 import { canManageOrg } from '@/lib/permissions'
 import { errorMessage } from '@/lib/submit-status'
@@ -36,7 +38,7 @@ export function Members() {
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="type-title">Members</h2>
+          <SectionTitle title="Members" guide={guides.members} />
           {canManage ? (
             <Button
               size="sm"

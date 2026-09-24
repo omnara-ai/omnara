@@ -153,7 +153,8 @@ make test-service-e2e
 ```
 
 Provider-backed live tests are available through the `make test-live-*` targets
-and require the corresponding credentials.
+and require the corresponding credentials. CI runs them on every push to `main`;
+to run them on a pull request, add the `live-tests` label.
 
 For Tenki, set `TENKI_API_KEY` to a workspace API key and install `cloudflared`, then run:
 

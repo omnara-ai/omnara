@@ -10,10 +10,20 @@
 }
 
 @layer components {
-  .control-focus:focus-visible,
-  .control-focus-within:has(:is(input, textarea):focus-visible) {
+  [data-radix-popper-content-wrapper]:has(> [data-slot='tooltip-content']) {
+    pointer-events: none;
+  }
+
+  .control-focus:focus-visible {
     outline: var(--focus-width) solid var(--ring);
     outline-offset: var(--focus-offset);
+  }
+
+  :is(input, textarea).control-focus:focus-visible,
+  .control-focus-within:has(:is(input, textarea):focus-visible),
+  .text-field-focus:focus-within {
+    outline: none;
+    box-shadow: inset 0 0 0 var(--focus-width) color-mix(in oklab, var(--ring) 55%, transparent);
   }
 
   .control-transition {
