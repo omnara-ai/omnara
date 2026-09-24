@@ -34,7 +34,7 @@ func (s *Store) CreateIntegrationSubscription(
 		return IntegrationSubscriptionRecord{}, err
 	}
 	prepared, err := PrepareIntegrationSubscriptionTx(ctx, tx, input.ProjectID, IntegrationSubscriptionAttachment{
-		IntegrationID: input.IntegrationID, Type: input.Type, Conversation: input.Conversation, Events: input.Events,
+		IntegrationID: input.IntegrationID, Conversation: input.Conversation,
 	})
 	if err != nil {
 		return IntegrationSubscriptionRecord{}, err
@@ -133,8 +133,8 @@ func (s *Store) ListIntegrationSubscriptions(
 	for _, row := range rows {
 		record := integrationSubscriptionRecord(dbsqlc.IntegrationSubscription{
 			ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
-			SubscriptionType: row.SubscriptionType, ScopeKind: row.ScopeKind, ScopeRef: row.ScopeRef,
-			Events: row.Events, CreatedAt: row.CreatedAt,
+			ScopeKind: row.ScopeKind, ScopeRef: row.ScopeRef,
+			CreatedAt: row.CreatedAt,
 		})
 		record.AgentName = row.AgentName
 		scope, err := integrationdefinition.ParseConversation(integration.Provider, row.ScopeKind, row.ScopeRef)

@@ -204,8 +204,6 @@ func TestScheduledLaunchHasConversationContextWithoutMentionLauncher(t *testing.
 	require.NoError(t, err)
 	require.Len(t, subscriptions.Subscriptions, 1)
 	require.Equal(t, launched.Agent.ID, subscriptions.Subscriptions[0].AgentID)
-	require.Equal(t, "thread_messages", subscriptions.Subscriptions[0].Type)
-	require.Equal(t, []string{"message"}, subscriptions.Subscriptions[0].Events)
 	require.Equal(
 		t,
 		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
@@ -255,7 +253,6 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 	require.Equal(t, f.provider.root, plan["scheduled"].Scope)
 	require.Len(t, plan["scheduled"].Launch.Subscriptions, 1)
 	require.Equal(t, f.integrationID, plan["scheduled"].Launch.Subscriptions[0].IntegrationID)
-	require.Equal(t, []string{"message"}, plan["scheduled"].Launch.Subscriptions[0].Events)
 	require.JSONEq(
 		t,
 		`{"channel_id":"C123","thread_ts":"100.1"}`,

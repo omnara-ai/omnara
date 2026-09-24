@@ -224,7 +224,7 @@ func TestIntegrationToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 					)
 					var subscription integrationstore.IntegrationSubscriptionRecord
 					if scenario == "subscription-detached" {
-						subscription = attachToolSubscription(t, f, "thread_messages", `{"channel_id":"C123","thread_ts":"111.222"}`, nil)
+						subscription = attachToolSubscription(t, f, `{"channel_id":"C123","thread_ts":"111.222"}`)
 					}
 					turn := slackIntegrationToolTurn(f)
 					require.Equal(t, toolpermission.ModeAlwaysAsk, turn.Tools[call.Name].Permission.Mode)
@@ -588,14 +588,13 @@ func integrationToolSubscriptions(
 func attachToolSubscription(
 	t *testing.T,
 	f integrationToolFixture,
-	subscriptionType, conversation string,
-	events []string,
+	conversation string,
 ) integrationstore.IntegrationSubscriptionRecord {
 	t.Helper()
 	subscription, err := f.Store.Integrations().
 		CreateIntegrationSubscription(t.Context(), integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, IntegrationID: f.Install.ID, AgentID: f.Agent.ID,
-			Type: subscriptionType, Conversation: json.RawMessage(conversation), Events: events,
+			Conversation: json.RawMessage(conversation),
 		})
 	require.NoError(t, err)
 	return subscription

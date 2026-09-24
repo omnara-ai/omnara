@@ -3084,15 +3084,13 @@ export const zIntegrationCapabilityDefinition = z.object({
 export const zIntegrationSubscriptionId = z.string().regex(/^isub_[a-z2-7]{26}$/);
 
 /**
- * One concrete provider address, validated by the integration subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
  */
 export const zIntegrationSubscriptionConversation = z.record(z.string(), z.unknown());
 
 export const zIntegrationSubscriptionAttachment = z.object({
     integration_id: zProjectIntegrationId,
-    type: z.string().min(1),
-    conversation: zIntegrationSubscriptionConversation,
-    events: z.array(z.string()).min(1).optional()
+    conversation: zIntegrationSubscriptionConversation
 });
 
 export const zCreateAgentRequest = z.object({
@@ -3108,9 +3106,7 @@ export const zCreateAgentRequest = z.object({
 
 export const zCreateIntegrationSubscriptionRequest = z.object({
     agent_id: zAgentId,
-    type: z.string().min(1),
-    conversation: zIntegrationSubscriptionConversation,
-    events: z.array(z.string()).min(1).optional()
+    conversation: zIntegrationSubscriptionConversation
 });
 
 export const zIntegrationSubscription = z.object({
@@ -3119,9 +3115,7 @@ export const zIntegrationSubscription = z.object({
     integration_id: zProjectIntegrationId,
     agent_id: zAgentId,
     agent_name: zAgentName,
-    type: z.string().min(1),
     conversation: zIntegrationSubscriptionConversation,
-    events: z.array(z.string()),
     created_at: zTimestamp
 });
 
@@ -3131,13 +3125,12 @@ export const zListIntegrationSubscriptionsResponse = z.object({
 });
 
 export const zIntegrationSubscriptionDefinition = z.object({
-    conversation_schema: z.record(z.string(), z.unknown()),
-    events: z.array(z.string())
+    conversation_schema: z.record(z.string(), z.unknown())
 });
 
 export const zIntegrationCapabilities = z.object({
     tools: z.record(z.string(), zIntegrationCapabilityDefinition),
-    subscriptions: z.record(z.string(), zIntegrationSubscriptionDefinition),
+    subscription: zIntegrationSubscriptionDefinition.optional(),
     interaction_handler: zIntegrationCapabilityDefinition.optional(),
     schedule: zIntegrationCapabilityDefinition.optional()
 });

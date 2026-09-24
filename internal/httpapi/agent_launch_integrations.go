@@ -54,10 +54,7 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 				return input, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid subscription integration_id")
 			}
 			attachment := integrationstore.IntegrationSubscriptionAttachment{
-				IntegrationID: integrationID, Type: source.Type, Conversation: source.Conversation,
-			}
-			if source.Events != nil {
-				attachment.Events = *source.Events
+				IntegrationID: integrationID, Conversation: source.Conversation,
 			}
 			input.Subscriptions = append(input.Subscriptions, attachment)
 		}

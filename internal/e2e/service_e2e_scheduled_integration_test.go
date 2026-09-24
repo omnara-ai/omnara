@@ -295,7 +295,7 @@ WHERE input.agent_id=$1 AND input.input_kind='content'`, agentID).Scan(&actorPro
 		require.Equal(t, trigger["id"], actorUser)
 		var scope string
 		require.NoError(t, env.db.QueryRow(ctx, `SELECT scope_ref FROM integration_subscriptions
-WHERE agent_id=$1 AND integration_id=$2 AND subscription_type='thread_messages'`, agentID, integration.ID).Scan(&scope))
+WHERE agent_id=$1 AND integration_id=$2 AND scope_kind='thread'`, agentID, integration.ID).Scan(&scope))
 		require.Equal(t, "C123:"+roots[i], scope, "replies are subscribed before any model post or human reply")
 		presenter := integrationruntime.InteractionPresenter{Store: store, HTTPClient: client}
 		require.NoError(t, presenter.Present(ctx, projectID, agentID, questionID))

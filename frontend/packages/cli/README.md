@@ -112,9 +112,10 @@ also define standalone tools that use their credentials without a conversation.
 Handler selection always supplies a complete destination independently.
 Incoming subscriptions belong to the integration and are attached via
 launch requests or the integration subscriptions API; configs have no `listeners` block.
-`integrations get` and `integrations definitions` show `capabilities.subscriptions`, whose local
-type names map to `conversation_schema` and supported `events`. Tools and handlers
-expose static `input_schema`. A launcher adds its provider's missing tools and
+`integrations get` and `integrations definitions` show optional
+`capabilities.subscription.conversation_schema`. Attachments specify the integration
+and conversation; the integration determines which activity is forwarded. Tools and
+handlers expose static `input_schema`. A launcher adds its provider's missing tools and
 handler to future agents; editing settings does not rewrite existing agents.
 
 ```sh

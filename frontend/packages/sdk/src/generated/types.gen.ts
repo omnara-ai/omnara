@@ -3820,7 +3820,7 @@ export type IntegrationCapabilityDefinition = {
 export type IntegrationSubscriptionId = string;
 
 /**
- * One concrete provider address, validated by the integration subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
  */
 export type IntegrationSubscriptionConversation = {
     [key: string]: unknown;
@@ -3828,28 +3828,12 @@ export type IntegrationSubscriptionConversation = {
 
 export type IntegrationSubscriptionAttachment = {
     integration_id: ProjectIntegrationId;
-    /**
-     * Named subscription type exported by the integration definition.
-     */
-    type: string;
     conversation: IntegrationSubscriptionConversation;
-    /**
-     * Event selection validated against the integration definition. Omit to use its defaults.
-     */
-    events?: Array<string>;
 };
 
 export type CreateIntegrationSubscriptionRequest = {
     agent_id: AgentId;
-    /**
-     * Named subscription type exported by the integration definition.
-     */
-    type: string;
     conversation: IntegrationSubscriptionConversation;
-    /**
-     * Event selection validated against the integration definition. Omit to use its defaults.
-     */
-    events?: Array<string>;
 };
 
 export type IntegrationSubscription = {
@@ -3858,15 +3842,7 @@ export type IntegrationSubscription = {
     integration_id: ProjectIntegrationId;
     agent_id: AgentId;
     agent_name: AgentName;
-    /**
-     * Named subscription type exported by the integration definition.
-     */
-    type: string;
     conversation: IntegrationSubscriptionConversation;
-    /**
-     * Resolved event selection for this subscription.
-     */
-    events: Array<string>;
     created_at: Timestamp;
 };
 
@@ -3885,19 +3861,16 @@ export type IntegrationSubscriptionDefinition = {
     conversation_schema: {
         [key: string]: unknown;
     };
-    /**
-     * Supported event types; omitted event selections default to this set.
-     */
-    events: Array<string>;
 };
 
 export type IntegrationCapabilities = {
     tools: {
         [key: string]: IntegrationCapabilityDefinition;
     };
-    subscriptions: {
-        [key: string]: IntegrationSubscriptionDefinition;
-    };
+    /**
+     * Present when the integration supports forwarding from a conversation. The integration owns forwarding policy.
+     */
+    subscription?: IntegrationSubscriptionDefinition;
     interaction_handler?: IntegrationCapabilityDefinition;
     schedule?: IntegrationCapabilityDefinition;
 };

@@ -50,14 +50,25 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(read, json.RawMessage(`{}`)))
 			require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
-			require.NotEmpty(t, definition.Capabilities.Subscriptions)
-			for _, subscription := range definition.Capabilities.Subscriptions {
-				schema, err := json.Marshal(subscription.ConversationSchema)
-				require.NoError(t, err)
-				require.NoError(t, jsonschema.Validate(schema, destination))
-				require.Error(t, jsonschema.Validate(schema, json.RawMessage(`{}`)))
-				require.NotEmpty(t, subscription.Events)
+			require.NotNil(t, definition.Capabilities.Subscription)
+			conversationSchema, err := json.Marshal(definition.Capabilities.Subscription.ConversationSchema)
+			require.NoError(t, err)
+			require.NoError(t, jsonschema.Validate(conversationSchema, destination))
+			if integrationdefinition.Type(definition.IntegrationType) != integrationdefinition.GitHubPR {
+				channel := "C123"
+				if integrationdefinition.Type(definition.IntegrationType) == integrationdefinition.DiscordThread {
+					channel = "123"
+				}
+				require.NoError(t, jsonschema.Validate(conversationSchema,
+					json.RawMessage(`{"channel_id":"`+channel+`"}`)), "whole-channel addresses remain supported")
 			}
+			require.Error(t, jsonschema.Validate(conversationSchema, json.RawMessage(`{}`)))
+			capabilities, err := json.Marshal(definition.Capabilities)
+			require.NoError(t, err)
+			var serialized map[string]any
+			require.NoError(t, json.Unmarshal(capabilities, &serialized))
+			require.Equal(t, map[string]any{"conversation_schema": definition.Capabilities.Subscription.ConversationSchema},
+				serialized["subscription"])
 			if integrationdefinition.Type(definition.IntegrationType) == integrationdefinition.GitHubPR {
 				require.Nil(t, definition.Capabilities.InteractionHandler)
 				require.Nil(t, definition.Capabilities.Schedule)

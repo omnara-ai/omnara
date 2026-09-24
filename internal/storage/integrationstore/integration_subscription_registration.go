@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,22 +20,22 @@ func PrepareIntegrationSubscriptionTx(
 	attachment IntegrationSubscriptionAttachment,
 ) (RegisterIntegrationSubscriptionInput, error) {
 	integration, definition, err := subscriptionDefinition(
-		ctx, dbsqlc.New(tx), projectID, attachment.IntegrationID, attachment.Type,
+		ctx, dbsqlc.New(tx), projectID, attachment.IntegrationID,
 	)
 	if err != nil {
 		return RegisterIntegrationSubscriptionInput{}, err
 	}
-	prepared, err := definition.Prepare(attachment.Conversation, attachment.Events)
+	prepared, err := definition.Prepare(attachment.Conversation)
 	if err != nil {
 		return RegisterIntegrationSubscriptionInput{}, storeerr.InvalidRequest(err)
 	}
-	kind, ref, err := prepared.Scope.Conversation()
+	kind, ref, err := prepared.Conversation()
 	if err != nil {
 		return RegisterIntegrationSubscriptionInput{}, storeerr.InvalidRequest(err)
 	}
 	return RegisterIntegrationSubscriptionInput{
-		OrgID: integration.OrgID, ProjectID: projectID, IntegrationID: integration.ID, Type: attachment.Type,
-		Address: ConversationAddress{Kind: kind, Ref: ref}, Events: prepared.Events,
+		OrgID: integration.OrgID, ProjectID: projectID, IntegrationID: integration.ID,
+		Address: ConversationAddress{Kind: kind, Ref: ref},
 	}, nil
 }
 
@@ -115,7 +114,7 @@ func registerIntegrationSubscriptionTx(
 	q *dbsqlc.Queries,
 	input RegisterIntegrationSubscriptionInput,
 ) (IntegrationSubscriptionRecord, bool, error) {
-	integration, definition, err := subscriptionDefinition(ctx, q, input.ProjectID, input.IntegrationID, input.Type)
+	integration, _, err := subscriptionDefinition(ctx, q, input.ProjectID, input.IntegrationID)
 	if err != nil {
 		return IntegrationSubscriptionRecord{}, false, err
 	}
@@ -139,27 +138,19 @@ func registerIntegrationSubscriptionTx(
 	if err != nil {
 		return IntegrationSubscriptionRecord{}, false, err
 	}
-	prepared, err := definition.Prepare(conversation, input.Events)
-	if err != nil {
-		return IntegrationSubscriptionRecord{}, false, storeerr.InvalidRequest(err)
-	}
 	row, err := q.GetIntegrationSubscriptionForConversation(ctx, dbsqlc.GetIntegrationSubscriptionForConversationParams{
-		ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID, SubscriptionType: input.Type,
+		ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
 		ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref,
 	})
 	created := errors.Is(err, pgx.ErrNoRows)
 	if created {
 		row, err = q.InsertIntegrationSubscription(ctx, dbsqlc.InsertIntegrationSubscriptionParams{
-			ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID, SubscriptionType: input.Type,
-			ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref, Events: prepared.Events,
+			ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
+			ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref,
 		})
 	}
 	if err != nil {
 		return IntegrationSubscriptionRecord{}, false, err
-	}
-	if !slices.Equal(row.Events, prepared.Events) {
-		return IntegrationSubscriptionRecord{}, false, storeerr.Tag(storeerr.ErrConflict,
-			errors.New("conversation already subscribed with different events; remove it before changing events"))
 	}
 	record := integrationSubscriptionRecord(row)
 	record.Conversation = conversation
@@ -170,7 +161,6 @@ func subscriptionDefinition(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, integrationID uuid.UUID,
-	subscriptionType string,
 ) (ProjectIntegrationRecord, integrationdefinition.SubscriptionDefinition, error) {
 	integration, err := getProjectIntegration(ctx, q, projectID, integrationID)
 	if err != nil {
@@ -180,19 +170,18 @@ func subscriptionDefinition(
 		return integration, integrationdefinition.SubscriptionDefinition{}, storeerr.ErrUnauthorized
 	}
 	definition, found := integrationdefinition.Lookup(integration.IntegrationType)
-	subscription, exported := definition.Subscriptions[subscriptionType]
-	if !found || !exported {
-		return integration, subscription, storeerr.InvalidRequest(
-			errors.New("integration does not export this subscription type"),
+	if !found || definition.Subscription == nil {
+		return integration, integrationdefinition.SubscriptionDefinition{}, storeerr.InvalidRequest(
+			errors.New("integration does not support subscriptions"),
 		)
 	}
-	return integration, subscription, nil
+	return integration, *definition.Subscription, nil
 }
 
 func integrationSubscriptionRecord(row dbsqlc.IntegrationSubscription) IntegrationSubscriptionRecord {
 	return IntegrationSubscriptionRecord{
 		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
-		Type: row.SubscriptionType, Address: ConversationAddress{Kind: row.ScopeKind, Ref: row.ScopeRef},
-		Events: row.Events, CreatedAt: row.CreatedAt,
+		Address:   ConversationAddress{Kind: row.ScopeKind, Ref: row.ScopeRef},
+		CreatedAt: row.CreatedAt,
 	}
 }

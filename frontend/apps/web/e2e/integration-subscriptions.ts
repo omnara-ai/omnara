@@ -46,7 +46,6 @@ export async function exerciseIntegrationConversations(
   const profileResponse = await request(page, `${apiProjectPath}/agent-profiles/${profileId}`)
   expect(profileResponse.status).toBe(200)
   const profile = zJsonText.pipe(schemas.zAgentProfile).parse(profileResponse.body)
-  const type = integration.integration_type === 'github_pr' ? 'pull_request' : 'thread_messages'
   const conversation =
     integration.integration_type === 'github_pr'
       ? { repository_id: 333, pull_request: 1 }
@@ -55,7 +54,7 @@ export async function exerciseIntegrationConversations(
     config: profile.current_config_id,
     profile: profile.id,
     name: `${integration.name} subscriber`,
-    subscriptions: [{ integration_id: integration.id, type, conversation }],
+    subscriptions: [{ integration_id: integration.id, conversation }],
   })
   expect(launchResponse.status).toBe(201)
   const { agent } = zJsonText.pipe(schemas.zLaunchAgentResponse).parse(launchResponse.body)
@@ -66,10 +65,9 @@ export async function exerciseIntegrationConversations(
   const initial = zJsonText.pipe(schemas.zListIntegrationSubscriptionsResponse).parse(listing.body)
   expect(initial.data).toHaveLength(1)
   const first = schemas.zIntegrationSubscription.parse(initial.data[0])
-  expect(first).toMatchObject({ agent_id: agent.id, agent_name: agent.name, type, conversation })
+  expect(first).toMatchObject({ agent_id: agent.id, agent_name: agent.name, conversation })
   const attached = await request(page, path, {
     agent_id: agent.id,
-    type,
     conversation:
       integration.integration_type === 'github_pr'
         ? { repository_id: 333, pull_request: 2 }

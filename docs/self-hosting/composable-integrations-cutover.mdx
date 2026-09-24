@@ -88,8 +88,10 @@ the complete origin automatically. Subscriptions never establish sending context
 Integration schedules use the cron API's `target.settings` for their destination and templates.
 Receive subscriptions belong to integrations: use launch
 `subscriptions` attachments or `/integrations/{integrationID}/subscriptions` to attach existing
-agents. Their IDs use `isub_`; catalog entries expose
-`capabilities.subscriptions[type].conversation_schema` and `.events`.
+agents. Attachments contain `integration_id` and `conversation`; create requests for
+existing agents contain `agent_id` and `conversation`. Their IDs use `isub_`;
+catalog entries expose optional `capabilities.subscription.conversation_schema`.
+Forwarding policy belongs to the integration implementation.
 Changing configs does not reconcile subscriptions. Disconnecting preserves them
 and permits listing/deletion; permanent integration deletion or agent archival removes them.
 The generic send tool is removed; the selection tools are

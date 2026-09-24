@@ -227,16 +227,14 @@ CREATE TABLE integration_subscriptions (
     project_id uuid NOT NULL,
     agent_id uuid NOT NULL,
     integration_id uuid NOT NULL,
-    subscription_type text NOT NULL CHECK (subscription_type <> ''),
     scope_kind text NOT NULL CHECK (scope_kind <> ''),
     scope_ref text NOT NULL CHECK (scope_ref <> ''),
-    events text[] NOT NULL CHECK (cardinality(events) > 0),
     created_at timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (project_id, agent_id) REFERENCES agents(project_id, id),
     FOREIGN KEY (project_id, integration_id) REFERENCES project_integrations(project_id, id)
 );
 CREATE UNIQUE INDEX integration_subscriptions_conversation_idx
-    ON integration_subscriptions(project_id, agent_id, integration_id, subscription_type, scope_kind, scope_ref);
+    ON integration_subscriptions(project_id, agent_id, integration_id, scope_kind, scope_ref);
 CREATE INDEX integration_subscriptions_routing_idx
     ON integration_subscriptions(project_id, integration_id, scope_kind, scope_ref);
 CREATE INDEX integration_subscriptions_integration_list_idx

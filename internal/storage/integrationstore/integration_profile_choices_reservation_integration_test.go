@@ -226,7 +226,7 @@ func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t 
 			f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 				var err error
 				snapshot, err = f.store.IntegrationRoutingCandidatesForInbox(f.ctx, work, f.input.Address,
-					[]integrationstore.ConversationAddress{f.input.Address}, "message")
+					[]integrationstore.ConversationAddress{f.input.Address})
 				return err
 			})
 			require.Empty(t, snapshot.Selections)

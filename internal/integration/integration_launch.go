@@ -61,9 +61,7 @@ func (w *IntegrationLaunchWorkflow) Decide(
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			for i := range requests {
 				request := &requests[i]
-				request.candidates, err = w.router.integrations.IntegrationRoutingCandidatesForInbox(
-					ctx, work, request.address, request.scopes, request.event.Event.Kind,
-				)
+				request.candidates, err = w.router.candidatesForEvent(ctx, work, *request)
 				if err != nil {
 					return err
 				}

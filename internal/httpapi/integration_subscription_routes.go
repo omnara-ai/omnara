@@ -74,10 +74,7 @@ func (s strictOpenAPIServer) CreateIntegrationSubscription(
 	}
 	input := integrationstore.CreateIntegrationSubscriptionInput{
 		OrgID: scope.project.OrgID, ProjectID: scope.project.ID, IntegrationID: integrationID, AgentID: agentID,
-		Type: request.Body.Type, Conversation: request.Body.Conversation,
-	}
-	if request.Body.Events != nil {
-		input.Events = *request.Body.Events
+		Conversation: request.Body.Conversation,
 	}
 	subscription, err := s.server.store.Integrations().CreateIntegrationSubscription(ctx, input)
 	if err != nil {
@@ -135,7 +132,7 @@ func integrationSubscriptionResponse(
 	}
 	response := openapi.IntegrationSubscription{
 		Id: id, ProjectId: projectID, IntegrationId: integrationID, AgentId: agentID, AgentName: subscription.AgentName,
-		Type: subscription.Type, Events: subscription.Events, CreatedAt: subscription.CreatedAt,
+		CreatedAt:    subscription.CreatedAt,
 		Conversation: subscription.Conversation,
 	}
 	return response, nil

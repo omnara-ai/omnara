@@ -37,7 +37,7 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 		store,
 		integrationRecord,
 		existing.Agent.ID,
-		"thread_messages",
+
 		`{"channel_id":"C123"}`,
 	)
 

@@ -62,7 +62,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 					store,
 					integration,
 					launched.Agent.ID,
-					"thread_messages",
+
 					`{"channel_id":"300"}`,
 				)
 			}
@@ -131,7 +131,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 				_, err := consumer.Consume(ctx, receipt.Lease())
 				require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 				require.Zero(t, f.posts)
-				createTestIntegrationSubscription(t, store, integration, agents[1], "thread_messages", `{"channel_id":"300"}`)
+				createTestIntegrationSubscription(t, store, integration, agents[1], `{"channel_id":"300"}`)
 			}
 			results, err := consumer.Consume(ctx, receipt.Lease())
 			require.NoError(t, err)

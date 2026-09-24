@@ -19,14 +19,14 @@ const (
 )
 
 type Definition struct {
-	IntegrationType     Type
-	Provider            string
-	Tools               []string
-	Subscriptions       map[string]SubscriptionDefinition
-	LaunchTriggers      []string
-	InitialSubscription string
-	InteractionHandler  *InteractionHandlerDefinition
-	Schedule            *ScheduleDefinition
+	IntegrationType    Type
+	Provider           string
+	Tools              []string
+	Subscription       *SubscriptionDefinition
+	LaunchTriggers     []string
+	SubscribeOnLaunch  bool
+	InteractionHandler *InteractionHandlerDefinition
+	Schedule           *ScheduleDefinition
 }
 
 func All() []Definition {
@@ -43,44 +43,37 @@ func Lookup(id Type) (Definition, bool) {
 	switch id {
 	case SlackThread:
 		d = Definition{
-			IntegrationType: id,
-			Provider:        ProviderSlack,
-			Tools:           []string{"read", "post_message"},
-			Subscriptions: map[string]SubscriptionDefinition{
-				"thread_messages": {Name: "thread_messages", Provider: ProviderSlack, Events: []string{"message"}},
-			},
-			LaunchTriggers:      []string{"mention"},
-			InitialSubscription: "thread_messages",
-			InteractionHandler:  &InteractionHandlerDefinition{Provider: ProviderSlack},
-			Schedule:            slackThreadSchedule,
+			IntegrationType:    id,
+			Provider:           ProviderSlack,
+			Tools:              []string{"read", "post_message"},
+			Subscription:       &SubscriptionDefinition{Provider: ProviderSlack, Events: []string{"message"}},
+			LaunchTriggers:     []string{"mention"},
+			SubscribeOnLaunch:  true,
+			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
+			Schedule:           slackThreadSchedule,
 		}
 	case DiscordThread:
 		d = Definition{
-			IntegrationType: id,
-			Provider:        ProviderDiscord,
-			Tools:           []string{"read", "post_message"},
-			Subscriptions: map[string]SubscriptionDefinition{
-				"thread_messages": {Name: "thread_messages", Provider: ProviderDiscord, Events: []string{"message"}},
-			},
-			LaunchTriggers:      []string{"mention"},
-			InitialSubscription: "thread_messages",
-			InteractionHandler:  &InteractionHandlerDefinition{Provider: ProviderDiscord},
-			Schedule:            discordThreadSchedule,
+			IntegrationType:    id,
+			Provider:           ProviderDiscord,
+			Tools:              []string{"read", "post_message"},
+			Subscription:       &SubscriptionDefinition{Provider: ProviderDiscord, Events: []string{"message"}},
+			LaunchTriggers:     []string{"mention"},
+			SubscribeOnLaunch:  true,
+			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
+			Schedule:           discordThreadSchedule,
 		}
 	case GitHubPR:
 		d = Definition{
 			IntegrationType: id,
 			Provider:        ProviderGitHub,
 			Tools:           []string{"read", "discussion_comment", "inline_comment", "reply"},
-			Subscriptions: map[string]SubscriptionDefinition{
-				"pull_request": {
-					Name:     "pull_request",
-					Provider: ProviderGitHub,
-					Events:   []string{"discussion_comment", "review_comment", "commit"},
-				},
+			Subscription: &SubscriptionDefinition{
+				Provider: ProviderGitHub,
+				Events:   []string{"discussion_comment", "review_comment", "commit"},
 			},
-			LaunchTriggers:      []string{"mention", "pull_request_opened"},
-			InitialSubscription: "pull_request",
+			LaunchTriggers:    []string{"mention", "pull_request_opened"},
+			SubscribeOnLaunch: true,
 		}
 	default:
 		return Definition{}, false

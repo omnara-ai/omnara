@@ -83,8 +83,8 @@ func TestIntegrationLaunchDeclarations(t *testing.T) {
 	}
 	for _, definition := range All() {
 		t.Run(string(definition.IntegrationType), func(t *testing.T) {
-			if definition.InitialSubscription != "" {
-				require.Contains(t, definition.Subscriptions, definition.InitialSubscription)
+			if definition.SubscribeOnLaunch {
+				require.NotNil(t, definition.Subscription)
 			}
 			for _, trigger := range definition.LaunchTriggers {
 				require.True(t, slices.ContainsFunc(events, func(event Event) bool {
@@ -95,29 +95,27 @@ func TestIntegrationLaunchDeclarations(t *testing.T) {
 	}
 }
 
-func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
+func TestSubscriptionsPrepareConcreteConversation(t *testing.T) {
 	for _, test := range []struct {
-		integrationType               Type
-		name, conversation, kind, ref string
+		integrationType         Type
+		conversation, kind, ref string
 	}{
-		{SlackThread, "thread_messages", `{"channel_id":"C123","thread_ts":"1.2"}`, "thread", "C123:1.2"},
-		{SlackThread, "thread_messages", `{"channel_id":"D123"}`, "dm", "D123"},
-		{SlackThread, "thread_messages", `{"channel_id":"C123"}`, "channel", "C123"},
-		{DiscordThread, "thread_messages", `{"channel_id":"123","thread_id":"456"}`, "thread", "123:456"},
-		{DiscordThread, "thread_messages", `{"channel_id":"123"}`, "channel", "123"},
-		{GitHubPR, "pull_request", `{"repository_id":123,"pull_request":42}`, "pull_request", "123#42"},
+		{SlackThread, `{"channel_id":"C123","thread_ts":"1.2"}`, "thread", "C123:1.2"},
+		{SlackThread, `{"channel_id":"D123"}`, "dm", "D123"},
+		{SlackThread, `{"channel_id":"C123"}`, "channel", "C123"},
+		{DiscordThread, `{"channel_id":"123","thread_id":"456"}`, "thread", "123:456"},
+		{DiscordThread, `{"channel_id":"123"}`, "channel", "123"},
+		{GitHubPR, `{"repository_id":123,"pull_request":42}`, "pull_request", "123#42"},
 	} {
 		t.Run(string(test.integrationType)+"/"+test.kind, func(t *testing.T) {
 			d, _ := Lookup(test.integrationType)
-			subscription := d.Subscriptions[test.name]
+			subscription := d.Subscription
 			schema, err := subscription.ConversationSchema()
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(schema, []byte(test.conversation)))
-			prepared, err := subscription.Prepare([]byte(test.conversation), nil)
+			prepared, err := subscription.Prepare([]byte(test.conversation))
 			require.NoError(t, err)
-			require.ElementsMatch(t, subscription.Events, prepared.Events)
-			require.True(t, slices.IsSorted(prepared.Events))
-			kind, ref, err := prepared.Scope.Conversation()
+			kind, ref, err := prepared.Conversation()
 			require.NoError(t, err)
 			require.Equal(t, test.kind, kind)
 			require.Equal(t, test.ref, ref)
@@ -126,7 +124,7 @@ func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
 			raw, err := parsed.ConversationJSON()
 			require.NoError(t, err)
 			require.JSONEq(t, test.conversation, string(raw))
-			again, err := subscription.Prepare(raw, prepared.Events)
+			again, err := subscription.Prepare(raw)
 			require.NoError(t, err)
 			require.Equal(t, prepared, again)
 			for _, raw := range []string{
@@ -136,36 +134,33 @@ func TestSubscriptionsPrepareConcreteConversationAndEvents(t *testing.T) {
 				`{"repository_id":9223372036854775808,"pull_request":1}`,
 				`{"channel_id":"123","thread_id":"123456789012345678901"}`,
 			} {
-				_, err := subscription.Prepare([]byte(raw), nil)
+				_, err := subscription.Prepare([]byte(raw))
 				require.Error(t, err, raw)
 			}
-			_, err = subscription.Prepare(nil, nil)
+			_, err = subscription.Prepare(nil)
 			require.Error(t, err)
-			for _, events := range [][]string{{}, {"bogus"}, {subscription.Events[0], subscription.Events[0]}} {
-				_, err := subscription.Prepare([]byte(test.conversation), events)
-				require.Error(t, err, events)
-			}
 		})
 	}
 }
 
-func TestSubscriptionEventSelectionIsCanonicalAndOwned(t *testing.T) {
-	d, _ := Lookup(GitHubPR)
-	subscription := d.Subscriptions["pull_request"]
-	events := []string{"review_comment", "commit"}
-	prepared, err := subscription.Prepare([]byte(`{"repository_id":123,"pull_request":42}`), events)
-	require.NoError(t, err)
-	require.Equal(t, []string{"commit", "review_comment"}, prepared.Events)
-	require.Equal(t, []string{"review_comment", "commit"}, events)
-	prepared.Events[0] = "changed"
-	require.Equal(t, "commit", events[1])
-	prepared, err = subscription.Prepare([]byte(`{"repository_id":123,"pull_request":42}`), nil)
-	require.NoError(t, err)
-	prepared.Events[0] = "changed"
-	require.NotContains(t, subscription.Events, "changed")
-	_, err = (SubscriptionDefinition{Provider: "unknown"}).ConversationSchema()
+func TestIntegrationForwardingPolicy(t *testing.T) {
+	for _, definition := range All() {
+		t.Run(string(definition.IntegrationType), func(t *testing.T) {
+			for _, event := range []string{
+				"message", "discussion_comment", "review_comment", "commit", "pull_request_opened", "unknown",
+			} {
+				want := event == "message"
+				if definition.IntegrationType == GitHubPR {
+					want = event == "discussion_comment" || event == "review_comment" || event == "commit"
+				}
+				require.Equal(t, want, definition.Forwards(event), event)
+			}
+		})
+	}
+	require.False(t, (Definition{}).Forwards("message"))
+	_, err := (SubscriptionDefinition{Provider: "unknown"}).ConversationSchema()
 	require.Error(t, err)
-	_, err = (SubscriptionDefinition{Provider: "unknown"}).Prepare([]byte(`{"channel_id":"C123"}`), nil)
+	_, err = (SubscriptionDefinition{Provider: "unknown"}).Prepare([]byte(`{"channel_id":"C123"}`))
 	require.Error(t, err)
 }
 

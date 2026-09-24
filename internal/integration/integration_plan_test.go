@@ -215,8 +215,6 @@ func TestIntegrationPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T)
 		require.Len(t, slot.Launch.Subscriptions, 1)
 		subscription := slot.Launch.Subscriptions[0]
 		require.Equal(t, integration.ID, subscription.IntegrationID)
-		require.Equal(t, "thread_messages", subscription.Type)
-		require.Equal(t, []string{"message"}, subscription.Events)
 		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`, string(subscription.Conversation))
 		require.Equal(
 			t,
@@ -264,7 +262,6 @@ func TestIntegrationPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T)
 		Subscriptions: []integrationstore.IntegrationSubscriptionRecord{
 			{
 				AgentID: agent,
-				Type:    "thread_messages",
 				Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
 			},
 		},
@@ -341,12 +338,10 @@ func TestIntegrationPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 	requests[0].candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
 		{
 			AgentID: parent,
-			Type:    "thread_messages",
 			Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "300"},
 		},
 		{
 			AgentID: exact,
-			Type:    "thread_messages",
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"},
 		},
 	}
@@ -380,7 +375,7 @@ func TestIntegrationPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 		{IntegrationID: integration.ID, Slot: "b", ProfileID: execution.profile.ID},
 	}
 	requests[0].candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
-		{AgentID: uuid.New(), Type: "thread_messages", Address: requests[0].address},
+		{AgentID: uuid.New(), Address: requests[0].address},
 	}
 	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
 	require.NoError(t, err)
@@ -475,7 +470,7 @@ func TestIntegrationPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
 			for i := range requests {
 				requests[i].candidates.Launcher = &integration
 				requests[i].candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
-					{AgentID: uuid.New(), Type: "thread_messages", Address: requests[i].address},
+					{AgentID: uuid.New(), Address: requests[i].address},
 				}
 				if settled {
 					for slot, agent := range agents {
@@ -548,7 +543,6 @@ func TestIntegrationLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 	derived, subscriptions, err := deriveIntegrationLaunch(base, integration, event.Event.Scope)
 	require.NoError(t, err)
 	require.Len(t, subscriptions, 1)
-	require.Equal(t, "thread_messages", subscriptions[0].Type)
 	other, otherSubscriptions, err := deriveIntegrationLaunch(base, integration, integrationdefinition.Scope{
 		Slack: &integrationdefinition.SlackScope{ChannelID: "C456", ThreadTS: "7.8"},
 	})
@@ -567,25 +561,25 @@ func TestIntegrationLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 
 func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 	for _, test := range []struct {
-		integrationType            integrationdefinition.Type
-		provider, subscriptionType string
-		scope                      integrationdefinition.Scope
-		address                    string
+		integrationType integrationdefinition.Type
+		provider        string
+		scope           integrationdefinition.Scope
+		address         string
 	}{
 		{
-			integrationdefinition.SlackThread, "slack", "thread_messages",
+			integrationdefinition.SlackThread, "slack",
 			integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
 			`{"channel_id":"C123","thread_ts":"1.2"}`,
 		},
 		{
-			integrationdefinition.DiscordThread, "discord", "thread_messages",
+			integrationdefinition.DiscordThread, "discord",
 			integrationdefinition.Scope{
 				Discord: &integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
 			},
 			`{"guild_id":"100","channel_id":"300","thread_id":"500"}`,
 		},
 		{
-			integrationdefinition.GitHubPR, "github", "pull_request",
+			integrationdefinition.GitHubPR, "github",
 			integrationdefinition.Scope{
 				GitHub: &integrationdefinition.GitHubScope{RepositoryID: 9007199254740993, PullRequest: 42},
 			},
@@ -600,7 +594,6 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 			require.NoError(t, err)
 			require.Len(t, subscriptions, 1)
 			subscription := subscriptions[0]
-			require.Equal(t, test.subscriptionType, subscription.Type)
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
 			definition, _ := integrationdefinition.Lookup(integration.IntegrationType)
@@ -613,7 +606,6 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 			}
 			require.Equal(t, integration.ID, subscription.IntegrationID)
 			require.JSONEq(t, test.address, string(subscription.Conversation))
-			require.ElementsMatch(t, definition.Subscriptions[subscription.Type].Events, subscription.Events)
 			if definition.InteractionHandler != nil {
 				require.NotEmpty(t, compiled.InteractionHandlers[integration.Name].IntegrationID)
 			} else {
@@ -647,32 +639,32 @@ func TestIntegrationLaunchSubscriptionsFollowDefinition(t *testing.T) {
 	scope := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}
 	definition := integrationdefinition.Definition{
 		Provider: integrationdefinition.ProviderSlack,
-		Subscriptions: map[string]integrationdefinition.SubscriptionDefinition{
-			"updates": {Name: "updates", Provider: integrationdefinition.ProviderSlack, Events: []string{"message"}},
+		Subscription: &integrationdefinition.SubscriptionDefinition{
+			Provider: integrationdefinition.ProviderSlack, Events: []string{"message"},
 		},
-		InitialSubscription: "updates",
+		SubscribeOnLaunch: true,
 	}
 	subscriptions, err := integrationLaunchSubscriptions(integrationID, definition, scope)
 	require.NoError(t, err)
 	require.Equal(t, []integrationstore.IntegrationSubscriptionAttachment{{
-		IntegrationID: integrationID, Type: "updates", Events: []string{"message"},
-		Conversation: json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`),
+		IntegrationID: integrationID,
+		Conversation:  json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`),
 	}}, subscriptions)
 
-	definition.InitialSubscription = ""
+	definition.SubscribeOnLaunch = false
 	subscriptions, err = integrationLaunchSubscriptions(integrationID, definition, scope)
 	require.NoError(t, err)
 	require.Empty(t, subscriptions, "exported subscriptions do not imply a launch attachment")
-	definition.Subscriptions = nil
+	definition.Subscription = nil
 	subscriptions, err = integrationLaunchSubscriptions(integrationID, definition, scope)
 	require.NoError(t, err)
 	require.Empty(t, subscriptions, "launches need not export any subscription")
 	_, err = integrationLaunchSubscriptions(integrationID, definition, integrationdefinition.Scope{})
 	require.Error(t, err, "a launch still requires a valid event scope without subscriptions")
 
-	definition.InitialSubscription = "missing"
+	definition.SubscribeOnLaunch = true
 	_, err = integrationLaunchSubscriptions(integrationID, definition, scope)
-	require.EqualError(t, err, `integration initial subscription "missing" is not defined`)
+	require.EqualError(t, err, `integration cannot subscribe on launch without a subscription capability`)
 }
 
 func TestIntegrationLaunchPreservesInteractionToolOverrides(t *testing.T) {
@@ -732,8 +724,7 @@ func TestIntegrationPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing
 			router, execution, integrations, integration, first := integrationPlannerFixture(t)
 			integration.Name = "receiver"
 			integration.Settings.Launcher.Slots = integration.Settings.Launcher.Slots[:1]
-			subscriptionType, kind := "thread_messages", "message"
-			expectedEvents := []string{"message"}
+			kind := "message"
 			otherScope := integrationdefinition.Scope{
 				Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.3"},
 			}
@@ -757,8 +748,7 @@ func TestIntegrationPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing
 					GitHub: &integrationdefinition.GitHubScope{RepositoryID: 123, PullRequest: 43},
 				}
 				first.Event.Kind = "pull_request_opened"
-				subscriptionType, kind = "pull_request", "commit"
-				expectedEvents = []string{"commit", "discussion_comment", "review_comment"}
+				kind = "commit"
 			}
 			integrations.integrationSetup = integration
 			first.Actor = integrationTestActor(t, integration.ID, first.Actor.ProviderUserID)
@@ -802,8 +792,6 @@ func TestIntegrationPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing
 				require.Len(t, slot.Launch.Subscriptions, 1)
 				subscription := slot.Launch.Subscriptions[0]
 				require.Equal(t, integration.ID, subscription.IntegrationID)
-				require.Equal(t, subscriptionType, subscription.Type)
-				require.Equal(t, expectedEvents, subscription.Events, "defaults are resolved and canonical before freezing")
 				conversation, err := first.Event.Scope.ConversationJSON()
 				require.NoError(t, err)
 				require.JSONEq(t, string(conversation), string(subscription.Conversation))
@@ -817,9 +805,7 @@ func TestIntegrationPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing
 				}
 				require.Equal(t, agentID, slot.AgentID)
 				require.Equal(t, &executionstore.InboxSubscriptionAuthority{
-					Event: kind, Alternatives: []executionstore.InboxSubscriptionReference{{
-						Type: subscriptionType, Address: integrationstore.ConversationAddress{Kind: addressKind, Ref: addressRef},
-					}},
+					Alternatives: []integrationstore.ConversationAddress{{Kind: addressKind, Ref: addressRef}},
 				}, slot.Subscription)
 				if slot.EventOrder == 3 {
 					require.Len(t, slot.Files, 1)

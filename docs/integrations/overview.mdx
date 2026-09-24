@@ -59,7 +59,7 @@ See the [Slack](/integrations/slack), [Discord](/integrations/discord) and
 
 ## Select capabilities independently
 
-An integration can supply tools, named subscription types and one interaction handler.
+An integration can supply tools, a subscription capability and one interaction handler.
 A tool lets the model act; an integration-owned subscription forwards incoming events to
 an agent; a handler presents questions and approvals outside the dashboard.
 Configs select tools and handlers. Launch requests or the subscriptions API attach
@@ -118,16 +118,16 @@ silently acquire a different integration, sending context or permission after a 
 
 ## Subscribe a conversation
 
-A subscription connects one integration, one agent, a named type and one concrete provider
+A subscription connects one integration, one agent and one concrete provider
 conversation. Multiple integrations or conversations can forward to the same agent.
 Subscriptions belong to the integration: saving, activating or changing an agent config
 never adds or removes them. Source YAML has no `listeners` block.
 
-The integration and integration-definition catalog expose
-`capabilities.subscriptions[type].conversation_schema` and `.events`. The type is
-local to the integration, such as `thread_messages` or `pull_request`; do not prefix it
-with the integration name. The conversation is one flat provider address, not a config
-or a list. Omit `events` to use the definition's defaults.
+The integration and integration-definition catalog expose the optional
+`capabilities.subscription.conversation_schema`. Integrations without this capability
+cannot accept subscriptions. Each attachment identifies the integration and one flat
+provider conversation address. The integration determines which incoming activity
+it forwards.
 
 For an existing agent, send this body to
 `POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions`:
@@ -135,21 +135,20 @@ For an existing agent, send this body to
 ```json
 {
   "agent_id": "YOUR_AGENT_ID",
-  "type": "thread_messages",
   "conversation": {"channel_id": "C123", "thread_ts": "111.222333"}
 }
 ```
 
 For a new agent, include `subscriptions` in its
 [launch request](/agents/overview#attach-integrations-and-an-initial-input-atomically).
-Each attachment has `integration_id`, `type`, `conversation` and optional `events`.
+Each attachment has `integration_id` and `conversation`.
 The subscriptions and initial input are committed with the agent before its first
 step. Attaching only subscriptions does not derive a new config.
 
 Use `GET` on the same integration subscriptions path with `limit` and optional `cursor`
 to list conversations. The response contains `data` and `next_cursor`; each row
-includes its `isub_…` ID, integration, project, agent ID/name, type, concrete conversation,
-resolved events and creation time. Listing requires project read permission;
+includes its `isub_…` ID, integration, project, agent ID/name, concrete conversation
+and creation time. Listing requires project read permission;
 creation and deletion require project management permission.
 
 ### Stop forwarding
@@ -162,10 +161,8 @@ launch a replacement agent on the next mention. Explicitly attach the conversati
 again through the API to resume forwarding. Independent existing-agent launcher
 slots and already accepted chooser handoffs are not canceled by this deletion.
 
-Repeating an active attachment returns the same subscription. A different event
-selection for that attachment is a conflict: delete it and attach again to change
-the filter. A fresh attachment after deletion receives a new ID, so retrying an old
-DELETE cannot remove the new attachment. Integration disconnection preserves subscriptions;
+Repeating an active attachment returns the same subscription. A fresh attachment
+after deletion receives a new ID, so retrying an old DELETE cannot remove the new attachment. Integration disconnection preserves subscriptions;
 integration deletion or agent archival removes them.
 
 Sending and receiving are independent. Posting a message does not create or

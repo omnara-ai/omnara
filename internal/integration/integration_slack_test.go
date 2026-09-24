@@ -382,6 +382,7 @@ func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 
 func TestIntegrationEventsDiscordGuildDiffersFromIntegrationApplication(t *testing.T) {
 	integrationSetup := integrationstore.ProjectIntegrationRecord{
+		IntegrationType:    integrationdefinition.DiscordThread,
 		ID:                 uuid.New(),
 		Provider:           "discord",
 		ProviderTenantID:   "999",

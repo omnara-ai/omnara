@@ -34,9 +34,7 @@ const subscription: IntegrationSubscription = {
   integration_id: integration.id,
   agent_id: fakeId('agt'),
   agent_name: 'Support agent',
-  type: 'thread_messages',
   conversation: { channel_id: 'C123', thread_ts: '111.222333' },
-  events: ['message'],
   created_at: '2026-09-20T12:00:00Z',
 }
 const second: IntegrationSubscription = {
@@ -344,7 +342,6 @@ function Attach() {
       onClick={() => {
         create.mutate({
           agent_id: subscription.agent_id,
-          type: subscription.type,
           conversation: subscription.conversation,
         })
       }}
@@ -368,7 +365,6 @@ it('refreshes the integration list after an explicit API attachment without chan
       respond: ({ body }) => {
         expect(body).toEqual({
           agent_id: subscription.agent_id,
-          type: subscription.type,
           conversation: subscription.conversation,
         })
         attached = true

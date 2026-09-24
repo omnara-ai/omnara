@@ -79,8 +79,15 @@ dispatched before that requirement. GitHub PR tools also narrow their installati
 token to the assigned repository; standalone operations must choose their own
 appropriate token scope. Adding a subscription does not assign a tool destination.
 
-Subscriptions independently forward selected events from a conversation to an
-agent. Tool removal, config changes and posting do not alter subscriptions.
+Subscriptions connect a conversation to an agent. An optional
+`Definition.Subscription *SubscriptionDefinition` declares its provider and internal
+forwarded `Events`; `Prepare(conversation)` validates the address and returns a
+`Scope`. `Definition.Forwards(event)` applies that integration-owned policy.
+Public catalog entries expose only `capabilities.subscription.conversation_schema`.
+Attachments identify the integration and conversation; stored subscriptions retain
+routing identity and lifecycle. Forwarding policy lives in the integration.
+Absence of the capability rejects attachment.
+Tool removal, config changes and posting do not alter subscriptions.
 Launch attachments commit with the agent and initial input. Deleting a subscription
 stops forwarding but retains selection history, so the next comment cannot launch
 a replacement for a stopped conversation.
@@ -106,9 +113,10 @@ failures before durable intake; see the [operational guide](../../docs/integrati
 Signature verification and receipt insertion do not form an atomic credential
 rotation fence: a just-replaced key can still admit an already-verified request.
 
-Declare supported launch triggers and the initial subscription in the integration
-definition. An empty initial subscription means launches do not subscribe to
-replies. Launchers still add the integration's declared tools and handler, preserving
+Declare supported launch triggers and set `SubscribeOnLaunch` explicitly in the
+integration definition. Subscription capability and automatic launch attachment are
+independent choices; a capable integration may leave launch subscription disabled.
+Launchers still add the integration's declared tools and handler, preserving
 explicit config choices; tool scope does not change that composition policy.
 Provider event matching and a custom launcher must agree with the declaration,
 because early routing can discard events before the launcher runs.
@@ -118,6 +126,15 @@ which profiles or agents to select; the router freezes those decisions and confi
 identities before provider preparation. Storage atomically commits each recipient's
 agent/input, subscriptions, artifacts and progress. Provider and blob I/O never run
 under those locks. Preserve semantic event IDs separately from delivery IDs.
+
+Forwarding policy is applied during planning, including prefiltering, launcher
+selection, both freeze passes and matching subscriptions created in the same batch.
+Frozen plans, including empty plans, keep those decisions on retry; unplanned
+receipts use the current implementation policy. Live subscription removal,
+integration disconnection and agent archival still revoke undelivered work. Storage
+checks routing membership and ownership, without duplicating event policy or
+persisting policy snapshots. The shipped Slack/Discord policies forward messages;
+GitHub forwards comments, reviews and commits, while PR-open is launch-only.
 
 Retries reuse frozen membership and prepared artifact identities. Failed receipts
 are terminal after the bounded budget: unfinished reservations release, committed

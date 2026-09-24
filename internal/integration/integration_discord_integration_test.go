@@ -347,7 +347,7 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 				store,
 				integration,
 				launched.Agent.ID,
-				"thread_messages",
+
 				`{"channel_id":"300"}`,
 			)
 			if exactThread {
@@ -356,7 +356,7 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 					store,
 					integration,
 					launched.Agent.ID,
-					"thread_messages",
+
 					`{"channel_id":"300","thread_id":"500"}`,
 				)
 			}

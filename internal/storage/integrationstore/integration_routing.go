@@ -22,7 +22,6 @@ func (s *Store) IntegrationRoutingCandidatesForInbox(
 	work *IntegrationInboxLeaseTx,
 	conversation ConversationAddress,
 	scopes []ConversationAddress,
-	event string,
 ) (IntegrationRoutingCandidates, error) {
 	if work == nil {
 		return IntegrationRoutingCandidates{}, storeerr.InvalidRequest(errors.New("inbox lease transaction is required"))
@@ -49,7 +48,6 @@ func (s *Store) IntegrationRoutingCandidatesForInbox(
 		work.record.IntegrationID,
 		conversation,
 		scopes,
-		event,
 	)
 }
 
@@ -59,11 +57,10 @@ func (s *Store) IntegrationRoutingCandidatesTx(
 	projectID, integrationID uuid.UUID,
 	conversation ConversationAddress,
 	scopes []ConversationAddress,
-	event string,
 ) (IntegrationRoutingCandidates, error) {
-	if len(scopes) == 0 || len(scopes) > 8 || event == "" {
+	if len(scopes) == 0 || len(scopes) > 8 {
 		return IntegrationRoutingCandidates{}, storeerr.InvalidRequest(
-			errors.New("one to eight event scopes and an event are required"),
+			errors.New("one to eight event scopes are required"),
 		)
 	}
 	if err := conversation.Validate(); err != nil {
@@ -110,7 +107,6 @@ func (s *Store) IntegrationRoutingCandidatesTx(
 			ProjectID:     projectID,
 			IntegrationID: integrationID,
 			Scopes:        rawScopes,
-			Event:         event,
 		},
 	)
 	if err != nil {

@@ -263,7 +263,6 @@ func newInboxLaunchFixtureForIntegration(
 		launch.DerivedBaseConfigID = f.profile.CurrentConfigID
 		subscription := f.attachment()
 		subscription.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"123.456"}`)
-		subscription.Events = []string{"message"}
 		launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{subscription}
 		launch.InitialInput = &executionstore.LaunchInitialInput{
 			ContentBlocks: json.RawMessage(
@@ -418,7 +417,7 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	require.JSONEq(t, string(f.slots["a"].Launch.InitialInput.ContentBlocks), string(created.InputContentBlocks))
 	subscriptions := f.subscriptions(t, created.Agent.ID)
 	require.Len(t, subscriptions, 1, "one concrete frozen attachment is registered atomically")
-	require.Equal(t, "thread_messages", subscriptions[0].SubscriptionType)
+	require.Equal(t, "thread", subscriptions[0].ScopeKind)
 	require.Equal(t, "C123:123.456", subscriptions[0].ScopeRef)
 	var count int
 	require.NoError(
@@ -624,7 +623,6 @@ func TestInboxLaunchLocksSecondaryIntegrationBeforeReceipt(t *testing.T) {
 	resource := f.attachment()
 	resource.IntegrationID = secondary.ID
 	resource.Conversation = json.RawMessage(`{"channel_id":"CSECOND","thread_ts":"456.789"}`)
-	resource.Events = []string{"message"}
 	definition := f.definition(t, "Secondary subscription gate")
 	slot := f.slots["a"]
 	var err error
@@ -641,7 +639,6 @@ func TestInboxLaunchLocksSecondaryIntegrationBeforeReceipt(t *testing.T) {
 	slot.Launch.AgentConfigID = saved.ID
 	primary := f.attachment()
 	primary.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
-	primary.Events = []string{"message"}
 	slot.Launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{resource, primary}
 	slot.Launch.IdempotencyKey = "secondary-launch"
 	_, _, err = f.store.Integrations().

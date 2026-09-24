@@ -201,7 +201,7 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 		ctx, integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: f.Project.OrgUUID, ProjectID: f.Project.ProjectUUID,
 			IntegrationID: integration.ID, AgentID: launched.Agent.ID,
-			Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"C123"}`),
+			Conversation: json.RawMessage(`{"channel_id":"C123"}`),
 		},
 	)
 	require.NoError(t, err)

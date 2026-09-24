@@ -88,7 +88,7 @@ func (q *Queries) DeleteProjectSubscriptions(ctx context.Context, arg DeleteProj
 }
 
 const getIntegrationSubscription = `-- name: GetIntegrationSubscription :one
-SELECT id, project_id, agent_id, integration_id, subscription_type, scope_kind, scope_ref, events, created_at
+SELECT id, project_id, agent_id, integration_id, scope_kind, scope_ref, created_at
 FROM integration_subscriptions
 WHERE project_id = $1 AND integration_id = $2 AND id = $3
 `
@@ -107,29 +107,26 @@ func (q *Queries) GetIntegrationSubscription(ctx context.Context, arg GetIntegra
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.SubscriptionType,
 		&i.ScopeKind,
 		&i.ScopeRef,
-		&i.Events,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getIntegrationSubscriptionForConversation = `-- name: GetIntegrationSubscriptionForConversation :one
-SELECT id, project_id, agent_id, integration_id, subscription_type, scope_kind, scope_ref, events, created_at
+SELECT id, project_id, agent_id, integration_id, scope_kind, scope_ref, created_at
 FROM integration_subscriptions
 WHERE project_id = $1 AND agent_id = $2 AND integration_id = $3
-  AND subscription_type = $4 AND scope_kind = $5 AND scope_ref = $6
+  AND scope_kind = $4 AND scope_ref = $5
 `
 
 type GetIntegrationSubscriptionForConversationParams struct {
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	SubscriptionType string
-	ScopeKind        string
-	ScopeRef         string
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
 }
 
 func (q *Queries) GetIntegrationSubscriptionForConversation(ctx context.Context, arg GetIntegrationSubscriptionForConversationParams) (IntegrationSubscription, error) {
@@ -137,7 +134,6 @@ func (q *Queries) GetIntegrationSubscriptionForConversation(ctx context.Context,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.IntegrationID,
-		arg.SubscriptionType,
 		arg.ScopeKind,
 		arg.ScopeRef,
 	)
@@ -147,10 +143,8 @@ func (q *Queries) GetIntegrationSubscriptionForConversation(ctx context.Context,
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.SubscriptionType,
 		&i.ScopeKind,
 		&i.ScopeRef,
-		&i.Events,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -163,21 +157,19 @@ SELECT EXISTS (
     JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
     JOIN project_integrations integration ON integration.project_id = subscription.project_id AND integration.id = subscription.integration_id
     WHERE subscription.project_id = $1 AND subscription.agent_id = $2
-      AND subscription.integration_id = $3 AND subscription.subscription_type = $4
-      AND subscription.scope_kind = $5 AND subscription.scope_ref = $6
-      AND $7::text = ANY(subscription.events) AND agent.state = 'active'
+      AND subscription.integration_id = $3
+      AND subscription.scope_kind = $4 AND subscription.scope_ref = $5
+      AND agent.state = 'active'
       AND integration.state = 'active' AND integration.deleted_at IS NULL
 )
 `
 
 type HasIntegrationSubscriptionParams struct {
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	SubscriptionType string
-	ScopeKind        string
-	ScopeRef         string
-	Event            string
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
 }
 
 func (q *Queries) HasIntegrationSubscription(ctx context.Context, arg HasIntegrationSubscriptionParams) (bool, error) {
@@ -185,10 +177,8 @@ func (q *Queries) HasIntegrationSubscription(ctx context.Context, arg HasIntegra
 		arg.ProjectID,
 		arg.AgentID,
 		arg.IntegrationID,
-		arg.SubscriptionType,
 		arg.ScopeKind,
 		arg.ScopeRef,
-		arg.Event,
 	)
 	var exists bool
 	err := row.Scan(&exists)
@@ -196,20 +186,17 @@ func (q *Queries) HasIntegrationSubscription(ctx context.Context, arg HasIntegra
 }
 
 const insertIntegrationSubscription = `-- name: InsertIntegrationSubscription :one
-INSERT INTO integration_subscriptions(project_id, agent_id, integration_id, subscription_type, scope_kind, scope_ref, events)
-VALUES ($1, $2, $3, $4,
-        $5, $6, $7::text[])
-RETURNING id, project_id, agent_id, integration_id, subscription_type, scope_kind, scope_ref, events, created_at
+INSERT INTO integration_subscriptions(project_id, agent_id, integration_id, scope_kind, scope_ref)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, project_id, agent_id, integration_id, scope_kind, scope_ref, created_at
 `
 
 type InsertIntegrationSubscriptionParams struct {
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	SubscriptionType string
-	ScopeKind        string
-	ScopeRef         string
-	Events           []string
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
 }
 
 func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertIntegrationSubscriptionParams) (IntegrationSubscription, error) {
@@ -217,10 +204,8 @@ func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertI
 		arg.ProjectID,
 		arg.AgentID,
 		arg.IntegrationID,
-		arg.SubscriptionType,
 		arg.ScopeKind,
 		arg.ScopeRef,
-		arg.Events,
 	)
 	var i IntegrationSubscription
 	err := row.Scan(
@@ -228,10 +213,8 @@ func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertI
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.SubscriptionType,
 		&i.ScopeKind,
 		&i.ScopeRef,
-		&i.Events,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -239,7 +222,7 @@ func (q *Queries) InsertIntegrationSubscription(ctx context.Context, arg InsertI
 
 const listIntegrationSubscriptions = `-- name: ListIntegrationSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.integration_id,
-       subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,
+       subscription.scope_kind, subscription.scope_ref,
        subscription.created_at, agent.name AS agent_name
 FROM integration_subscriptions subscription
 JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
@@ -260,16 +243,14 @@ type ListIntegrationSubscriptionsParams struct {
 }
 
 type ListIntegrationSubscriptionsRow struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	SubscriptionType string
-	ScopeKind        string
-	ScopeRef         string
-	Events           []string
-	CreatedAt        time.Time
-	AgentName        string
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
+	CreatedAt     time.Time
+	AgentName     string
 }
 
 func (q *Queries) ListIntegrationSubscriptions(ctx context.Context, arg ListIntegrationSubscriptionsParams) ([]ListIntegrationSubscriptionsRow, error) {
@@ -293,10 +274,8 @@ func (q *Queries) ListIntegrationSubscriptions(ctx context.Context, arg ListInte
 			&i.ProjectID,
 			&i.AgentID,
 			&i.IntegrationID,
-			&i.SubscriptionType,
 			&i.ScopeKind,
 			&i.ScopeRef,
-			&i.Events,
 			&i.CreatedAt,
 			&i.AgentName,
 		); err != nil {
@@ -312,14 +291,13 @@ func (q *Queries) ListIntegrationSubscriptions(ctx context.Context, arg ListInte
 
 const listMatchingIntegrationSubscriptions = `-- name: ListMatchingIntegrationSubscriptions :many
 SELECT subscription.id, subscription.project_id, subscription.agent_id, subscription.integration_id,
-       subscription.subscription_type, subscription.scope_kind, subscription.scope_ref, subscription.events,
+       subscription.scope_kind, subscription.scope_ref,
        subscription.created_at
 FROM jsonb_to_recordset($1::jsonb) AS scope(kind text, ref text)
 JOIN integration_subscriptions subscription ON subscription.scope_kind = scope.kind AND subscription.scope_ref = scope.ref
 JOIN project_integrations integration ON integration.project_id = subscription.project_id AND integration.id = subscription.integration_id
 JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
 WHERE subscription.project_id = $2 AND subscription.integration_id = $3
-  AND $4::text = ANY(subscription.events)
   AND integration.state = 'active' AND integration.deleted_at IS NULL AND agent.state = 'active'
 ORDER BY subscription.agent_id, subscription.id
 `
@@ -328,16 +306,10 @@ type ListMatchingIntegrationSubscriptionsParams struct {
 	Scopes        json.RawMessage
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
-	Event         string
 }
 
 func (q *Queries) ListMatchingIntegrationSubscriptions(ctx context.Context, arg ListMatchingIntegrationSubscriptionsParams) ([]IntegrationSubscription, error) {
-	rows, err := q.db.Query(ctx, listMatchingIntegrationSubscriptions,
-		arg.Scopes,
-		arg.ProjectID,
-		arg.IntegrationID,
-		arg.Event,
-	)
+	rows, err := q.db.Query(ctx, listMatchingIntegrationSubscriptions, arg.Scopes, arg.ProjectID, arg.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
@@ -350,10 +322,8 @@ func (q *Queries) ListMatchingIntegrationSubscriptions(ctx context.Context, arg 
 			&i.ProjectID,
 			&i.AgentID,
 			&i.IntegrationID,
-			&i.SubscriptionType,
 			&i.ScopeKind,
 			&i.ScopeRef,
-			&i.Events,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

@@ -26,9 +26,7 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 	slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:subscription")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
-		Event: "message", Alternatives: []executionstore.InboxSubscriptionReference{{
-			Type: "thread_messages", Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
-		}},
+		Alternatives: []integrationstore.ConversationAddress{{Kind: "channel", Ref: "C123"}},
 	}
 	receipt := freezeInboxInput(t, f, slot, "subscription-receipt", time.Minute)
 	require.NoError(
@@ -77,17 +75,15 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 		f.store.Integrations().DeleteIntegrationSubscription(f.ctx, testOrgID, testProjectID, f.integration.ID, original.ID),
 	)
 	result, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, revoked.Lease(), "recipient")
-	require.NoError(t, err, "live address/type/event authorization does not pin the old subscription ID")
+	require.NoError(t, err, "live address authorization does not pin the old subscription ID")
 	require.True(t, result.Created)
 }
 
-func TestInboxSubscriptionAuthorityUsesLiveTypeAddressEventAndIntegration(t *testing.T) {
+func TestInboxSubscriptionAuthorityUsesLiveAddressAndIntegration(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
 		"matching alternative",
-		"type",
 		"address",
-		"event",
 		"config edit",
 		"detached",
 		"other integration",
@@ -100,29 +96,23 @@ func TestInboxSubscriptionAuthorityUsesLiveTypeAddressEventAndIntegration(t *tes
 			agent, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "keyed-subscription"))
 			require.NoError(t, err)
 			attachment := integrationstore.IntegrationSubscriptionAttachment{
-				IntegrationID: f.integration.ID, Type: "pull_request", Conversation: json.RawMessage(`{"repository_id":123,"pull_request":42}`),
-				Events: []string{"discussion_comment"},
+				IntegrationID: f.integration.ID, Conversation: json.RawMessage(`{"repository_id":123,"pull_request":42}`),
 			}
 			f.attach(t, agent.Agent.ID, attachment)
 			slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:keyed")
 			slot.Subscription = &executionstore.InboxSubscriptionAuthority{
-				Event: "discussion_comment", Alternatives: []executionstore.InboxSubscriptionReference{
-					{Type: "not_exported", Address: slot.Input.Origin.Address},
-					{Type: "pull_request", Address: slot.Input.Origin.Address},
+				Alternatives: []integrationstore.ConversationAddress{
+					{Kind: "pull_request", Ref: "123#41"},
+					slot.Input.Origin.Address,
 				},
-			}
-			if scenario == "type" {
-				slot.Subscription.Alternatives[1].Type = "another_type"
 			}
 			receipt := freezeInboxInput(t, f, slot, "keyed-subscription-receipt", time.Minute)
 			switch scenario {
-			case "address", "event", "other integration":
+			case "address", "other integration":
 				f.detach(t, agent.Agent.ID)
 				switch scenario {
 				case "address":
 					attachment.Conversation = json.RawMessage(`{"repository_id":123,"pull_request":43}`)
-				case "event":
-					attachment.Events = []string{"review_comment"}
 				case "other integration":
 					other, err := f.store.Integrations().CreateProjectIntegration(f.ctx, integrationstore.SaveProjectIntegrationInput{
 
@@ -209,9 +199,7 @@ func TestSubagentExplicitSubscriptionReceivesAndArchiveCleansUp(t *testing.T) {
 	slot := inboxInputPlan(t, child.Agent.ID, f.integration, "message:child")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
-		Event: "message", Alternatives: []executionstore.InboxSubscriptionReference{{
-			Type: "thread_messages", Address: slot.Input.Origin.Address,
-		}},
+		Alternatives: []integrationstore.ConversationAddress{slot.Input.Origin.Address},
 	}
 	receipt := freezeInboxInput(t, f, slot, "child-receipt", time.Minute)
 	received, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient")
@@ -238,7 +226,7 @@ func TestSubagentExplicitSubscriptionReceivesAndArchiveCleansUp(t *testing.T) {
 		f.ctx,
 		integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: testOrgID, ProjectID: testProjectID, AgentID: child.Agent.ID, IntegrationID: attachment.IntegrationID,
-			Type: attachment.Type, Conversation: attachment.Conversation,
+			Conversation: attachment.Conversation,
 		},
 	)
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)

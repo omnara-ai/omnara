@@ -139,18 +139,14 @@ To forward events from one PR to an existing agent, send this body to
 ```json
 {
   "agent_id": "YOUR_AGENT_ID",
-  "type": "pull_request",
-  "conversation": {"repository_id": 123456, "pull_request": 42},
-  "events": ["discussion_comment", "review_comment", "commit"]
+  "conversation": {"repository_id": 123456, "pull_request": 42}
 }
 ```
 
-A PR subscription selects `discussion_comment`, `review_comment` and/or `commit`;
-omitting `events` selects all three. Event filters belong to explicit subscription
-attachments. Use **Stop forwarding** on the integration page to remove a subscription.
-Here `discussion_comment` means a comment in the PR conversation, not a GitHub
-Discussions post. Submitted reviews arrive as `review_comment`; commits come
-from PR synchronization events, not arbitrary repository pushes.
+The integration forwards PR conversation comments, inline review comments,
+submitted reviews and commits from PR synchronization events. PR-open events only
+trigger launches; they are not forwarded through subscriptions. Use **Stop forwarding**
+on the integration page to remove a subscription.
 
 For PR-open launches, this is the project integration body for
 `POST /orgs/{orgID}/projects/{projectID}/integrations`:
@@ -171,9 +167,8 @@ For PR-open launches, this is the project integration body for
 ```
 
 The launcher derives the PR tools, adding missing entries and preserving explicit
-entries from the profile. It attaches a subscription for the triggering PR with
-the default event selection. An installation-scoped launcher applies to the
-repositories granted to that installation in GitHub. The API also supports an
+entries from the profile. It attaches a subscription for the triggering PR. An
+installation-scoped launcher applies to the repositories granted to that installation in GitHub. The API also supports an
 explicit `repository` scope with a numeric repository ID; editing an existing
 restricted launcher in the dashboard preserves that restriction. Use
 `trigger: "mention"` instead for explicit mentions in new human PR comments.

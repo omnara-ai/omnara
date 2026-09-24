@@ -116,7 +116,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	require.Empty(t, attribution.SelectionSlot)
 	_, err = store.CreateIntegrationSubscription(f.ctx, integrationstore.CreateIntegrationSubscriptionInput{
 		OrgID: f.org, ProjectID: f.project, IntegrationID: input.IntegrationID, AgentID: input.AgentID,
-		Type: "thread_messages", Conversation: []byte(`{"channel_id":"C123","thread_ts":"123.456"}`),
+		Conversation: []byte(`{"channel_id":"C123","thread_ts":"123.456"}`),
 	})
 	require.NoError(t, err)
 
@@ -140,7 +140,6 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 		input.IntegrationID,
 		input.Address,
 		[]integrationstore.ConversationAddress{input.Address},
-		"message",
 	)
 	require.NoError(t, err)
 	require.Len(t, candidates.Selections, 2)
@@ -152,7 +151,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	)
 	require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, first.IntegrationID, input.Address))
 	other, err := store.IntegrationRoutingCandidatesTx(f.ctx, tx, f.project, first.IntegrationID, input.Address,
-		[]integrationstore.ConversationAddress{input.Address}, "message")
+		[]integrationstore.ConversationAddress{input.Address})
 	require.NoError(t, err)
 	require.Len(t, other.Selections, 1)
 	require.Equal(t, first.ID, other.Selections[0].ID)

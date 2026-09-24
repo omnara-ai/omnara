@@ -29,8 +29,7 @@ func (s strictOpenAPIServer) ListIntegrationDefinitions(
 
 func integrationCapabilitiesResponse(id integrationdefinition.Type) (openapi.IntegrationCapabilities, error) {
 	result := openapi.IntegrationCapabilities{
-		Tools:         make(map[string]openapi.IntegrationCapabilityDefinition),
-		Subscriptions: make(map[string]openapi.IntegrationSubscriptionDefinition),
+		Tools: make(map[string]openapi.IntegrationCapabilityDefinition),
 	}
 	definition, ok := integrationdefinition.Lookup(id)
 	if !ok {
@@ -51,16 +50,16 @@ func integrationCapabilitiesResponse(id integrationdefinition.Type) (openapi.Int
 		}
 		result.Tools[operation] = entry
 	}
-	for name, subscription := range definition.Subscriptions {
+	if subscription := definition.Subscription; subscription != nil {
 		conversation, err := subscription.ConversationSchema()
 		if err != nil {
 			return result, err
 		}
-		entry := openapi.IntegrationSubscriptionDefinition{Events: subscription.Events}
+		entry := openapi.IntegrationSubscriptionDefinition{}
 		if err := json.Unmarshal(conversation, &entry.ConversationSchema); err != nil {
 			return result, err
 		}
-		result.Subscriptions[name] = entry
+		result.Subscription = &entry
 	}
 	if handler := definition.InteractionHandler; handler != nil {
 		prepared, err := handler.Prepare()

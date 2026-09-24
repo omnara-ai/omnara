@@ -29,13 +29,7 @@ type InboxInputSlot struct {
 }
 
 type InboxSubscriptionAuthority struct {
-	Event        string                       `json:"event"`
-	Alternatives []InboxSubscriptionReference `json:"alternatives"`
-}
-
-type InboxSubscriptionReference struct {
-	Type    string                               `json:"type"`
-	Address integrationstore.ConversationAddress `json:"address"`
+	Alternatives []integrationstore.ConversationAddress `json:"alternatives"`
 }
 
 type InboxInputPreparation struct {

@@ -75,7 +75,6 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 			require.Equal(t, integration.ID, slot.Selection.IntegrationID)
 			require.Len(t, slot.Launch.Subscriptions, 1)
 			require.Equal(t, integration.ID, slot.Launch.Subscriptions[0].IntegrationID)
-			require.Equal(t, "thread_messages", slot.Launch.Subscriptions[0].Type)
 		}
 		results, err := router.Admit(ctx, receipt.Lease())
 		require.NoError(t, err)
@@ -107,10 +106,8 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 				require.Equal(t, agents[integration.ID], slot.AgentID)
 				require.Nil(t, slot.Launch)
 				require.NotNil(t, slot.Subscription)
-				require.Equal(t, []executionstore.InboxSubscriptionReference{{
-					Type:    "thread_messages",
-					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
-				}}, slot.Subscription.Alternatives)
+				require.Equal(t, []integrationstore.ConversationAddress{{Kind: "thread", Ref: "C123:1.2"}},
+					slot.Subscription.Alternatives)
 			}
 			results, err := router.Admit(ctx, receipt.Lease())
 			require.NoError(t, err)

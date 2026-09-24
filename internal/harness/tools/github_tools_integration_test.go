@@ -206,7 +206,7 @@ func TestGitHubIntegrationCommentsAndReplay(t *testing.T) {
 					withGitHubIntegration: true, withToolContext: true,
 				})
 				if withSubscription {
-					attachToolSubscription(t, f, "pull_request", `{"repository_id":123,"pull_request":7}`, []string{"commit"})
+					attachToolSubscription(t, f, `{"repository_id":123,"pull_request":7}`)
 				}
 				subscriptionsBefore := integrationToolSubscriptions(t, f)
 				if withSubscription {

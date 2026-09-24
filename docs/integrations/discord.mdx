@@ -109,7 +109,6 @@ This does not assign or change the conversation used by the integration's tools.
 ```json
 {
   "agent_id": "YOUR_AGENT_ID",
-  "type": "thread_messages",
   "conversation": {
     "guild_id": "333333333333333333",
     "channel_id": "444444444444444444",
@@ -118,8 +117,8 @@ This does not assign or change the conversation used by the integration's tools.
 }
 ```
 
-The default event is `message`. Omit `thread_id` for a channel subscription;
-channel-root intake requires a bot mention. Removing the sending tool or changing
+Discord forwards messages from the subscribed conversation. Omit `thread_id`
+for a channel subscription; channel-root intake requires a bot mention. Removing the sending tool or changing
 config does not remove subscriptions. Use **Stop forwarding** on the integration page or
 DELETE the subscription to remove it, including while the integration is disconnected.
 

@@ -28,13 +28,7 @@ func (r *IntegrationRouter) freezeEmptyIfUnrouted(
 				return nil
 			}
 			request := requests[0]
-			candidates, err := r.integrations.IntegrationRoutingCandidatesForInbox(
-				ctx,
-				work,
-				request.address,
-				request.scopes,
-				event.Event.Kind,
-			)
+			candidates, err := r.candidatesForEvent(ctx, work, request)
 			if err != nil {
 				return err
 			}

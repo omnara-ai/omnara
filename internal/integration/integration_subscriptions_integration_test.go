@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func TestIntegrationRouterSameExpansionSubscriptionAdmitsMessagesAndMedia(t *tes
 	for _, slot := range plan {
 		if slot.Launch != nil {
 			plannedAgent = slot.AgentID
-			require.Equal(t, []string{"message"}, slot.Launch.Subscriptions[0].Events)
+			require.Len(t, slot.Launch.Subscriptions, 1)
 		}
 	}
 	require.NotEqual(t, uuid.Nil, plannedAgent)
@@ -134,9 +135,7 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 		store,
 		integration,
 		launched.Agent.ID,
-		"pull_request",
 		conversation,
-		"commit",
 	)
 	event := IntegrationEvent{
 		Event: integrationdefinition.Event{Kind: "commit", Scope: integrationdefinition.Scope{
@@ -160,30 +159,54 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 	}
 	router := NewIntegrationRouter(store.Execution(), store.Integrations())
 	excluded := event
-	excluded.Event.Kind, excluded.SemanticKey = "discussion_comment", "comment:1"
+	excluded.Event.Kind, excluded.SemanticKey = "pull_request_opened", "opened:1"
 	excludedReceipt := capture("excluded")
-	plan, err := router.Freeze(ctx, excludedReceipt.Lease(), []IntegrationEvent{excluded})
+	frozen, err := router.freezeEmptyIfUnrouted(ctx, excludedReceipt.Lease(), integration, excluded)
+	require.NoError(t, err)
+	require.True(t, frozen, "launch-only events do not keep subscription processing alive")
+	plan, err := router.Freeze(ctx, excludedReceipt.Lease(), []IntegrationEvent{event})
 	require.NoError(t, err)
 	require.Empty(t, plan)
 	_, err = router.Admit(ctx, excludedReceipt.Lease())
+	require.NoError(t, err)
+	integration, err = store.Integrations().UpdateProjectIntegration(
+		ctx, integration.ID, integrationstore.SaveProjectIntegrationInput{
+			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: integration.Name, IntegrationType: integration.IntegrationType,
+			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
+				Trigger: "pull_request_opened", ScopeKind: "installation", ScopeRef: integration.ProviderAccountRef,
+				Slots: []integrationstore.IntegrationLaunchSlot{{Key: "review", AgentID: &launched.Agent.ID}},
+			}},
+		},
+	)
+	require.NoError(t, err)
+	launcherCalled := false
+	workflow := NewIntegrationLaunchWorkflow(router, map[integrationdefinition.Type]IntegrationLauncher{
+		integrationdefinition.GitHubPR: func(
+			_ context.Context, input IntegrationLaunchContext,
+		) ([]IntegrationLaunchIntent, error) {
+			launcherCalled = true
+			require.Empty(t, input.Candidates.Subscriptions, "launch decisions use the same forwarding policy")
+			return nil, nil
+		},
+	})
+	unforwarded := capture("launch-decision")
+	decided, err := workflow.Decide(ctx, unforwarded.Lease(), unforwarded, integration, []IntegrationEvent{excluded})
+	require.NoError(t, err)
+	require.True(t, launcherCalled)
+	plan, err = router.Freeze(ctx, unforwarded.Lease(), decided)
+	require.NoError(t, err)
+	require.Empty(t, plan, "an existing subscription does not receive PR-open without a launch decision")
+	_, err = router.Admit(ctx, unforwarded.Lease())
 	require.NoError(t, err)
 	receipt := capture("included")
 	plan, err = router.Freeze(ctx, receipt.Lease(), []IntegrationEvent{event})
 	require.NoError(t, err)
 	require.Len(t, plan, 1)
 	for _, slot := range plan {
-		require.Equal(t, "commit", slot.Subscription.Event)
+		require.Equal(t, []integrationstore.ConversationAddress{{Kind: "pull_request", Ref: "123#42"}},
+			slot.Subscription.Alternatives)
 	}
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
-	createTestIntegrationSubscription(
-		t,
-		store,
-		integration,
-		launched.Agent.ID,
-		"pull_request",
-		conversation,
-		"discussion_comment",
-	)
 	_, err = router.Freeze(ctx, receipt.Lease(), []IntegrationEvent{excluded})
 	require.NoError(t, err)
 	results, err := router.Admit(ctx, receipt.Lease())
@@ -195,13 +218,11 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 		store,
 		integration,
 		launched.Agent.ID,
-		"pull_request",
 		conversation,
-		"commit",
 	)
 	require.NotEqual(t, original.ID, replacement.ID)
 	results, err = router.Admit(ctx, receipt.Lease())
-	require.NoError(t, err, "matching live type/address/events may authorize already frozen work")
+	require.NoError(t, err, "a matching live attachment may authorize already frozen work")
 	require.Len(t, results, 1)
 	require.True(t, results[0].Input.Created)
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
@@ -220,13 +241,13 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 
 func createTestIntegrationSubscription(
 	t *testing.T, store *storage.Store, integration integrationstore.ProjectIntegrationRecord, agentID uuid.UUID,
-	subscriptionType string, conversation string, events ...string,
+	conversation string,
 ) integrationstore.IntegrationSubscriptionRecord {
 	t.Helper()
 	subscription, err := store.Integrations().CreateIntegrationSubscription(
 		t.Context(), integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: integration.OrgID, ProjectID: integration.ProjectID, IntegrationID: integration.ID, AgentID: agentID,
-			Type: subscriptionType, Conversation: json.RawMessage(conversation), Events: events,
+			Conversation: json.RawMessage(conversation),
 		},
 	)
 	require.NoError(t, err)

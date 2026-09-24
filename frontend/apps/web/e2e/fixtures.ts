@@ -318,9 +318,10 @@ export async function expectIntegrationCapabilities(page: Page, integration: Pro
   await expect(
     capabilities.getByText(`int__${integration.name}__read`, { exact: true }),
   ).toBeVisible()
-  const subscription =
-    integration.integration_type === 'github_pr' ? 'pull_request' : 'thread_messages'
-  await expect(capabilities.getByText(subscription, { exact: true })).toBeVisible()
+  expect(integration.capabilities.subscription).toBeDefined()
+  await expect(
+    capabilities.getByRole('heading', { name: 'Conversation subscriptions', exact: true }),
+  ).toBeVisible()
   if (integration.integration_type !== 'github_pr')
     await expect(
       capabilities.getByText(/Listed under/).getByText(integration.name, { exact: true }),

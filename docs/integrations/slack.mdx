@@ -108,13 +108,12 @@ The subscriptions API can independently forward messages to an existing agent:
 ```json
 {
   "agent_id": "YOUR_AGENT_ID",
-  "type": "thread_messages",
   "conversation": {"channel_id": "C123", "thread_ts": "111.222333"}
 }
 ```
 
-Subscriptions use the `message` event by default. Attaching a subscription does
-not assign or change the conversation used by this integration's tools.
+Slack forwards messages from the subscribed conversation. Attaching a subscription
+does not assign or change the conversation used by this integration's tools.
 
 ## Questions and approvals
 

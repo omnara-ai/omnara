@@ -29,6 +29,7 @@ var (
 )
 
 type integrationEventCandidates struct {
+	forwards   bool
 	order      int
 	event      IntegrationEvent
 	address    integrationstore.ConversationAddress
@@ -73,13 +74,7 @@ func (r *IntegrationRouter) Freeze(
 			for i := range requests {
 				request := &requests[i]
 				var err error
-				request.candidates, err = r.integrations.IntegrationRoutingCandidatesForInbox(
-					ctx,
-					work,
-					request.address,
-					request.scopes,
-					request.event.Event.Kind,
-				)
+				request.candidates, err = r.candidatesForEvent(ctx, work, *request)
 				if err != nil {
 					return err
 				}
@@ -112,13 +107,7 @@ func (r *IntegrationRouter) Freeze(
 				return err
 			}
 			for _, request := range requests {
-				current, err := r.integrations.IntegrationRoutingCandidatesForInbox(
-					ctx,
-					work,
-					request.address,
-					request.scopes,
-					request.event.Event.Kind,
-				)
+				current, err := r.candidatesForEvent(ctx, work, request)
 				if err != nil {
 					return err
 				}
@@ -156,6 +145,10 @@ func prepareIntegrationEvents(
 	if len(events) > 64 {
 		return nil, fmt.Errorf("integration expansion exceeds 64 events")
 	}
+	definition, found := integrationdefinition.Lookup(integrationSetup.IntegrationType)
+	if !found {
+		return nil, fmt.Errorf("unknown integration type %q", integrationSetup.IntegrationType)
+	}
 	requests := make([]integrationEventCandidates, 0, len(events))
 	seen := map[string]bool{}
 	for order, event := range events {
@@ -184,7 +177,7 @@ func prepareIntegrationEvents(
 		if _, _, err := integrationRecipientContent(event); err != nil {
 			return nil, err
 		}
-		request := integrationEventCandidates{event: event, order: order}
+		request := integrationEventCandidates{event: event, order: order, forwards: definition.Forwards(event.Event.Kind)}
 		for _, address := range addresses {
 			request.scopes = append(
 				request.scopes,
@@ -206,8 +199,20 @@ func prepareIntegrationEvents(
 	return requests, nil
 }
 
+func (r *IntegrationRouter) candidatesForEvent(
+	ctx context.Context,
+	work *integrationstore.IntegrationInboxLeaseTx,
+	request integrationEventCandidates,
+) (integrationstore.IntegrationRoutingCandidates, error) {
+	candidates, err := r.integrations.IntegrationRoutingCandidatesForInbox(ctx, work, request.address, request.scopes)
+	if !request.forwards {
+		candidates.Subscriptions = nil
+	}
+	return candidates, err
+}
+
 func (r integrationEventCandidates) matchesSubscriptionAddress(address integrationstore.ConversationAddress) bool {
-	if !slices.Contains(r.scopes, address) {
+	if !r.forwards || !slices.Contains(r.scopes, address) {
 		return false
 	}
 	scope := r.event.Event.Scope.Discord
@@ -272,37 +277,29 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 		}
 		event.ContentBlocks = content
 		recipients := map[uuid.UUID]*executionstore.InboxSubscriptionAuthority{}
-		addSubscription := func(agentID uuid.UUID, ref executionstore.InboxSubscriptionReference) {
+		addSubscription := func(agentID uuid.UUID, address integrationstore.ConversationAddress) {
 			authority := recipients[agentID]
 			if authority == nil {
-				authority = &executionstore.InboxSubscriptionAuthority{Event: event.Event.Kind}
+				authority = &executionstore.InboxSubscriptionAuthority{}
 				recipients[agentID] = authority
 			}
-			authority.Alternatives = append(authority.Alternatives, ref)
+			authority.Alternatives = append(authority.Alternatives, address)
 		}
 		for _, subscription := range candidates.Subscriptions {
 			if event.Directed || !request.matchesSubscriptionAddress(subscription.Address) {
 				continue
 			}
-			addSubscription(
-				subscription.AgentID,
-				executionstore.InboxSubscriptionReference{
-					Type:    subscription.Type,
-					Address: subscription.Address,
-				},
-			)
+			addSubscription(subscription.AgentID, subscription.Address)
 		}
 		for _, subscription := range planned {
 			if event.Directed {
 				break
 			}
-			if subscription.IntegrationID != integrationSetup.ID || !slices.Contains(subscription.Events, event.Event.Kind) ||
+			if subscription.IntegrationID != integrationSetup.ID ||
 				!request.matchesSubscriptionAddress(subscription.Address) {
 				continue
 			}
-			addSubscription(subscription.AgentID, executionstore.InboxSubscriptionReference{
-				Type: subscription.Type, Address: subscription.Address,
-			})
+			addSubscription(subscription.AgentID, subscription.Address)
 		}
 		for _, intent := range event.Launches {
 			integration, settledAgent, err := resolveIntegrationLaunchIntent(receipt.ProjectID, intent, candidates)
@@ -398,8 +395,8 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 			}
 			for _, subscription := range subscriptions {
 				planned = append(planned, integrationstore.IntegrationSubscriptionRecord{
-					IntegrationID: subscription.IntegrationID, AgentID: agentID, Type: subscription.Type,
-					Address: request.address, Events: subscription.Events,
+					IntegrationID: subscription.IntegrationID, AgentID: agentID,
+					Address: request.address,
 				})
 			}
 			selected[identity] = selectedRecipient{agentID, request.order}
@@ -540,27 +537,19 @@ func integrationLaunchSubscriptions(
 	if err := scope.Validate(definition.Provider); err != nil {
 		return nil, err
 	}
-	if definition.InitialSubscription == "" {
+	if !definition.SubscribeOnLaunch {
 		return nil, nil
 	}
-	subscriptionType := definition.InitialSubscription
-	subscription, exists := definition.Subscriptions[subscriptionType]
-	if !exists {
-		return nil, fmt.Errorf("integration initial subscription %q is not defined", subscriptionType)
+	if definition.Subscription == nil {
+		return nil, fmt.Errorf("integration cannot subscribe on launch without a subscription capability")
 	}
 	conversation, err := scope.ConversationJSON()
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := subscription.Prepare(conversation, nil)
-	if err != nil {
-		return nil, err
-	}
 	return []integrationstore.IntegrationSubscriptionAttachment{{
 		IntegrationID: integrationID,
-		Type:          subscriptionType,
 		Conversation:  conversation,
-		Events:        slices.Clone(prepared.Events),
 	}}, nil
 }
 

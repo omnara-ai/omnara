@@ -17,7 +17,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
     provider_account_ref: '',
     provider_agent_display_name: '',
     provider_config: {},
-    capabilities: { tools: {}, subscriptions: {} },
+    capabilities: { tools: {} },
     created_at: '2026-09-22T00:00:00Z',
     updated_at: '2026-09-22T00:00:00Z',
   }

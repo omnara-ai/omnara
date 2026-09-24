@@ -7068,7 +7068,7 @@ paths:
       operationId: createIntegrationSubscription
       tags: [Integrations]
       summary: Attach an agent to an integration conversation
-      description: Requires project management permission. Repeating an active attachment returns the same subscription. Different events for the same attachment return a conflict. Subscriptions do not change the agent config or grant sending tools.
+      description: Requires project management permission. Repeating an active attachment returns the same subscription. Subscriptions do not change the agent config or grant sending tools.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -14262,51 +14262,29 @@ components:
       additionalProperties: true
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
-      description: One concrete provider address, validated by the integration subscription type's conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+      description: One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
     IntegrationSubscriptionAttachment:
       type: object
       additionalProperties: false
-      required: [integration_id, type, conversation]
+      required: [integration_id, conversation]
       properties:
         integration_id:
           $ref: '#/components/schemas/ProjectIntegrationID'
-        type:
-          type: string
-          minLength: 1
-          description: Named subscription type exported by the integration definition.
         conversation:
           $ref: '#/components/schemas/IntegrationSubscriptionConversation'
-        events:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            type: string
-          description: Event selection validated against the integration definition. Omit to use its defaults.
     CreateIntegrationSubscriptionRequest:
       type: object
       additionalProperties: false
-      required: [agent_id, type, conversation]
+      required: [agent_id, conversation]
       properties:
         agent_id:
           $ref: '#/components/schemas/AgentID'
-        type:
-          type: string
-          minLength: 1
-          description: Named subscription type exported by the integration definition.
         conversation:
           $ref: '#/components/schemas/IntegrationSubscriptionConversation'
-        events:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items:
-            type: string
-          description: Event selection validated against the integration definition. Omit to use its defaults.
     IntegrationSubscription:
       type: object
       additionalProperties: false
-      required: [id, project_id, integration_id, agent_id, agent_name, type, conversation, events, created_at]
+      required: [id, project_id, integration_id, agent_id, agent_name, conversation, created_at]
       properties:
         id:
           $ref: '#/components/schemas/IntegrationSubscriptionID'
@@ -14318,17 +14296,8 @@ components:
           $ref: '#/components/schemas/AgentID'
         agent_name:
           $ref: '#/components/schemas/AgentName'
-        type:
-          type: string
-          minLength: 1
-          description: Named subscription type exported by the integration definition.
         conversation:
           $ref: '#/components/schemas/IntegrationSubscriptionConversation'
-        events:
-          type: array
-          items:
-            type: string
-          description: Resolved event selection for this subscription.
         created_at:
           $ref: '#/components/schemas/Timestamp'
     ListIntegrationSubscriptionsResponse:
@@ -14346,30 +14315,24 @@ components:
     IntegrationSubscriptionDefinition:
       type: object
       additionalProperties: false
-      required: [conversation_schema, events]
+      required: [conversation_schema]
       properties:
         conversation_schema:
           type: object
           additionalProperties: true
           description: Schema for one concrete provider conversation address.
-        events:
-          type: array
-          items:
-            type: string
-          description: Supported event types; omitted event selections default to this set.
     IntegrationCapabilities:
       type: object
       additionalProperties: false
-      required: [tools, subscriptions]
+      required: [tools]
       properties:
         tools:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/IntegrationCapabilityDefinition'
-        subscriptions:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/IntegrationSubscriptionDefinition'
+        subscription:
+          $ref: '#/components/schemas/IntegrationSubscriptionDefinition'
+          description: Present when the integration supports forwarding from a conversation. The integration owns forwarding policy.
         interaction_handler:
           $ref: '#/components/schemas/IntegrationCapabilityDefinition'
         schedule:

@@ -26,7 +26,6 @@ it('uses the declared schedule capability, defaults, order and constraints witho
     state: 'active',
     capabilities: {
       tools: {},
-      subscriptions: {},
       schedule: {
         description: 'Check a work queue.',
         input_schema: {
@@ -136,7 +135,6 @@ it.each(['nested schema', 'additional saved settings'])(
       state: 'active',
       capabilities: {
         tools: {},
-        subscriptions: {},
         schedule: {
           description: 'Process jobs.',
           input_schema: {

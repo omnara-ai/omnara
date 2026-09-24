@@ -39,6 +39,10 @@ func (d Definition) SupportsLaunchTrigger(trigger string) bool {
 	return slices.Contains(d.LaunchTriggers, trigger)
 }
 
+func (d Definition) Forwards(event string) bool {
+	return d.Subscription != nil && slices.Contains(d.Subscription.Events, event)
+}
+
 func (d Definition) MatchesLauncher(e Event, trigger string) bool {
 	if !d.SupportsLaunchTrigger(trigger) || e.Scope.Provider() != d.Provider || e.Validate() != nil {
 		return false

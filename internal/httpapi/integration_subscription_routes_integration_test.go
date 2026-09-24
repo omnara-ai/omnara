@@ -24,7 +24,7 @@ func subscriptionHTTPAgent(t *testing.T, f integrationLaunchHTTPFixture) string 
 
 func subscriptionHTTPBody(agentID, channel string) map[string]any {
 	return map[string]any{
-		"agent_id": agentID, "type": "thread_messages", "conversation": map[string]any{"channel_id": channel},
+		"agent_id": agentID, "conversation": map[string]any{"channel_id": channel},
 	}
 }
 
@@ -46,9 +46,7 @@ func TestIntegrationSubscriptionsHTTPPaginationAndDetachReplay(t *testing.T) {
 	require.Equal(t, f.integrationID, first["integration_id"])
 	require.Equal(t, agentID, first["agent_id"])
 	require.Equal(t, "Subscribed agent", first["agent_name"])
-	require.Equal(t, "thread_messages", first["type"])
 	require.Equal(t, map[string]any{"channel_id": "C100"}, first["conversation"])
-	require.Equal(t, []any{"message"}, first["events"])
 	_, err := time.Parse(time.RFC3339Nano, testutil.RequireType[string](t, first["created_at"]))
 	require.NoError(t, err)
 	require.Equal(t, first, create("C100"), "repeated attach preserves identity and timestamps")
@@ -172,7 +170,7 @@ func TestIntegrationSubscriptionsHTTPValidation(t *testing.T) {
 		{"missing-agent", func(b map[string]any) { delete(b, "agent_id") }},
 		{"raw-agent-id", func(b map[string]any) { b["agent_id"] = uuid.NewString() }},
 		{"wrong-id-kind", func(b map[string]any) { b["agent_id"] = f.integrationID }},
-		{"unknown-type", func(b map[string]any) { b["type"] = "missing" }},
+		{"unexpected-property", func(b map[string]any) { b["unexpected"] = true }},
 		{"empty-conversation", func(b map[string]any) { b["conversation"] = map[string]any{} }},
 		{"wrong-provider", func(b map[string]any) {
 			b["conversation"] = map[string]any{"repository_id": 1, "pull_request": 2}
@@ -180,9 +178,6 @@ func TestIntegrationSubscriptionsHTTPValidation(t *testing.T) {
 		{"unknown-conversation-field", func(b map[string]any) {
 			b["conversation"] = map[string]any{"channel_id": "C123", "state": map[string]any{}}
 		}},
-		{"empty-events", func(b map[string]any) { b["events"] = []string{} }},
-		{"duplicate-events", func(b map[string]any) { b["events"] = []string{"message", "message"} }},
-		{"unknown-events", func(b map[string]any) { b["events"] = []string{"commit"} }},
 		{"missing-conversation", func(b map[string]any) { delete(b, "conversation") }},
 	} {
 		t.Logf("invalid subscription case: %s", tc.name)
@@ -198,9 +193,9 @@ func TestIntegrationSubscriptionsHTTPValidation(t *testing.T) {
 	require.Empty(t, page["data"])
 }
 
-func TestIntegrationSubscriptionsHTTPEventSelectionConflict(t *testing.T) {
+func TestIntegrationSubscriptionsHTTPGitHubAddressReplay(t *testing.T) {
 	t.Parallel()
-	f := newGitHubHTTPJourney(t, "subscription-events")
+	f := newGitHubHTTPJourney(t, "subscription-github-address")
 	config := createPublicHTTPAgentConfig(t, f.handler, f.project, "subscription-config", "json",
 		projectIntegrationHTTPJSON(t, projectIntegrationHTTPSource(nil)), f.project.AdminToken, http.StatusCreated)
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
@@ -210,14 +205,12 @@ func TestIntegrationSubscriptionsHTTPEventSelectionConflict(t *testing.T) {
 	path := f.project.ProjectPath +
 		"/integrations/" + testPublicID(t, publicid.KindProjectIntegration, f.integration.ID) + "/subscriptions"
 	body := map[string]any{
-		"agent_id": agentID, "type": "pull_request",
+		"agent_id":     agentID,
 		"conversation": map[string]any{"repository_id": int64(9007199254740993), "pull_request": 42},
-		"events":       []string{"commit"},
 	}
 	headers := authHeaders(f.project.AdminToken)
 	first := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
 		projectIntegrationHTTPJSON(t, body), "", http.StatusCreated, headers)
-	require.Equal(t, []any{"commit"}, first["events"])
 	var ref string
 	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
 		`SELECT scope_ref FROM integration_subscriptions WHERE id=$1`,
@@ -226,9 +219,6 @@ func TestIntegrationSubscriptionsHTTPEventSelectionConflict(t *testing.T) {
 	duplicate := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
 		projectIntegrationHTTPJSON(t, body), "", http.StatusCreated, headers)
 	require.Equal(t, first, duplicate)
-	body["events"] = []string{"discussion_comment"}
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
-		projectIntegrationHTTPJSON(t, body), "", http.StatusConflict, headers)
 	page := requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusOK, headers)
-	require.Equal(t, []any{first}, page["data"], "conflicting explicit attach must preserve the original event filter")
+	require.Equal(t, []any{first}, page["data"], "repeated attachment preserves a single routing subscription")
 }

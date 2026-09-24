@@ -45,7 +45,7 @@ func newIntegrationActivationFixture(t *testing.T) integrationActivationFixture 
 
 func (f integrationActivationFixture) attachment() integrationstore.IntegrationSubscriptionAttachment {
 	return integrationstore.IntegrationSubscriptionAttachment{
-		IntegrationID: f.integration.ID, Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"C123"}`),
+		IntegrationID: f.integration.ID, Conversation: json.RawMessage(`{"channel_id":"C123"}`),
 	}
 }
 
@@ -119,8 +119,8 @@ func (f integrationActivationFixture) changeInput(
 
 func (f integrationActivationFixture) subscriptions(t *testing.T, agentID uuid.UUID) []dbsqlc.IntegrationSubscription {
 	t.Helper()
-	rows, err := f.store.pool.Query(f.ctx, `SELECT id,project_id,agent_id,integration_id,subscription_type,
-		scope_kind,scope_ref,events,created_at FROM integration_subscriptions
+	rows, err := f.store.pool.Query(f.ctx, `SELECT id,project_id,agent_id,integration_id,
+		scope_kind,scope_ref,created_at FROM integration_subscriptions
 		WHERE project_id=$1 AND agent_id=$2 ORDER BY id`, testProjectID, agentID)
 	require.NoError(t, err)
 	subscriptions, err := pgx.CollectRows(rows, pgx.RowToStructByName[dbsqlc.IntegrationSubscription])
@@ -136,7 +136,7 @@ func (f integrationActivationFixture) attach(
 		f.ctx,
 		integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: testOrgID, ProjectID: testProjectID, AgentID: agentID, IntegrationID: attachment.IntegrationID,
-			Type: attachment.Type, Conversation: attachment.Conversation, Events: attachment.Events,
+			Conversation: attachment.Conversation,
 		},
 	)
 	require.NoError(t, err)
@@ -229,7 +229,6 @@ func TestIntegrationSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) 
 	require.Len(t, before, 1)
 	require.Equal(t, "channel", before[0].ScopeKind)
 	require.Equal(t, "C123", before[0].ScopeRef)
-	require.Equal(t, []string{"message"}, before[0].Events)
 	update := f.changeInput(t, launch.Agent.ID, "Unrelated instruction change", "integration-edit")
 	update.ExpectedCurrentConfigID = config.ID
 	changed, err := f.store.Execution().ChangeAgentConfig(f.ctx, update)
@@ -292,7 +291,7 @@ func TestIntegrationSubscriptionsRejectCrossProjectIntegrations(t *testing.T) {
 				f.ctx,
 				integrationstore.CreateIntegrationSubscriptionInput{
 					OrgID: testOrgID, ProjectID: testProjectID, IntegrationID: attachment.IntegrationID, AgentID: base.Agent.ID,
-					Type: attachment.Type, Conversation: attachment.Conversation,
+					Conversation: attachment.Conversation,
 				},
 			)
 			require.ErrorIs(t, err, storeerr.ErrNotFound)
@@ -342,7 +341,7 @@ func TestIntegrationConfigChangesRemainAvailableAtSubscriptionQuota(t *testing.T
 		f.ctx,
 		integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: testOrgID, ProjectID: testProjectID, AgentID: base.Agent.ID, IntegrationID: f.integration.ID,
-			Type: f.attachment().Type, Conversation: f.attachment().Conversation,
+			Conversation: f.attachment().Conversation,
 		},
 	)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
@@ -377,7 +376,7 @@ func TestIntegrationSubscriptionQuotaPreservesExistingRoutesAndReleasesOnDetach(
 		f.ctx,
 		integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: testOrgID, ProjectID: testProjectID, AgentID: launch.Agent.ID, IntegrationID: second.IntegrationID,
-			Type: second.Type, Conversation: second.Conversation,
+			Conversation: second.Conversation,
 		},
 	)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
@@ -610,7 +609,7 @@ func TestIntegrationCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigCh
 				rows, err := f.store.q.ListMatchingIntegrationSubscriptions(
 					f.ctx,
 					dbsqlc.ListMatchingIntegrationSubscriptionsParams{
-						ProjectID: testProjectID, IntegrationID: integrationID, Event: "message", Scopes: json.RawMessage(`[{"kind":"channel","ref":"C123"}]`),
+						ProjectID: testProjectID, IntegrationID: integrationID, Scopes: json.RawMessage(`[{"kind":"channel","ref":"C123"}]`),
 					},
 				)
 				require.NoError(t, err)
@@ -630,7 +629,7 @@ func TestIntegrationCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigCh
 				f.ctx,
 				integrationstore.CreateIntegrationSubscriptionInput{
 					OrgID: testOrgID, ProjectID: testProjectID, AgentID: base.Agent.ID, IntegrationID: secondary.ID,
-					Type: attachment.Type, Conversation: attachment.Conversation,
+					Conversation: attachment.Conversation,
 				},
 			)
 			require.ErrorIs(t, err, wantErr)
@@ -685,7 +684,7 @@ func TestIntegrationCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *test
 			require.NoError(t, err)
 			slot.Launch.AgentConfigID = saved.ID
 			attachment := f.attachment()
-			attachment.Conversation, attachment.Events = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`), []string{"message"}
+			attachment.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
 			slot.Launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{attachment}
 			_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 
@@ -797,7 +796,7 @@ func TestIntegrationSubscriptionConcurrentAttachmentsSerializeQuota(t *testing.T
 				f.ctx,
 				integrationstore.CreateIntegrationSubscriptionInput{
 					OrgID: testOrgID, ProjectID: testProjectID, AgentID: launch.Agent.ID, IntegrationID: f.integration.ID,
-					Type: "thread_messages", Conversation: json.RawMessage(conversation),
+					Conversation: json.RawMessage(conversation),
 				},
 			)
 		}))

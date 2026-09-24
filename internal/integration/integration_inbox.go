@@ -92,7 +92,6 @@ type IntegrationRoutingStore interface {
 		*integrationstore.IntegrationInboxLeaseTx,
 		integrationstore.ConversationAddress,
 		[]integrationstore.ConversationAddress,
-		string,
 	) (integrationstore.IntegrationRoutingCandidates, error)
 }
 

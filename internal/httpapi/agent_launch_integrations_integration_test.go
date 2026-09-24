@@ -339,7 +339,7 @@ func hostedLaunchHTTPCapabilities(integrationName, integrationID string) map[str
 	return map[string]any{
 		"tools": map[string]any{toolcatalog.IntegrationToolName(integrationName, toolcatalog.IntegrationOperationRead): map[string]any{}},
 		"subscriptions": []any{map[string]any{
-			"integration_id": integrationID, "type": "thread_messages", "conversation": conversation, "events": []string{"message"},
+			"integration_id": integrationID, "conversation": conversation,
 		}},
 		"interaction_handlers": map[string]any{integrationName: map[string]any{}},
 	}
@@ -384,7 +384,7 @@ func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing
 		"", "", http.StatusNoContent, authHeaders(f.launchToken))
 	after = f.counts(t)
 	body["subscriptions"] = []any{
-		map[string]any{"integration_id": f.integrationID, "type": "missing", "conversation": map[string]any{}},
+		map[string]any{"integration_id": f.integrationID, "conversation": map[string]any{}},
 	}
 	replay := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		projectIntegrationHTTPJSON(t, body), "subscription-launch", http.StatusOK, authHeaders(f.launchToken))
@@ -410,16 +410,15 @@ func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T)
 			a["integration_id"] = testPublicID(t, publicid.KindProjectIntegration, foreign.ID)
 		}},
 		{"wrong-id-kind", http.StatusBadRequest, func(a map[string]any) { a["integration_id"] = f.configID }},
-		{"unknown-type", http.StatusBadRequest, func(a map[string]any) { a["type"] = "missing" }},
+		{"unexpected-property", http.StatusBadRequest, func(a map[string]any) { a["unexpected"] = true }},
 		{"empty-conversation", http.StatusBadRequest, func(a map[string]any) { a["conversation"] = map[string]any{} }},
-		{"invalid-event", http.StatusBadRequest, func(a map[string]any) { a["events"] = []string{"commit"} }},
 	} {
 		t.Logf("invalid subscription case: %s", tc.name)
 		body := f.body()
 		delete(body, "tools")
 		delete(body, "interaction_handlers")
 		bad := map[string]any{
-			"integration_id": f.integrationID, "type": "thread_messages", "conversation": map[string]any{"channel_id": "COTHER"},
+			"integration_id": f.integrationID, "conversation": map[string]any{"channel_id": "COTHER"},
 		}
 		tc.edit(bad)
 		body["subscriptions"] = append(testutil.RequireType[[]any](t, body["subscriptions"]), bad)

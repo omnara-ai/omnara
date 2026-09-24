@@ -291,9 +291,8 @@ func TestGitHubHTTPExistingAgentSubscriptionJourney(t *testing.T) {
 		f.project.ProjectPath+
 			"/integrations/"+testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)+"/subscriptions",
 		projectIntegrationHTTPJSON(t, map[string]any{
-			"agent_id": publicAgentID, "type": "pull_request",
+			"agent_id":     publicAgentID,
 			"conversation": map[string]any{"repository_id": 1001, "pull_request": 42},
-			"events":       []string{"discussion_comment", "review_comment", "commit"},
 		}), "", http.StatusCreated, authHeaders(f.project.AdminToken))
 	raw := githubHTTPComment(t, 42, 4001, "Human steering without a mention")
 	githubHTTPWebhook(t, f.handler, "issue_comment", "existing", githubJourneyWebhookSecret, raw, http.StatusNoContent)

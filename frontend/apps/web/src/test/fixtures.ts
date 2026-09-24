@@ -139,14 +139,8 @@ export function integrationDefinition(
               reply: capability,
             }
           : { read: capability, post_message: capability },
-      subscriptions: {
-        [integrationType === 'github_pr' ? 'pull_request' : 'thread_messages']: {
-          conversation_schema: { type: 'object', properties: {} },
-          events:
-            integrationType === 'github_pr'
-              ? ['discussion_comment', 'review_comment', 'commit']
-              : ['message'],
-        },
+      subscription: {
+        conversation_schema: { type: 'object', properties: {} },
       },
     },
   }

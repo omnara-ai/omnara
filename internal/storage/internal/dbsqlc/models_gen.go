@@ -262,15 +262,13 @@ type IntegrationState struct {
 }
 
 type IntegrationSubscription struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	SubscriptionType string
-	ScopeKind        string
-	ScopeRef         string
-	Events           []string
-	CreatedAt        time.Time
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
+	CreatedAt     time.Time
 }
 
 type MachineDaemonToken struct {

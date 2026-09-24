@@ -3465,7 +3465,7 @@ export const listIntegrationSubscriptions = <ThrowOnError extends boolean = true
 /**
  * Attach an agent to an integration conversation
  *
- * Requires project management permission. Repeating an active attachment returns the same subscription. Different events for the same attachment return a conflict. Subscriptions do not change the agent config or grant sending tools.
+ * Requires project management permission. Repeating an active attachment returns the same subscription. Subscriptions do not change the agent config or grant sending tools.
  */
 export const createIntegrationSubscription = <ThrowOnError extends boolean = true>(options: Options<CreateIntegrationSubscriptionData, ThrowOnError>): RequestResult<CreateIntegrationSubscriptionResponses, CreateIntegrationSubscriptionErrors, ThrowOnError> => (options.client ?? client).post<CreateIntegrationSubscriptionResponses, CreateIntegrationSubscriptionErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateIntegrationSubscriptionResponse),

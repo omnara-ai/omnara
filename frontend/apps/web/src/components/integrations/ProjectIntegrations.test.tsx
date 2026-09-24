@@ -297,8 +297,10 @@ it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
     const section = container.querySelector('[aria-label="Advanced"]')
     const keys = [...(section?.querySelectorAll('code') ?? [])].map((code) => code.textContent)
     expect(keys).toContain('int__customer-support__read')
-    expect(section?.textContent).toContain('Subscription types')
-    expect(keys).toContain(integrationType === 'github_pr' ? 'pull_request' : 'thread_messages')
+    expect(section?.textContent).toContain('Conversation subscriptions')
+    expect(section?.textContent).toContain(
+      'The integration determines which activity is forwarded.',
+    )
     if (integrationType === 'github_pr') {
       expect(keys).not.toContain('interaction_handlers')
     } else {
@@ -307,6 +309,19 @@ it.each(['slack_thread', 'discord_thread', 'github_pr'] as const)(
     }
   },
 )
+
+it('shows tools without optional subscription or handler capabilities', () => {
+  const integration = projectIntegration()
+  integration.capabilities = { tools: integration.capabilities.tools }
+  render(fakeApi([]), <ProjectIntegrationAdvanced integration={integration} />)
+  act(() => {
+    button('Advanced').click()
+  })
+  const section = container.querySelector('[aria-label="Advanced"]')
+  expect(section?.textContent).toContain(`int__${integration.name}__read`)
+  expect(section?.textContent).not.toContain('Conversation subscriptions')
+  expect(section?.textContent).not.toContain('Interaction handler')
+})
 
 it.each(['active', 'disconnected'] as const)(
   'shows current connection failures only for an active integration and refreshes status (%s)',

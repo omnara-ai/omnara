@@ -36,7 +36,7 @@ func subscriptionInput(
 ) integrationstore.CreateIntegrationSubscriptionInput {
 	return integrationstore.CreateIntegrationSubscriptionInput{
 		OrgID: f.org, ProjectID: f.project, IntegrationID: f.integrationID, AgentID: agentID,
-		Type: "thread_messages", Conversation: json.RawMessage(conversation)}
+		Conversation: json.RawMessage(conversation)}
 }
 
 func TestIntegrationSubscriptionsIndependentIdentityPaginationAndDetach(t *testing.T) {
@@ -46,7 +46,6 @@ func TestIntegrationSubscriptionsIndependentIdentityPaginationAndDetach(t *testi
 	input := subscriptionInput(f, agent.ID, `{"channel_id":"C123","thread_ts":"111.222"}`)
 	first, err := f.store.CreateIntegrationSubscription(f.ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, []string{"message"}, first.Events)
 	require.Equal(t, agent.Name, first.AgentName)
 	require.JSONEq(t, string(input.Conversation), string(first.Conversation))
 	var wg sync.WaitGroup
@@ -110,22 +109,10 @@ func TestIntegrationSubscriptionValidationDisconnectAndLifecycle(t *testing.T) {
 	f := newInboxFixture(t)
 	agent := subscriptionAgent(t, f)
 	input := subscriptionInput(f, agent.ID, `{"channel_id":"C123"}`)
-	for _, change := range []struct {
-		typeName     string
-		conversation string
-		events       []string
-	}{
-		{"unknown", string(input.Conversation), nil},
-		{input.Type, `{"repository_id":123,"pull_request":1}`, nil},
-		{input.Type, string(input.Conversation), []string{}},
-		{input.Type, string(input.Conversation), []string{"unknown"}},
-	} {
-		invalid := input
-		invalid.Type, invalid.Events = change.typeName, change.events
-		invalid.Conversation = json.RawMessage(change.conversation)
-		_, err := f.store.CreateIntegrationSubscription(f.ctx, invalid)
-		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-	}
+	invalid := input
+	invalid.Conversation = json.RawMessage(`{"repository_id":123,"pull_request":1}`)
+	_, err := f.store.CreateIntegrationSubscription(f.ctx, invalid)
+	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	subscription, err := f.store.CreateIntegrationSubscription(f.ctx, input)
 	require.NoError(t, err)
 	changed, err := f.store.DisconnectProjectIntegration(f.ctx, integrationstore.DisconnectProjectIntegrationInput{

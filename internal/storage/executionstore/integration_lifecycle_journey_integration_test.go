@@ -26,7 +26,7 @@ func newIntegrationLifecycleJourney(t *testing.T) integrationInteractionFixture 
 			f.ctx,
 			integrationstore.CreateIntegrationSubscriptionInput{
 				OrgID: testOrgID, ProjectID: testProjectID, IntegrationID: spec.integration.ID, AgentID: f.process.AgentID,
-				Type: "thread_messages", Conversation: json.RawMessage(`{"channel_id":"` + spec.channel + `"}`),
+				Conversation: json.RawMessage(`{"channel_id":"` + spec.channel + `"}`),
 			},
 		)
 		require.NoError(t, err)

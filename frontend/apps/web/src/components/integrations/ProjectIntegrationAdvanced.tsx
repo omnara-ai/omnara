@@ -8,7 +8,6 @@ export function ProjectIntegrationAdvanced({ integration }: { integration: Proje
   const client = useOmnaraClient()
   const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
   const tools = Object.entries(integration.capabilities.tools)
-  const subscriptions = Object.entries(integration.capabilities.subscriptions)
   return (
     <Collapsible asChild>
       <section aria-label="Advanced" className="text-sm">
@@ -74,22 +73,13 @@ export function ProjectIntegrationAdvanced({ integration }: { integration: Proje
                 </li>
               ))}
             </ul>
-            {subscriptions.length > 0 && (
+            {integration.capabilities.subscription && (
               <>
-                <h4 className="pt-2 font-medium">Subscription types</h4>
+                <h4 className="pt-2 font-medium">Conversation subscriptions</h4>
                 <p className="text-muted-foreground">
-                  Use these types with this integration’s subscriptions API:
+                  Connect a conversation to an agent through this integration’s subscriptions API.
+                  The integration determines which activity is forwarded.
                 </p>
-                <ul className="flex flex-col gap-2">
-                  {subscriptions.map(([name, capability]) => (
-                    <li key={name}>
-                      <code>{name}</code>
-                      <p className="text-muted-foreground">
-                        Events: {capability.events.join(', ')}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
               </>
             )}
             {integration.capabilities.interaction_handler && (
