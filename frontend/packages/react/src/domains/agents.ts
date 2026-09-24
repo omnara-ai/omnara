@@ -1,6 +1,7 @@
 import { ApiError, type GetAgentResponse, type ListAgentsData, sdk } from '@omnara/sdk'
 import {
   getAgentConfigOptions,
+  getAgentConfigQueryKey,
   getAgentOptions,
   getAgentQueryKey,
   getOrgOverviewQueryKey,
@@ -88,7 +89,23 @@ export function useUpdateAgentConfig(orgID: string, projectID: string, agentID: 
     sdk.updateAgentConfig,
     { orgID, projectID, agentID },
     {
-      onSuccess: invalidateAgent,
+      onSuccess: async ({ agent_config: config }) => {
+        queryClient.setQueryData(
+          getAgentConfigQueryKey({
+            path: { orgID, projectID, agentConfigID: config.id },
+            client,
+          }),
+          config,
+        )
+        queryClient.setQueryData<GetAgentResponse>(
+          getAgentQueryKey({ path: { orgID, projectID, agentID }, client }),
+          (current) =>
+            current === undefined
+              ? current
+              : { ...current, agent: { ...current.agent, current_config_id: config.id } },
+        )
+        await invalidateAgent()
+      },
       onError: async (error) => {
         if (error instanceof ApiError && error.status === 409) {
           await invalidateAgent()

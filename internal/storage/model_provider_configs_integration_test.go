@@ -401,17 +401,24 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create anthropic-messages model without format-specific default: %v", err)
 	}
-	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                  testOrgID,
-		ModelProviderConfigID:  anthropicConfig.ID,
-		Name:                   "claude-thinking-not-yet",
-		ProviderModelSlug:      "claude-thinking-not-yet",
-		ContextWindowTokens:    200000,
-		MaxOutputTokens:        new(4096),
-		SupportsReasoning:      true,
-		DefaultReasoningEffort: "high",
-	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-		t.Fatalf("anthropic reasoning options error = %v, want ErrInvalidModelProviderConfig", err)
+	anthropicEffortModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                     testOrgID,
+		ModelProviderConfigID:     anthropicConfig.ID,
+		Name:                      "claude-effort",
+		ProviderModelSlug:         "claude-effort",
+		ContextWindowTokens:       200000,
+		MaxOutputTokens:           new(4096),
+		SupportsReasoning:         true,
+		DefaultReasoningEffort:    "high",
+		SupportedReasoningEfforts: []string{"max", "xhigh", "high", "medium", "low"},
+	})
+	if err != nil {
+		t.Fatalf("create anthropic-messages model with effort: %v", err)
+	}
+	if !anthropicEffortModel.SupportsReasoning ||
+		anthropicEffortModel.DefaultReasoningEffort != "high" ||
+		!slices.Equal(anthropicEffortModel.SupportedReasoningEfforts, []string{"max", "xhigh", "high", "medium", "low"}) {
+		t.Fatalf("anthropic-messages effort options mismatch: %+v", anthropicEffortModel)
 	}
 
 	modelInput := modelstore.CreateConfiguredModelInput{
