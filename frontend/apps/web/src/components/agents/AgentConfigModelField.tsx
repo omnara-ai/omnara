@@ -163,9 +163,9 @@ export function AgentConfigModelField({
           {selected && pricingPending && !selected.pricing ? (
             <Skeleton className="h-3 w-36" />
           ) : selected ? (
-            <>
+            <span>
               <ModelPricingSummary pricing={selected.pricing} /> per 1M tokens
-            </>
+            </span>
           ) : null}
         </p>
         <ResourceNameFieldError value={value.providerConfig} fieldLabel="Provider config name" />
