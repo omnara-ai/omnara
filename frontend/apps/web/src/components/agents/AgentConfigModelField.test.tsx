@@ -1,7 +1,11 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { type ConfiguredModelSummary, createOmnaraClient } from '@omnara/sdk'
+import {
+  type ConfiguredModelSummary,
+  createOmnaraClient,
+  type ModelProviderConfig,
+} from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -112,9 +116,11 @@ beforeEach(() => {
               auth_kind: 'bearer_token',
               auth_options: {},
               credential_secret_id: fakeId('sec'),
+              headers: {},
+              secret_headers: {},
               created_at: timestamp,
               updated_at: timestamp,
-            },
+            } satisfies ModelProviderConfig,
           ],
           next_cursor: null,
         }),
