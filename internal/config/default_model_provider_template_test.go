@@ -74,17 +74,6 @@ models:
 	}
 }
 
-func TestLoadDefaultModelProviderExample(t *testing.T) {
-	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
-	t.Setenv("OMNARA_HOSTED_API_URL", "https://saas.example.test")
-	t.Setenv("OMNARA_HOSTED_API_TOKEN", testHostedAPIToken)
-	t.Setenv("OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE", filepath.Join("..", "..", "default-model-provider-example.yaml"))
-
-	if _, err := Load(); err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-}
-
 func TestDefaultModelProviderTemplateRequiresCredentialService(t *testing.T) {
 	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
 	path := filepath.Join(t.TempDir(), "default-model-provider.yaml")

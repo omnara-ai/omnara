@@ -159,9 +159,33 @@ organization owners configure providers themselves.
 
 | Variable | Purpose | Default | Required |
 | --- | --- | --- | --- |
-| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. See `default-model-provider-example.yaml`. | — | No |
+| `OMNARA_DEFAULT_MODEL_PROVIDER_TEMPLATE` | Path to the provider and model template on the API and maintenance. | — | No |
 | `OMNARA_HOSTED_API_URL` | Base URL of the operator credential service. Used by the API and maintenance. | — | With a default provider template |
 | `OMNARA_HOSTED_API_TOKEN` | Bearer token shared with the operator credential service; at least 32 bytes. Used by the API and maintenance. | — | With a default provider template |
+
+A template names the provider and lists the models each organization receives:
+
+```yaml
+provisioner: openrouter
+name: omnara-openrouter
+credential_secret_name: omnara-openrouter-key
+api_format: openai-chat-completions
+api_variant: openrouter
+base_url: https://openrouter.ai/api/v1
+endpoint_path: /chat/completions
+auth_kind: bearer_token
+models:
+  - name: openai/gpt-6-sol
+    provider_model_slug: openai/gpt-6-sol
+    context_window_tokens: 1050000
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_reasoning: true
+    default_reasoning_effort: medium
+    supported_reasoning_efforts: [max, xhigh, high, medium, low, none]
+    input_modalities: [file, image, text]
+    output_modalities: [text]
+```
 
 Templates support the [token settings and timeouts](/organization/model-providers)
 described for model providers.

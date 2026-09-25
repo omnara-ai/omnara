@@ -25,7 +25,7 @@ This example uses the SDK from this checkout.
 3. Run `pnpm start`. Expose `http://127.0.0.1:3000` through an HTTPS tunnel.
    Set `event_webhook.url` in `agent.yaml` to the public URL ending in
    `/webhook` and `signing_secret_id` to the secret's `sec_…` ID. The config
-   uses `omnara-openrouter` / `openai/gpt-5.6-sol`; choose another model if
+   uses `omnara-openrouter` / `openai/gpt-6-sol`; choose another model if
    that one isn't available to your project.
 4. In the Omnara dashboard, select the same organization and project, create
    an agent using `agent.yaml`, and send: **Count the characters in
