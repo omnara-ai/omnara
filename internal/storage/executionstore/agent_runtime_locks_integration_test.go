@@ -6,12 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -289,7 +289,8 @@ FOR EACH ROW EXECUTE FUNCTION fail_runtime_lock_reap_commit();
 		storage.WithPostCommitPublisher(postCommitPublisherFunc(cancelReap)),
 	)
 	reaped, reapErr := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(reapCtx, 100)
-	if reapErr == nil || !strings.Contains(reapErr.Error(), "injected runtime lock reap commit failure") {
+	var pgErr *pgconn.PgError
+	if !errors.As(reapErr, &pgErr) || pgErr.Message != "injected runtime lock reap commit failure" {
 		t.Fatalf("runtime-lock reap error = %v, want injected commit failure", reapErr)
 	}
 	if errors.Is(reapErr, context.Canceled) {

@@ -137,6 +137,10 @@ linters:
   exclusions:
     generated: disable
     rules:
+      - path: internal/storage/internal/storeutil/pool\.go
+        source: '\.Query\(ctx, sql, args\.\.\.\)'
+        linters:
+          - rowserrcheck
       # oapi-codegen's oneOf wrappers intentionally mix value accessors with
       # pointer mutation methods; the generated file is not hand-editable.
       - path: internal/httpapi/openapi/api\.gen\.go

@@ -7,6 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
@@ -21,7 +22,7 @@ type Config struct {
 }
 
 type Service struct {
-	pool                *pgxpool.Pool
+	pool                *storeutil.Pool
 	q                   *dbsqlc.Queries
 	blobs               blobstore.Store
 	postCommitPublisher notifications.PostCommitPublisher
@@ -32,9 +33,10 @@ type Service struct {
 }
 
 func New(pool *pgxpool.Pool, config Config) *Service {
+	db := storeutil.WrapPool(pool)
 	return &Service{
-		pool:                pool,
-		q:                   dbsqlc.New(pool),
+		pool:                db,
+		q:                   dbsqlc.New(db),
 		blobs:               config.Blobs,
 		postCommitPublisher: config.PostCommitPublisher,
 		identity:            config.Identity,

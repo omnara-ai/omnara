@@ -26,7 +26,7 @@ type Config struct {
 }
 
 type Store struct {
-	pool                  *pgxpool.Pool
+	pool                  *storeutil.Pool
 	q                     *dbsqlc.Queries
 	postCommitPublisher   notifications.PostCommitPublisher
 	modelCallRetryBackoff func(int, string) time.Duration
@@ -38,9 +38,10 @@ type Store struct {
 }
 
 func New(pool *pgxpool.Pool, config Config) *Store {
+	db := storeutil.WrapPool(pool)
 	return &Store{
-		pool:                  pool,
-		q:                     dbsqlc.New(pool),
+		pool:                  db,
+		q:                     dbsqlc.New(db),
 		postCommitPublisher:   config.PostCommitPublisher,
 		modelCallRetryBackoff: config.ModelCallRetryBackoff,
 		integrations:          config.Integrations,
