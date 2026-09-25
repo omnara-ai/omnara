@@ -6,6 +6,44 @@ mode: "center"
 ---
 
 <Update
+  label="September 24, 2026"
+  rss={{
+    title: "Agents can now send events to your webhooks",
+    description: "Event webhooks, a redesigned org overview, per-call machine sizing, custom headers for model providers, and fixes."
+  }}
+>
+
+## Agents can now send events to your webhooks
+
+Agents can POST their events to your own endpoint as they work. Also new: a redesigned org overview, per-call machine sizing, and custom headers for model providers.
+
+### Event webhooks
+
+Add `event_webhook` to an agent's config with an HTTPS URL and the event types you want, such as tool-call updates or model output. Omnara sends each event as it happens and retries failed deliveries for up to ten minutes. Sign requests with a secret to verify they came from Omnara, and validate payloads with the SDK's schema. See [Event webhook](/agents/configuration#event-webhook) and [Webhook payloads](/events/webhooks).
+
+### Org overview
+
+The organization home page now shows today's activity and a 30-day summary of model usage, along with your recent agents and profiles.
+
+### Size machines per call
+
+When an agent creates a machine, it can request CPU and memory for that machine, where the provider supports it, within your pool and project limits. The requested size appears in the approval prompt. Agents now find pools through `list_machines` and select them by ID, so renaming a pool can't redirect a request.
+
+### Custom headers for model providers
+
+Model providers your organization manages can send extra headers with every request, either as plain values or from secrets. This is useful for API gateways and proxies that need their own authentication or routing headers. See [Model providers](/organization/model-providers).
+
+### Fixes and notes
+
+- Deleting a secret that an agent's environment references no longer stops new processes or machines from starting; the variable is left out instead. Provider headers that reference a deleted secret are left out the same way.
+- The compiled config now appears under the YAML editor for agents, profiles, and subagents, showing the tools Omnara adds automatically.
+- Archiving a subagent no longer sends a message to its parent.
+- Browser translation extensions no longer crash the dashboard.
+- Self-hosted Docker Compose deployments now bundle RustFS instead of MinIO for artifact storage. See [Configuration](/self-hosting/configuration).
+
+</Update>
+
+<Update
   label="September 18, 2026"
   rss={{
     title: "Agents can now delegate to subagents",
