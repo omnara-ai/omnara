@@ -178,13 +178,51 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 			openapi.ErrorCodeNotFound,
 			"auth.secret_id is not available to the project",
 		).WithCause(err)
+	case errors.Is(err, storeerr.ErrInvalidSecretRequest):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"auth.secret_id must reference a secret of the kind required by auth.type",
+		).WithCause(err)
 	case errors.Is(err, context.Canceled):
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "mcp server request was canceled").WithCause(err)
-	case hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden):
+		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "mcp server request was canceled").WithCause(err)
+	case errors.Is(err, mcp.ErrInternal):
+		logpkg.Error(ctx, fmt.Errorf("mcp tool discovery: %w", err))
+		return nil, apierror.FromCode(openapi.ErrorCodeInternalError, "internal server error").WithCause(err)
+	case errors.Is(err, mcp.ErrRefreshBusy):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeConflict,
+			"another refresh for this mcp server or its secret is in progress; retry shortly",
+		).WithCause(err)
+	case errors.Is(err, mcp.ErrStoreTimeout):
+		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp tool discovery storage timed out", "error", err)
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeServiceUnavailable,
+			"timed out reading or storing mcp discovery state; retry shortly",
+		).WithCause(err)
+	case mcp.IsTimeout(err):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeUpstreamUnavailable,
+			"the mcp server or its authorization server did not respond before the request timed out: "+message,
+		).WithCause(err)
+	case errors.Is(err, mcp.ErrCredential) && mcp.IsRetryableConnectionFailure(err):
+		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, message).WithCause(err)
+	case errors.Is(err, mcp.ErrCredential) && isUnauthorizedStatus(status, hasStatus):
+		hint := openapi.MCPServerAuthHint{Type: openapi.MCPServerAuthHintTypeOauth}
+		return mcpServerAuthRequiredResponse(
+			hint,
+			"the authorization server rejected the configured oauth secret: "+message,
+		), nil
+	case errors.Is(err, mcp.ErrCredential):
+		return mcpServerUnreachableResponse("the configured auth secret could not be used: " + message), nil
+	case isUnauthorizedStatus(status, hasStatus):
 		return s.mcpServerAuthRequired(ctx, endpoint, message)
+	case mcp.IsRetryableConnectionFailure(err),
+		errors.Is(err, mcp.ErrMalformedResponse),
+		mcp.IsServerInternalError(err):
+		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, message).WithCause(err)
 	default:
 		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp tool discovery failed", "error", err)
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, message).WithCause(err)
+		return mcpServerUnreachableResponse(message), nil
 	}
 }
 
@@ -196,7 +234,7 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 	requirement, err := mcp.DetectAuth(ctx, endpoint, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
 	switch {
 	case err == nil && !requirement.Required:
-		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, message)
+		return mcpServerUnreachableResponse(message), nil
 	case err == nil && requirement.AuthorizationServer != nil:
 		hint := openapi.MCPServerAuthHint{
 			Type:                openapi.MCPServerAuthHintTypeOauth,
@@ -204,16 +242,22 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 			AuthorizationServer: optionalNonEmpty(requirement.AuthorizationServer.Issuer),
 		}
 		return mcpServerAuthRequiredResponse(hint, "mcp server requires OAuth authorization: "+message), nil
+	case err != nil && mcp.IsRetryableConnectionFailure(err):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeUpstreamUnavailable,
+			message+"; auth probe failed: "+err.Error(),
+		).WithCause(err)
 	case err == nil, errors.Is(err, mcp.ErrOAuthMetadataUnavailable):
 		hint := openapi.MCPServerAuthHint{Type: openapi.MCPServerAuthHintTypeBearer}
 		return mcpServerAuthRequiredResponse(hint, "mcp server requires a bearer token: "+message), nil
 	default:
-		logpkg.Error(ctx, fmt.Errorf("mcp auth probe failed: %w", err))
-		return nil, apierror.FromCode(
-			openapi.ErrorCodeUpstreamError,
-			message+"; auth probe failed: "+err.Error(),
-		).WithCause(err)
+		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp auth probe failed", "error", err)
+		return mcpServerUnreachableResponse(message + "; auth probe failed: " + err.Error()), nil
 	}
+}
+
+func isUnauthorizedStatus(status int, hasStatus bool) bool {
+	return hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden)
 }
 
 func mcpServerAuthRequiredResponse(
@@ -221,9 +265,19 @@ func mcpServerAuthRequiredResponse(
 	message string,
 ) openapi.ListMCPServerTools422JSONResponse {
 	return openapi.ListMCPServerTools422JSONResponse(openapi.MCPServerAuthRequiredError{
-		Auth:  hint,
+		Auth:  &hint,
 		Code:  openapi.MCPServerAuthRequiredErrorCodeUnprocessable,
 		Error: textutil.TruncateRunes(message, mcpServerToolsErrorRunesLimit),
+	})
+}
+
+func mcpServerUnreachableResponse(message string) openapi.ListMCPServerTools422JSONResponse {
+	return openapi.ListMCPServerTools422JSONResponse(openapi.MCPServerAuthRequiredError{
+		Code: openapi.MCPServerAuthRequiredErrorCodeUnprocessable,
+		Error: textutil.TruncateRunes(
+			"could not discover tools from the mcp server: "+message,
+			mcpServerToolsErrorRunesLimit,
+		),
 	})
 }
 

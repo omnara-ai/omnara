@@ -121,10 +121,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 	if response.StatusCode != http.StatusUnauthorized {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
 		if response.StatusCode < 200 || response.StatusCode > 299 {
-			return AuthRequirement{}, fmt.Errorf(
-				"mcp auth: server probe returned unexpected HTTP %d",
-				response.StatusCode,
-			)
+			return AuthRequirement{}, fmt.Errorf("mcp auth: server probe: %w", &HTTPError{Status: response.StatusCode})
 		}
 		return AuthRequirement{Required: false, EndpointURL: endpoint, Resource: canonicalResourceURI(endpoint)}, nil
 	}
@@ -134,6 +131,9 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		response.Header.Values("WWW-Authenticate"),
 		client,
 	)
+	if IsRetryableConnectionFailure(err) {
+		return AuthRequirement{}, err
+	}
 	if err != nil {
 		return AuthRequirement{}, fmt.Errorf("%w: %w", ErrOAuthMetadataUnavailable, err)
 	}
@@ -431,24 +431,21 @@ func discoverProtectedResourceMetadata(
 	challenges []oauthex.Challenge,
 	client *http.Client,
 ) (*oauthex.ProtectedResourceMetadata, error) {
-	var firstDiscoveryError error
+	metadataClient := metadataHTTPClient(client)
+	var discoveryError error
 	for _, candidate := range protectedResourceMetadataURLs(resourceMetadataURLFromChallenges(challenges), endpoint) {
 		if err := urlpolicy.RequireHTTPSOrLoopback(candidate.URL); err != nil {
-			if firstDiscoveryError == nil {
-				firstDiscoveryError = fmt.Errorf("metadata URL: %w", err)
-			}
+			discoveryError = preferRetryableFailure(discoveryError, fmt.Errorf("metadata URL: %w", err))
 			continue
 		}
 		protectedResourceMetadata, err := oauthex.GetProtectedResourceMetadata(
 			ctx,
 			candidate.URL,
 			candidate.Resource,
-			client,
+			metadataClient,
 		)
 		if err != nil {
-			if firstDiscoveryError == nil {
-				firstDiscoveryError = err
-			}
+			discoveryError = preferRetryableFailure(discoveryError, err)
 			continue
 		}
 		if protectedResourceMetadata == nil {
@@ -459,10 +456,17 @@ func discoverProtectedResourceMetadata(
 		}
 		return protectedResourceMetadata, nil
 	}
-	if firstDiscoveryError != nil {
-		return nil, fmt.Errorf("mcp auth: discover protected resource metadata: %w", firstDiscoveryError)
+	if discoveryError != nil {
+		return nil, fmt.Errorf("mcp auth: discover protected resource metadata: %w", discoveryError)
 	}
 	return nil, errors.New("mcp auth: protected resource metadata not found")
+}
+
+func preferRetryableFailure(current, next error) error {
+	if current == nil || (!IsRetryableConnectionFailure(current) && IsRetryableConnectionFailure(next)) {
+		return next
+	}
+	return current
 }
 
 func discoverAuthorizationServerMetadata(
@@ -470,19 +474,17 @@ func discoverAuthorizationServerMetadata(
 	protectedResourceMetadata *oauthex.ProtectedResourceMetadata,
 	client *http.Client,
 ) (*oauthex.AuthServerMeta, error) {
-	var firstDiscoveryError error
+	var discoveryError error
 	for _, issuer := range protectedResourceMetadata.AuthorizationServers {
 		authorizationServerMetadata, err := authServerMetadataForIssuer(ctx, issuer, client)
 		if err != nil {
-			if firstDiscoveryError == nil {
-				firstDiscoveryError = err
-			}
+			discoveryError = preferRetryableFailure(discoveryError, err)
 			continue
 		}
 		return authorizationServerMetadata, nil
 	}
-	if firstDiscoveryError != nil {
-		return nil, fmt.Errorf("mcp auth: discover authorization server metadata: %w", firstDiscoveryError)
+	if discoveryError != nil {
+		return nil, fmt.Errorf("mcp auth: discover authorization server metadata: %w", discoveryError)
 	}
 	return nil, errors.New("mcp auth: authorization server metadata not found")
 }
@@ -492,37 +494,34 @@ func authServerMetadataForIssuer(
 	issuer string,
 	client *http.Client,
 ) (*oauthex.AuthServerMeta, error) {
-	var firstDiscoveryError error
+	var discoveryError error
 	for _, metadataURL := range authorizationServerMetadataURLs(issuer) {
 		authorizationServerMetadata, err := fetchAuthServerMetadata(ctx, metadataURL, issuer, client)
 		if errors.Is(err, errAuthServerMetadataNotFound) {
 			continue
 		}
 		if err != nil {
-			if firstDiscoveryError == nil {
-				firstDiscoveryError = err
-			}
+			discoveryError = preferRetryableFailure(discoveryError, err)
 			continue
 		}
 		if !supportsPKCES256(authorizationServerMetadata) {
-			if firstDiscoveryError == nil {
-				firstDiscoveryError = fmt.Errorf("authorization server %q does not advertise PKCE S256 support", issuer)
-			}
+			discoveryError = preferRetryableFailure(
+				discoveryError,
+				fmt.Errorf("authorization server %q does not advertise PKCE S256 support", issuer),
+			)
 			continue
 		}
 		if authorizationServerMetadata.AuthorizationEndpoint == "" || authorizationServerMetadata.TokenEndpoint == "" {
-			if firstDiscoveryError == nil {
-				firstDiscoveryError = fmt.Errorf(
-					"authorization server %q metadata is missing authorization or token endpoint",
-					issuer,
-				)
-			}
+			discoveryError = preferRetryableFailure(discoveryError, fmt.Errorf(
+				"authorization server %q metadata is missing authorization or token endpoint",
+				issuer,
+			))
 			continue
 		}
 		return authorizationServerMetadata, nil
 	}
-	if firstDiscoveryError != nil {
-		return nil, fmt.Errorf("fetch authorization server metadata for %q: %w", issuer, firstDiscoveryError)
+	if discoveryError != nil {
+		return nil, fmt.Errorf("fetch authorization server metadata for %q: %w", issuer, discoveryError)
 	}
 	return nil, fmt.Errorf("authorization server %q returned no metadata", issuer)
 }
@@ -568,13 +567,13 @@ func fetchAuthServerMetadata(
 		return nil, err
 	}
 	defer response.Body.Close() //nolint:errcheck // Response body close errors are not actionable here.
-	if response.StatusCode >= 400 && response.StatusCode < 500 {
+	if response.StatusCode >= 400 && response.StatusCode < 500 && !isRetryableHTTPStatus(response.StatusCode) {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
 		return nil, errAuthServerMetadataNotFound
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxOAuthResponseBodyBytes))
-		return nil, fmt.Errorf("metadata endpoint returned HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("metadata endpoint: %w", &HTTPError{Status: response.StatusCode})
 	}
 	body, err := readOAuthResponseBody(response.Body)
 	if err != nil {

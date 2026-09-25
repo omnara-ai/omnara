@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 
 	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
@@ -22,6 +24,8 @@ var (
 
 	ErrResponseTooLarge = errors.New("mcp: response body exceeds configured limit")
 
+	ErrMalformedResponse = errors.New("mcp: server returned a malformed response")
+
 	ErrOAuthStateTooLarge = errors.New("mcp auth: oauth flow does not fit in the state parameter")
 
 	ErrOAuthMetadataUnavailable = errors.New(
@@ -29,6 +33,14 @@ var (
 	)
 
 	ErrInputRequired = errors.New("mcp: server requested client input that this client does not support")
+
+	ErrInternal = errors.New("mcp: internal failure")
+
+	ErrCredential = errors.New("mcp: credential failure")
+
+	ErrRefreshBusy = errors.New("mcp: refresh in progress")
+
+	ErrStoreTimeout = errors.New("mcp: storage operation timed out")
 
 	errAuthServerMetadataNotFound = errors.New("mcp auth: authorization server metadata not found")
 )
@@ -80,6 +92,10 @@ func HTTPStatus(err error) (int, bool) {
 	if errors.As(err, &rpcErr) && rpcErr.HTTPStatus != 0 {
 		return rpcErr.HTTPStatus, true
 	}
+	var tokenErr *tokenEndpointError
+	if errors.As(err, &tokenErr) && tokenErr.statusCode != 0 {
+		return tokenErr.statusCode, true
+	}
 	return 0, false
 }
 
@@ -95,6 +111,11 @@ func isStatelessProtocolCode(code int) bool {
 func IsStatelessProtocolError(err error) bool {
 	var rpcErr *RPCError
 	return errors.As(err, &rpcErr) && isStatelessProtocolCode(rpcErr.Code)
+}
+
+func IsServerInternalError(err error) bool {
+	var rpcErr *RPCError
+	return errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeInternalError
 }
 
 func UnsupportedProtocolVersions(err error) ([]string, bool) {
@@ -172,15 +193,51 @@ func IsRetryableConnectionFailure(cause error) bool {
 		errors.Is(cause, ErrResponseTooLarge) {
 		return false
 	}
-	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, ErrIncompleteStream) {
+	if IsTimeout(cause) || errors.Is(cause, ErrIncompleteStream) || errors.Is(cause, ErrRefreshBusy) {
 		return true
 	}
-	var netErr net.Error
-	if errors.As(cause, &netErr) && netErr.Timeout() {
+	var dnsErr *net.DNSError
+	if errors.As(cause, &dnsErr) {
+		return !dnsErr.IsNotFound
+	}
+	var opErr *net.OpError
+	if errors.As(cause, &opErr) && opErr.Op != "remote error" && opErr.Op != "local error" {
+		return true
+	}
+	if errors.Is(cause, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var urlErr *url.Error
+	if errors.As(cause, &urlErr) && errors.Is(urlErr.Err, io.EOF) {
 		return true
 	}
 	if status, ok := HTTPStatus(cause); ok {
 		return isRetryableHTTPStatus(status)
 	}
 	return false
+}
+
+func IsTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func internalFailure(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrStoreTimeout, err)
+	}
+	return fmt.Errorf("%w: %w", ErrInternal, err)
+}
+
+func leaseWaitFailure(err error, lease string) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: timed out waiting for %s: %w", ErrRefreshBusy, lease, err)
+	}
+	return err
 }
