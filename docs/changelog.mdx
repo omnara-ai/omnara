@@ -27,7 +27,7 @@ The organization home page now shows today's activity and a 30-day summary of mo
 
 ### Size machines per call
 
-When an agent creates a machine, it can request CPU and memory for that machine within your pool and project limits. The requested size appears in the approval prompt. Agents now find pools through `list_machines` and select them by ID, so renaming a pool can't redirect a request.
+When an agent creates a machine, it can request CPU and memory for that machine, where the provider supports it, within your pool and project limits. The requested size appears in the approval prompt. Agents now find pools through `list_machines` and select them by ID, so renaming a pool can't redirect a request.
 
 ### Custom headers for model providers
 
@@ -35,7 +35,7 @@ Model providers your organization manages can send extra headers with every requ
 
 ### Fixes and notes
 
-- Deleting a secret that an agent's environment or a provider header references no longer stops new processes or machines from starting; the value is left out instead.
+- Deleting a secret that an agent's environment references no longer stops new processes or machines from starting; the variable is left out instead. Provider headers that reference a deleted secret are left out the same way.
 - The compiled config now appears under the YAML editor for agents, profiles, and subagents, showing the tools Omnara adds automatically.
 - Archiving a subagent no longer sends a message to its parent.
 - Browser translation extensions no longer crash the dashboard.
