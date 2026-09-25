@@ -11,18 +11,20 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/skillops"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type Store struct {
-	pool             *pgxpool.Pool
+	pool             *storeutil.Pool
 	q                *dbsqlc.Queries
 	secretKeyWrapper secrets.KeyWrapper
 	blobs            blobstore.Store
 }
 
 func New(pool *pgxpool.Pool, keyWrapper secrets.KeyWrapper, blobs blobstore.Store) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), secretKeyWrapper: keyWrapper, blobs: blobs}
+	db := storeutil.WrapPool(pool)
+	return &Store{pool: db, q: dbsqlc.New(db), secretKeyWrapper: keyWrapper, blobs: blobs}
 }
 
 func (s *Store) GetInstallationID(ctx context.Context) (uuid.UUID, error) {

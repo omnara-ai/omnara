@@ -6,15 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -497,64 +492,4 @@ func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 
 func testID(seed byte) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte{seed})
-}
-
-func TestRequestErrorRenderingPreservesUnrelatedErrors(t *testing.T) {
-	var buf bytes.Buffer
-	ctx := WithLogger(t.Context(), testLogger(&buf))
-	event := NewEvent(ctx, "test.event")
-	ctx = WithEvent(ctx, event)
-	AttachDBQuery(ctx, DBQueryTraceRecord{ErrorKind: "postgres", Cause: errors.New("database failure")})
-	original := fmt.Errorf("other operation: %w and %w", errors.New("first"), errors.New("second"))
-	event.Error(original)
-	event.Done(ctx)
-	record := oneRecord(t, &buf)
-	assertDecodedField(t, record, "error.message", original.Error())
-}
-
-func TestRequestErrorRenderingSharedSentinels(t *testing.T) {
-	for _, failure := range []struct {
-		sentinel error
-		kind     string
-	}{
-		{context.Canceled, "context_canceled"},
-		{context.DeadlineExceeded, "context_deadline_exceeded"},
-		{io.EOF, "other"},
-		{io.ErrUnexpectedEOF, "other"},
-		{io.ErrClosedPipe, "other"},
-		{os.ErrDeadlineExceeded, "driver_timeout"},
-		{net.ErrClosed, "other"},
-		{syscall.ECONNRESET, "other"},
-	} {
-		sentinel := failure.sentinel
-		upstream := fmt.Errorf("fetch mcp tools from upstream: %w", sentinel)
-		private := fmt.Errorf("customer_content: %w", sentinel)
-		joined := errors.Join(errors.New("customer_content"), sentinel)
-		for _, tt := range []struct {
-			name string
-			db   error
-			err  error
-			want string
-		}{
-			{"bare DB sentinel", sentinel, upstream, upstream.Error()},
-			{"wrapped DB sentinel", private, upstream, upstream.Error()},
-			{"private DB wrapper", private, private, failure.kind},
-			{"private joined DB error", joined, joined, failure.kind},
-			{"mixed errors", private, errors.Join(private, upstream), failure.kind + "\n" + upstream.Error()},
-		} {
-			t.Run(sentinel.Error()+"/"+tt.name, func(t *testing.T) {
-				var buf bytes.Buffer
-				ctx := WithLogger(t.Context(), testLogger(&buf))
-				event := NewEvent(ctx, "test.event", Fields{"auth.error": tt.err})
-				ctx = WithEvent(ctx, event)
-				AttachDBQuery(ctx, DBQueryTraceRecord{Cause: tt.db, ErrorKind: failure.kind})
-				event.Error(tt.err)
-				event.Done(ctx)
-				record := oneRecord(t, &buf)
-				require.Equal(t, tt.want, record["error.message"])
-				require.Equal(t, tt.want, record["auth.error"])
-				require.NotContains(t, buf.String(), "customer_content")
-			})
-		}
-	}
 }

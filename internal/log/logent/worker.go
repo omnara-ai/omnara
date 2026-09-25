@@ -34,7 +34,7 @@ func AgentWorkScope(ctx context.Context, orgID, projectID, agentID uuid.UUID) {
 func WorkerLoopRecoverableTurnRace(ctx context.Context, err error) {
 	fields := log.Fields{"worker.loop.recoverable_race": true}
 	if err != nil {
-		fields["worker.loop.recoverable_error"] = err
+		fields["worker.loop.recoverable_error"] = err.Error()
 	}
 	log.Attach(ctx, fields)
 }
@@ -42,7 +42,7 @@ func WorkerLoopRecoverableTurnRace(ctx context.Context, err error) {
 func RuntimeRenewalFailed(ctx context.Context, err error) {
 	fields := log.Fields{"runtime_lock.renewal.result": "failed"}
 	if err != nil {
-		fields["runtime_lock.renewal.error"] = err
+		fields["runtime_lock.renewal.error"] = err.Error()
 	}
 	log.Attach(ctx, fields)
 }

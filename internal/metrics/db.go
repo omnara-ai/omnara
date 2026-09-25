@@ -55,7 +55,7 @@ func NewDBRecorder(set *Set, subsystem string) *DBRecorder {
 func (m *DBRecorder) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	now := m.now()
 	return context.WithValue(ctx, dbQueryContextKey{}, dbQueryTrace{
-		queryName: dbQueryName(data.SQL),
+		queryName: log.DBQueryName(data.SQL),
 		start:     now,
 	})
 }
@@ -96,24 +96,6 @@ func (m *DBRecorder) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Tr
 	labels := []string{trace.queryName, result, errorKind, errorSeverity}
 	m.queriesTotal.WithLabelValues(labels...).Inc()
 	m.queryDuration.WithLabelValues(labels...).Observe(duration.Seconds())
-}
-
-func dbQueryName(sql string) string {
-	sql = strings.TrimSpace(sql)
-	if sql == "" {
-		return "unknown"
-	}
-	firstLine, _, _ := strings.Cut(sql, "\n")
-	firstLine = strings.TrimSpace(firstLine)
-	const prefix = "-- name:"
-	if !strings.HasPrefix(firstLine, prefix) {
-		return "unknown"
-	}
-	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(firstLine, prefix)))
-	if len(fields) == 0 {
-		return "unknown"
-	}
-	return fields[0]
 }
 
 func dbQueryResult(err error) (result string, errorKind string, errorSeverity string) {

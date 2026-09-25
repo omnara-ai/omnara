@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -218,4 +219,22 @@ func DBCancellationSource(ctx context.Context) string {
 		return "context_deadline"
 	}
 	return "unknown"
+}
+
+func DBQueryName(sql string) string {
+	sql = strings.TrimSpace(sql)
+	if sql == "" {
+		return "unknown"
+	}
+	firstLine, _, _ := strings.Cut(sql, "\n")
+	firstLine = strings.TrimSpace(firstLine)
+	const prefix = "-- name:"
+	if !strings.HasPrefix(firstLine, prefix) {
+		return "unknown"
+	}
+	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(firstLine, prefix)))
+	if len(fields) == 0 {
+		return "unknown"
+	}
+	return fields[0]
 }

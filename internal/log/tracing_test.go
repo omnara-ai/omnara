@@ -220,3 +220,39 @@ func TestDBCancellationSource(t *testing.T) {
 		})
 	}
 }
+
+func TestDBQueryName(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{
+			name: "sqlc query",
+			sql:  "-- name: GetAgent :one\nSELECT id FROM agents",
+			want: "GetAgent",
+		},
+		{
+			name: "leading whitespace",
+			sql:  "\n\t-- name: InsertAgent :one\nINSERT INTO agents",
+			want: "InsertAgent",
+		},
+		{
+			name: "plain sql",
+			sql:  "SELECT 1",
+			want: "unknown",
+		},
+		{
+			name: "empty",
+			sql:  "",
+			want: "unknown",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DBQueryName(tt.sql); got != tt.want {
+				t.Fatalf("DBQueryName()=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}

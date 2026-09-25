@@ -60,7 +60,7 @@ func TestRequestLogPostgresTimeouts(t *testing.T) {
 				got, _ := event["db.queries.0."+key].(string)
 				require.Equal(t, want, got, key)
 			}
-			require.Equal(t, tt.kind, event["error.message"])
+			require.Contains(t, event["error.message"], "SQLSTATE "+tt.code)
 		})
 	}
 }

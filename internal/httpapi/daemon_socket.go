@@ -123,8 +123,8 @@ func (s *daemonSocket) enqueueDrain() bool {
 		done := make(chan struct{})
 		s.drainDone = done
 		go func() {
-			defer close(done)
 			s.drain()
+			close(done)
 		}()
 	}
 	return true
