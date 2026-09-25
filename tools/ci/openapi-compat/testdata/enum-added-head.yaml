@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Compatibility fixture
-  version: enum-breaking
+  version: enum-added
 paths:
   /api/v1/resources:
     get:

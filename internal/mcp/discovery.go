@@ -79,7 +79,7 @@ func newDiscoveredServer(
 ) (DiscoveredServer, error) {
 	var serverInfo sdkmcp.Implementation
 	if err := json.Unmarshal(serverInfoJSON, &serverInfo); err != nil {
-		return DiscoveredServer{}, fmt.Errorf("%w: decode mcp server info: %w", ErrInternal, err)
+		return DiscoveredServer{}, fmt.Errorf("%w: decode mcp server info: %w", ErrMalformedResponse, err)
 	}
 	return DiscoveredServer{ProtocolVersion: protocolVersion, ServerInfo: serverInfo, Tools: tools}, nil
 }

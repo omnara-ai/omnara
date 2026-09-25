@@ -24,6 +24,8 @@ var (
 
 	ErrResponseTooLarge = errors.New("mcp: response body exceeds configured limit")
 
+	ErrMalformedResponse = errors.New("mcp: server returned a malformed response")
+
 	ErrOAuthStateTooLarge = errors.New("mcp auth: oauth flow does not fit in the state parameter")
 
 	ErrOAuthMetadataUnavailable = errors.New(
@@ -37,6 +39,8 @@ var (
 	ErrCredential = errors.New("mcp: credential failure")
 
 	ErrRefreshBusy = errors.New("mcp: refresh in progress")
+
+	ErrStoreTimeout = errors.New("mcp: storage operation timed out")
 
 	errAuthServerMetadataNotFound = errors.New("mcp auth: authorization server metadata not found")
 )
@@ -107,6 +111,11 @@ func isStatelessProtocolCode(code int) bool {
 func IsStatelessProtocolError(err error) bool {
 	var rpcErr *RPCError
 	return errors.As(err, &rpcErr) && isStatelessProtocolCode(rpcErr.Code)
+}
+
+func IsServerInternalError(err error) bool {
+	var rpcErr *RPCError
+	return errors.As(err, &rpcErr) && rpcErr.Code == jsonrpc.CodeInternalError
 }
 
 func UnsupportedProtocolVersions(err error) ([]string, bool) {
@@ -184,11 +193,7 @@ func IsRetryableConnectionFailure(cause error) bool {
 		errors.Is(cause, ErrResponseTooLarge) {
 		return false
 	}
-	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, ErrIncompleteStream) {
-		return true
-	}
-	var netErr net.Error
-	if errors.As(cause, &netErr) && netErr.Timeout() {
+	if IsTimeout(cause) || errors.Is(cause, ErrIncompleteStream) || errors.Is(cause, ErrRefreshBusy) {
 		return true
 	}
 	var dnsErr *net.DNSError
@@ -212,9 +217,27 @@ func IsRetryableConnectionFailure(cause error) bool {
 	return false
 }
 
+func IsTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
 func internalFailure(err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return err
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrStoreTimeout, err)
+	}
 	return fmt.Errorf("%w: %w", ErrInternal, err)
+}
+
+func leaseWaitFailure(err error, lease string) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%w: timed out waiting for %s: %w", ErrRefreshBusy, lease, err)
+	}
+	return err
 }

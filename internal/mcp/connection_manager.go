@@ -528,7 +528,7 @@ func (m Manager) refreshOAuthBearerTokenWithLease(
 			wait = m.OAuthRefreshWait(attempt)
 		}
 		if err := sleepBackoff(ctx, wait); err != nil {
-			return "", uuid.Nil, err
+			return "", uuid.Nil, leaseWaitFailure(err, fmt.Sprintf("the mcp oauth refresh lease for %q", serverKey))
 		}
 		secretPayload, err := m.Secrets.ReadProjectAvailableSecretPayload(
 			ctx,

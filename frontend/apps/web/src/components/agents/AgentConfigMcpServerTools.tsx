@@ -316,7 +316,7 @@ function discoveryFailureTitle(
       : 'This server expects a bearer token. Switch authentication to a bearer secret.'
   }
   if (cause instanceof ApiError && cause.status === 424) {
-    return 'The MCP server is not responding. Try again.'
+    return 'The MCP server failed or did not respond. Try again.'
   }
   if (cause instanceof ApiError && cause.status === 422) {
     return 'The MCP server did not accept the request.'

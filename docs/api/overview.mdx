@@ -84,7 +84,7 @@ Branch on `code` — it's a stable contract, enumerated in the OpenAPI spec, and
 Two rules worth internalizing:
 
 - **Resources you cannot read return `404`, not `403`.** The API doesn't confirm the existence of things outside your access. A `403` always means "the resource is visible to you, but your role doesn't permit this action."
-- **Retry `424`, `429` and `5xx` with backoff, reusing the same `Idempotency-Key`** so a retry can never act twice. `424` with code `upstream_unavailable` means a server you configured, such as an MCP server, did not respond or failed temporarily. A `409` from MCP tool discovery means another refresh of the same server or auth secret is in progress; retry it shortly. Other `4xx` errors won't change on retry — fix the request instead.
+- **Retry `424`, `429` and `5xx` with backoff, reusing the same `Idempotency-Key`** so a retry can never act twice. `424` with code `upstream_unavailable` means a server you configured, such as an MCP server, did not respond or failed; retries succeed once that server recovers. A `409` from MCP tool discovery means another refresh of the same server or auth secret is in progress; retry it shortly. Other `4xx` errors won't change on retry — fix the request instead.
 
 ## Request size limits
 

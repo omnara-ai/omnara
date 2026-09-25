@@ -71,6 +71,7 @@ func TestIsRetryableConnectionFailureClassifiesTransportErrors(t *testing.T) {
 			want: false,
 		},
 		{name: "deadline exceeded", err: context.DeadlineExceeded, want: true},
+		{name: "refresh busy", err: fmt.Errorf("%w: lease is busy", ErrRefreshBusy), want: true},
 		{name: "canceled", err: context.Canceled, want: false},
 		{name: "blocked address", err: fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress), want: false},
 		{name: "unsupported response", err: ErrUnsupportedResponse, want: false},
@@ -99,11 +100,20 @@ func TestInternalFailureKeepsCallerCancellationDistinct(t *testing.T) {
 		t.Fatalf("wrapStoreErr(canceled) = %v, want no ErrInternal", failed)
 	}
 	deadline := internalFailure(fmt.Errorf("mark mcp catalog fetched: %w", context.DeadlineExceeded))
-	if errors.Is(deadline, ErrInternal) || !IsRetryableConnectionFailure(deadline) {
-		t.Fatalf("internalFailure(deadline) = %v, want a retryable failure without ErrInternal", deadline)
+	if errors.Is(deadline, ErrInternal) || !errors.Is(deadline, ErrStoreTimeout) {
+		t.Fatalf("internalFailure(deadline) = %v, want ErrStoreTimeout without ErrInternal", deadline)
 	}
 	invalidSecret := wrapStoreErr(fmt.Errorf("load secret: %w", storeerr.ErrInvalidSecretRequest))
 	if errors.Is(invalidSecret, ErrInternal) || !errors.Is(invalidSecret, storeerr.ErrInvalidSecretRequest) {
 		t.Fatalf("wrapStoreErr(invalid secret) = %v, want ErrInvalidSecretRequest without ErrInternal", invalidSecret)
+	}
+}
+
+func TestLeaseWaitFailureReportsDeadlineAsBusy(t *testing.T) {
+	if err := leaseWaitFailure(context.DeadlineExceeded, "the lease"); !errors.Is(err, ErrRefreshBusy) {
+		t.Fatalf("leaseWaitFailure(deadline) = %v, want ErrRefreshBusy", err)
+	}
+	if err := leaseWaitFailure(context.Canceled, "the lease"); !errutil.OnlyMatches(err, context.Canceled) {
+		t.Fatalf("leaseWaitFailure(canceled) = %v, want cancellation only", err)
 	}
 }

@@ -193,13 +193,32 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 			openapi.ErrorCodeConflict,
 			"another refresh for this mcp server or its secret is in progress; retry shortly",
 		).WithCause(err)
+	case errors.Is(err, mcp.ErrStoreTimeout):
+		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp tool discovery storage timed out", "error", err)
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeServiceUnavailable,
+			"timed out reading or storing mcp discovery state; retry shortly",
+		).WithCause(err)
+	case mcp.IsTimeout(err):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeUpstreamUnavailable,
+			"the mcp server or its authorization server did not respond before the request timed out: "+message,
+		).WithCause(err)
 	case errors.Is(err, mcp.ErrCredential) && mcp.IsRetryableConnectionFailure(err):
 		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, message).WithCause(err)
+	case errors.Is(err, mcp.ErrCredential) && isUnauthorizedStatus(status, hasStatus):
+		hint := openapi.MCPServerAuthHint{Type: openapi.MCPServerAuthHintTypeOauth}
+		return mcpServerAuthRequiredResponse(
+			hint,
+			"the authorization server rejected the configured oauth secret: "+message,
+		), nil
 	case errors.Is(err, mcp.ErrCredential):
 		return mcpServerUnreachableResponse("the configured auth secret could not be used: " + message), nil
-	case hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden):
+	case isUnauthorizedStatus(status, hasStatus):
 		return s.mcpServerAuthRequired(ctx, endpoint, message)
-	case mcp.IsRetryableConnectionFailure(err):
+	case mcp.IsRetryableConnectionFailure(err),
+		errors.Is(err, mcp.ErrMalformedResponse),
+		mcp.IsServerInternalError(err):
 		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, message).WithCause(err)
 	default:
 		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp tool discovery failed", "error", err)
@@ -235,6 +254,10 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 		logpkg.LoggerFromContext(ctx).WarnContext(ctx, "mcp auth probe failed", "error", err)
 		return mcpServerUnreachableResponse(message + "; auth probe failed: " + err.Error()), nil
 	}
+}
+
+func isUnauthorizedStatus(status int, hasStatus bool) bool {
+	return hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden)
 }
 
 func mcpServerAuthRequiredResponse(

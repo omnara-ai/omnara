@@ -7078,7 +7078,7 @@ export type StartSecretMcpoAuthErrors = {
      */
     422: Error;
     /**
-     * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or failed. Retry with backoff; the failure persists until that server recovers.
      */
     424: Error;
     /**
@@ -8065,11 +8065,11 @@ export type ListMcpServerToolsErrors = {
      */
     409: Error;
     /**
-     * The MCP server did not speak MCP, rejected the configured authentication, or the configured auth secret could not be used. When the server rejected authentication, `auth` hints which auth type it expects.
+     * The MCP server did not speak MCP, rejected the configured authentication, or the configured auth secret could not be used. When the server or its authorization server rejected authentication, `auth` hints which auth type it expects.
      */
     422: McpServerAuthRequiredError;
     /**
-     * A server the request depends on, such as an MCP server or its authorization server, did not respond or returned a transient failure. Retry with backoff.
+     * A server the request depends on, such as an MCP server or its authorization server, did not respond or failed. Retry with backoff; the failure persists until that server recovers.
      */
     424: Error;
     /**

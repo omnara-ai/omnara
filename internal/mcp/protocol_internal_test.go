@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -12,7 +13,7 @@ func TestServerInfoFromMetaRejectsMalformedImplementation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal meta: %v", err)
 	}
-	if _, err := serverInfoFromMeta(meta); err == nil {
-		t.Fatal("serverInfoFromMeta() error = nil, want decode error")
+	if _, err := serverInfoFromMeta(meta); !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("serverInfoFromMeta() error = %v, want ErrMalformedResponse", err)
 	}
 }

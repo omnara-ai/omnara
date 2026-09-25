@@ -380,7 +380,10 @@ func (m Manager) refreshCatalogUntil(
 			wait = m.CatalogRefreshWait(attempt)
 		}
 		if err := sleepBackoff(ctx, wait); err != nil {
-			return executionstore.MCPServerCatalogRecord{}, err
+			return executionstore.MCPServerCatalogRecord{}, leaseWaitFailure(
+				err,
+				"the mcp catalog refresh lease for "+identity.EndpointURL,
+			)
 		}
 	}
 }

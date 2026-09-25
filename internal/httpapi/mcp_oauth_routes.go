@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -345,8 +346,12 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		HTTPClient:    s.mcpOAuthHTTPClient,
 	})
 	if err != nil {
-		logpkg.Error(r.Context(), fmt.Errorf("mcp oauth code exchange failed: %w", err))
-		s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {"exchange_failed"}})
+		logpkg.LoggerFromContext(r.Context()).WarnContext(r.Context(), "mcp oauth code exchange failed", "error", err)
+		exchangeError := "exchange_failed"
+		if mcp.IsRetryableConnectionFailure(err) {
+			exchangeError = "exchange_unavailable"
+		}
+		s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {exchangeError}})
 		return
 	}
 	secretID, err := s.saveMCPOAuthSecret(r.Context(), flow, flowData, token)
@@ -512,6 +517,9 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 }
 
 func mcpUpstreamFailure(err error, transientPrefix string, rejectedPrefix string) apierror.ResponseError {
+	if errors.Is(err, ssrf.ErrBlockedAddress) {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, rejectedPrefix+err.Error()).WithCause(err)
+	}
 	if mcp.IsRetryableConnectionFailure(err) {
 		return apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, transientPrefix+err.Error()).WithCause(err)
 	}
