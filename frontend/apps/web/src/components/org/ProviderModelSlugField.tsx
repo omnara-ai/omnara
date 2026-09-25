@@ -66,7 +66,7 @@ export function ProviderModelSlugField({
           model.slug === other.slug
         }
       >
-        <ComboboxInput id={id} required placeholder="gpt-5.5" />
+        <ComboboxInput id={id} required placeholder="gpt-6-sol" />
         <ComboboxContent>
           <ComboboxEmpty>
             {catalogQuery.isPending ? null : 'No detected models match. Enter the slug manually.'}
