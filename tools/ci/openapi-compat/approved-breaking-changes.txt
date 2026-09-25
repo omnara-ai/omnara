@@ -369,6 +369,7 @@ MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/model-prov
 MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models added the new `upstream_unavailable` enum value to the `code` response property for the response status `409`
 MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models added the new `upstream_unavailable` enum value to the `code` response property for the response status `4XX`
 MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/model-provider-configs/{modelProviderConfigID}/models added the new `upstream_unavailable` enum value to the `code` response property for the response status `503`
+MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/overview added the new `upstream_unavailable` enum value to the `code` response property for the response status `400`
 MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/overview added the new `upstream_unavailable` enum value to the `code` response property for the response status `401`
 MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/overview added the new `upstream_unavailable` enum value to the `code` response property for the response status `403`
 MCP upstream failures are 424 upstream_unavailable: GET /orgs/{orgID}/overview added the new `upstream_unavailable` enum value to the `code` response property for the response status `404`

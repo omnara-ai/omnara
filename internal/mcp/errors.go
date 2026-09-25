@@ -191,17 +191,19 @@ func IsRetryableConnectionFailure(cause error) bool {
 	if errors.As(cause, &netErr) && netErr.Timeout() {
 		return true
 	}
-	var opErr *net.OpError
 	var dnsErr *net.DNSError
-	if errors.As(cause, &opErr) || errors.As(cause, &dnsErr) || errors.Is(cause, io.ErrUnexpectedEOF) {
+	if errors.As(cause, &dnsErr) {
+		return !dnsErr.IsNotFound
+	}
+	var opErr *net.OpError
+	if errors.As(cause, &opErr) && opErr.Op != "remote error" && opErr.Op != "local error" {
+		return true
+	}
+	if errors.Is(cause, io.ErrUnexpectedEOF) {
 		return true
 	}
 	var urlErr *url.Error
 	if errors.As(cause, &urlErr) && errors.Is(urlErr.Err, io.EOF) {
-		return true
-	}
-	var rpcErr *RPCError
-	if errors.As(cause, &rpcErr) && rpcErr.Code == jsonrpc.CodeInternalError {
 		return true
 	}
 	if status, ok := HTTPStatus(cause); ok {
@@ -211,7 +213,7 @@ func IsRetryableConnectionFailure(cause error) bool {
 }
 
 func internalFailure(err error) error {
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 	return fmt.Errorf("%w: %w", ErrInternal, err)

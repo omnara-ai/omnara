@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	jsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/omnara-ai/omnara/internal/errutil"
 	"github.com/omnara-ai/omnara/internal/ssrf"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestHTTPStatusSeesTokenEndpointErrors(t *testing.T) {
@@ -38,7 +40,14 @@ func TestIsRetryableConnectionFailureClassifiesTransportErrors(t *testing.T) {
 	}{
 		{name: "connection refused", err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, want: true},
 		{name: "connection reset", err: &net.OpError{Op: "read", Err: syscall.ECONNRESET}, want: true},
-		{name: "dns not found", err: &net.DNSError{Err: "no such host", IsNotFound: true}, want: true},
+		{name: "dns not found", err: &net.DNSError{Err: "no such host", IsNotFound: true}, want: false},
+		{
+			name: "dns not found during dial",
+			err:  &net.OpError{Op: "dial", Err: &net.DNSError{Err: "no such host", IsNotFound: true}},
+			want: false,
+		},
+		{name: "dns server failure", err: &net.DNSError{Err: "server misbehaving", IsTemporary: true}, want: true},
+		{name: "tls alert from the server", err: &net.OpError{Op: "remote error", Err: tls.AlertError(40)}, want: false},
 		{
 			name: "dial error wrapped by the http client",
 			err:  &url.Error{Op: "Post", URL: "https://mcp.example", Err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}},
@@ -54,7 +63,7 @@ func TestIsRetryableConnectionFailureClassifiesTransportErrors(t *testing.T) {
 		{
 			name: "json-rpc internal error",
 			err:  &RPCError{Code: jsonrpc.CodeInternalError, Message: "boom", HTTPStatus: http.StatusOK},
-			want: true,
+			want: false,
 		},
 		{
 			name: "json-rpc invalid params",
@@ -88,5 +97,13 @@ func TestInternalFailureKeepsCallerCancellationDistinct(t *testing.T) {
 	}
 	if failed := wrapStoreErr(fmt.Errorf("load secret: %w", context.Canceled)); errors.Is(failed, ErrInternal) {
 		t.Fatalf("wrapStoreErr(canceled) = %v, want no ErrInternal", failed)
+	}
+	deadline := internalFailure(fmt.Errorf("mark mcp catalog fetched: %w", context.DeadlineExceeded))
+	if errors.Is(deadline, ErrInternal) || !IsRetryableConnectionFailure(deadline) {
+		t.Fatalf("internalFailure(deadline) = %v, want a retryable failure without ErrInternal", deadline)
+	}
+	invalidSecret := wrapStoreErr(fmt.Errorf("load secret: %w", storeerr.ErrInvalidSecretRequest))
+	if errors.Is(invalidSecret, ErrInternal) || !errors.Is(invalidSecret, storeerr.ErrInvalidSecretRequest) {
+		t.Fatalf("wrapStoreErr(invalid secret) = %v, want ErrInvalidSecretRequest without ErrInternal", invalidSecret)
 	}
 }

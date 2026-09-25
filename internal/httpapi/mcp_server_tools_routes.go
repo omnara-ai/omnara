@@ -178,6 +178,11 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 			openapi.ErrorCodeNotFound,
 			"auth.secret_id is not available to the project",
 		).WithCause(err)
+	case errors.Is(err, storeerr.ErrInvalidSecretRequest):
+		return nil, apierror.FromCode(
+			openapi.ErrorCodeInvalidRequest,
+			"auth.secret_id must reference a secret of the kind required by auth.type",
+		).WithCause(err)
 	case errors.Is(err, context.Canceled):
 		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "mcp server request was canceled").WithCause(err)
 	case errors.Is(err, mcp.ErrInternal):

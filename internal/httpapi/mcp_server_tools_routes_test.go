@@ -17,6 +17,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type fakeMCPToolServer struct {
@@ -434,10 +435,16 @@ func TestMCPServerToolsFailureMapsErrorOrigins(t *testing.T) {
 			wantStatus: http.StatusConflict,
 		},
 		{
-			name:       "upstream json-rpc internal error",
-			err:        &mcp.RPCError{Code: jsonrpc.CodeInternalError, Message: "boom", HTTPStatus: http.StatusOK},
+			name:       "store call past the operation deadline",
+			err:        fmt.Errorf("mark mcp catalog fetched: %w", context.DeadlineExceeded),
 			wantCode:   openapi.ErrorCodeUpstreamUnavailable,
 			wantStatus: http.StatusFailedDependency,
+		},
+		{
+			name:       "secret kind mismatch",
+			err:        fmt.Errorf("read mcp auth secret: %w", storeerr.ErrInvalidSecretRequest),
+			wantCode:   openapi.ErrorCodeInvalidRequest,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "credential refresh transient",
@@ -461,6 +468,19 @@ func TestMCPServerToolsFailureMapsErrorOrigins(t *testing.T) {
 				t.Fatalf("code=%q status=%d, want %q %d", apiErr.Code, apiErr.Status, tt.wantCode, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestMCPServerToolsFailureUpstreamInternalErrorIsNotRetryable(t *testing.T) {
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	cause := &mcp.RPCError{Code: jsonrpc.CodeInternalError, Message: "missing upstream api key", HTTPStatus: http.StatusOK}
+	response, err := server.mcpServerToolsFailure(mcpServerToolsTestContext(), "https://mcp.example.com/mcp", cause)
+	if err != nil {
+		t.Fatalf("mcpServerToolsFailure() error = %v", err)
+	}
+	rejected, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || rejected.Auth != nil {
+		t.Fatalf("response = %+v, want 422 without an auth hint", response)
 	}
 }
 

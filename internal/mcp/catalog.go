@@ -357,8 +357,16 @@ func (m Manager) refreshCatalogUntil(
 			ownerTimeout := leaseTTL - time.Since(leaseAttemptStarted) - catalogRefreshOwnerHeadroom
 			return m.fetchCatalogAsLeaseOwner(ctx, identity, current, owner, ownerTimeout, fetch)
 		}
-		if current.RefreshError == "" && catalogServes(current, statelessOnly) {
+		if catalogServes(current, statelessOnly) {
 			return current, nil
+		}
+		if attempt >= maxWaits && current.RefreshError != "" {
+			return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
+				"%w: mcp catalog refresh lease for %s is busy; the previous refresh failed: %s",
+				ErrRefreshBusy,
+				identity.EndpointURL,
+				current.RefreshError,
+			)
 		}
 		if attempt >= maxWaits {
 			return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
@@ -415,6 +423,13 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 			m.markCatalogRefreshFailed(callerCtx, identity, current, owner, err),
 		)
 	}
+	if IsStatelessProtocolVersion(current.ProtocolVersion) && !IsStatelessProtocolVersion(contents.ProtocolVersion) {
+		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
+			"mcp: refusing to downgrade the stateless catalog for %s to protocol %s",
+			identity.EndpointURL,
+			contents.ProtocolVersion,
+		)
+	}
 	tools := dropToolsWithInvalidHeaders(ctx, contents.Listing.Tools)
 	snapshot, err := json.Marshal(tools)
 	if err != nil {
@@ -439,6 +454,14 @@ func (m Manager) fetchCatalogAsLeaseOwner(
 		Tools:              catalogCacheHint(contents.Listing.Cache),
 		ToolsFreshFor:      m.catalogFreshFor(contents.Listing.Cache),
 	})
+	if errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		return executionstore.MCPServerCatalogRecord{}, fmt.Errorf(
+			"%w: mcp catalog refresh lease for %s expired before the catalog was stored: %w",
+			ErrRefreshBusy,
+			identity.EndpointURL,
+			err,
+		)
+	}
 	if err != nil {
 		return executionstore.MCPServerCatalogRecord{}, internalFailure(fmt.Errorf(
 			"store mcp catalog for %s: %w",
@@ -458,9 +481,10 @@ func (m Manager) markCatalogRefreshFailed(
 ) error {
 	ctx, cancel := failureRecordContext(ctx)
 	defer cancel()
-	if err := m.Execution.MarkMCPServerCatalogRefreshFailed(
+	err := m.Execution.MarkMCPServerCatalogRefreshFailed(
 		ctx, identity.OrgID, current.ID, owner, sanitizeInitializationError(cause.Error()),
-	); err != nil {
+	)
+	if err != nil && !errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		return internalFailure(fmt.Errorf("mark mcp catalog refresh failed for %s: %w", identity.EndpointURL, err))
 	}
 	return nil

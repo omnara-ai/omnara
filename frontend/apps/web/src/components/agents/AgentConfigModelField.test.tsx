@@ -112,6 +112,8 @@ beforeEach(() => {
               auth_kind: 'bearer_token',
               auth_options: {},
               credential_secret_id: fakeId('sec'),
+              headers: {},
+              secret_headers: {},
               created_at: timestamp,
               updated_at: timestamp,
             },

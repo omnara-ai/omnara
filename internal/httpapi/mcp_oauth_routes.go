@@ -270,7 +270,7 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 		if len(scopes) > 0 {
 			clientMeta.Scope = strings.Join(scopes, " ")
 		}
-		registered, err := oauthex.RegisterClient(
+		registered, err := mcp.RegisterClient(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
@@ -278,7 +278,7 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 		)
 		if err != nil {
 			apiErr := mcpUpstreamFailure(
-				mcp.ClientRegistrationFailure(err),
+				err,
 				"the authorization server did not respond to dynamic client registration: ",
 				"the authorization server rejected dynamic client registration; supply client_id: ",
 			)

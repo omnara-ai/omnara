@@ -18,7 +18,7 @@ func registerAgainst(t *testing.T, status int, body string) error {
 		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(server.Close)
-	_, err := oauthex.RegisterClient(
+	_, err := RegisterClient(
 		context.Background(),
 		server.URL+"/register",
 		&oauthex.ClientRegistrationMetadata{RedirectURIs: []string{"https://example.com/callback"}},
@@ -30,7 +30,7 @@ func registerAgainst(t *testing.T, status int, body string) error {
 	return err
 }
 
-func TestClientRegistrationFailureRecoversStatusFromSDKError(t *testing.T) {
+func TestRegisterClientReportsFailureStatus(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		status int
@@ -41,11 +41,11 @@ func TestClientRegistrationFailureRecoversStatusFromSDKError(t *testing.T) {
 		{name: "forbidden", status: http.StatusForbidden, body: "denied"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ClientRegistrationFailure(registerAgainst(t, tt.status, tt.body))
+			err := registerAgainst(t, tt.status, tt.body)
 			got, ok := HTTPStatus(err)
 			if !ok || got != tt.status {
 				t.Fatalf(
-					"HTTPStatus = %d, %v for SDK error %q; want %d (the SDK error message format may have changed)",
+					"HTTPStatus = %d, %v for error %q; want %d",
 					got, ok, err, tt.status,
 				)
 			}
@@ -53,10 +53,8 @@ func TestClientRegistrationFailureRecoversStatusFromSDKError(t *testing.T) {
 	}
 }
 
-func TestClientRegistrationFailureKeepsTypedRejection(t *testing.T) {
-	err := ClientRegistrationFailure(
-		registerAgainst(t, http.StatusBadRequest, `{"error":"invalid_redirect_uri","error_description":"nope"}`),
-	)
+func TestRegisterClientKeepsTypedRejection(t *testing.T) {
+	err := registerAgainst(t, http.StatusBadRequest, `{"error":"invalid_redirect_uri","error_description":"nope"}`)
 	var rejected *oauthex.ClientRegistrationError
 	if !errors.As(err, &rejected) || rejected.ErrorCode != "invalid_redirect_uri" {
 		t.Fatalf("err = %v, want the SDK's typed registration error", err)

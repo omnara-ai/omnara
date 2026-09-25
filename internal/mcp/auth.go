@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -432,6 +431,7 @@ func discoverProtectedResourceMetadata(
 	challenges []oauthex.Challenge,
 	client *http.Client,
 ) (*oauthex.ProtectedResourceMetadata, error) {
+	metadataClient := metadataHTTPClient(client)
 	var discoveryError error
 	for _, candidate := range protectedResourceMetadataURLs(resourceMetadataURLFromChallenges(challenges), endpoint) {
 		if err := urlpolicy.RequireHTTPSOrLoopback(candidate.URL); err != nil {
@@ -442,10 +442,10 @@ func discoverProtectedResourceMetadata(
 			ctx,
 			candidate.URL,
 			candidate.Resource,
-			client,
+			metadataClient,
 		)
 		if err != nil {
-			discoveryError = preferRetryableFailure(discoveryError, metadataFetchFailure(candidate.URL, err))
+			discoveryError = preferRetryableFailure(discoveryError, err)
 			continue
 		}
 		if protectedResourceMetadata == nil {
@@ -460,20 +460,6 @@ func discoverProtectedResourceMetadata(
 		return nil, fmt.Errorf("mcp auth: discover protected resource metadata: %w", discoveryError)
 	}
 	return nil, errors.New("mcp auth: protected resource metadata not found")
-}
-
-var metadataStatusPattern = regexp.MustCompile(`: bad status (\d{3})$`)
-
-func metadataFetchFailure(metadataURL string, err error) error {
-	match := metadataStatusPattern.FindStringSubmatch(err.Error())
-	if match == nil {
-		return err
-	}
-	status, convErr := strconv.Atoi(match[1])
-	if convErr != nil {
-		return err
-	}
-	return fmt.Errorf("metadata %s: %w", metadataURL, &HTTPError{Status: status})
 }
 
 func preferRetryableFailure(current, next error) error {

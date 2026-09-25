@@ -645,24 +645,34 @@ func (m Manager) refreshOAuthBearerTokenAsLeaseOwner(
 		},
 	)
 	if err != nil {
-		if errors.Is(err, storeerr.ErrConflict) {
-			current, readErr := m.Secrets.ReadProjectAvailableSecretPayload(
-				leaseOwnerCtx,
-				secretstore.ReadProjectAvailableSecretPayloadInput{
-					OrgID:     lease.OrgID,
-					ProjectID: projectID,
-					SecretID:  lease.SecretID,
-					Kind:      secrets.KindOAuthTokenSet,
-				},
-			)
-			if readErr == nil {
-				currentToken, fresh, tokenErr := m.oauthAccessToken(serverKey, current)
-				if tokenErr == nil && fresh {
-					return currentToken, current.CurrentVersionID, nil
-				}
-			}
+		if !errors.Is(err, storeerr.ErrConflict) {
+			return "", uuid.Nil, internalFailure(fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err))
 		}
-		return "", uuid.Nil, internalFailure(fmt.Errorf("store refreshed mcp oauth token for %q: %w", serverKey, err))
+		current, readErr := m.Secrets.ReadProjectAvailableSecretPayload(
+			leaseOwnerCtx,
+			secretstore.ReadProjectAvailableSecretPayloadInput{
+				OrgID:     lease.OrgID,
+				ProjectID: projectID,
+				SecretID:  lease.SecretID,
+				Kind:      secrets.KindOAuthTokenSet,
+			},
+		)
+		if readErr != nil {
+			return "", uuid.Nil, wrapStoreErr(fmt.Errorf(
+				"read mcp auth secret for %q after refresh conflict: %w",
+				serverKey,
+				readErr,
+			))
+		}
+		if currentToken, fresh, tokenErr := m.oauthAccessToken(serverKey, current); tokenErr == nil && fresh {
+			return currentToken, current.CurrentVersionID, nil
+		}
+		return "", uuid.Nil, fmt.Errorf(
+			"%w: mcp oauth refresh lease for %q no longer owns the current secret version: %w",
+			ErrRefreshBusy,
+			serverKey,
+			err,
+		)
 	}
 	return refreshed.AccessToken, rotated.CurrentVersionID, nil
 }
@@ -709,7 +719,7 @@ func sleepBackoff(ctx context.Context, d time.Duration) error {
 }
 
 func wrapStoreErr(err error) error {
-	if storeerr.IsNotFound(err) {
+	if storeerr.IsNotFound(err) || errors.Is(err, storeerr.ErrInvalidSecretRequest) {
 		return err
 	}
 	return internalFailure(err)
