@@ -68,9 +68,17 @@ const client = createOmnaraClient({
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
-const org = me.orgs[0]
-const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: org.id } })
-const project = projects.data[0]
+let org = me.orgs[0]
+let project
+for (const candidate of me.orgs) {
+  const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: candidate.id } })
+  if (projects.data.length) {
+    org = candidate
+    project = projects.data[0]
+    break
+  }
+}
+if (!project) throw new Error('no visible project in any of your orgs')
 const path = { orgID: org.id, projectID: project.id }
 
 console.log('org:    ', org.name, org.id)
@@ -242,34 +250,17 @@ console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${
 console.log()
 
 // Print events until the agent's turn ends — a model output whose stop
-// reason is anything but a tool call. If the stream drops, reconnect from
-// the last seen sequence.
-let after = 0
-for (let done = false; !done; ) {
-  const { stream } = await openAgentEventStream({
-    client,
-    path: agentPath,
-    query: { after_sequence: after },
-  })
-  try {
-    for await (const frame of stream) {
-      if (!('event_kind' in frame)) continue
-      after = Math.max(after, frame.sequence)
-      if (frame.event_kind === 'model_output') {
-        for (const block of frame.content_blocks) {
-          if (block.type === 'text' && block.text.trim()) console.log('\nagent:', block.text)
-          else if (block.type === 'tool_call') console.log('\ntool:', block.name)
-        }
-        if (frame.stop_reason !== 'tool_use') {
-          done = true // the turn ended: pulse delivered
-          break
-        }
-      } else if (frame.event_kind === 'tool_result') {
-        console.log('  ->', frame.outcome)
-      }
+// reason is anything but a tool call. The stream reconnects on its own.
+for await (const frame of openAgentEventStream({ client, path: agentPath, query: { after_sequence: 0 } })) {
+  if (!('event_kind' in frame)) continue
+  if (frame.event_kind === 'model_output') {
+    for (const block of frame.content_blocks) {
+      if (block.type === 'text' && block.text.trim()) console.log('\nagent:', block.text)
+      else if (block.type === 'tool_call') console.log('\ntool:', block.name)
     }
-  } catch {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    if (frame.stop_reason !== 'tool_use') break // the turn ended: pulse delivered
+  } else if (frame.event_kind === 'tool_result') {
+    console.log('  ->', frame.outcome)
   }
 }
 
