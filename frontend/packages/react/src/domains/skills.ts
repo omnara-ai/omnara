@@ -132,21 +132,7 @@ export function useCreateSkill(orgID: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: CreateSkillRequest) => {
-      const { data } = await sdk.createSkill({
-        path: { orgID },
-        body,
-        client,
-        bodySerializer: () => {
-          const form = new FormData()
-          form.append('owner', new Blob([JSON.stringify(body.owner)], { type: 'application/json' }))
-          form.append(
-            'archive',
-            body.archive,
-            body.archive instanceof File ? body.archive.name : 'skill.zip',
-          )
-          return form
-        },
-      })
+      const { data } = await sdk.createSkill({ path: { orgID }, body, client })
       return data
     },
     onSuccess: async () => {
@@ -162,24 +148,7 @@ export function useUpdateSkill(orgID: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ skillID, body }: { skillID: string; body: UpdateSkillUpload }) => {
-      const { data } = await sdk.updateSkill({
-        path: { orgID, skillID },
-        body,
-        client,
-        bodySerializer: () => {
-          const form = new FormData()
-          if ('archive' in body) {
-            form.append(
-              'archive',
-              body.archive,
-              body.archive instanceof File ? body.archive.name : 'skill.zip',
-            )
-          } else {
-            form.append('skill_md', body.skill_md)
-          }
-          return form
-        },
-      })
+      const { data } = await sdk.updateSkill({ path: { orgID, skillID }, body, client })
       return data
     },
     onSuccess: async (_data, { skillID }) => {
