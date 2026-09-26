@@ -189,7 +189,7 @@ text for a human to post. Never post to X yourself.
 `,
   model: {
     provider_config: 'omnara-openrouter', // default model provider config in your org
-    name: 'openai/gpt-5.6-sol', // configured model name on that provider config
+    name: 'openai/gpt-6-sol', // configured model name on that provider config
   },
   machine_sources: [
     { machine_pool_name: pool.name, secret_env_overlay: { X_BEARER_TOKEN: secretId } },

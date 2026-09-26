@@ -97,7 +97,7 @@ instruction: |
   - Do not use python scripts to attempt to output larger chunks of a file. Use alternatives like cat or sed, unless the changes necessitate more complex tooling.
 model:
   provider_config: omnara-openrouter
-  name: openai/gpt-5.6-sol
+  name: openai/gpt-6-sol
 tools:
   ask_question:
     enabled: true

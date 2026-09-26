@@ -26,11 +26,11 @@ interact with each agent.
 1. Create your agent
 ```yaml agent.yaml
 instruction: |
-  You are a coding agent running gpt-5.6-sol. Use the tools
+  You are a coding agent running gpt-6-sol. Use the tools
   you have available to solve coding problems for the user.
 model:
   provider_config: omnara-openrouter
-  name: openai/gpt-5.6-sol
+  name: openai/gpt-6-sol
 # ...
 # add more tools, sandboxes, mcps
 ```
