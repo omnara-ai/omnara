@@ -44,7 +44,7 @@ The `name` must match the top-level directory. Write the description as a trigge
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
 
-  `POST /skills` takes multipart form data: an `owner` and the `archive` itself. The CLI's `--archive` takes a `.zip` or `.tar.gz` file, or a skill directory that it packs for you:
+  `POST /skills` takes multipart form data: an `owner` and the `archive` itself. Send `owner` as a JSON part (`Content-Type: application/json`); a part without a content type is rejected. The CLI's `--archive` takes a `.zip` or `.tar.gz` file, or a skill directory that it packs for you:
 
   <SkillsCreate />
 

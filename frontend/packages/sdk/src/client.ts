@@ -1,7 +1,8 @@
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
-import { createClient, createConfig } from './generated/client'
+import { createClient, createConfig, formDataBodySerializer } from './generated/client'
 import { client as specDefaultClient } from './generated/client.gen'
+import { serializeMultipartBody } from './multipart-body'
 
 export type OmnaraClient = ReturnType<typeof createClient>
 
@@ -36,24 +37,30 @@ const httpMethods = [
   'trace',
 ] satisfies HttpMethod[]
 
-function withoutClientSelector<O extends object>(options: O): O {
-  const stripped = { ...options }
-  Reflect.deleteProperty(stripped, 'client')
-  return stripped
+function normalizeRequestOptions<O extends object>(options: O): O {
+  const normalized: O & { bodySerializer?: unknown } = { ...options }
+  Reflect.deleteProperty(normalized, 'client')
+  if (normalized.bodySerializer === formDataBodySerializer.bodySerializer) {
+    normalized.bodySerializer = serializeMultipartBody
+  }
+  return normalized
 }
 
-// The generated client leaks per-call options — including the `client`
-// selector — into the Request init, which throws on Deno and Bun (they
-// reserve the `client` init key). Drop the key before dispatch.
-// TODO: remove once hey-api/hey-api#4177 is fixed and regenerated.
-function stripClientSelector(client: OmnaraClient): void {
+// Two fixes for generated per-call options, applied before dispatch:
+// - The generated client leaks options — including the `client` selector —
+//   into the Request init, which throws on Deno and Bun (they reserve the
+//   `client` init key). TODO: remove once hey-api/hey-api#4177 is fixed and
+//   regenerated.
+// - Multipart operations get a serializer that sends object fields as JSON
+//   parts; see multipart-body.ts. A caller-supplied bodySerializer is kept.
+function patchGeneratedRequests(client: OmnaraClient): void {
   const { request } = client
-  client.request = (options) => request(withoutClientSelector(options))
+  client.request = (options) => request(normalizeRequestOptions(options))
   for (const method of httpMethods) {
     const dispatch = client[method]
-    client[method] = (options) => dispatch(withoutClientSelector(options))
+    client[method] = (options) => dispatch(normalizeRequestOptions(options))
     const sseDispatch = client.sse[method]
-    client.sse[method] = (options) => sseDispatch(withoutClientSelector(options))
+    client.sse[method] = (options) => sseDispatch(normalizeRequestOptions(options))
   }
 }
 
@@ -80,6 +87,6 @@ export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraCli
     if (!response.ok) throw await ApiError.fromResponse(response)
     return response
   })
-  stripClientSelector(client)
+  patchGeneratedRequests(client)
   return client
 }

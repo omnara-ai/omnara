@@ -132,21 +132,7 @@ export function useCreateSkill(orgID: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: CreateSkillRequest) => {
-      const { data } = await sdk.createSkill({
-        path: { orgID },
-        body,
-        client,
-        bodySerializer: () => {
-          const form = new FormData()
-          form.append('owner', new Blob([JSON.stringify(body.owner)], { type: 'application/json' }))
-          form.append(
-            'archive',
-            body.archive,
-            body.archive instanceof File ? body.archive.name : 'skill.zip',
-          )
-          return form
-        },
-      })
+      const { data } = await sdk.createSkill({ path: { orgID }, body, client })
       return data
     },
     onSuccess: async () => {
