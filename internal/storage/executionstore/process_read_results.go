@@ -152,7 +152,10 @@ func decodeProcessReadObservation(
 	raw json.RawMessage,
 ) (daemonProcessReadObservation, bool) {
 	var observed daemonProcessReadObservation
-	return observed, json.Unmarshal(raw, &observed) == nil
+	if err := json.Unmarshal(raw, &observed); err != nil {
+		return daemonProcessReadObservation{}, false
+	}
+	return observed, true
 }
 
 func inspectPublishedProcessReadObservationTx(
