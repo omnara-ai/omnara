@@ -1,5 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { type Document, isAlias, isScalar, visit } from 'yaml'
+import { type Document, isAlias, isMap, isScalar, parseDocument, visit } from 'yaml'
 import { z } from 'zod'
 
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
@@ -152,6 +152,16 @@ const basicDocument = z.looseObject({
   max_subagents: positiveCount,
   max_depth: positiveCount,
 })
+
+export function parseSourceDocument(source: string): Document | null {
+  try {
+    const doc = parseDocument(source)
+    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
+    return doc
+  } catch {
+    return null
+  }
+}
 
 export function extractBasicConfig(document: Document): BasicConfig | null {
   const sharedYaml = { found: false }
