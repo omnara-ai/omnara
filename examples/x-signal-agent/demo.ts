@@ -59,9 +59,9 @@ const client = createOmnaraClient({
 // ## 1. Where it deploys
 //
 // Every org starts with a project named Default, and a managed machine pool
-// is already granted to it. The agent uses the first Default project you can
-// see and its first pool — the machine is where it runs `curl` against the
-// X API.
+// is already granted to it. We look up both first: the agent is created in
+// that project, and the pool gives it the machine where it runs `curl`
+// against the X API.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })

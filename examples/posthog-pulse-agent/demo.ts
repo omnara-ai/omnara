@@ -61,10 +61,10 @@ const client = createOmnaraClient({
 // %% [markdown]
 // ## 1. Where it lives
 //
-// Every org starts with a project named Default; the agent lives in the first
-// one you can see. It needs no machine: its only tools are the PostHog MCP
-// server (hosted by PostHog) and Slack delivery, so there is nothing to
-// provision.
+// Every org starts with a project named Default. We look it up first, since
+// that's where the agent is created. It needs no machine: its only tools are
+// the PostHog MCP server (hosted by PostHog) and Slack delivery, so there is
+// nothing to provision.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })

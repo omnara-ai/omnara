@@ -69,10 +69,10 @@ const client = createOmnaraClient({
 // %% [markdown]
 // ## 1. Where it lives
 //
-// Every org starts with a project named Default; the agent lives in the first
-// one you can see. Nothing else to provision — this agent never runs shell
-// commands, so it needs no machine. Its only tools are the Apify MCP server
-// and Omnara's built-in web tools.
+// Every org starts with a project named Default. We look it up first, since
+// that's where the agent is created. Nothing else to provision — this agent
+// never runs shell commands, so it needs no machine. Its only tools are the
+// Apify MCP server and Omnara's built-in web tools.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
