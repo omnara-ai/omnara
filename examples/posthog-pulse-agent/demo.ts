@@ -68,24 +68,19 @@ const client = createOmnaraClient({
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
-// Projects list newest first, and Default is the oldest, so page through.
-async function findDefaultProject() {
-  for (const org of me.orgs) {
-    let cursor: string | undefined
-    do {
-      const { data: page } = await sdk.listVisibleProjects({
-        client,
-        path: { orgID: org.id },
-        query: { limit: 100, cursor },
-      })
-      const project = page.data.find((candidate) => candidate.name === 'Default')
-      if (project) return { org, project }
-      cursor = page.next_cursor ?? undefined
-    } while (cursor)
-  }
-  throw new Error('no project named Default is visible in any of your orgs')
-}
-const { org, project } = await findDefaultProject()
+const orgProjects = await Promise.all(
+  me.orgs.map(async (org) => {
+    const { data: projects } = await sdk.listVisibleProjects({
+      client,
+      path: { orgID: org.id },
+      query: { limit: 100 },
+    })
+    return projects.data.map((project) => ({ org, project }))
+  }),
+)
+const found = orgProjects.flat().find(({ project }) => project.name === 'Default')
+if (!found) throw new Error('no project named Default is visible in any of your orgs')
+const { org, project } = found
 const path = { orgID: org.id, projectID: project.id }
 
 console.log('org:    ', org.name, org.id)
