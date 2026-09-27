@@ -73,11 +73,7 @@ const client = createOmnaraClient({
 const { data: me } = await sdk.getCurrentUser({ client })
 const orgProjects = await Promise.all(
   me.orgs.map(async (org) => {
-    const { data: projects } = await sdk.listVisibleProjects({
-      client,
-      path: { orgID: org.id },
-      query: { limit: 100 },
-    })
+    const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: org.id } })
     return projects.data.map((project) => ({ org, project }))
   }),
 )
