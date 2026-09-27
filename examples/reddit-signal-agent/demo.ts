@@ -64,24 +64,31 @@ const client = createOmnaraClient({
 // %% [markdown]
 // ## 1. Where it lives
 //
-// Every account has a default org and a default project; the agent lives in
-// the first of each. Nothing else to provision — this agent never runs shell
+// Every org starts with a project named Default; the agent lives in the first
+// one you can see. Nothing else to provision — this agent never runs shell
 // commands, so it needs no machine. Its only tools are the Apify MCP server
 // and Omnara's built-in web tools.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
-let org = me.orgs[0]
-let project
-for (const candidate of me.orgs) {
-  const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: candidate.id } })
-  if (projects.data.length) {
-    org = candidate
-    project = projects.data[0]
-    break
+// Projects list newest first, and Default is the oldest, so page through.
+async function findDefaultProject() {
+  for (const org of me.orgs) {
+    let cursor: string | undefined
+    do {
+      const { data: page } = await sdk.listVisibleProjects({
+        client,
+        path: { orgID: org.id },
+        query: { limit: 100, cursor },
+      })
+      const project = page.data.find((candidate) => candidate.name === 'Default')
+      if (project) return { org, project }
+      cursor = page.next_cursor ?? undefined
+    } while (cursor)
   }
+  throw new Error('no project named Default is visible in any of your orgs')
 }
-if (!project) throw new Error('no visible project in any of your orgs')
+const { org, project } = await findDefaultProject()
 const path = { orgID: org.id, projectID: project.id }
 
 console.log('org:    ', org.name, org.id)
