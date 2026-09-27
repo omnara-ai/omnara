@@ -46,13 +46,10 @@ function normalizeRequestOptions<O extends object>(options: O): O {
   return normalized
 }
 
-// Two fixes for generated per-call options, applied before dispatch:
-// - The generated client leaks options — including the `client` selector —
-//   into the Request init, which throws on Deno and Bun (they reserve the
-//   `client` init key). TODO: remove once hey-api/hey-api#4177 is fixed and
-//   regenerated.
-// - Multipart operations get a serializer that sends object fields as JSON
-//   parts; see multipart-body.ts. A caller-supplied bodySerializer is kept.
+// Drops the leaked `client` init key, which throws on Deno and Bun (TODO:
+// remove once hey-api/hey-api#4177 is fixed and regenerated), and sends object
+// multipart fields as JSON parts. The default client is patched too because
+// generated operations fall back to it when no `client` is passed.
 function patchGeneratedRequests(client: OmnaraClient): void {
   const { request } = client
   client.request = (options) => request(normalizeRequestOptions(options))
@@ -63,6 +60,8 @@ function patchGeneratedRequests(client: OmnaraClient): void {
     client.sse[method] = (options) => sseDispatch(normalizeRequestOptions(options))
   }
 }
+
+patchGeneratedRequests(specDefaultClient)
 
 export function createOmnaraClient(options: OmnaraClientOptions = {}): OmnaraClient {
   const client = createClient(
