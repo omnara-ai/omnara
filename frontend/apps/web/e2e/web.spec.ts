@@ -677,7 +677,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
         ? { profile: profileId, trigger: 'pull_request_opened' }
         : { profiles: [profileId] },
     )
-    if (integrationKind === 'github_pr') expect(launched.settings.sender_policy).toBe('writers')
     expect(launched.setup_revision).toBe(integration.setup_revision)
     await expect(page).toHaveURL(integrationPath)
     await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()

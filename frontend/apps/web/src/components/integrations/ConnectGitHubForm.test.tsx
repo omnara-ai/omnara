@@ -307,7 +307,7 @@ it.each([false, true])(
     expect(api.requestsTo('POST', projectPath + '/integrations')[0]?.body).toEqual({
       name: 'reviewer',
       integration_kind: 'github_pr',
-      settings: { sender_policy: 'writers' },
+      settings: {},
     })
     expect(api.requestsTo('POST', integrationPath + '/github-setup')[0]?.body).toEqual(
       organization

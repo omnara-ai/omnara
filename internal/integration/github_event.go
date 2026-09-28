@@ -50,11 +50,7 @@ func (p GitHubIntegrationInboxProvider) ExpandRouted(
 			return IntegrationInboxExpansion{}, err
 		}
 	}
-	requiresPermission, err := githubEventRequiresSenderPermission(integrationSetup, event)
-	if err != nil {
-		return IntegrationInboxExpansion{}, err
-	}
-	if requiresPermission {
+	if event.Event.Kind == "discussion_comment" || event.Event.Kind == "review_comment" {
 		ctx, cancel := context.WithTimeout(ctx, github.OperationTimeout)
 		defer cancel()
 		client, err := p.requestAccess(ctx, integrationSetup)
@@ -343,19 +339,6 @@ func validGitHubCommit(value string) bool {
 		}
 	}
 	return true
-}
-
-func githubEventRequiresSenderPermission(
-	integration integrationstore.IntegrationRecord, event IntegrationEvent,
-) (bool, error) {
-	if event.Event.Kind != "discussion_comment" && event.Event.Kind != "review_comment" {
-		return false, nil
-	}
-	settings, err := integrationdefinition.ReadGitHubSettings(integration.Settings)
-	if err != nil {
-		return false, err
-	}
-	return settings.SenderPolicy != "anyone", nil
 }
 
 func githubEventSenderAllowed(ctx context.Context, client *github.Client, event IntegrationEvent) (bool, error) {

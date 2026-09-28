@@ -282,9 +282,8 @@ func TestGitHubMentionBoundaries(t *testing.T) {
 
 func TestGitHubInboxAdapter(t *testing.T) {
 	t.Parallel()
-	provider := GitHubIntegrationInboxProvider{}
-	integrationSetup := githubEventIntegration()
-	integrationSetup.Settings = json.RawMessage(`{"sender_policy":"anyone"}`)
+	f, provider := newGitHubFeedbackFixture(t)
+	integrationSetup := f.integration
 	expansion, err := provider.Expand(
 		t.Context(),
 		integrationSetup,

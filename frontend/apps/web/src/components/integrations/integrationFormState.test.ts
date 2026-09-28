@@ -42,17 +42,16 @@ describe('integration settings editor', () => {
       ).error,
     ).toBe('Enter a scope ID.')
   })
-  it('preserves GitHub sender policy while launch is disabled and preserves repository when enabled', () => {
+  it('preserves the GitHub repository when editing the launcher and removes disabled launchers', () => {
     const saved = integrationFixture({
       integration_kind: 'github_pr',
       settings: {
-        sender_policy: 'anyone',
         launcher: { profile: first, trigger: 'mention', repository_id: '123' },
       },
     })
     const values = integrationFormValues('github_pr', saved)
     expect(integrationFormRequest('github_pr', { ...values, launcher: false }, saved)).toEqual({
-      settings: { sender_policy: 'anyone' },
+      settings: {},
     })
     expect(
       integrationFormRequest(
@@ -62,17 +61,15 @@ describe('integration settings editor', () => {
       ),
     ).toEqual({
       settings: {
-        sender_policy: 'anyone',
         launcher: { profile: second, trigger: 'pull_request_opened', repository_id: '123' },
       },
     })
   })
-  it('defaults comment policy to writers and validates single-profile selection', () => {
+  it('allows a disabled GitHub launcher and validates single-profile selection', () => {
     const saved = integrationFixture({ integration_kind: 'github_pr' })
     const values = integrationFormValues('github_pr', saved)
-    expect(values.senderPolicy).toBe('writers')
     expect(integrationFormRequest('github_pr', values, saved)).toEqual({
-      settings: { sender_policy: 'writers' },
+      settings: {},
     })
     expect(() =>
       integrationFormRequest(

@@ -73,7 +73,7 @@ describe('integration-owned launcher settings', () => {
       }),
     ).toThrow()
   })
-  it('uses exactly one GitHub profile with independent comment policy', () => {
+  it('uses exactly one GitHub profile when launching is enabled', () => {
     const input = {
       integrationKind: 'github_pr' as const,
       name: 'reviews',
@@ -81,19 +81,15 @@ describe('integration-owned launcher settings', () => {
       repositoryId: '123',
     }
     expect(profileIntegrationSetup(input).settings).toEqual({
-      sender_policy: 'writers',
       launcher: { profile: first, trigger: 'pull_request_opened', repository_id: '123' },
     })
-    expect(
-      profileIntegrationSetup({ ...input, launcher: false, senderPolicy: 'anyone' }).settings,
-    ).toEqual({ sender_policy: 'anyone' })
+    expect(profileIntegrationSetup({ ...input, launcher: false }).settings).toEqual({})
     expect(() => profileIntegrationSetup({ ...input, profileIds: [first, second] })).toThrow(
       'exactly one profile',
     )
     expect(() =>
       profileIntegrationSetup({ ...input, repositoryId: '9223372036854775808' }),
     ).toThrow()
-    expect(githubIntegrationSettings({}).sender_policy).toBe('writers')
   })
   it('rejects removed slots rather than quietly changing launch behavior', () => {
     expect(() =>

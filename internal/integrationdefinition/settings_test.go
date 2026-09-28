@@ -36,7 +36,6 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 		{SlackThread, fmt.Sprintf(`{"launcher":{"profiles":[%q],"scope_kind":"workspace","scope_ref":"T123"}}`, profile)},
 		{DiscordThread, fmt.Sprintf(`{"launcher":{"profiles":[%q],"channel_id":"123"}}`, profile)},
 		{GitHubPR, fmt.Sprintf(`{"launcher":{"profiles":[%q]}}`, profile)},
-		{GitHubPR, `{"sender_policy":"reader"}`},
 		{GitHubPR, fmt.Sprintf(
 			`{"launcher":{"profile":%q,"trigger":"mention","repository_id":"9223372036854775808"}}`, profile)},
 		{SlackThread, `{"launcher":{"slots":[{"key":"a","agent_id":"agt_aaa"}],"trigger":"mention"}}`},
@@ -44,11 +43,6 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 		_, err := ValidateSettings(tc.kind, json.RawMessage(tc.settings))
 		require.Error(t, err, tc.settings)
 	}
-	settings, err := ReadGitHubSettings(json.RawMessage(`{}`))
-	require.NoError(t, err)
-	require.Equal(t, "writers", settings.SenderPolicy)
-	_, err = ValidateSettings(GitHubPR, json.RawMessage(`{"sender_policy":"anyone"}`))
-	require.NoError(t, err)
 }
 
 func TestIntegrationLaunchAuthorizationAndScope(t *testing.T) {

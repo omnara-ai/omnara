@@ -25,7 +25,6 @@ const repositorySchema = z
   .regex(/^[1-9][0-9]*$/, 'Enter a positive repository ID without leading zeros.')
   .refine((id) => BigInt(id) <= 9223372036854775807n, 'The repository ID is too large.')
 const triggerSchema = z.enum(['mention', 'pull_request_opened'])
-const senderPolicySchema = z.enum(['writers', 'anyone'])
 const chatLauncherSchema = z
   .object({ profiles: profilesSchema.min(1), channel_id: channelSchema.optional() })
   .strict()
@@ -46,7 +45,6 @@ export function chatIntegrationLauncher(settings: IntegrationSettings) {
 
 export function githubIntegrationSettings(settings: IntegrationSettings) {
   return {
-    sender_policy: senderPolicySchema.parse(settings.sender_policy ?? 'writers'),
     launcher:
       settings.launcher === undefined ? undefined : githubLauncherSchema.parse(settings.launcher),
   }
@@ -89,11 +87,8 @@ export function profileIntegrationSetup(input: {
   channelId?: string
   repositoryId?: string
   trigger?: 'mention' | 'pull_request_opened'
-  senderPolicy?: 'writers' | 'anyone'
 }): SaveIntegrationRequest {
   const settings: IntegrationSettings = {}
-  if (input.integrationKind === 'github_pr')
-    settings.sender_policy = senderPolicySchema.parse(input.senderPolicy ?? 'writers')
   if (input.launcher !== false) {
     const profiles = profilesSchema
       .min(1, 'Choose at least one profile.')

@@ -44,10 +44,9 @@ export function ConnectGitHubForm({
   )
   const trustNotice = (
     <p className="text-muted-foreground text-sm">
-      By default, people with repository write access can trigger mention launches and steer PR
-      agents through comments. Choose Anyone in Who can direct agents to allow all human commenters.
-      Public and fork PRs can trigger configured PR-open launches. Choose a profile whose tools and
-      secrets are appropriate for untrusted input.
+      Only people with repository write access can trigger mention launches and steer PR agents
+      through comments. Public and fork PRs can trigger configured PR-open launches. Choose a
+      profile whose tools and secrets are appropriate for untrusted input.
     </p>
   )
 

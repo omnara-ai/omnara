@@ -26,24 +26,6 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
     <Field>
       {github ? (
         <>
-          <Field>
-            <FieldLabel htmlFor="integration-sender-policy">Who can direct agents</FieldLabel>
-            <select
-              id="integration-sender-policy"
-              className={selectClass}
-              value={values.senderPolicy}
-              onChange={(event) => {
-                onChange({ senderPolicy: event.target.value === 'anyone' ? 'anyone' : 'writers' })
-              }}
-            >
-              <option value="writers">People with repository write access</option>
-              <option value="anyone">Anyone</option>
-            </select>
-            <FieldDescription>
-              Controls who can launch or steer agents through comments. Automatic launches when a
-              pull request opens are configured separately.
-            </FieldDescription>
-          </Field>
           <label className="flex gap-2 text-sm font-medium">
             <input
               type="checkbox"
@@ -57,6 +39,7 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
           </label>
           <FieldDescription>
             Choose when to launch and which profile to use. Changes apply to future launches.
+            Mention launches and comments that direct agents require repository write access.
           </FieldDescription>
         </>
       ) : (

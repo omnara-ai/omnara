@@ -54,7 +54,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await page.route(`**/projects/${projectID}/integrations`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     const request = schemas.zSaveIntegrationRequest.parse(route.request().postDataJSON())
-    expect(request.settings).toEqual({ sender_policy: 'writers' })
+    expect(request.settings).toEqual({})
     integration = { ...integration, name: request.name, settings: request.settings }
     await route.fulfill({ status: 201, json: integration })
   })

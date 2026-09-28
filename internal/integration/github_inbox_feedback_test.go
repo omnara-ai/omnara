@@ -289,22 +289,19 @@ func TestGitHubNotifyInboxFailureDoesNotRetryUnknownSend(t *testing.T) {
 	require.Len(t, f.posts, 1)
 }
 
-func TestGitHubSenderPolicyGatesInputsAndFailureMessages(t *testing.T) {
+func TestGitHubWriteAccessGatesInputsAndFailureMessages(t *testing.T) {
 	for _, tc := range []struct {
-		name, policy, permission string
-		allowed                  bool
+		permission string
+		allowed    bool
 	}{
-		{"default denies reader", "", "read", false},
-		{"writer directs without launcher", "", "write", true},
-		{"explicit anyone", "anyone", "read", true},
+		{"read", false},
+		{"write", true},
+		{"admin", true},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.permission, func(t *testing.T) {
 			f, p := newGitHubFeedbackFixture(t)
 			f.permission = tc.permission
 			f.integration.Settings = json.RawMessage(`{}`)
-			if tc.policy != "" {
-				f.integration.Settings = json.RawMessage(`{"sender_policy":"` + tc.policy + `"}`)
-			}
 			for _, kind := range []string{"issue_comment", "pull_request_review_comment", "pull_request_review"} {
 				event := githubEventFixture(kind)
 				raw := githubEventJSON(t, event)
@@ -317,11 +314,17 @@ func TestGitHubSenderPolicyGatesInputsAndFailureMessages(t *testing.T) {
 				require.NoError(t, p.NotifyInboxFailure(t.Context(), f.integration, receipt, inboxFailureMessage))
 				require.Equal(t, tc.allowed, len(f.posts) == 1)
 			}
-			event := githubEventFixture("pull_request")
-			event.Action = "opened"
-			expanded, err := p.Expand(t.Context(), f.integration, githubEventJSON(t, event))
-			require.NoError(t, err)
-			require.NotNil(t, expanded.Event, "automatic PR events remain independent of commenter policy")
+			f.requests = nil
+			for _, action := range []string{"opened", "synchronize"} {
+				event := githubEventFixture("pull_request")
+				event.Action = action
+				event.Before = strings.Repeat("a", 40)
+				event.After = event.PullRequest.Head.SHA
+				expanded, err := p.Expand(t.Context(), f.integration, githubEventJSON(t, event))
+				require.NoError(t, err)
+				require.NotNil(t, expanded.Event, "automatic PR events do not require writer access")
+			}
+			require.Empty(t, f.requests)
 		})
 	}
 }

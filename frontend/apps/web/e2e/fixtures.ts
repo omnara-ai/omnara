@@ -259,7 +259,7 @@ export async function connectIntegrationWithCredentialRetry(
   expect(creation.request().postDataJSON()).toEqual({
     name,
     integration_kind: integrationKind,
-    settings: integrationKind === 'github_pr' ? { sender_policy: 'writers' } : {},
+    settings: {},
   })
   const draft = schemas.zIntegration.parse(await creation.json())
   const apiProjectPath = creation.url().replace(/\/integrations$/, '')

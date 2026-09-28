@@ -91,9 +91,8 @@ immediately; several offer a menu selecting exactly one. `integrations profiles`
 preserves the integration's other settings.
 
 GitHub uses `launcher.profile`, `launcher.trigger` (`mention` or `pull_request_opened`),
-and optional `launcher.repository_id`. Its top-level `sender_policy` defaults to
-`writers`; explicitly choose `anyone` to allow every human commenter to direct agents.
-Preserve `sender_policy` when editing or removing `launcher`. The definitions catalog
+and optional `launcher.repository_id`. Mention launches and comments that direct
+agents require repository write access; automatic PR-open launches do not. The definitions catalog
 publishes each integration's complete settings schema in `capabilities.settings`.
 
 Select tools and interaction handlers independently in agent configurations:

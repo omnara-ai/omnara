@@ -60,11 +60,7 @@ func (p GitHubIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	requiresPermission, err := githubEventRequiresSenderPermission(integration, event)
-	if err != nil {
-		return err
-	}
-	if requiresPermission && len(receipt.Plan) == 0 {
+	if len(receipt.Plan) == 0 {
 		allowed, err := githubEventSenderAllowed(ctx, client, event)
 		if err != nil || !allowed {
 			return err

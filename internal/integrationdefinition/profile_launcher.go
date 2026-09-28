@@ -28,8 +28,7 @@ type GitHubLauncherSettings struct {
 }
 
 type GitHubSettings struct {
-	SenderPolicy string                  `json:"sender_policy,omitempty"`
-	Launcher     *GitHubLauncherSettings `json:"launcher,omitempty"`
+	Launcher *GitHubLauncherSettings `json:"launcher,omitempty"`
 }
 
 func ReadChatLauncher(raw json.RawMessage) (*ChatLauncherSettings, error) {
@@ -43,7 +42,7 @@ func ReadChatLauncher(raw json.RawMessage) (*ChatLauncherSettings, error) {
 }
 
 func ReadGitHubSettings(raw json.RawMessage) (GitHubSettings, error) {
-	settings := GitHubSettings{SenderPolicy: "writers"}
+	var settings GitHubSettings
 	err := json.Unmarshal(raw, &settings)
 	return settings, err
 }
@@ -100,8 +99,8 @@ func newChatLauncher(provider string) *LauncherDefinition {
 }
 
 var githubSettings = &SettingsDefinition{
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"sender_policy":{"type":"string","enum":["writers","anyone"],"default":"writers","title":"Who can direct agents","description":"Writers allows users with repository write access. Anyone permits every human commenter. This is independent of automatic PR-open launches."},"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}}}}`),
-	Description: "Control comment senders and optionally launch one profile on a mention or when a pull request opens.",
+	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}}}}`),
+	Description: "Launch on a PR opening or a mention from someone with repository write access.",
 	ValidateSettings: func(raw json.RawMessage) error {
 		settings, err := ReadGitHubSettings(raw)
 		if err != nil || settings.Launcher == nil {

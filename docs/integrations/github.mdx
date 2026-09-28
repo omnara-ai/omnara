@@ -24,9 +24,8 @@ return later using the saved credential. Nothing launches until you choose an
 agent profile and save the integration's launch settings.
 
 <Warning>
-By default, only people with repository write access can trigger configured
-mention launches and steer subscribed PR agents through comments. Choosing
-**Anyone** in **Who can direct agents** allows all human commenters. Public and fork PRs
+Only people with repository write access can trigger configured
+mention launches and steer subscribed PR agents through comments. Public and fork PRs
 can trigger configured PR-open launches; authors do not need to be maintainers
 or collaborators. Choose a profile whose tools, machine access and secrets are
 appropriate for untrusted input, and review its tool permissions before enabling
@@ -227,10 +226,9 @@ the triggering PR. An unrestricted launcher applies to repositories granted to t
 `trigger: "mention"` for mentions in new human PR comments. GitHub accepts exactly
 one profile. Updates contain only `settings`; name and kind are immutable.
 
-Top-level `settings.sender_policy` defaults to `writers` (repository write access).
-Explicitly choose `anyone` to allow all human commenters to launch or steer agents.
-This policy is independent of automatic PR-open launching and remains when the
-launcher is disabled. Preserve it when replacing launcher settings.
+Comments and reviews require repository write access to launch or steer agents,
+even when the launcher is disabled. Other comments remain readable as context.
+Automatic PR-open launches do not require the author to have write access.
 
 Human discussion/review input steers the agent and cancels open interactions;
 PR opens and synchronization events queue. Bot comments, edits and unrelated

@@ -85,48 +85,6 @@ function ManualSetupOwner({ visible, onSaved }: { visible: boolean; onSaved: () 
   )
 }
 
-it('edits GitHub comment policy while launching is disabled', async () => {
-  const integration = integrationFixture({ integration_kind: 'github_pr', settings: {} })
-  const integrationPath = `${path}/integrations/${integration.id}`
-  const api = fakeApi([
-    {
-      method: 'PUT',
-      path: integrationPath,
-      respond: ({ body }) =>
-        Response.json({ ...integration, ...schemas.zUpdateIntegrationRequest.parse(body) }),
-    },
-  ])
-  const onSaved = vi.fn()
-  render(
-    api,
-    <IntegrationForm
-      orgId={orgId}
-      projectId={projectId}
-      integrationKind="github_pr"
-      integration={integration}
-      onSaved={onSaved}
-    />,
-  )
-  const policy = container.querySelector<HTMLSelectElement>('#integration-sender-policy')
-  if (!policy) throw new Error('Missing GitHub sender policy selector')
-  expect(policy.value).toBe('writers')
-  expect(container.querySelector<HTMLInputElement>('input[name="launcher"]')?.checked).toBe(false)
-  expect(container.textContent).toContain(
-    'Automatic launches when a pull request opens are configured separately',
-  )
-  act(() => {
-    policy.value = 'anyone'
-    policy.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  await submit()
-  await waitForUI(() => {
-    expect(onSaved).toHaveBeenCalled()
-  })
-  expect(api.requestsTo('PUT', integrationPath)[0]?.body).toEqual({
-    settings: { sender_policy: 'anyone' },
-  })
-})
-
 it.each([200, 500])(
   'releases parent setup state after the manual form unmounts (status=%s)',
   async (status) => {

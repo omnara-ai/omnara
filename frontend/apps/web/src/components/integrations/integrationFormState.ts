@@ -16,7 +16,6 @@ export interface IntegrationFormValues {
   scopeKind: string
   scopeRef: string
   trigger: string
-  senderPolicy: 'writers' | 'anyone'
 }
 
 export function integrationFormValues(
@@ -35,7 +34,6 @@ export function integrationFormValues(
     trigger:
       github?.launcher?.trigger ??
       (integrationKind === 'github_pr' ? 'pull_request_opened' : 'mention'),
-    senderPolicy: github?.sender_policy ?? 'writers',
   }
 }
 
@@ -61,7 +59,6 @@ export function integrationFormRequest(
         ? values.scopeRef.trim()
         : undefined,
     trigger: z.enum(['mention', 'pull_request_opened']).parse(values.trigger),
-    senderPolicy: values.senderPolicy,
   })
   if (enabled && values.scopeKind && !values.scopeRef.trim()) throw new Error('Enter a scope ID.')
   if (
