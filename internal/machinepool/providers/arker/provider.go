@@ -16,8 +16,8 @@ import (
 
 	arkersdk "github.com/ArkerHQ/arker-sdk/go"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -135,8 +135,8 @@ func provisionKey(allocationName string) string {
 
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
@@ -217,7 +217,7 @@ func (p *provider) ProvisionMachine(
 // Cancel rather than adopt. Adopting an in-flight boot leaves the guest running
 // the token the FIRST attempt wrote, while the manager has since issued a new
 // one, so the pool can mark a machine provisioned whose omnarad never
-// authenticates. Cancelling and restarting costs one boot and guarantees the
+// authenticates. Canceling and restarting costs one boot and guarantees the
 // daemon that survives is the one holding current credentials -- and there is
 // still exactly one at the end, which is what idempotent has to mean here.
 func cancelStaleDaemons(ctx context.Context, vm *arkersdk.VM) error {
@@ -331,8 +331,8 @@ func exitText(code *int) string {
 
 func (p *provider) InspectMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
@@ -376,8 +376,8 @@ func (p *provider) InspectMachine(
 
 func (p *provider) DeleteMachine(
 	ctx context.Context,
-	installationID storage.ID,
-	machineID storage.ID,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {
