@@ -308,6 +308,15 @@ func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
 			hardDeadline = reserved
 		}
 	}
+	// Never before the settle window. Success is only concluded once the daemon
+	// has held `running` through it, so a hard deadline inside that window would
+	// fail a boot that is doing nothing wrong -- reporting a healthy daemon as
+	// stuck, which is the opposite of what bounding the wait was for. If the
+	// context really cannot afford the settle, ctx.Done() ends the wait and says
+	// so honestly rather than blaming the daemon.
+	if hardDeadline.Before(deadline) {
+		hardDeadline = deadline
+	}
 	for {
 		record, err := vm.GetRun(ctx, runID)
 		if err != nil {

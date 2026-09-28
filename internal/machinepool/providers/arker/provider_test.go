@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	arkersdk "github.com/ArkerHQ/arker-sdk/go"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
@@ -457,5 +460,45 @@ func TestArkerProviderProvisionAlwaysWritesCurrentCredentials(t *testing.T) {
 	}
 	if fake.runs.Load() != 1 {
 		t.Fatalf("started %d daemons, want the daemon started for this attempt", fake.runs.Load())
+	}
+}
+
+// Bounding the wait by the caller's context must not shorten it below the
+// settle window. Success is only concluded once the daemon has held `running`
+// through that window, so a hard deadline inside it fails a boot that is doing
+// nothing wrong -- the opposite of what the bounding is for.
+func TestWaitForDaemonDoesNotFailAHealthyBootOnAShortContext(t *testing.T) {
+	daemonSettleWindow = 40 * time.Millisecond
+	daemonStartTimeout = 5 * time.Second
+	t.Cleanup(func() {
+		daemonSettleWindow = liveTestSettleWindow
+		daemonStartTimeout = liveTestStartTimeout
+	})
+
+	fake := &fakeArker{}
+	server := fake.start(t, testAllocationName(t))
+	client, err := arkersdk.New(arkersdk.Options{APIKey: "ark_test", BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("sdk client: %v", err)
+	}
+	vm := client.VM(testVMID)
+	started, err := vm.Run(context.Background(), arkersdk.RunRequest{
+		Command:          daemonCommand,
+		SessionIdx:       arkersdk.Ptr(daemonSessionIdx),
+		TimeToBackground: arkersdk.Ptr(0),
+	})
+	if err != nil {
+		t.Fatalf("start the daemon: %v", err)
+	}
+
+	// Less context left than settle window + margin. The clamp must not drag the
+	// hard deadline in front of the settle window.
+	ctx, cancel := context.WithTimeout(context.Background(), daemonSettleWindow+daemonDeadlineMargin/2)
+	defer cancel()
+	if err := waitForDaemon(ctx, vm, started.RunID); err != nil {
+		if strings.Contains(err.Error(), "is still") {
+			t.Fatalf("a healthy running daemon was reported stuck: %v", err)
+		}
+		t.Logf("ended on the context rather than blaming the daemon: %v", err)
 	}
 }
