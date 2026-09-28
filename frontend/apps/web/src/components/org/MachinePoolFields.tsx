@@ -2,6 +2,8 @@ import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
+import { CreateOSMachineSizeField } from './CreateOSMachineSizeField'
+import { CreateOSRootFSField } from './CreateOSRootFSField'
 import {
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
@@ -9,6 +11,7 @@ import {
   machinePoolProviderLabel,
 } from './MachinePoolDialogState'
 import { MachinePoolInputField } from './MachinePoolInputField'
+import { createosRootFS } from './machinePoolProviderOptions'
 import { isMachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 import { MachinePoolProviderSelect } from './MachinePoolProviderSelect'
 import { MachinePoolResourceFields } from './MachinePoolResourceFields'
@@ -42,6 +45,7 @@ export function MachinePoolFields({
     setValue('provider', nextValues.provider)
     setValue('providerScope', nextValues.providerScope)
     setValue('image', nextValues.image)
+    setValue('rootfs', nextValues.rootfs)
     setValue('location', nextValues.location)
     setValue('cpu', nextValues.cpu)
     setValue('memoryGb', nextValues.memoryGb)
@@ -84,19 +88,44 @@ export function MachinePoolFields({
               setValue('description', description)
             }}
           />
-          <MachinePoolInputField
-            id="mpool-image"
-            label={definition.resource.label}
-            required
-            value={values.image}
-            placeholder={definition.resource.placeholder}
-            autoComplete="off"
-            onValueChange={(image) => {
-              setValue('image', image)
-            }}
-            description={definition.resource.description}
-            descriptionHref={definition.resource.descriptionHref}
-          />
+          {values.provider === 'createos' ? (
+            <>
+              <CreateOSMachineSizeField
+                orgId={orgId}
+                enabled={enabled}
+                secretId={values.secretId}
+                value={values.image}
+                onSelect={(machineSize) => {
+                  setValue('image', machineSize.id)
+                  setValue('cpu', String(machineSize.vcpu))
+                  setValue('memoryGb', String(machineSize.memory_mb / 1024))
+                }}
+              />
+              <CreateOSRootFSField
+                orgId={orgId}
+                enabled={enabled}
+                secretId={values.secretId}
+                value={values.rootfs}
+                onChange={(rootfs) => {
+                  setValue('rootfs', rootfs)
+                }}
+              />
+            </>
+          ) : (
+            <MachinePoolInputField
+              id="mpool-image"
+              label={definition.resource.label}
+              required
+              value={values.image}
+              placeholder={definition.resource.placeholder}
+              autoComplete="off"
+              onValueChange={(image) => {
+                setValue('image', image)
+              }}
+              description={definition.resource.description}
+              descriptionHref={definition.resource.descriptionHref}
+            />
+          )}
           {definition.scope && (
             <MachinePoolInputField
               id="mpool-provider-scope"
@@ -153,6 +182,12 @@ export function MachinePoolFields({
           value={values.secretId}
           onChange={(secretId) => {
             setValue('secretId', secretId)
+            if (values.provider === 'createos' && secretId !== values.secretId) {
+              setValue('image', '')
+              setValue('rootfs', createosRootFS)
+              setValue('cpu', '')
+              setValue('memoryGb', '')
+            }
           }}
           label={credential?.label ?? `${machinePoolProviderLabel(values.provider)} API token`}
           placeholder={

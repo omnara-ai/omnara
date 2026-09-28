@@ -2764,11 +2764,39 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_machine_cpu: number;
     max_machine_memory_mb: number;
 } | {
+    provider: 'createos';
+    max_total_cpu: number;
+    max_total_memory_mb: number;
+    max_machine_cpu: number;
+    max_machine_memory_mb: number;
+} | {
     provider: 'blaxel';
     default_machine_memory_mb: number;
     max_total_memory_mb: number;
     max_machine_memory_mb: number;
 });
+
+export type CreateOsMachineSize = {
+    id: string;
+    vcpu: number;
+    memory_mb: number;
+};
+
+export type ListCreateOsMachineSizesResponse = {
+    data: Array<CreateOsMachineSize>;
+};
+
+export type CreateOsRootFs = {
+    name: string;
+    description?: string;
+    deprecated: boolean;
+    successor?: string;
+};
+
+export type ListCreateOsRootFsResponse = {
+    data: Array<CreateOsRootFs>;
+    default: string;
+};
 
 export type CreateMachinePoolRequestBase = {
     name: ResourceName;
@@ -13168,6 +13196,136 @@ export type CreateMachinePoolResponses = {
 };
 
 export type CreateMachinePoolResponse = CreateMachinePoolResponses[keyof CreateMachinePoolResponses];
+
+export type ListCreateOsMachineSizesData = {
+    body?: never;
+    path: {
+        orgID: string;
+    };
+    query: {
+        provider_auth_secret_id: SecretId;
+    };
+    url: '/orgs/{orgID}/machine-providers/createos/machine-sizes';
+};
+
+export type ListCreateOsMachineSizesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListCreateOsMachineSizesError = ListCreateOsMachineSizesErrors[keyof ListCreateOsMachineSizesErrors];
+
+export type ListCreateOsMachineSizesResponses = {
+    /**
+     * Available CreateOS shapes.
+     */
+    200: ListCreateOsMachineSizesResponse;
+};
+
+export type ListCreateOsMachineSizesResponse2 = ListCreateOsMachineSizesResponses[keyof ListCreateOsMachineSizesResponses];
+
+export type ListCreateOsRootFsData = {
+    body?: never;
+    path: {
+        orgID: string;
+    };
+    query: {
+        provider_auth_secret_id: SecretId;
+    };
+    url: '/orgs/{orgID}/machine-providers/createos/rootfs';
+};
+
+export type ListCreateOsRootFsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListCreateOsRootFsError = ListCreateOsRootFsErrors[keyof ListCreateOsRootFsErrors];
+
+export type ListCreateOsRootFsResponses = {
+    /**
+     * Available CreateOS root filesystems.
+     */
+    200: ListCreateOsRootFsResponse;
+};
+
+export type ListCreateOsRootFsResponse2 = ListCreateOsRootFsResponses[keyof ListCreateOsRootFsResponses];
 
 export type DeleteMachinePoolData = {
     body?: never;

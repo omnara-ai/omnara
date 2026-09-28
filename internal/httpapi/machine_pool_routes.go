@@ -3,16 +3,119 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"math"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/createos"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/management"
 )
+
+func (s strictOpenAPIServer) ListCreateOSMachineSizes(
+	ctx context.Context,
+	request openapi.ListCreateOSMachineSizesRequestObject,
+) (openapi.ListCreateOSMachineSizesResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	credential, err := s.createOSCatalogCredential(ctx, org.ID, request.Params.ProviderAuthSecretId)
+	if err != nil {
+		return nil, err
+	}
+	shapes, err := createos.ListShapes(ctx, credential)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "could not load CreateOS shapes")
+	}
+	data := make([]openapi.CreateOSMachineSize, 0, len(shapes))
+	for _, shape := range shapes {
+		if shape.ID == "" || shape.VCPU <= 0 || shape.VCPU > math.MaxInt32 ||
+			shape.MemMiB <= 0 || shape.MemMiB > math.MaxInt32 {
+			return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "CreateOS returned an invalid shape")
+		}
+		data = append(data, openapi.CreateOSMachineSize{
+			Id:       shape.ID,
+			Vcpu:     int32(shape.VCPU),
+			MemoryMb: int32(shape.MemMiB),
+		})
+	}
+	return openapi.ListCreateOSMachineSizes200JSONResponse{
+		Data: data,
+	}, nil
+}
+
+func (s strictOpenAPIServer) ListCreateOSRootFS(
+	ctx context.Context,
+	request openapi.ListCreateOSRootFSRequestObject,
+) (openapi.ListCreateOSRootFSResponseObject, error) {
+	org, err := orgScopeFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	credential, err := s.createOSCatalogCredential(ctx, org.ID, request.Params.ProviderAuthSecretId)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := createos.ListRootFS(ctx, credential)
+	if err != nil {
+		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "could not load CreateOS root filesystems")
+	}
+	entries := catalog.Entries
+	if len(entries) == 0 {
+		entries = make([]createos.RootFS, 0, len(catalog.Names))
+		for _, name := range catalog.Names {
+			entries = append(entries, createos.RootFS{Name: name})
+		}
+	}
+	data := make([]openapi.CreateOSRootFS, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Name == "" {
+			return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "CreateOS returned an invalid root filesystem")
+		}
+		data = append(data, openapi.CreateOSRootFS{
+			Name:        entry.Name,
+			Description: entry.Description,
+			Deprecated:  entry.Deprecated,
+			Successor:   entry.Successor,
+		})
+	}
+	return openapi.ListCreateOSRootFS200JSONResponse{
+		Data:    data,
+		Default: catalog.Default,
+	}, nil
+}
+
+func (s strictOpenAPIServer) createOSCatalogCredential(
+	ctx context.Context,
+	orgID uuid.UUID,
+	rawSecretID string,
+) (string, error) {
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		return "", apierror.FromCode(openapi.ErrorCodeForbidden, "forbidden")
+	}
+	secret, apiErr := canonicalSecret(ctx, s.server.store.Secrets(), orgID, rawSecretID, principal)
+	if apiErr != nil {
+		return "", *apiErr
+	}
+	credential, err := s.server.store.Execution().ResolveMachineProviderCredential(
+		ctx,
+		orgID,
+		management.Tenant,
+		secret.ID,
+		"",
+	)
+	if err != nil {
+		return "", apierror.FromCode(openapi.ErrorCodeInvalidRequest, "provider credential is unavailable")
+	}
+	return credential.Token, nil
+}
 
 func (s *Server) machinePoolResponse(record executionstore.MachinePoolRecord) (openapi.MachinePool, error) {
 	id, err := publicID(publicid.KindMachinePool, record.ID)

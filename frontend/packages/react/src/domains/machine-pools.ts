@@ -1,6 +1,8 @@
 import { type ListMachinePoolsData, sdk, type UpdateMachinePoolRequest } from '@omnara/sdk'
 import {
   getMachinePoolOptions,
+  listCreateOsMachineSizesOptions,
+  listCreateOsRootFsOptions,
   listMachinePoolsInfiniteOptions,
   listMachinePoolsQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -19,6 +21,38 @@ import { useScopedMutation } from './scoped-mutation'
 export type MachinePoolListFilters = ListFilters<ListMachinePoolsData>
 export type MachinePoolListSort = ListSort<ListMachinePoolsData>
 export type MachinePoolListOptions = PaginatedListOptions<ListMachinePoolsData>
+
+export function useCreateOSMachineSizes(
+  orgID: string,
+  providerAuthSecretID: string,
+  options?: { enabled?: boolean },
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...listCreateOsMachineSizesOptions({
+      path: { orgID },
+      query: { provider_auth_secret_id: providerAuthSecretID },
+      client,
+    }),
+    enabled: (options?.enabled ?? true) && providerAuthSecretID !== '',
+  })
+}
+
+export function useCreateOSRootFS(
+  orgID: string,
+  providerAuthSecretID: string,
+  options?: { enabled?: boolean },
+) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...listCreateOsRootFsOptions({
+      path: { orgID },
+      query: { provider_auth_secret_id: providerAuthSecretID },
+      client,
+    }),
+    enabled: (options?.enabled ?? true) && providerAuthSecretID !== '',
+  })
+}
 
 export function useMachinePools(orgID: string, options?: MachinePoolListOptions) {
   const client = useOmnaraClient()

@@ -15,6 +15,7 @@ import (
 
 const (
 	Blaxel   = "blaxel"
+	CreateOS = "createos"
 	Daytona  = "daytona"
 	Modal    = "modal"
 	Unikraft = "unikraft"

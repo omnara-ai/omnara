@@ -74,99 +74,101 @@ export function MachinePoolAdvancedSection({
             setValue('secretEnvRows', secretRows)
           }}
         />
-        <div className="grid gap-4 sm:grid-cols-3">
-          {resources.cpu !== 'unsupported' && (
-            <>
-              {!clusterManaged && (
+        {(resources.showLimitControls ?? true) && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            {resources.cpu !== 'unsupported' && (
+              <>
+                {!clusterManaged && (
+                  <MachinePoolInputField
+                    id="mpool-max-total-cpu"
+                    label="Max total CPU"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={values.maxTotalCpu}
+                    placeholder={derivedTotalCapPlaceholder(values.cpu, values.maxMachines)}
+                    onValueChange={(value) => {
+                      setValue('maxTotalCpu', value)
+                    }}
+                  />
+                )}
                 <MachinePoolInputField
-                  id="mpool-max-total-cpu"
-                  label="Max total CPU"
+                  id="mpool-min-machine-cpu"
+                  label="Min machine CPU"
                   type="number"
                   min="0"
                   step="1"
-                  value={values.maxTotalCpu}
-                  placeholder={derivedTotalCapPlaceholder(values.cpu, values.maxMachines)}
+                  value={values.minMachineCpu}
+                  placeholder="0"
                   onValueChange={(value) => {
-                    setValue('maxTotalCpu', value)
+                    setValue('minMachineCpu', value)
                   }}
                 />
-              )}
-              <MachinePoolInputField
-                id="mpool-min-machine-cpu"
-                label="Min machine CPU"
-                type="number"
-                min="0"
-                step="1"
-                value={values.minMachineCpu}
-                placeholder="0"
-                onValueChange={(value) => {
-                  setValue('minMachineCpu', value)
-                }}
-              />
-              {resources.cpu === 'configured' && (
+                {resources.cpu === 'configured' && (
+                  <MachinePoolInputField
+                    id="mpool-max-machine-cpu"
+                    label="Max machine CPU"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={values.maxMachineCpu}
+                    placeholder={values.cpu || undefined}
+                    onValueChange={(value) => {
+                      setValue('maxMachineCpu', value)
+                    }}
+                  />
+                )}
+              </>
+            )}
+            {resources.memoryMb !== 'unsupported' && (
+              <>
+                {!clusterManaged && (
+                  <MachinePoolInputField
+                    id="mpool-max-total-memory"
+                    label="Max total memory (GB)"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={values.maxTotalMemoryGb}
+                    placeholder={derivedMemoryTotalCapPlaceholder(
+                      values.memoryGb,
+                      values.maxMachines,
+                    )}
+                    onValueChange={(value) => {
+                      setValue('maxTotalMemoryGb', value)
+                    }}
+                  />
+                )}
                 <MachinePoolInputField
-                  id="mpool-max-machine-cpu"
-                  label="Max machine CPU"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={values.maxMachineCpu}
-                  placeholder={values.cpu || undefined}
-                  onValueChange={(value) => {
-                    setValue('maxMachineCpu', value)
-                  }}
-                />
-              )}
-            </>
-          )}
-          {resources.memoryMb !== 'unsupported' && (
-            <>
-              {!clusterManaged && (
-                <MachinePoolInputField
-                  id="mpool-max-total-memory"
-                  label="Max total memory (GB)"
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={values.maxTotalMemoryGb}
-                  placeholder={derivedMemoryTotalCapPlaceholder(
-                    values.memoryGb,
-                    values.maxMachines,
-                  )}
-                  onValueChange={(value) => {
-                    setValue('maxTotalMemoryGb', value)
-                  }}
-                />
-              )}
-              <MachinePoolInputField
-                id="mpool-min-machine-memory"
-                label="Min machine memory (GB)"
-                type="number"
-                min="0"
-                step="any"
-                value={values.minMachineMemoryGb}
-                placeholder="0"
-                onValueChange={(value) => {
-                  setValue('minMachineMemoryGb', value)
-                }}
-              />
-              {resources.memoryMb === 'configured' && (
-                <MachinePoolInputField
-                  id="mpool-max-machine-memory"
-                  label="Max machine memory (GB)"
+                  id="mpool-min-machine-memory"
+                  label="Min machine memory (GB)"
                   type="number"
                   min="0"
                   step="any"
-                  value={values.maxMachineMemoryGb}
-                  placeholder={values.memoryGb || undefined}
+                  value={values.minMachineMemoryGb}
+                  placeholder="0"
                   onValueChange={(value) => {
-                    setValue('maxMachineMemoryGb', value)
+                    setValue('minMachineMemoryGb', value)
                   }}
                 />
-              )}
-            </>
-          )}
-        </div>
+                {resources.memoryMb === 'configured' && (
+                  <MachinePoolInputField
+                    id="mpool-max-machine-memory"
+                    label="Max machine memory (GB)"
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={values.maxMachineMemoryGb}
+                    placeholder={values.memoryGb || undefined}
+                    onValueChange={(value) => {
+                      setValue('maxMachineMemoryGb', value)
+                    }}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
       </FieldGroup>
     </OverridesCollapsible>
   )

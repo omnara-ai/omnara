@@ -380,6 +380,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"Actor.display_name":                             "",
 		"AgentInteraction.tool_name":                     "",
 		"CreateMachinePoolRequestBase.provider_config":   "",
+		"CreateOSRootFS.name":                            "",
 		"CreateSlackSetupRequest.app_name":               "",
 		"CurrentUserIdentity.display_name":               "",
 		"DiscoveredProviderModel.display_name":           "",

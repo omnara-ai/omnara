@@ -96,6 +96,8 @@ export {
   type MachinePoolListOptions,
   type MachinePoolListSort,
   useCreateMachinePool,
+  useCreateOSMachineSizes,
+  useCreateOSRootFS,
   useDeleteMachinePool,
   useMachinePool,
   useMachinePools,

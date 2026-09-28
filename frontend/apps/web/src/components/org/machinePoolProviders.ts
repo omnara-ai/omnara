@@ -35,6 +35,9 @@ interface MachinePoolProviderDefinition {
   resources: {
     cpu: MachinePoolResourceMode
     memoryMb: MachinePoolResourceMode
+    // Both default to true when omitted.
+    showSizeControls?: boolean
+    showLimitControls?: boolean
   }
 }
 
@@ -147,10 +150,52 @@ const modal: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal } satisfies Record<
-  MachinePoolProvider,
-  MachinePoolProviderDefinition
->
+const createos: MachinePoolProviderDefinition = {
+  label: 'CreateOS',
+  resource: {
+    key: 'shape',
+    label: 'Shape',
+    placeholder: 's-1vcpu-1gb',
+    description: 'CPU and memory come from the selected shape.',
+  },
+  location: {
+    key: 'region',
+    label: 'Region',
+    placeholder: 'Leave empty to let CreateOS choose',
+    defaultValue: '',
+    required: false,
+  },
+  credential: {
+    label: 'CreateOS API token',
+    placeholder: 'Search secrets for your CreateOS token…',
+    emptyDescription: 'No secrets yet — use New secret to store your CreateOS API token.',
+    defaultSecretName: 'createos-api-token',
+    secretValuePlaceholder: 'Provider API token',
+  },
+  resources: {
+    cpu: 'provider-resolved',
+    memoryMb: 'provider-resolved',
+    showSizeControls: false,
+  },
+}
+
+export const machinePoolProviderDefinitions = {
+  unikraft,
+  blaxel,
+  daytona,
+  modal,
+  createos,
+} satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
+
+/** The resource mode the form honours; a provider that hides its size controls resolves them itself. */
+export function machinePoolFormResourceMode(
+  provider: MachinePoolProvider,
+  resource: 'cpu' | 'memoryMb',
+): MachinePoolResourceMode {
+  const definition = machinePoolProviderDefinitions[provider]
+  if (definition.resources.showSizeControls === false) return 'unsupported'
+  return definition.resources[resource]
+}
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)
