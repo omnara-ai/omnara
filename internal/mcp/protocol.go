@@ -119,7 +119,7 @@ type wireResult struct {
 func checkResultType(result json.RawMessage) error {
 	var envelope wireResult
 	if err := json.Unmarshal(result, &envelope); err != nil {
-		return fmt.Errorf("mcp: decode result envelope: %w", err)
+		return fmt.Errorf("%w: decode result envelope: %w", ErrMalformedResponse, err)
 	}
 	switch envelope.ResultType {
 	case "", resultTypeComplete:
@@ -137,15 +137,15 @@ func serverInfoFromMeta(meta json.RawMessage) (json.RawMessage, error) {
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(meta, &fields); err != nil {
-		return nil, fmt.Errorf("mcp: decode result _meta: %w", err)
+		return nil, fmt.Errorf("%w: decode result _meta: %w", ErrMalformedResponse, err)
 	}
 	info, ok := fields[sdkmcp.MetaKeyServerInfo]
 	if !ok || len(info) == 0 || string(info) == "null" {
 		return json.RawMessage(`{}`), nil
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(info, &object); err != nil {
-		return nil, fmt.Errorf("mcp: decode server info: %w", err)
+	var implementation sdkmcp.Implementation
+	if err := json.Unmarshal(info, &implementation); err != nil {
+		return nil, fmt.Errorf("%w: decode server info: %w", ErrMalformedResponse, err)
 	}
 	return info, nil
 }

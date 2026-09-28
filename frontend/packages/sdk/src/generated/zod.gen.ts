@@ -59,9 +59,9 @@ export const zError = z.object({
         'request_too_large',
         'unsupported_media_type',
         'unprocessable',
+        'upstream_unavailable',
         'rate_limited',
         'internal_error',
-        'upstream_error',
         'service_unavailable',
         'idempotency_key_conflict',
         'state_transition_conflict',
@@ -95,6 +95,7 @@ export const zClientErrorCode = z.enum([
     'request_too_large',
     'unsupported_media_type',
     'unprocessable',
+    'upstream_unavailable',
     'rate_limited'
 ]);
 
@@ -103,7 +104,6 @@ export const zClientErrorCode = z.enum([
  */
 export const zServerErrorCode = z.enum([
     'internal_error',
-    'upstream_error',
     'service_unavailable',
     'authentication_unavailable'
 ]);
@@ -817,7 +817,7 @@ export const zMcpServerAuthHint = z.object({
 export const zMcpServerAuthRequiredError = z.object({
     error: z.string(),
     code: z.enum(['unprocessable']),
-    auth: zMcpServerAuthHint
+    auth: zMcpServerAuthHint.optional()
 });
 
 export const zMcpServerInfo = z.object({

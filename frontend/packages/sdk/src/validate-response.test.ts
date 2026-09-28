@@ -37,6 +37,10 @@ describe('relaxedSchema', () => {
     expect(outcome(z.enum(['x', 'y']), 'brand-new')).toBe('accepted')
   })
 
+  it('accepts an unknown value for a single-value enum', () => {
+    expect(outcome(z.object({ state: z.enum(['on']) }), { state: 'brand-new' })).toBe('accepted')
+  })
+
   it('accepts an unknown value for a union of enums', () => {
     const schema = z.union([z.enum(['p', 'q']), z.enum(['r', 's'])])
     expect(outcome(schema, 'brand-new')).toBe('accepted')
