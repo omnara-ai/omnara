@@ -223,10 +223,8 @@ func parseProviderOptions(raw map[string]json.RawMessage) (providerOptions, erro
 	if err := providers.ValidateDNSLabel(options.Shape); err != nil {
 		return providerOptions{}, fmt.Errorf("createos machine config shape: %w", err)
 	}
-	if options.RootFS != "" {
-		if err := providers.ValidateImageRef(options.RootFS); err != nil {
-			return providerOptions{}, fmt.Errorf("createos machine config rootfs: %w", err)
-		}
+	if err := providers.ValidateImageRef(options.RootFS); err != nil {
+		return providerOptions{}, fmt.Errorf("createos machine config rootfs: %w", err)
 	}
 	if options.Region != "" {
 		if err := providers.ValidateDNSLabel(options.Region); err != nil {

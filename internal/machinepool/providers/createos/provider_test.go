@@ -582,8 +582,8 @@ func TestCreateOSProvisionMachineAdoptsTheRegionCreateOSPicked(t *testing.T) {
 	if result.ProviderResourceID != "sb-123" {
 		t.Fatalf("provider resource id = %q, want sb-123", result.ProviderResourceID)
 	}
-	if _, sent := api.createRequest.Envs["OMNARA_API_URL"]; !sent {
-		t.Fatal("create request did not carry the machine environment")
+	if api.createRequest.RootFS != "devbox:1" {
+		t.Fatalf("create rootfs = %q, want devbox:1", api.createRequest.RootFS)
 	}
 	if api.createRequest.Region != "" {
 		t.Fatalf("create region = %q, want it left to CreateOS", api.createRequest.Region)
