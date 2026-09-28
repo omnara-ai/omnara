@@ -71,9 +71,9 @@ func TestCreateOSProviderOptionsTrimValues(t *testing.T) {
 	}
 }
 
-func TestCreateOSProviderOptionsAllowAnEmptyRootFS(t *testing.T) {
-	if _, err := parseProviderOptions(testOptions(t, "s-1vcpu-1gb", "", "us", "")); err != nil {
-		t.Fatalf("parse provider options: %v", err)
+func TestCreateOSProviderOptionsRequireARootFS(t *testing.T) {
+	if _, err := parseProviderOptions(testOptions(t, "s-1vcpu-1gb", "", "us", "")); err == nil {
+		t.Fatal("parse provider options accepted a machine config with no rootfs")
 	}
 }
 

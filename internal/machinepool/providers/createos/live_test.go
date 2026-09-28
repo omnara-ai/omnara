@@ -108,7 +108,10 @@ func TestCreateOSProviderLiveSmoke(t *testing.T) {
 		t.Fatalf("get live createos sandbox = found %v error %v", found, err)
 	}
 	if created.Shape != shape {
-		t.Fatalf("live createos sandbox shape = %q, want %q", created.Shape, shape)
+		t.Fatalf("live createos sandbox machine size = %q, want %q", created.Shape, shape)
+	}
+	if created.RootFS == "" {
+		t.Fatal("live createos sandbox did not report a rootfs")
 	}
 	reprovisionCtx, reprovisionCancel := context.WithTimeout(context.Background(), provisioningTimeout)
 	reprovisioned, err := machineProvider.ProvisionMachine(
