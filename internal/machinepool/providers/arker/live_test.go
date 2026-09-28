@@ -29,7 +29,7 @@ func TestArkerProviderLiveSmoke(t *testing.T) {
 	source := liveEnvOr("OMNARA_ARKER_TEST_SOURCE", "ubuntu-base")
 	placementProvider := liveEnvOr("OMNARA_ARKER_TEST_PROVIDER", "aws")
 	placementRegion := liveEnvOr("OMNARA_ARKER_TEST_REGION", "us-west-2")
-	omnaraAPIURL := liveEnvOr("OMNARA_PUBLIC_API_URL", "https://app.omnara.com/api/v1")
+	omnaraAPIURL := liveEnvOr("OMNARA_PUBLIC_API_URL", "https://api.omnara.com/v1")
 
 	config, err := json.Marshal(map[string]any{
 		"allowed_sources":   []string{source},

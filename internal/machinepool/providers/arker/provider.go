@@ -183,6 +183,14 @@ func (p *provider) ProvisionMachine(
 		ProviderResourceID: vm.ID,
 		SandboxURL:         vm.BaseURL(),
 	}
+	// WakeMachineInput carries only the id and the stored sandbox URL -- not the
+	// machine's provisioning -- so a machine recorded without an endpoint can
+	// never be woken: there is nothing left to rebuild a client from. Fail the
+	// provision here instead, while still returning the id so cleanup can delete
+	// the VM that Arker did create.
+	if strings.TrimSpace(result.SandboxURL) == "" {
+		return result, fmt.Errorf("arker fork returned vm %s without a sandbox url", vm.ID)
+	}
 	if vm.Info == nil {
 		return result, fmt.Errorf("arker fork returned vm %s without its record", vm.ID)
 	}
@@ -200,9 +208,48 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
+// ProvisionMachine is required to be idempotent, and the manager retries it.
+// Starting a second daemon unconditionally is what broke that: session 1 runs
+// one command at a time, so the retry's run sat `pending` behind a first daemon
+// that was already healthy, and the provision failed on a VM with nothing wrong
+// with it.
+//
+// Cancel rather than adopt. Adopting an in-flight boot leaves the guest running
+// the token the FIRST attempt wrote, while the manager has since issued a new
+// one, so the pool can mark a machine provisioned whose omnarad never
+// authenticates. Cancelling and restarting costs one boot and guarantees the
+// daemon that survives is the one holding current credentials -- and there is
+// still exactly one at the end, which is what idempotent has to mean here.
+func cancelStaleDaemons(ctx context.Context, vm *arkersdk.VM) error {
+	listed, err := vm.ListRuns(ctx, arkersdk.ListRunsOptions{Limit: 100})
+	if err != nil {
+		return fmt.Errorf("list runs on arker vm %s: %w", vm.ID, classifyError(err))
+	}
+	if listed == nil {
+		return nil
+	}
+	for _, run := range listed.Runs {
+		if run.Command != daemonCommand || terminalRunStates[run.State] {
+			continue
+		}
+		if _, err := vm.CancelRun(ctx, run.RunID); err != nil && !arkersdk.IsNotFound(err) {
+			return fmt.Errorf(
+				"cancel stale omnara daemon %s on arker vm %s: %w",
+				run.RunID,
+				vm.ID,
+				classifyError(err),
+			)
+		}
+	}
+	return nil
+}
+
 func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) error {
 	script, err := bootScript(env)
 	if err != nil {
+		return err
+	}
+	if err := cancelStaleDaemons(ctx, vm); err != nil {
 		return err
 	}
 	if err := vm.WriteFile(ctx, bootPath, []byte(script)); err != nil {

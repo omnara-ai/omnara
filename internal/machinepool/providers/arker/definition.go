@@ -34,12 +34,12 @@ var _ providers.RuntimeProviderDefinition = Definition{}
 func resourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{
-			PoolDefault:  providers.MachineResourceOptional,
+			PoolDefault:  providers.MachineResourceRequired,
 			Limits:       providers.MachineResourceRequired,
 			Provisioning: providers.MachineResourceConfigured,
 		},
 		MemoryMB: providers.MachineResourceContract{
-			PoolDefault:  providers.MachineResourceOptional,
+			PoolDefault:  providers.MachineResourceRequired,
 			Limits:       providers.MachineResourceRequired,
 			Provisioning: providers.MachineResourceConfigured,
 		},
