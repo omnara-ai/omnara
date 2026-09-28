@@ -53,7 +53,19 @@ const runStateRunning = "running"
 // outlive the deadline the manager already applies to ProvisionMachine, which
 // would surface as a cancellation instead of the state the daemon was stuck in.
 // Variable so tests do not pay it.
+//
+// A CEILING, not the budget: it is measured from when polling starts, while the
+// manager's deadline has been running since Fork. Everything before the first
+// poll -- the fork, canceling a stale daemon, writing the boot script -- eats
+// into the same minute, so on a slow call this ceiling alone would still let the
+// outer deadline fire first and report a bare cancellation. waitForDaemon takes
+// the smaller of this and what the context actually has left, so the caller is
+// told the run state the daemon was stuck in rather than that time ran out.
 const defaultDaemonStartTimeout = provisioningTimeout - 5*time.Second
+
+// Reserved out of the remaining context so the wait ends, and reports, just
+// before the manager gives up on it.
+const daemonDeadlineMargin = 2 * time.Second
 
 var daemonStartTimeout = defaultDaemonStartTimeout
 
@@ -288,8 +300,14 @@ func bootScript(env map[string]string) (string, error) {
 }
 
 func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
-	deadline := time.Now().Add(daemonSettleWindow)
-	hardDeadline := time.Now().Add(daemonStartTimeout)
+	started := time.Now()
+	deadline := started.Add(daemonSettleWindow)
+	hardDeadline := started.Add(daemonStartTimeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if reserved := ctxDeadline.Add(-daemonDeadlineMargin); reserved.Before(hardDeadline) {
+			hardDeadline = reserved
+		}
+	}
 	for {
 		record, err := vm.GetRun(ctx, runID)
 		if err != nil {
@@ -307,11 +325,14 @@ func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
 			return nil
 		}
 		if !time.Now().Before(hardDeadline) {
+			// The elapsed time, not the ceiling: the context may have cut
+			// the wait short, and reporting a budget that was never spent
+			// sends whoever reads this looking for the wrong thing.
 			return fmt.Errorf(
 				"omnara daemon on arker vm %s is still %s after %s",
 				vm.ID,
 				record.State,
-				daemonStartTimeout,
+				time.Since(started).Round(time.Second),
 			)
 		}
 		select {
