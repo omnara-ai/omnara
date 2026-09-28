@@ -99,7 +99,7 @@ func (s *Store) EnsureConversationTargetTx(
 			IntegrationID: input.IntegrationID,
 			Kind:          input.Address.Kind,
 			Ref:           input.Address.Ref,
-			Slot:          &input.LaunchKey,
+			LaunchKey:     &input.LaunchKey,
 		})
 		existing, err = dbsqlc.GetAgentConversationTargetRow(row), findErr
 	} else {
@@ -136,7 +136,7 @@ func (s *Store) EnsureConversationTargetTx(
 		Kind:          input.Address.Kind,
 		Ref:           input.Address.Ref,
 		DisplayName:   strings.TrimSpace(input.DisplayName),
-		Slot:          storeutil.TextFromEmpty(input.LaunchKey),
+		LaunchKey:     storeutil.TextFromEmpty(input.LaunchKey),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationTargetRecord{}, storeerr.ErrConflict

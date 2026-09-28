@@ -363,6 +363,7 @@ func TestIntegrationInboxWorkerOnlyMarkedInboundFailuresAreTerminal(t *testing.T
 		{"missing channel", fmt.Errorf("expand: %w: %w", ErrIntegrationInboundPermanent,
 			&discord.APIError{Code: discord.PermanentFailure, StatusCode: http.StatusNotFound}), true},
 		{"revoked stored authority", fmt.Errorf("recipient: %w", storeerr.ErrUnauthorized), false},
+		{"unmarked invalid request", storeerr.InvalidRequest(errors.New("admission rejected")), false},
 		{"unmarked channel forbidden", &discord.APIError{
 			Code: discord.PermanentFailure, StatusCode: http.StatusForbidden,
 		}, false},

@@ -160,8 +160,8 @@ func TestAppSigningAndInstallationHeaders(t *testing.T) {
 				Permissions   map[string]string `json:"permissions"`
 			}
 			if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.RepositoryIDs) != 1 ||
-				input.RepositoryIDs[0] != testScope().RepositoryID || len(input.Permissions) != 1 ||
-				input.Permissions["pull_requests"] != "read" {
+				input.RepositoryIDs[0] != testScope().RepositoryID || len(input.Permissions) != 2 ||
+				input.Permissions["pull_requests"] != "read" || input.Permissions["metadata"] != "read" {
 				t.Error("installation token is not least-privilege")
 			}
 			w.WriteHeader(http.StatusCreated)

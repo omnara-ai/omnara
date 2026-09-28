@@ -830,8 +830,8 @@ func TestDiscordInboxContextAndMissingContent(t *testing.T) {
 		t.Fatalf("canceled request: %v requests=%v", err, f.requests)
 	}
 	f.message.Content = ""
-	if _, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message)); err == nil ||
-		!strings.Contains(err.Error(), "message-content intent") {
+	_, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
+	if !errors.Is(err, ErrIntegrationInboundPermanent) {
 		t.Fatalf("missing message content silently accepted: %v", err)
 	}
 	unsupported := []byte(`{"type":"MESSAGE_UPDATE","sequence":9,"data":{}}`)

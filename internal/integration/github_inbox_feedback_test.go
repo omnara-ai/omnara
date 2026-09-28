@@ -113,7 +113,8 @@ func newGitHubFeedbackFixture(t *testing.T) (*githubFeedbackFixture, *GitHubInte
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant))
 			assert.Equal(t, []int64{1001}, grant.Repositories)
 			assert.Contains(t, []string{"read", "write"}, grant.Permissions["pull_requests"])
-			assert.Len(t, grant.Permissions, 1)
+			assert.Len(t, grant.Permissions, 2)
+			assert.Equal(t, "read", grant.Permissions["metadata"])
 			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 				"token": "scoped-token", "expires_at": time.Now().Add(time.Hour),
 			}))

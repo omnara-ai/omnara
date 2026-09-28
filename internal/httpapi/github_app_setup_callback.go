@@ -110,7 +110,9 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		outcome("missing_code")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), integrationOAuthTimeout)
+	// Once conversion starts, a disconnected browser must not discard the App's
+	// only credentials. Bound the conversion and durable save together.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), integrationOAuthTimeout)
 	defer cancel()
 	// Do not retry this one-time manifest conversion.
 	client, err := github.NewSetupClient(github.SetupConfig{

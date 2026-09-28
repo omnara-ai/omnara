@@ -16,7 +16,7 @@ import (
 )
 
 type IntegrationProfileChoiceExecution interface {
-	GetAgentProfileDisplayNames(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID]string, error)
+	integrationLaunchProfileReader
 	GetIntegrationInboxOutcomes(
 		context.Context, integrationstore.IntegrationInboxRecord,
 	) (map[string]executionstore.InboxSlotOutcome, error)
@@ -94,26 +94,17 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 	if exists {
 		options = choice.Options
 	} else {
-		ids := make([]uuid.UUID, 0, len(profiles))
 		for _, intent := range profiles {
-			ids = append(ids, intent.ProfileID)
-		}
-		names, err := l.execution.GetAgentProfileDisplayNames(ctx, input.Integration.ProjectID, ids)
-		if err != nil {
-			return nil, err
-		}
-		for _, intent := range profiles {
-			name, ok := names[intent.ProfileID]
-			if !ok {
-				return nil, fmt.Errorf("configured launcher profile %s is unavailable: %w",
-					intent.ProfileID, ErrIntegrationLaunchUnavailable)
+			profile, err := integrationLaunchProfile(ctx, l.execution, input.Integration, intent.ProfileID)
+			if err != nil {
+				return nil, err
 			}
 			key, err := publicid.Encode(publicid.KindAgentProfile, intent.ProfileID)
 			if err != nil {
 				return nil, err
 			}
 			options = append(options, integrationstore.IntegrationProfileChoiceOption{
-				Key: key, ProfileID: intent.ProfileID, Name: name,
+				Key: key, ProfileID: intent.ProfileID, Name: profile.Name,
 			})
 		}
 	}
@@ -146,6 +137,13 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 	}
 	if choice.OwnerReceiptID != input.Receipt.ID || !time.Now().Before(choice.ExpiresAt) || choice.MessageID != "" {
 		return nil, nil
+	}
+	if exists {
+		for _, option := range choice.Options {
+			if _, err := integrationLaunchProfile(ctx, l.execution, input.Integration, option.ProfileID); err != nil {
+				return nil, err
+			}
+		}
 	}
 	provider, ok := l.providers[input.Integration.Provider].(IntegrationProfileChoiceProvider)
 	if !ok {

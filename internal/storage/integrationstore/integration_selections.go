@@ -50,8 +50,8 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledIntegrationSelection(
 	ctx context.Context,
 	address ConversationAddress,
 ) error {
-	// Zero-recipient events must wait for accepted choices and first-launch plans,
-	// or follow-ups could be dropped before their agent exists.
+	// Follow-ups must wait for accepted choices and first-launch plans, even when
+	// observers already match, or the future agent would miss the frozen message.
 	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
@@ -60,6 +60,17 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledIntegrationSelection(
 	}
 	if err := w.CheckLease(ctx); err != nil {
 		return err
+	}
+	selections, err := w.q.ListConversationSelections(ctx, dbsqlc.ListConversationSelectionsParams{
+		ProjectID: w.record.ProjectID, IntegrationID: w.record.IntegrationID,
+		Kind: address.Kind, Ref: address.Ref,
+	})
+	if err != nil {
+		return err
+	}
+	// Ownership commits with the launch, independently of other recipients still retrying in its receipt.
+	if len(selections) != 0 {
+		return nil
 	}
 	if err := w.checkUnplannedIntegrationProfileChoice(ctx, address); err != nil {
 		return err

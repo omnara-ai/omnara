@@ -165,6 +165,11 @@ func discordInboxMessage(
 	if !discordConversationalMessage(message) {
 		return discord.MessageEvent{}, false, nil
 	}
+	// Stickers, polls and forwarded snapshots alone contain no supported input.
+	// Keep native mentions and attachment-only messages on the normal path.
+	if !message.MentionsBot && message.Message.Content == "" && len(message.Message.Attachments) == 0 {
+		return discord.MessageEvent{}, false, nil
+	}
 	return message, true, nil
 }
 
@@ -408,7 +413,7 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 	}
 	if len(blocks) == 0 {
 		return IntegrationInboxExpansion{}, fmt.Errorf(
-			"discord message has no supported content; check message-content intent",
+			"%w: discord message has no supported content", ErrIntegrationInboundPermanent,
 		)
 	}
 	var metadata DiscordEventMetadata

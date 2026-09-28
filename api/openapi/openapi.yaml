@@ -10303,6 +10303,11 @@ components:
           $ref: '#/components/schemas/AgentName'
         integration_target:
           $ref: '#/components/schemas/IntegrationTarget'
+          description: >-
+            Selected question/approval destination. Automatic mode updates it when
+            content inputs are admitted. Prompts use it only while the integration
+            and handler remain eligible. It is not launch provenance or permission
+            to post.
         current_config_id:
           $ref: '#/components/schemas/AgentConfigID'
         model:

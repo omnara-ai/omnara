@@ -10,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 // IntegrationLauncher must use the integration definition's event matching: the inbox prefilter
@@ -88,10 +87,9 @@ func (w *IntegrationLaunchWorkflow) Decide(
 				return nil, fmt.Errorf("launcher for integration %s returned an intent for another integration", integration.ID)
 			}
 			if intent.ProfileID != uuid.Nil && !integrationHasLaunchOwner(input) {
-				if _, err := w.router.execution.GetAgentProfile(ctx, receipt.ProjectID, intent.ProfileID); err != nil {
-					if storeerr.IsNotFound(err) {
-						w.launchUnavailable(ctx, input, fmt.Errorf("configured launcher profile %s is unavailable: %w",
-							intent.ProfileID, ErrIntegrationLaunchUnavailable))
+				if _, err := integrationLaunchProfile(ctx, w.router.execution, *integration, intent.ProfileID); err != nil {
+					if errors.Is(err, ErrIntegrationLaunchUnavailable) {
+						w.launchUnavailable(ctx, input, err)
 						continue
 					}
 					return nil, err

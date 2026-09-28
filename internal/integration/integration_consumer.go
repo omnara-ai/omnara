@@ -32,8 +32,8 @@ type IntegrationInboxProvider interface {
 	DownloadFile(context.Context, integrationstore.IntegrationRecord, []byte, string) (IntegrationInboxFile, error)
 }
 
-// ErrIntegrationInboundPermanent marks a provider-confirmed inaccessible inbound target
-// before routing is frozen. It does not classify stored integration or recipient authority.
+// ErrIntegrationInboundPermanent marks an inaccessible inbound target or an invalid
+// immutable plan. It does not classify stored integration or recipient authority.
 var ErrIntegrationInboundPermanent = errors.New("permanent integration inbound failure")
 
 // IntegrationInboxRoutingProvider checks a single conversational event before fetching
@@ -193,10 +193,10 @@ func (c *IntegrationInboxConsumer) Consume(
 		}
 		resolvedPayload := receipt.Payload
 		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
-		receipt.Payload = resolvedPayload
 		if err != nil {
 			return nil, err
 		}
+		receipt.Payload = resolvedPayload
 	}
 	plan, err = decodeIntegrationInboxPlan(receipt.Plan)
 	if err != nil {

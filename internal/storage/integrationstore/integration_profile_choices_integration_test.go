@@ -366,7 +366,7 @@ func TestIntegrationProfileChoiceSourceChooseRace(t *testing.T) {
 func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{"project", "wrong-integration", "message", "channel", "unoffered", "expired",
-		"disconnected-integration", "deleted-integration", "removed-configured-profile", "removed-profile", "disconnect", "rotated-setup"} {
+		"disconnected-integration", "deleted-integration", "removed-configured-profile", "disabled-launcher", "removed-profile", "disconnect", "rotated-setup"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -403,6 +403,8 @@ func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			case "removed-configured-profile":
 				settings := integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
 				f.exec(t, `UPDATE integrations SET settings=$2 WHERE id=$1`, f.integration.ID, settings)
+			case "disabled-launcher":
+				f.exec(t, `UPDATE integrations SET settings='{}' WHERE id=$1`, f.integration.ID)
 			case "removed-profile":
 				f.exec(t, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, f.input.Options[0].ProfileID)
 			case "disconnect":
@@ -425,7 +427,7 @@ func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			stored := f.readChoice(t, record.ID)
 			require.Empty(t, stored.SelectedKey)
 			switch scenario {
-			case "removed-configured-profile", "removed-profile":
+			case "removed-configured-profile", "disabled-launcher", "removed-profile":
 				require.True(t, stored.ExpiresAt.Before(record.ExpiresAt), "stale setup retires the unusable menu")
 				require.Greater(t, stored.Revision, record.Revision)
 				require.Equal(t, stored, returned, "caller receives the committed expiry for safe dismissal")
@@ -557,7 +559,7 @@ func TestIntegrationProfileChoiceInboxFailureRollsBackSelection(t *testing.T) {
 	require.Equal(t, record.ID, f.decidedReceipt(t, record.ID).StateID)
 }
 
-func TestIntegrationProfileChoiceBoundsAndInboxEventsConstraint(t *testing.T) {
+func TestIntegrationProfileChoiceBoundsAndInboxSavedStateReference(t *testing.T) {
 	t.Parallel()
 	f := newProfileChoiceFixture(t)
 	for _, invalid := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`[]`),

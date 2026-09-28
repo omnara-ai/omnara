@@ -9,16 +9,21 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/stretchr/testify/require"
 )
 
-func (p *choiceTestProvider) NotifyLaunchUnavailable(_ context.Context, _ IntegrationLaunchContext) error {
-	p.notices = append(p.notices, launchUnavailableMessage)
+func (p *choiceTestProvider) NotifyLaunchUnavailable(
+	_ context.Context, _ IntegrationLaunchContext, message string,
+) error {
+	p.notices = append(p.notices, message)
 	return nil
 }
 
@@ -86,7 +91,7 @@ func TestLauncherMissingIntentProfileReportsUnavailable(t *testing.T) {
 	require.Equal(t, []string{launchUnavailableMessage}, f.provider.notices)
 }
 
-func TestLauncherArchivedOwnerWithLegacyKeyPreventsRespawn(t *testing.T) {
+func TestLauncherArchivedOwnerWithScheduledKeyPreventsRespawn(t *testing.T) {
 	f := newChoiceJourney(t, 1)
 	results := f.receive("first-mention", f.event)
 	require.Len(t, results, 1)
@@ -96,7 +101,7 @@ func TestLauncherArchivedOwnerWithLegacyKeyPreventsRespawn(t *testing.T) {
  VALUES($1,$2,'owner',now()) ON CONFLICT DO NOTHING`, f.ids.OrgID, f.ids.ProviderAdminUserID)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(t.Context(),
-		`UPDATE integration_targets SET launch_key='legacy-selection' WHERE agent_id=$1`, owner.ID)
+		`UPDATE integration_targets SET launch_key='scheduled' WHERE agent_id=$1`, owner.ID)
 	require.NoError(t, err)
 	_, _, err = f.store.Execution().ArchiveAgent(t.Context(), f.ids.ProjectID, owner.ID,
 		identitystore.NewUserPrincipal(f.ids.ProviderAdminUserID))
@@ -114,7 +119,7 @@ func TestLauncherArchivedOwnerWithLegacyKeyPreventsRespawn(t *testing.T) {
 	require.Equal(t, 1, agents)
 }
 
-func TestLauncherLateSiblingFindsLegacyOwnerWithoutSubscriptionOrLiveProfile(t *testing.T) {
+func TestLauncherLateSiblingFindsScheduledOwnerWithoutSubscriptionOrLiveProfile(t *testing.T) {
 	f := newChoiceJourney(t, 2)
 	f.event.Sibling = &executionstore.InboxMessageSibling{Key: "late-files"}
 	require.Empty(t, f.receive("mention", f.event))
@@ -125,7 +130,7 @@ func TestLauncherLateSiblingFindsLegacyOwnerWithoutSubscriptionOrLiveProfile(t *
 	owner := results[0].Launch.Agent
 	removeTestAgentSubscriptions(t, f.store, f.integration, owner.ID)
 	_, err = f.pool.Exec(t.Context(),
-		`UPDATE integration_targets SET launch_key='legacy-selection' WHERE agent_id=$1`, owner.ID)
+		`UPDATE integration_targets SET launch_key='scheduled' WHERE agent_id=$1`, owner.ID)
 	require.NoError(t, err)
 	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, owner.AgentProfileID))
 	content, artifactID := []byte("original attachment"), uuid.New()
@@ -149,4 +154,84 @@ func TestLauncherLateSiblingFindsLegacyOwnerWithoutSubscriptionOrLiveProfile(t *
 	require.Len(t, results, 1)
 	require.False(t, results[0].Input.Created)
 	require.Empty(t, f.provider.notices)
+}
+
+func TestLauncherReusedIntegrationNameReportsUnavailableAndStillForwards(t *testing.T) {
+	for _, scenario := range []struct {
+		name     string
+		profiles int
+		partial  bool
+		direct   bool
+	}{
+		{"single fully pinned", 1, false, false},
+		{"single partially pinned", 1, true, false},
+		{"menu fully pinned", 2, false, false},
+		{"menu partially pinned", 2, true, false},
+		{"direct intent", 1, false, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			f := newChoiceJourney(t, scenario.profiles)
+			profile := f.profiles[len(f.profiles)-1]
+			oldIntegration := f.integration
+			input, err := deriveIntegrationLaunchConfig(profile.CurrentConfig, oldIntegration)
+			require.NoError(t, err)
+			if scenario.partial {
+				var compiled agentconfig.Compiled
+				require.NoError(t, json.Unmarshal(input.CompiledDefinition, &compiled))
+				key := toolcatalog.IntegrationToolName(oldIntegration.Name, "read")
+				compiled.Tools = map[string]agentconfig.ToolCompiled{key: compiled.Tools[key]}
+				compiled.InteractionHandlers = nil
+				encoded, err := agentconfig.EncodeCompiled(compiled)
+				require.NoError(t, err)
+				input.CompiledDefinition, input.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+			}
+			pinned, err := f.store.Execution().CreateAgentConfig(t.Context(), input)
+			require.NoError(t, err)
+			_, err = f.store.Execution().RetargetAgentProfile(t.Context(), executionstore.RetargetAgentProfileInput{
+				ProjectID: f.ids.ProjectID, ProfileID: profile.ID,
+				ExpectedCurrentConfigID: profile.CurrentConfigID, ConfigID: pinned.ID,
+			})
+			require.NoError(t, err)
+			require.NoError(t, f.store.Integrations().DeleteIntegration(
+				t.Context(), f.ids.OrgID, f.ids.ProjectID, oldIntegration.ID))
+			replacement, err := f.store.Integrations().CreateIntegration(t.Context(), integrationstore.SaveIntegrationInput{
+				OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, Name: oldIntegration.Name,
+				IntegrationKind: oldIntegration.IntegrationKind, Settings: oldIntegration.Settings,
+			})
+			require.NoError(t, err)
+			require.NotEqual(t, oldIntegration.ID, replacement.ID)
+			_, err = f.pool.Exec(t.Context(), `UPDATE integrations SET state='active',installed_by_user_id=$2,
+ provider_tenant_id=$3,provider_account_ref=$4,credential_secret_id=$5 WHERE id=$1`, replacement.ID,
+				f.ids.ProviderAdminUserID, oldIntegration.ProviderTenantID,
+				oldIntegration.ProviderAccountRef, f.ids.ProviderSecretID)
+			require.NoError(t, err)
+			f.integration, err = f.store.Integrations().GetIntegration(t.Context(), f.ids.ProjectID, replacement.ID)
+			require.NoError(t, err)
+			f.integrationSetup = f.integration
+			f.restart()
+			if scenario.direct {
+				f.consumer.launchers.launchers[integrationdefinition.SlackThread] = func(
+					_ context.Context, launch IntegrationLaunchContext,
+				) ([]IntegrationLaunchIntent, error) {
+					return []IntegrationLaunchIntent{{IntegrationID: launch.Integration.ID,
+						ProfileID: profile.ID, LaunchKey: integrationdefinition.ProfileLaunchKey}}, nil
+				}
+			}
+			observer := launcherObserver(t, f)
+			results := f.receive("reused-integration-name", f.event)
+			require.Len(t, results, 1)
+			require.Nil(t, results[0].Launch)
+			require.NotNil(t, results[0].Input)
+			require.Equal(t, observer.ID, results[0].Input.AgentInput.AgentID)
+			require.Empty(t, f.provider.menus)
+			require.Equal(t, []string{launchCapabilitiesUnavailableMessage}, f.provider.notices)
+			saved, err := f.store.Execution().GetAgentProfile(t.Context(), f.ids.ProjectID, profile.ID)
+			require.NoError(t, err)
+			require.JSONEq(t, string(pinned.CompiledDefinition), string(saved.CurrentConfig.CompiledDefinition))
+			var agents int
+			require.NoError(t, f.pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
+			require.Equal(t, 1, agents, "only the preexisting observer may remain")
+		})
+	}
 }

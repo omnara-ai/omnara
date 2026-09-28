@@ -22,7 +22,7 @@ SELECT id, project_id, agent_id, integration_id, scope_ref,
 FROM integration_targets
 WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
   AND scope_kind = sqlc.arg(kind) AND scope_ref = sqlc.arg(ref)
-  AND launch_key = sqlc.arg(slot);
+  AND launch_key = sqlc.arg(launch_key);
 
 -- name: GetAgentConversationTarget :one
 SELECT id, project_id, agent_id, integration_id, scope_ref,
@@ -47,7 +47,7 @@ LIMIT 1;
 INSERT INTO integration_targets(project_id, agent_id, integration_id,
     scope_kind, scope_ref, display_name, launch_key, created_at, updated_at)
 VALUES (sqlc.arg(project_id), sqlc.arg(agent_id), sqlc.arg(integration_id),
-    sqlc.arg(kind), sqlc.arg(ref), sqlc.arg(display_name), sqlc.narg(slot),
+    sqlc.arg(kind), sqlc.arg(ref), sqlc.arg(display_name), sqlc.narg(launch_key),
     transaction_timestamp(), transaction_timestamp())
 ON CONFLICT DO NOTHING
 RETURNING id, project_id, agent_id, integration_id, scope_ref,

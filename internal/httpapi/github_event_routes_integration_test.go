@@ -146,7 +146,7 @@ func (f githubHTTPJourney) providerConfig(t *testing.T) github.Config {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			assert.Equal(t, map[string]string{"pull_requests": "read"}, grant.Permissions)
+			assert.Equal(t, map[string]string{"pull_requests": "read", "metadata": "read"}, grant.Permissions)
 			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 				"token": fmt.Sprint(grant.Repositories[0]), "expires_at": time.Now().Add(time.Hour),
 			}))

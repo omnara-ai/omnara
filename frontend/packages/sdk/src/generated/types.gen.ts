@@ -1679,6 +1679,9 @@ export type Agent = {
     agent_profile_id?: AgentProfileId;
     state: 'active' | 'archived';
     name: AgentName;
+    /**
+     * Selected question/approval destination. Automatic mode updates it when content inputs are admitted. Prompts use it only while the integration and handler remain eligible. It is not launch provenance or permission to post.
+     */
     integration_target?: IntegrationTarget;
     current_config_id?: AgentConfigId;
     model?: AgentModel;

@@ -9,7 +9,7 @@ import (
 func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	tests := []struct {
 		integrationKind Kind
-		name, account   string
+		name            string
 		event           Event
 		addresses       []EventAddress
 		trigger         string
@@ -17,27 +17,24 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 		{
 			SlackThread,
 			"slack",
-			"T123",
 			Event{
 				Scope:     Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "123.456"}},
 				Kind:      "message",
 				Mentioned: true,
 			},
-			[]EventAddress{{"thread", "C123:123.456"}, {"channel", "C123"}, {"workspace", "T123"}},
+			[]EventAddress{{"thread", "C123:123.456"}, {"channel", "C123"}},
 			"mention",
 		},
 		{
 			GitHubPR,
 			"github",
-			"456",
 			Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"},
-			[]EventAddress{{"pull_request", "123#7"}, {"repository", "123"}, {"installation", "456"}},
+			[]EventAddress{{"pull_request", "123#7"}},
 			"pull_request_opened",
 		},
 		{
 			DiscordThread,
 			"discord",
-			"999",
 			Event{
 				Scope:     Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456", ThreadID: "789"}},
 				Kind:      "message",
@@ -50,7 +47,7 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			definition, _ := Lookup(test.integrationKind)
-			addresses, err := test.event.RoutingAddresses(test.account)
+			addresses, err := test.event.RoutingAddresses()
 			require.NoError(t, err)
 			require.Equal(t, test.addresses, addresses)
 			require.True(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, test.trigger), test.event))
@@ -65,11 +62,11 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event))
 	event = tests[2].event
 	definition, _ = Lookup(DiscordThread)
-	addresses, err := event.RoutingAddresses("different-application-account")
+	addresses, err := event.RoutingAddresses()
 	require.NoError(t, err)
 	require.Equal(t, tests[2].addresses, addresses)
 	event.Scope.Discord.ChannelID = ""
-	addresses, err = event.RoutingAddresses("different-application-account")
+	addresses, err = event.RoutingAddresses()
 	require.NoError(t, err)
 	require.Equal(t, []EventAddress{{"thread", "789"}}, addresses, "unknown parent must not add a routing address")
 	event.Scope.Discord.GuildID = ""

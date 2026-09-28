@@ -103,14 +103,25 @@ func (r *IntegrationRouter) Freeze(
 			if !sameIntegrationCandidates(current, request.candidates) {
 				return ErrIntegrationRoutingChanged
 			}
-			// A reserved agent may not have a subscription yet; freezing empty would lose its follow-up.
-			if len(plan.Recipients) == 0 {
+			hasSelection := false
+			for _, recipient := range plan.Recipients {
+				if recipient.Selection != nil {
+					hasSelection = true
+					break
+				}
+			}
+			// A reserved agent may not have a subscription yet, even when observers already match.
+			if !hasSelection {
 				if err := work.CheckNoUnsettledIntegrationSelection(ctx, request.address); err != nil {
 					return err
 				}
 			}
 		}
 		if err := work.FreezePlan(ctx, raw); err != nil {
+			// FreezePlan rejects immutable plan shape/size; admission capacity remains retryable.
+			if errors.Is(err, storeerr.ErrInvalidRequest) {
+				return fmt.Errorf("%w: freeze inbox plan: %w", ErrIntegrationInboundPermanent, err)
+			}
 			return err
 		}
 		frozen = plan
@@ -133,11 +144,7 @@ func prepareIntegrationEvent(
 	if event.Event.Scope.Provider() != integrationSetup.Provider || event.Actor.ProviderUserID == "" {
 		return fail(storeerr.ErrUnauthorized)
 	}
-	account := integrationSetup.ProviderTenantID
-	if integrationSetup.Provider == integrationdefinition.ProviderGitHub {
-		account = integrationSetup.ProviderAccountRef
-	}
-	addresses, err := event.Event.RoutingAddresses(account)
+	addresses, err := event.Event.RoutingAddresses()
 	if err != nil {
 		return fail(err)
 	}

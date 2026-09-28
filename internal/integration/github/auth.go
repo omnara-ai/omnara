@@ -97,7 +97,7 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 	input := struct {
 		RepositoryIDs []int64           `json:"repository_ids"`
 		Permissions   map[string]string `json:"permissions"`
-	}{[]int64{repositoryID}, map[string]string{"pull_requests": permission}}
+	}{[]int64{repositoryID}, map[string]string{"pull_requests": permission, "metadata": "read"}}
 	var result struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`

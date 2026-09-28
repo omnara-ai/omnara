@@ -17,12 +17,12 @@ ORDER BY agent_id;
 -- @sqlc-vet-disable integration-targets-deleted-at
 -- Clears agent references before soft deleting the integration's targets.
 UPDATE agents agent SET interaction_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
+FROM integration_targets target
 WHERE agent.project_id = sqlc.arg(project_id)
-  AND agent.interaction_target_id IN (
-    SELECT target.id FROM integration_targets target
-    WHERE target.project_id = sqlc.arg(project_id)
-      AND target.integration_id = sqlc.arg(integration_id)
-  );
+  AND target.project_id = agent.project_id
+  AND target.integration_id = sqlc.arg(integration_id)
+  AND agent.id = target.agent_id
+  AND agent.interaction_target_id = target.id;
 
 -- name: GetIntegrationTarget :one
 SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,

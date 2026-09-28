@@ -197,7 +197,8 @@ func slackCutoverSendPolicy(value any) (map[string]any, error) {
 			}
 		case "permission":
 			permission, ok := value.(map[string]any)
-			if !ok || permission["mode"] != "always_allow" {
+			mode, _ := permission["mode"].(string)
+			if !ok || strings.TrimSpace(mode) != "always_allow" {
 				return nil, errors.New("legacy send only supports always_allow; repair before cutover")
 			}
 			for field, parameter := range permission {
@@ -524,7 +525,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, integrations map[st
 	if err := rewriteSlackIntegrationConfigs(ctx, tx, integrations); err != nil {
 		return err
 	}
-	// Leave selection slots NULL so new mentions can launch through the integration after cutover.
+	// Leave launch_key NULL so new mentions can launch through the integration after cutover.
 	for _, agent := range agents {
 		compiled, err := slackSendingSuccessor(agent.compiled, agent.targets)
 		if err != nil {

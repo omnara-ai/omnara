@@ -76,7 +76,7 @@ func githubToolTestServer(t *testing.T, permission string, operation http.Handle
 				return
 			}
 			assert.Equal(t, []int64{123}, input.RepositoryIDs)
-			assert.Equal(t, map[string]string{"pull_requests": permission}, input.Permissions)
+			assert.Equal(t, map[string]string{"pull_requests": permission, "metadata": "read"}, input.Permissions)
 			writeToolTestJSON(w, map[string]any{
 				"token": "installation-token", "expires_at": time.Now().Add(time.Hour),
 			})

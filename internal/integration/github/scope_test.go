@@ -79,7 +79,8 @@ func TestRepositoryIdentitySurvivesRenameAndNameReuse(t *testing.T) {
 				Permissions   map[string]string `json:"permissions"`
 			}
 			if json.NewDecoder(r.Body).Decode(&input) != nil || len(input.RepositoryIDs) != 1 ||
-				input.RepositoryIDs[0] != 789 || input.Repositories != nil || len(input.Permissions) != 1 {
+				input.RepositoryIDs[0] != 789 || input.Repositories != nil || len(input.Permissions) != 2 ||
+				input.Permissions["metadata"] != "read" {
 				t.Error("token grant used names or another repository")
 			}
 			tokens++

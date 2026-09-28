@@ -325,7 +325,7 @@ func runtimeIntegrationTest(t *testing.T, compiled Compiled) RuntimeContract {
 	return contract
 }
 
-func TestCompositionDoesNotResolveExistingOrNonIntegrationMetadata(t *testing.T) {
+func TestCompositionChecksExistingPinsWithoutRecompilingPolicyOrMetadata(t *testing.T) {
 	opts, _ := integrationTestOptions(t)
 	source := IntegrationCapabilitiesSource{
 		Tools:               map[string]AgentConfigToolSource{"int__engineering-team__read": {}},
@@ -334,9 +334,10 @@ func TestCompositionDoesNotResolveExistingOrNonIntegrationMetadata(t *testing.T)
 	base, err := CompileIntegrationCapabilitiesSource(source, opts)
 	require.NoError(t, err)
 	require.Len(t, base.Tools, 1)
-	opts.ResolveIntegrationName = func(string) (IntegrationResolution, error) {
-		t.Fatal("existing integration should not be resolved")
-		return IntegrationResolution{}, nil
+	resolve, calls := opts.ResolveIntegrationName, 0
+	opts.ResolveIntegrationName = func(name string) (IntegrationResolution, error) {
+		calls++
+		return resolve(name)
 	}
 	opts.ResolveModelSelection = func(string, string) (ResolvedModelSelection, error) {
 		t.Fatal("model should not be resolved")
@@ -350,6 +351,7 @@ func TestCompositionDoesNotResolveExistingOrNonIntegrationMetadata(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, base, derived)
 	require.Equal(t, "invalid", source.Tools["int__engineering-team__read"].Type, "input maps must not be mutated")
+	require.Equal(t, 1, calls)
 }
 
 func TestCompositionAcceptsInteractionHelpersWithoutOtherBuiltIns(t *testing.T) {
@@ -428,4 +430,60 @@ interaction_handlers:
 	require.ErrorContains(t, err, "inconsistent pinned IDs")
 	_, err = PrepareIntegrationTools(result.Compiled, nil)
 	require.ErrorContains(t, err, "inconsistent pinned IDs")
+}
+
+func TestCompositionRejectsReusedIntegrationNameWithoutRebindingPins(t *testing.T) {
+	for _, shape := range []string{"all capabilities", "one tool", "handler only", "disabled tool with additions"} {
+		t.Run(shape, func(t *testing.T) {
+			opts, _ := integrationTestOptions(t)
+			source := IntegrationCapabilitiesSource{
+				Tools: map[string]AgentConfigToolSource{
+					"int__engineering-team__read": {}, "int__engineering-team__post_message": {},
+				},
+				InteractionHandlers: map[string]AgentConfigIntegrationCapabilitySource{"engineering-team": {}},
+			}
+			base, err := CompileIntegrationCapabilitiesSource(source, opts)
+			require.NoError(t, err)
+			switch shape {
+			case "one tool", "disabled tool with additions":
+				delete(base.Tools, "int__engineering-team__post_message")
+				base.InteractionHandlers = nil
+				if shape == "disabled tool with additions" {
+					tool := base.Tools["int__engineering-team__read"]
+					tool.Enabled = false
+					base.Tools["int__engineering-team__read"] = tool
+				}
+			case "handler only":
+				base.Tools = nil
+			}
+			before, err := json.Marshal(base)
+			require.NoError(t, err)
+			opts.ResolveIntegrationName = func(string) (IntegrationResolution, error) {
+				return IntegrationResolution{IntegrationID: uuid.New(), IntegrationKind: integrationdefinition.SlackThread}, nil
+			}
+			_, err = DeriveWithIntegrationCapabilities(base, source, opts)
+			require.ErrorIs(t, err, ErrIntegrationCapabilityUnavailable)
+			after, err := json.Marshal(base)
+			require.NoError(t, err)
+			require.JSONEq(t, string(before), string(after))
+		})
+	}
+}
+
+func TestCompositionPreservesExplicitlyUnavailableToolsWithoutRebinding(t *testing.T) {
+	for _, policy := range []string{"enabled: false", "permission: {mode: always_deny}"} {
+		t.Run(policy, func(t *testing.T) {
+			opts, _ := integrationTestOptions(t)
+			base := compileIntegrationTest(t, "tools: {int__engineering-team__read: {"+policy+"}}", opts).Compiled
+			opts.ResolveIntegrationName = func(string) (IntegrationResolution, error) {
+				t.Fatal("explicitly unavailable capabilities need no replacement integration")
+				return IntegrationResolution{}, nil
+			}
+			derived, err := DeriveWithIntegrationCapabilities(base, IntegrationCapabilitiesSource{
+				Tools: map[string]AgentConfigToolSource{"int__engineering-team__read": {}},
+			}, opts)
+			require.NoError(t, err)
+			require.Equal(t, base, derived)
+		})
+	}
 }

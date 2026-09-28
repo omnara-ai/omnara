@@ -138,7 +138,11 @@ export function AgentsTable({
                 <span className="text-muted-foreground">—</span>
               ),
           },
-          { id: 'target', header: 'Target', cell: (agent) => <TargetCell agent={agent} /> },
+          {
+            id: 'target',
+            header: 'Interaction destination',
+            cell: (agent) => <TargetCell agent={agent} />,
+          },
           {
             id: 'state',
             header: 'State',
@@ -209,7 +213,6 @@ function TargetCell({ agent }: { agent: Agent }) {
   )
 }
 
-// Where the agent is wired up, without provider-internal thread identifiers.
 function integrationTargetLabel(target: NonNullable<Agent['integration_target']>) {
   const conversation = target.display_name.replace(/^#/, '')
   if (target.provider_ref_kind === 'dm') return 'Direct message'

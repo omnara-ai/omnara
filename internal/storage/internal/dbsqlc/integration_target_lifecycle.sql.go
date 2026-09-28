@@ -14,12 +14,12 @@ import (
 
 const clearDeletedIntegrationTargetsFromAgents = `-- name: ClearDeletedIntegrationTargetsFromAgents :exec
 UPDATE agents agent SET interaction_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
+FROM integration_targets target
 WHERE agent.project_id = $1
-  AND agent.interaction_target_id IN (
-    SELECT target.id FROM integration_targets target
-    WHERE target.project_id = $1
-      AND target.integration_id = $2
-  )
+  AND target.project_id = agent.project_id
+  AND target.integration_id = $2
+  AND agent.id = target.agent_id
+  AND agent.interaction_target_id = target.id
 `
 
 type ClearDeletedIntegrationTargetsFromAgentsParams struct {

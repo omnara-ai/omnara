@@ -2660,12 +2660,14 @@ type ActorProvider string
 // Agent defines model for Agent.
 type Agent struct {
 	// Activity Current activity, present on list responses.
-	Activity          *AgentActivity     `json:"activity,omitempty"`
-	AgentProfileId    *AgentProfileID    `json:"agent_profile_id,omitempty"`
-	ArchivedAt        *Timestamp         `json:"archived_at,omitempty"`
-	CreatedAt         Timestamp          `json:"created_at"`
-	CurrentConfigId   *AgentConfigID     `json:"current_config_id,omitempty"`
-	Id                AgentID            `json:"id"`
+	Activity        *AgentActivity  `json:"activity,omitempty"`
+	AgentProfileId  *AgentProfileID `json:"agent_profile_id,omitempty"`
+	ArchivedAt      *Timestamp      `json:"archived_at,omitempty"`
+	CreatedAt       Timestamp       `json:"created_at"`
+	CurrentConfigId *AgentConfigID  `json:"current_config_id,omitempty"`
+	Id              AgentID         `json:"id"`
+
+	// IntegrationTarget Selected question/approval destination. Automatic mode updates it when content inputs are admitted. Prompts use it only while the integration and handler remain eligible. It is not launch provenance or permission to post.
 	IntegrationTarget *IntegrationTarget `json:"integration_target,omitempty"`
 	Model             *AgentModel        `json:"model,omitempty"`
 

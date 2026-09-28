@@ -2,10 +2,7 @@ package integrationdefinition
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
-	"strings"
 )
 
 type Event struct {
@@ -41,15 +38,12 @@ func (d Definition) Forwards(event string) bool {
 	return d.Subscription != nil && slices.Contains(d.Subscription.Events, event)
 }
 
-var slackRoutingWorkspace = regexp.MustCompile(`^T[A-Z0-9]+$`)
-
-func (e Event) RoutingAddresses(account string) ([]EventAddress, error) {
+func (e Event) RoutingAddresses() ([]EventAddress, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}
 	kind, ref, _ := e.Scope.Conversation()
 	addresses := []EventAddress{{kind, ref}}
-	account = strings.TrimSpace(account)
 	switch {
 	case e.Scope.Slack != nil:
 		if e.Scope.Slack.ThreadTS != "" {
@@ -57,18 +51,6 @@ func (e Event) RoutingAddresses(account string) ([]EventAddress, error) {
 			k, r, _ := parent.Conversation()
 			addresses = append(addresses, EventAddress{k, r})
 		}
-		if !slackRoutingWorkspace.MatchString(account) {
-			return nil, fmt.Errorf("invalid Slack routing workspace")
-		}
-		addresses = append(addresses, EventAddress{"workspace", account})
-	case e.Scope.GitHub != nil:
-		installation, err := strconv.ParseInt(account, 10, 64)
-		if err != nil || installation <= 0 {
-			return nil, fmt.Errorf("invalid GitHub routing installation")
-		}
-		addresses = append(addresses,
-			EventAddress{"repository", strconv.FormatInt(e.Scope.GitHub.RepositoryID, 10)},
-			EventAddress{"installation", strconv.FormatInt(installation, 10)})
 	case e.Scope.Discord != nil:
 		if e.Scope.Discord.ThreadID != "" && e.Scope.Discord.ChannelID != "" {
 			parent := Scope{Discord: &DiscordScope{ChannelID: e.Scope.Discord.ChannelID}}

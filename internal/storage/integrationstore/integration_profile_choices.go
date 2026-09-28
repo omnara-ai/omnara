@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -108,7 +107,7 @@ func ensureIntegrationProfileChoiceTx(
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return row, false, err
 	}
-	if err := validateIntegrationProfileChoiceOptions(ctx, q, integration, input.Options); err != nil {
+	if err := validateIntegrationProfileChoiceOptions(ctx, q, integration, input.Event, input.Options); err != nil {
 		return row, false, err
 	}
 	row = IntegrationProfileChoiceRecord{
@@ -273,7 +272,7 @@ func (s *Store) ChooseIntegrationProfile(
 	}
 	integration, err = integrationProfileChoiceIntegration(ctx, q, input.ProjectID, input.IntegrationID)
 	if err == nil {
-		err = validateIntegrationProfileChoiceOptions(ctx, q, integration, offered)
+		err = validateIntegrationProfileChoiceOptions(ctx, q, integration, row.Event, offered)
 	}
 	if errors.Is(err, storeerr.ErrStateTransitionConflict) {
 		expired, expireErr := commitIntegrationProfileChoiceExpiry(ctx, tx, row)
@@ -432,27 +431,36 @@ func integrationProfileChoiceIntegration(
 	if err != nil {
 		return IntegrationRecord{}, err
 	}
-	if integration.IntegrationKind != integrationdefinition.SlackThread &&
-		integration.IntegrationKind != integrationdefinition.DiscordThread {
-		return IntegrationRecord{}, storeerr.ErrStateTransitionConflict
-	}
-	if launcher, err := integrationdefinition.ReadChatLauncher(integration.Settings); err != nil || launcher == nil {
+	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
+	if !ok || definition.Launcher == nil || definition.Launcher.AuthorizeIntent == nil {
 		return IntegrationRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	return integration, nil
 }
 
 func validateIntegrationProfileChoiceOptions(
-	ctx context.Context, q *dbsqlc.Queries, integration IntegrationRecord, options []IntegrationProfileChoiceOption,
+	ctx context.Context, q *dbsqlc.Queries, integration IntegrationRecord, event json.RawMessage,
+	options []IntegrationProfileChoiceOption,
 ) error {
-	configured, err := integrationdefinition.ChatLaunchProfiles(integration.Settings)
-	if err != nil {
+	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
+	if !ok || definition.Launcher == nil || definition.Launcher.AuthorizeIntent == nil {
+		return storeerr.ErrStateTransitionConflict
+	}
+	var source struct {
+		Event integrationdefinition.Event `json:"event"`
+	}
+	if err := json.Unmarshal(event, &source); err != nil {
 		return storeerr.ErrStateTransitionConflict
 	}
 	ids := make([]uuid.UUID, 0, len(options))
 	for _, option := range options {
 		key, err := publicid.Encode(publicid.KindAgentProfile, option.ProfileID)
-		if err != nil || option.Key != key || !slices.Contains(configured, option.ProfileID) {
+		if err != nil || option.Key != key {
+			return storeerr.ErrStateTransitionConflict
+		}
+		if err := definition.Launcher.AuthorizeIntent(integration.Settings, source.Event, integrationdefinition.LaunchIntent{
+			LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: option.ProfileID,
+		}); err != nil {
 			return storeerr.ErrStateTransitionConflict
 		}
 		ids = append(ids, option.ProfileID)

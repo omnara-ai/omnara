@@ -35,8 +35,9 @@ Project management uses `/integrations` and `/integration-definitions`, with
 `integration_kind` identifying behavior and `integration_id` identifying a saved
 integration. Integration IDs use `itg_`, subscriptions use `isub_`, and profile
 choices use `ipc_`; agent interaction IDs remain `int_`. Agent responses expose
-`integration_target`, and captured interaction destinations use
-`integration_target_id`. Update clients using the old integration setup or
+the selected question/approval destination as `integration_target`; it is used
+only while its integration and handler remain eligible. Captured interaction
+destinations use `integration_target_id`. Update clients using the old integration setup or
 destination APIs together with the cluster release. Existing `/api/integrations/`
 webhook and OAuth callback URLs remain unchanged. Customer-hosted integrations
 continue to use ordinary agent inputs, custom tools and interaction APIs.

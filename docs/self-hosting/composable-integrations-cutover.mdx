@@ -62,8 +62,10 @@ The project `/integration-installs` API is replaced by `/integrations`; public
 integration IDs use `itg_` rather than `iin_`. Internal IDs and audit references
 are preserved. Upgrade clients and generated SDKs with the cluster release.
 Integrations own credentials, setup and optional launcher settings; there is no
-separate connection API. Agent responses expose `integration_target`; captured
-interaction destinations use `integration_id` and `integration_target_id`.
+separate connection API. `Agent.integration_target` is the selected destination for
+question and approval prompts, not the launch origin or posting authority. The selection
+can remain while the integration is disconnected; prompts then fall back to the dashboard.
+Captured interaction destinations use `integration_id` and `integration_target_id`.
 OAuth return query parameters are `integration_oauth`, `integration_oauth_error`
 and `integration_id`. Existing interaction IDs (`int_`), target IDs (`itgt_`),
 OAuth flow IDs (`ioaf_`) and configured `/api/integrations/` webhook and OAuth
@@ -128,7 +130,7 @@ that validate or switch on cron target types before creating integration schedul
    and [cluster release workflow](https://github.com/omnara-ai/omnara/blob/main/.github/workflows/cluster-release.yaml).
    The workflow publishes images; map the shutdown/startup steps below to the
    actual deployment's replica and scheduler controls before the window.
-2. Confirm the starting schema is 44 or 45 on the PostgreSQL writer. Inventory every
+2. Confirm the starting schema is 44, 45 or 46 on the PostgreSQL writer. Inventory every
    gate below with read-only queries during preparation, retaining the queries
    for an identical check after the freeze. Retain IDs/counts and logs, not
    credentials or config/prompt bodies. Successful query execution alone does
@@ -161,10 +163,10 @@ psql "$CUTOVER_DATABASE_URL" -X --set=ON_ERROR_STOP=1 \
 
 Set `CUTOVER_DATABASE_URL` to the intended writer using your normal credential
 handling. The script prints database identity/version, rejects a replica or a
-version other than 44 or 45, and runs all queries in one read-only, repeatable-read
+version other than 44, 45 or 46, and runs all queries in one read-only, repeatable-read
 transaction. It lists every blocker instead of stopping at the first, with only
 IDs, tool names and quota counts. Every blocker result must be empty; a successful
-psql exit only means the queries ran. The script uses historical schema-44/45 tables
+psql exit only means the queries ran. The script uses historical schema-44/45/46 tables
 and columns while checking the final reserved tool namespace, `int__`, and handler
 tool names. It does not repair or cancel work. Run the same preflight during
 preparation and after the freeze. SQL47 and Go48 enforce the final gates below.
@@ -181,7 +183,7 @@ using `KindOrganization`, `KindProject` and `KindAgent` respectively. The result
 | --- | --- |
 | Raw work, across the whole database | No `agent_runtime_locks` with `lease_expires_at > statement_timestamp()`, no `model_call_contexts.state = 'started'`, no `tool_calls.state <> 'completed'`, no `agent_interactions.state = 'open'`. SQL47 checks before schema changes; Go48 rechecks under lock. |
 | Derived work, for every agent with a latest turn | No `agent_continuable_model_contexts` or `agent_next_model_work` row for that latest turn (greatest `agent_turns.turn_sequence`), and `agent_has_incomplete_tool_batch(project_id, agent_id)` is false. Pass the same project/agent IDs to both frontier functions. An idle worker is insufficient. Historical failed/retry contexts superseded by success or stop are not themselves blockers. |
-| Stored configs | No custom tool using `int__` or the new handler tool names. Compiled legacy send policy must be an object containing only boolean `enabled`/`deferred` and optional `always_allow` permission with empty parameters. Source may also include `type: built_in` and nullable `enabled`; the migration normalizes these released forms. A disabled policy needs a known Slack integration in its project. SQL47 rejects unmappable compiled policy before schema changes. Go48 also validates source parsing, hashes and rewrite uniqueness. |
+| Stored configs | No custom tool using `int__` or the new handler tool names. Compiled legacy send policy must be an object containing only boolean `enabled`/`deferred` and optional `always_allow` permission with empty parameters. Source may also include `type: built_in`, nullable `enabled` and surrounding whitespace in the permission mode; the migration accepts these released forms. A disabled policy needs a known Slack integration in its project. SQL47 rejects unmappable compiled policy before schema changes. Go48 also validates source parsing, hashes and rewrite uniqueness. |
 | Old setup and addresses | Installs must be Slack webhook setups with a profile, not an agent destination. A live active setup requires credentials. Eligible targets must use a valid Slack channel, DM or channel-and-timestamp thread address. SQL47 checks these before schema changes. |
 | Multiple targets through one integration | No eligible agent may have more than one live target through the same Slack install. SQL47 reports the agent and target IDs before schema changes. Review those destinations on the restored copy and arrange an explicit repair before cutover; the migration does not choose a destination or broaden access. Multiple targets through different integrations are supported. |
 | Quota and writer freeze | The new default of 10 million configs, or an explicit org override, must cover all existing configs plus at most one successor per eligible agent. SQL47 checks this conservative budget. Stop every writer and rerun preflight after freezing. |
@@ -196,7 +198,7 @@ bypass their checks if preparation missed a blocker.
 The [46 → 47 → 48 fixture test](https://github.com/omnara-ai/omnara/blob/main/internal/dbmigrate/slack_integration_cutover_integration_test.go)
 checks scoped successors, historical config reads, strict runtime decoding, no
 subscriptions or new runnable work, and later public input. A real continuable retry
-fails at **45**; historical failures superseded by success/stop are allowed. An
+fails at **46**; historical failures superseded by success/stop are allowed. An
 injected Go48 failure leaves **47**, and rerunning succeeds after the injected
 cause is removed. This is not a snapshot-restore test or live Slack rehearsal.
 Run against the final release code using local test services:
@@ -207,7 +209,7 @@ make db-up
 go test -count=1 ./migrations -run '^TestSlack'
 OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmode=disable' \
   go test -race -count=1 -tags=integration ./internal/dbmigrate \
-  -run '^TestSlackIntegrationCutover(Preflight|PreservesScopedSendingAndHistory)$'
+  -run '^Test(SlackIntegrationCutover|IntegrationActorMigration|IntegrationOwnedSchema)'
 ```
 
 ## Announce, cancel and freeze
@@ -258,7 +260,7 @@ OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmod
    their external activity if needed rather than assuming a cluster stop kills
    them or deleting daemon state.
 6. **Rerun the identical read-only preflight now, after the freeze.** All blocker
-   sections must be empty and headroom reviewed. Capture the final schema-44/45
+   sections must be empty and headroom reviewed. Capture the final schema-44/45/46
    snapshot/backup and verify its restore procedure before applying any migrations.
 
 Maintenance responses do not queue requests. Provider retry windows are limited;

@@ -437,7 +437,7 @@ func TestChatProfileChoiceRetainsAttachmentDigestBeforeSelection(t *testing.T) {
 	require.Equal(t, 1, artifacts)
 }
 
-func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
+func TestChatProfileChoiceRemovedOfferedProfileCannotLaunchReplacement(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 2)
 	require.Empty(t, f.receive("mention", f.event))

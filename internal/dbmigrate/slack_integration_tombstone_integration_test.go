@@ -28,7 +28,7 @@ import (
 
 func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 	for _, scenario := range []struct {
-		name, sourceFormat                  string
+		name, sourceFormat, permissionMode  string
 		invalidLiveCredentials, onlyDeleted bool
 	}{
 		{name: "live-second"}, {name: "invalid-live-credentials", invalidLiveCredentials: true},
@@ -36,6 +36,8 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 		{name: "yaml-disabled-and-deleted", sourceFormat: "yaml"},
 		{name: "json-only-deleted", sourceFormat: "json", onlyDeleted: true},
 		{name: "yaml-only-deleted", sourceFormat: "yaml", onlyDeleted: true},
+		{name: "json-permission-whitespace", sourceFormat: "json", permissionMode: "\t always_allow \u00a0"},
+		{name: "yaml-permission-whitespace", sourceFormat: "yaml", permissionMode: "\t always_allow \u00a0"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			invalidLiveCredentials := scenario.invalidLiveCredentials
@@ -82,10 +84,14 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				VALUES($1,$2,$3,$4,$5::jsonb,$6,now())`,
 				configID, ids.OrgID, ids.ProjectID, modelID, compiled, fmt.Sprintf("%x", sha256.Sum256(compiled)))
 			if scenario.sourceFormat != "" {
+				policy := map[string]any{"type": "built_in", "enabled": false}
+				if scenario.permissionMode != "" {
+					policy["permission"] = map[string]any{"mode": scenario.permissionMode, "parameters": map[string]any{}}
+				}
 				source := map[string]any{
 					"instruction": "Review",
 					"model":       map[string]any{"provider_config": "openai-prod", "name": "test"},
-					"tools":       map[string]any{"send_integration_message": map[string]any{"type": "built_in", "enabled": false}}}
+					"tools":       map[string]any{"send_integration_message": policy}}
 				var raw []byte
 				if scenario.sourceFormat == "json" {
 					raw, err = json.Marshal(source)
@@ -287,6 +293,7 @@ func assertSlackTombstoneSourceResave(
 		require.Len(t, contract.IntegrationTools, 1)
 		tool := contract.IntegrationTools["int__slack__post_message"]
 		require.False(t, tool.Enabled)
+		require.Equal(t, "always_allow", tool.Permission.Mode)
 		require.Equal(t, liveID, tool.IntegrationID)
 		integration, err := store.Integrations().GetIntegrationByName(ctx, ids.ProjectID, "slack")
 		require.NoError(t, err)
@@ -310,6 +317,7 @@ func assertSlackTombstoneSourceResave(
 		if !onlyDeleted {
 			require.Equal(t, liveID, result.Tools["int__slack__post_message"].IntegrationID)
 			require.False(t, result.Tools["int__slack__post_message"].Enabled)
+			require.Equal(t, "always_allow", result.Tools["int__slack__post_message"].Permission.Mode)
 		}
 		return result
 	}

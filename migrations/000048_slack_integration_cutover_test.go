@@ -120,6 +120,8 @@ func TestSlackSendingSuccessorPinsIntegrationsAndPreservesPolicies(t *testing.T)
 func TestSlackIntegrationMigrationRejectsUnmappablePolicies(t *testing.T) {
 	for _, policy := range []string{
 		`{"enabled":true,"permission":{"mode":"always_ask","parameters":{}}}`,
+		`{"enabled":false,"permission":{"mode":" always_ask ","parameters":{}}}`,
+		`{"enabled":false,"permission":{"mode":null,"parameters":{}}}`,
 		`{"enabled":false,"permission":{"mode":"always_deny","parameters":{}}}`,
 		`{"enabled":true,"permission":{"mode":"always_allow","parameters":{"channel":"C123"}}}`,
 		`{"enabled":"false"}`, `{"type":"custom"}`, `{"type":null}`, `{"deferred":null}`,

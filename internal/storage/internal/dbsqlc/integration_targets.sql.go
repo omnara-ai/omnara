@@ -114,7 +114,7 @@ type GetIntegrationSelectionTargetParams struct {
 	IntegrationID uuid.UUID
 	Kind          string
 	Ref           string
-	Slot          *string
+	LaunchKey     *string
 }
 
 type GetIntegrationSelectionTargetRow struct {
@@ -137,7 +137,7 @@ func (q *Queries) GetIntegrationSelectionTarget(ctx context.Context, arg GetInte
 		arg.IntegrationID,
 		arg.Kind,
 		arg.Ref,
-		arg.Slot,
+		arg.LaunchKey,
 	)
 	var i GetIntegrationSelectionTargetRow
 	err := row.Scan(
@@ -175,7 +175,7 @@ type InsertIntegrationConversationTargetParams struct {
 	Kind          string
 	Ref           string
 	DisplayName   string
-	Slot          *string
+	LaunchKey     *string
 }
 
 type InsertIntegrationConversationTargetRow struct {
@@ -200,7 +200,7 @@ func (q *Queries) InsertIntegrationConversationTarget(ctx context.Context, arg I
 		arg.Kind,
 		arg.Ref,
 		arg.DisplayName,
-		arg.Slot,
+		arg.LaunchKey,
 	)
 	var i InsertIntegrationConversationTargetRow
 	err := row.Scan(

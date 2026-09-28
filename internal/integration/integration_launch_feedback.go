@@ -2,19 +2,30 @@ package integration
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 )
 
-const launchUnavailableMessage = "I couldn't start an agent because a configured profile is unavailable. Ask an integration administrator to update the launch profiles."
+const (
+	launchUnavailableMessage = "I couldn't start an agent because a configured profile is unavailable. " +
+		"Ask an integration administrator to update the launch profiles."
+	launchCapabilitiesUnavailableMessage = "I couldn't start an agent because a configured profile's capabilities " +
+		"refer to a different integration. Ask an integration administrator to update the profile."
+	discordProfileChoiceSetupMessage = "I couldn't offer a profile choice " +
+		"because Discord interactions aren't configured. " +
+		"Ask an integration administrator to configure the public key and interactions endpoint."
+)
 
-// Known missing profiles don't retry or turn a multi-profile choice into a different
-// launch. Existing subscriptions can still receive this event. Feedback is best effort.
+var errDiscordProfileChoiceSetup = errors.New("discord profile choices require interaction setup")
+
 func (w *IntegrationLaunchWorkflow) launchUnavailable(
 	ctx context.Context, input IntegrationLaunchContext, cause error,
 ) {
@@ -28,31 +39,38 @@ func (w *IntegrationLaunchWorkflow) launchUnavailable(
 		return
 	}
 	provider, ok := w.providers[input.Integration.Provider].(interface {
-		NotifyLaunchUnavailable(context.Context, IntegrationLaunchContext) error
+		NotifyLaunchUnavailable(context.Context, IntegrationLaunchContext, string) error
 	})
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if err := provider.NotifyLaunchUnavailable(ctx, input); err != nil {
+	message := launchUnavailableMessage
+	switch {
+	case errors.Is(cause, errDiscordProfileChoiceSetup):
+		message = discordProfileChoiceSetupMessage
+	case errors.Is(cause, agentconfig.ErrIntegrationCapabilityUnavailable):
+		message = launchCapabilitiesUnavailableMessage
+	}
+	if err := provider.NotifyLaunchUnavailable(ctx, input, message); err != nil {
 		log.WarnContext(ctx, "notify unavailable integration launch", "integration_id", input.Integration.ID, "error", err)
 	}
 }
 
 func (p *SlackIntegrationInboxProvider) NotifyLaunchUnavailable(
-	ctx context.Context, input IntegrationLaunchContext,
+	ctx context.Context, input IntegrationLaunchContext, message string,
 ) error {
 	envelope, err := slack.DecodeEventsEnvelope(input.Receipt.Payload)
 	if err != nil {
 		return err
 	}
-	// Only app_mention owns feedback for Slack's duplicate message/mention callbacks.
-	if envelope.Event.Type != "app_mention" {
-		return nil
-	}
 	scope := input.Event.Event.Scope.Slack
 	if scope == nil {
+		return nil
+	}
+	// Channel mentions have sibling message callbacks; DMs only have message callbacks.
+	if scope.ThreadTS != "" && envelope.Event.Type != "app_mention" {
 		return nil
 	}
 	config, token, _, err := p.requestAccess(ctx, input.Integration)
@@ -61,12 +79,12 @@ func (p *SlackIntegrationInboxProvider) NotifyLaunchUnavailable(
 	}
 	result, err := slack.PostPlainMessage(ctx, config, slack.MessageTarget{
 		Channel: scope.ChannelID, ThreadTS: scope.ThreadTS, BotToken: token,
-	}, launchUnavailableMessage)
+	}, message)
 	return slackFeedbackError(result, err)
 }
 
 func (p *DiscordIntegrationInboxProvider) NotifyLaunchUnavailable(
-	ctx context.Context, input IntegrationLaunchContext,
+	ctx context.Context, input IntegrationLaunchContext, message string,
 ) error {
 	scope := input.Event.Event.Scope.Discord
 	if scope == nil {
@@ -85,12 +103,14 @@ func (p *DiscordIntegrationInboxProvider) NotifyLaunchUnavailable(
 	if metadata.ThreadStarter {
 		target.ThreadID = ""
 	}
-	_, err = client.CreateMessage(ctx, target, discord.MessageArgs{Content: launchUnavailableMessage})
+	_, err = client.CreateMessage(ctx, target, discord.MessageArgs{
+		Content: message, Nonce: "u_" + base64.RawURLEncoding.EncodeToString(input.Receipt.ID[:]),
+	})
 	return err
 }
 
 func (p GitHubIntegrationInboxProvider) NotifyLaunchUnavailable(
-	ctx context.Context, input IntegrationLaunchContext,
+	ctx context.Context, input IntegrationLaunchContext, message string,
 ) error {
 	scope := input.Event.Event.Scope.GitHub
 	if scope == nil || !input.Event.Event.Mentioned {
@@ -102,6 +122,6 @@ func (p GitHubIntegrationInboxProvider) NotifyLaunchUnavailable(
 	}
 	_, err = client.CreateDiscussionComment(ctx, github.Scope{
 		RepositoryID: scope.RepositoryID, PullRequest: scope.PullRequest,
-	}, launchUnavailableMessage)
+	}, message)
 	return err
 }

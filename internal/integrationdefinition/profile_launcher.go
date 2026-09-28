@@ -13,7 +13,7 @@ import (
 const MaxChatProfiles = 16
 
 // ProfileLaunchKey identifies the one launch owned by a conversation, independently
-// of the configured profile or its position in a menu. Keep legacy ownership stable.
+// of the configured profile or its position in a menu.
 const ProfileLaunchKey = "default"
 
 type ChatLauncherSettings struct {

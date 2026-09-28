@@ -182,7 +182,8 @@ func TestCommentRequests(t *testing.T) {
 		}
 		if r.URL.Path == "/app/installations/456/access_tokens" {
 			permissions, ok := input["permissions"].(map[string]any)
-			if !ok || len(permissions) != 1 || permissions["pull_requests"] != "write" {
+			if !ok || len(permissions) != 2 || permissions["pull_requests"] != "write" ||
+				permissions["metadata"] != "read" {
 				t.Error("comment did not use PR write permission")
 			}
 			tokenResponse(w)

@@ -17,7 +17,7 @@ func (p *DiscordIntegrationInboxProvider) PresentProfileChoice(
 	choice integrationstore.IntegrationProfileChoiceRecord, check func(context.Context) error,
 ) (string, string, error) {
 	if DiscordInteractionPublicKey(integrationSetup.ProviderConfig) == "" {
-		return "", "", fmt.Errorf("configure Discord's public key and interactions endpoint before offering multiple profiles: %w", ErrIntegrationLaunchUnavailable)
+		return "", "", fmt.Errorf("%w: %w", ErrIntegrationLaunchUnavailable, errDiscordProfileChoiceSetup)
 	}
 	var source IntegrationEvent
 	if err := json.Unmarshal(choice.Event, &source); err != nil || source.Event.Scope.Discord == nil {
