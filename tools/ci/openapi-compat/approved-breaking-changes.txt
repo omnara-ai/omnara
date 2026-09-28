@@ -106,3 +106,4 @@ Compiled format transitions are owned by migrations: PATCH /orgs/{orgID}/project
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config removed the optional property `current_config/compiler_version` from the response with the `200` status
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agents removed the optional property `agent_config/compiler_version` from the response with the `201` status
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the optional property `agent_config/compiler_version` from the response with the `200` status
+Composable integrations actor migration: GET /orgs/{orgID}/projects/{projectID}/actors removed the enum value `slack` from the `query` request parameter `provider`

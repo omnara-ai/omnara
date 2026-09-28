@@ -37,7 +37,7 @@ fixture tests establish neither production readiness nor a fixed completion time
 - Installs become project integrations with the same internal identities and credential references.
   Live installations receive deterministic names (`slack`, `slack-2`, …) before
   tombstones. Deleted installations become disconnected. Launcher settings retain
-  the installed profile and workspace.
+  the installed profile; the integration retains its workspace identity.
   Migrated Slack integrations use `integration_kind: slack_thread`.
 - History, attribution targets and provider messages survive. Go48 replaces the
   old global send policy with qualified integration tools and replaces
