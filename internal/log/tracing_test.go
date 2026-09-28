@@ -26,7 +26,7 @@ func TestTracingFlushesFlattenedRecordsAndAggregates(t *testing.T) {
 		Start:     event.started.Add(12 * time.Millisecond),
 		Duration:  30 * time.Millisecond,
 		Rows:      0,
-		Cause:     errors.New("duplicate key"),
+		Failed:    true,
 		ErrorKind: "postgres",
 	})
 	AttachHTTPRequest(ctx, HTTPRequestTraceRecord{
@@ -168,7 +168,7 @@ func TestDBTracingPrioritizesFailuresWithinCap(t *testing.T) {
 			for i := range 30 + failureCount {
 				record := DBQueryTraceRecord{Name: fmt.Sprintf("Query%d", i), Duration: time.Millisecond}
 				if i >= 30 {
-					record.Cause = errors.New("duplicate key")
+					record.Failed = true
 					record.ErrorKind = "postgres"
 					record.SQLState = "23505"
 				}

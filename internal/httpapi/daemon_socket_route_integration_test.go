@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1635,14 +1636,58 @@ func (tracer *socketDrainQueryTracer) TraceQueryStart(
 	return ctx
 }
 
+type socketCloseBarrierListener struct {
+	net.Listener
+	started, release chan struct{}
+}
+
+func (l socketCloseBarrierListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &socketCloseBarrierConn{Conn: conn, started: l.started, release: l.release}, nil
+}
+
+type socketCloseBarrierConn struct {
+	net.Conn
+	started, release chan struct{}
+	once             sync.Once
+}
+
+func (c *socketCloseBarrierConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { close(c.started) })
+	<-c.release
+	return err
+}
+
+type socketBlockingReplyPublisher struct {
+	started chan context.Context
+	release chan struct{}
+}
+
+func (p socketBlockingReplyPublisher) PublishChannel(ctx context.Context, _ string, _ []byte) error {
+	p.started <- ctx
+	select {
+	case <-ctx.Done():
+	case <-p.release:
+	}
+	return ctx.Err()
+}
+
 func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 	for _, tt := range []struct {
 		name, source string
 		localClose   websocket.StatusCode
+		peerClose    websocket.StatusCode
 	}{
 		{name: "transport failure", source: "socket_failure"},
-		{name: "normal local close", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
-		{name: "local policy failure", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},
+		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
+		{name: "local policy failure during message", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},
+		{name: "normal peer close", peerClose: websocket.StatusNormalClosure, source: "socket_closed"},
+		{name: "peer going away", peerClose: websocket.StatusGoingAway, source: "socket_closed"},
+		{name: "peer policy failure", peerClose: websocket.StatusPolicyViolation, source: "socket_failure"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tracer := &socketDrainQueryTracer{
@@ -1653,10 +1698,13 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			pool := poolWithQueryTracer(t, t.Context(), openIntegrationDB(t, t.Context()), tracer)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
+			publisher := socketBlockingReplyPublisher{started: make(chan context.Context, 1), release: make(chan struct{})}
 			hub := &daemonSocketHub{
 				presence:  newDaemonSocketRouteTestPresence(),
 				byMachine: map[uuid.UUID]*daemonSocket{}, byRuntime: map[uuid.UUID]*daemonSocket{},
 				fallbackDrainInterval: time.Hour,
+				replyPublisher:        publisher,
+				pendingSkillReports:   map[skillReportKey]skillReportPending{},
 			}
 			backend := &Server{store: storage.NewStore(pool), daemonHub: hub}
 			buf, logger := newRequestEventCapture()
@@ -1671,14 +1719,25 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				defer func() { _ = conn.CloseNow() }()
 				socket := newDaemonSocket(backend, daemonprotocol.NewBackendSocket(conn, ""),
 					uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), false)
+				if tt.peerClose != 0 || tt.localClose != 0 {
+					socket.send = make(chan daemonSocketOutbound)
+				}
 				ready <- socket
 				socket.run(r.Context())
 			}))
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(finished)
 				handler.ServeHTTP(w, r)
 			}))
+			closeStarted, closeRelease := make(chan struct{}), make(chan struct{})
+			if tt.peerClose != 0 || tt.localClose != 0 {
+				server.Listener = socketCloseBarrierListener{server.Listener, closeStarted, closeRelease}
+			}
+			server.Start()
 			t.Cleanup(server.Close)
+			t.Cleanup(func() { close(publisher.release) })
+			releaseClose := sync.OnceFunc(func() { close(closeRelease) })
+			t.Cleanup(releaseClose)
 			release := sync.OnceFunc(func() { close(tracer.release) })
 			t.Cleanup(release)
 			conn, response, err := websocket.Dial(ctx, server.URL, nil)
@@ -1692,7 +1751,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				select {
 				case <-done:
 				case <-ctx.Done():
-					t.Fatal("socket drain did not finish: ", ctx.Err())
+					t.Fatal("socket operation did not finish: ", ctx.Err())
 				}
 			}
 			wait(tracer.initial)
@@ -1705,10 +1764,44 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				Type: notifications.WakeupTypeDaemonWork, MachineID: socket.machineID,
 			})
 			wait(tracer.started)
+			var messageCtx context.Context
 			if tt.localClose != 0 {
+				hub.recordPendingSkillReply(socket.machineID, "test", "reply")
+				require.NoError(t, wsjson.Write(ctx, conn, daemonprotocol.Message{
+					Type:        daemonprotocol.MessageSkillReport,
+					SkillReport: &daemonprotocol.SkillReport{RequestID: "test"},
+				}))
+				select {
+				case messageCtx = <-publisher.started:
+				case <-ctx.Done():
+					t.Fatal("socket reader did not start handling message")
+				}
+				go func() { _, _, _ = conn.Read(ctx) }()
 				go socket.close(tt.localClose, "test close")
+			} else if tt.peerClose != 0 {
+				go func() { _ = conn.Close(tt.peerClose, "test close") }()
 			} else {
 				require.NoError(t, conn.CloseNow())
+			}
+			if tt.peerClose != 0 || tt.localClose != 0 {
+				wait(closeStarted)
+				select {
+				case socket.send <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}}:
+				case <-ctx.Done():
+					t.Fatal("socket writer did not receive message")
+				}
+				if tt.peerClose != 0 {
+					select {
+					case <-tracer.canceled:
+						t.Fatal("writer canceled drain before reader reported the close reason")
+					case <-time.After(100 * time.Millisecond):
+					}
+				}
+				releaseClose()
+			}
+			if messageCtx != nil {
+				wait(messageCtx.Done())
+				require.EqualError(t, context.Cause(messageCtx), tt.source)
 			}
 			wait(tracer.canceled)
 			select {
@@ -1717,9 +1810,6 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			case <-time.After(100 * time.Millisecond):
 			}
 			release()
-			if tt.localClose != 0 {
-				_, _, _ = conn.Read(ctx)
-			}
 			wait(finished)
 			event := decodeRequestEvent(t, buf)
 			require.Equal(t, "ListDaemonProcessOffers", event["db.queries.2.name"])

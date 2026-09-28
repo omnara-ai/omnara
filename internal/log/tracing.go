@@ -28,7 +28,7 @@ type DBQueryTraceRecord struct {
 	SQLState        string
 	CancelSource    string
 	RequestCanceled bool
-	Cause           error
+	Failed          bool
 }
 
 func AttachDBQuery(ctx context.Context, record DBQueryTraceRecord) {
@@ -112,17 +112,17 @@ func (e *Event) flushDBQueries() {
 			durationMsMax = durationMs
 		}
 		rowsSum += record.Rows
-		if record.Cause != nil {
+		if record.Failed {
 			errorCount++
 		}
 	}
 	successBudget := max(0, emitCount-errorCount)
 	emitted := 0
 	for _, record := range e.dbQueries {
-		if emitted == emitCount || (record.Cause == nil && successBudget == 0) {
+		if emitted == emitCount || (!record.Failed && successBudget == 0) {
 			continue
 		}
-		if record.Cause == nil {
+		if !record.Failed {
 			successBudget--
 		}
 		prefix := fmt.Sprintf("db.queries.%d.", emitted)
@@ -131,7 +131,7 @@ func (e *Event) flushDBQueries() {
 		out[prefix+"start_time_ms"] = relativeMilliseconds(record.Start, e.started)
 		out[prefix+"duration_ms"] = record.Duration.Milliseconds()
 		out[prefix+"rows"] = record.Rows
-		if record.Cause != nil {
+		if record.Failed {
 			out[prefix+"error_kind"] = record.ErrorKind
 			if record.SQLState != "" {
 				out[prefix+"sqlstate"] = record.SQLState

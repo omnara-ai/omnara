@@ -178,7 +178,15 @@ func (s *daemonSocket) run(ctx context.Context) {
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
-		cancel(s.cancellationCause(s.writeLoop(runCtx)))
+		err := s.writeLoop(runCtx)
+		if errors.Is(err, net.ErrClosed) {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-s.done:
+			}
+		}
+		cancel(s.cancellationCause(err))
 	}()
 	s.enqueueDrain()
 	fallbackDrainTimer := time.NewTimer(s.server.daemonHub.fallbackDrainDelay(s.connectionID))

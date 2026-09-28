@@ -91,7 +91,7 @@ func (m *DBRecorder) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Tr
 		ErrorSeverity: errorSeverity,
 		SQLState:      sqlState,
 		CancelSource:  cancelSource,
-		Cause:         data.Err,
+		Failed:        data.Err != nil,
 	})
 	labels := []string{trace.queryName, result, errorKind, errorSeverity}
 	m.queriesTotal.WithLabelValues(labels...).Inc()

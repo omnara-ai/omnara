@@ -59,7 +59,7 @@ func TestQueryErrorSafeAcrossLogs(t *testing.T) {
 			logger := slog.New(log.NewJSONHandler(&buf, nil))
 			ctx := log.WithLogger(t.Context(), logger)
 			original := log.NewEvent(ctx, "original")
-			log.AttachDBQuery(log.WithEvent(ctx, original), log.DBQueryTraceRecord{Cause: cause, ErrorKind: "other"})
+			log.AttachDBQuery(log.WithEvent(ctx, original), log.DBQueryTraceRecord{Failed: true, ErrorKind: "other"})
 			original.Done(ctx)
 			event := log.NewEvent(ctx, "another.event")
 			ctx = log.WithEvent(ctx, event)
