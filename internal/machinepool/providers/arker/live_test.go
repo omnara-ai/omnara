@@ -621,3 +621,121 @@ func TestArkerProviderLiveReportsAStuckDaemonNotACancellation(t *testing.T) {
 		t.Fatalf("error does not name the daemon: %v", err)
 	}
 }
+
+// The settle-window clamp, against a real daemon.
+//
+// Bounding the wait by the caller's context must not shorten it below the
+// settle window: success is only concluded once the daemon has held `running`
+// through that window, so a hard deadline inside it fails a boot that is doing
+// nothing wrong. The unit test drives a fake; this drives a real daemon on a
+// real VM with genuinely less context than settle + margin.
+func TestArkerProviderLiveShortContextDoesNotFailAHealthyDaemon(t *testing.T) {
+	apiKey := strings.TrimSpace(os.Getenv("ARKER_API_KEY"))
+	if apiKey == "" {
+		t.Skip("ARKER_API_KEY is required; this test creates real VMs")
+	}
+	daemonSettleWindow = defaultDaemonSettleWindow
+	daemonStartTimeout = defaultDaemonStartTimeout
+	t.Cleanup(func() {
+		daemonSettleWindow = liveTestSettleWindow
+		daemonStartTimeout = liveTestStartTimeout
+	})
+
+	source := liveEnvOr("OMNARA_ARKER_TEST_SOURCE", "ubuntu-base")
+	placementProvider := liveEnvOr("OMNARA_ARKER_TEST_PROVIDER", "aws")
+	placementRegion := liveEnvOr("OMNARA_ARKER_TEST_REGION", "us-west-2")
+	omnaraAPIURL := liveEnvOr("OMNARA_PUBLIC_API_URL", "https://api.omnara.com/v1")
+
+	config, err := json.Marshal(map[string]any{
+		"allowed_sources":   []string{source},
+		"allowed_providers": []string{placementProvider},
+		"allowed_regions":   []string{placementRegion},
+	})
+	if err != nil {
+		t.Fatalf("marshal provider config: %v", err)
+	}
+	machineProvider, err := (Definition{}).NewProvider(config, providers.RuntimeConfig{
+		OmnaraAPIURL:      omnaraAPIURL,
+		ProviderAuthToken: apiKey,
+	})
+	if err != nil {
+		t.Fatalf("new live arker provider: %v", err)
+	}
+	provisioning := executionstore.MachineProvisioningConfig{
+		CPU: ptr(2), MemoryMB: ptr(2048),
+		ProviderOptions: map[string]json.RawMessage{
+			"source":         json.RawMessage(`"` + source + `"`),
+			"provider":       json.RawMessage(`"` + placementProvider + `"`),
+			"region":         json.RawMessage(`"` + placementRegion + `"`),
+			"startup_script": json.RawMessage(`""`),
+		},
+	}
+	installationID := uuid.New()
+	machineID := uuid.New()
+	var resourceID string
+	t.Cleanup(func() {
+		if resourceID == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := machineProvider.DeleteMachine(
+			ctx, installationID, machineID, provisioning, resourceID,
+		); err != nil {
+			t.Errorf("cleanup delete: %v", err)
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), machineProvider.ProvisioningTimeout())
+	result, _ := machineProvider.ProvisionMachine(
+		ctx, installationID, machineID, provisioning, "live-clamp", nil,
+	)
+	cancel()
+	resourceID = result.ProviderResourceID
+	if resourceID == "" {
+		t.Fatal("provision returned no resource id")
+	}
+
+	sdk, err := arkersdk.New(arkersdk.Options{APIKey: apiKey, BaseURL: result.SandboxURL})
+	if err != nil {
+		t.Fatalf("sdk client: %v", err)
+	}
+	vm := sdk.VM(resourceID)
+	bg, bgCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer bgCancel()
+
+	// A daemon that genuinely stays up, under the command waitForDaemon polls.
+	if err := vm.WriteFile(bg, bootPath, []byte("sleep 600\n")); err != nil {
+		t.Fatalf("write long-running boot script: %v", err)
+	}
+	healthy, err := vm.Run(bg, arkersdk.RunRequest{
+		Command:          daemonCommand,
+		SessionIdx:       arkersdk.Ptr(daemonSessionIdx),
+		TimeToBackground: arkersdk.Ptr(0),
+	})
+	if err != nil {
+		t.Fatalf("start a healthy daemon: %v", err)
+	}
+	t.Cleanup(func() { _, _ = vm.CancelRun(context.Background(), healthy.RunID) })
+
+	record, err := vm.GetRun(bg, healthy.RunID)
+	if err != nil {
+		t.Fatalf("read the daemon run: %v", err)
+	}
+	t.Logf("daemon state before the wait: %s", record.State)
+
+	// Deliberately less than settle + margin. Unclamped, the hard deadline lands
+	// inside the settle window and this healthy daemon is called stuck.
+	short, shortCancel := context.WithTimeout(bg, daemonSettleWindow+daemonDeadlineMargin/2)
+	err = waitForDaemon(short, vm, healthy.RunID)
+	shortCancel()
+
+	if err != nil && strings.Contains(err.Error(), "is still") {
+		t.Fatalf("a healthy daemon was reported stuck on a short context: %v", err)
+	}
+	if err != nil {
+		t.Logf("ended on the context rather than blaming the daemon: %v", err)
+	} else {
+		t.Log("the wait completed and accepted the healthy daemon")
+	}
+}
