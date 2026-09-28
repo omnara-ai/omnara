@@ -48,23 +48,48 @@ func newInboxFixture(t *testing.T) inboxFixture {
 		ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
 	}
 	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
+	wrapper, err := secrets.NewLocalKeyWrapper("inbox-fixture", map[string][]byte{
+		"inbox-fixture": []byte("0123456789abcdef0123456789abcdef"),
+	})
+	require.NoError(t, err)
+	identity := identitystore.New(pool, wrapper, nil)
+	_, err = identity.AddOrgMembership(ctx, identitystore.AddOrgMembershipInput{
+		OrgID: ids.OrgID, UserID: ids.ProviderAdminUserID, Role: "owner",
+	})
+	require.NoError(t, err)
 	execution := executionstore.New(pool, executionstore.Config{})
 	config := storagefixture.SeedAgentConfig(t, ctx, modelstore.New(pool), execution, ids.OrgID, ids.ProjectID,
 		"instruction: inbox test\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	_, err := execution.CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+	_, err = execution.CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "inbox-profile", CurrentConfigID: config.ID,
 	})
 	require.NoError(t, err)
-	integrationID := uuid.New()
-	_, err = pool.Exec(ctx, `INSERT INTO integrations
- (id,org_id,project_id,installed_by_user_id,state,
-  provider_tenant_id,provider_account_ref,name,integration_kind,credential_secret_id,created_at,updated_at)
- VALUES($1,$2,$3,$4,'active','T123','inbox-integration','inbox-integration','slack_thread',$5,now(),now())`,
-		integrationID, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID, ids.ProviderSecretID)
+	credential, version, err := secretstore.New(pool, wrapper, identity).CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID: ids.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: ids.ProjectID,
+		Name: "inbox-fixture", Actor: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
+		Material: secrets.SlackAppCredentialsMaterial{
+			AccessToken: "xoxb-inbox-test", ClientID: "inbox-client",
+			ClientSecret: "inbox-secret", SigningSecret: "inbox-signing",
+		},
+	})
+	require.NoError(t, err)
+	store := integrationstore.New(pool, executionstore.IntegrationAccess{})
+	integration, err := store.CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "inbox-integration",
+		IntegrationKind: integrationdefinition.SlackThread,
+	})
+	require.NoError(t, err)
+	integration, err = store.ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, IntegrationID: integration.ID,
+		InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationstore.IntegrationProviderSlack,
+		ProviderTenantID: "T123", ProviderAccountRef: "inbox-integration",
+		CredentialSecretID: credential.ID, CredentialVersionID: version.ID,
+		ExpectedSetupRevision: integration.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
+	})
 	require.NoError(t, err)
 	return inboxFixture{
-		ctx: ctx, pool: pool, store: integrationstore.New(pool, executionstore.IntegrationAccess{}), org: ids.OrgID,
-		project: ids.ProjectID, integrationID: integrationID, user: ids.ProviderAdminUserID,
+		ctx: ctx, pool: pool, store: store, org: ids.OrgID,
+		project: ids.ProjectID, integrationID: integration.ID, user: ids.ProviderAdminUserID,
 	}
 }
 
@@ -84,16 +109,21 @@ func (f inboxFixture) addIntegration(
 	settings integrationstore.IntegrationSettings,
 ) integrationstore.IntegrationRecord {
 	t.Helper()
-	raw, err := json.Marshal(settings)
+	template, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
 	require.NoError(t, err)
-	id := uuid.New()
-	f.exec(t, `INSERT INTO integrations
- (id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
-  credential_secret_id,name,integration_kind,settings,created_at,updated_at)
- SELECT $1,org_id,project_id,installed_by_user_id,'active',provider_tenant_id,provider_account_ref,
-        credential_secret_id,$2,integration_kind,$3,now(),now() FROM integrations WHERE id=$4`,
-		id, name, raw, f.integrationID)
-	integration, err := f.store.GetIntegration(f.ctx, f.project, id)
+	credential, err := secretstore.New(f.pool, nil, nil).GetSecret(f.ctx, f.org, template.CredentialSecretID)
+	require.NoError(t, err)
+	integration, err := f.store.CreateIntegration(f.ctx, integrationstore.SaveIntegrationInput{
+		OrgID: f.org, ProjectID: f.project, Name: name, IntegrationKind: template.IntegrationKind, Settings: settings,
+	})
+	require.NoError(t, err)
+	integration, err = f.store.ConfigureIntegration(f.ctx, integrationstore.ConfigureIntegrationInput{
+		OrgID: f.org, ProjectID: f.project, IntegrationID: integration.ID, InstalledByUserID: f.user,
+		Provider: template.Provider, ProviderTenantID: template.ProviderTenantID,
+		ProviderAccountRef: template.ProviderAccountRef,
+		CredentialSecretID: credential.ID, CredentialVersionID: credential.CurrentVersionID,
+		ExpectedSetupRevision: integration.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
+	})
 	require.NoError(t, err)
 	return integration
 }
@@ -493,7 +523,7 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.Zero(t, n)
-	f.exec(t, `UPDATE integrations SET deleted_at=now() WHERE id=$1`, f.integrationID)
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID))
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
@@ -602,7 +632,6 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	f.store = integrationstore.New(f.pool, executionstore.IntegrationAccess{})
-	f.exec(t, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`, f.org, f.user)
 	wrapper, err := secrets.NewLocalKeyWrapper("inbox-test", map[string][]byte{
 		"inbox-test": []byte("0123456789abcdef0123456789abcdef"),
 	})
@@ -617,7 +646,6 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	f.exec(t, `UPDATE integrations SET credential_secret_id=$2 WHERE id=$1`, f.integrationID, credential.ID)
 	integration, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
 	require.NoError(t, err)
 	input := integrationstore.ConfigureIntegrationInput{
@@ -735,7 +763,11 @@ func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	disabled := f.addIntegration(t, "inactive-backlog", integrationstore.IntegrationSettings(`{}`)).ID
-	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, disabled)
+	applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+		ProjectID: f.project, IntegrationID: disabled,
+	})
+	require.NoError(t, err)
+	require.True(t, applied)
 	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,next_attempt_at)
  SELECT $1,$2,'inactive:'||n,'x'::bytea,statement_timestamp()-interval '2 hours'
  FROM generate_series(1,250) n`, f.project, disabled)
@@ -785,7 +817,11 @@ func TestInboxOldestReadyLagUsesAvailabilityAndDistinguishesFailure(t *testing.T
 	require.Zero(t, lag, "future retries and terminal history are not ready work")
 	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,created_at,next_attempt_at)
  VALUES ($1,$2,'ready','x'::bytea,now()-interval '2 days',now()-interval '90 seconds')`, f.project, f.integrationID)
-	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+	applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+		ProjectID: f.project, IntegrationID: f.integrationID,
+	})
+	require.NoError(t, err)
+	require.True(t, applied)
 	lag, err = f.store.OldestReadyIntegrationInboxLag(f.ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, lag, 90*time.Second, "inactive ready receipts remain visible until recovery")

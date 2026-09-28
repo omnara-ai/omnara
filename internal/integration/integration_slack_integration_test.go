@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
@@ -29,13 +30,6 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 	)
 	require.NoError(t, err)
 	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(wrapper))
-	_, err = pool.Exec(
-		ctx,
-		`INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now()) ON CONFLICT DO NOTHING`,
-		ids.OrgID,
-		ids.ProviderAdminUserID,
-	)
-	require.NoError(t, err)
 	ownerProject := uuid.New()
 	storagefixture.InsertProject(
 		t,
@@ -48,7 +42,7 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 		time.Now(),
 	)
 	actor := identitystore.NewUserPrincipal(ids.ProviderAdminUserID)
-	credential, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+	credential, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:          ids.OrgID,
 		OwnerKind:      secretstore.SecretOwnerProject,
 		OwnerProjectID: ownerProject,
@@ -73,14 +67,16 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 			},
 		)
 	require.NoError(t, err)
-	_, err = pool.Exec(
-		ctx,
-		`UPDATE integrations SET credential_secret_id=$2,provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`,
-		integrationID,
-		credential.ID,
-	)
-	require.NoError(t, err)
 	integrationSetup, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
+	require.NoError(t, err)
+	integrationSetup, err = store.Integrations().ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, IntegrationID: integrationID,
+		InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationSetup.Provider,
+		ProviderTenantID: integrationSetup.ProviderTenantID, ProviderAccountRef: integrationSetup.ProviderAccountRef,
+		CredentialSecretID: credential.ID, CredentialVersionID: version.ID,
+		ExpectedSetupRevision: integrationSetup.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
+		ProviderIdentity: integrationSetup.ProviderIdentity,
+	})
 	require.NoError(t, err)
 	_, err = store.Secrets().GetProjectOwnedSecretPayload(ctx, ids.OrgID, ids.ProjectID, credential.ID)
 	require.Error(t, err, "this fixture must require the grant-aware read")

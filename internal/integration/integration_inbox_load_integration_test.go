@@ -106,17 +106,12 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	inbox := store.Integrations()
 	ctx, cancel := context.WithTimeout(t.Context(), duration+2*time.Minute)
 	defer cancel()
+	template, err := inbox.GetIntegration(ctx, ids.ProjectID, firstIntegration)
+	require.NoError(t, err)
 	integrations := []uuid.UUID{firstIntegration}
 	for i := 1; i < 16; i++ {
-		id := uuid.Must(uuid.NewV7())
-		_, err := pool.Exec(ctx, `INSERT INTO integrations
- (id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
-  name,integration_kind,credential_secret_id,created_at,updated_at)
- SELECT $2,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
-  $3,integration_kind,credential_secret_id,now(),now() FROM integrations WHERE id=$1`,
-			firstIntegration, id, fmt.Sprintf("load-%d", i))
-		require.NoError(t, err)
-		integrations = append(integrations, id)
+		integration := seedIndependentIntegration(t, pool, template, fmt.Sprintf("load-%d", i))
+		integrations = append(integrations, integration.ID)
 	}
 	noise := make([]byte, 744)
 	_, err = rand.Read(noise)
@@ -128,9 +123,9 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
  (project_id,integration_id,receipt_key,payload,state,plan,created_at,updated_at,completed_at)
  SELECT $1,($2::uuid[])[1+g%16],'history:'||g,$3,
- CASE WHEN g%10=9 THEN 'failed' ELSE 'completed' END,'{}',
+ CASE WHEN g%10=9 THEN 'failed' ELSE 'completed' END,'{"recipients":{}}',
  now()-interval '9 days',now()-interval '9 days',
- CASE WHEN g%10=9 THEN NULL WHEN g%10<4 THEN now()-interval '8 days' ELSE now()-interval '6 days' END
+ CASE WHEN g%10<4 THEN now()-interval '8 days' ELSE now()-interval '6 days' END
  FROM generate_series(1,100000) g`, ids.ProjectID, integrations, payload)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, "VACUUM (ANALYZE) integration_inbox")
@@ -166,7 +161,7 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		var created time.Time
 		err := inbox.WithIntegrationInboxLease(callCtx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 			created = work.Receipt().CreatedAt
-			return work.FreezePlan(callCtx, json.RawMessage(`{}`))
+			return work.FreezePlan(callCtx, json.RawMessage(`{"recipients":{}}`))
 		})
 		if err == nil {
 			err = store.Execution().CompleteIntegrationInbox(callCtx, lease)

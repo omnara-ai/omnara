@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -143,6 +144,13 @@ func prepareIntegrationEvent(
 	}
 	if event.Event.Scope.Provider() != integrationSetup.Provider || event.Actor.ProviderUserID == "" {
 		return fail(storeerr.ErrUnauthorized)
+	}
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return fail(fmt.Errorf("%w: encode event: %w", ErrIntegrationInboundPermanent, err))
+	}
+	if err := dbsafe.JSONStrings(raw); err != nil {
+		return fail(fmt.Errorf("%w: event %w", ErrIntegrationInboundPermanent, err))
 	}
 	addresses, err := event.Event.RoutingAddresses()
 	if err != nil {

@@ -79,9 +79,6 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 		t.Run(name, func(t *testing.T) {
 			pool, store, ids, integrationID := integrationWorkerFixture(t)
 			ctx := t.Context()
-			_, err := pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at)
-				VALUES($1,$2,'owner',now()) ON CONFLICT DO NOTHING`, ids.OrgID, ids.ProviderAdminUserID)
-			require.NoError(t, err)
 			principal := identitystore.NewUserPrincipal(ids.ProviderAdminUserID)
 			base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 				"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")

@@ -51,9 +51,6 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newScheduledJourney(t)
-			_, err := f.pool.Exec(t.Context(),
-				`UPDATE integrations SET provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`, f.integrationID)
-			require.NoError(t, err)
 			receipt := f.fire()
 			event, err := receipt.ScheduledEvent()
 			require.NoError(t, err)

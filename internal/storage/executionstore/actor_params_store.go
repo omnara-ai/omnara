@@ -174,6 +174,9 @@ func lookupActorIDTx(
 	if params == nil {
 		return uuid.Nil, true, nil
 	}
+	if err := validateActorText(params.ProviderTenantID, params.ProviderUserID, ""); err != nil {
+		return uuid.Nil, false, err
+	}
 	row, err := qtx.GetActorByIdentity(ctx, dbsqlc.GetActorByIdentityParams{
 		ProjectID:        projectID,
 		Provider:         strings.TrimSpace(params.Provider),

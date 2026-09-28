@@ -277,6 +277,33 @@ func TestIntegrationPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 	require.Empty(t, plan.Recipients, "parent authority must not subscribe every thread")
 }
 
+func TestIntegrationEventRejectsUnpersistableContentBeforePlanning(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		edit func(*IntegrationEvent)
+	}{
+		{"text", func(event *IntegrationEvent) {
+			event.ContentBlocks = json.RawMessage(`[{"type":"text","text":"before\u0000after"}]`)
+		}},
+		{"metadata", func(event *IntegrationEvent) {
+			event.Metadata = json.RawMessage(`{"nested":["before\u0000after"]}`)
+		}},
+		{"display name", func(event *IntegrationEvent) { event.DisplayName = "before\x00after" }},
+		{"actor", func(event *IntegrationEvent) { event.Actor.DisplayName = new("before\x00after") }},
+		{"semantic key", func(event *IntegrationEvent) { event.SemanticKey = "before\x00after" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router, execution, integrations, _, event := integrationPlannerFixture(t)
+			test.edit(&event)
+			plan, err := router.Freeze(t.Context(), integrations.receipt.Lease(), &event)
+			require.ErrorIs(t, err, ErrIntegrationInboundPermanent)
+			require.Empty(t, plan.Recipients)
+			require.Zero(t, execution.reads)
+			require.Empty(t, execution.configs)
+		})
+	}
+}
+
 func TestIntegrationPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	router, execution, integrations, integration, event := integrationPlannerFixture(t)
 	request, err := prepareIntegrationEvent(event, integrations.integrationSetup)

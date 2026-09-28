@@ -25,7 +25,7 @@ func TestInboxRetentionUsesTerminalAgeAndSkipsLockedReceipts(t *testing.T) {
 				f.accept(t, key)
 				receipt := f.claim(t)
 				f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					if err := work.FreezePlan(f.ctx, json.RawMessage(`{"message":{},"recipients":{"slot":{"planned":"identity"}}}`)); err != nil {
+					if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 						return err
 					}
 					if state == integrationstore.IntegrationInboxFailed {

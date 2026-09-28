@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
 )
@@ -200,7 +202,11 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	disabled := f.addIntegration(t, "disconnected", integrationstore.IntegrationSettings(`{}`)).ID
-	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, disabled)
+	applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+		ProjectID: f.project, IntegrationID: disabled,
+	})
+	require.NoError(t, err)
+	require.True(t, applied)
 	other := f.addIntegration(t, "other-ready", integrationstore.IntegrationSettings(`{}`)).ID
 	f.exec(
 		t,
@@ -257,7 +263,7 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "FailInactiveIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
-	f.exec(t, `UPDATE integrations SET deleted_at=now() WHERE id=$1`, disabled)
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, disabled))
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupDeletedIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
@@ -272,22 +278,42 @@ func TestInboxInactiveRecoveryBatchesIntegrationsAcrossProjects(t *testing.T) {
 	otherProject := uuid.New()
 	storagefixture.InsertProject(t, f.ctx, f.pool, f.org, otherProject,
 		"Other inbox project", "other-inbox-project", time.Now())
+	template, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
+	require.NoError(t, err)
+	secretStore := secretstore.New(f.pool, nil, identitystore.New(f.pool, nil, nil))
+	credential, err := secretStore.GetSecret(f.ctx, f.org, template.CredentialSecretID)
+	require.NoError(t, err)
+	_, err = secretStore.CreateSecretGrant(f.ctx, secretstore.CreateSecretGrantInput{
+		OrgID: f.org, SecretID: credential.ID, TargetProjectID: otherProject,
+		Actor: identitystore.NewUserPrincipal(f.user),
+	})
+	require.NoError(t, err)
 	for _, project := range []uuid.UUID{f.project, otherProject} {
 		for integration := range 5 {
-			id := uuid.New()
-			state, inboxState := "disconnected", "failed"
-			if integration == 4 {
-				state, inboxState = "active", "queued"
+			created, err := f.store.CreateIntegration(f.ctx, integrationstore.SaveIntegrationInput{
+				OrgID: f.org, ProjectID: project, Name: "integration-" + strconv.Itoa(integration),
+				IntegrationKind: template.IntegrationKind,
+			})
+			require.NoError(t, err)
+			created, err = f.store.ConfigureIntegration(f.ctx, integrationstore.ConfigureIntegrationInput{
+				OrgID: f.org, ProjectID: project, IntegrationID: created.ID, InstalledByUserID: f.user,
+				Provider: template.Provider, ProviderTenantID: "batch-team", ProviderAccountRef: created.ID.String(),
+				CredentialSecretID: credential.ID, CredentialVersionID: credential.CurrentVersionID,
+				ExpectedSetupRevision: created.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
+			})
+			require.NoError(t, err)
+			inboxState := "queued"
+			if integration != 4 {
+				applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+					ProjectID: project, IntegrationID: created.ID,
+				})
+				require.NoError(t, err)
+				require.True(t, applied)
+				inboxState = "failed"
 			}
-			f.exec(t, `INSERT INTO integrations
- (id,org_id,project_id,installed_by_user_id,state,
-  provider_tenant_id,provider_account_ref,name,integration_kind,credential_secret_id,created_at,updated_at)
- VALUES($1,$2,$3,$4,$5,'batch-team',($1::uuid)::text,'integration-'||$7::text,'slack_thread',
- (SELECT credential_secret_id FROM integrations WHERE id=$6),now(),now())`,
-				id, f.org, project, f.user, state, f.integrationID, strconv.Itoa(integration))
 			f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'batch-history:'||n,'x'::bytea,$3,
- CASE WHEN $3::text='failed' THEN now() ELSE NULL END FROM generate_series(1,4000) n`, project, id, inboxState)
+ CASE WHEN $3::text='failed' THEN now() ELSE NULL END FROM generate_series(1,4000) n`, project, created.ID, inboxState)
 		}
 	}
 	f.exec(t, "ANALYZE integrations")

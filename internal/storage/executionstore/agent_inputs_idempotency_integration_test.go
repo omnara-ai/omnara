@@ -429,6 +429,19 @@ func TestCreateAgentContentInputReplayDoesNotRewriteActor(t *testing.T) {
 	if created || replayed.ID != first.ID {
 		t.Fatalf("replay = id %s created %v, want id %s created false", replayed.ID, created, first.ID)
 	}
+	for _, identity := range []struct{ tenant, user string }{
+		{"replay\x00tenant", create.Actor.ProviderUserID},
+		{create.Actor.ProviderTenantID, "replay\x00user"},
+	} {
+		invalid := create
+		actor := *create.Actor
+		actor.ProviderTenantID, actor.ProviderUserID = identity.tenant, identity.user
+		invalid.Actor = &actor
+		_, _, _, err := store.Execution().CreateAgentContentInput(ctx, invalid)
+		if !errors.Is(err, storeerr.ErrInvalidActorRequest) {
+			t.Fatalf("invalid replay actor error = %v, want actor validation error", err)
+		}
+	}
 
 	actor, err := store.Execution().GetActor(ctx, testProjectID, first.ActorID)
 	if err != nil {

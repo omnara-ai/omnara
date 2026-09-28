@@ -82,9 +82,10 @@ event_webhook:
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
  (project_id,integration_id,receipt_key,payload,state,completed_at,plan)
- VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}'),
-        ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"slot":{"identity":"frozen"}}'),
-        ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',statement_timestamp(),'{}'),
+ VALUES ($1,$2,'recent','recent callback'::bytea,'completed',
+         statement_timestamp()-interval '6 days','{"recipients":{}}'),
+        ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"recipients":{}}'),
+        ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',statement_timestamp(),'{"recipients":{}}'),
         ($1,$2,'queued','pending callback'::bytea,'queued',NULL,NULL)`, ids.ProjectID, live, disconnected)
 	require.NoError(t, err)
 	type retainedReceipt struct {

@@ -37,10 +37,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 	for _, scenario := range []string{"archived only with file", "active sibling with file", "revoked sibling"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
-			pool, store, ids, integrationID := integrationProviderFixture(t, "discord", "11", "22")
-			_, err := pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`,
-				ids.OrgID, ids.ProviderAdminUserID)
-			require.NoError(t, err)
+			_, store, ids, integrationID := integrationProviderFixture(t, "discord", "11", "22")
 			integration, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
 			require.NoError(t, err)
 			config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,

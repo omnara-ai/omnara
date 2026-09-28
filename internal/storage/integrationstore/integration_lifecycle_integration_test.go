@@ -26,7 +26,6 @@ func integrationSetupFixture(
 ) (inboxFixture, *secretstore.Store, integrationstore.ConfigureIntegrationInput) {
 	t.Helper()
 	f := newInboxFixture(t)
-	f.exec(t, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`, f.org, f.user)
 	wrapper, err := secrets.NewLocalKeyWrapper("integration-test", map[string][]byte{
 		"integration-test": []byte("0123456789abcdef0123456789abcdef"),
 	})

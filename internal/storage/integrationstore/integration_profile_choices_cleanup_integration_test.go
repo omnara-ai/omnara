@@ -39,7 +39,11 @@ func TestIntegrationProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *tes
 			require.NotEqual(t, choice.ID, recent.ID)
 			switch scope {
 			case "disconnected":
-				f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+				applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+					ProjectID: f.project, IntegrationID: f.integrationID,
+				})
+				require.NoError(t, err)
+				require.True(t, applied)
 			case "integration":
 				require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID))
 			case "project":

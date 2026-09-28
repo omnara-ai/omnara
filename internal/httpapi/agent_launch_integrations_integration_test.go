@@ -236,6 +236,15 @@ func TestPublicIntegrationLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) 
 		{"empty-input", func(body map[string]any) {
 			body["initial_input"] = map[string]any{"content_blocks": []any{}}
 		}, "invalid"},
+		{"nul-text", func(body map[string]any) {
+			body["initial_input"] = map[string]any{"content_blocks": []any{map[string]any{
+				"type": "text", "text": "before\x00after",
+			}}}
+		}, "invalid"},
+		{"nul-actor", func(body map[string]any) {
+			initial := testutil.RequireType[map[string]any](t, body["initial_input"])
+			initial["actor"] = map[string]any{"provider_user_id": "customer\x00"}
+		}, "invalid"},
 		{"media", func(body map[string]any) {
 			body["initial_input"] = map[string]any{"content_blocks": []any{map[string]any{
 				"type": "media", "mime_type": "text/plain", "data": "YQ==",

@@ -4,12 +4,17 @@ package integration
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,10 +22,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -47,21 +54,58 @@ func integrationProviderFixture(
 		ProviderConfigID:        uuid.New(),
 	}
 	storagefixture.SeedProject(t, t.Context(), pool, ids, time.Now())
-	store := storage.NewStore(pool)
-	integrationSetup := uuid.Must(uuid.NewV7())
+	wrapper, err := secrets.NewLocalKeyWrapper("inbox-provider-test", map[string][]byte{
+		"inbox-provider-test": []byte("0123456789abcdef0123456789abcdef"),
+	})
+	require.NoError(t, err)
+	store := storage.NewStore(pool, storage.WithSecretKeyWrapper(wrapper))
+	_, err = store.Identity().AddOrgMembership(t.Context(), identitystore.AddOrgMembershipInput{
+		OrgID: ids.OrgID, UserID: ids.ProviderAdminUserID, Role: "owner",
+	})
+	require.NoError(t, err)
 	integrationKinds := integrationdefinition.IntegrationKindsForProvider(provider)
 	require.Len(t, integrationKinds, 1, "fixture requires an explicit registered type for this transport")
-	_, err := pool.Exec(
-		t.Context(),
-		`INSERT INTO integrations(id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,name,integration_kind,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'active',$6,$7,'chat',$8,$5,now(),now())`,
-		integrationSetup,
-		ids.OrgID,
-		ids.ProjectID,
-		ids.ProviderAdminUserID,
-		ids.ProviderSecretID, tenant, account, integrationKinds[0],
-	)
+	integration, err := store.Integrations().CreateIntegration(t.Context(), integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat",
+		IntegrationKind: integrationdefinition.Kind(integrationKinds[0]),
+	})
 	require.NoError(t, err)
-	return pool, store, ids, integrationSetup
+	setup := integrationstore.ConfigureIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, IntegrationID: integration.ID,
+		InstalledByUserID: ids.ProviderAdminUserID, Provider: provider,
+		ProviderTenantID: tenant, ProviderAccountRef: account, ExpectedSetupRevision: integration.SetupRevision,
+	}
+	var material secrets.Material
+	switch provider {
+	case integrationstore.IntegrationProviderSlack:
+		material = secrets.SlackAppCredentialsMaterial{
+			AccessToken: "xoxb-inbox-test", ClientID: "client", ClientSecret: "client-secret", SigningSecret: "signing-secret",
+		}
+		setup.OAuthFlowID = uuid.Must(uuid.NewV7())
+		setup.ProviderIdentity = json.RawMessage(`{"bot_user_id":"UBOT"}`)
+	case integrationstore.IntegrationProviderDiscord:
+		material = secrets.GenericMaterial{Value: "discord-inbox-test-token"}
+	case integrationstore.IntegrationProviderGitHub:
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		require.NoError(t, err)
+		material = secrets.GitHubAppCredentialsMaterial{
+			AppID: tenant, WebhookSecret: "github-inbox-test-secret",
+			PrivateKey: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
+		}
+		setup.CredentialAppID, err = strconv.ParseInt(tenant, 10, 64)
+		require.NoError(t, err)
+	default:
+		t.Fatalf("unsupported inbox fixture provider %q", provider)
+	}
+	credential, version, err := store.Secrets().CreateSecret(t.Context(), secretstore.CreateSecretInput{
+		OrgID: ids.OrgID, OwnerKind: secretstore.SecretOwnerProject, OwnerProjectID: ids.ProjectID,
+		Name: "inbox-credentials", Actor: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Material: material,
+	})
+	require.NoError(t, err)
+	setup.CredentialSecretID, setup.CredentialVersionID = credential.ID, version.ID
+	integration, err = store.Integrations().ConfigureIntegration(t.Context(), setup)
+	require.NoError(t, err)
+	return pool, store, ids, integration.ID
 }
 
 type integrationWorkerFailureConsumer struct {
@@ -337,17 +381,23 @@ func seedIndependentIntegration(
 	t *testing.T, pool *pgxpool.Pool, template integrationstore.IntegrationRecord, name string,
 ) integrationstore.IntegrationRecord {
 	t.Helper()
-	id := uuid.Must(uuid.NewV7())
-	_, err := pool.Exec(t.Context(), `INSERT INTO integrations
-		(id,org_id,project_id,name,integration_kind,settings,installed_by_user_id,state,
-		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
-		 provider_metadata,setup_revision,created_at,updated_at)
-		SELECT $2,org_id,project_id,$3,integration_kind,settings,installed_by_user_id,state,
-		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
-		 provider_metadata,setup_revision,now(),now()
-		FROM integrations WHERE id=$1`, template.ID, id, name)
+	store := storage.NewStore(pool)
+	credential, err := store.Secrets().GetSecret(t.Context(), template.OrgID, template.CredentialSecretID)
 	require.NoError(t, err)
-	integration, err := storage.NewStore(pool).Integrations().GetIntegration(t.Context(), template.ProjectID, id)
+	integration, err := store.Integrations().CreateIntegration(t.Context(), integrationstore.SaveIntegrationInput{
+		OrgID: template.OrgID, ProjectID: template.ProjectID, Name: name,
+		IntegrationKind: template.IntegrationKind, Settings: template.Settings,
+	})
+	require.NoError(t, err)
+	integration, err = store.Integrations().ConfigureIntegration(t.Context(), integrationstore.ConfigureIntegrationInput{
+		OrgID: template.OrgID, ProjectID: template.ProjectID, IntegrationID: integration.ID,
+		InstalledByUserID: template.InstalledByUserID, Provider: template.Provider,
+		ProviderTenantID: template.ProviderTenantID, ProviderAccountRef: template.ProviderAccountRef,
+		CredentialSecretID: credential.ID, CredentialVersionID: credential.CurrentVersionID,
+		ExpectedSetupRevision: integration.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
+		ProviderConfig: template.ProviderConfig, ProviderIdentity: template.ProviderIdentity,
+		ProviderMetadata: template.ProviderMetadata, ProviderAgentDisplayName: template.ProviderAgentDisplayName,
+	})
 	require.NoError(t, err)
 	return integration
 }

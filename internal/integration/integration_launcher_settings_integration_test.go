@@ -97,10 +97,6 @@ func TestLauncherArchivedOwnerWithScheduledKeyPreventsRespawn(t *testing.T) {
 	require.Len(t, results, 1)
 	owner := results[0].Launch.Agent
 	_, err := f.pool.Exec(t.Context(),
-		`INSERT INTO org_memberships(org_id,user_id,role,created_at)
- VALUES($1,$2,'owner',now()) ON CONFLICT DO NOTHING`, f.ids.OrgID, f.ids.ProviderAdminUserID)
-	require.NoError(t, err)
-	_, err = f.pool.Exec(t.Context(),
 		`UPDATE integration_targets SET launch_key='scheduled' WHERE agent_id=$1`, owner.ID)
 	require.NoError(t, err)
 	_, _, err = f.store.Execution().ArchiveAgent(t.Context(), f.ids.ProjectID, owner.ID,
@@ -200,12 +196,18 @@ func TestLauncherReusedIntegrationNameReportsUnavailableAndStillForwards(t *test
 			})
 			require.NoError(t, err)
 			require.NotEqual(t, oldIntegration.ID, replacement.ID)
-			_, err = f.pool.Exec(t.Context(), `UPDATE integrations SET state='active',installed_by_user_id=$2,
- provider_tenant_id=$3,provider_account_ref=$4,credential_secret_id=$5 WHERE id=$1`, replacement.ID,
-				f.ids.ProviderAdminUserID, oldIntegration.ProviderTenantID,
-				oldIntegration.ProviderAccountRef, f.ids.ProviderSecretID)
+			credential, err := f.store.Secrets().GetSecret(t.Context(), f.ids.OrgID, oldIntegration.CredentialSecretID)
 			require.NoError(t, err)
-			f.integration, err = f.store.Integrations().GetIntegration(t.Context(), f.ids.ProjectID, replacement.ID)
+			f.integration, err = f.store.Integrations().ConfigureIntegration(
+				t.Context(), integrationstore.ConfigureIntegrationInput{
+					OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationID: replacement.ID,
+					InstalledByUserID: f.ids.ProviderAdminUserID, Provider: oldIntegration.Provider,
+					ProviderTenantID:   oldIntegration.ProviderTenantID,
+					ProviderAccountRef: oldIntegration.ProviderAccountRef,
+					CredentialSecretID: credential.ID, CredentialVersionID: credential.CurrentVersionID,
+					ExpectedSetupRevision: replacement.SetupRevision, OAuthFlowID: uuid.Must(uuid.NewV7()),
+					ProviderIdentity: oldIntegration.ProviderIdentity,
+				})
 			require.NoError(t, err)
 			f.integrationSetup = f.integration
 			f.restart()

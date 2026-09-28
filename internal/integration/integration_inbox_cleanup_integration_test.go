@@ -85,17 +85,12 @@ func TestFailedIntegrationInboxArtifactCleanup(t *testing.T) {
 	artifacts := artifactstore.New(pool, blobs)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	agentID := uuid.New()
-	_, err := pool.Exec(
-		ctx,
-		`INSERT INTO agents(id, org_id, project_id, state, current_config_id, created_at, updated_at)
-VALUES($1,$2,$3,'active',$4,now(),now())`,
-		agentID,
-		ids.OrgID,
-		ids.ProjectID,
-		base.ID,
-	)
+	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: ids.ProjectID, AgentConfigID: base.ID,
+		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
+	})
 	require.NoError(t, err)
+	agentID := launched.Agent.ID
 	durable, err := artifacts.CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID: ids.ProjectID, AgentID: agentID, ContentType: "text/plain", Content: []byte("accepted history"),
 	})
@@ -182,17 +177,12 @@ func TestFailedIntegrationInboxCleanupProtectsDurableArtifacts(t *testing.T) {
 	artifacts := artifactstore.New(pool, blobs)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	agentID := uuid.New()
-	_, err := pool.Exec(
-		ctx,
-		`INSERT INTO agents(id, org_id, project_id, state, current_config_id, created_at, updated_at)
-VALUES($1,$2,$3,'active',$4,now(),now())`,
-		agentID,
-		ids.OrgID,
-		ids.ProjectID,
-		base.ID,
-	)
+	launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: ids.ProjectID, AgentConfigID: base.ID,
+		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
+	})
 	require.NoError(t, err)
+	agentID := launched.Agent.ID
 	durable, err := artifacts.CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID: ids.ProjectID, AgentID: agentID, ContentType: "text/plain", Content: []byte("committed input file"),
 	})
@@ -247,9 +237,6 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			}
 			return work.Fail(ctx, "retained partial admission")
 		}))
-	_, err = pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`,
-		ids.OrgID, ids.ProviderAdminUserID)
-	require.NoError(t, err)
 	_, _, err = store.Execution().ArchiveAgent(ctx, ids.ProjectID, agentID,
 		identitystore.NewUserPrincipal(ids.ProviderAdminUserID))
 	require.NoError(t, err)
@@ -294,9 +281,6 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			pool, store, ids, integrationID := integrationWorkerFixture(t)
-			_, err := pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at)
-				VALUES($1,$2,'owner',now())`, ids.OrgID, ids.ProviderAdminUserID)
-			require.NoError(t, err)
 			principal := identitystore.NewUserPrincipal(ids.ProviderAdminUserID)
 			base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 				"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")

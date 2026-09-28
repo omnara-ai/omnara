@@ -24,7 +24,6 @@ type agentConversationFixture struct {
 func newAgentConversationFixture(t *testing.T) agentConversationFixture {
 	t.Helper()
 	f := newInboxFixture(t)
-	f.exec(t, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`, f.org, f.user)
 	var configID uuid.UUID
 	require.NoError(t, f.pool.QueryRow(f.ctx,
 		`SELECT id FROM agent_configs WHERE project_id=$1 LIMIT 1`, f.project).Scan(&configID))
@@ -91,7 +90,11 @@ func TestAgentIntegrationConversationStateIsolationAndLifecycle(t *testing.T) {
 	execution := executionstore.New(f.pool, executionstore.Config{})
 	_, _, err := execution.ArchiveAgent(f.ctx, f.project, f.agentID, identitystore.NewUserPrincipal(f.user))
 	require.NoError(t, err)
-	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+	applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+		ProjectID: f.project, IntegrationID: f.integrationID,
+	})
+	require.NoError(t, err)
+	require.True(t, applied)
 	got, found, err := f.store.GetAgentIntegrationConversation(f.ctx, f.project, f.agentID, f.integrationID)
 	require.NoError(t, err)
 	require.True(t, found)

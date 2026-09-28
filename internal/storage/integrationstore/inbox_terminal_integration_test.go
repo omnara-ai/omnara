@@ -5,7 +5,6 @@ package integrationstore_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +28,6 @@ func freezeInboxSelection(
 		t,
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1 LIMIT 1`, f.project).Scan(&profileID),
 	)
-	f.exec(t, `UPDATE integrations SET provider_tenant_id='T123' WHERE id=$1`, f.integrationID)
 	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
 	integration, err := store.UpdateIntegration(
 		f.ctx,
@@ -250,7 +249,11 @@ func TestInboxTerminalRecoverySkipsLockedAndBoundsBatches(t *testing.T) {
 				receipts = append(receipts, f.read(t, receipt.ID))
 			}
 			if path != "expired-budget" {
-				f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+				applied, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
+					ProjectID: f.project, IntegrationID: f.integrationID,
+				})
+				require.NoError(t, err)
+				require.True(t, applied)
 			}
 			tx, err := f.pool.Begin(f.ctx)
 			require.NoError(t, err)

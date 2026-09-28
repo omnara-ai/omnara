@@ -19,8 +19,6 @@ import (
 
 func subscriptionAgent(t *testing.T, f inboxFixture) executionstore.AgentRecord {
 	t.Helper()
-	f.exec(t, `INSERT INTO org_memberships(org_id,user_id,role,created_at)
-	 VALUES($1,$2,'owner',now()) ON CONFLICT DO NOTHING`, f.org, f.user)
 	var configID uuid.UUID
 	require.NoError(t, f.pool.QueryRow(f.ctx,
 		`SELECT id FROM agent_configs WHERE project_id=$1 LIMIT 1`, f.project).Scan(&configID))
