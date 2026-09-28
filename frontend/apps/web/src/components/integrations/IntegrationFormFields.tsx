@@ -71,9 +71,9 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
           <IntegrationProfilePicker
             orgId={props.orgId}
             projectId={props.projectId}
-            value={values.profileIds.map((id) => ({ id, name: id }))}
-            onChange={(profiles) => {
-              onChange({ profileIds: profiles.map((profile) => profile.id) })
+            value={values.profileIds}
+            onChange={(profileIds) => {
+              onChange({ profileIds })
             }}
             single={github}
             label={github ? 'Agent profile' : 'Profiles for mentions'}

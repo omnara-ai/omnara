@@ -90,7 +90,8 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
-	if _, err := inboxSlots(plan); err != nil {
+	slots, err := inboxSlots(plan)
+	if err != nil {
 		return err
 	}
 	if len(w.record.Plan) != 0 {
@@ -99,7 +100,7 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 		}
 		return nil
 	}
-	if err := w.reserveIntegrationSelections(ctx, plan); err != nil {
+	if err := w.reserveIntegrationSelections(ctx, plan, slots); err != nil {
 		return err
 	}
 	rows, err := w.q.FreezeIntegrationInboxPlan(ctx, dbsqlc.FreezeIntegrationInboxPlanParams{

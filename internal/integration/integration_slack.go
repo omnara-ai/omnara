@@ -121,9 +121,6 @@ func (p *SlackIntegrationInboxProvider) requestAccess(
 		}
 		return checkIntegrationSetup(ctx)
 	}
-	if err := check(ctx); err != nil {
-		return slack.OAuthConfig{}, "", nil, err
-	}
 	config := p.config
 	config.HTTPClient = slack.WithRequestCheck(config.HTTPClient, check)
 	identity, err := slack.ParseInstallIdentity(integrationSetup.ProviderIdentity)

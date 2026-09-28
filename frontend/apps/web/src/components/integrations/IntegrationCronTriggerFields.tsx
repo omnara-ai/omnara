@@ -103,9 +103,9 @@ export function IntegrationCronTriggerFields({
           single
           label={label}
           description={description ?? 'Choose a profile for future runs.'}
-          value={current ? [{ id: current, name: current }] : []}
-          onChange={(profiles) => {
-            change(profiles[0]?.id ?? '')
+          value={current ? [current] : []}
+          onChange={(profileIds) => {
+            change(profileIds[0] ?? '')
           }}
         />
       )

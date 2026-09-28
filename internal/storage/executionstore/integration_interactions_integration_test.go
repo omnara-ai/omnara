@@ -423,7 +423,8 @@ func TestIntegrationInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testing.T) {
 	t.Parallel()
 	for _, revoke := range []string{
-		"handler removed", "integration disconnected", "assignment removed", "assignment malformed", "assignment changed",
+		"handler removed", "integration disconnected", "integration deleted",
+		"assignment removed", "assignment malformed", "assignment changed",
 	} {
 		t.Run(revoke, func(t *testing.T) {
 			t.Parallel()
@@ -435,6 +436,9 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 				f.change(t, f.handlers)
 			case "integration disconnected":
 				f.disable(t)
+			case "integration deleted":
+				_, err := f.store.pool.Exec(f.ctx, `UPDATE integrations SET deleted_at=now() WHERE id=$1`, f.integration.ID)
+				require.NoError(t, err)
 			case "assignment removed":
 				_, err := f.store.pool.Exec(
 					f.ctx,
@@ -482,6 +486,8 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 			resolved, err := f.store.Execution().ResolveAgentInteraction(f.ctx, input)
 			require.NoError(t, err, "dashboard remains authoritative when mirroring is unavailable")
 			require.Equal(t, executionstore.AgentInteractionStateResolved, resolved.State)
+			require.Equal(t, f.b.ID, f.selectOrigin(t, f.b.ID).IntegrationTargetID,
+				"revoking one handler leaves the other integration available")
 		})
 	}
 }

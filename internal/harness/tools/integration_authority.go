@@ -56,9 +56,12 @@ func (e Executor) resolveIntegrationToolAuthority(
 	if agent.State != executionstore.AgentStateActive {
 		return integrationToolAccess{}, integrationToolPreparationFailure(errors.New("agent is inactive"))
 	}
-	current, err := e.integrationRuntimeContract(ctx, turn.ProjectID, agent.CurrentConfigID)
-	if err != nil {
-		return integrationToolAccess{}, err
+	current := original
+	if agent.CurrentConfigID != model.AgentConfigID {
+		current, err = e.integrationRuntimeContract(ctx, turn.ProjectID, agent.CurrentConfigID)
+		if err != nil {
+			return integrationToolAccess{}, err
+		}
 	}
 	pinned, ok := original.IntegrationTools[tool.Name]
 	if !ok {
@@ -143,11 +146,11 @@ func (e Executor) resolveIntegrationToolAccess(
 	if err != nil {
 		return integrationToolAccess{}, err
 	}
-	return e.prepareIntegrationToolAccess(ctx, turn, tool, access)
+	return e.prepareIntegrationToolAccess(ctx, turn, access)
 }
 
 func (e Executor) prepareIntegrationToolAccess(
-	ctx context.Context, turn Turn, tool executionstore.ToolCallRecord, access integrationToolAccess,
+	ctx context.Context, turn Turn, access integrationToolAccess,
 ) (integrationToolAccess, error) {
 	conversation, err := e.integrationToolConversation(ctx, turn, access)
 	if err != nil {
@@ -166,9 +169,6 @@ func (e Executor) prepareIntegrationToolAccess(
 		return integrationToolAccess{}, err
 	}
 	access.Credential, access.CredentialVersion = credential.Payload, credential.CurrentVersionID
-	if err := e.recheckIntegrationToolAccess(ctx, turn, tool, access); err != nil {
-		return integrationToolAccess{}, err
-	}
 	return access, nil
 }
 

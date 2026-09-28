@@ -67,13 +67,12 @@ func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 	selection := InboxIntegrationSelection{
 		IntegrationID: integrationID, Address: ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, LaunchKey: "default",
 	}
-	plan, err := json.Marshal(map[string]any{
-		"message": map[string]any{}, "recipients": map[string]any{"one": map[string]any{"selection": selection}},
-	})
+	raw, err := json.Marshal(map[string]any{"selection": selection})
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := inboxSelectionIdentities(plan, integrationID)
+	slots := map[string]json.RawMessage{"one": raw}
+	identities, err := inboxSelectionIdentities(slots, integrationID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,16 +81,11 @@ func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 	}][selection.LaunchKey] {
 		t.Fatalf("frozen recipient selection missing: %v", identities)
 	}
-	if _, err := inboxSelectionIdentities(plan, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
+	if _, err := inboxSelectionIdentities(slots, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("another integration's selection accepted: %v", err)
 	}
-	duplicate, err := json.Marshal(map[string]any{"message": map[string]any{}, "recipients": map[string]any{
-		"one": map[string]any{"selection": selection}, "two": map[string]any{"selection": selection},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := inboxSelectionIdentities(duplicate, integrationID); !errors.Is(err, storeerr.ErrInvalidRequest) {
+	slots["two"] = raw
+	if _, err := inboxSelectionIdentities(slots, integrationID); !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("duplicate launch key accepted: %v", err)
 	}
 	_, _, err = ensureIntegrationProfileChoiceTx(t.Context(), nil,

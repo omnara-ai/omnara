@@ -271,9 +271,6 @@ func (p *DiscordIntegrationInboxProvider) requestClient(
 		}
 		return nil
 	}
-	if err := check(ctx); err != nil {
-		return nil, nil, err
-	}
 	config := p.config
 	config.Credentials = discord.Credentials{ApplicationID: integrationSetup.ProviderTenantID,
 		BotUserID: integrationSetup.ProviderAccountRef, BotToken: credential.Payload[secrets.KeyValue]}

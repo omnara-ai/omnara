@@ -39,8 +39,8 @@ export function IntegrationProfilePicker({
 }: {
   orgId: string
   projectId: string
-  value: ProfileOption[]
-  onChange: (profiles: ProfileOption[]) => void
+  value: string[]
+  onChange: (profileIds: string[]) => void
   profileCount?: number | null
   disabled?: boolean
   single?: boolean
@@ -57,23 +57,23 @@ export function IntegrationProfilePicker({
   const items = useInfiniteQueryItems(query)
   const client = useOmnaraClient()
   const selectedQueries = useQueries({
-    queries: value.map((profile) => ({
+    queries: value.map((id) => ({
       ...getAgentProfileOptions({
-        path: { orgID: orgId, projectID: projectId, agentProfileID: profile.id },
+        path: { orgID: orgId, projectID: projectId, agentProfileID: id },
         client,
       }),
-      enabled: profile.name === profile.id,
+      enabled: true,
     })),
   })
   const selected = value.map(
-    (profile, index) =>
-      selectedQueries[index]?.data ?? items.find((item) => item.id === profile.id) ?? profile,
+    (id, index) =>
+      selectedQueries[index]?.data ?? items.find((item) => item.id === id) ?? { id, name: id },
   )
   const failedNames = selectedQueries.filter(
-    (result, index) => result.isError && selected[index]?.name === value[index]?.id,
+    (result, index) => result.isError && selected[index]?.name === value[index],
   )
   const loadingNames = selectedQueries.some(
-    (result, index) => result.isFetching && selected[index]?.name === value[index]?.id,
+    (result, index) => result.isFetching && selected[index]?.name === value[index],
   )
   return (
     <Field>
@@ -84,7 +84,7 @@ export function IntegrationProfilePicker({
           items={items}
           value={selected[0] ?? null}
           onValueChange={(profile) => {
-            onChange(profile ? [profile] : [])
+            onChange(profile ? [profile.id] : [])
           }}
           search={search}
           query={query}
@@ -95,7 +95,9 @@ export function IntegrationProfilePicker({
           id="integration-profiles"
           items={items}
           value={selected}
-          onValueChange={onChange}
+          onValueChange={(profiles) => {
+            onChange(profiles.map((profile) => profile.id))
+          }}
           search={search}
           query={query}
           disabled={disabled}

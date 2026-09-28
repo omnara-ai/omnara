@@ -90,6 +90,9 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 	if !exists && len(profiles) == 0 {
 		return nil, nil
 	}
+	if !exists && len(profiles) == 1 {
+		return profiles, nil
+	}
 	var options []integrationstore.IntegrationProfileChoiceOption
 	if exists {
 		options = choice.Options
@@ -107,9 +110,6 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 				Key: key, ProfileID: intent.ProfileID, Name: profile.Name,
 			})
 		}
-	}
-	if !exists && len(profiles) == 1 {
-		return profiles, nil
 	}
 	source := input.Event
 	source.Launches, source.Directed = nil, false

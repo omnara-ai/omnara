@@ -198,7 +198,6 @@ func decodeInboxInputSlot(
 			len(slot.Sibling.Key) > 512 || len(slot.Sibling.AttachmentNotice) > 16384) {
 		return fail()
 	}
-	slot.Input.ProjectID, slot.Input.AgentID = receipt.ProjectID, slot.AgentID
 	var blocks []CreateContentBlockInput
 	slot.Input, blocks, err = prepareOriginContentInput(slot.Input)
 	if err != nil {

@@ -94,8 +94,10 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledIntegrationSelection(
 	return nil
 }
 
-func (w *IntegrationInboxLeaseTx) reserveIntegrationSelections(ctx context.Context, plan json.RawMessage) error {
-	identities, err := inboxSelectionIdentities(plan, w.record.IntegrationID)
+func (w *IntegrationInboxLeaseTx) reserveIntegrationSelections(
+	ctx context.Context, plan json.RawMessage, slots map[string]json.RawMessage,
+) error {
+	identities, err := inboxSelectionIdentities(slots, w.record.IntegrationID)
 	if err != nil {
 		return err
 	}
@@ -196,16 +198,9 @@ func (w *IntegrationInboxLeaseTx) checkUnplannedIntegrationProfileChoice(
 }
 
 func inboxSelectionIdentities(
-	plan json.RawMessage,
+	slots map[string]json.RawMessage,
 	integrationID uuid.UUID,
 ) (map[integrationSelectionIdentity]map[string]bool, error) {
-	if len(plan) == 0 {
-		return map[integrationSelectionIdentity]map[string]bool{}, nil
-	}
-	slots, err := inboxSlots(plan)
-	if err != nil {
-		return nil, err
-	}
 	identities := map[integrationSelectionIdentity]map[string]bool{}
 	for _, raw := range slots {
 		var envelope struct {

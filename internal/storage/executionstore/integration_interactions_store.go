@@ -436,23 +436,23 @@ func prepareInteractionHandlers(
 	projectID uuid.UUID,
 	configured map[string]agentconfig.IntegrationCapabilityCompiled,
 ) (map[string]resolvedInteractionHandler, error) {
-	integrations := map[uuid.UUID]dbsqlc.Integration{}
 	result := map[string]resolvedInteractionHandler{}
-	for key, capability := range configured {
-		id := capability.IntegrationID
-		integration, loaded := integrations[id]
-		if !loaded {
-			var err error
-			integration, err = q.GetIntegration(
-				ctx,
-				dbsqlc.GetIntegrationParams{ProjectID: projectID, ID: id},
-			)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return nil, err
-			}
-			integrations[id] = integration
-		}
-		if integration.State != string(integrationstore.IntegrationStateActive) {
+	if len(configured) == 0 {
+		return result, nil
+	}
+	ids := make([]uuid.UUID, 0, len(configured))
+	for _, capability := range configured {
+		ids = append(ids, capability.IntegrationID)
+	}
+	rows, err := q.ListIntegrationMetadataByIDs(ctx, dbsqlc.ListIntegrationMetadataByIDsParams{
+		ProjectID: projectID, Ids: ids,
+	})
+	if err != nil {
+		return nil, err
+	}
+	handlers := make(map[uuid.UUID]resolvedInteractionHandler, len(rows))
+	for _, integration := range rows {
+		if integration.DeletedAt != nil || integration.State != string(integrationstore.IntegrationStateActive) {
 			continue
 		}
 		definition, ok := integrationdefinition.Lookup(integrationdefinition.Kind(integration.IntegrationKind))
@@ -463,12 +463,17 @@ func prepareInteractionHandlers(
 		if err != nil {
 			continue
 		}
-		result[key] = resolvedInteractionHandler{
+		handlers[integration.ID] = resolvedInteractionHandler{
 			definition: definition,
 			prepared: agentconfig.PreparedIntegrationInteractionHandler{
-				IntegrationID:              capability.IntegrationID,
+				IntegrationID:              integration.ID,
 				PreparedInteractionHandler: prepared,
 			},
+		}
+	}
+	for key, capability := range configured {
+		if handler, ok := handlers[capability.IntegrationID]; ok {
+			result[key] = handler
 		}
 	}
 	return result, nil
