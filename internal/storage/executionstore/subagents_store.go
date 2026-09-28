@@ -409,7 +409,7 @@ func notifyParentAgentTx(
 	if err != nil {
 		return err
 	}
-	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, parent, CreateAgentContentInputInput{
+	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, CreateAgentContentInputInput{
 		ProjectID:        parent.ProjectID,
 		AgentID:          parent.ID,
 		Actor:            actor,
@@ -656,7 +656,7 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	if err != nil {
 		return fmt.Errorf("marshal parent message metadata: %w", err)
 	}
-	if _, err := createAgentContentInputTx(ctx, t.notifications, t.tx, t.q, child, CreateAgentContentInputInput{
+	if _, err := createAgentContentInputTx(ctx, t.notifications, t.tx, t.q, CreateAgentContentInputInput{
 		ProjectID:              child.ProjectID,
 		AgentID:                child.ID,
 		Actor:                  actor,

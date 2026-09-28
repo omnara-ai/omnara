@@ -658,7 +658,6 @@ func (s *Store) ResolveAgentInteractionFromHandler(
 	if err := validateIntegrationInputActor(integration, input.Actor); err != nil {
 		return AgentInteractionRecord{}, err
 	}
-	input.IntegrationTargetID = destination.IntegrationTargetID
 	notifications := s.newTxNotifications()
 	record, err := resolveAgentInteractionTx(
 		ctx,

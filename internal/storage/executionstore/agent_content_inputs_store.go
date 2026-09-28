@@ -67,19 +67,11 @@ func (s *Store) CreateAgentContentInput(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	agent, err := loadAgentTx(ctx, tx, input.AgentID)
-	if err != nil {
-		return AgentInputRecord{}, nil, false, err
-	}
-	if agent.ProjectID != input.ProjectID {
-		return AgentInputRecord{}, nil, false, storeerr.ErrNotFound
-	}
 	result, err := createAgentContentInputTx(
 		ctx,
 		txNotifications,
 		tx,
 		qtx,
-		agent,
 		input,
 		contentBlocks,
 	)
@@ -131,14 +123,14 @@ func createAgentContentInputTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	agent AgentRecord,
 	input CreateAgentContentInputInput,
 	contentBlocks []CreateContentBlockInput,
 ) (createAgentContentInputTxResult, error) {
-	if _, err := qtx.LockAgentInProject(
+	agent, err := qtx.LockAgentInProject(
 		ctx,
 		dbsqlc.LockAgentInProjectParams{ProjectID: input.ProjectID, ID: input.AgentID},
-	); err != nil {
+	)
+	if err != nil {
 		return createAgentContentInputTxResult{}, fmt.Errorf("lock agent for content input: %w", err)
 	}
 	if input.IdempotencyKey != "" {
@@ -188,12 +180,7 @@ func createAgentContentInputTx(
 			}, nil
 		}
 	}
-	var err error
-	agent, err = loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
-	if err != nil {
-		return createAgentContentInputTxResult{}, err
-	}
-	if agent.State == AgentStateArchived {
+	if AgentState(agent.State) == AgentStateArchived {
 		return createAgentContentInputTxResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if input.IntegrationTargetID != uuid.Nil {

@@ -59,26 +59,6 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 	return record
 }
 
-func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {
-	return agentRecordFromSQLC(
-		row.ID,
-		row.OrgID,
-		row.ProjectID,
-		row.State,
-		row.Name,
-		row.AgentProfileID,
-		row.CurrentConfigID,
-		row.InteractionTargetID,
-		row.IdempotencyKey,
-		row.NextEventSequence,
-		row.CreatedAt,
-		row.UpdatedAt,
-		row.ArchivedAt,
-		row.ParentAgentID,
-		row.SubagentKey,
-	)
-}
-
 func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 	record := agentRecordFromSQLC(
 		row.ID,

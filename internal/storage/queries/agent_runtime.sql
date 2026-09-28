@@ -134,12 +134,7 @@ SELECT agent.id,
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-         WHEN 'integration_target_kind' THEN lower(target.scope_kind)
-       END::text AS sort_key,
-       CASE sqlc.arg(sort_field)::text
-         WHEN 'integration_target_kind' THEN target.id IS NULL
-         ELSE false
-       END AS sort_is_null
+       END::text AS sort_key
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
@@ -162,8 +157,6 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.scope_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
-  AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
@@ -175,16 +168,12 @@ SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_provider_tenant_id, integration_target_provider_ref,
        integration_target_provider_ref_kind,
        integration_target_display_name, model_name,
-       model_provider_config_name, sort_key, sort_is_null
+       model_provider_config_name, sort_key
 FROM listed
 WHERE sqlc.arg(cursor_set)::boolean = false
-   OR sort_is_null > sqlc.arg(cursor_is_null)::boolean
-   OR (sort_is_null = sqlc.arg(cursor_is_null)::boolean AND (
-        (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
-     OR (sqlc.arg(sort_desc)::boolean = true AND (sort_key, id) < (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
-   ))
-ORDER BY sort_is_null ASC,
-         CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
+   OR (sqlc.arg(sort_desc)::boolean = false AND (sort_key, id) > (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
+   OR (sqlc.arg(sort_desc)::boolean = true AND (sort_key, id) < (sqlc.arg(cursor_key)::text, sqlc.arg(cursor_id)::uuid))
+ORDER BY CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN sort_key END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN sort_key END DESC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = false THEN id END ASC,
          CASE WHEN sqlc.arg(sort_desc)::boolean = true THEN id END DESC
@@ -235,8 +224,6 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(include_archived)::boolean OR agent.state = 'active')
   AND (sqlc.arg(name_pattern)::text = '' OR agent.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
-  AND (COALESCE(cardinality(sqlc.arg(integration_target_kinds)::text[]), 0) = 0 OR target.scope_kind = ANY(sqlc.arg(integration_target_kinds)::text[]))
-  AND (sqlc.narg(has_integration_target)::boolean IS NULL OR (target.id IS NOT NULL) = sqlc.narg(has_integration_target)::boolean)
   AND (sqlc.narg(agent_profile_id)::uuid IS NULL OR agent.agent_profile_id = sqlc.narg(agent_profile_id)::uuid)
   AND (sqlc.narg(parent_agent_id)::uuid IS NULL OR agent.parent_agent_id = sqlc.narg(parent_agent_id)::uuid)
   AND (sqlc.arg(include_subagents)::boolean OR sqlc.narg(parent_agent_id)::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
@@ -316,7 +303,7 @@ SELECT EXISTS (
 );
 
 -- name: LockAgentInProject :one
-SELECT id, org_id
+SELECT id, org_id, state
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE;

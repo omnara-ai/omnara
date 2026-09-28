@@ -159,7 +159,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 			return err
 		}
 	}
-	created, err := createAgentContentInputTx(ctx, txNotifications, tx, q, agent, content, blocks)
+	created, err := createAgentContentInputTx(ctx, txNotifications, tx, q, content, blocks)
 	if err != nil {
 		return err
 	}

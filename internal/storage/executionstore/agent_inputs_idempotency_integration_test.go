@@ -12,7 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateAgentContentInputIdempotencyReplayAndConflict(t *testing.T) {
@@ -173,6 +176,43 @@ func TestCreateAgentContentInputRejectsArchivedAgentButReplaysExisting(t *testin
 	if afterArchiveInputs != 0 {
 		t.Fatalf("post-archive inputs = %d, want 0", afterArchiveInputs)
 	}
+}
+
+func TestCreateAgentContentInputRechecksArchiveAfterAgentLockWait(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	agentID := mustCreateAgent(t, ctx, store)
+	user := mustCreateProjectOperatorUser(t, ctx, store, "input-archive-race@example.com", "Input Archive Race")
+	actor := mustOmnaraActorParams(t, user.ID)
+
+	blocker := integrationdb.BeginTx(t, ctx, pool)
+	_, err := dbsqlc.New(blocker).LockAgentInProject(ctx,
+		dbsqlc.LockAgentInProjectParams{ProjectID: testProjectID, ID: agentID})
+	require.NoError(t, err)
+	archive := integrationdb.RunAsyncError(func() error {
+		_, _, err := store.Execution().IntegrationArchiveAgentOnce(ctx, testOrgID, testProjectID, agentID, actor)
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
+	admission := integrationdb.RunAsyncError(func() error {
+		_, _, _, err := store.Execution().CreateAgentContentInput(ctx, executionstore.CreateAgentContentInputInput{
+			ProjectID: testProjectID, AgentID: agentID, Actor: actor,
+			ContentBlocks:  json.RawMessage(`[{"type":"text","text":"waiting during archive"}]`),
+			IdempotencyKey: "input-archive-race",
+		})
+		return err
+	})
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 2)
+	require.NoError(t, blocker.Commit(ctx))
+	require.NoError(t, integrationdb.Await(t, archive, "agent archival"))
+	require.ErrorIs(t, integrationdb.Await(t, admission, "input after archive"), storeerr.ErrStateTransitionConflict)
+	var inputs int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, agentID).Scan(&inputs))
+	require.Zero(t, inputs)
 }
 
 func TestCreateAgentContentInputConcurrentIdempotencyReplay(t *testing.T) {

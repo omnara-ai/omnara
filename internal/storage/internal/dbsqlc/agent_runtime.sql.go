@@ -400,17 +400,12 @@ SELECT agent.id,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name,
-       CASE $7::text
+       CASE $6::text
          WHEN 'name' THEN lower(agent.name)
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-         WHEN 'integration_target_kind' THEN lower(target.scope_kind)
-       END::text AS sort_key,
-       CASE $7::text
-         WHEN 'integration_target_kind' THEN target.id IS NULL
-         ELSE false
-       END AS sort_is_null
+       END::text AS sort_key
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
@@ -430,14 +425,12 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = $8
-  AND ($9::boolean OR agent.state = 'active')
-  AND ($10::text = '' OR agent.name ILIKE $10::text ESCAPE '\')
-  AND (COALESCE(cardinality($11::text[]), 0) = 0 OR target.scope_kind = ANY($11::text[]))
-  AND ($12::boolean IS NULL OR (target.id IS NOT NULL) = $12::boolean)
-  AND ($13::uuid IS NULL OR agent.agent_profile_id = $13::uuid)
-  AND ($14::uuid IS NULL OR agent.parent_agent_id = $14::uuid)
-  AND ($15::boolean OR $14::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+WHERE agent.project_id = $7
+  AND ($8::boolean OR agent.state = 'active')
+  AND ($9::text = '' OR agent.name ILIKE $9::text ESCAPE '\')
+  AND ($10::uuid IS NULL OR agent.agent_profile_id = $10::uuid)
+  AND ($11::uuid IS NULL OR agent.parent_agent_id = $11::uuid)
+  AND ($12::boolean OR $11::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        interaction_target_id, idempotency_key,
@@ -446,38 +439,31 @@ SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        integration_target_provider_tenant_id, integration_target_provider_ref,
        integration_target_provider_ref_kind,
        integration_target_display_name, model_name,
-       model_provider_config_name, sort_key, sort_is_null
+       model_provider_config_name, sort_key
 FROM listed
 WHERE $1::boolean = false
-   OR sort_is_null > $2::boolean
-   OR (sort_is_null = $2::boolean AND (
-        ($3::boolean = false AND (sort_key, id) > ($4::text, $5::uuid))
-     OR ($3::boolean = true AND (sort_key, id) < ($4::text, $5::uuid))
-   ))
-ORDER BY sort_is_null ASC,
-         CASE WHEN $3::boolean = false THEN sort_key END ASC,
-         CASE WHEN $3::boolean = true THEN sort_key END DESC,
-         CASE WHEN $3::boolean = false THEN id END ASC,
-         CASE WHEN $3::boolean = true THEN id END DESC
-LIMIT $6::bigint
+   OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
+   OR ($2::boolean = true AND (sort_key, id) < ($3::text, $4::uuid))
+ORDER BY CASE WHEN $2::boolean = false THEN sort_key END ASC,
+         CASE WHEN $2::boolean = true THEN sort_key END DESC,
+         CASE WHEN $2::boolean = false THEN id END ASC,
+         CASE WHEN $2::boolean = true THEN id END DESC
+LIMIT $5::bigint
 `
 
 type ListAgentsForProjectParams struct {
-	CursorSet              bool
-	CursorIsNull           bool
-	SortDesc               bool
-	CursorKey              string
-	CursorID               uuid.UUID
-	RowLimit               int64
-	SortField              string
-	ProjectID              uuid.UUID
-	IncludeArchived        bool
-	NamePattern            string
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
+	CursorSet        bool
+	SortDesc         bool
+	CursorKey        string
+	CursorID         uuid.UUID
+	RowLimit         int64
+	SortField        string
+	ProjectID        uuid.UUID
+	IncludeArchived  bool
+	NamePattern      string
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
 }
 
 type ListAgentsForProjectRow struct {
@@ -504,13 +490,11 @@ type ListAgentsForProjectRow struct {
 	ModelName                         string
 	ModelProviderConfigName           string
 	SortKey                           string
-	SortIsNull                        bool
 }
 
 func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForProjectParams) ([]ListAgentsForProjectRow, error) {
 	rows, err := q.db.Query(ctx, listAgentsForProject,
 		arg.CursorSet,
-		arg.CursorIsNull,
 		arg.SortDesc,
 		arg.CursorKey,
 		arg.CursorID,
@@ -519,8 +503,6 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.ProjectID,
 		arg.IncludeArchived,
 		arg.NamePattern,
-		arg.IntegrationTargetKinds,
-		arg.HasIntegrationTarget,
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
@@ -556,7 +538,6 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 			&i.ModelName,
 			&i.ModelProviderConfigName,
 			&i.SortKey,
-			&i.SortIsNull,
 		); err != nil {
 			return nil, err
 		}
@@ -613,32 +594,28 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = $1
   AND ($2::boolean OR agent.state = 'active')
   AND ($3::text = '' OR agent.name ILIKE $3::text ESCAPE '\')
-  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR target.scope_kind = ANY($4::text[]))
-  AND ($5::boolean IS NULL OR (target.id IS NOT NULL) = $5::boolean)
-  AND ($6::uuid IS NULL OR agent.agent_profile_id = $6::uuid)
-  AND ($7::uuid IS NULL OR agent.parent_agent_id = $7::uuid)
-  AND ($8::boolean OR $7::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND ($4::uuid IS NULL OR agent.agent_profile_id = $4::uuid)
+  AND ($5::uuid IS NULL OR agent.parent_agent_id = $5::uuid)
+  AND ($6::boolean OR $5::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
   AND (
-    $9::boolean = false
-    OR (agent.created_at, agent.id) < ($10::timestamptz, $11::uuid)
+    $7::boolean = false
+    OR (agent.created_at, agent.id) < ($8::timestamptz, $9::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $12::bigint
+LIMIT $10::bigint
 `
 
 type ListAgentsForProjectByCreatedAtDescParams struct {
-	ProjectID              uuid.UUID
-	IncludeArchived        bool
-	NamePattern            string
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
-	CursorSet              bool
-	CursorCreatedAt        time.Time
-	CursorID               uuid.UUID
-	RowLimit               int64
+	ProjectID        uuid.UUID
+	IncludeArchived  bool
+	NamePattern      string
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
+	CursorSet        bool
+	CursorCreatedAt  time.Time
+	CursorID         uuid.UUID
+	RowLimit         int64
 }
 
 type ListAgentsForProjectByCreatedAtDescRow struct {
@@ -671,8 +648,6 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 		arg.ProjectID,
 		arg.IncludeArchived,
 		arg.NamePattern,
-		arg.IntegrationTargetKinds,
-		arg.HasIntegrationTarget,
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
@@ -845,7 +820,7 @@ func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecen
 }
 
 const lockAgentInProject = `-- name: LockAgentInProject :one
-SELECT id, org_id
+SELECT id, org_id, state
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE
@@ -859,12 +834,13 @@ type LockAgentInProjectParams struct {
 type LockAgentInProjectRow struct {
 	ID    uuid.UUID
 	OrgID uuid.UUID
+	State string
 }
 
 func (q *Queries) LockAgentInProject(ctx context.Context, arg LockAgentInProjectParams) (LockAgentInProjectRow, error) {
 	row := q.db.QueryRow(ctx, lockAgentInProject, arg.ProjectID, arg.ID)
 	var i LockAgentInProjectRow
-	err := row.Scan(&i.ID, &i.OrgID)
+	err := row.Scan(&i.ID, &i.OrgID, &i.State)
 	return i, err
 }
 

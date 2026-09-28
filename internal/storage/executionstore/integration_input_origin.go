@@ -113,10 +113,6 @@ func (s *Store) admitOriginContentTx(
 	if err := validateIntegrationInputActor(integration, input.Actor); err != nil {
 		return InboxInputResult{}, err
 	}
-	agent, err := loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
-	if err != nil {
-		return InboxInputResult{}, err
-	}
 	target, err := s.integrations.EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 		ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: integration.ID,
 		Address: input.Origin.Address, DisplayName: input.Origin.DisplayName,
@@ -129,7 +125,7 @@ func (s *Store) admitOriginContentTx(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	created, err := createAgentContentInputTx(ctx, notifications, tx, dbsqlc.New(tx), agent, input, blocks)
+	created, err := createAgentContentInputTx(ctx, notifications, tx, dbsqlc.New(tx), input, blocks)
 	if err != nil {
 		return InboxInputResult{}, err
 	}

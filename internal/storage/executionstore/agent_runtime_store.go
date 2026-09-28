@@ -154,14 +154,6 @@ func loadAgentByIdempotencyKeyTx(
 	return agentRecordFromIdempotencySQLC(row), nil
 }
 
-func loadAgentTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (AgentRecord, error) {
-	row, err := dbsqlc.New(tx).GetAgent(ctx, dbsqlc.GetAgentParams{ID: id})
-	if err != nil {
-		return AgentRecord{}, fmt.Errorf("load agent: %w", err)
-	}
-	return agentRecordFromGetSQLC(row), nil
-}
-
 func loadAgentInProjectTx(ctx context.Context, tx pgx.Tx, projectID, id uuid.UUID) (AgentRecord, error) {
 	row, err := dbsqlc.New(tx).
 		GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: id})
@@ -193,12 +185,10 @@ type ListAgentsForProjectInput struct {
 }
 
 type AgentListFilters struct {
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
-	IncludeArchived        bool
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
+	IncludeArchived  bool
 }
 
 type ListAgentsForProjectResult struct {
@@ -221,7 +211,7 @@ func (s *Store) ListAgentsForProject(
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
-		"name", "created_at", "updated_at", "state", "integration_target_kind",
+		"name", "created_at", "updated_at", "state",
 	) {
 		return ListAgentsForProjectResult{}, errors.New("unsupported agent list sort")
 	}
@@ -236,14 +226,12 @@ func (s *Store) ListAgentsForProject(
 		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
-		CursorIsNull: input.List.After.IsNull, CursorKey: input.List.After.Key,
-		CursorID:               input.List.After.ID,
-		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-		AgentProfileID:         input.Filters.AgentProfileID,
-		ParentAgentID:          input.Filters.ParentAgentID,
-		IncludeSubagents:       input.Filters.IncludeSubagents,
-		IncludeArchived:        input.Filters.IncludeArchived,
+		CursorKey:        input.List.After.Key,
+		CursorID:         input.List.After.ID,
+		AgentProfileID:   input.Filters.AgentProfileID,
+		ParentAgentID:    input.Filters.ParentAgentID,
+		IncludeSubagents: input.Filters.IncludeSubagents,
+		IncludeArchived:  input.Filters.IncludeArchived,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -256,7 +244,7 @@ func (s *Store) ListAgentsForProject(
 	}
 	if result.HasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		result.Next = listing.Cursor{Set: true, IsNull: last.SortIsNull, Key: last.SortKey, ID: last.ID}
+		result.Next = listing.Cursor{Set: true, Key: last.SortKey, ID: last.ID}
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
@@ -315,18 +303,16 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	rows, err := s.q.ListAgentsForProjectByCreatedAtDesc(
 		ctx,
 		dbsqlc.ListAgentsForProjectByCreatedAtDescParams{
-			ProjectID:              input.ProjectID,
-			NamePattern:            input.List.NamePattern,
-			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-			AgentProfileID:         input.Filters.AgentProfileID,
-			ParentAgentID:          input.Filters.ParentAgentID,
-			IncludeSubagents:       input.Filters.IncludeSubagents,
-			IncludeArchived:        input.Filters.IncludeArchived,
-			CursorSet:              input.List.After.Set,
-			CursorCreatedAt:        cursorCreatedAt,
-			CursorID:               input.List.After.ID,
-			RowLimit:               int64(input.Limit) + 1,
+			ProjectID:        input.ProjectID,
+			NamePattern:      input.List.NamePattern,
+			AgentProfileID:   input.Filters.AgentProfileID,
+			ParentAgentID:    input.Filters.ParentAgentID,
+			IncludeSubagents: input.Filters.IncludeSubagents,
+			IncludeArchived:  input.Filters.IncludeArchived,
+			CursorSet:        input.List.After.Set,
+			CursorCreatedAt:  cursorCreatedAt,
+			CursorID:         input.List.After.ID,
+			RowLimit:         int64(input.Limit) + 1,
 		},
 	)
 	if err != nil {

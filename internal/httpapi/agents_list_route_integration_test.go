@@ -194,6 +194,40 @@ func TestListAgents(t *testing.T) {
 		}
 	}
 
+	for _, sortBy := range []string{"name", "-name"} {
+		wantNames := []string{"Agent A", "Agent B", "Agent C", "Agent D", "Agent E"}
+		if sortBy == "-name" {
+			sort.Sort(sort.Reverse(sort.StringSlice(wantNames)))
+		}
+		var gotNames []string
+		cursor := ""
+		for pages := 0; ; pages++ {
+			require.Less(t, pages, agentCount, "pagination did not terminate")
+			page := requestJSONWithHeaders(
+				t, handler, http.MethodGet,
+				agentsPath+"?limit=2&sort="+sortBy+"&cursor="+cursor,
+				"", "", http.StatusOK, authHeaders(project.AdminToken),
+			)
+			rows := testutil.RequireType[[]any](t, page["data"])
+			require.LessOrEqual(t, len(rows), 2)
+			for _, raw := range rows {
+				row := testutil.RequireType[map[string]any](t, raw)
+				gotNames = append(gotNames, testutil.RequireType[string](t, row["name"]))
+				if row["id"] == slackTargetAgentID {
+					assertListAgentsIntegrationTarget(
+						t, row, "slack", "C0BAK8REEGY:1783382417.000100", "thread", "agent-testing",
+						"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
+					)
+				}
+			}
+			if page["next_cursor"] == nil {
+				break
+			}
+			cursor = testutil.RequireType[string](t, page["next_cursor"])
+		}
+		require.Equal(t, wantNames, gotNames, "sort=%s", sortBy)
+	}
+
 	full := requestJSONWithHeaders(
 		t,
 		handler,
