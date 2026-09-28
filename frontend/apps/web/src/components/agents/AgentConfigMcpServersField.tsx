@@ -348,7 +348,7 @@ function McpServerRow({
           {registryServer ? (
             <p className="text-muted-foreground -mt-3 text-sm">
               {registryServerLabel(registryServer)}
-              {registryServer.description ? ` — ${registryServer.description}` : ''}
+              {registryServer.description && <span>{` — ${registryServer.description}`}</span>}
             </p>
           ) : (
             <Skeleton

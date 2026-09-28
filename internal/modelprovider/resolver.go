@@ -203,8 +203,23 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
+	customHeaders, err := ProviderHeaders(ctx, r.Secrets, providerConfig)
+	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		return model.ResolvedClient{}, resolverError(
+			model.ErrorKindInvalidRequest,
+			"invalid_model_provider_headers",
+			"The configured model provider headers are invalid.",
+			err,
+		)
+	}
+	if err != nil {
+		return model.ResolvedClient{}, err
+	}
+	if len(customHeaders) > 0 {
+		auth = route.Chain{route.Headers(customHeaders), auth}
+	}
 	if headers := r.routeHeadersForProviderConfig(providerConfig); len(headers) > 0 {
-		auth = route.Chain{auth, route.Headers(headers)}
+		auth = route.Chain{route.Headers(headers), auth}
 	}
 	capabilities := capabilitiesForRevision(effectiveRevision)
 	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages &&
@@ -284,6 +299,41 @@ func resolverError(kind model.ErrorKind, code, message string, cause error) erro
 		Message: message,
 		Cause:   cause,
 	}
+}
+
+func ProviderHeaders(
+	ctx context.Context,
+	secretStore *secretstore.Store,
+	providerConfig modelstore.ModelProviderConfigRecord,
+) (map[string]string, error) {
+	parsed, err := modelstore.ModelProviderHeadersFromColumns(
+		providerConfig.Headers,
+		providerConfig.SecretHeaders,
+	)
+	if err != nil {
+		return nil, err
+	}
+	headers := parsed.Headers
+	for name, secretID := range parsed.SecretHeaders {
+		secret, err := secretStore.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
+			OrgID:          providerConfig.OrgID,
+			SecretID:       secretID,
+			ManagementKind: providerConfig.ManagementKind,
+			Kind:           secrets.KindGeneric,
+		})
+		if storeerr.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read secret for header %s: %w", name, err)
+		}
+		value := secret.Payload[secrets.KeyValue]
+		if err := modelstore.ValidateModelProviderHeaderValue("secret_headers."+name, value); err != nil {
+			return nil, err
+		}
+		headers[name] = value
+	}
+	return headers, nil
 }
 
 func (r Resolver) routeHeadersForProviderConfig(

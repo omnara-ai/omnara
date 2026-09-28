@@ -64,16 +64,22 @@ const client = createOmnaraClient({
 // %% [markdown]
 // ## 1. Where it lives
 //
-// Every account has a default org and a default project; the agent lives in
-// the first of each. Nothing else to provision — this agent never runs shell
-// commands, so it needs no machine. Its only tools are the Apify MCP server
-// and Omnara's built-in web tools.
+// Every org starts with a project named Default. We look it up first, since
+// that's where the agent is created. Nothing else to provision — this agent
+// never runs shell commands, so it needs no machine. Its only tools are the
+// Apify MCP server and Omnara's built-in web tools.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
-const org = me.orgs[0]
-const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: org.id } })
-const project = projects.data[0]
+const orgProjects = await Promise.all(
+  me.orgs.map(async (org) => {
+    const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: org.id } })
+    return projects.data.map((project) => ({ org, project }))
+  }),
+)
+const found = orgProjects.flat().find(({ project }) => project.name === 'Default')
+if (!found) throw new Error('no project named Default is visible in any of your orgs')
+const { org, project } = found
 const path = { orgID: org.id, projectID: project.id }
 
 console.log('org:    ', org.name, org.id)
@@ -226,7 +232,7 @@ draft, write the reply text for a human to post. Never post to Reddit yourself.
 `,
   model: {
     provider_config: 'omnara-openrouter', // default model provider config in your org
-    name: 'openai/gpt-5.6-sol', // configured model name on that provider config
+    name: 'openai/gpt-6-sol', // configured model name on that provider config
   },
   mcp: {
     reddit: {
@@ -293,9 +299,9 @@ console.log('agent:  ', launch.agent.id)
 console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${launch.agent.id}`)
 console.log()
 
-// Print events until the agent's turn ends. The SDK reconnects from the
-// last seen sequence if the stream drops.
-for await (const frame of openAgentEventStream({ client, path: agentPath })) {
+// Print events until the agent's turn ends — a model output whose stop
+// reason is anything but a tool call. The stream reconnects on its own.
+for await (const frame of openAgentEventStream({ client, path: agentPath, query: { after_sequence: 0 } })) {
   if (!('event_kind' in frame)) continue
   if (frame.event_kind === 'model_output') {
     for (const block of frame.content_blocks) {

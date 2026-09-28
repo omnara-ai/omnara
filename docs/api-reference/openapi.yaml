@@ -2088,7 +2088,7 @@ paths:
       summary: Delete secret
       description: >-
         Deletes the secret and permanently destroys all of its versions and project grants; the
-        ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a
+        ciphertext cannot be recovered. Deletion is blocked while the secret is the credential of a
         model provider config, machine pool, or integration.
       security:
         - bearerAuth: []
@@ -2735,7 +2735,8 @@ paths:
         Deletes the profile, all of its profile versions, and any cron triggers targeting the
         profile. Agents launched from the profile are retained and keep running: each agent holds an
         immutable snapshot of the configuration it was launched with, so its reference to the profile
-        becomes historical provenance only. Deletion is blocked while a saved integration launcher references the profile, including a disconnected integration.
+        becomes historical provenance only. Integration settings may retain the public profile ID;
+        future launches fail as unavailable until those settings reference an available profile.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6969,8 +6970,8 @@ paths:
     put:
       operationId: updateIntegration
       tags: [Integrations]
-      summary: Update integration launcher settings
-      description: Updates settings while preserving credentials. The request must echo the existing name and integration_kind; changing either returns 400. A workspace or installation launcher must match the integration's verified provider identity.
+      summary: Update integration settings
+      description: Replaces integration-owned settings while preserving credentials. The request contains only settings; name and integration_kind are immutable and accepted only on create. Preserve integration-level fields when editing the launcher. Settings follow capabilities.settings.input_schema from the integration catalog.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6983,7 +6984,7 @@ paths:
               $ref: '#/components/schemas/UpdateIntegrationRequest'
       responses:
         '200':
-          description: Update integration launcher settings.
+          description: Updated integration settings.
           content:
             application/json:
               schema:
@@ -7185,7 +7186,7 @@ paths:
         - bearerAuth: []
         - browserSessionCookie: []
           csrfHeader: []
-      description: Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. A workspace or installation launcher must match the verified provider identity.
+      description: Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. Setup preserves integration settings; verified provider identity scopes incoming events.
       requestBody:
         required: true
         content:
@@ -7890,6 +7891,16 @@ components:
               maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
+        headers:
+          type: object
+          description: Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens.
+          additionalProperties:
+            type: string
+        secret_headers:
+          type: object
+          description: Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references.
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
     UpdateModelProviderConfigRequest:
       type: object
       description: Update a provider config. Omitted fields keep their current values.
@@ -7936,10 +7947,20 @@ components:
               maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
+        headers:
+          type: object
+          description: Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens. Replaces all headers when provided.
+          additionalProperties:
+            type: string
+        secret_headers:
+          type: object
+          description: Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references. Replaces all secret headers when provided.
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
     ModelProviderConfig:
       type: object
       additionalProperties: false
-      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, created_at, updated_at]
+      required: [id, org_id, management_kind, name, api_format, api_variant, base_url, endpoint_path, request_timeout_ms, idle_timeout_ms, auth_kind, auth_options, credential_secret_id, headers, secret_headers, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/ModelProviderConfigID'
@@ -7984,6 +8005,16 @@ components:
               maxLength: 64
         credential_secret_id:
           $ref: '#/components/schemas/SecretID'
+        headers:
+          type: object
+          description: Extra HTTP headers sent with every request to this provider.
+          additionalProperties:
+            type: string
+        secret_headers:
+          type: object
+          description: Extra HTTP headers whose values come from the referenced secrets.
+          additionalProperties:
+            $ref: '#/components/schemas/SecretID'
         created_at:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
@@ -14371,7 +14402,7 @@ components:
       additionalProperties: true
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
-      description: One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id as validation hints; only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+      description: One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
     IntegrationSubscriptionAttachment:
       type: object
       additionalProperties: false

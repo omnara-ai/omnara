@@ -40,17 +40,17 @@ type ConfigureIntegrationInput struct {
 }
 
 type IntegrationTargetRecord struct {
-	IntegrationID    uuid.UUID       `json:"integration_id,omitempty"`
-	LaunchKey    string          `json:"launch_key,omitempty"`
-	DeletedAt        *time.Time      `json:"deleted_at,omitempty"`
-	ID               uuid.UUID       `json:"id"`
-	OrgID            uuid.UUID       `json:"org_id"`
-	ProjectID        uuid.UUID       `json:"project_id"`
-	AgentID          uuid.UUID       `json:"agent_id"`
-	ScopeRef      string          `json:"scope_ref"`
-	ScopeKind  string          `json:"scope_kind"`
-	DisplayName      string          `json:"display_name"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	Created          bool            `json:"-"`
+	IntegrationID uuid.UUID  `json:"integration_id,omitempty"`
+	LaunchKey     string     `json:"launch_key,omitempty"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	ID            uuid.UUID  `json:"id"`
+	OrgID         uuid.UUID  `json:"org_id"`
+	ProjectID     uuid.UUID  `json:"project_id"`
+	AgentID       uuid.UUID  `json:"agent_id"`
+	ScopeRef      string     `json:"scope_ref"`
+	ScopeKind     string     `json:"scope_kind"`
+	DisplayName   string     `json:"display_name"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	Created       bool       `json:"-"`
 }

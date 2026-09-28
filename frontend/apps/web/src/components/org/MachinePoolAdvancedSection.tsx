@@ -1,7 +1,5 @@
-import {
-  CombinedEnvOverlayEditor,
-  OverridesCollapsible,
-} from '@/components/machines/MachineOverrideFields'
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
+import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { CheckboxField, FieldGroup } from '@/components/ui/field'
 
 import {
@@ -63,14 +61,17 @@ export function MachinePoolAdvancedSection({
             }}
           />
         )}
-        <CombinedEnvOverlayEditor
+        <KeyValueEditor
           orgId={orgId}
           enabled={enabled}
-          envRows={values.envRows}
-          secretEnvRows={values.secretEnvRows}
-          onChange={({ envRows, secretEnvRows }) => {
-            setValue('envRows', envRows)
-            setValue('secretEnvRows', secretEnvRows)
+          label="Environment variables"
+          itemLabel="Variable"
+          keyPlaceholder="NAME"
+          textRows={values.envRows}
+          secretRows={values.secretEnvRows}
+          onChange={({ textRows, secretRows }) => {
+            setValue('envRows', textRows)
+            setValue('secretEnvRows', secretRows)
           }}
         />
         <div className="grid gap-4 sm:grid-cols-3">

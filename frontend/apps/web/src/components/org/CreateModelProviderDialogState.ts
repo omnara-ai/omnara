@@ -4,6 +4,12 @@ import type {
   ModelApiFormat,
 } from '@omnara/sdk'
 
+import {
+  type SecretRow,
+  secretRowsValid,
+  type TextRow,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
 import { resourceNameValid } from '@/lib/resource-name'
 
 import {
@@ -86,6 +92,8 @@ export interface CreateModelProviderFormValues {
   apiFormat: ModelApiFormat
   baseUrl: string
   secretId: string
+  headerRows: TextRow[]
+  secretHeaderRows: SecretRow[]
 }
 
 export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
@@ -97,6 +105,8 @@ export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
   apiFormat: 'openai-chat-completions',
   baseUrl: '',
   secretId: '',
+  headerRows: [],
+  secretHeaderRows: [],
 }
 
 export function createModelProviderFormValid(values: CreateModelProviderFormValues) {
@@ -104,7 +114,9 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
     resourceNameValid(values.name) &&
     values.secretId !== '' &&
     (values.provider !== 'bedrock' || awsRegionPattern.test(values.region.trim())) &&
-    (values.provider !== 'custom' || baseUrlPattern.test(values.baseUrl.trim()))
+    (values.provider !== 'custom' || baseUrlPattern.test(values.baseUrl.trim())) &&
+    textRowsValid(values.headerRows) &&
+    secretRowsValid(values.secretHeaderRows)
   )
 }
 

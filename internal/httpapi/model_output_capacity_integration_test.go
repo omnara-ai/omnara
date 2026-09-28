@@ -29,7 +29,7 @@ func TestOutputCapacityCreationAndPatch(t *testing.T) {
 			ctx := t.Context()
 			pool := openIntegrationDB(t, ctx)
 			handler := newIntegrationServer(pool, WithModelDiscoverer(func(
-				_ context.Context, _ modelstore.ModelProviderConfigRecord, _ string, _ bool,
+				_ context.Context, _ modelstore.ModelProviderConfigRecord, _ string, _ map[string]string, _ bool,
 			) ([]modelprovider.DiscoveredModel, error) {
 				return []modelprovider.DiscoveredModel{{
 					Slug: "capacity-model", ContextWindowTokens: new(128000), MaxOutputTokens: new(64000),

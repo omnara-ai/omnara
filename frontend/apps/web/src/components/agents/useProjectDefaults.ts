@@ -11,7 +11,7 @@ interface ProjectDefaults {
 
 const defaultPoolName = 'default-pool'
 
-const preferredModel = { provider_config: 'omnara-openrouter', name: 'openai/gpt-5.6-sol' }
+const preferredModel = { provider_config: 'omnara-openrouter', name: 'openai/gpt-6-sol' }
 
 export function useProjectDefaults(orgId: string, projectId: string): ProjectDefaults {
   const client = useOmnaraClient()

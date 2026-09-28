@@ -186,6 +186,18 @@ export type CreateModelProviderConfigRequest = {
         region?: string;
     };
     credential_secret_id: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens.
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references.
+     */
+    secret_headers?: {
+        [key: string]: SecretId;
+    };
 };
 
 /**
@@ -218,6 +230,18 @@ export type UpdateModelProviderConfigRequest = {
         region?: string;
     };
     credential_secret_id?: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider. Values are stored and returned as plain text; use secret_headers for keys and tokens. Replaces all headers when provided.
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from org-owned generic secrets, mapping header names to secret references. Replaces all secret headers when provided.
+     */
+    secret_headers?: {
+        [key: string]: SecretId;
+    };
 };
 
 export type ModelProviderConfig = {
@@ -244,6 +268,18 @@ export type ModelProviderConfig = {
         region?: string;
     };
     credential_secret_id: SecretId;
+    /**
+     * Extra HTTP headers sent with every request to this provider.
+     */
+    headers: {
+        [key: string]: string;
+    };
+    /**
+     * Extra HTTP headers whose values come from the referenced secrets.
+     */
+    secret_headers: {
+        [key: string]: SecretId;
+    };
     created_at: Timestamp;
     updated_at: Timestamp;
 };
@@ -3905,7 +3941,7 @@ export type IntegrationCapabilityDefinition = {
 export type IntegrationSubscriptionId = string;
 
 /**
- * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id as validation hints; only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
  */
 export type IntegrationConversation = {
     [key: string]: unknown;
@@ -15064,7 +15100,7 @@ export type UpdateIntegrationError = UpdateIntegrationErrors[keyof UpdateIntegra
 
 export type UpdateIntegrationResponses = {
     /**
-     * Update integration launcher settings.
+     * Updated integration settings.
      */
     200: Integration;
 };

@@ -40,7 +40,7 @@ func freezeInboxSelection(
 	)
 	require.NoError(t, err)
 	selection := integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID,
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, Slot: "a"}
+		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, LaunchKey: "a"}
 	plan, err := json.Marshal(
 		map[string]any{"message": map[string]any{}, "recipients": map[string]any{"a": map[string]any{
 			"agent_id": uuid.Must(

@@ -31,7 +31,7 @@ type IntegrationEvent struct {
 
 type IntegrationLaunchIntent struct {
 	IntegrationID uuid.UUID `json:"integration_id"`
-	Slot          string    `json:"slot"`
+	LaunchKey     string    `json:"launch_key"`
 	ProfileID     uuid.UUID `json:"profile_id,omitempty"`
 }
 

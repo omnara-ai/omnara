@@ -7,13 +7,19 @@ import type {
 } from '@omnara/sdk'
 
 import {
+  overlayFromSecretRows,
+  overlayFromTextRows,
+  recordFromSecretRows,
+  recordFromTextRows,
+  type SecretRow,
+  secretRowsFromRecord,
+  secretRowsValid,
+  type TextRow,
+  textRowsFromRecord,
+  textRowsValid,
+} from '@/components/key-value/keyValueRows'
+import {
   emptyProviderOptions,
-  envFromRows,
-  envOverlayFromRows,
-  type EnvOverlayRow,
-  envOverlayRowsValid,
-  newEnvOverlayRow,
-  newSecretEnvOverlayRow,
   numberDraft,
   optionalIdleDeletionMinutesValid,
   optionalInt,
@@ -22,10 +28,6 @@ import {
   optionalPositiveInt32Valid,
   type ProviderOptionsDraft,
   providerOptionsOverlay,
-  secretEnvFromRows,
-  secretEnvOverlayFromRows,
-  type SecretEnvOverlayRow,
-  secretEnvOverlayRowsValid,
   stringOrUndefined,
 } from '@/components/machines/machineOverrides'
 import {
@@ -47,8 +49,8 @@ export interface PoolGrantOverrideDraft {
   cpu: string
   memoryGb: string
   cwd: string
-  envRows: EnvOverlayRow[]
-  secretEnvRows: SecretEnvOverlayRow[]
+  envRows: TextRow[]
+  secretEnvRows: SecretRow[]
   maxTotalMachines: string
   maxTotalCpu: string
   maxTotalMemoryGb: string
@@ -85,8 +87,8 @@ export function emptyPoolGrantDraft(): PoolGrantOverrideDraft {
 
 export function poolGrantOverridesValid(draft: PoolGrantOverrideDraft) {
   return (
-    envOverlayRowsValid(draft.envRows) &&
-    secretEnvOverlayRowsValid(draft.secretEnvRows) &&
+    textRowsValid(draft.envRows) &&
+    secretRowsValid(draft.secretEnvRows) &&
     [draft.cpu, draft.maxMachineCpu].every(optionalPositiveInt32Valid) &&
     optionalIdleDeletionMinutesValid(draft.deleteAfterIdleMinutes) &&
     memoryGbDraftValid(draft.memoryGb, { optional: true }) &&
@@ -97,18 +99,6 @@ export function poolGrantOverridesValid(draft: PoolGrantOverrideDraft) {
     memoryGbDraftValid(draft.maxTotalMemoryGb, { optional: true, allowZero: true }) &&
     memoryGbDraftValid(draft.minMachineMemoryGb, { optional: true, allowZero: true })
   )
-}
-
-function envRowsFromOverlay(overlay: Record<string, string | null>): EnvOverlayRow[] {
-  return Object.entries(overlay)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => ({ ...newEnvOverlayRow(), key, value }))
-}
-
-function secretEnvRowsFromOverlay(overlay: Record<string, string | null>): SecretEnvOverlayRow[] {
-  return Object.entries(overlay)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, secretId]) => ({ ...newSecretEnvOverlayRow(), key, secretId }))
 }
 
 function editableProviderOptionKeys(provider: MachinePoolProvider, clusterManaged: boolean) {
@@ -154,8 +144,8 @@ export function poolGrantDraftFromGrant(
     cpu: numberDraft(grant.default_machine_cpu),
     memoryGb: memoryGbDraft(grant.default_machine_memory_mb),
     cwd: grant.default_cwd,
-    envRows: envRowsFromOverlay(grant.default_machine_env_overlay),
-    secretEnvRows: secretEnvRowsFromOverlay(grant.default_machine_secret_env_overlay),
+    envRows: textRowsFromRecord(grant.default_machine_env_overlay),
+    secretEnvRows: secretRowsFromRecord(grant.default_machine_secret_env_overlay),
     maxTotalMachines: numberDraft(grant.max_total_machines),
     maxTotalCpu: numberDraft(grant.max_total_cpu),
     maxTotalMemoryGb: memoryGbDraft(grant.max_total_memory_mb),
@@ -200,8 +190,8 @@ export function poolGrantUpdateRequest(
       draft.memoryGb,
       grant.default_machine_memory_mb,
     ),
-    default_machine_env_overlay: envOverlayFromRows(draft.envRows) ?? {},
-    default_machine_secret_env_overlay: secretEnvOverlayFromRows(draft.secretEnvRows) ?? {},
+    default_machine_env_overlay: overlayFromTextRows(draft.envRows) ?? {},
+    default_machine_secret_env_overlay: overlayFromSecretRows(draft.secretEnvRows) ?? {},
     default_machine_provider_options_overlay: providerOptionsOverlayPatch,
     default_cwd: draft.cwd.trim(),
     max_total_machines: optionalIntOrNull(draft.maxTotalMachines),
@@ -230,8 +220,8 @@ export function poolGrantCreateRequest(
     description: stringOrUndefined(draft.description),
     default_machine_cpu: optionalInt(draft.cpu),
     default_machine_memory_mb: optionalMemoryMb(draft.memoryGb),
-    default_machine_env_overlay: envFromRows(draft.envRows),
-    default_machine_secret_env_overlay: secretEnvFromRows(draft.secretEnvRows),
+    default_machine_env_overlay: recordFromTextRows(draft.envRows),
+    default_machine_secret_env_overlay: recordFromSecretRows(draft.secretEnvRows),
     default_machine_provider_options_overlay: isMachinePoolProvider(pool.provider)
       ? providerOptionsOverlay(
           pool.provider,

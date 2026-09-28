@@ -218,9 +218,11 @@ func (r *IntegrationRouter) FreezeScheduledLaunch(
 			},
 		},
 		Recipients: map[string]IntegrationInboxSlot{key: {
-			AgentID:   agentID,
-			Selection: &integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID, Address: address, Slot: key},
-			Launch:    &frozenLaunch,
+			AgentID: agentID,
+			Selection: &integrationstore.InboxIntegrationSelection{
+				IntegrationID: integration.ID, Address: address, LaunchKey: key,
+			},
+			Launch: &frozenLaunch,
 		}},
 	}
 	raw, err := json.Marshal(plan)

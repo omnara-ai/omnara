@@ -109,15 +109,15 @@ const (
 	operationCreateProjectMachinePoolGrant operationID = "CreateProjectMachinePoolGrant"
 	operationCreateProjectModelGrant       operationID = "CreateProjectModelGrant"
 	operationCreateCronTrigger             operationID = "CreateCronTrigger"
-	operationConfigureIntegration   operationID = "ConfigureIntegration"
-	operationDisconnectIntegration  operationID = "DisconnectIntegration"
+	operationConfigureIntegration          operationID = "ConfigureIntegration"
+	operationDisconnectIntegration         operationID = "DisconnectIntegration"
 	operationListIntegrationDefinitions    operationID = "ListIntegrationDefinitions"
 
-	operationCreateIntegration      operationID = "CreateIntegration"
-	operationUpdateIntegration      operationID = "UpdateIntegration"
-	operationDeleteIntegration      operationID = "DeleteIntegration"
-	operationGetIntegration         operationID = "GetIntegration"
-	operationListIntegrations       operationID = "ListIntegrations"
+	operationCreateIntegration             operationID = "CreateIntegration"
+	operationUpdateIntegration             operationID = "UpdateIntegration"
+	operationDeleteIntegration             operationID = "DeleteIntegration"
+	operationGetIntegration                operationID = "GetIntegration"
+	operationListIntegrations              operationID = "ListIntegrations"
 	operationListIntegrationSubscriptions  operationID = "ListIntegrationSubscriptions"
 	operationCreateIntegrationSubscription operationID = "CreateIntegrationSubscription"
 	operationDeleteIntegrationSubscription operationID = "DeleteIntegrationSubscription"
@@ -347,14 +347,14 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationConfigureIntegration:   userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDisconnectIntegration:  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationConfigureIntegration:          userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDisconnectIntegration:         accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationListIntegrationDefinitions:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationCreateIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetIntegration:         accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListIntegrations:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegration:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetIntegration:                accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrations:              accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListIntegrationSubscriptions:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationCreateIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),

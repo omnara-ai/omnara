@@ -137,6 +137,6 @@ func GitHubIntegrationLauncher(_ context.Context, input IntegrationLaunchContext
 		return nil, fmt.Errorf("invalid configured GitHub profile: %w", err)
 	}
 	return []IntegrationLaunchIntent{{
-		IntegrationID: input.Integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: profileID,
+		IntegrationID: input.Integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: profileID,
 	}}, nil
 }

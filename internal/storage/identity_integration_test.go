@@ -861,6 +861,16 @@ func TestDefaultModelProviderProvisioningCreatesClusterManagedResourcesAtomicall
 	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("tenant machine environment with cluster credential error = %v, want not found", err)
 	}
+	if _, err := store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
+		OrgID:              created.Org.ID,
+		Name:               "tenant-provider-with-cluster-header-secret",
+		APIFormat:          modelprotocol.APIFormatOpenAIResponses,
+		BaseURL:            "https://api.openai.com/v1",
+		CredentialSecretID: tenantCredential.ID,
+		SecretHeaders:      mustTestRawJSON(t, map[string]string{"X-Gateway-Key": credential.ID.String()}),
+	}); !errors.Is(err, storeerr.ErrInvalidSecretRequest) {
+		t.Fatalf("tenant provider with cluster header secret error = %v, want invalid secret request", err)
+	}
 	payload, err := store.Secrets().ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
 		OrgID:          created.Org.ID,
 		SecretID:       credential.ID,

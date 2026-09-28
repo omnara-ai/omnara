@@ -144,7 +144,7 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(
 			if err != nil {
 				return storeerr.InvalidRequest(err)
 			}
-			if slot.Selection.IntegrationID != r.IntegrationID || slot.Selection.Slot != key ||
+			if slot.Selection.IntegrationID != r.IntegrationID || slot.Selection.LaunchKey != key ||
 				slot.Selection.Address != (ConversationAddress{Kind: kind, Ref: ref}) {
 				return storeerr.ErrUnauthorized
 			}

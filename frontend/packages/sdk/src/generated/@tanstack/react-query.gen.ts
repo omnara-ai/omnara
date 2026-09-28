@@ -1295,7 +1295,7 @@ export const startSecretMcpoAuthMutation = (options?: Partial<Options<StartSecre
 /**
  * Delete secret
  *
- * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a model provider config, machine pool, or integration.
+ * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is the credential of a model provider config, machine pool, or integration.
  */
 export const deleteSecretMutation = (options?: Partial<Options<DeleteSecretData>>): UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> => {
     const mutationOptions: UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> = {
@@ -1666,7 +1666,7 @@ export const createAgentProfileMutation = (options?: Partial<Options<CreateAgent
 /**
  * Delete agent profile
  *
- * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Deletion is blocked while a saved integration launcher references the profile, including a disconnected integration.
+ * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Integration settings may retain the public profile ID; future launches fail as unavailable until those settings reference an available profile.
  */
 export const deleteAgentProfileMutation = (options?: Partial<Options<DeleteAgentProfileData>>): UseMutationOptions<DeleteAgentProfileResponse, DeleteAgentProfileError, Options<DeleteAgentProfileData>> => {
     const mutationOptions: UseMutationOptions<DeleteAgentProfileResponse, DeleteAgentProfileError, Options<DeleteAgentProfileData>> = {
@@ -3851,9 +3851,9 @@ export const getIntegrationOptions = (options: Options<GetIntegrationData>) => q
 });
 
 /**
- * Update integration launcher settings
+ * Update integration settings
  *
- * Updates settings while preserving credentials. The request must echo the existing name and integration_kind; changing either returns 400. A workspace or installation launcher must match the integration's verified provider identity.
+ * Replaces integration-owned settings while preserving credentials. The request contains only settings; name and integration_kind are immutable and accepted only on create. Preserve integration-level fields when editing the launcher. Settings follow capabilities.settings.input_schema from the integration catalog.
  */
 export const updateIntegrationMutation = (options?: Partial<Options<UpdateIntegrationData>>): UseMutationOptions<UpdateIntegrationResponse, UpdateIntegrationError, Options<UpdateIntegrationData>> => {
     const mutationOptions: UseMutationOptions<UpdateIntegrationResponse, UpdateIntegrationError, Options<UpdateIntegrationData>> = {
@@ -3962,7 +3962,7 @@ export const deleteIntegrationSubscriptionMutation = (options?: Partial<Options<
 /**
  * Verify and configure integration credentials
  *
- * Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. A workspace or installation launcher must match the verified provider identity.
+ * Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. Setup preserves integration settings; verified provider identity scopes incoming events.
  */
 export const configureIntegrationMutation = (options?: Partial<Options<ConfigureIntegrationData>>): UseMutationOptions<ConfigureIntegrationResponse, ConfigureIntegrationError, Options<ConfigureIntegrationData>> => {
     const mutationOptions: UseMutationOptions<ConfigureIntegrationResponse, ConfigureIntegrationError, Options<ConfigureIntegrationData>> = {

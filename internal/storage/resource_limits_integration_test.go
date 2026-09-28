@@ -145,7 +145,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveByoDaemonTokensPerMachine:        20,
 		MaxNonTerminalProcessesPerAgent:           32,
 		MaxActiveCronTriggersPerProject:           1_000,
-		MaxActiveIntegrationsPerProject:    1_000,
+		MaxActiveIntegrationsPerProject:           1_000,
 		MaxActiveIntegrationSubscriptionsPerAgent: 1_024,
 	}
 	if limits != wantDefaults {
@@ -168,7 +168,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		"max_active_byo_daemon_tokens_per_machine":         13,
 		"max_non_terminal_processes_per_agent":             42,
 		"max_active_cron_triggers_per_project":             14,
-		"max_active_integrations_per_project":      16,
+		"max_active_integrations_per_project":              16,
 		"max_active_integration_subscriptions_per_agent":   17,
 	}
 	setOrgResourceLimitOverrides(t, ctx, pool, overrides)
@@ -193,7 +193,7 @@ func TestOrgResourceLimitOverridesResolveAndValidate(t *testing.T) {
 		MaxActiveByoDaemonTokensPerMachine:        13,
 		MaxNonTerminalProcessesPerAgent:           42,
 		MaxActiveCronTriggersPerProject:           14,
-		MaxActiveIntegrationsPerProject:    16,
+		MaxActiveIntegrationsPerProject:           16,
 		MaxActiveIntegrationSubscriptionsPerAgent: 17,
 	}
 	if limits != wantOverrides {

@@ -86,6 +86,6 @@ func testProfileIntegrationLauncher(
 		return nil, nil
 	} // Real chat menus are exercised by the choice journey.
 	return []IntegrationLaunchIntent{{
-		IntegrationID: input.Integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: profiles[0],
+		IntegrationID: input.Integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: profiles[0],
 	}}, nil
 }

@@ -290,7 +290,7 @@ func TestIntegrationPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	request.event.Event.Mentioned = true
 	request.event.Directed = true
 	request.event.Launches = []IntegrationLaunchIntent{
-		{IntegrationID: integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: execution.profile.ID},
+		{IntegrationID: integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: execution.profile.ID},
 	}
 	request.candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
 		{AgentID: uuid.New(), Address: request.address},
@@ -300,7 +300,7 @@ func TestIntegrationPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	require.Len(t, plan.Recipients, 1)
 	for _, slot := range plan.Recipients {
 		require.NotNil(t, slot.Launch)
-		require.Equal(t, integrationdefinition.ProfileLaunchKey, slot.Selection.Slot)
+		require.Equal(t, integrationdefinition.ProfileLaunchKey, slot.Selection.LaunchKey)
 	}
 }
 
@@ -329,7 +329,7 @@ func TestIntegrationPlanRejectsUnavailableLaunchIntents(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			router, execution, integrations, integration, event := integrationPlannerFixture(t)
 			event.Launches = []IntegrationLaunchIntent{
-				{IntegrationID: integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: execution.profile.ID},
+				{IntegrationID: integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: execution.profile.ID},
 			}
 			request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
 			require.NoError(t, err)
@@ -583,7 +583,7 @@ func TestIntegrationPlanRecipientAllowanceCoversSupportedFacts(t *testing.T) {
 	}
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: strings.Repeat("C", 2048)}
 	slot.Selection = &integrationstore.InboxIntegrationSelection{
-		IntegrationID: uuid.New(), Address: address, Slot: "scheduled",
+		IntegrationID: uuid.New(), Address: address, LaunchKey: "scheduled",
 	}
 	slot.Launch = &executionstore.InboxLaunchPlan{
 		ProfileID: uuid.New(), AgentConfigID: uuid.New(), DerivedBaseConfigID: uuid.New(),

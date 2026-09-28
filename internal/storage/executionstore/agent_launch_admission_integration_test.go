@@ -277,7 +277,7 @@ func newInboxLaunchFixtureForIntegration(
 			Selection: integrationstore.InboxIntegrationSelection{
 				IntegrationID: f.integration.ID,
 				Address:       launch.InitialInput.Origin.Address,
-				Slot:          key,
+				LaunchKey:     key,
 			},
 		}
 		if withFile {

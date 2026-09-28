@@ -93,7 +93,7 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 				"message": message, "recipients": map[string]any{"scheduled": map[string]any{
 					"launch": launchFacts,
 					"selection": integrationstore.InboxIntegrationSelection{
-						IntegrationID: f.integrationID, Slot: "scheduled",
+						IntegrationID: f.integrationID, LaunchKey: "scheduled",
 						Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 					},
 				}},
@@ -130,7 +130,7 @@ func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 			receipt := f.claim(t)
 			root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
 			selection := integrationstore.InboxIntegrationSelection{
-				IntegrationID: f.integrationID, Slot: "scheduled",
+				IntegrationID: f.integrationID, LaunchKey: "scheduled",
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 			}
 			if scenario == "different thread" {

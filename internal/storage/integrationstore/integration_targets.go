@@ -38,7 +38,7 @@ type EnsureConversationTargetInput struct {
 	ProjectID, AgentID, IntegrationID uuid.UUID
 	Address                           ConversationAddress
 	DisplayName                       string
-	LaunchKey                     string
+	LaunchKey                         string
 }
 
 func LockConversationTx(
@@ -154,7 +154,7 @@ func integrationTargetRecord(row dbsqlc.GetAgentConversationTargetRow, orgID uui
 		ID: row.ID, OrgID: orgID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
 		ScopeRef: row.ScopeRef, ScopeKind: row.ScopeKind,
 		DisplayName: row.DisplayName,
-		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		DeletedAt:   row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	if row.LaunchKey != nil {
 		record.LaunchKey = *row.LaunchKey

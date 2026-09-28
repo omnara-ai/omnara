@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -69,7 +70,7 @@ func TestIntegrationInboxConversationQuotaPreservesObserversAndRetriesLaunch(t *
 			}
 			require.NotEqual(t, uuid.Nil, launchID)
 			_, err = f.store.Execution().GetAgentInProject(ctx, f.ids.ProjectID, launchID)
-			require.ErrorIs(t, err, storeerr.ErrNotFound, "quota failure must roll back the planned seventeenth agent")
+			require.ErrorIs(t, err, pgx.ErrNoRows, "quota failure must roll back the planned seventeenth agent")
 			var agents int
 			require.NoError(t, f.pool.QueryRow(ctx,
 				`SELECT count(*) FROM agents WHERE project_id=$1`, f.ids.ProjectID).Scan(&agents))
@@ -147,7 +148,7 @@ func TestIntegrationInboxConversationQuotaPreservesObserversAndRetriesLaunch(t *
 				require.Equal(t, before, current)
 				require.Equal(t, outcomes, finalOutcomes)
 				_, err = f.store.Execution().GetAgentInProject(ctx, f.ids.ProjectID, launchID)
-				require.ErrorIs(t, err, storeerr.ErrNotFound)
+				require.ErrorIs(t, err, pgx.ErrNoRows)
 				require.Equal(t, []string{"Request failed"}, f.provider.notices)
 			}
 			duplicate, created, err := inbox.AcceptIntegrationReceipt(ctx, input)

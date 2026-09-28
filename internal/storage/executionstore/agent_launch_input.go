@@ -35,7 +35,7 @@ type launchAdmission struct {
 	Scheduled     bool
 	AgentID       uuid.UUID
 	IntegrationID uuid.UUID
-	LaunchKey string
+	LaunchKey     string
 	Artifacts     []artifactstore.PreparedArtifact
 }
 

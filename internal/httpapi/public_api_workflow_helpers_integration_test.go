@@ -286,6 +286,7 @@ func newIntegrationServerWithStoreOptions(
 				context.Context,
 				modelstore.ModelProviderConfigRecord,
 				string,
+				map[string]string,
 				bool,
 			) ([]modelprovider.DiscoveredModel, error) {
 				return nil, errors.New("model discovery is disabled in integration tests")

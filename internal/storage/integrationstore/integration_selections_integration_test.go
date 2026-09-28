@@ -42,7 +42,7 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 			require.NoError(t, err)
 			slots[key] = map[string]any{"agent_id": id,
 				"selection": integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID,
-					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"}, Slot: key}}
+					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"}, LaunchKey: key}}
 		}
 		raw, err := json.Marshal(map[string]any{"message": map[string]any{}, "recipients": slots})
 		require.NoError(t, err)

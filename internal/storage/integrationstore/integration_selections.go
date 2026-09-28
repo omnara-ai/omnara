@@ -33,12 +33,12 @@ func (e *IntegrationSelectionReservationError) Error() string {
 
 func (e *IntegrationSelectionReservationError) Unwrap() error { return ErrIntegrationSelectionReserved }
 
-// InboxIntegrationSelection reserves all slots at an integration/address so concurrent plans cannot
-// split the initial conversation membership.
+// InboxIntegrationSelection reserves an integration/address so concurrent plans
+// cannot split the initial conversation membership.
 type InboxIntegrationSelection struct {
 	IntegrationID uuid.UUID           `json:"integration_id"`
 	Address       ConversationAddress `json:"address"`
-	Slot          string              `json:"slot"`
+	LaunchKey     string              `json:"launch_key"`
 }
 
 type integrationSelectionIdentity struct {
@@ -91,8 +91,8 @@ func (w *IntegrationInboxLeaseTx) reserveIntegrationSelections(ctx context.Conte
 	// Only a scheduler-accepted receipt can reserve the scheduled launch key;
 	// provider payloads and selected profile choices do not confer that authority.
 	if w.record.Source != IntegrationInboxSourceScheduled {
-		for _, slots := range identities {
-			if slots["scheduled"] {
+		for _, launchKeys := range identities {
+			if launchKeys["scheduled"] {
 				return storeerr.ErrUnauthorized
 			}
 		}
@@ -220,8 +220,9 @@ func inboxSelectionIdentities(
 			return nil, inboxInvalid("selection identities must use their canonical encoding")
 		}
 		if selection.IntegrationID == uuid.Nil || selection.IntegrationID != integrationID ||
-			selection.Slot == "" || len(selection.Slot) > 64 || strings.TrimSpace(selection.Slot) != selection.Slot {
-			return nil, inboxInvalid("selection requires an integration, stable slot and the receipt integration")
+			selection.LaunchKey == "" || len(selection.LaunchKey) > 64 ||
+			strings.TrimSpace(selection.LaunchKey) != selection.LaunchKey {
+			return nil, inboxInvalid("selection requires an integration, stable launch key and the receipt integration")
 		}
 		if err := selection.Address.Validate(); err != nil {
 			return nil, err
@@ -230,10 +231,10 @@ func inboxSelectionIdentities(
 		if identities[identity] == nil {
 			identities[identity] = map[string]bool{}
 		}
-		if identities[identity][selection.Slot] {
-			return nil, inboxInvalid("duplicate integration selection slot in plan")
+		if identities[identity][selection.LaunchKey] {
+			return nil, inboxInvalid("duplicate integration launch key in plan")
 		}
-		identities[identity][selection.Slot] = true
+		identities[identity][selection.LaunchKey] = true
 	}
 	return identities, nil
 }

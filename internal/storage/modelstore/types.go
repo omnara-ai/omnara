@@ -22,6 +22,8 @@ const (
 
 	DefaultModelProviderRequestTimeoutMS = int64(time.Hour / time.Millisecond)
 	DefaultModelProviderIdleTimeoutMS    = int64((5 * time.Minute) / time.Millisecond)
+
+	maxModelProviderHeaders = 64
 )
 
 type CreateModelProviderConfigInput struct {
@@ -36,6 +38,8 @@ type CreateModelProviderConfigInput struct {
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID uuid.UUID
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
 	managementKind     management.Kind
 }
 
@@ -49,6 +53,8 @@ type modelProviderConfigUpdate struct {
 	AuthKind           string
 	AuthOptions        json.RawMessage
 	CredentialSecretID uuid.UUID
+	Headers            json.RawMessage
+	SecretHeaders      json.RawMessage
 	APIFormat          modelprotocol.APIFormat
 	APIVariant         modelprotocol.APIVariant
 }
@@ -63,6 +69,13 @@ type PatchModelProviderConfigInput struct {
 	AuthKind           *string
 	AuthOptions        *json.RawMessage
 	CredentialSecretID *uuid.UUID
+	Headers            *json.RawMessage
+	SecretHeaders      *json.RawMessage
+}
+
+type ModelProviderHeaders struct {
+	Headers       map[string]string
+	SecretHeaders map[string]uuid.UUID
 }
 
 type ModelProviderConfigRecord struct {
@@ -79,6 +92,8 @@ type ModelProviderConfigRecord struct {
 	AuthKind           string                   `json:"auth_kind"`
 	AuthOptions        json.RawMessage          `json:"auth_options"`
 	CredentialSecretID uuid.UUID                `json:"credential_secret_id"`
+	Headers            json.RawMessage          `json:"headers"`
+	SecretHeaders      json.RawMessage          `json:"secret_headers"`
 	DeletedAt          *time.Time               `json:"deleted_at,omitempty"`
 	CreatedAt          time.Time                `json:"created_at"`
 	UpdatedAt          time.Time                `json:"updated_at"`

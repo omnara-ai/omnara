@@ -25,6 +25,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/patch"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type createModelProviderConfigCommand struct {
@@ -115,6 +116,20 @@ func patchModelProviderConfigInputFromOpenAPI(
 		}
 		credentialSecretID := parsed
 		patch.CredentialSecretID = &credentialSecretID
+	}
+	if body.Headers != nil {
+		value, err := rawJSONFromPointer(body.Headers)
+		if err != nil {
+			return modelstore.PatchModelProviderConfigInput{}, err
+		}
+		patch.Headers = &value
+	}
+	if body.SecretHeaders != nil {
+		value, err := secretIDsFromPointer(body.SecretHeaders)
+		if err != nil {
+			return modelstore.PatchModelProviderConfigInput{}, errors.New("invalid secret_headers")
+		}
+		patch.SecretHeaders = &value
 	}
 	return patch, nil
 }
@@ -307,6 +322,14 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 	if err != nil {
 		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "invalid credential_secret_id")
 	}
+	headers, err := rawJSONFromPointer(body.Headers)
+	if err != nil {
+		return nil, err
+	}
+	secretHeaders, err := secretIDsFromPointer(body.SecretHeaders)
+	if err != nil {
+		return nil, apierror.FromCode(openapigen.ErrorCodeInvalidRequest, "invalid secret_headers")
+	}
 	record, err := s.server.store.Models().CreateModelProviderConfig(ctx, modelstore.CreateModelProviderConfigInput{
 		OrgID:              org.ID,
 		Name:               command.Name,
@@ -319,6 +342,8 @@ func (s strictOpenAPIServer) CreateModelProviderConfig(
 		AuthKind:           command.AuthKind,
 		AuthOptions:        command.AuthOptions,
 		CredentialSecretID: credentialSecretID,
+		Headers:            headers,
+		SecretHeaders:      secretHeaders,
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
@@ -367,10 +392,18 @@ func (s strictOpenAPIServer) providerModelCatalog(
 	if apiKey == "" {
 		return failed("credential secret has no value")
 	}
+	headers, err := modelprovider.ProviderHeaders(ctx, s.server.store.Secrets(), record)
+	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		return failed(err.Error())
+	}
+	if err != nil {
+		return failed("could not read the header secrets")
+	}
 	models, err := s.server.modelDiscoverer(
 		ctx,
 		record,
 		apiKey,
+		headers,
 		s.server.allowInsecureModelProviderEndpoints,
 	)
 	if err != nil {
@@ -1064,6 +1097,14 @@ func modelProviderConfigResponse(record modelstore.ModelProviderConfigRecord) (o
 	if err != nil {
 		return openapigen.ModelProviderConfig{}, err
 	}
+	var headers map[string]string
+	if err := json.Unmarshal(record.Headers, &headers); err != nil {
+		return openapigen.ModelProviderConfig{}, err
+	}
+	var secretHeaders map[string]openapigen.SecretID
+	if err := publicSecretIDs(record.SecretHeaders, &secretHeaders); err != nil {
+		return openapigen.ModelProviderConfig{}, err
+	}
 	return openapigen.ModelProviderConfig{
 		Id:                 id,
 		OrgId:              orgID,
@@ -1078,6 +1119,8 @@ func modelProviderConfigResponse(record modelstore.ModelProviderConfigRecord) (o
 		AuthKind:           record.AuthKind,
 		AuthOptions:        jsonOrFallback(record.AuthOptions, json.RawMessage(`{}`)),
 		CredentialSecretId: credentialSecretID,
+		Headers:            headers,
+		SecretHeaders:      secretHeaders,
 		CreatedAt:          record.CreatedAt,
 		UpdatedAt:          record.UpdatedAt,
 	}, nil

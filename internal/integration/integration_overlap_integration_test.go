@@ -222,7 +222,7 @@ func TestIntegrationRouterDirectedSettledIntentWithoutSubscription(t *testing.T)
 			key = "original-choice-replay"
 			nextEvent.Directed = true
 			nextEvent.Launches = []IntegrationLaunchIntent{
-				{IntegrationID: integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: profile.ID},
+				{IntegrationID: integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: profile.ID},
 			}
 		} else {
 			nextEvent.SemanticKey = "slack:message:T123:C123:1.3"

@@ -481,7 +481,7 @@ function AgentMcpConnectionItem({ connection }: { connection: AgentMcpConnection
           <div className="text-muted-foreground break-all">{connection.endpoint_url}</div>
           <div className="text-muted-foreground">
             {stateLabel}
-            {connection.protocol_version ? ` · MCP ${connection.protocol_version}` : ''}
+            {connection.protocol_version && <span>{` · MCP ${connection.protocol_version}`}</span>}
           </div>
           {connection.initialize_error && (
             <div className="text-destructive break-words">{connection.initialize_error}</div>

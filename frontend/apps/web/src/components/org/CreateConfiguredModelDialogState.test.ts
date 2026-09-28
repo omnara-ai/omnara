@@ -74,6 +74,8 @@ describe('configured model token limits', () => {
     auth_kind: 'bearer_token',
     auth_options: {},
     credential_secret_id: 'secret',
+    headers: {},
+    secret_headers: {},
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

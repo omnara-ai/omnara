@@ -69,7 +69,7 @@ func (
 	profiles := make([]IntegrationLaunchIntent, 0, len(ids))
 	for _, id := range ids {
 		profiles = append(profiles, IntegrationLaunchIntent{
-			IntegrationID: input.Integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: id,
+			IntegrationID: input.Integration.ID, LaunchKey: integrationdefinition.ProfileLaunchKey, ProfileID: id,
 		})
 	}
 	return l.decideProfiles(ctx, input, profiles)
@@ -217,7 +217,10 @@ func choiceIntent(choice integrationstore.IntegrationProfileChoiceRecord) []Inte
 	for _, option := range choice.Options {
 		if option.Key == choice.SelectedKey {
 			return []IntegrationLaunchIntent{
-				{IntegrationID: choice.IntegrationID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: option.ProfileID},
+				{
+					IntegrationID: choice.IntegrationID, LaunchKey: integrationdefinition.ProfileLaunchKey,
+					ProfileID: option.ProfileID,
+				},
 			}
 		}
 	}

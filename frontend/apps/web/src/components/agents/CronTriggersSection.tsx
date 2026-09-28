@@ -125,9 +125,10 @@ export function CronTriggersListContent({
                 </div>
                 <p className="text-muted-foreground truncate text-xs">
                   <span className="font-mono">{trigger.cron}</span> · {trigger.timezone}
-                  {trigger.target.type === 'agent' &&
-                    ` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}
-                  {trigger.next_fire_at && nextFireLabel(trigger.next_fire_at)}
+                  {trigger.target.type === 'agent' && (
+                    <span>{` · ${cronTriggerDeliveryModeLabel(trigger.target.delivery_mode ?? 'queued')}`}</span>
+                  )}
+                  {trigger.next_fire_at && <span>{nextFireLabel(trigger.next_fire_at)}</span>}
                 </p>
                 {trigger.target.type === 'integration' && (
                   <p className="text-muted-foreground break-words text-xs">

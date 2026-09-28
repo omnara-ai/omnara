@@ -78,7 +78,7 @@ func TestLauncherMissingIntentProfileReportsUnavailable(t *testing.T) {
 	) ([]IntegrationLaunchIntent, error) {
 		return []IntegrationLaunchIntent{{
 			IntegrationID: input.Integration.ID, ProfileID: f.profiles[0].ID,
-			Slot: integrationdefinition.ProfileLaunchKey,
+			LaunchKey: integrationdefinition.ProfileLaunchKey,
 		}}, nil
 	}
 	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[0].ID))

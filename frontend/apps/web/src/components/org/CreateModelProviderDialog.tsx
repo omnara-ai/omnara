@@ -6,6 +6,9 @@ import type {
 } from '@omnara/sdk'
 import { type SyntheticEvent, useRef, useState } from 'react'
 
+import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
+import { recordFromSecretRows, recordFromTextRows } from '@/components/key-value/keyValueRows'
+import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
 import { Button } from '@/components/ui/button'
 import {
@@ -62,6 +65,8 @@ function modelProviderRequest(
   const common = {
     name: values.name,
     credential_secret_id: values.secretId,
+    headers: recordFromTextRows(values.headerRows),
+    secret_headers: recordFromSecretRows(values.secretHeaderRows),
   }
   if (values.provider === 'custom') {
     return { ...common, api_format: values.apiFormat, base_url: values.baseUrl.trim() }
@@ -317,7 +322,7 @@ export function CreateModelProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         {phase.step === 'provider' ? (
           <>
             <DialogHeader>
@@ -404,6 +409,24 @@ export function CreateModelProviderDialog({
                   secretValuePlaceholder={provider.keyPlaceholder}
                   kind={credential.kind}
                 />
+                <OverridesCollapsible title="Advanced">
+                  <KeyValueEditor
+                    orgId={orgId}
+                    enabled={open}
+                    label="Headers"
+                    itemLabel="Header"
+                    keyPlaceholder="Header-Name"
+                    textRows={values.headerRows}
+                    secretRows={values.secretHeaderRows}
+                    onChange={({ textRows, secretRows }) => {
+                      setValues((prev) => ({
+                        ...prev,
+                        headerRows: textRows,
+                        secretHeaderRows: secretRows,
+                      }))
+                    }}
+                  />
+                </OverridesCollapsible>
                 {statusError(status) && (
                   <p className="text-destructive text-sm">{statusError(status)}</p>
                 )}

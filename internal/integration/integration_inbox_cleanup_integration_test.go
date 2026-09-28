@@ -224,7 +224,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{unused.ArtifactID},
 			Launch: &executionstore.InboxLaunchPlan{AgentConfigID: base.ID},
 			Selection: &integrationstore.InboxIntegrationSelection{
-				IntegrationID: integration.ID, Slot: "reviewer",
+				IntegrationID: integration.ID, LaunchKey: "reviewer",
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			},
 		},

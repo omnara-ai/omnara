@@ -51,14 +51,14 @@ func TestScheduledPlanKeepsIntegrationAndConversationAuthority(t *testing.T) {
 			kind, ref, err := root.Conversation()
 			require.NoError(t, err)
 			selection := integrationstore.InboxIntegrationSelection{
-				IntegrationID: receipt.IntegrationID, Slot: "scheduled",
+				IntegrationID: receipt.IntegrationID, LaunchKey: "scheduled",
 				Address: integrationstore.ConversationAddress{Kind: kind, Ref: ref},
 			}
 			switch scenario {
 			case "wrong address":
 				selection.Address.Ref = "301:500"
 			case "wrong slot name":
-				selection.Slot = "other"
+				selection.LaunchKey = "other"
 			case "wrong integration":
 				selection.IntegrationID = uuid.New()
 			}

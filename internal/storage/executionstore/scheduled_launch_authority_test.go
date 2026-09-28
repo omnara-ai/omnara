@@ -51,7 +51,7 @@ func scheduledAuthorityFixture(t *testing.T) (
 	require.NoError(t, err)
 	slot := InboxLaunchSlot{
 		Selection: integrationstore.InboxIntegrationSelection{
-			IntegrationID: integration.ID, Slot: "scheduled",
+			IntegrationID: integration.ID, LaunchKey: "scheduled",
 			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 		},
 		Launch: InboxLaunchPlan{
@@ -106,7 +106,7 @@ func TestScheduledLaunchAuthorityRejectsPlanSubstitution(t *testing.T) {
 			s.Launch.LaunchedBy.ID = uuid.New()
 		}},
 		{"select another slot", func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
-			s.Selection.Slot = "mention"
+			s.Selection.LaunchKey = "mention"
 		}},
 		{"select another integration", func(t *testing.T, _ *integrationstore.IntegrationInboxRecord, s *InboxLaunchSlot) {
 			s.Selection.IntegrationID = uuid.New()

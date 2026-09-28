@@ -151,8 +151,8 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
  (id,project_id,integration_id,receipt_key,payload,plan,state,claim_token,claim_expires_at,completed_at)
  SELECT id,$1,$2,'matching:'||id,'x'::bytea,
    jsonb_build_object('recipients',jsonb_build_object(
-                      'a',jsonb_build_object('selection',$5::jsonb||'{"slot":"a"}'::jsonb),
-                      'b',jsonb_build_object('selection',$5::jsonb||'{"slot":"b"}'::jsonb))), $6::text,
+                      'a',jsonb_build_object('selection',$5::jsonb||'{"launch_key":"a"}'::jsonb),
+                      'b',jsonb_build_object('selection',$5::jsonb||'{"launch_key":"b"}'::jsonb))), $6::text,
    CASE WHEN $6::text='processing' THEN uuidv7() ELSE NULL END,
    CASE WHEN $6::text='processing' THEN now()+interval '1 minute' ELSE NULL END,
    CASE WHEN $6::text='failed' THEN now() ELSE NULL END

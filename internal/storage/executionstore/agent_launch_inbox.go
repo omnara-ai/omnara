@@ -151,7 +151,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		Scheduled:     scheduled,
 		AgentID:       slot.AgentID,
 		IntegrationID: selection.IntegrationID,
-		LaunchKey:     selection.Slot,
+		LaunchKey:     selection.LaunchKey,
 		Artifacts:     artifacts,
 	}
 	txNotifications := s.newTxNotifications()
@@ -186,8 +186,9 @@ func decodeInboxLaunchSlot(
 		return fail("planned agent requires a UUIDv7 identity")
 	}
 	selection := slot.Selection
-	if selection.IntegrationID == uuid.Nil || selection.IntegrationID != receipt.IntegrationID || selection.Slot == "" {
-		return fail("launch selection must belong to the receipt integration and name an integration slot")
+	if selection.IntegrationID == uuid.Nil || selection.IntegrationID != receipt.IntegrationID ||
+		selection.LaunchKey == "" {
+		return fail("launch selection must belong to the receipt integration and name a launch key")
 	}
 	if slot.Launch.ProfileID == uuid.Nil || slot.Launch.AgentConfigID == uuid.Nil ||
 		slot.Launch.DerivedBaseConfigID == uuid.Nil || slot.Launch.IdempotencyKey == "" {

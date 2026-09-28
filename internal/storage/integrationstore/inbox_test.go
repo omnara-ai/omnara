@@ -65,7 +65,7 @@ func TestInboxReceiptBounds(t *testing.T) {
 func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 	integrationID := uuid.New()
 	selection := InboxIntegrationSelection{
-		IntegrationID: integrationID, Address: ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, Slot: "default",
+		IntegrationID: integrationID, Address: ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, LaunchKey: "default",
 	}
 	plan, err := json.Marshal(map[string]any{
 		"message": map[string]any{}, "recipients": map[string]any{"one": map[string]any{"selection": selection}},
@@ -79,7 +79,7 @@ func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 	}
 	if len(identities) != 1 || !identities[integrationSelectionIdentity{
 		IntegrationID: integrationID, Address: selection.Address,
-	}][selection.Slot] {
+	}][selection.LaunchKey] {
 		t.Fatalf("frozen recipient selection missing: %v", identities)
 	}
 	if _, err := inboxSelectionIdentities(plan, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
@@ -92,7 +92,7 @@ func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := inboxSelectionIdentities(duplicate, integrationID); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("duplicate selection slot accepted: %v", err)
+		t.Fatalf("duplicate launch key accepted: %v", err)
 	}
 	_, _, err = ensureIntegrationProfileChoiceTx(t.Context(), nil,
 		IntegrationInboxRecord{IntegrationID: integrationID},
@@ -128,7 +128,7 @@ func TestInboxPlanShapeAndBounds(t *testing.T) {
 	}
 	for _, raw := range []string{
 		"", `null`, `[]`, `{"one":null}`, `{"one":[]}`, `{" ":{}}`, `{} {}`,
-		`{"one":{"selection":{"slot":"scheduled"}}}`,
+		`{"one":{"selection":{"launch_key":"scheduled"}}}`,
 		`{"recipients":{"one":{}}}`, `{"message":{},"recipients":{"one":null}}`,
 		`{"one":{"data":"` + strings.Repeat("x", IntegrationInboxMaxPlanBytes) + `"}}`,
 	} {

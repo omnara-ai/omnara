@@ -42,6 +42,7 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
     const triggerRef = externalTriggerRef ?? localTriggerRef
     const [open, setOpen] = useState(false)
     const canClear = clearable && value !== null
+    const label = value ? config.itemLabel(value) : placeholder
 
     return (
       <Combobox
@@ -74,7 +75,9 @@ export function createResourceCombobox<TItem>(config: ResourceComboboxConfig<TIt
               setOpen(true)
             }}
           >
-            <span className="truncate">{value ? config.itemLabel(value) : placeholder}</span>
+            <span key={label} className="truncate">
+              {label}
+            </span>
           </ComboboxTrigger>
           {canClear && (
             <Button

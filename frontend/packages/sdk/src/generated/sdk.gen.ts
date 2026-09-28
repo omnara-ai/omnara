@@ -1071,7 +1071,7 @@ export const startSecretMcpoAuth = <ThrowOnError extends boolean = true>(options
 /**
  * Delete secret
  *
- * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is referenced by a model provider config, machine pool, or integration.
+ * Deletes the secret and permanently destroys all of its versions and project grants; the ciphertext cannot be recovered. Deletion is blocked while the secret is the credential of a model provider config, machine pool, or integration.
  */
 export const deleteSecret = <ThrowOnError extends boolean = true>(options: Options<DeleteSecretData, ThrowOnError>): RequestResult<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteSecretResponse),
@@ -1419,7 +1419,7 @@ export const createAgentProfile = <ThrowOnError extends boolean = true>(options:
 /**
  * Delete agent profile
  *
- * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Deletion is blocked while a saved integration launcher references the profile, including a disconnected integration.
+ * Deletes the profile, all of its profile versions, and any cron triggers targeting the profile. Agents launched from the profile are retained and keep running: each agent holds an immutable snapshot of the configuration it was launched with, so its reference to the profile becomes historical provenance only. Integration settings may retain the public profile ID; future launches fail as unavailable until those settings reference an available profile.
  */
 export const deleteAgentProfile = <ThrowOnError extends boolean = true>(options: Options<DeleteAgentProfileData, ThrowOnError>): RequestResult<DeleteAgentProfileResponses, DeleteAgentProfileErrors, ThrowOnError> => (options.client ?? client).delete<DeleteAgentProfileResponses, DeleteAgentProfileErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zDeleteAgentProfileResponse),
@@ -3415,9 +3415,9 @@ export const getIntegration = <ThrowOnError extends boolean = true>(options: Opt
 });
 
 /**
- * Update integration launcher settings
+ * Update integration settings
  *
- * Updates settings while preserving credentials. The request must echo the existing name and integration_kind; changing either returns 400. A workspace or installation launcher must match the integration's verified provider identity.
+ * Replaces integration-owned settings while preserving credentials. The request contains only settings; name and integration_kind are immutable and accepted only on create. Preserve integration-level fields when editing the launcher. Settings follow capabilities.settings.input_schema from the integration catalog.
  */
 export const updateIntegration = <ThrowOnError extends boolean = true>(options: Options<UpdateIntegrationData, ThrowOnError>): RequestResult<UpdateIntegrationResponses, UpdateIntegrationErrors, ThrowOnError> => (options.client ?? client).put<UpdateIntegrationResponses, UpdateIntegrationErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zUpdateIntegrationResponse),
@@ -3517,7 +3517,7 @@ export const deleteIntegrationSubscription = <ThrowOnError extends boolean = tru
 /**
  * Verify and configure integration credentials
  *
- * Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. A workspace or installation launcher must match the verified provider identity.
+ * Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. Setup preserves integration settings; verified provider identity scopes incoming events.
  */
 export const configureIntegration = <ThrowOnError extends boolean = true>(options: Options<ConfigureIntegrationData, ThrowOnError>): RequestResult<ConfigureIntegrationResponses, ConfigureIntegrationErrors, ThrowOnError> => (options.client ?? client).post<ConfigureIntegrationResponses, ConfigureIntegrationErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zConfigureIntegrationResponse),

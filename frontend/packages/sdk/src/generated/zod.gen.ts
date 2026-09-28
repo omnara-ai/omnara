@@ -336,7 +336,9 @@ export const zCreateModelProviderConfigRequest = z.object({
         service: z.string().min(1).max(64).optional(),
         region: z.string().min(1).max(64).optional()
     }).optional(),
-    credential_secret_id: zSecretId
+    credential_secret_id: zSecretId,
+    headers: z.record(z.string(), z.string()).optional(),
+    secret_headers: z.record(z.string(), zSecretId).optional()
 });
 
 /**
@@ -353,7 +355,9 @@ export const zUpdateModelProviderConfigRequest = z.object({
         service: z.string().min(1).max(64).optional(),
         region: z.string().min(1).max(64).optional()
     }).optional(),
-    credential_secret_id: zSecretId.optional()
+    credential_secret_id: zSecretId.optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    secret_headers: z.record(z.string(), zSecretId).optional()
 });
 
 export const zSecretGrantId = z.string().regex(/^sgr_[a-z2-7]{26}$/);
@@ -388,6 +392,8 @@ export const zModelProviderConfig = z.object({
         region: z.string().min(1).max(64).optional()
     }),
     credential_secret_id: zSecretId,
+    headers: z.record(z.string(), z.string()),
+    secret_headers: z.record(z.string(), zSecretId),
     created_at: zTimestamp,
     updated_at: zTimestamp
 });
@@ -3090,7 +3096,7 @@ export const zIntegrationCapabilityDefinition = z.object({
 export const zIntegrationSubscriptionId = z.string().regex(/^isub_[a-z2-7]{26}$/);
 
 /**
- * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id as validation hints; only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
  */
 export const zIntegrationConversation = z.record(z.string(), z.unknown());
 
@@ -5284,7 +5290,7 @@ export const zUpdateIntegrationPath = z.object({
 });
 
 /**
- * Update integration launcher settings.
+ * Updated integration settings.
  */
 export const zUpdateIntegrationResponse = zIntegration;
 

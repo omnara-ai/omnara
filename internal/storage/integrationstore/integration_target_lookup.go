@@ -22,10 +22,10 @@ func (s *Store) UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 	_, err := s.q.UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 		ctx,
 		dbsqlc.UpdateIntegrationTargetDisplayNamesByScopeRefPrefixParams{
-			ProjectID:         projectID,
-			IntegrationID:     integrationID,
+			ProjectID:      projectID,
+			IntegrationID:  integrationID,
 			ScopeRefPrefix: scopeRefPrefix,
-			DisplayName:       displayName,
+			DisplayName:    displayName,
 		},
 	)
 	if err != nil {
@@ -74,7 +74,7 @@ func integrationTargetRecordFromGetSQLC(
 		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
 		ScopeRef: row.ScopeRef, ScopeKind: row.ScopeKind,
 		DisplayName: row.DisplayName,
-		LaunchKey: row.LaunchKey,
-		DeletedAt:     row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		LaunchKey:   row.LaunchKey,
+		DeletedAt:   row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, row.OrgID)
 }

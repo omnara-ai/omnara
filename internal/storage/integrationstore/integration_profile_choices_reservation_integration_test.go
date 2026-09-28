@@ -23,7 +23,7 @@ func (f profileChoiceFixture) selectionPlan(t *testing.T, integrationID uuid.UUI
 	plan, err := json.Marshal(map[string]any{
 		"message": map[string]any{}, "recipients": map[string]any{"chosen": map[string]any{
 			"selection": integrationstore.InboxIntegrationSelection{
-				IntegrationID: integrationID, Address: f.input.Address, Slot: slot,
+				IntegrationID: integrationID, Address: f.input.Address, LaunchKey: slot,
 			},
 		}},
 	})

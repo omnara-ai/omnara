@@ -261,7 +261,7 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 			recipients[settledAgent] = nil
 			continue
 		}
-		key := integrationPlanKey(event.SemanticKey, "profile", integration.ID.String(), intent.Slot)
+		key := integrationPlanKey(event.SemanticKey, "profile", integration.ID.String(), intent.LaunchKey)
 		if _, exists := plan.Recipients[key]; exists {
 			continue
 		}
@@ -291,7 +291,7 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 		}
 		plan.Recipients[key] = IntegrationInboxSlot{
 			Selection: &integrationstore.InboxIntegrationSelection{
-				IntegrationID: integration.ID, Address: request.address, Slot: intent.Slot,
+				IntegrationID: integration.ID, Address: request.address, LaunchKey: intent.LaunchKey,
 			},
 			AgentID: agentID, ArtifactIDs: ids,
 			Launch: &executionstore.InboxLaunchPlan{
@@ -322,9 +322,10 @@ func resolveIntegrationLaunchIntent(
 ) (integrationstore.IntegrationRecord, uuid.UUID, error) {
 	unavailable := func() (integrationstore.IntegrationRecord, uuid.UUID, error) {
 		return integrationstore.IntegrationRecord{}, uuid.Nil,
-			fmt.Errorf("%w: integration %s slot %q", ErrIntegrationLaunchUnavailable, intent.IntegrationID, intent.Slot)
+			fmt.Errorf("%w: integration %s launch key %q",
+				ErrIntegrationLaunchUnavailable, intent.IntegrationID, intent.LaunchKey)
 	}
-	if intent.IntegrationID == uuid.Nil || intent.Slot == "" || intent.ProfileID == uuid.Nil {
+	if intent.IntegrationID == uuid.Nil || intent.LaunchKey == "" || intent.ProfileID == uuid.Nil {
 		return unavailable()
 	}
 	integration := candidates.Launcher
@@ -334,7 +335,7 @@ func resolveIntegrationLaunchIntent(
 	}
 	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
 	if !ok || definition.AuthorizeLaunch(integration.Settings, event, integrationdefinition.LaunchIntent{
-		LaunchKey: intent.Slot, ProfileID: intent.ProfileID,
+		LaunchKey: intent.LaunchKey, ProfileID: intent.ProfileID,
 	}) != nil {
 		return unavailable()
 	}
