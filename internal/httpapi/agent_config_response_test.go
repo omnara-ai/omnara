@@ -36,6 +36,7 @@ func TestPublicCompiledDefinition(t *testing.T) {
 			"int__chat__post_message":{"integration_id":"UUID","enabled":true,"permission":{"mode":"always_ask","parameters":{}},"deferred":true},
 			"int__chat__read":{"integration_id":"UUID","enabled":false,"permission":{"mode":"always_allow","parameters":{}}}},
 		"interaction_handlers":{"chat":{"integration_id":"UUID"}},
+		"git_credentials":{"integration":"reviews","integration_id":"UUID"},
 		"mcp":{"docs":{"url":"https://example.com","default_enabled":false,"permission":{"mode":"always_ask","parameters":{}},"deferred":true,
 			"auth":{"type":"sigv4","secret_id":"UUID","region":"us-west-2","service":"execute-api"},
 			"tools":{"read":{"enabled":false,"permission":{"mode":"always_allow","parameters":{}},"deferred":false},"inherit":{}}},
@@ -79,6 +80,21 @@ func TestPublicCompiledDefinition(t *testing.T) {
 	var value any
 	require.NoError(t, json.Unmarshal(actual, &value))
 	require.NoError(t, spec.Components.Schemas["CompiledAgentConfig"].Value.VisitJSON(value))
+
+	t.Run("detail without source", func(t *testing.T) {
+		t.Parallel()
+		// Launcher-derived configs have no source: the compiled view must expose
+		// their Git credentials without relying on source YAML or JSON.
+		detail, err := agentConfigDetailResponse(openapi.AgentConfigSummary{}, raw)
+		require.NoError(t, err)
+		body, err := json.Marshal(detail)
+		require.NoError(t, err)
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(body, &fields))
+		require.NotContains(t, fields, "source")
+		require.NotContains(t, fields, "source_format")
+		require.JSONEq(t, string(actual), string(fields["compiled_definition"]))
+	})
 }
 
 func TestCompiledConfigEnums(t *testing.T) {
@@ -120,6 +136,15 @@ func TestCompiledConfigVariants(t *testing.T) {
 		{"CompiledIntegrationCapability", `{}`, false},
 		{"CompiledIntegrationCapability", `{"integration_id":"11111111-1111-4111-8111-111111111111"}`, false},
 		{"CompiledIntegrationCapability", `{"integration_id":"PROFILE"}`, false},
+		{"CompiledGitCredentials", `{"integration":"reviews","integration_id":"INTEGRATION"}`, true},
+		{"CompiledGitCredentials", `{"integration":"reviews"}`, false},
+		{"CompiledGitCredentials", `{"integration_id":"INTEGRATION"}`, false},
+		{"CompiledGitCredentials", `{"integration":"bad__name","integration_id":"INTEGRATION"}`, false},
+		{
+			"CompiledGitCredentials",
+			`{"integration":"reviews","integration_id":"11111111-1111-4111-8111-111111111111"}`, false,
+		},
+		{"CompiledGitCredentials", `{"integration":"reviews","integration_id":"PROFILE"}`, false},
 		{
 			"CompiledTool",
 			`{"integration_id":"INTEGRATION","enabled":true,"permission":{"mode":"always_allow","parameters":{}}}`,
@@ -185,6 +210,9 @@ func TestPublicCompiledDefinitionInvalid(t *testing.T) {
 		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"interaction_handlers":{"chat":{}}}`,
 		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"interaction_handlers":{"chat":{"integration_id":"not-a-uuid"}}}`,
 		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"tools":{"int__chat__read":{"integration_id":"not-a-uuid"}}}`,
+		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"git_credentials":{"integration":"reviews"}}`,
+		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"git_credentials":{"integration":"reviews","integration_id":"00000000-0000-0000-0000-000000000000"}}`,
+		`{"model":{"configured_model_id":"11111111-1111-4111-8111-111111111111"},"git_credentials":{"integration":"reviews","integration_id":"not-a-uuid"}}`,
 	} {
 		t.Run(source, func(t *testing.T) {
 			t.Parallel()
@@ -201,6 +229,7 @@ func TestPublicCompiledDefinitionOmitsAbsentFields(t *testing.T) {
 	require.NoError(t, err)
 	projected, err := publicCompiledDefinition(json.RawMessage(`{"instruction":"Hello","model":{"configured_model_id":"` + id.String() + `"}}`))
 	require.NoError(t, err)
+	require.Nil(t, projected.GitCredentials)
 	raw, err := json.Marshal(projected)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"instruction":"Hello","model":{"configured_model_id":"`+encoded+`"}}`, string(raw))

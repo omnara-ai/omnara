@@ -17,6 +17,7 @@ var ErrIntegrationCapabilityUnavailable = errors.New("pinned integration capabil
 type IntegrationCapabilitiesSource struct {
 	Tools               map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
 	InteractionHandlers map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsSource                             `json:"git_credentials,omitempty"`
 }
 
 func CompileIntegrationCapabilitiesSource(source IntegrationCapabilitiesSource, opts CompileOptions) (Compiled, error) {
@@ -57,7 +58,7 @@ func CompileIntegrationCapabilitiesSource(source IntegrationCapabilitiesSource, 
 		compiled.Tools[key] = tool
 	}
 	if err := compileIntegrationCapabilities(
-		AgentConfigSource{InteractionHandlers: source.InteractionHandlers},
+		AgentConfigSource{InteractionHandlers: source.InteractionHandlers, GitCredentials: source.GitCredentials},
 		opts,
 		&compiled,
 	); err != nil {
@@ -72,6 +73,9 @@ func DeriveWithIntegrationCapabilities(
 	opts CompileOptions,
 ) (Compiled, error) {
 	opts = cacheIntegrationResolver(opts)
+	if base.GitCredentials != nil {
+		source.GitCredentials = nil
+	}
 	if err := validateCompositionIntegrationPins(base, source, opts); err != nil {
 		return Compiled{}, err
 	}
@@ -103,6 +107,9 @@ func DeriveWithIntegrationCapabilities(
 		derived.InteractionHandlers = map[string]IntegrationCapabilityCompiled{}
 	}
 	maps.Copy(derived.InteractionHandlers, additions.InteractionHandlers)
+	if additions.GitCredentials != nil {
+		derived.GitCredentials = additions.GitCredentials
+	}
 	if err := validateCompiledIntegrations(derived); err != nil {
 		return Compiled{}, err
 	}
@@ -125,6 +132,9 @@ func validateCompositionIntegrationPins(
 	}
 	for name := range source.InteractionHandlers {
 		required[name] = true
+	}
+	if source.GitCredentials != nil {
+		required[source.GitCredentials.Integration] = true
 	}
 	check := func(name string, pinnedID uuid.UUID) error {
 		if !required[name] {
@@ -153,6 +163,9 @@ func validateCompositionIntegrationPins(
 		if err := check(name, base.InteractionHandlers[name].IntegrationID); err != nil {
 			return err
 		}
+	}
+	if base.GitCredentials != nil {
+		return check(base.GitCredentials.Integration, base.GitCredentials.IntegrationID)
 	}
 	return nil
 }

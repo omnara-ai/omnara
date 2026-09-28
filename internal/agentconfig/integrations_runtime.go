@@ -52,6 +52,14 @@ func validateCompiledIntegrations(compiled Compiled) error {
 			return err
 		}
 	}
+	if credentials := compiled.GitCredentials; credentials != nil {
+		if err := toolcatalog.ValidateIntegrationName(credentials.Integration); err != nil {
+			return fmt.Errorf("git credentials: %w", err)
+		}
+		if err := check(credentials.Integration, credentials.IntegrationID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

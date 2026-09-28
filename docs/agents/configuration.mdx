@@ -145,6 +145,28 @@ Integration names resolve to immutable IDs when compiled, while credentials rema
 on the integration. See [Integrations](/integrations/overview) for examples and provider launchers.
 Integration tools, subscriptions and interaction handlers are not inherited by spawned subagents.
 
+### Git credentials
+
+Use a connected GitHub integration for HTTPS Git authentication in the agent's
+machine processes:
+
+```yaml
+git_credentials:
+  integration: reviews
+```
+
+`integration` is the only setting. Compilation pins the integration's immutable
+ID. No assigned PR, integration tool or subscription is required. Credentials
+inherit the connected installation's granted repositories and permissions,
+including its API access; they are not restricted to an assigned PR. Manage those
+grants in GitHub. See [GitHub credentials](/integrations/github#git-credentials) for
+setup and daemon requirements.
+
+GitHub launchers add this capability automatically. An explicit profile choice
+wins as a whole, even when it references a different GitHub integration. Spawned
+subagents do not receive Git credentials, including those configured in their
+selected profile.
+
 ### Deferred tools
 
 Set `deferred: true` on any tool (built-in, custom, or MCP) to keep its definition out of the model's context until the model asks for it. Deferring a tool implicitly enables the built-in `tool_search` tool, which the model calls with a regular expression to load matching deferred tools by name, description, and argument names. Keep the tools the agent needs on almost every turn loaded; defer large or rarely used tool sets.

@@ -145,6 +145,7 @@ const (
 	operationGetArtifact                   operationID = "GetArtifact"
 	operationGetArtifactContent            operationID = "GetArtifactContent"
 	operationGetCurrentUser                operationID = "GetCurrentUser"
+	operationGetDaemonGitCredentials       operationID = "GetDaemonGitCredentials"
 	operationGetDaemonSkillArchive         operationID = "GetDaemonSkillArchive"
 	operationGetMachine                    operationID = "GetMachine"
 	operationGetOrgAPIKey                  operationID = "GetOrgAPIKey"
@@ -262,6 +263,9 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	),
 	operationGetCurrentUser:    userPolicy(noScope()),
 	operationDeleteCurrentUser: userPolicy(noScope()),
+	operationGetDaemonGitCredentials: machineDaemonPolicy(
+		customScope("machine daemon token + active process with original and current Git credentials authority"),
+	),
 	operationGetDaemonSkillArchive: machineDaemonPolicy(
 		customScope("machine daemon token + machine-bound download capability"),
 	),

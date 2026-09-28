@@ -6697,6 +6697,57 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /daemon/processes/{processID}/git-credentials:
+    parameters:
+      - name: processID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ProcessID'
+    post:
+      operationId: getDaemonGitCredentials
+      x-hidden: true
+      tags: [Machine Daemon]
+      summary: Get Git credentials for an active daemon process
+      description: >-
+        Requires machine daemon authentication and an active, execution-granted process
+        on that machine. The process's original config and the agent's current config must
+        enable Git credentials for the same pinned integration. Credentials inherit the
+        connected GitHub installation's full access and are reauthorized on every request.
+      security:
+        - machineDaemonAuth: []
+      responses:
+        '200':
+          description: Short-lived installation credentials. Never cache this response.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [token, expires_at]
+                properties:
+                  token:
+                    type: string
+                  expires_at:
+                    $ref: '#/components/schemas/Timestamp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /daemon/skills/{skillID}/archive:
     parameters:
       - name: skillID
@@ -9541,6 +9592,8 @@ components:
           x-go-type-skip-optional-pointer: true
           additionalProperties:
             $ref: '#/components/schemas/CompiledIntegrationCapability'
+        git_credentials:
+          $ref: '#/components/schemas/CompiledGitCredentials'
         skills:
           type: array
           x-go-type-skip-optional-pointer: true
@@ -9696,6 +9749,19 @@ components:
       additionalProperties: false
       required: [integration_id]
       properties:
+        integration_id:
+          $ref: '#/components/schemas/IntegrationID'
+          x-go-type: publicid.ID
+          x-go-type-import:
+            path: github.com/omnara-ai/omnara/internal/publicid
+    CompiledGitCredentials:
+      type: object
+      additionalProperties: false
+      description: Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+      required: [integration, integration_id]
+      properties:
+        integration:
+          $ref: '#/components/schemas/IntegrationName'
         integration_id:
           $ref: '#/components/schemas/IntegrationID'
           x-go-type: publicid.ID

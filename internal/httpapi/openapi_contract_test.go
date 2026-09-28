@@ -309,6 +309,7 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/daemon/runtimes/{runtimeID}/socket", "get"},
 		{"/daemon/runtimes/{runtimeID}/end", "post"},
 		{"/daemon/runtimes/{runtimeID}/sleep", "post"},
+		{"/daemon/processes/{processID}/git-credentials", "post"},
 		{"/daemon/skills/{skillID}/archive", "get"},
 		{"/daemon/tool-calls/{toolCallID}/artifact", "post"},
 		{"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", "get"},
@@ -346,12 +347,13 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
-		"post /daemon/bootstrap":                        true,
-		"post /daemon/failures":                         true,
-		"post /daemon/runtimes":                         true,
-		"post /daemon/runtimes/{runtimeID}/end":         true,
-		"post /daemon/runtimes/{runtimeID}/sleep":       true,
-		"post /daemon/tool-calls/{toolCallID}/artifact": true,
+		"post /daemon/processes/{processID}/git-credentials": true,
+		"post /daemon/bootstrap":                             true,
+		"post /daemon/failures":                              true,
+		"post /daemon/runtimes":                              true,
+		"post /daemon/runtimes/{runtimeID}/end":              true,
+		"post /daemon/runtimes/{runtimeID}/sleep":            true,
+		"post /daemon/tool-calls/{toolCallID}/artifact":      true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {

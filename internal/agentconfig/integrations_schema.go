@@ -6,6 +6,12 @@ import (
 )
 
 func addIntegrationSourceSchema(schema *kjsonschema.Schema) {
+	schema.Defs["GitCredentialsSource"] = kjsonschema.Object(
+		kjsonschema.Prop("integration", kjsonschema.String(kjsonschema.Pattern(toolcatalog.IntegrationNamePattern))),
+		kjsonschema.Required("integration"),
+		kjsonschema.AdditionalProps(false),
+	)
+	(*schema.Properties)["git_credentials"] = kjsonschema.Ref("#/$defs/GitCredentialsSource")
 	schema.Defs["AgentConfigIntegrationCapabilitySource"] = kjsonschema.Object(
 		kjsonschema.AdditionalProps(false),
 	)

@@ -249,6 +249,7 @@ func TestSourceSchemaIsAtLeastAsStrictAsGoStructs(t *testing.T) {
 	structsByDef := map[string]reflect.Type{
 		"EventWebhook":                           reflect.TypeOf(EventWebhook{}),
 		"AgentConfigIntegrationCapabilitySource": reflect.TypeOf(AgentConfigIntegrationCapabilitySource{}),
+		"GitCredentialsSource":                   reflect.TypeOf(GitCredentialsSource{}),
 		"AgentConfigModelSource":                 reflect.TypeOf(AgentConfigModelSource{}),
 		"AgentConfigMachineSource":               reflect.TypeOf(AgentConfigMachineSource{}),
 		"AgentConfigToolSource":                  reflect.TypeOf(AgentConfigToolSource{}),

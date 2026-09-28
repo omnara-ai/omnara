@@ -105,6 +105,13 @@ func compileIntegrationCapabilities(source AgentConfigSource, opts CompileOption
 		}
 		compiled.InteractionHandlers[name] = IntegrationCapabilityCompiled{IntegrationID: integration.IntegrationID}
 	}
+	if source.GitCredentials != nil {
+		credentials, err := compileGitCredentials(*source.GitCredentials, opts)
+		if err != nil {
+			return err
+		}
+		compiled.GitCredentials = &credentials
+	}
 	return nil
 }
 
@@ -117,6 +124,9 @@ func ReferencedIntegrationIDs(compiled Compiled) []uuid.UUID {
 	}
 	for _, capability := range compiled.InteractionHandlers {
 		ids[capability.IntegrationID] = struct{}{}
+	}
+	if compiled.GitCredentials != nil {
+		ids[compiled.GitCredentials.IntegrationID] = struct{}{}
 	}
 	return slices.SortedFunc(maps.Keys(ids), func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
 }

@@ -47,15 +47,16 @@ setup instead of prompting repeated retries. Organization installations within
 GitHub Enterprise Cloud still use the ordinary organization flow.
 
 Manage repository access in GitHub. Optionally restrict the launcher to one
-repository in the integration settings. Repository checkout and machine credentials remain separate from the
-App's PR comment permissions.
+repository in the integration settings. This limits incoming launches; it does
+not narrow the installation access granted through [Git credentials](#git-credentials).
 
 ### Manual setup
 
 1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
    you control. Give it repository **Pull requests: Read-only**, or **Read & write**
    if agents will comment, and **Issues: Read-only** for incoming PR conversation
-   comments. Install it on the repositories you want to use.
+   comments. For private clone/fetch, also request **Contents: Read-only**.
+   Install it on the repositories you want to use.
 2. Record its numeric **App ID**, numeric **Installation ID**, RSA private key
    and webhook secret. App ID and Installation ID are different values.
 3. [Create a secret](/organization/secrets#create-a-secret) available to the
@@ -116,8 +117,8 @@ The GitHub launcher assigns one pull request to the agent. Every tool operates o
 that PR, so the model supplies neither repository nor PR identifiers. Adding these
 tools to an agent without an assigned PR is insufficient; calls fail before
 contacting GitHub. Subscriptions independently control incoming events and do not
-assign or change the tools' PR. Access to repository contents or a checkout is
-separate machine/profile configuration.
+assign or change the tools' PR. Machine Git authentication uses the separate
+`git_credentials` capability described below.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
 `discussion_comments`, `review_comments`, `reviews` or `review_threads`.
@@ -140,6 +141,51 @@ multiline comment. `reply` uses `comment_id` and `body` to reply to an existing
 review comment. These publish individual comments; Omnara does not stage a review
 or publish one when an agent stops. A network failure can leave publication
 uncertain; inspect GitHub before repeating the action.
+
+## Git credentials
+
+Agents can use a connected integration for HTTPS Git access on `github.com`:
+
+```yaml
+git_credentials:
+  integration: reviews
+```
+
+This works independently of PR tools, subscriptions and PR assignment. The GitHub
+launcher adds its integration automatically; an explicit choice in the selected
+profile takes precedence. Subagents do not inherit this capability, including
+from their selected profile. Configure machine access separately and run ordinary
+Git commands with HTTPS repository URLs.
+
+Credentials inherit **all repositories and permissions granted to the connected
+installation**, including API access. There are no repository or permission
+filters in this config. The assigned PR and `launcher.repository_id` do not narrow
+these credentials. Existing PR tools retain their assigned-PR restrictions.
+See GitHub's [installation token scope](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
+
+New Apps registered through Omnara request **Contents: Read-only** for private
+clone/fetch. For an existing App, add Contents permission in GitHub App settings
+and have the installation owner approve it. Push requires **Contents: Read &
+write** and remains subject to GitHub's repository rules; workflow-file changes
+can also require **Workflows** permission. Omnara does not request these write
+permissions automatically. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
+
+**Upgrade `omnarad` with this release before using Git credentials.** Older daemons
+ignore the credential flag in process offers and may use ambient machine
+credentials instead. There is no version gate or compatibility fallback.
+
+The helper handles `github.com` HTTPS authentication in enabled agent processes
+and replaces other GitHub HTTPS helpers there. Other processes, hosts and SSH
+authentication are unaffected; global Git config is unchanged. To opt out on a
+machine, run `OMNARA_GIT_CREDENTIALS=0 omnarad install`; the installer persists
+`git_credentials_disabled`. Commands requesting Git credentials fail during
+preparation on an opted-out machine. This also applies to GitHub-launched agents,
+since their launcher adds the capability automatically.
+
+The helper supplies tokens to local workload code; it does not isolate credentials
+from other code running as the same OS user. Tokens refresh on use; disconnecting
+an integration stops future issuance but does not immediately revoke already
+issued tokens or remove cloned files.
 
 ## Configure incoming PR work
 
@@ -174,9 +220,9 @@ For PR-open launches, this is the project integration body for
 }
 ```
 
-The launcher derives the PR tools, adding missing entries and preserving explicit
-entries from the profile. It attaches a subscription for the triggering PR. An
-unrestricted launcher applies to repositories granted to this installation. Set
+The launcher derives the PR tools and Git credentials, adding missing capabilities
+and preserving explicit entries from the profile. It attaches a subscription for
+the triggering PR. An unrestricted launcher applies to repositories granted to this installation. Set
 `launcher.repository_id` to a numeric repository ID string to narrow it. Use
 `trigger: "mention"` for mentions in new human PR comments. GitHub accepts exactly
 one profile. Updates contain only `settings`; name and kind are immutable.

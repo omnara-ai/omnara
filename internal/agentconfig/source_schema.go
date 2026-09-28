@@ -40,6 +40,7 @@ type AgentConfigSource struct {
 	Tools               map[string]AgentConfigToolSource                  `json:"tools,omitempty"`
 	MCP                 map[string]AgentConfigMCPSource                   `json:"mcp,omitempty"`
 	InteractionHandlers map[string]AgentConfigIntegrationCapabilitySource `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsSource                             `json:"git_credentials,omitempty"`
 	Skills              []string                                          `json:"skills,omitempty"`
 	Subagents           map[string]AgentConfigSubagentSource              `json:"subagents,omitempty"`
 	MaxSubagents        *int                                              `json:"max_subagents,omitempty"`

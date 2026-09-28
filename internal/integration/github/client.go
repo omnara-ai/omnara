@@ -37,6 +37,8 @@ type Client struct {
 	installationID int64
 	tokenGate      chan struct{}
 	tokens         [2]cachedToken
+	gitTokenGate   chan struct{}
+	gitCredentials InstallationCredentials
 }
 
 type appClient struct {
@@ -61,6 +63,7 @@ func NewClient(config Config) (*Client, error) {
 	}
 	return &Client{
 		appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1),
+		gitTokenGate: make(chan struct{}, 1),
 	}, nil
 }
 

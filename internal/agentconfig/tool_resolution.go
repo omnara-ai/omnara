@@ -126,7 +126,7 @@ func ToolsFromSourceWithOptions(format SourceFormat, raw []byte, opts CompileOpt
 
 func toolSourceField(name string) bool {
 	switch name {
-	case "tools", "machine_sources", "skills", "subagents", "mcp", "interaction_handlers":
+	case "tools", "machine_sources", "skills", "subagents", "mcp", "interaction_handlers", "git_credentials":
 		return true
 	default:
 		return false

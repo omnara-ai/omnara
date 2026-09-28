@@ -25,6 +25,7 @@ type RuntimeContract struct {
 	MCPServers          []RuntimeMCPServer
 	IntegrationTools    map[string]ToolCompiled
 	InteractionHandlers map[string]IntegrationCapabilityCompiled
+	GitCredentials      *GitCredentialsCompiled
 	Skills              []SkillCompiled
 	Subagents           map[string]SubagentCompiled
 	MaxSubagents        *int
@@ -120,6 +121,7 @@ func RuntimeContractFromCompiled(
 		MCPServers:          mcpServers,
 		IntegrationTools:    integrationToolsFromCompiled(compiled),
 		InteractionHandlers: compiled.InteractionHandlers,
+		GitCredentials:      compiled.GitCredentials,
 		Skills:              compiled.Skills,
 		Subagents:           compiled.Subagents,
 		MaxSubagents:        compiled.MaxSubagents,

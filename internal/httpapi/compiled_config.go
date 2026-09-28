@@ -102,6 +102,15 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		}
 		response.InteractionHandlers[name] = openapi.CompiledIntegrationCapability{IntegrationId: integrationID}
 	}
+	if credentials := compiled.GitCredentials; credentials != nil {
+		integrationID, err := publicCompiledID(publicid.KindIntegration, credentials.IntegrationID)
+		if err != nil {
+			return openapi.CompiledAgentConfig{}, err
+		}
+		response.GitCredentials = &openapi.CompiledGitCredentials{
+			Integration: credentials.Integration, IntegrationId: integrationID,
+		}
+	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))
 	for name, server := range compiled.MCP {
 		mcp := openapi.CompiledMCPServer{

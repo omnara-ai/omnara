@@ -391,6 +391,9 @@ func deriveIntegrationLaunchConfig(
 		return executionstore.CreateAgentConfigInput{}, fmt.Errorf("invalid launcher integration definition")
 	}
 	additions := agentconfig.IntegrationCapabilitiesSource{Tools: map[string]agentconfig.AgentConfigToolSource{}}
+	if definition.Provider == integrationdefinition.ProviderGitHub {
+		additions.GitCredentials = &agentconfig.GitCredentialsSource{Integration: integration.Name}
+	}
 	for _, operation := range definition.Tools {
 		additions.Tools[toolcatalog.IntegrationToolName(integration.Name, operation)] = agentconfig.AgentConfigToolSource{}
 	}

@@ -2909,49 +2909,6 @@ export const zCompiledIntegrationCapability = z.object({
     integration_id: zIntegrationId
 });
 
-/**
- * Read-only saved compiled configuration, including default tools and derived subagent overrides.
- */
-export const zCompiledAgentConfig = z.object({
-    version: z.string().optional(),
-    instruction: z.string(),
-    model: zCompiledAgentModel,
-    machine_sources: z.array(zCompiledMachineSource).optional(),
-    tools: z.record(z.string(), zCompiledTool).optional(),
-    mcp: z.record(z.string(), zCompiledMcpServer).optional(),
-    event_webhook: zCompiledEventWebhook.optional(),
-    interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
-    skills: z.array(zCompiledSkill).optional(),
-    subagents: z.record(z.string(), zCompiledSubagent).optional(),
-    max_subagents: z.int().optional(),
-    max_depth: z.int().optional()
-});
-
-export const zAgentConfig = z.object({
-    id: zAgentConfigId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    source: z.string().optional(),
-    source_format: z.enum(['yaml', 'json']).optional(),
-    effective_definition_hash: z.string(),
-    model: zAgentConfigModel,
-    instruction_hash: z.string().optional(),
-    created_at: zTimestamp,
-    compiled_definition: zCompiledAgentConfig
-});
-
-export const zAgentProfile = z.object({
-    id: zAgentProfileId,
-    org_id: zOrganizationId,
-    project_id: zProjectId,
-    name: zResourceName,
-    current_config_id: zAgentConfigId,
-    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
-    created_at: zTimestamp,
-    updated_at: zTimestamp,
-    current_config: zAgentConfig
-});
-
 export const zIntegrationCronTriggerTarget = z.object({
     type: z.enum(['integration']),
     integration_id: zIntegrationId,
@@ -3005,19 +2962,6 @@ export const zListCronTriggersResponse = z.object({
     next_cursor: z.string().nullable()
 });
 
-export const zLaunchAgentResponse = z.object({
-    agent: zAgent,
-    agent_config: zAgentConfig,
-    machine_bindings: z.array(zAgentMachineBinding),
-    agent_input: zAgentInput.optional()
-});
-
-export const zUpdateAgentConfigResponse = z.object({
-    agent_config: zAgentConfig,
-    agent_input: zAgentInput,
-    event_id: zAgentEventId
-});
-
 /**
  * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
  */
@@ -3064,6 +3008,71 @@ export const zConfigToolSource = z.object({
  * Immutable, project-unique integration name used in config keys and qualified tool names.
  */
 export const zIntegrationName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/);
+
+/**
+ * Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+ */
+export const zCompiledGitCredentials = z.object({
+    integration: zIntegrationName,
+    integration_id: zIntegrationId
+});
+
+/**
+ * Read-only saved compiled configuration, including default tools and derived subagent overrides.
+ */
+export const zCompiledAgentConfig = z.object({
+    version: z.string().optional(),
+    instruction: z.string(),
+    model: zCompiledAgentModel,
+    machine_sources: z.array(zCompiledMachineSource).optional(),
+    tools: z.record(z.string(), zCompiledTool).optional(),
+    mcp: z.record(z.string(), zCompiledMcpServer).optional(),
+    event_webhook: zCompiledEventWebhook.optional(),
+    interaction_handlers: z.record(z.string(), zCompiledIntegrationCapability).optional(),
+    git_credentials: zCompiledGitCredentials.optional(),
+    skills: z.array(zCompiledSkill).optional(),
+    subagents: z.record(z.string(), zCompiledSubagent).optional(),
+    max_subagents: z.int().optional(),
+    max_depth: z.int().optional()
+});
+
+export const zAgentConfig = z.object({
+    id: zAgentConfigId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    source: z.string().optional(),
+    source_format: z.enum(['yaml', 'json']).optional(),
+    effective_definition_hash: z.string(),
+    model: zAgentConfigModel,
+    instruction_hash: z.string().optional(),
+    created_at: zTimestamp,
+    compiled_definition: zCompiledAgentConfig
+});
+
+export const zAgentProfile = z.object({
+    id: zAgentProfileId,
+    org_id: zOrganizationId,
+    project_id: zProjectId,
+    name: zResourceName,
+    current_config_id: zAgentConfigId,
+    current_generation: z.int().min(-2147483648, { error: 'Invalid value: Expected int32 to be >= -2147483648' }).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
+    created_at: zTimestamp,
+    updated_at: zTimestamp,
+    current_config: zAgentConfig
+});
+
+export const zLaunchAgentResponse = z.object({
+    agent: zAgent,
+    agent_config: zAgentConfig,
+    machine_bindings: z.array(zAgentMachineBinding),
+    agent_input: zAgentInput.optional()
+});
+
+export const zUpdateAgentConfigResponse = z.object({
+    agent_config: zAgentConfig,
+    agent_input: zAgentInput,
+    event_id: zAgentEventId
+});
 
 /**
  * Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
@@ -5191,6 +5200,18 @@ export const zSleepMachineDaemonRuntimePath = z.object({
  * Machine daemon runtime ended for sleep; machine marked asleep.
  */
 export const zSleepMachineDaemonRuntimeResponse = zDaemonRuntime;
+
+export const zGetDaemonGitCredentialsPath = z.object({
+    processID: zProcessId
+});
+
+/**
+ * Short-lived installation credentials. Never cache this response.
+ */
+export const zGetDaemonGitCredentialsResponse = z.object({
+    token: z.string(),
+    expires_at: zTimestamp
+});
 
 export const zGetDaemonSkillArchivePath = z.object({
     skillID: z.string().regex(/^skl_[a-z2-7]{26}$/)

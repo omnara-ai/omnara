@@ -1282,6 +1282,7 @@ export type CompiledAgentConfig = {
     interaction_handlers?: {
         [key: string]: CompiledIntegrationCapability;
     };
+    git_credentials?: CompiledGitCredentials;
     skills?: Array<CompiledSkill>;
     subagents?: {
         [key: string]: CompiledSubagent;
@@ -1342,6 +1343,14 @@ export type CompiledTool = {
 };
 
 export type CompiledIntegrationCapability = {
+    integration_id: IntegrationId;
+};
+
+/**
+ * Pinned GitHub integration supplying machine Git credentials with the connected installation's granted access.
+ */
+export type CompiledGitCredentials = {
+    integration: IntegrationName;
     integration_id: IntegrationId;
 };
 
@@ -14581,6 +14590,68 @@ export type SleepMachineDaemonRuntimeResponses = {
 };
 
 export type SleepMachineDaemonRuntimeResponse = SleepMachineDaemonRuntimeResponses[keyof SleepMachineDaemonRuntimeResponses];
+
+export type GetDaemonGitCredentialsData = {
+    body?: never;
+    path: {
+        processID: ProcessId;
+    };
+    query?: never;
+    url: '/daemon/processes/{processID}/git-credentials';
+};
+
+export type GetDaemonGitCredentialsErrors = {
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The request conflicts with current resource state or idempotency history.
+     */
+    409: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetDaemonGitCredentialsError = GetDaemonGitCredentialsErrors[keyof GetDaemonGitCredentialsErrors];
+
+export type GetDaemonGitCredentialsResponses = {
+    /**
+     * Short-lived installation credentials. Never cache this response.
+     */
+    200: {
+        token: string;
+        expires_at: Timestamp;
+    };
+};
+
+export type GetDaemonGitCredentialsResponse = GetDaemonGitCredentialsResponses[keyof GetDaemonGitCredentialsResponses];
 
 export type GetDaemonSkillArchiveData = {
     body?: never;

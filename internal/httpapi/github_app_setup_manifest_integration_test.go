@@ -228,7 +228,9 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 		map[string]any{"url": "https://omnara.test" + GitHubSharedEventsPath, "active": true},
 		manifest["hook_attributes"],
 	)
-	require.Equal(t, map[string]any{"pull_requests": "write", "issues": "read"}, manifest["default_permissions"])
+	require.Equal(t,
+		map[string]any{"pull_requests": "write", "issues": "read", "contents": "read"}, manifest["default_permissions"],
+	)
 	require.ElementsMatch(
 		t,
 		[]any{"pull_request", "issue_comment", "pull_request_review", "pull_request_review_comment"},

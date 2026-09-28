@@ -29,6 +29,7 @@ type Compiled struct {
 	Tools               map[string]ToolCompiled                  `json:"tools,omitempty"`
 	MCP                 map[string]MCPServerCompiled             `json:"mcp,omitempty"`
 	InteractionHandlers map[string]IntegrationCapabilityCompiled `json:"interaction_handlers,omitempty"`
+	GitCredentials      *GitCredentialsCompiled                  `json:"git_credentials,omitempty"`
 	Skills              []SkillCompiled                          `json:"skills,omitempty"`
 	Subagents           map[string]SubagentCompiled              `json:"subagents,omitempty"`
 	MaxSubagents        *int                                     `json:"max_subagents,omitempty"`

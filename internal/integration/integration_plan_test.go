@@ -443,6 +443,13 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
 			definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
+			if definition.Provider == integrationdefinition.ProviderGitHub {
+				require.Equal(t, &agentconfig.GitCredentialsCompiled{
+					Integration: integration.Name, IntegrationID: integration.ID,
+				}, compiled.GitCredentials)
+			} else {
+				require.Nil(t, compiled.GitCredentials)
+			}
 			for _, operation := range definition.Tools {
 				require.Equal(
 					t,
@@ -478,6 +485,33 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 			require.Contains(t, blocks[1].Text, test.address)
 		})
 	}
+}
+
+func TestGitHubLaunchPreservesExplicitGitCredentials(t *testing.T) {
+	_, execution, _, integration, _ := integrationPlannerFixture(t)
+	base := execution.profile.CurrentConfig
+	integration.Provider = integrationdefinition.ProviderGitHub
+	integration.IntegrationKind, integration.Name = integrationdefinition.GitHubPR, "reviews"
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+	compiled.GitCredentials = &agentconfig.GitCredentialsCompiled{Integration: "checkout", IntegrationID: uuid.New()}
+	encoded, err := agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+	derived, err := deriveIntegrationLaunchConfig(base, integration)
+	require.NoError(t, err)
+	var actual agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &actual))
+	require.Equal(t, compiled.GitCredentials, actual.GitCredentials)
+	require.Equal(t, integration.ID, actual.Tools[toolcatalog.IntegrationToolName(integration.Name, "read")].IntegrationID)
+
+	compiled.GitCredentials.Integration = integration.Name
+	encoded, err = agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
+	_, err = deriveIntegrationLaunchConfig(base, integration)
+	require.ErrorIs(t, err, ErrIntegrationLaunchUnavailable,
+		"a reused integration name cannot replace the profile's pinned identity")
 }
 
 func TestIntegrationLaunchSubscriptionsFollowDefinition(t *testing.T) {

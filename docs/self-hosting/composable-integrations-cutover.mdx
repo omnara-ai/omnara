@@ -253,9 +253,11 @@ OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmod
 5. Gracefully stop **every replica** of old worker, maintenance and API, plus web
    and any other service/job with database or admission access; close existing
    sockets and prevent replacements. The maintenance service is a writer too.
-   Keep Postgres, Redis and blob storage available. `omnarad` upgrades separately:
-   this cutover introduces no daemon protocol upgrade requirement. It writes
-   through the API, not directly to Postgres. Stopping the API fences its control
+   Keep Postgres, Redis and blob storage available. Upgrade `omnarad` before
+   enabling Git credentials or launching GitHub agents with this release. Old
+   daemons ignore the new credential offer and can use ambient machine credentials;
+   this release intentionally has no compatibility path for that feature.
+   The daemon writes through the API, not directly to Postgres. Stopping the API fences its control
    plane writes; machine runtimes are distinct from the agent runtime locks in
    the gate. Existing detached machine processes may continue, so coordinate
    their external activity if needed rather than assuming a cluster stop kills

@@ -41,6 +41,11 @@ type daemonCommand struct {
 	Uninstall *struct {
 		Yes bool `arg:"--yes"`
 	} `arg:"subcommand:uninstall"`
+	GitCredential *struct {
+		Endpoint  string `arg:"positional,required"`
+		ProcessID string `arg:"positional,required"`
+		Operation string `arg:"positional,required"`
+	} `arg:"subcommand:__omnara_git_credential,hidden"`
 	ProcessRunner *struct {
 		BootstrapPath string `arg:"positional,required"`
 		LockFD        int    `arg:"positional,required"`
@@ -219,6 +224,15 @@ func Run(
 	switch {
 	case command.Version:
 		_, _ = fmt.Fprintln(stdout, version)
+		return 0
+	case command.GitCredential != nil:
+		if err := machinedaemon.RunGitCredentialHelper(
+			ctx, command.GitCredential.Endpoint, command.GitCredential.ProcessID,
+			command.GitCredential.Operation, stdin, stdout,
+		); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return 1
+		}
 		return 0
 	case command.ProcessRunner != nil:
 		if err := machinedaemon.RunCommandSupervisorFromBootstrap(

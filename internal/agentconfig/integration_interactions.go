@@ -71,6 +71,9 @@ func ListInteractionHandlers(
 
 func (contract RuntimeContract) ReferencedIntegrationIDs() []uuid.UUID {
 	return ReferencedIntegrationIDs(
-		Compiled{Tools: contract.IntegrationTools, InteractionHandlers: contract.InteractionHandlers},
+		Compiled{
+			Tools: contract.IntegrationTools, InteractionHandlers: contract.InteractionHandlers,
+			GitCredentials: contract.GitCredentials,
+		},
 	)
 }

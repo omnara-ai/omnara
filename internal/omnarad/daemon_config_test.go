@@ -61,6 +61,26 @@ func TestCanonicalAPIURL(t *testing.T) {
 	}
 }
 
+func TestGitCredentialsMachineOptOutPersists(t *testing.T) {
+	home := t.TempDir()
+	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
+	defer server.Close()
+	setDaemonEnvironment(t, home, server.URL, "token-a")
+	t.Setenv("OMNARA_GIT_CREDENTIALS", "0")
+	require.NoError(t, writeDaemonConfig(t.Context(), nil, io.Discard, discardLogger()))
+	config, _, _, err := loadRuntimeConfig(false)
+	require.NoError(t, err)
+	require.True(t, config.GitCredentialsDisabled)
+	t.Setenv("OMNARA_GIT_CREDENTIALS", "1")
+	require.NoError(t, writeDaemonConfig(t.Context(), nil, io.Discard, discardLogger()))
+	config, _, _, err = loadRuntimeConfig(false)
+	require.NoError(t, err)
+	require.False(t, config.GitCredentialsDisabled)
+	t.Setenv("OMNARA_GIT_CREDENTIALS", "maybe")
+	_, _, _, err = loadRuntimeConfig(true)
+	require.ErrorContains(t, err, "must be 0 or 1")
+}
+
 func TestWriteDaemonConfigWritesValidatedBinding(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	server := bootstrapServer(t, "token-a", "inst-a", "mch-a")
@@ -815,6 +835,7 @@ func setDaemonEnvironment(t *testing.T, home, apiURL, token string) {
 	t.Setenv("OMNARA_API_URL", apiURL)
 	t.Setenv("OMNARA_MACHINE_TOKEN", token)
 	t.Setenv("OMNARA_NO_UPDATE", "0")
+	t.Setenv("OMNARA_GIT_CREDENTIALS", "1")
 	t.Setenv("OMNARA_RUNNER_PATH", "")
 }
 

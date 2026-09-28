@@ -36,6 +36,7 @@ import (
 
 type Server struct {
 	githubClientConfig                  github.Config
+	gitCredentialClients                *github.InstallationClientCache
 	discordClientConfig                 discord.Config
 	log                                 *slog.Logger
 	store                               *storage.Store
@@ -398,6 +399,16 @@ func New(log *slog.Logger, store *storage.Store, opts ...Option) (*Server, error
 	}
 	for _, opt := range opts {
 		opt(server)
+	}
+	gitHTTPClient := server.githubClientConfig.HTTPClient
+	if gitHTTPClient == nil {
+		gitHTTPClient = server.integrationHTTPClient
+	}
+	server.gitCredentialClients, err = github.NewInstallationClientCache(github.InstallationClientCacheConfig{
+		Capacity: 128, HTTPClient: gitHTTPClient, APIURL: server.githubClientConfig.APIURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create Git credentials client cache: %w", err)
 	}
 	publicOrigin, err := parseConfiguredOrigin(server.publicURL)
 	if err != nil {
