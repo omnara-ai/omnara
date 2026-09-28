@@ -229,7 +229,7 @@ func (h *daemonSocketHub) handleWakeup(ctx context.Context, body notifications.W
 	}
 	switch body.Type {
 	case notifications.WakeupTypeDaemonWork:
-		h.handleDaemonWork(ctx, body)
+		h.handleDaemonWork(body)
 	case notifications.WakeupTypeDaemonRuntimeEnded:
 		h.handleRuntimeEnded(ctx, body)
 	case notifications.WakeupTypeDaemonProcessTerminate:
@@ -241,10 +241,10 @@ func (h *daemonSocketHub) handleWakeup(ctx context.Context, body notifications.W
 	}
 }
 
-func (h *daemonSocketHub) handleDaemonWork(ctx context.Context, body notifications.WakeupMessage) {
+func (h *daemonSocketHub) handleDaemonWork(body notifications.WakeupMessage) {
 	socket := h.socketByMachine(body.MachineID)
 	if socket != nil {
-		if socket.enqueueDrain(ctx) {
+		if socket.enqueueDrain() {
 			socket.recordSocketEvent("work_drain", "queued", "redis_wakeup")
 		}
 	} else {

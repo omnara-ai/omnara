@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -14,12 +15,13 @@ const (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool *storeutil.Pool
 	q    *dbsqlc.Queries
 }
 
 func New(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool)}
+	db := storeutil.WrapPool(pool)
+	return &Store{pool: db, q: dbsqlc.New(db)}
 }
 
 func stringFromSQLCText(value *string) string {

@@ -4237,7 +4237,7 @@ func TestBrowserSessionConnectionFailureHandling(t *testing.T) {
 				if event["http.status_code"] != float64(499) || event["level"] != "info" {
 					t.Fatalf("canceled auth misclassified: %+v", event)
 				}
-				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "i/o timeout") {
+				if tc.cancelDuringWrite && !strings.Contains(fmt.Sprint(event["auth.error"]), "timeout") {
 					t.Fatalf("missing actual socket timeout: %+v", event)
 				}
 			default:

@@ -51,6 +51,7 @@ func HTTPRequest(
 			f.Level(WarnLevel)
 		}
 	})
+	event.requestCanceled = func() bool { return ctx.Err() != nil }
 	return WithEvent(ctx, event), rec, event
 }
 
