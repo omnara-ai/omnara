@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
-	"github.com/omnara-ai/omnara/internal/integration/github"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -237,7 +237,7 @@ func TestDaemonGitCredentialsOriginalConfigOffersAndLiveAuthorization(t *testing
 
 	first := f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 	require.Equal(t, "no-store", first.Header().Get("Cache-Control"))
-	var credential github.InstallationCredentials
+	var credential daemonprotocol.GitCredentials
 	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &credential))
 	require.Equal(t, "git-installation-token-1", credential.Token)
 	require.True(t, credential.ExpiresAt.After(time.Now().Add(45*time.Minute)))
@@ -357,10 +357,10 @@ func TestDaemonGitCredentialsProviderFailureStatusAndRedaction(t *testing.T) {
 	}
 }
 
-func TestDaemonGitCredentialsRejectsAuthorityChangesDuringIssuance(t *testing.T) {
+func TestDaemonGitCredentialsRechecksAuthorityDuringIssuance(t *testing.T) {
 	t.Parallel()
 	for _, mutation := range []string{
-		"disconnect", "rotation", "reconfigure", "config", "same integration new config", "closed process",
+		"disconnect", "rotation", "secret", "reconfigure", "config", "changed pin", "same integration new config", "closed process",
 	} {
 		t.Run(mutation, func(t *testing.T) {
 			t.Parallel()
@@ -374,14 +374,34 @@ func TestDaemonGitCredentialsRejectsAuthorityChangesDuringIssuance(t *testing.T)
 					require.NoError(t, err)
 				case "rotation":
 					f.rotateCredential(t)
-				case "reconfigure":
+				case "reconfigure", "secret":
 					body := integrationSetupHTTPBody("123", "456")
 					body["credential_secret_id"] = f.secretID
+					if mutation == "secret" {
+						credential, err := f.project.Store.Secrets().ReadProjectAvailableSecretPayload(t.Context(),
+							secretstore.ReadProjectAvailableSecretPayloadInput{
+								OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
+								SecretID: f.integration.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
+							})
+						require.NoError(t, err)
+						body["credential_secret_id"] = createIntegrationSetupHTTPSecret(t, f.handler, f.project,
+							"replacement-github-credentials", map[string]any{
+								"kind": "github_app_credentials", "app_id": credential.Payload[secrets.KeyAppID],
+								"private_key":    credential.Payload[secrets.KeyPrivateKey],
+								"webhook_secret": credential.Payload[secrets.KeyWebhookSecret],
+							})
+					}
 					body["expected_setup_revision"] = f.integration.SetupRevision
 					requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, f.integration),
 						integrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
 				case "config":
 					f.changeConfig(t, f.process, f.base)
+				case "changed pin":
+					other := githubHTTPJourneyIntegration(t, f.handler, f.project, f.secretID, "457")
+					config := f.config(t, &agentconfig.GitCredentialsCompiled{
+						Integration: other.Name, IntegrationID: other.ID,
+					}, "")
+					f.changeConfig(t, f.process, config)
 				case "same integration new config":
 					config := f.config(t, &agentconfig.GitCredentialsCompiled{
 						Integration: f.integration.Name, IntegrationID: f.integration.ID,
@@ -394,16 +414,25 @@ func TestDaemonGitCredentialsRejectsAuthorityChangesDuringIssuance(t *testing.T)
 					require.NoError(t, err)
 				}
 			}
-			f.request(t, f.process.Token, f.process.ProcessID, http.StatusNotFound)
+			unchangedCredentials := mutation == "same integration new config" || mutation == "reconfigure"
+			status := http.StatusNotFound
+			if unchangedCredentials {
+				status = http.StatusOK
+			}
+			response := f.request(t, f.process.Token, f.process.ProcessID, status)
+			if unchangedCredentials {
+				require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+				require.Contains(t, response.Body.String(), "git-installation-token-1")
+			}
 			require.EqualValues(t, 1, f.minted.Load())
 			f.duringIssuance = nil
-			if mutation == "rotation" {
+			if mutation == "rotation" || mutation == "secret" {
 				response := f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
 				require.Contains(t, response.Body.String(), "git-installation-token-2")
-				require.EqualValues(t, 2, f.minted.Load(), "a new credential version cannot reuse the old cached client")
-			} else if mutation == "same integration new config" || mutation == "reconfigure" {
+				require.EqualValues(t, 2, f.minted.Load(), "a changed credential identity cannot reuse the old cached client")
+			} else if unchangedCredentials {
 				f.request(t, f.process.Token, f.process.ProcessID, http.StatusOK)
-				require.EqualValues(t, 1, f.minted.Load(), "a fresh request may authorize the new config with the same pin")
+				require.EqualValues(t, 1, f.minted.Load(), "unrelated config and setup edits preserve cached credentials")
 			} else {
 				f.request(t, f.process.Token, f.process.ProcessID, http.StatusNotFound)
 				require.EqualValues(t, 1, f.minted.Load(), "revocation also rejects cached credentials")

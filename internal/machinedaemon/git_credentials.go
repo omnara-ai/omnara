@@ -128,10 +128,6 @@ func (c *Client) serveGitCredentials(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if c.cfg.GitCredentialsDisabled {
-		http.Error(w, "Git credentials are disabled on this machine", http.StatusForbidden)
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	state, err := c.stateStore(ctx)
@@ -182,7 +178,7 @@ func gitCredentialEnvironment(env []string, processID string, helper *gitCredent
 	}
 	command := "!" + gitShellQuote(filepath.ToSlash(helper.Executable)) + " __omnara_git_credential " +
 		gitShellQuote(helper.Endpoint) + " " + gitShellQuote(processID)
-	// Git reads PARAMETERS after COUNT: https://github.com/git/git/blob/v2.50.0/config.c#L680
+	// Git reads PARAMETERS after COUNT: https://github.com/git/git/blob/v2.50.0/config.c#L733-L775
 	if parameters != "" {
 		parameters += " "
 	}

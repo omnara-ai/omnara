@@ -2,9 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -22,7 +20,6 @@ import (
 
 type daemonGitCredentialsAuthority struct {
 	Process             executionstore.DaemonGitCredentialsScope
-	SetupRevision       int64
 	CredentialSecretID  uuid.UUID
 	CredentialVersionID uuid.UUID
 	AppID               int64
@@ -79,7 +76,12 @@ func (s strictOpenAPIServer) GetDaemonGitCredentials(
 	if current != authority {
 		return nil, daemonGitCredentialsError(storeerr.ErrNotFound)
 	}
-	return daemonGitCredentialsResponse(result), nil
+	response := openapi.GetDaemonGitCredentials200JSONResponse{
+		Headers: openapi.GetDaemonGitCredentials200ResponseHeaders{CacheControl: "no-store"},
+	}
+	response.Body.Token = result.Token
+	response.Body.ExpiresAt = result.ExpiresAt
+	return response, nil
 }
 
 func (s *Server) daemonGitCredentialsAuthority(
@@ -120,7 +122,7 @@ func (s *Server) daemonGitCredentialsAuthority(
 		return daemonGitCredentialsAuthority{}, storeerr.ErrNotFound
 	}
 	return daemonGitCredentialsAuthority{
-		Process: process, SetupRevision: integration.SetupRevision, CredentialSecretID: integration.CredentialSecretID,
+		Process: process, CredentialSecretID: integration.CredentialSecretID,
 		CredentialVersionID: access.Secret.CurrentVersionID, AppID: appID, InstallationID: installationID,
 	}, nil
 }
@@ -139,13 +141,4 @@ func daemonGitCredentialsError(err error) error {
 			"Git credentials are unavailable; check the GitHub App and installation permissions")
 	}
 	return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "Git credentials are temporarily unavailable")
-}
-
-type daemonGitCredentialsResponse github.InstallationCredentials
-
-func (r daemonGitCredentialsResponse) VisitGetDaemonGitCredentialsResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	return json.NewEncoder(w).Encode(r)
 }

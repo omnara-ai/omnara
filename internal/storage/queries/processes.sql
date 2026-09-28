@@ -408,8 +408,6 @@ WHERE process.org_id = sqlc.arg(org_id)
 
 -- name: GetDaemonGitCredentialsScope :one
 SELECT process.project_id, process.agent_id,
-       context.agent_config_id AS original_config_id,
-       agent.current_config_id,
        coalesce((original_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
                 '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS original_integration_id,
        coalesce((current_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,

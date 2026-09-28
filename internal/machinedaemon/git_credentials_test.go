@@ -217,12 +217,6 @@ func TestGitCredentialPreparationHonorsMachineOptOut(t *testing.T) {
 	client.prepareGitCredentials(&assignment, "unused")
 	require.Contains(t, assignment.PreparationError, "disabled")
 	require.Nil(t, assignment.GitCredentialHelper)
-	processID, err := publicid.Encode(publicid.KindProcess, uuid.New())
-	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "/git-credentials/"+processID, nil)
-	response := httptest.NewRecorder()
-	client.serveGitCredentials(response, request)
-	require.Equal(t, http.StatusForbidden, response.Code)
 	assignment = ProcessAssignment{}
 	client.prepareGitCredentials(&assignment, "unused")
 	require.Empty(t, assignment.PreparationError)

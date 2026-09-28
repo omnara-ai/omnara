@@ -563,8 +563,6 @@ func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaem
 
 const getDaemonGitCredentialsScope = `-- name: GetDaemonGitCredentialsScope :one
 SELECT process.project_id, process.agent_id,
-       context.agent_config_id AS original_config_id,
-       agent.current_config_id,
        coalesce((original_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
                 '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS original_integration_id,
        coalesce((current_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
@@ -607,8 +605,6 @@ type GetDaemonGitCredentialsScopeParams struct {
 type GetDaemonGitCredentialsScopeRow struct {
 	ProjectID             uuid.UUID
 	AgentID               uuid.UUID
-	OriginalConfigID      uuid.UUID
-	CurrentConfigID       uuid.UUID
 	OriginalIntegrationID uuid.UUID
 	CurrentIntegrationID  uuid.UUID
 }
@@ -619,8 +615,6 @@ func (q *Queries) GetDaemonGitCredentialsScope(ctx context.Context, arg GetDaemo
 	err := row.Scan(
 		&i.ProjectID,
 		&i.AgentID,
-		&i.OriginalConfigID,
-		&i.CurrentConfigID,
 		&i.OriginalIntegrationID,
 		&i.CurrentIntegrationID,
 	)

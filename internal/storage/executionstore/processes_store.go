@@ -22,11 +22,9 @@ type DaemonProcessOffer struct {
 }
 
 type DaemonGitCredentialsScope struct {
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	OriginalConfigID uuid.UUID
-	CurrentConfigID  uuid.UUID
-	IntegrationID    uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
 }
 
 // GetDaemonGitCredentialsScope authorizes active execution independently of its original tool lease.
@@ -51,7 +49,6 @@ func (s *Store) GetDaemonGitCredentialsScope(
 	}
 	return DaemonGitCredentialsScope{
 		ProjectID: row.ProjectID, AgentID: row.AgentID,
-		OriginalConfigID: row.OriginalConfigID, CurrentConfigID: row.CurrentConfigID,
 		IntegrationID: row.OriginalIntegrationID,
 	}, true, nil
 }

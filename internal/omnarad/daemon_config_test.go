@@ -680,6 +680,15 @@ func TestApplyRuntimeEnvironmentSleepSettings(t *testing.T) {
 	}
 }
 
+func TestRunGitCredentialHelperCommand(t *testing.T) {
+	var stdout, stderr strings.Builder
+	code := Run(t.Context(), []string{"__omnara_git_credential", "unused", "unused", "unsupported"},
+		nil, &stdout, &stderr, discardLogger())
+	require.Equal(t, 1, code)
+	require.Equal(t, "quit=true\n\n", stdout.String())
+	require.Contains(t, stderr.String(), "unsupported Git credential operation")
+}
+
 func TestRunVersionHelpAndUsage(t *testing.T) {
 	var stdout strings.Builder
 	var stderr strings.Builder

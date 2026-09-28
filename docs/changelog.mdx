@@ -43,6 +43,17 @@ webhook and OAuth callback URLs remain unchanged. Customer-hosted integrations
 continue to use ordinary agent inputs, custom tools and interaction APIs.
 See [Integrations](/integrations/overview).
 
+### Git credentials on agent machines
+
+Set `git_credentials: {integration: reviews}` to use a connected GitHub integration
+for HTTPS Git access. GitHub launchers add this automatically. The daemon fetches
+short-lived credentials when Git needs them; access follows the installation's
+repositories and permissions. New GitHub Apps request Contents read access, and
+existing installations need approval for that permission.
+
+**Upgrade `omnarad` before using Git credentials or launching GitHub agents.**
+Older daemons do not support this feature. See [GitHub credentials](/integrations/github#git-credentials).
+
 </Update>
 
 <Update
