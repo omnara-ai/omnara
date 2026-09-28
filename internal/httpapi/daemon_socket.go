@@ -177,14 +177,17 @@ func (s *daemonSocket) run(ctx context.Context) {
 		_ = s.server.daemonHub.presence.DeleteRuntimeIfOwned(cleanupCtx, s.runtimeID, owner)
 	}()
 	writerDone := make(chan struct{})
+	writeStopped := make(chan struct{})
 	go func() {
 		defer close(writerDone)
 		err := s.writeLoop(runCtx)
+		close(writeStopped)
 		if errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
 			select {
-			case <-s.done:
-			default:
+			case <-runCtx.Done():
 				return
+			case <-s.done:
+			case <-time.After(5 * time.Second):
 			}
 		}
 		cancel(s.cancellationCause(err))
@@ -205,7 +208,7 @@ func (s *daemonSocket) run(ctx context.Context) {
 			}
 		}
 	}()
-	s.readLoop(runCtx, cancel, writerDone)
+	s.readLoop(runCtx, cancel, writeStopped)
 	s.close(websocket.StatusNormalClosure, "closing")
 	s.workMu.Lock()
 	drainDone := s.drainDone
@@ -258,7 +261,7 @@ func (s *daemonSocket) writeLoop(ctx context.Context) error {
 	}
 }
 
-func (s *daemonSocket) readLoop(ctx context.Context, cancel context.CancelCauseFunc, writerDone <-chan struct{}) {
+func (s *daemonSocket) readLoop(ctx context.Context, cancel context.CancelCauseFunc, writeStopped <-chan struct{}) {
 	messages := make(chan daemonprotocol.Message)
 	go func() {
 		defer close(messages)
@@ -272,7 +275,7 @@ func (s *daemonSocket) readLoop(ctx context.Context, cancel context.CancelCauseF
 			}
 			select {
 			case messages <- msg:
-			case <-writerDone:
+			case <-writeStopped:
 			case <-s.done:
 				cancel(s.cancellationCause(nil))
 				return
@@ -282,6 +285,11 @@ func (s *daemonSocket) readLoop(ctx context.Context, cancel context.CancelCauseF
 		}
 	}()
 	for msg := range messages {
+		select {
+		case <-writeStopped:
+			continue
+		default:
+		}
 		if ctx.Err() != nil {
 			continue
 		}

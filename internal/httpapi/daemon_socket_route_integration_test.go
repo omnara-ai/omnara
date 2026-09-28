@@ -1708,7 +1708,10 @@ type socketBlockingReplyPublisher struct {
 }
 
 func (p socketBlockingReplyPublisher) PublishChannel(ctx context.Context, _ string, _ []byte) error {
-	p.started <- ctx
+	select {
+	case p.started <- ctx:
+	default:
+	}
 	select {
 	case <-ctx.Done():
 	case <-p.release:
@@ -1723,6 +1726,8 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 		peerClose     websocket.StatusCode
 		writeErr      error
 		queuedMessage bool
+		keepOpen      bool
+		keepSending   bool
 	}{
 		{name: "transport failure", source: "socket_failure"},
 		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
@@ -1745,6 +1750,18 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 		{
 			name: "transport failure behind queued message", source: "socket_failure",
 			writeErr: syscall.EPIPE, queuedMessage: true,
+		},
+		{
+			name: "broken pipe with silent peer", source: "socket_failure",
+			writeErr: syscall.EPIPE, keepOpen: true,
+		},
+		{
+			name: "reset with silent peer", source: "socket_failure",
+			writeErr: syscall.ECONNRESET, keepOpen: true,
+		},
+		{
+			name: "broken pipe with incoming messages", source: "socket_failure",
+			writeErr: syscall.EPIPE, keepOpen: true, keepSending: true,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1791,7 +1808,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			var writeErrors *socketWriteErrorListener
 			if tt.writeErr != nil {
 				writeErrors = &socketWriteErrorListener{
-					Listener: server.Listener, err: tt.writeErr, blockRead: !tt.queuedMessage,
+					Listener: server.Listener, err: tt.writeErr, blockRead: !tt.queuedMessage && !tt.keepOpen,
 					started: closeStarted, release: closeRelease,
 				}
 				server.Listener = writeErrors
@@ -1800,7 +1817,8 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			}
 			server.Start()
 			t.Cleanup(server.Close)
-			t.Cleanup(func() { close(publisher.release) })
+			releasePublisher := sync.OnceFunc(func() { close(publisher.release) })
+			t.Cleanup(releasePublisher)
 			releaseClose := sync.OnceFunc(func() { close(closeRelease) })
 			t.Cleanup(releaseClose)
 			release := sync.OnceFunc(func() { close(tracer.release) })
@@ -1830,7 +1848,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			})
 			wait(tracer.started)
 			var messageCtx context.Context
-			if tt.localClose != 0 || tt.queuedMessage {
+			if tt.localClose != 0 || tt.queuedMessage || tt.keepSending {
 				hub.recordPendingSkillReply(socket.machineID, "test", "reply")
 				require.NoError(t, wsjson.Write(ctx, conn, daemonprotocol.Message{
 					Type:        daemonprotocol.MessageSkillReport,
@@ -1856,11 +1874,11 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				go socket.close(tt.localClose, "test close")
 			} else if tt.peerClose != 0 {
 				go func() { _ = conn.Close(tt.peerClose, "test close") }()
-			} else {
+			} else if !tt.keepOpen {
 				require.NoError(t, conn.CloseNow())
 			}
 			if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
-				if !tt.queuedMessage {
+				if !tt.queuedMessage && !tt.keepOpen {
 					wait(closeStarted)
 				}
 				var handlerCanceled <-chan struct{}
@@ -1873,7 +1891,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				case <-ctx.Done():
 					t.Fatal("socket writer did not receive message")
 				}
-				if tt.peerClose != 0 && !tt.queuedMessage {
+				if (tt.peerClose != 0 && !tt.queuedMessage) || tt.keepOpen {
 					select {
 					case <-tracer.canceled:
 						t.Fatal("writer canceled drain before reader reported the close reason")
@@ -1881,6 +1899,31 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 					}
 				}
 				releaseClose()
+			}
+			trafficDone := make(chan struct{})
+			if tt.keepSending {
+				releasePublisher()
+				go func() {
+					defer close(trafficDone)
+					ticker := time.NewTicker(20 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						hub.recordPendingSkillReply(socket.machineID, "after_write_failure", "reply")
+						if err := wsjson.Write(ctx, conn, daemonprotocol.Message{
+							Type:        daemonprotocol.MessageSkillReport,
+							SkillReport: &daemonprotocol.SkillReport{RequestID: "after_write_failure"},
+						}); err != nil {
+							return
+						}
+						select {
+						case <-ticker.C:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}()
+			} else {
+				close(trafficDone)
 			}
 			if messageCtx != nil {
 				wait(messageCtx.Done())
@@ -1894,6 +1937,8 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			}
 			release()
 			wait(finished)
+			wait(trafficDone)
+			require.Empty(t, publisher.started, "message handler started after writer stopped")
 			event := decodeRequestEvent(t, buf)
 			require.Equal(t, "ListDaemonProcessOffers", event["db.queries.2.name"])
 			require.Equal(t, "context_canceled", event["db.queries.2.error_kind"])
