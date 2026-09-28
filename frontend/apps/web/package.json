@@ -30,6 +30,7 @@
     "clsx": "^2.1.1",
     "cronstrue": "^3.24.0",
     "date-fns": "^4.4.0",
+    "fflate": "^0.8.3",
     "lucide-react": "^0.460.0",
     "monaco-editor": "^0.52.2",
     "monaco-yaml": "^5.5.1",

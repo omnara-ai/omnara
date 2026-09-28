@@ -78,7 +78,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
                 setOpen(true)
               }}
             >
-              Upload skill
+              Create skill
             </Button>
           )}
         </SearchHeader>
@@ -130,7 +130,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
           onRetry={() => {
             void query.refetch()
           }}
-          emptyMessage="No skills yet. Upload an archive containing SKILL.md."
+          emptyMessage="No skills yet. Upload a skill folder or archive, or write a SKILL.md."
         />
       </div>
       {canManage && (

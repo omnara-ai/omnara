@@ -3,33 +3,15 @@ import type { Skill } from '@omnara/sdk'
 import { useEffect, useState } from 'react'
 
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
+import { AgentConfigSkillSearchbox } from '@/components/agents/AgentConfigSkillSearchbox'
 import { CircleAlert, PlusIcon, Trash2Icon } from '@/components/icons'
 import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
 import { Button } from '@/components/ui/button'
-import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
-import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
-import { skillOwnerLabel } from '@/lib/skills'
+import { exactNameGlob } from '@/hooks/use-resource-list'
 import { useProjectPage } from '@/lib/use-project-page'
-
-const SkillCombobox = createResourceCombobox<Skill>({
-  itemKey: (skill) => skill.id,
-  itemLabel: (skill) => skill.name,
-  renderItem: (skill) => (
-    <span className="flex min-w-0 flex-col gap-0.5">
-      <span className="flex items-center justify-between gap-3">
-        <span className="font-medium">{skill.name}</span>
-        <span className="text-muted-foreground shrink-0 text-xs">
-          {skillOwnerLabel(skill)} · v{skill.revision}
-        </span>
-      </span>
-      <span className="text-muted-foreground line-clamp-2 text-xs">{skill.description}</span>
-    </span>
-  ),
-  placeholder: 'Search skills…',
-  emptyMessage: 'No available skills found.',
-})
+import { cn } from '@/lib/utils'
 
 export function AgentConfigSkillsField({
   orgId,
@@ -46,8 +28,21 @@ export function AgentConfigSkillsField({
 }) {
   const { project } = useProjectPage()
   const canCreateSkills = project?.access.can_manage ?? false
-  const [draftOpen, setDraftOpen] = useState(false)
-  const [createFor, setCreateFor] = useState<{ replacedId?: string } | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchKey, setSearchKey] = useState(0)
+  const [searchExpanded, setSearchExpanded] = useState(false)
+
+  function openSearch() {
+    setSearchKey((key) => key + 1)
+    setSearchOpen(true)
+    setSearchExpanded(window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  }
+
+  function closeSearch() {
+    setSearchOpen(false)
+    setSearchExpanded(false)
+  }
+  const [createOpen, setCreateOpen] = useState(false)
 
   const [resolvedSkills, setResolvedSkills] = useState<ReadonlyMap<string, Skill>>(new Map())
   const skillById = (id: string) => resolvedSkills.get(id)
@@ -99,41 +94,84 @@ export function AgentConfigSkillsField({
     onUnavailableIdsChange(unavailableReportKey === '' ? [] : unavailableReportKey.split('\n'))
   }, [onUnavailableIdsChange, unavailableReportKey])
 
-  const selectSkill = (skill: Skill, replacedId?: string) => {
-    setResolvedSkills((prev) => new Map(prev).set(skill.id, skill))
-    const alreadySelected = selectedIds.includes(skill.id)
-    if (replacedId === undefined) {
-      if (!alreadySelected) onSelectedIdsChange([...selectedIds, skill.id])
-      setDraftOpen(false)
-      return
-    }
-    onSelectedIdsChange(
-      alreadySelected
-        ? selectedIds.filter((id) => id !== replacedId)
-        : selectedIds.map((id) => (id === replacedId ? skill.id : id)),
+  const selectSkills = (skills: Skill[]) => {
+    setResolvedSkills((prev) => {
+      const next = new Map(prev)
+      for (const skill of skills) next.set(skill.id, skill)
+      return next
+    })
+    const addedIds = [...new Set(skills.map((skill) => skill.id))].filter(
+      (id) => !selectedSet.has(id),
     )
+    if (addedIds.length > 0) onSelectedIdsChange([...selectedIds, ...addedIds])
+    closeSearch()
   }
 
   return (
     <AgentConfigSectionCard
       title="Skills"
       action={
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="text-muted-foreground size-10 sm:size-8"
-          aria-label="Add skill"
-          onClick={() => {
-            setDraftOpen(true)
-          }}
-        >
-          <PlusIcon />
-        </Button>
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+          <div
+            inert={!searchOpen}
+            onTransitionEnd={(event) => {
+              if (
+                searchOpen &&
+                event.target === event.currentTarget &&
+                event.propertyName === 'max-width'
+              )
+                setSearchExpanded(true)
+            }}
+            className={cn(
+              'min-w-0 transition-[max-width,opacity] duration-200 ease-out motion-reduce:transition-none',
+              searchOpen ? 'max-w-sm flex-1 opacity-100' : 'max-w-0 overflow-hidden opacity-0',
+            )}
+          >
+            <AgentConfigSkillSearchbox
+              key={searchKey}
+              orgId={orgId}
+              projectId={projectId}
+              active={searchOpen}
+              expanded={searchExpanded}
+              excludedIds={selectedSet}
+              excludedNames={selectedNames}
+              onSelect={(skill) => {
+                selectSkills([skill])
+              }}
+              onCreateSkill={
+                canCreateSkills
+                  ? () => {
+                      closeSearch()
+                      setCreateOpen(true)
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="text-muted-foreground size-10 sm:size-8"
+            aria-label={searchOpen ? 'Close skill search' : 'Add skill'}
+            aria-expanded={searchOpen}
+            onClick={() => {
+              if (searchOpen) closeSearch()
+              else openSearch()
+            }}
+          >
+            <PlusIcon
+              className={cn(
+                'transition-transform duration-200 motion-reduce:transition-none',
+                searchOpen && 'rotate-45',
+              )}
+            />
+          </Button>
+        </div>
       }
     >
-      {draftOpen || selectedIds.length > 0 ? (
-        <div className="space-y-2 px-5 py-4">
+      {selectedIds.length > 0 ? (
+        <div className="flex flex-col gap-1 px-3 pb-3">
           {selectedIds.map((id) => (
             <SelectedSkillRow
               key={id}
@@ -142,130 +180,26 @@ export function AgentConfigSkillsField({
               id={id}
               skill={skillById(id)}
               dangling={danglingIdSet.has(id)}
-              excludedIds={selectedSet}
-              excludedNames={selectedNames}
               onAvailabilityChange={reportAvailability}
-              onReplace={(skill) => {
-                selectSkill(skill, id)
-              }}
               onRemove={() => {
                 onSelectedIdsChange(selectedIds.filter((selectedId) => selectedId !== id))
               }}
-              onCreateSkill={
-                canCreateSkills
-                  ? () => {
-                      setCreateFor({ replacedId: id })
-                    }
-                  : undefined
-              }
             />
           ))}
-          {draftOpen && (
-            <SkillEntryRow
-              orgId={orgId}
-              projectId={projectId}
-              skill={null}
-              excludedIds={selectedSet}
-              excludedNames={selectedNames}
-              removeLabel="Remove skill entry"
-              onSelect={(skill) => {
-                selectSkill(skill)
-              }}
-              onRemove={() => {
-                setDraftOpen(false)
-              }}
-              onCreateSkill={
-                canCreateSkills
-                  ? () => {
-                      setCreateFor({})
-                    }
-                  : undefined
-              }
-            />
-          )}
         </div>
       ) : null}
-      {createFor !== null && (
+      {createOpen && (
         <CreateSkillDialog
           open
-          onOpenChange={(open) => {
-            if (!open) setCreateFor(null)
-          }}
+          onOpenChange={setCreateOpen}
           orgId={orgId}
           owner={{ kind: 'project', project_id: projectId }}
-          onCreated={(skill) => {
-            selectSkill(skill, createFor.replacedId)
+          onCreated={(skills) => {
+            selectSkills(skills)
           }}
         />
       )}
     </AgentConfigSectionCard>
-  )
-}
-
-function SkillEntryRow({
-  orgId,
-  projectId,
-  skill,
-  excludedIds,
-  excludedNames,
-  removeLabel,
-  onSelect,
-  onRemove,
-  onCreateSkill,
-}: {
-  orgId: string
-  projectId: string
-  skill: Skill | null
-  excludedIds: ReadonlySet<string>
-  excludedNames: ReadonlySet<string>
-  removeLabel: string
-  onSelect: (skill: Skill) => void
-  onRemove: () => void
-  onCreateSkill?: () => void
-}) {
-  const search = useTypeaheadSearch()
-  const query = useProjectAvailableSkills(orgId, projectId, {
-    filters: search.filters,
-    sort: 'name',
-    pageSize: 25,
-  })
-  const loadedSkills = useInfiniteQueryItems(query).map((access) => access.skill)
-  const items = loadedSkills.filter(
-    (candidate) =>
-      candidate.id === skill?.id ||
-      (!excludedIds.has(candidate.id) && !excludedNames.has(candidate.name)),
-  )
-  return (
-    <div className="flex items-center gap-2">
-      <div className="min-w-0 flex-1">
-        <SkillCombobox
-          clearable={false}
-          items={items}
-          value={skill}
-          onValueChange={(next) => {
-            if (next && next.id !== skill?.id) onSelect(next)
-          }}
-          search={search}
-          query={query}
-          placeholder={query.isPending ? 'Loading skills…' : 'Search skills…'}
-          action={
-            onCreateSkill && (
-              <button
-                type="button"
-                className="hover:bg-accent hover:text-accent-foreground flex w-full cursor-default items-center gap-2 rounded-sm py-2 pl-2 pr-8 text-sm outline-none"
-                onClick={onCreateSkill}
-              >
-                <PlusIcon className="size-4" />
-                Create skill
-              </button>
-            )
-          }
-        />
-      </div>
-      <Button type="button" size="icon" variant="ghost" aria-label={removeLabel} onClick={onRemove}>
-        <Trash2Icon />
-      </Button>
-    </div>
   )
 }
 
@@ -275,24 +209,16 @@ function SelectedSkillRow({
   id,
   skill,
   dangling,
-  excludedIds,
-  excludedNames,
   onAvailabilityChange,
-  onReplace,
   onRemove,
-  onCreateSkill,
 }: {
   orgId: string
   projectId: string
   id: string
   skill: Skill | undefined
   dangling: boolean
-  excludedIds: ReadonlySet<string>
-  excludedNames: ReadonlySet<string>
   onAvailabilityChange: (id: string, available: boolean) => void
-  onReplace: (skill: Skill) => void
   onRemove: () => void
-  onCreateSkill?: () => void
 }) {
   const lookupQuery = useProjectAvailableSkills(orgId, projectId, {
     filters: { name: exactNameGlob(skill?.name ?? '') },
@@ -312,45 +238,15 @@ function SelectedSkillRow({
     }
   }, [id, onAvailabilityChange, unavailable])
 
-  if (skill && !unavailable) {
-    return (
-      <SkillEntryRow
-        orgId={orgId}
-        projectId={projectId}
-        skill={skill}
-        excludedIds={excludedIds}
-        excludedNames={excludedNames}
-        removeLabel={`Detach ${skill.name}`}
-        onSelect={onReplace}
-        onRemove={onRemove}
-        onCreateSkill={onCreateSkill}
-      />
-    )
-  }
   return (
-    <div
-      className={
-        unavailable
-          ? 'border-destructive/40 bg-destructive/5 flex items-center gap-3 rounded-md border px-3 py-2.5'
-          : 'border-border bg-muted/40 flex items-center gap-3 rounded-md border px-3 py-2.5'
-      }
-    >
-      {unavailable && (
-        <div className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-md">
-          <CircleAlert className="text-destructive size-4" />
-        </div>
-      )}
+    <div className="flex items-center gap-2 py-2 pl-2 pr-2">
+      {unavailable && <CircleAlert className="text-destructive size-4 shrink-0" />}
       <div className="min-w-0 flex-1">
         {skill ? (
           <>
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-medium">{skill.name}</span>
-              <span className="text-muted-foreground shrink-0 text-xs">
-                {skillOwnerLabel(skill)} · v{skill.revision}
-              </span>
-            </div>
+            <p className="truncate text-sm font-medium">{skill.name}</p>
             <p className="text-muted-foreground truncate text-xs">
-              Skill is no longer available to this project.
+              {unavailable ? 'Skill is no longer available to this project.' : skill.description}
             </p>
           </>
         ) : (
@@ -366,6 +262,7 @@ function SelectedSkillRow({
         type="button"
         size="icon"
         variant="ghost"
+        className="text-muted-foreground size-10 sm:size-8"
         aria-label={skill ? `Detach ${skill.name}` : `Detach skill ${id}`}
         onClick={onRemove}
       >

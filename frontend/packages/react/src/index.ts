@@ -245,6 +245,7 @@ export {
   useProjectAvailableSkills,
   useSkill,
   useSkillGrants,
+  useSkillNameLookup,
   useSkills,
   useUpdateSkill,
 } from './domains/skills'

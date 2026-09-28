@@ -1,8 +1,8 @@
 import { useSkill, useUpdateSkill } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
-import { CatchBoundary } from '@tanstack/react-router'
-import { lazy, Suspense, type SyntheticEvent, useId, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
+import { LazySkillMdEditor } from '@/components/skills/LazySkillMdEditor'
 import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,31 +14,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { checkSkillMd } from '@/lib/skill-bundles'
 import { errorMessage } from '@/lib/submit-status'
-
-const LazySkillMdEditor = lazy(async () => {
-  const module = await import('@/components/skills/SkillMdEditor')
-  return { default: module.SkillMdEditor }
-})
-
-function SkillMdEditorFallback() {
-  return (
-    <div
-      className="border-input bg-card type-code rounded-control flex h-[65vh] items-center justify-center overflow-hidden border"
-      role="status"
-      aria-live="polite"
-    >
-      <Spinner className="text-muted-foreground size-6" />
-      <span className="sr-only">Loading SKILL.md editor</span>
-    </div>
-  )
-}
-
-function SkillMdEditorError() {
-  return <p className="text-destructive text-sm">Could not load the SKILL.md editor.</p>
-}
 
 export function UpdateSkillDialog({
   open,
@@ -59,6 +37,7 @@ export function UpdateSkillDialog({
   const [draftMd, setDraftMd] = useState<string>()
   const currentMd = detail.data?.skill_md ?? ''
   const editorValue = draftMd ?? currentMd
+  const draftCheck = checkSkillMd(editorValue, skill.name)
   const uploadError = updateSkill.isError
     ? errorMessage(updateSkill.error, 'Could not update skill')
     : null
@@ -97,7 +76,7 @@ export function UpdateSkillDialog({
 
   const canSave =
     tab === 'skill-md'
-      ? detail.isSuccess && draftMd !== undefined && draftMd !== currentMd && draftMd.length > 0
+      ? detail.isSuccess && draftMd !== undefined && draftMd !== currentMd && draftCheck.ok
       : archive !== undefined
 
   return (
@@ -134,20 +113,17 @@ export function UpdateSkillDialog({
                   ) : detail.isError ? (
                     <p className="text-destructive text-sm">Could not load SKILL.md.</p>
                   ) : (
-                    <CatchBoundary getResetKey={() => skill.id} errorComponent={SkillMdEditorError}>
-                      <Suspense fallback={<SkillMdEditorFallback />}>
-                        <LazySkillMdEditor
-                          id={skill.id}
-                          className="h-[65vh]"
-                          value={editorValue}
-                          readOnly={updateSkill.isPending}
-                          onChange={(nextValue) => {
-                            setDraftMd(nextValue)
-                            updateSkill.reset()
-                          }}
-                        />
-                      </Suspense>
-                    </CatchBoundary>
+                    <LazySkillMdEditor
+                      id={skill.id}
+                      className="h-[65vh]"
+                      value={editorValue}
+                      readOnly={updateSkill.isPending}
+                      problem={draftCheck.ok ? undefined : draftCheck.problem}
+                      onChange={(nextValue) => {
+                        setDraftMd(nextValue)
+                        updateSkill.reset()
+                      }}
+                    />
                   )}
                   <FieldDescription>
                     All other files in the skill are kept unchanged.
