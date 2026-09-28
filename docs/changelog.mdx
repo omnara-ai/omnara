@@ -5,57 +5,6 @@ icon: "list"
 mode: "center"
 ---
 
-<Update label="Upcoming">
-
-## Project integrations for Slack, Discord and GitHub
-
-Create an integration from your project's Integrations page and configure its
-provider setup and launch behavior. Slack and Discord can start a thread agent
-from a mention and offer a profile menu. GitHub can launch from a PR mention or
-opening a PR, then read and write discussion and inline comments. Tools and
-interaction handlers can be selected independently in agent configs.
-Integration-owned subscriptions forward conversations to agents independently of
-config. Manage them from the integration's paginated Conversations list or
-subscriptions API.
-
-This release replaces native Slack setup with project-owned integrations. Tool
-names include the integration name, such as `int__engineering__post_message`;
-interaction-handler configs refer to that integration as well. Subscription
-attachments use integration IDs. Existing Slack data and configs are migrated
-during a coordinated maintenance window. Operators must drain or cancel outstanding
-work and open interactions across the entire deployment, then stop cluster writers.
-The migration rejects outstanding work; it does not cancel it. Agents,
-conversation history and provider messages remain, but plain replies in old Slack
-threads no longer resume their agents automatically. Use the dashboard/API or
-explicitly attach a subscription to resume those conversations. Self-hosted
-operators must follow the [cutover playbook](/self-hosting/composable-integrations-cutover).
-
-The public setup API creates an integration before verifying its credentials.
-Project management uses `/integrations` and `/integration-definitions`, with
-`integration_kind` identifying behavior and `integration_id` identifying a saved
-integration. Integration IDs use `itg_`, subscriptions use `isub_`, and profile
-choices use `ipc_`; agent interaction IDs remain `int_`. Agent responses expose
-the selected question/approval destination as `integration_target`; it is used
-only while its integration and handler remain eligible. Captured interaction
-destinations use `integration_target_id`. Update clients using the old integration setup or
-destination APIs together with the cluster release. Existing `/api/integrations/`
-webhook and OAuth callback URLs remain unchanged. Customer-hosted integrations
-continue to use ordinary agent inputs, custom tools and interaction APIs.
-See [Integrations](/integrations/overview).
-
-### Git credentials on agent machines
-
-Set `git_credentials: {integration: reviews}` to use a connected GitHub integration
-for HTTPS Git access. GitHub launchers add this automatically. The daemon fetches
-short-lived credentials when Git needs them; access follows the installation's
-repositories and permissions. New GitHub Apps request Contents read access, and
-existing installations need approval for that permission.
-
-**Upgrade `omnarad` before using Git credentials or launching GitHub agents.**
-Older daemons do not support this feature. See [GitHub credentials](/integrations/github#git-credentials).
-
-</Update>
-
 <Update
   label="September 24, 2026"
   rss={{
