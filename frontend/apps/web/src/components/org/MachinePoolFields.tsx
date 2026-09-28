@@ -11,6 +11,7 @@ import {
   machinePoolProviderLabel,
 } from './MachinePoolDialogState'
 import { MachinePoolInputField } from './MachinePoolInputField'
+import { createosRootFS } from './machinePoolProviderOptions'
 import { isMachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 import { MachinePoolProviderSelect } from './MachinePoolProviderSelect'
 import { MachinePoolResourceFields } from './MachinePoolResourceFields'
@@ -44,6 +45,7 @@ export function MachinePoolFields({
     setValue('provider', nextValues.provider)
     setValue('providerScope', nextValues.providerScope)
     setValue('image', nextValues.image)
+    setValue('rootfs', nextValues.rootfs)
     setValue('location', nextValues.location)
     setValue('cpu', nextValues.cpu)
     setValue('memoryGb', nextValues.memoryGb)
@@ -180,6 +182,12 @@ export function MachinePoolFields({
           value={values.secretId}
           onChange={(secretId) => {
             setValue('secretId', secretId)
+            if (values.provider === 'createos' && secretId !== values.secretId) {
+              setValue('image', '')
+              setValue('rootfs', createosRootFS)
+              setValue('cpu', '')
+              setValue('memoryGb', '')
+            }
           }}
           label={credential?.label ?? `${machinePoolProviderLabel(values.provider)} API token`}
           placeholder={
