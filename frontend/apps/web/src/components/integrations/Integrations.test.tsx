@@ -8,7 +8,7 @@ import { z } from 'zod'
 
 import { IntegrationDetail } from '@/routes/IntegrationPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { fakeId, integration as integrationFixture,integrationDefinition } from '@/test/fixtures'
+import { fakeId, integration as integrationFixture, integrationDefinition } from '@/test/fixtures'
 import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, waitForUI } from '@/test/secret-editor'

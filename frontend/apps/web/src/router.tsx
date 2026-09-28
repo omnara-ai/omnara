@@ -147,10 +147,7 @@ const projectAgentsRoute = createRoute({
 const integrationsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations',
-  component: lazyRouteComponent(
-    () => import('@/routes/IntegrationsPage'),
-    'IntegrationsPage',
-  ),
+  component: lazyRouteComponent(() => import('@/routes/IntegrationsPage'), 'IntegrationsPage'),
 })
 
 const integrationCatalogRoute = createRoute({
@@ -174,10 +171,7 @@ const createIntegrationRoute = createRoute({
 const integrationDetailRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations/$integrationId',
-  component: lazyRouteComponent(
-    () => import('@/routes/IntegrationPage'),
-    'IntegrationPage',
-  ),
+  component: lazyRouteComponent(() => import('@/routes/IntegrationPage'), 'IntegrationPage'),
 })
 
 const projectGrantsRoute = createRoute({

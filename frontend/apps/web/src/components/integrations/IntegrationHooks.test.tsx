@@ -16,7 +16,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
-import { fakeId, integration as integrationFixture,integrationDefinition } from '@/test/fixtures'
+import { fakeId, integration as integrationFixture, integrationDefinition } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, waitForUI } from '@/test/secret-editor'
 

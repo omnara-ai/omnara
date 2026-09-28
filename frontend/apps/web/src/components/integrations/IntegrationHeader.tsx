@@ -37,11 +37,7 @@ export function IntegrationHeader({
         </div>
       </div>
       {actions && (onReconnect !== undefined || integration.state === 'active') && (
-        <IntegrationActions
-          actions={actions}
-          integration={integration}
-          onConnect={onReconnect}
-        />
+        <IntegrationActions actions={actions} integration={integration} onConnect={onReconnect} />
       )}
     </header>
   )

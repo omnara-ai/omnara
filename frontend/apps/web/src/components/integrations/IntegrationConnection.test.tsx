@@ -1,10 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { type Integration, schemas } from '@omnara/sdk'
-import {
-  getIntegrationQueryKey,
-  listIntegrationsInfiniteOptions,
-} from '@omnara/sdk/tanstack'
+import { getIntegrationQueryKey, listIntegrationsInfiniteOptions } from '@omnara/sdk/tanstack'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -423,12 +420,7 @@ async function beginSlackAuthorization({ setupRevision = 1, callbackError = fals
   ])
   const context = render(
     api,
-    <IntegrationDetail
-      orgId={orgId}
-      projectId={projectId}
-      integrationId={draft.id}
-      canManage
-    />,
+    <IntegrationDetail orgId={orgId} projectId={projectId} integrationId={draft.id} canManage />,
   )
   await waitForUI(() => {
     expect(document.querySelector('#slack-app-configuration-token')).not.toBeNull()

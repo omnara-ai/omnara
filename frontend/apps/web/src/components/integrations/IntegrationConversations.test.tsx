@@ -1,11 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider, useCreateIntegrationSubscription } from '@omnara/react'
-import {
-  createOmnaraClient,
-  type Integration,
-  type IntegrationSubscription,
-} from '@omnara/sdk'
+import { createOmnaraClient, type Integration, type IntegrationSubscription } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,

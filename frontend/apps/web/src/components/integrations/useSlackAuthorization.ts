@@ -1,4 +1,4 @@
-import { useIntegrationOAuthCompletion,useOmnaraClient } from '@omnara/react'
+import { useIntegrationOAuthCompletion, useOmnaraClient } from '@omnara/react'
 import {
   ApiError,
   type GetIntegrationError,

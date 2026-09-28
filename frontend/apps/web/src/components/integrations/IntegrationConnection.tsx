@@ -1,4 +1,4 @@
-import type { Integration,IntegrationKind } from '@omnara/sdk'
+import type { Integration, IntegrationKind } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { ConnectGitHubForm } from './ConnectGitHubForm'

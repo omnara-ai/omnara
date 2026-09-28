@@ -69,10 +69,7 @@ export function GitHubSetupDetails({
         title="Then, in GitHub"
         hint="Connect here first, then finish setup in your GitHub App’s settings."
       >
-        <IntegrationPortalSetup
-          integrationKind="github_pr"
-          providerId={providerTenant || tenant}
-        />
+        <IntegrationPortalSetup integrationKind="github_pr" providerId={providerTenant || tenant} />
       </IntegrationSetupGroup>
     </>
   )

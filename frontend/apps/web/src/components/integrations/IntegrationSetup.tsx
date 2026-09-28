@@ -1,5 +1,5 @@
 import { useConfigureIntegration, useCreateSecret } from '@omnara/react'
-import type { Integration,IntegrationKind } from '@omnara/sdk'
+import type { Integration, IntegrationKind } from '@omnara/sdk'
 import { type ReactNode, type SyntheticEvent, useEffect, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'

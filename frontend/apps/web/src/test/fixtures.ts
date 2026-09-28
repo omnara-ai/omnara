@@ -204,9 +204,7 @@ export function integrationDefinition(
   return definition
 }
 
-export function integration(
-  overrides: Partial<Integration> = {},
-): Integration {
+export function integration(overrides: Partial<Integration> = {}): Integration {
   const definition = integrationDefinition(overrides.integration_kind)
   return {
     id: fakeId('itg'),

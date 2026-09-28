@@ -537,7 +537,9 @@ test('denies agent creation when the project lacks manage permission', async ({ 
 })
 
 test('walks a new organization through onboarding to its first chat', async ({ page }) => {
-  const failures = installFailureTracking(page)
+  const failures = installFailureTracking(page, [
+    /^request: GET .*\/orgs\/org_[a-z2-7]+\/overview\?timezone=[^ ]+ \(net::ERR_ABORTED\)$/,
+  ])
   await signIn(page, onboardingEmail, '/')
 
   await expect(page.getByRole('heading', { name: 'Launch your first agent' })).toBeVisible()

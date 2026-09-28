@@ -3,7 +3,7 @@ import {
   useCreateIntegrationSlackSetup,
   useOmnaraClient,
 } from '@omnara/react'
-import type { Integration,IntegrationOAuthSetup } from '@omnara/sdk'
+import type { Integration, IntegrationOAuthSetup } from '@omnara/sdk'
 import { createFormHook, createFormHookContexts, formOptions } from '@tanstack/react-form'
 import { type ReactNode, useState } from 'react'
 
@@ -161,11 +161,7 @@ export function ConnectSlackForm({
                         title="Name in Omnara"
                         hint="A permanent name for this integration in your project."
                       >
-                        <IntegrationNameField
-                          name={name}
-                          onChange={setName}
-                          saved={integration}
-                        />
+                        <IntegrationNameField name={name} onChange={setName} saved={integration} />
                       </IntegrationSetupGroup>
                     </fieldset>
                   )}

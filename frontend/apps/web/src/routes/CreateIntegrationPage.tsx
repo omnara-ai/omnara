@@ -1,5 +1,5 @@
-import { useIntegration,useIntegrationDefinitions } from '@omnara/react'
-import type { Integration,IntegrationKind } from '@omnara/sdk'
+import { useIntegration, useIntegrationDefinitions } from '@omnara/react'
+import type { Integration, IntegrationKind } from '@omnara/sdk'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
