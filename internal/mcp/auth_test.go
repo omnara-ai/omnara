@@ -607,6 +607,35 @@ func TestDetectAuthKeepsTransientMetadataFailuresDistinctFromMissingMetadata(t *
 	}
 }
 
+func TestDetectAuthDoesNotReportCanceledMetadataLookupAsMissingMetadata(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+server.URL+`/resource-metadata"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	client := *server.Client()
+	baseTransport := client.Transport
+	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/resource-metadata" {
+			cancel()
+			return nil, request.Context().Err()
+		}
+		return baseTransport.RoundTrip(request)
+	})
+
+	_, err := mcp.DetectAuth(ctx, server.URL+"/mcp", mcp.AuthOptions{HTTPClient: &client})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("DetectAuth error = %v, want context.Canceled", err)
+	}
+	if errors.Is(err, mcp.ErrOAuthMetadataUnavailable) {
+		t.Fatalf("DetectAuth error = %v, want no ErrOAuthMetadataUnavailable", err)
+	}
+}
+
 func TestDetectAuthErrorsOnUnexpectedProbeStatus(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)

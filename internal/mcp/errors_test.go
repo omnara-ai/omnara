@@ -32,6 +32,43 @@ func TestHTTPStatusSeesTokenEndpointErrors(t *testing.T) {
 	}
 }
 
+func TestIsOAuthGrantRejected(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "invalid grant",
+			err:  &tokenEndpointError{statusCode: http.StatusBadRequest, code: "invalid_grant"},
+			want: true,
+		},
+		{
+			name: "invalid client",
+			err:  &tokenEndpointError{statusCode: http.StatusUnauthorized, code: "invalid_client"},
+			want: true,
+		},
+		{
+			name: "unauthorized client",
+			err:  &tokenEndpointError{statusCode: http.StatusBadRequest, code: "unauthorized_client"},
+			want: true,
+		},
+		{
+			name: "invalid request",
+			err:  &tokenEndpointError{statusCode: http.StatusBadRequest, code: "invalid_request"},
+			want: false,
+		},
+		{name: "no oauth error code", err: &tokenEndpointError{statusCode: http.StatusBadRequest}, want: false},
+		{name: "mcp server status", err: &HTTPError{Status: http.StatusBadRequest}, want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsOAuthGrantRejected(fmt.Errorf("refresh: %w", tt.err)); got != tt.want {
+				t.Fatalf("IsOAuthGrantRejected() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsRetryableConnectionFailureClassifiesTransportErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name string

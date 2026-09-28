@@ -99,6 +99,19 @@ func HTTPStatus(err error) (int, bool) {
 	return 0, false
 }
 
+func IsOAuthGrantRejected(err error) bool {
+	var tokenErr *tokenEndpointError
+	if !errors.As(err, &tokenErr) {
+		return false
+	}
+	switch tokenErr.code {
+	case "invalid_grant", "invalid_client", "unauthorized_client":
+		return true
+	default:
+		return false
+	}
+}
+
 func isStatelessProtocolCode(code int) bool {
 	switch code {
 	case CodeHeaderMismatch, CodeMissingRequiredClientCapability, CodeUnsupportedProtocolVersion:

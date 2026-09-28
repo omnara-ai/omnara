@@ -206,7 +206,7 @@ func (s strictOpenAPIServer) mcpServerToolsFailure(
 		).WithCause(err)
 	case errors.Is(err, mcp.ErrCredential) && mcp.IsRetryableConnectionFailure(err):
 		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, message).WithCause(err)
-	case errors.Is(err, mcp.ErrCredential) && isUnauthorizedStatus(status, hasStatus):
+	case errors.Is(err, mcp.ErrCredential) && (isUnauthorizedStatus(status, hasStatus) || mcp.IsOAuthGrantRejected(err)):
 		hint := openapi.MCPServerAuthHint{Type: openapi.MCPServerAuthHintTypeOauth}
 		return mcpServerAuthRequiredResponse(
 			hint,
@@ -242,6 +242,8 @@ func (s strictOpenAPIServer) mcpServerAuthRequired(
 			AuthorizationServer: optionalNonEmpty(requirement.AuthorizationServer.Issuer),
 		}
 		return mcpServerAuthRequiredResponse(hint, "mcp server requires OAuth authorization: "+message), nil
+	case errors.Is(err, context.Canceled):
+		return nil, apierror.FromCode(openapi.ErrorCodeUnprocessable, "mcp server request was canceled").WithCause(err)
 	case err != nil && mcp.IsRetryableConnectionFailure(err):
 		return nil, apierror.FromCode(
 			openapi.ErrorCodeUpstreamUnavailable,

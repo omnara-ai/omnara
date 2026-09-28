@@ -531,6 +531,47 @@ func TestMCPServerToolsFailureUnauthorizedCredentialHintsOAuthWithoutProbing(t *
 	}
 }
 
+func TestMCPServerToolsFailureRejectedRefreshGrantHintsOAuth(t *testing.T) {
+	tokenEndpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer tokenEndpoint.Close()
+	_, refreshErr := mcp.RefreshOAuthToken(context.Background(), mcp.OAuthRefreshInput{
+		TokenEndpoint: tokenEndpoint.URL + "/token",
+		ClientID:      "client-123",
+		RefreshToken:  "refresh-revoked",
+		Resource:      "https://mcp.example.com/mcp",
+		HTTPClient:    tokenEndpoint.Client(),
+	})
+	if refreshErr == nil {
+		t.Fatal("RefreshOAuthToken() error = nil, want invalid_grant")
+	}
+	cause := fmt.Errorf("%w: refresh mcp oauth token: %w", mcp.ErrCredential, refreshErr)
+
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	response, err := server.mcpServerToolsFailure(mcpServerToolsTestContext(), "https://mcp.example.com/mcp", cause)
+	if err != nil {
+		t.Fatalf("mcpServerToolsFailure() error = %v", err)
+	}
+	rejected, ok := response.(openapi.ListMCPServerTools422JSONResponse)
+	if !ok || rejected.Auth == nil || rejected.Auth.Type != openapi.MCPServerAuthHintTypeOauth {
+		t.Fatalf("response = %+v, want 422 with an oauth hint", response)
+	}
+}
+
+func TestMCPServerAuthRequiredReportsCanceledProbe(t *testing.T) {
+	ctx, cancel := context.WithCancel(mcpServerToolsTestContext())
+	cancel()
+	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
+	_, err := server.mcpServerAuthRequired(ctx, "https://mcp.example.com/mcp", "unauthorized")
+	var apiErr apierror.ResponseError
+	if !errors.As(err, &apiErr) || apiErr.Code != openapi.ErrorCodeUnprocessable || !errors.Is(err, context.Canceled) {
+		t.Fatalf("mcpServerAuthRequired() error = %v, want canceled unprocessable", err)
+	}
+}
+
 func TestMCPServerToolsFailureUnusableCredentialHasNoHint(t *testing.T) {
 	server := strictOpenAPIServer{server: mcpServerToolsTestServer(t)}
 	cause := fmt.Errorf("%w: mcp oauth secret is expired and has no refresh token", mcp.ErrCredential)

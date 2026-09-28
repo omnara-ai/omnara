@@ -131,7 +131,7 @@ func DetectAuth(ctx context.Context, endpoint string, opts AuthOptions) (AuthReq
 		response.Header.Values("WWW-Authenticate"),
 		client,
 	)
-	if IsRetryableConnectionFailure(err) {
+	if errors.Is(err, context.Canceled) || IsRetryableConnectionFailure(err) {
 		return AuthRequirement{}, err
 	}
 	if err != nil {
