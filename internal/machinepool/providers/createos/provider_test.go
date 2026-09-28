@@ -558,3 +558,56 @@ func TestCreateOSProvisioningTimeoutIsBounded(t *testing.T) {
 		t.Fatalf("provisioning timeout = %s, want %s", got, provisioningTimeout)
 	}
 }
+
+func TestCreateOSProvisionMachineAdoptsTheRegionCreateOSPicked(t *testing.T) {
+	api := newFakeAPI()
+	api.created = sandbox{
+		ID:     "sb-123",
+		Status: sandboxStatusRunning,
+		Shape:  "s-1vcpu-1gb",
+		RootFS: "devbox:1",
+		Region: "eu",
+	}
+	result, err := newTestProvider(api).ProvisionMachine(
+		context.Background(),
+		uuid.New(),
+		uuid.New(),
+		testMachineProvisioning(t, "s-1vcpu-1gb", "devbox:1", "", ""),
+		"machine-token",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("provision machine: %v", err)
+	}
+	if result.ProviderResourceID != "sb-123" {
+		t.Fatalf("provider resource id = %q, want sb-123", result.ProviderResourceID)
+	}
+	if _, sent := api.createRequest.Envs["OMNARA_API_URL"]; !sent {
+		t.Fatal("create request did not carry the machine environment")
+	}
+	if api.createRequest.Region != "" {
+		t.Fatalf("create region = %q, want it left to CreateOS", api.createRequest.Region)
+	}
+}
+
+func TestCreateOSProvisionMachineStillChecksARequestedRegion(t *testing.T) {
+	api := newFakeAPI()
+	api.created = sandbox{
+		ID:     "sb-123",
+		Status: sandboxStatusRunning,
+		Shape:  "s-1vcpu-1gb",
+		RootFS: "devbox:1",
+		Region: "eu",
+	}
+	_, err := newTestProvider(api).ProvisionMachine(
+		context.Background(),
+		uuid.New(),
+		uuid.New(),
+		testMachineProvisioning(t, "s-1vcpu-1gb", "devbox:1", "us", ""),
+		"machine-token",
+		nil,
+	)
+	if err == nil {
+		t.Fatal("provision machine accepted a sandbox in the wrong region")
+	}
+}

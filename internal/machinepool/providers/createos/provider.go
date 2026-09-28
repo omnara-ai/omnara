@@ -104,7 +104,8 @@ func (p *provider) ProvisionMachine(
 	if target.ID == "" || target.Name != name {
 		return result, errors.New("createos sandbox does not match expected allocation")
 	}
-	if target.Shape != options.Shape || target.RootFS != options.RootFS || target.Region != options.Region {
+	if target.Shape != options.Shape || target.RootFS != options.RootFS ||
+		(options.Region != "" && target.Region != options.Region) {
 		return result, errors.New("createos sandbox configuration does not match provisioning intent")
 	}
 	if target.Status != sandboxStatusRunning {
