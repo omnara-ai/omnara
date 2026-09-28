@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	IntegrationInboxMaxPayloadBytes    = 1024 * 1024
-	IntegrationInboxMaxPlanBytes       = 256 * 1024
-	IntegrationInboxMaxEventsBytes     = 256 * 1024
+	IntegrationInboxMaxPayloadBytes = 1024 * 1024
+	// Shared normalized/escaped provider content plus compact facts for every
+	// supported routing address's subscribers and one independent launcher.
+	IntegrationInboxMaxPlanBytes       = 8*IntegrationInboxMaxPayloadBytes + (8*16+1)*32*1024
 	IntegrationInboxMaxErrorBytes      = 4096
 	IntegrationInboxMaxReceiptKeyBytes = 512
 	IntegrationInboxMaxAttempts        = 8
@@ -28,11 +29,12 @@ type IntegrationInboxSource string
 
 const (
 	IntegrationInboxSourceProvider  IntegrationInboxSource = "provider"
+	IntegrationInboxSourceChoice    IntegrationInboxSource = "choice"
 	IntegrationInboxSourceScheduled IntegrationInboxSource = "scheduled"
 )
 
 const (
-	IntegrationInboxPending    IntegrationInboxState = "pending"
+	IntegrationInboxQueued     IntegrationInboxState = "queued"
 	IntegrationInboxProcessing IntegrationInboxState = "processing"
 	IntegrationInboxCompleted  IntegrationInboxState = "completed"
 	IntegrationInboxFailed     IntegrationInboxState = "failed"
@@ -52,7 +54,7 @@ type IntegrationInboxRecord struct {
 	ReceiptKey     string
 	State          IntegrationInboxState
 	AttemptCount   int
-	AvailableAt    time.Time
+	NextAttemptAt  time.Time
 	ClaimExpiresAt *time.Time
 	LastError      string
 	CreatedAt      time.Time
@@ -60,7 +62,7 @@ type IntegrationInboxRecord struct {
 	CompletedAt    *time.Time
 	Source         IntegrationInboxSource
 	Payload        []byte
-	Events         json.RawMessage
+	StateID        uuid.UUID
 	Plan           json.RawMessage
 	ClaimToken     uuid.UUID
 }

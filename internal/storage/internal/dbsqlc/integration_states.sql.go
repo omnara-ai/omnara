@@ -15,7 +15,7 @@ import (
 const cleanupDeletedIntegrationStates = `-- name: CleanupDeletedIntegrationStates :execrows
 WITH deleted_integrations AS MATERIALIZED (
     SELECT integration.project_id, integration.id
-    FROM project_integrations integration
+    FROM integrations integration
     JOIN projects project ON project.id = integration.project_id
     JOIN orgs org ON org.id = project.org_id
     WHERE integration.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
@@ -25,6 +25,11 @@ WITH deleted_integrations AS MATERIALIZED (
     CROSS JOIN LATERAL (
         SELECT state.id FROM integration_states state
         WHERE state.project_id = integration.project_id AND state.integration_id = integration.id
+          AND NOT EXISTS (
+              SELECT 1 FROM integration_inbox inbox
+              WHERE inbox.project_id = state.project_id AND inbox.integration_id = state.integration_id
+                AND inbox.state_id = state.id
+          )
         ORDER BY state.kind, state.key
         LIMIT $1
         FOR UPDATE SKIP LOCKED

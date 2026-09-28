@@ -115,7 +115,7 @@ func TestIntegrationSubscriptionValidationDisconnectAndLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	subscription, err := f.store.CreateIntegrationSubscription(f.ctx, input)
 	require.NoError(t, err)
-	changed, err := f.store.DisconnectProjectIntegration(f.ctx, integrationstore.DisconnectProjectIntegrationInput{
+	changed, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
 		ProjectID: f.project, IntegrationID: f.integrationID,
 	})
 	require.NoError(t, err)
@@ -128,16 +128,16 @@ func TestIntegrationSubscriptionValidationDisconnectAndLifecycle(t *testing.T) {
 	_, err = f.store.CreateIntegrationSubscription(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	require.NoError(t, f.store.DeleteIntegrationSubscription(f.ctx, f.org, f.project, f.integrationID, subscription.ID))
-	other := f.addIntegration(t, "other", integrationstore.ProjectIntegrationSettings{})
+	other := f.addIntegration(t, "other", integrationstore.IntegrationSettings(`{}`))
 	input.IntegrationID = other.ID
 	_, err = f.store.CreateIntegrationSubscription(f.ctx, input)
 	require.NoError(t, err)
-	require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, other.ID))
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, other.ID))
 	var count int
 	require.NoError(t, f.pool.QueryRow(f.ctx,
 		`SELECT count(*) FROM integration_subscriptions WHERE agent_id=$1`, agent.ID).Scan(&count))
 	require.Zero(t, count, "integration deletion includes receive-only agents")
-	third := f.addIntegration(t, "third", integrationstore.ProjectIntegrationSettings{})
+	third := f.addIntegration(t, "third", integrationstore.IntegrationSettings(`{}`))
 	input.IntegrationID = third.ID
 	_, err = f.store.CreateIntegrationSubscription(f.ctx, input)
 	require.NoError(t, err)
@@ -164,13 +164,13 @@ func TestIntegrationSubscriptionDeletionLocksReceiveOnlyAgentAndFencesAttach(t *
 	})
 	require.NoError(t, err)
 	deleted := integrationdb.RunAsync(func() (struct{}, error) {
-		return struct{}{}, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integrationID)
+		return struct{}{}, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockAgentInProject", 1)
 	attached := integrationdb.RunAsync(func() (integrationstore.IntegrationSubscriptionRecord, error) {
 		return f.store.CreateIntegrationSubscription(f.ctx, input)
 	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectIntegrationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationLifecycleShared", 1)
 	require.NoError(t, control.Commit(f.ctx))
 	integrationdb.AwaitSuccess(t, deleted, "delete integration with receive-only agent")
 	outcome := integrationdb.Await(t, attached, "attach after integration deletion")

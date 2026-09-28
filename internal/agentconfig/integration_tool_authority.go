@@ -38,7 +38,7 @@ func ResolveIntegrationToolAuthority(
 	if err != nil {
 		return IntegrationToolAuthority{}, err
 	}
-	metadata, ok := toolcatalog.LookupIntegrationTool(definition.IntegrationType, operation)
+	metadata, ok := toolcatalog.LookupIntegrationTool(definition.IntegrationKind, operation)
 	if !ok {
 		return IntegrationToolAuthority{}, fmt.Errorf("integration does not export operation %q", operation)
 	}

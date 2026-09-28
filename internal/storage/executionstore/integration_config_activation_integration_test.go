@@ -27,7 +27,7 @@ type integrationActivationFixture struct {
 	store       *Store
 	user        identitystore.UserRecord
 	profile     executionstore.AgentProfileRecord
-	integration integrationstore.ProjectIntegrationRecord
+	integration integrationstore.IntegrationRecord
 }
 
 func newIntegrationActivationFixture(t *testing.T) integrationActivationFixture {
@@ -154,9 +154,9 @@ func (f integrationActivationFixture) detach(t *testing.T, agentID uuid.UUID) {
 func (f integrationActivationFixture) disable(t *testing.T) {
 	t.Helper()
 	changed, err := f.store.Integrations().
-		DisconnectProjectIntegration(
+		DisconnectIntegration(
 			f.ctx,
-			integrationstore.DisconnectProjectIntegrationInput{ProjectID: testProjectID, IntegrationID: f.integration.ID},
+			integrationstore.DisconnectIntegrationInput{ProjectID: testProjectID, IntegrationID: f.integration.ID},
 		)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -257,26 +257,26 @@ func TestIntegrationSubscriptionsProfileLaunchActivationAndReplay(t *testing.T) 
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 }
 
-func TestIntegrationSubscriptionsRejectCrossProjectIntegrations(t *testing.T) {
+func TestIntegrationSubscriptionsRejectCrossIntegrations(t *testing.T) {
 	f := newIntegrationActivationFixture(t)
 	otherProject := seedAdditionalProjectForTest(t, f.ctx, f.store.pool, "other-integration")
 	credential := createIntegrationCredential(t, f.ctx, f.store, otherProject, f.user.ID, "other-integration")
-	otherInput := slackProjectIntegrationSetupInput(f.user.ID, credential, "A_OTHER", "T_OTHER")
+	otherInput := slackIntegrationSetupInput(f.user.ID, credential, "A_OTHER", "T_OTHER")
 	otherInput.ProjectID = otherProject
-	other := mustCreateProjectIntegration(t, f.ctx, f.store, otherInput)
+	other := mustCreateIntegration(t, f.ctx, f.store, otherInput)
 	base, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "integration-base"))
 	require.NoError(t, err)
 	for _, state := range []string{"active", "disconnected", "deleted", "missing"} {
 		t.Run(state, func(t *testing.T) {
 			if state == "disconnected" {
-				_, err := f.store.Integrations().DisconnectProjectIntegration(
+				_, err := f.store.Integrations().DisconnectIntegration(
 					f.ctx,
-					integrationstore.DisconnectProjectIntegrationInput{ProjectID: otherProject, IntegrationID: other.ID},
+					integrationstore.DisconnectIntegrationInput{ProjectID: otherProject, IntegrationID: other.ID},
 				)
 				require.NoError(t, err)
 			}
 			if state == "deleted" {
-				require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, otherProject, other.ID))
+				require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, otherProject, other.ID))
 			}
 			attachment := f.attachment()
 			attachment.IntegrationID = other.ID
@@ -326,7 +326,7 @@ func TestIntegrationSubscriptionsRejectCrossProjectIntegrations(t *testing.T) {
 	}
 }
 
-func TestIntegrationConfigChangesRemainAvailableAtSubscriptionQuota(t *testing.T) {
+func TestIntegrationConfigChangesRemainNextAttemptAtSubscriptionQuota(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationActivationFixture(t)
 	base, err := f.store.Execution().LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, "quota-base"))
@@ -425,15 +425,15 @@ func TestIntegrationCapabilitiesLockIntegrationsBeforeLaunchKeyAndProfile(t *tes
 	q := dbsqlc.New(control)
 	require.NoError(
 		t,
-		q.LockProjectIntegrationLifecycleExclusive(
+		q.LockIntegrationLifecycleExclusive(
 			f.ctx,
-			dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+			dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 		),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
 		return f.store.Execution().IntegrationLaunchAgentOnce(f.ctx, input)
 	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
 	defer cancel()
 	require.NoError(
@@ -469,15 +469,15 @@ func TestIntegrationCapabilitiesLockIntegrationsBeforeAgentSourcesAndAgent(t *te
 	q := dbsqlc.New(control)
 	require.NoError(
 		t,
-		q.LockProjectIntegrationLifecycleExclusive(
+		q.LockIntegrationLifecycleExclusive(
 			f.ctx,
-			dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+			dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 		),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
 		return f.store.Execution().IntegrationChangeAgentConfigOnce(f.ctx, input)
 	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
 	defer cancel()
 	require.NoError(
@@ -509,13 +509,13 @@ func TestIntegrationCapabilitiesValidateCurrentConfigAfterIntegrationWait(t *tes
 				input.ExpectedCurrentConfigID = launch.Agent.CurrentConfigID
 			}
 			control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-			require.NoError(t, dbsqlc.New(control).LockProjectIntegrationLifecycleExclusive(
-				f.ctx, dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+			require.NoError(t, dbsqlc.New(control).LockIntegrationLifecycleExclusive(
+				f.ctx, dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 			))
 			done := integrationdb.RunAsync(func() (executionstore.ChangeAgentConfigResult, error) {
 				return f.store.Execution().IntegrationChangeAgentConfigOnce(f.ctx, input)
 			})
-			integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleShared", 1)
+			integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 			concurrent, err := f.store.Execution().ChangeAgentConfig(
 				f.ctx, f.changeInput(t, launch.Agent.ID, "Concurrent edit", "concurrent-edit"),
 			)
@@ -579,11 +579,11 @@ func TestIntegrationCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigCh
 			base, err := f.store.Execution().LaunchAgent(f.ctx, baseInput)
 			require.NoError(t, err)
 			if state == "deleted" {
-				require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, secondary.ID))
+				require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, secondary.ID))
 			} else {
-				_, err := f.store.Integrations().DisconnectProjectIntegration(
+				_, err := f.store.Integrations().DisconnectIntegration(
 					f.ctx,
-					integrationstore.DisconnectProjectIntegrationInput{ProjectID: testProjectID, IntegrationID: secondary.ID},
+					integrationstore.DisconnectIntegrationInput{ProjectID: testProjectID, IntegrationID: secondary.ID},
 				)
 				require.NoError(t, err)
 			}
@@ -634,13 +634,13 @@ func TestIntegrationCapabilitiesUnavailableSecondaryDoesNotBlockLaunchOrConfigCh
 			)
 			require.ErrorIs(t, err, wantErr)
 			if state == "disconnected" {
-				current, err := f.store.Integrations().GetProjectIntegration(f.ctx, testProjectID, secondary.ID)
+				current, err := f.store.Integrations().GetIntegration(f.ctx, testProjectID, secondary.ID)
 				require.NoError(t, err)
 				credential, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, current.CredentialSecretID)
 				require.NoError(t, err)
-				_, err = f.store.Integrations().ConfigureProjectIntegration(
+				_, err = f.store.Integrations().ConfigureIntegration(
 					f.ctx,
-					integrationstore.ConfigureProjectIntegrationInput{
+					integrationstore.ConfigureIntegrationInput{
 						OrgID: testOrgID, ProjectID: testProjectID, IntegrationID: current.ID, InstalledByUserID: f.user.ID,
 						Provider: current.Provider, ProviderTenantID: current.ProviderTenantID,
 						ProviderAccountRef: current.ProviderAccountRef,
@@ -677,8 +677,8 @@ func TestIntegrationCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *test
 			slot := f.slots["a"]
 			slot.AgentID = uuid.Must(uuid.NewV7())
 			slot.Selection.Address.Ref = "C123:789.012"
-			slot.Launch.InitialInput.Origin.Address = slot.Selection.Address
-			slot.Launch.InitialInput.SemanticEventKey = "message:789.012"
+			slot.InitialInput.Origin.Address = slot.Selection.Address
+			slot.InitialInput.SemanticEventKey = "message:789.012"
 			slot.Launch.IdempotencyKey = "unavailable-secondary"
 			saved, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
 			require.NoError(t, err)
@@ -704,16 +704,16 @@ func TestIntegrationCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *test
 			)
 			require.NoError(t, err)
 			require.True(t, found)
-			plan, err := json.Marshal(map[string]executionstore.InboxLaunchSlot{"a": slot})
+			plan, err := marshalInboxLaunchPlan(map[string]executionstore.InboxLaunchSlot{"a": slot})
 			require.NoError(t, err)
 			require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, receipt.Lease(),
 				func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) }))
 			if state == "deleted" {
-				require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, secondary.ID))
+				require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, secondary.ID))
 			} else {
-				_, err := f.store.Integrations().DisconnectProjectIntegration(
+				_, err := f.store.Integrations().DisconnectIntegration(
 					f.ctx,
-					integrationstore.DisconnectProjectIntegrationInput{ProjectID: testProjectID, IntegrationID: secondary.ID},
+					integrationstore.DisconnectIntegrationInput{ProjectID: testProjectID, IntegrationID: secondary.ID},
 				)
 				require.NoError(t, err)
 			}

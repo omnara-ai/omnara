@@ -57,7 +57,7 @@ func (s *Store) AcceptIntegrationReceipt(
 func (s *Store) enterInboxIntegration(
 	ctx context.Context, tx pgx.Tx, projectID, integrationID uuid.UUID, additional ...uuid.UUID,
 ) error {
-	integration, err := getProjectIntegration(ctx, dbsqlc.New(tx), projectID, integrationID)
+	integration, err := getIntegration(ctx, dbsqlc.New(tx), projectID, integrationID)
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (s *Store) enterInboxIntegration(
 	}
 	// Acquire every integration gate before the receipt; adding one later can deadlock
 	// with another receipt and concurrent integration revocation.
-	return lockProjectIntegrationsTx(ctx, tx, projectID, additional, []uuid.UUID{integrationID})
+	return lockIntegrationsTx(ctx, tx, projectID, additional, []uuid.UUID{integrationID})
 }
 
 func (s *Store) ClaimIntegrationInbox(
@@ -87,7 +87,8 @@ func (s *Store) ClaimIntegrationInbox(
 		return IntegrationInboxRecord{}, false, err
 	}
 	row, err := dbsqlc.New(tx).ClaimIntegrationInboxReceipt(ctx, dbsqlc.ClaimIntegrationInboxReceiptParams{
-		ProjectID: input.ProjectID, IntegrationID: input.IntegrationID,
+		MaxAttempts: IntegrationInboxMaxAttempts,
+		ProjectID:   input.ProjectID, IntegrationID: input.IntegrationID,
 		ClaimToken: uuid.New(), LeaseMilliseconds: input.LeaseDuration.Milliseconds(),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -110,6 +111,7 @@ func (s *Store) ListReadyIntegrationInboxIntegrations(
 		return IntegrationInboxIntegrationPage{}, err
 	}
 	rows, err := s.q.ListReadyIntegrationInboxIntegrations(ctx, dbsqlc.ListReadyIntegrationInboxIntegrationsParams{
+		MaxAttempts:    IntegrationInboxMaxAttempts,
 		AfterProjectID: after.ProjectID, AfterIntegrationID: after.IntegrationID, RowLimit: int32(limit + 1),
 	})
 	if err != nil {
@@ -166,7 +168,9 @@ func (s *Store) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, 
 		return 0, err
 	}
 	recovered, err := s.q.RecoverExpiredIntegrationInboxReceipts(
-		ctx, dbsqlc.RecoverExpiredIntegrationInboxReceiptsParams{RowLimit: int32(limit)},
+		ctx, dbsqlc.RecoverExpiredIntegrationInboxReceiptsParams{
+			MaxAttempts: IntegrationInboxMaxAttempts, RowLimit: int32(limit),
+		},
 	)
 	if err != nil {
 		return 0, fmt.Errorf("recover expired inbox: %w", err)
@@ -241,21 +245,22 @@ func inboxErrorText(value *string) string {
 }
 
 func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
-	var plan, events json.RawMessage
-	if row.Events != nil {
-		events = *row.Events
+	var plan json.RawMessage
+	var stateID uuid.UUID
+	if row.StateID != nil {
+		stateID = *row.StateID
 	}
 	if row.Plan != nil {
 		plan = *row.Plan
 	}
 	return IntegrationInboxRecord{
 		ID: row.ID, ProjectID: row.ProjectID, IntegrationID: row.IntegrationID, ReceiptKey: row.ReceiptKey,
-		State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), AvailableAt: row.AvailableAt,
+		State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), NextAttemptAt: row.NextAttemptAt,
 		ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
 		Source:     IntegrationInboxSource(row.Source),
 		Payload:    row.Payload,
-		Events:     events,
+		StateID:    stateID,
 		Plan:       plan,
 		ClaimToken: storeutil.IDFromPtr(row.ClaimToken),
 	}

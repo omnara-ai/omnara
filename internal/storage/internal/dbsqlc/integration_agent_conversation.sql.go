@@ -15,10 +15,10 @@ import (
 const getAssignedIntegrationConversationTarget = `-- name: GetAssignedIntegrationConversationTarget :one
 SELECT target.id
 FROM integration_targets target
-JOIN project_integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
+JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
 WHERE target.project_id = $1 AND target.agent_id = $2
-  AND target.integration_id = $3 AND target.provider_ref_kind = $4
-  AND target.provider_ref = $5 AND target.deleted_at IS NULL
+  AND target.integration_id = $3 AND target.scope_kind = $4
+  AND target.scope_ref = $5 AND target.deleted_at IS NULL
   AND integration.deleted_at IS NULL AND integration.state = 'active'
 `
 
@@ -47,7 +47,7 @@ const insertAgentIntegrationConversation = `-- name: InsertAgentIntegrationConve
 INSERT INTO integration_states(project_id, integration_id, kind, key, data)
 SELECT agent.project_id, integration.id, $1, agent.id::text, $2
 FROM agents agent
-JOIN project_integrations integration ON integration.project_id = agent.project_id AND integration.id = $3
+JOIN integrations integration ON integration.project_id = agent.project_id AND integration.id = $3
 WHERE agent.project_id = $4 AND agent.id = $5
   AND agent.state = 'active' AND integration.state = 'active' AND integration.deleted_at IS NULL
 `

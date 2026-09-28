@@ -20,12 +20,13 @@ const (
 )
 
 type InteractionSelection struct {
+	AutoSelect          bool      `json:"auto_select"`
 	IntegrationTargetID uuid.UUID `json:"integration_target_id"`
 	HandlerKey          string    `json:"handler_key"`
 }
 
 type InteractionDestination struct {
-	IntegrationType     integrationdefinition.Type           `json:"integration_type"`
+	IntegrationKind     integrationdefinition.Kind           `json:"integration_kind"`
 	HandlerKey          string                               `json:"handler_key"`
 	IntegrationID       uuid.UUID                            `json:"integration_id"`
 	IntegrationTargetID uuid.UUID                            `json:"integration_target_id"`
@@ -59,7 +60,7 @@ func (d InteractionDestination) validate() error {
 		toolcatalog.ValidateIntegrationName(d.HandlerKey) != nil {
 		return errors.New("interaction destination requires target, integration and handler key")
 	}
-	definition, ok := integrationdefinition.Lookup(d.IntegrationType)
+	definition, ok := integrationdefinition.Lookup(d.IntegrationKind)
 	if !ok || definition.InteractionHandler == nil {
 		return errors.New("interaction destination requires an integration handler definition")
 	}

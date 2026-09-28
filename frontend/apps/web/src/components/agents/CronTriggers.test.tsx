@@ -5,9 +5,9 @@ import { act } from 'react'
 import { expect, it, vi } from 'vitest'
 
 import { formatDateTime } from '@/lib/format'
-import { ProjectIntegrationDetail } from '@/routes/ProjectIntegrationPage'
+import { IntegrationDetail } from '@/routes/IntegrationPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { fakeId, projectIntegration } from '@/test/fixtures'
+import { fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
 import {
@@ -31,8 +31,8 @@ import { CronTriggersList } from './CronTriggersSection'
 
 it.each(['slack_thread', 'discord_thread'] as const)(
   'creates a %s integration schedule without a mention launcher',
-  async (integrationType) => {
-    const integration = projectIntegration({ integration_type: integrationType, state: 'active' })
+  async (integrationKind) => {
+    const integration = integrationFixture({ integration_kind: integrationKind, state: 'active' })
     let schedules: CronTrigger[] = []
     const api = fakeApi([
       ...profileRoutes,
@@ -58,7 +58,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     ])
     render(
       api,
-      <ProjectIntegrationDetail
+      <IntegrationDetail
         orgId={orgId}
         projectId={projectId}
         integrationId={integration.id}
@@ -77,7 +77,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
     await enter('Name', 'morning-report')
     await enter('Cron expression', '0 9 * * 1-5')
     await enter('Task instructions', 'Summarize yesterday’s progress.')
-    await enter('Channel ID', integrationType === 'slack_thread' ? 'G123' : '123456789')
+    await enter('Channel ID', integrationKind === 'slack_thread' ? 'G123' : '123456789')
     expect(document.body.textContent).not.toContain('Server ID')
     expect(button('Create schedule').disabled).toBe(true)
     await chooseProfile()
@@ -92,7 +92,7 @@ it.each(['slack_thread', 'discord_thread'] as const)(
         integration_id: integration.id,
         settings: {
           agent_profile_id: profile.id,
-          channel_id: integrationType === 'slack_thread' ? 'G123' : '123456789',
+          channel_id: integrationKind === 'slack_thread' ? 'G123' : '123456789',
           opening_message_template: '{{.trigger.name}} — {{.trigger.local_date}}',
           message_template: 'Summarize yesterday’s progress.',
         },
@@ -111,14 +111,12 @@ it.each(['slack_thread', 'discord_thread'] as const)(
 )
 
 it('keeps mentions and schedules available together without changing the launcher', async () => {
-  const integration = projectIntegration({
+  const integration = integrationFixture({
     state: 'active',
     settings: {
       launcher: {
-        trigger: 'mention',
-        scope_kind: 'channel',
-        scope_ref: 'C123',
-        slots: [{ key: 'default', agent_profile_id: profile.id }],
+        channel_id: 'C123',
+        profiles: [profile.id],
       },
     },
   })
@@ -137,7 +135,7 @@ it('keeps mentions and schedules available together without changing the launche
   ])
   render(
     api,
-    <ProjectIntegrationDetail
+    <IntegrationDetail
       orgId={orgId}
       projectId={projectId}
       integrationId={integration.id}
@@ -157,10 +155,10 @@ it('keeps mentions and schedules available together without changing the launche
 
 it.each(['github_pr', 'future_integration'] as const)(
   'does not offer schedules for %s integrations',
-  async (integrationType) => {
+  async (integrationKind) => {
     const integration = {
-      ...projectIntegration({ integration_type: 'github_pr' }),
-      integration_type: integrationType,
+      ...integrationFixture({ integration_kind: 'github_pr' }),
+      integration_kind: integrationKind,
     }
     const api = fakeApi([
       {
@@ -171,7 +169,7 @@ it.each(['github_pr', 'future_integration'] as const)(
     ])
     render(
       api,
-      <ProjectIntegrationDetail
+      <IntegrationDetail
         orgId={orgId}
         projectId={projectId}
         integrationId={integration.id}
@@ -187,7 +185,7 @@ it.each(['github_pr', 'future_integration'] as const)(
 )
 
 it('edits integration settings including the profile for future runs while keeping the saved integration', async () => {
-  const integration = projectIntegration({ integration_type: 'discord_thread', state: 'active' })
+  const integration = integrationFixture({ integration_kind: 'discord_thread', state: 'active' })
   const saved = trigger({
     target: {
       ...integrationTarget,
@@ -256,7 +254,7 @@ it('edits integration settings including the profile for future runs while keepi
 })
 
 it('rejects Slack DMs and thread addresses before sending an update and retains drafts after API errors', async () => {
-  const integration = projectIntegration({ state: 'active' }),
+  const integration = integrationFixture({ state: 'active' }),
     saved = trigger()
   const api = fakeApi([
     ...profileRoutes,
@@ -308,7 +306,7 @@ it.each([
 ] as const)(
   'honors integration schedule management permissions (canManage=$canManage, state=$state)',
   async ({ canManage, state }) => {
-    const integration = projectIntegration({ state })
+    const integration = integrationFixture({ state })
     let saved = trigger(),
       deleted = false
     const api = fakeApi([
@@ -342,7 +340,7 @@ it.each([
     ])
     render(
       api,
-      <ProjectIntegrationDetail
+      <IntegrationDetail
         orgId={orgId}
         projectId={projectId}
         integrationId={integration.id}
@@ -419,7 +417,7 @@ it.each([false, true])(
   'keeps a draft schedule error visible without refetching until retry (hasSchedules=%s)',
   async (hasSchedules) => {
     vi.useFakeTimers()
-    const integration = projectIntegration()
+    const integration = integrationFixture()
     const saved = trigger()
     let currentIntegration = integration
     let recovered = false
@@ -446,7 +444,7 @@ it.each([false, true])(
     ])
     render(
       api,
-      <ProjectIntegrationDetail
+      <IntegrationDetail
         orgId={orgId}
         projectId={projectId}
         integrationId={integration.id}
@@ -498,7 +496,7 @@ it.each([false, true])(
 )
 
 it('closes a schedule editor when management permission is removed', async () => {
-  const integration = projectIntegration({ state: 'active' })
+  const integration = integrationFixture({ state: 'active' })
   const api = fakeApi([
     ...profileRoutes,
     {
@@ -514,7 +512,7 @@ it('closes a schedule editor when management permission is removed', async () =>
   ])
   const rerender = render(
     api,
-    <ProjectIntegrationDetail
+    <IntegrationDetail
       orgId={orgId}
       projectId={projectId}
       integrationId={integration.id}
@@ -529,7 +527,7 @@ it('closes a schedule editor when management permission is removed', async () =>
   })
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   rerender(
-    <ProjectIntegrationDetail
+    <IntegrationDetail
       orgId={orgId}
       projectId={projectId}
       integrationId={integration.id}

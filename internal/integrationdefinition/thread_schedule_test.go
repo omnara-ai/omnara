@@ -17,7 +17,7 @@ func TestThreadSchedulesPublishAndValidateTheirInputs(t *testing.T) {
 	profileID := uuid.New()
 	profile, err := publicid.Encode(publicid.KindAgentProfile, profileID)
 	require.NoError(t, err)
-	for _, integration := range []Type{SlackThread, DiscordThread} {
+	for _, integration := range []Kind{SlackThread, DiscordThread} {
 		t.Run(string(integration), func(t *testing.T) {
 			t.Parallel()
 			channel := "C123"

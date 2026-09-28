@@ -80,8 +80,8 @@ appears in the config or event log. EU cloud accounts: swap the host for
 ## Slack and scheduling (optional)
 
 The demo can create a Slack app for you. Set `SLACK_APP_CONFIGURATION_TOKEN`
-and `SLACK_WORKSPACE_ID` (the workspace's `T…` ID) in `.env`, then install the
-app into that workspace. Invite the bot to a channel and
+in `.env`, then choose the workspace when authorizing the app.
+Invite the bot to a channel and
 mention it — the agent delivers the pulse in that thread, and thread replies
 become instructions, so the team can drill into any number right there.
 Without Slack, pulses appear in the console.

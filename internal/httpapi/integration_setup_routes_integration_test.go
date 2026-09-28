@@ -35,17 +35,17 @@ func createSetupHTTPIntegration(
 	handler http.Handler,
 	project publicHTTPProject,
 	name string,
-	integrationType integrationdefinition.Type,
-) integrationstore.ProjectIntegrationRecord {
+	integrationKind integrationdefinition.Kind,
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	response := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/integrations",
-		projectIntegrationHTTPJSON(
+		integrationHTTPJSON(
 			t,
-			map[string]any{"name": name, "integration_type": integrationType, "settings": map[string]any{}},
+			map[string]any{"name": name, "integration_kind": integrationKind, "settings": map[string]any{}},
 		),
 		"",
 		http.StatusCreated,
@@ -53,12 +53,12 @@ func createSetupHTTPIntegration(
 	)
 	id := mustPublicHTTPID(
 		t,
-		publicid.KindProjectIntegration,
+		publicid.KindIntegration,
 		testutil.RequireType[string](t, response["id"]),
 	)
-	integration, err := project.Store.Integrations().GetProjectIntegration(t.Context(), project.ProjectUUID, id)
+	integration, err := project.Store.Integrations().GetIntegration(t.Context(), project.ProjectUUID, id)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectIntegrationStateDisconnected, integration.State)
+	require.Equal(t, integrationstore.IntegrationStateDisconnected, integration.State)
 	require.Equal(t, uuid.Nil, integration.CredentialSecretID)
 	return integration
 }
@@ -66,17 +66,17 @@ func createSetupHTTPIntegration(
 func integrationSetupPath(
 	t *testing.T,
 	project publicHTTPProject,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 ) string {
 	t.Helper()
 	return project.ProjectPath + "/integrations/" + testPublicID(
 		t,
-		publicid.KindProjectIntegration,
+		publicid.KindIntegration,
 		integration.ID,
 	) + "/setup"
 }
 
-func TestProjectIntegrationCredentialSetupAndDisconnectAuthorization(t *testing.T) {
+func TestIntegrationCredentialSetupAndDisconnectAuthorization(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(
 		openIntegrationDB(t, t.Context()),
@@ -86,7 +86,7 @@ func TestProjectIntegrationCredentialSetupAndDisconnectAuthorization(t *testing.
 	integration := createSetupHTTPIntegration(t, handler, project, "discord", integrationdefinition.DiscordThread)
 	body := integrationSetupDiscordBody(t, handler, project, "111")
 	path := integrationSetupPath(t, project, integration)
-	encoded := projectIntegrationHTTPJSON(t, body)
+	encoded := integrationHTTPJSON(t, body)
 	requestJSONWithHeaders(
 		t,
 		handler,
@@ -167,7 +167,7 @@ func TestProjectIntegrationCredentialSetupAndDisconnectAuthorization(t *testing.
 	)
 	require.Equal(t, "active", configured["state"])
 	require.Equal(t, float64(2), configured["setup_revision"])
-	require.NotContains(t, projectIntegrationHTTPJSON(t, configured), "bot_token")
+	require.NotContains(t, integrationHTTPJSON(t, configured), "bot_token")
 	disconnected := requestJSONWithHeaders(
 		t,
 		handler,
@@ -206,14 +206,14 @@ func TestProjectIntegrationCredentialSetupAndDisconnectAuthorization(t *testing.
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
 }
 
-func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
+func TestIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(
 		openIntegrationDB(t, t.Context()),
@@ -234,7 +234,7 @@ func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 			handler,
 			http.MethodPost,
 			path,
-			projectIntegrationHTTPJSON(t, body),
+			integrationHTTPJSON(t, body),
 			"",
 			http.StatusBadRequest,
 			authHeaders(project.AdminToken),
@@ -248,7 +248,7 @@ func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
@@ -260,7 +260,7 @@ func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
@@ -277,7 +277,7 @@ func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
@@ -289,12 +289,12 @@ func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 		handler,
 		http.MethodPost,
 		integrationSetupPath(t, project, slackIntegration),
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusBadRequest,
 		authHeaders(project.AdminToken),
 	)
-	require.Contains(t, projectIntegrationHTTPJSON(t, rejected), "OAuth")
+	require.Contains(t, integrationHTTPJSON(t, rejected), "OAuth")
 	duplicate := createSetupHTTPIntegration(t, handler, project, "another-discord", integrationdefinition.DiscordThread)
 	body["expected_setup_revision"], body["provider_account_ref"] = duplicate.SetupRevision, "111"
 	created := requestJSONWithHeaders(
@@ -302,15 +302,15 @@ func TestProjectIntegrationSetupValidationAndConfigChanges(t *testing.T) {
 		handler,
 		http.MethodPost,
 		integrationSetupPath(t, project, duplicate),
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	require.Equal(t, testPublicID(t, publicid.KindProjectIntegration, duplicate.ID), created["id"])
+	require.Equal(t, testPublicID(t, publicid.KindIntegration, duplicate.ID), created["id"])
 }
 
-func TestProjectIntegrationSetupCredentialScopeAndKind(t *testing.T) {
+func TestIntegrationSetupCredentialScopeAndKind(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(
 		openIntegrationDB(t, t.Context()),
@@ -318,17 +318,17 @@ func TestProjectIntegrationSetupCredentialScopeAndKind(t *testing.T) {
 	)
 	project := bootstrapPublicHTTPProject(t, handler, "integration-credential-scope")
 	integration := createSetupHTTPIntegration(t, handler, project, "discord", integrationdefinition.DiscordThread)
-	other := projectIntegrationHTTPSecondProject(t, handler, project)
+	other := integrationHTTPSecondProject(t, handler, project)
 	foreign := bootstrapPublicHTTPProject(t, handler, "integration-credential-foreign")
 	for _, owner := range []publicHTTPProject{other, foreign} {
 		body := integrationSetupDiscordBody(t, handler, owner, "111")
 		requestJSONWithHeaders(t, handler, http.MethodPost, integrationSetupPath(t, project, integration),
-			projectIntegrationHTTPJSON(t, body), "", http.StatusNotFound, authHeaders(project.AdminToken))
+			integrationHTTPJSON(t, body), "", http.StatusNotFound, authHeaders(project.AdminToken))
 	}
 	body := integrationSetupHTTPBody("111", "111")
 	body["credential_secret_id"] = testPublicID(t, publicid.KindSecret, uuid.New())
 	requestJSONWithHeaders(t, handler, http.MethodPost, integrationSetupPath(t, project, integration),
-		projectIntegrationHTTPJSON(t, body), "", http.StatusNotFound, authHeaders(project.AdminToken))
+		integrationHTTPJSON(t, body), "", http.StatusNotFound, authHeaders(project.AdminToken))
 	body["credential_secret_id"] = createIntegrationSetupHTTPSecret(
 		t,
 		handler,
@@ -341,9 +341,9 @@ func TestProjectIntegrationSetupCredentialScopeAndKind(t *testing.T) {
 		},
 	)
 	requestJSONWithHeaders(t, handler, http.MethodPost, integrationSetupPath(t, project, integration),
-		projectIntegrationHTTPJSON(t, body), "", http.StatusBadRequest, authHeaders(project.AdminToken))
+		integrationHTTPJSON(t, body), "", http.StatusBadRequest, authHeaders(project.AdminToken))
 	current, err := project.Store.Integrations().
-		GetProjectIntegration(t.Context(), project.ProjectUUID, integration.ID)
+		GetIntegration(t.Context(), project.ProjectUUID, integration.ID)
 	require.NoError(t, err)
 	require.Equal(t, integration, current, "rejected credentials must leave the saved integration unchanged")
 }
@@ -361,7 +361,7 @@ func createIntegrationSetupHTTPSecret(
 		handler,
 		http.MethodPost,
 		"/api/v1/orgs/"+project.OrgID+"/secrets",
-		projectIntegrationHTTPJSON(
+		integrationHTTPJSON(
 			t,
 			map[string]any{
 				"name":     name,
@@ -381,7 +381,7 @@ func createSlackHTTPIntegration(
 	ctx context.Context,
 	project publicHTTPProject,
 	appID, workspaceID, displayName string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	payload, err := slack.CredentialPayload(
 		slack.AppCredentials{
@@ -396,15 +396,15 @@ func createSlackHTTPIntegration(
 	secret, err := project.Store.Secrets().GetSecret(ctx, project.OrgUUID, credential)
 	require.NoError(t, err)
 	integration, err := project.Store.Integrations().
-		CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 			OrgID:           project.OrgUUID,
 			ProjectID:       project.ProjectUUID,
 			Name:            "slack-" + uuid.NewString()[:8],
-			IntegrationType: integrationdefinition.SlackThread,
+			IntegrationKind: integrationdefinition.SlackThread,
 		})
 	require.NoError(t, err)
 	integration, err = project.Store.Integrations().
-		ConfigureProjectIntegration(ctx, integrationstore.ConfigureProjectIntegrationInput{
+		ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
 			OrgID:                    project.OrgUUID,
 			ProjectID:                project.ProjectUUID,
 			IntegrationID:            integration.ID,

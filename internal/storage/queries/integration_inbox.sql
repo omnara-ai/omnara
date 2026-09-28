@@ -2,24 +2,24 @@
 INSERT INTO integration_inbox (project_id, integration_id, receipt_key, payload)
 VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), sqlc.arg(payload))
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- name: GetIntegrationInboxReceiptByKey :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
   AND receipt_key = sqlc.arg(receipt_key);
 
 -- name: GetIntegrationInboxReceipt :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
 -- name: OldestReadyIntegrationInboxLag :one
-SELECT EXTRACT(EPOCH FROM statement_timestamp() - available_at)::double precision AS lag_seconds
+SELECT EXTRACT(EPOCH FROM statement_timestamp() - next_attempt_at)::double precision AS lag_seconds
 FROM integration_inbox
-WHERE state = 'pending' AND available_at <= statement_timestamp()
-ORDER BY available_at, id
+WHERE state = 'queued' AND next_attempt_at <= statement_timestamp()
+ORDER BY next_attempt_at, id
 LIMIT 1;
 
 -- name: ListReadyIntegrationInboxIntegrations :many
@@ -27,7 +27,7 @@ LIMIT 1;
 WITH RECURSIVE frontier AS (
   (SELECT inbox.project_id, inbox.integration_id, 1 AS ordinal
    FROM integration_inbox inbox
-   WHERE inbox.state = 'pending'
+   WHERE inbox.state = 'queued'
      AND (inbox.project_id, inbox.integration_id) > (sqlc.arg(after_project_id)::uuid, sqlc.arg(after_integration_id)::uuid)
    ORDER BY inbox.project_id, inbox.integration_id
    LIMIT 1)
@@ -37,7 +37,7 @@ WITH RECURSIVE frontier AS (
   CROSS JOIN LATERAL (
     SELECT inbox.project_id, inbox.integration_id
     FROM integration_inbox inbox
-    WHERE inbox.state = 'pending'
+    WHERE inbox.state = 'queued'
       AND (inbox.project_id, inbox.integration_id) > (previous.project_id, previous.integration_id)
     ORDER BY inbox.project_id, inbox.integration_id
     LIMIT 1
@@ -46,7 +46,7 @@ WITH RECURSIVE frontier AS (
 )
 SELECT frontier.project_id, frontier.integration_id,
     CASE WHEN EXISTS (
-        SELECT 1 FROM project_integrations integration
+        SELECT 1 FROM integrations integration
         JOIN projects project ON project.id = integration.project_id
         JOIN orgs org ON org.id = project.org_id
         WHERE integration.project_id = frontier.project_id AND integration.id = frontier.integration_id
@@ -55,8 +55,8 @@ SELECT frontier.project_id, frontier.integration_id,
     ) THEN COALESCE((
         SELECT true FROM integration_inbox inbox
         WHERE inbox.project_id = frontier.project_id AND inbox.integration_id = frontier.integration_id
-          AND inbox.state = 'pending' AND inbox.available_at <= statement_timestamp() AND inbox.attempt_count < 8
-        ORDER BY inbox.available_at, inbox.id
+          AND inbox.state = 'queued' AND inbox.next_attempt_at <= statement_timestamp() AND inbox.attempt_count < sqlc.arg(max_attempts)::integer
+        ORDER BY inbox.next_attempt_at, inbox.id
         LIMIT 1
     ), false) ELSE false END::boolean AS ready
 FROM frontier
@@ -66,8 +66,8 @@ ORDER BY frontier.project_id, frontier.integration_id;
 WITH candidate AS (
   SELECT ready.id FROM integration_inbox ready
   WHERE ready.project_id = sqlc.arg(project_id) AND ready.integration_id = sqlc.arg(integration_id)
-    AND ready.state = 'pending' AND ready.available_at <= statement_timestamp() AND ready.attempt_count < 8
-  ORDER BY ready.available_at, ready.id
+    AND ready.state = 'queued' AND ready.next_attempt_at <= statement_timestamp() AND ready.attempt_count < sqlc.arg(max_attempts)::integer
+  ORDER BY ready.next_attempt_at, ready.id
   LIMIT 1
   FOR UPDATE SKIP LOCKED
 )
@@ -77,7 +77,7 @@ SET state = 'processing', attempt_count = inbox.attempt_count + 1,
     claim_expires_at = statement_timestamp() + sqlc.arg(lease_milliseconds)::bigint * interval '1 millisecond',
     updated_at = statement_timestamp()
 FROM candidate WHERE inbox.id = candidate.id
-RETURNING inbox.id, inbox.project_id, inbox.integration_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.events, inbox.plan, inbox.state, inbox.attempt_count, inbox.available_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
+RETURNING inbox.id, inbox.project_id, inbox.integration_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.state_id, inbox.plan, inbox.state, inbox.attempt_count, inbox.next_attempt_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
 
 -- Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 -- name: LockIntegrationInboxReceipt :one
@@ -86,7 +86,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 FOR UPDATE;
 
 -- name: ReadIntegrationInboxLease :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
+SELECT id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
@@ -110,10 +110,10 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 
 -- name: RetryIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
-SET state = CASE WHEN attempt_count >= 8 THEN 'failed' ELSE 'pending' END,
-    completed_at = CASE WHEN attempt_count >= 8 THEN statement_timestamp() ELSE NULL END,
+SET state = CASE WHEN attempt_count >= sqlc.arg(max_attempts)::integer THEN 'failed' ELSE 'queued' END,
+    completed_at = CASE WHEN attempt_count >= sqlc.arg(max_attempts)::integer THEN statement_timestamp() ELSE NULL END,
     claim_token = NULL, claim_expires_at = NULL,
-    available_at = statement_timestamp() + sqlc.arg(delay_milliseconds)::bigint * interval '1 millisecond',
+    next_attempt_at = statement_timestamp() + sqlc.arg(delay_milliseconds)::bigint * interval '1 millisecond',
     last_error = sqlc.arg(last_error), updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
@@ -141,16 +141,16 @@ WITH candidates AS MATERIALIZED (
     (integration.state = 'active' AND integration.deleted_at IS NULL
      AND project.deleted_at IS NULL AND org.deleted_at IS NULL) AS active
   FROM candidates
-  JOIN project_integrations integration ON integration.project_id = candidates.project_id AND integration.id = candidates.integration_id
+  JOIN integrations integration ON integration.project_id = candidates.project_id AND integration.id = candidates.integration_id
   JOIN projects project ON project.id = candidates.project_id
   JOIN orgs org ON org.id = project.org_id
 )
 UPDATE integration_inbox inbox
-SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN 'failed' ELSE 'pending' END,
-    completed_at = CASE WHEN NOT scoped.active OR inbox.attempt_count >= 8 THEN statement_timestamp() ELSE NULL END,
-    claim_token = NULL, claim_expires_at = NULL, available_at = statement_timestamp(),
+SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= sqlc.arg(max_attempts)::integer THEN 'failed' ELSE 'queued' END,
+    completed_at = CASE WHEN NOT scoped.active OR inbox.attempt_count >= sqlc.arg(max_attempts)::integer THEN statement_timestamp() ELSE NULL END,
+    claim_token = NULL, claim_expires_at = NULL, next_attempt_at = statement_timestamp(),
     last_error = CASE WHEN NOT scoped.active THEN 'integration scope inactive'
-                      WHEN inbox.attempt_count >= 8 THEN 'inbox attempt budget exhausted'
+                      WHEN inbox.attempt_count >= sqlc.arg(max_attempts)::integer THEN 'inbox attempt budget exhausted'
                       ELSE 'inbox lease expired' END,
     updated_at = statement_timestamp()
 FROM scoped WHERE inbox.id = scoped.id;
@@ -159,7 +159,7 @@ FROM scoped WHERE inbox.id = scoped.id;
 -- name: FailInactiveIntegrationInboxReceipts :execrows
 WITH inactive_integrations AS MATERIALIZED (
   SELECT integration.project_id, array_agg(integration.id) AS integration_ids
-  FROM project_integrations integration
+  FROM integrations integration
   JOIN projects project ON project.id = integration.project_id
   JOIN orgs org ON org.id = project.org_id
   WHERE integration.state <> 'active' OR integration.deleted_at IS NOT NULL
@@ -171,8 +171,8 @@ WITH inactive_integrations AS MATERIALIZED (
   CROSS JOIN LATERAL (
     SELECT inbox.id FROM integration_inbox inbox
     WHERE inbox.project_id = integration.project_id AND inbox.integration_id = ANY(integration.integration_ids)
-      AND inbox.state = 'pending'
-    ORDER BY inbox.integration_id, inbox.available_at, inbox.id
+      AND inbox.state = 'queued'
+    ORDER BY inbox.integration_id, inbox.next_attempt_at, inbox.id
     LIMIT sqlc.arg(row_limit)
     FOR UPDATE SKIP LOCKED
   ) unsettled
@@ -198,7 +198,7 @@ DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates
 -- name: CleanupDeletedIntegrationInboxReceipts :execrows
 WITH deleted_integrations AS MATERIALIZED (
   SELECT integration.project_id, integration.id
-  FROM project_integrations integration
+  FROM integrations integration
   JOIN projects project ON project.id = integration.project_id
   JOIN orgs org ON org.id = project.org_id
   WHERE integration.deleted_at IS NOT NULL OR project.deleted_at IS NOT NULL OR org.deleted_at IS NOT NULL
@@ -220,4 +220,4 @@ DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates
 INSERT INTO integration_inbox (project_id, integration_id, receipt_key, payload, source)
 VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled')
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;

@@ -47,7 +47,7 @@ func TestServiceE2EScheduledSlackIntegrationLaunch(t *testing.T) {
 	require.NoError(t, err)
 	store := storage.NewStore(env.db, storage.WithSecretKeyWrapper(keyWrapper))
 	integration := seedServiceSlackIntegration(t, ctx, env, project, store)
-	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, integration.ID)
+	integrationID, err := publicid.Encode(publicid.KindIntegration, integration.ID)
 	require.NoError(t, err)
 	const source = `instruction: Ask for review, then post the scheduled update in this thread.
 model:
@@ -225,10 +225,8 @@ tools:
 	for i, dueAt := range dueTimes {
 		if i == 1 {
 			env.requestJSON(t, ctx, http.MethodPut, project.projectPath+"/integrations/"+integrationID, map[string]any{
-				"name": "chat", "integration_type": integrationdefinition.SlackThread,
 				"settings": map[string]any{"launcher": map[string]any{
-					"trigger": "mention", "scope_kind": "workspace", "scope_ref": "T123",
-					"slots": []any{map[string]any{"key": "default", "agent_profile_id": profile["id"]}},
+					"profiles": []any{profile["id"]},
 				}},
 			}, "", project.adminToken, http.StatusOK)
 		}
@@ -263,7 +261,7 @@ tools:
 		require.Equal(t, "Prepare the update for "+dates[i]+".", launch.Message)
 		require.True(t, dueAt.Equal(event.Occurrence.DueAt))
 		if i == 0 {
-			require.Equal(t, integrationstore.IntegrationInboxPending, receipt.State)
+			require.Equal(t, integrationstore.IntegrationInboxQueued, receipt.State)
 			startServiceSlackWorkers(t, ctx, store, client, log)
 		}
 

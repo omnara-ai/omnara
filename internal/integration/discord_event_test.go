@@ -27,11 +27,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func discordInboxIntegration() integrationstore.ProjectIntegrationRecord {
-	return integrationstore.ProjectIntegrationRecord{
+func discordInboxIntegration() integrationstore.IntegrationRecord {
+	return integrationstore.IntegrationRecord{
 		ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), CredentialSecretID: uuid.New(),
-		Provider: "discord", ProviderTenantID: "11", ProviderAccountRef: "22", UpdatedAt: time.Now(),
-		State: integrationstore.ProjectIntegrationStateActive, ProviderAgentDisplayName: "Helper",
+		IntegrationKind: integrationdefinition.DiscordThread,
+		Provider:        "discord", ProviderTenantID: "11", ProviderAccountRef: "22", UpdatedAt: time.Now(),
+		State: integrationstore.IntegrationStateActive, ProviderAgentDisplayName: "Helper",
 	}
 }
 
@@ -65,10 +66,11 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
 	want := integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"}
-	if *root.Event.Scope.Discord != want || !definition.MatchesLauncher(root.Event, "mention") ||
+	if *root.Event.Scope.Discord != want ||
+		!definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), root.Event) ||
 		root.DeliveryMode != executionstore.DeliveryModeSteering || !root.CancelOpenInteractions ||
 		root.Actor.Provider != executionstore.ActorProviderIntegration ||
-		root.Actor.ProviderTenantID != integrationTestActor(t, integrationSetup.ID, "").ProviderTenantID ||
+		root.Actor.ProviderTenantID != "discord" || root.Actor.Metadata["source_label"] != "Discord" ||
 		root.Actor.ProviderUserID != "33" || *root.Actor.DisplayName != "Alex" {
 		t.Fatalf("normalized mention: %+v", root)
 	}
@@ -94,7 +96,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	}
 }
 
-func TestDiscordInboxRoutesBeforeIdentityAndAttachments(t *testing.T) {
+func TestDiscordInboxRoutesNonMentionsBeforeAnyHTTP(t *testing.T) {
 	t.Parallel()
 	for _, routeErr := range []error{nil, integrationstore.ErrIntegrationSelectionReserved} {
 		t.Run(fmt.Sprint(routeErr), func(t *testing.T) {
@@ -106,15 +108,15 @@ func TestDiscordInboxRoutesBeforeIdentityAndAttachments(t *testing.T) {
 			expansion, err := p.ExpandRouted(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message),
 				func(event IntegrationEvent) (bool, error) {
 					called = true
-					want := integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "400"}
+					want := integrationdefinition.DiscordScope{GuildID: "100", ThreadID: "400"}
 					if *event.Event.Scope.Discord != want || event.Event.Mentioned {
 						t.Fatalf("incorrect routing facts: %+v", event)
 					}
 					return false, routeErr
 				})
-			if !called || !errors.Is(err, routeErr) || len(expansion.Events) != 0 ||
-				len(f.requests) != 1 || f.requests[0] != "GET /api/v10/channels/400" {
-				t.Fatalf("preflight: called=%v err=%v events=%v requests=%v", called, err, expansion.Events, f.requests)
+			if !called || !errors.Is(err, routeErr) || expansion.Event != nil ||
+				len(f.requests) != 0 {
+				t.Fatalf("preflight: called=%v err=%v events=%v requests=%v", called, err, expansion.Event, f.requests)
 			}
 		})
 	}
@@ -129,7 +131,7 @@ func TestDiscordInboxIgnoresUnsupportedChannelBeforeIdentity(t *testing.T) {
 			f.channels["300"] = discord.Channel{ID: "300", GuildID: "100", Type: kind}
 			expansion, err := p.ExpandRouted(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message),
 				func(IntegrationEvent) (bool, error) { t.Fatal("unsupported channel reached routing"); return true, nil })
-			if err != nil || len(expansion.Events) != 0 || len(f.requests) != 1 || f.posts != 0 {
+			if err != nil || expansion.Event != nil || len(f.requests) != 1 || f.posts != 0 {
 				t.Fatalf("unsupported channel: err=%v requests=%v", err, f.requests)
 			}
 		})
@@ -181,7 +183,7 @@ func TestDiscordInboxChannelFailuresClassifyOnlyInaccessibleTargets(t *testing.T
 			var apiErr *discord.APIError
 			if errors.Is(err, ErrIntegrationInboundPermanent) != test.permanent || !errors.As(err, &apiErr) ||
 				apiErr.StatusCode != test.status || apiErr.ProviderCode != test.providerCode ||
-				len(expansion.Events) != 0 || len(f.requests) != 1 {
+				expansion.Event != nil || len(f.requests) != 1 {
 				t.Fatalf("channel failure: status=%d err=%v requests=%v", test.status, err, f.requests)
 			}
 			if test.permanent {
@@ -267,8 +269,9 @@ func TestDiscordInboxRejectsUnprovenScope(t *testing.T) {
 }
 
 type discordInboxFixture struct {
+	choice           integrationstore.IntegrationProfileChoiceRecord
 	mu               sync.Mutex
-	integrationSetup integrationstore.ProjectIntegrationRecord
+	integrationSetup integrationstore.IntegrationRecord
 	version          uuid.UUID
 	identity         discord.Identity
 	channels         map[string]discord.Channel
@@ -281,13 +284,13 @@ type discordInboxFixture struct {
 	override         func(http.ResponseWriter, *http.Request) bool
 }
 
-func (f *discordInboxFixture) GetProjectIntegration(
+func (f *discordInboxFixture) GetIntegration(
 	_ context.Context, projectID, integrationID uuid.UUID,
-) (integrationstore.ProjectIntegrationRecord, error) {
+) (integrationstore.IntegrationRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if projectID != f.integrationSetup.ProjectID || integrationID != f.integrationSetup.ID {
-		return integrationstore.ProjectIntegrationRecord{}, storeerr.ErrUnauthorized
+		return integrationstore.IntegrationRecord{}, storeerr.ErrUnauthorized
 	}
 	return f.integrationSetup, nil
 }
@@ -432,7 +435,7 @@ func TestDiscordInboxExpansionIsReadOnlyAndReplayStable(t *testing.T) {
 	f, p := newDiscordInboxFixture(t)
 	raw := discordInboxPayload(t, f.message)
 	expansion, err := p.Expand(t.Context(), f.integrationSetup, raw)
-	if err != nil || len(expansion.Events) != 1 || f.posts != 0 {
+	if err != nil || expansion.Event == nil || f.posts != 0 {
 		t.Fatalf("expansion: %+v %v posts=%d", expansion, err, f.posts)
 	}
 	var dispatch discord.Dispatch
@@ -445,13 +448,13 @@ func TestDiscordInboxExpansionIsReadOnlyAndReplayStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	replay, err := p.Expand(t.Context(), f.integrationSetup, raw)
-	if err != nil || len(replay.Events) != 1 || replay.Events[0].SemanticKey != expansion.Events[0].SemanticKey {
+	if err != nil || replay.Event == nil || replay.Event.SemanticKey != expansion.Event.SemanticKey {
 		t.Fatalf("replay: %+v %v", replay, err)
 	}
 	message := f.message
 	message.Mentions = nil
 	ignored, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, message))
-	if err != nil || len(ignored.Events) != 0 {
+	if err != nil || ignored.Event != nil {
 		t.Fatalf("ordinary root: %+v %v", ignored, err)
 	}
 	for _, request := range f.requests {
@@ -468,7 +471,7 @@ func TestDiscordInboxAccessIsRevalidated(t *testing.T) {
 		edit func(*discordInboxFixture)
 	}{
 		{"integration disabled", func(f *discordInboxFixture) {
-			f.integrationSetup.State = integrationstore.ProjectIntegrationStateDisconnected
+			f.integrationSetup.State = integrationstore.IntegrationStateDisconnected
 		}},
 		{"integration setup revision", func(f *discordInboxFixture) {
 			f.integrationSetup.SetupRevision++
@@ -618,23 +621,28 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 	captured.Attachments[0].URL = "https://untrusted.invalid/must-not-be-fetched"
 	raw := discordInboxPayload(t, captured)
 	expansion, err := p.Expand(t.Context(), f.integrationSetup, raw)
-	if err != nil || len(expansion.Events) != 1 || len(expansion.Events[0].Files) != 1 {
+	if err != nil || expansion.Event == nil || len(expansion.Event.Files) != 1 {
 		t.Fatalf("file expansion: %+v %v", expansion, err)
 	}
-	event := expansion.Events[0]
+	event := expansion.Event
 	expected := event.Files[0].Expected
 	if expected == nil || expected.Validate() != nil || expected.Digest != blobstore.ContentDigest([]byte("hello")) ||
 		expected.ContentType != "text/plain" || string(expansion.Files["701"].Content) != "hello" {
 		t.Fatalf("prepared bytes: %+v", expected)
 	}
-	_, files, err := integrationRecipientContent(event)
+	ids, err := integrationRecipientArtifactIDs(event.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := executionstore.InboxMessage{ContentBlocks: event.ContentBlocks, Files: event.Files}
+	_, files, err := message.RecipientContent(ids)
 	if err != nil || len(files) != 1 || files[0].ArtifactID == expected.ID || files[0].Expected.ID != files[0].ArtifactID {
 		t.Fatalf("per-recipient frozen identity: %+v %v", files, err)
 	}
 	artifacts := &discordInboxArtifacts{uploaded: map[uuid.UUID][]byte{}}
 	consumer := &IntegrationInboxConsumer{artifacts: artifacts}
-	slot := IntegrationInboxSlot{AgentID: uuid.New(), Files: files}
-	prepared, err := consumer.prepareFiles(t.Context(), p, f.integrationSetup, raw, slot, expansion.Files)
+	slot := IntegrationInboxSlot{AgentID: uuid.New(), ArtifactIDs: ids}
+	prepared, err := consumer.prepareFiles(t.Context(), p, f.integrationSetup, raw, message, slot, expansion.Files)
 	if err != nil || len(prepared) != 1 || string(artifacts.uploaded[files[0].ArtifactID]) != "hello" {
 		t.Fatalf("artifact upload: %+v %v", prepared, err)
 	}
@@ -644,6 +652,7 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 		p,
 		f.integrationSetup,
 		raw,
+		message,
 		slot,
 		map[string]IntegrationInboxFile{},
 	); err != nil ||
@@ -656,6 +665,7 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 		p,
 		f.integrationSetup,
 		raw,
+		message,
 		slot,
 		map[string]IntegrationInboxFile{},
 	); err != nil {
@@ -665,7 +675,9 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 	f.mu.Lock()
 	f.contents["701"] = []byte("other")
 	f.mu.Unlock()
-	_, err = consumer.prepareFiles(t.Context(), p, f.integrationSetup, raw, slot, map[string]IntegrationInboxFile{})
+	_, err = consumer.prepareFiles(
+		t.Context(), p, f.integrationSetup, raw, message, slot, map[string]IntegrationInboxFile{},
+	)
 	if !errors.Is(err, storeerr.ErrIdempotencyConflict) || len(artifacts.uploaded) != 0 {
 		t.Fatalf("changed content was admitted: %v", err)
 	}
@@ -684,10 +696,10 @@ func TestDiscordInboxAttachmentBoundsAndRateLimit(t *testing.T) {
 		f.message.Content = ""
 		f.message.Attachments = []discord.Attachment{{ID: "701", Size: discord.MaxFileBytes + 1}, {ID: "702", Size: 0}}
 		expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
-		if err != nil || len(expansion.Events) != 1 || len(expansion.Files) != 0 || len(f.requests) != 3 {
+		if err != nil || expansion.Event == nil || len(expansion.Files) != 0 || len(f.requests) != 3 {
 			t.Fatalf("skip expansion: %+v %v requests=%v", expansion, err, f.requests)
 		}
-		if !strings.Contains(string(expansion.Events[0].ContentBlocks), "too_large") {
+		if !strings.Contains(string(expansion.Event.ContentBlocks), "too_large") {
 			t.Fatal("omitted file was silent")
 		}
 	})
@@ -706,7 +718,7 @@ func TestDiscordInboxAttachmentBoundsAndRateLimit(t *testing.T) {
 		expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
 		var apiErr *discord.APIError
 		if !errors.As(err, &apiErr) || apiErr.Code != discord.RateLimited || apiErr.RetryAfter != time.Minute ||
-			len(expansion.Events) != 0 {
+			expansion.Event != nil {
 			t.Fatalf("rate limit silently omitted file: %+v %v", expansion, err)
 		}
 	})
@@ -744,7 +756,7 @@ func TestDiscordInboxRevocationAfterDownloadDoesNotPublishEvent(t *testing.T) {
 		return false
 	}
 	expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
-	if !errors.Is(err, storeerr.ErrUnauthorized) || len(expansion.Events) != 0 || len(expansion.Files) != 0 {
+	if !errors.Is(err, storeerr.ErrUnauthorized) || expansion.Event != nil || len(expansion.Files) != 0 {
 		t.Fatalf("revoked expansion published: %+v %v", expansion, err)
 	}
 }
@@ -760,8 +772,8 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 		}
 		f.attach("704", []byte("too much"), "text/plain")
 		expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
-		if err != nil || len(expansion.Files) != 3 || len(expansion.Events) != 1 {
-			t.Fatalf("bounded media: files=%d events=%d err=%v", len(expansion.Files), len(expansion.Events), err)
+		if err != nil || len(expansion.Files) != 3 || expansion.Event == nil {
+			t.Fatalf("bounded media: files=%d event=%v err=%v", len(expansion.Files), expansion.Event != nil, err)
 		}
 		for _, request := range f.requests {
 			if strings.Contains(request, "/704/") {
@@ -777,7 +789,7 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 		}
 		expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
 		if err != nil || len(expansion.Files) != 0 || len(f.requests) != 3 ||
-			!strings.Contains(string(expansion.Events[0].Metadata), "too_many_attachments") {
+			!strings.Contains(string(expansion.Event.Metadata), "too_many_attachments") {
 			t.Fatalf("attachment count: %+v %v requests=%v", expansion, err, f.requests)
 		}
 	})
@@ -786,8 +798,8 @@ func TestDiscordInboxMediaBudgets(t *testing.T) {
 		f, p := newDiscordInboxFixture(t)
 		f.attach("701", []byte{'O', 'g', 'g', 'S', 0, 0, 0}, "audio/ogg")
 		expansion, err := p.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
-		if err != nil || len(expansion.Events) != 1 || len(expansion.Files) != 0 ||
-			!strings.Contains(string(expansion.Events[0].Metadata), "unsupported_media_type") {
+		if err != nil || expansion.Event == nil || len(expansion.Files) != 0 ||
+			!strings.Contains(string(expansion.Event.Metadata), "unsupported_media_type") {
 			t.Fatalf("unsupported media: %+v %v", expansion, err)
 		}
 	})
@@ -799,10 +811,10 @@ func TestDiscordInboxThreadPreparationDoesNotMutateReplies(t *testing.T) {
 	f.message.ID, f.message.ChannelID, f.message.Mentions = "501", "400", nil
 	raw := discordInboxPayload(t, f.message)
 	expansion, err := p.Expand(t.Context(), f.integrationSetup, raw)
-	if err != nil || len(expansion.Events) != 1 {
+	if err != nil || expansion.Event == nil {
 		t.Fatalf("thread reply: %+v %v", expansion, err)
 	}
-	if err := p.PrepareConversation(t.Context(), f.integrationSetup, raw, expansion.Events[0].Event.Scope,
+	if err := p.PrepareConversation(t.Context(), f.integrationSetup, raw, expansion.Event.Event.Scope,
 		func(context.Context) error { return nil }); err != nil || f.posts != 0 {
 		t.Fatalf("reply preparation: err=%v posts=%d", err, f.posts)
 	}
@@ -825,7 +837,7 @@ func TestDiscordInboxContextAndMissingContent(t *testing.T) {
 	unsupported := []byte(`{"type":"MESSAGE_UPDATE","sequence":9,"data":{}}`)
 	count := len(f.requests)
 	if expanded, err := p.Expand(t.Context(), f.integrationSetup, unsupported); err != nil ||
-		len(expanded.Events) != 0 || len(f.requests) != count {
+		expanded.Event != nil || len(f.requests) != count {
 		t.Fatalf("mutation event was expanded: %+v %v", expanded, err)
 	}
 }
@@ -841,4 +853,13 @@ func TestDiscordInboxSettingsEditPreservesSetupAccess(t *testing.T) {
 	if err := check(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func (f *discordInboxFixture) GetIntegrationProfileChoice(
+	_ context.Context, project, integration, id uuid.UUID,
+) (integrationstore.IntegrationProfileChoiceRecord, error) {
+	if f.choice.ID != id || f.choice.ProjectID != project || f.choice.IntegrationID != integration {
+		return integrationstore.IntegrationProfileChoiceRecord{}, storeerr.ErrNotFound
+	}
+	return f.choice, nil
 }

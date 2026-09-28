@@ -171,7 +171,7 @@ func (s *Store) CreateCronTrigger(
 		if err := integrationstore.LockIntegrationsTx(ctx, tx, input.ProjectID, nil, input.Target.ID); err != nil {
 			return CronTriggerRecord{}, err
 		}
-		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, input.Target.ID)
+		integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, input.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err
 		}
@@ -398,7 +398,7 @@ func (s *Store) UpdateCronTrigger(
 		return CronTriggerRecord{}, err
 	}
 	if record.Target.Kind == CronTriggerTargetIntegration {
-		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, record.Target.ID)
+		integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, record.Target.ID)
 		if err != nil {
 			return CronTriggerRecord{}, err
 		}
@@ -883,9 +883,9 @@ func cronTriggerTargetsEqual(a, b CronTriggerTarget) bool {
 
 func validateCronIntegrationTarget(
 	target *CronTriggerTarget,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 ) error {
-	canonical, err := integrationdefinition.ValidateScheduleSettings(integration.IntegrationType, target.Settings)
+	canonical, err := integrationdefinition.ValidateScheduleSettings(integration.IntegrationKind, target.Settings)
 	if err != nil {
 		return storeerr.InvalidRequest(err)
 	}

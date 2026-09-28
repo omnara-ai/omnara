@@ -9,6 +9,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -224,7 +225,7 @@ func agentInteractionResponseFromRecord(
 		return openapi.AgentInteraction{}, err
 	}
 	if destination != nil {
-		integrationID, err := publicID(publicid.KindProjectIntegration, destination.IntegrationID)
+		integrationID, err := publicID(publicid.KindIntegration, destination.IntegrationID)
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
@@ -232,14 +233,23 @@ func agentInteractionResponseFromRecord(
 		if err != nil {
 			return openapi.AgentInteraction{}, err
 		}
+		definition, _ := integrationdefinition.Lookup(destination.IntegrationKind)
+		scope, err := integrationdefinition.ParseConversation(
+			definition.Provider, destination.Address.Kind, destination.Address.Ref,
+		)
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
+		conversation, err := scope.ConversationJSON()
+		if err != nil {
+			return openapi.AgentInteraction{}, err
+		}
 		response.Destination = &openapi.AgentInteractionDestination{
-			IntegrationType:     openapi.IntegrationType(destination.IntegrationType),
+			IntegrationKind:     openapi.IntegrationKind(destination.IntegrationKind),
 			HandlerKey:          destination.HandlerKey,
 			IntegrationId:       integrationID,
 			IntegrationTargetId: targetID,
-			Address: openapi.IntegrationConversationAddress{
-				Kind: destination.Address.Kind, Ref: destination.Address.Ref,
-			},
+			Conversation:        conversation,
 		}
 	}
 	if len(record.PresentationReceipt) != 0 {

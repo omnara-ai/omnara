@@ -16,14 +16,15 @@ type githubReadInput struct {
 	Section string `json:"section,omitempty"`
 	Page    int    `json:"page,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
+	Cursor  string `json:"cursor,omitempty"`
 }
 
 type githubDiscussionInput struct {
 	Body string `json:"body"`
 }
 
-type githubInlineInput struct {
-	github.InlineCommentArgs
+type githubReviewCommentInput struct {
+	github.ReviewCommentArgs
 }
 
 type githubReplyInput struct {
@@ -53,6 +54,12 @@ func runGitHubTool(
 		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub read"); err != nil {
 			return integrationToolFailure(err)
 		}
+		if input.Cursor != "" && input.Section != "review_threads" {
+			return integrationToolFailure(errors.New("cursor is only supported for GitHub review_threads"))
+		}
+		if input.Section == "review_threads" && input.Page != 0 {
+			return integrationToolFailure(errors.New("GitHub review_threads uses cursor, not page"))
+		}
 		options := github.PageOptions{Page: input.Page, PerPage: input.Limit}
 		switch input.Section {
 		case "", "pull_request":
@@ -61,6 +68,12 @@ func runGitHubTool(
 			result, err = client.ListDiscussionComments(ctx, providerScope, options)
 		case "review_comments":
 			result, err = client.ListReviewComments(ctx, providerScope, options)
+		case "reviews":
+			result, err = client.ListReviews(ctx, providerScope, options)
+		case "review_threads":
+			result, err = client.ListReviewThreads(ctx, providerScope, github.ReviewThreadsOptions{
+				Cursor: input.Cursor, Limit: input.Limit,
+			})
 		case "files":
 			result, err = client.ListFiles(ctx, providerScope, options)
 		case "diff":
@@ -74,12 +87,12 @@ func runGitHubTool(
 			return integrationToolFailure(err)
 		}
 		result, err = client.CreateDiscussionComment(ctx, providerScope, input.Body)
-	case toolcatalog.IntegrationOperationInlineComment:
-		var input githubInlineInput
-		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub inline comment"); err != nil {
+	case toolcatalog.IntegrationOperationReviewComment:
+		var input githubReviewCommentInput
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub review comment"); err != nil {
 			return integrationToolFailure(err)
 		}
-		result, err = client.CreateInlineComment(ctx, providerScope, input.InlineCommentArgs)
+		result, err = client.CreateReviewComment(ctx, providerScope, input.ReviewCommentArgs)
 	case toolcatalog.IntegrationOperationReply:
 		var input githubReplyInput
 		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub review reply"); err != nil {

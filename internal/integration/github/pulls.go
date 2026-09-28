@@ -34,6 +34,7 @@ type Branch struct {
 
 type PullRequest struct {
 	ID           int64      `json:"id"`
+	NodeID       string     `json:"node_id"`
 	Number       int        `json:"number"`
 	HTMLURL      string     `json:"html_url"`
 	Title        string     `json:"title"`
@@ -103,6 +104,21 @@ type ReviewCommentsPage struct {
 	NextPage int             `json:"next_page,omitempty"`
 }
 
+type Review struct {
+	ID          int64      `json:"id"`
+	Body        string     `json:"body"`
+	State       string     `json:"state"`
+	User        User       `json:"user"`
+	CommitID    string     `json:"commit_id"`
+	HTMLURL     string     `json:"html_url"`
+	SubmittedAt *time.Time `json:"submitted_at"`
+}
+
+type ReviewsPage struct {
+	Reviews  []Review `json:"reviews"`
+	NextPage int      `json:"next_page,omitempty"`
+}
+
 // FilesPage can end at GitHub's 3,000-file limit; compare PullRequest.ChangedFiles to detect truncation.
 type FilesPage struct {
 	Files    []File `json:"files"`
@@ -158,6 +174,23 @@ func (c *Client) ListReviewComments(
 	return ReviewCommentsPage{Comments: comments, NextPage: next}, err
 }
 
+func (c *Client) ListReviews(ctx context.Context, scope Scope, options PageOptions) (ReviewsPage, error) {
+	path := "/pulls/" + strconv.Itoa(scope.PullRequest) + "/reviews"
+	reviews, next, err := readPage[Review](ctx, c, scope, path, options)
+	if err != nil {
+		return ReviewsPage{}, err
+	}
+	// Keep GitHub's page boundary even when a page includes an unpublished review.
+	// A caller must follow next_page rather than treating an empty page as the end.
+	submitted := make([]Review, 0, len(reviews))
+	for _, review := range reviews {
+		if review.SubmittedAt != nil && review.State != "PENDING" {
+			submitted = append(submitted, review)
+		}
+	}
+	return ReviewsPage{Reviews: submitted, NextPage: next}, nil
+}
+
 const CommentMaxBytes = 65536
 
 func validateBody(body string) error {
@@ -190,7 +223,7 @@ func (c *Client) CreateDiscussionComment(
 	return result, err
 }
 
-type InlineCommentArgs struct {
+type ReviewCommentArgs struct {
 	Body      string `json:"body"`
 	CommitID  string `json:"commit_id"`
 	Path      string `json:"path"`
@@ -200,14 +233,14 @@ type InlineCommentArgs struct {
 	StartSide string `json:"start_side,omitempty"`
 }
 
-func (args InlineCommentArgs) validate() error {
+func (args ReviewCommentArgs) validate() error {
 	if err := validateBody(args.Body); err != nil {
 		return err
 	}
 	if strings.TrimSpace(args.CommitID) == "" || len(args.CommitID) > 128 ||
 		strings.TrimSpace(args.Path) == "" || len(args.Path) > 4096 || !utf8.ValidString(args.Path) ||
 		args.Line <= 0 || !diffSide(args.Side) {
-		return errors.New("github inline comment requires commit_id, path, positive line and LEFT or RIGHT side")
+		return errors.New("github review comment requires commit_id, path, positive line and LEFT or RIGHT side")
 	}
 	if (args.StartLine == nil) != (args.StartSide == "") {
 		return errors.New("github multiline comment requires both start_line and start_side")
@@ -221,8 +254,8 @@ func (args InlineCommentArgs) validate() error {
 
 func diffSide(side string) bool { return side == "LEFT" || side == "RIGHT" }
 
-func (c *Client) CreateInlineComment(
-	ctx context.Context, scope Scope, args InlineCommentArgs,
+func (c *Client) CreateReviewComment(
+	ctx context.Context, scope Scope, args ReviewCommentArgs,
 ) (ReviewComment, error) {
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
@@ -238,7 +271,7 @@ func (c *Client) CreateInlineComment(
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.Code == PermanentFailure && apiErr.StatusCode == http.StatusUnprocessableEntity {
 		return ReviewComment{}, fmt.Errorf(
-			"GitHub rejected the inline comment; check the body and ensure commit_id, path, line, side "+
+			"GitHub rejected the review comment; check the body and ensure commit_id, path, line, side "+
 				"and any start_line/start_side match the pull request diff: %w", err)
 	}
 	if err == nil && result.ID <= 0 {

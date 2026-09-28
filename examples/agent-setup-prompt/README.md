@@ -64,13 +64,13 @@ and retry — don't skip ahead.
    — the conversation lives there; I can keep using it in the browser
    anytime.
 
-5. If I chose Slack: ask for the Slack workspace ID (T…) and an app
+5. If I chose Slack: ask for an app
    configuration token from https://api.slack.com/apps (under "Your App
    Configuration Tokens"). Create a project integration with an immutable name
-   such as "team-chat", integration_type "slack_thread", and
-   settings.launcher {trigger: "mention", scope_kind: "workspace",
-   scope_ref: <workspace ID>, slots: [{key: "default",
-   agent_profile_id: <profile ID>}]}. Use the returned integration ID with
+   such as "team-chat", integration_kind "slack_thread", and
+   settings.launcher {profiles: [<public profile ID>]}. Updating an existing
+   integration sends only {settings: ...}; preserve its other settings.
+   Use the returned integration ID with
    POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup, sending
    app_name and app_configuration_token. Open the returned oauth_url in my
    browser for me to approve before expires_at. Once approved, tell me to

@@ -42,7 +42,7 @@ func TestConversationDisplayNameReusesLatestLiveLabelAcrossAgents(t *testing.T) 
 			deleted = &updated
 		}
 		f.exec(t, `INSERT INTO integration_targets
- (id,project_id,agent_id,integration_id,provider_ref_kind,provider_ref,
+ (id,project_id,agent_id,integration_id,scope_kind,scope_ref,
   display_name,created_at,updated_at,deleted_at)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9)`,
 			targetID, f.project, launch.Agent.ID, f.integrationID, address.Kind, address.Ref,

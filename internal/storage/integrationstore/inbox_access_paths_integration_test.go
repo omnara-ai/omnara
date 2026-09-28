@@ -75,13 +75,13 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 	f.exec(t, `INSERT INTO integration_inbox
  (project_id,integration_id,receipt_key,payload,state,plan,claim_token,claim_expires_at,completed_at)
  SELECT $1::uuid,$2::uuid,'reservation-history:'||n,'x'::bytea,
- CASE WHEN n<=8000 THEN 'completed' WHEN n<=16000 THEN 'failed' WHEN n<=24000 THEN 'pending'
+ CASE WHEN n<=8000 THEN 'completed' WHEN n<=16000 THEN 'failed' WHEN n<=24000 THEN 'queued'
       WHEN n<=28000 THEN 'processing' ELSE 'failed' END,
  CASE WHEN n>8000 AND n<=16000 THEN NULL ELSE
-   jsonb_build_object('a',jsonb_build_object('selection',jsonb_build_object(
+   jsonb_build_object('recipients',jsonb_build_object('a',jsonb_build_object('selection',jsonb_build_object(
      'integration_id',$3::text,'slot','a',
      'address',jsonb_build_object('kind','thread','ref',
-       CASE WHEN n<=8000 THEN 'C123:123.456' ELSE 'C123:'||n||'.456' END)))) END,
+       CASE WHEN n<=8000 THEN 'C123:123.456' ELSE 'C123:'||n||'.456' END))))) END,
  CASE WHEN n>24000 AND n<=28000 THEN uuidv7() ELSE NULL END,
  CASE WHEN n>24000 AND n<=28000 THEN now()+interval '1 minute' ELSE NULL END,
  CASE WHEN n<=16000 OR n>28000 THEN now() ELSE NULL END
@@ -139,7 +139,7 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 		require.True(t, ginUsed, "reservation lookup must use the expression GIN, not scan all plans")
 	}
 	t.Run("no matching reservation", func(t *testing.T) { assertLookup(t, uuid.Nil, "", 0) })
-	for i, state := range []string{"pending", "processing", "failed"} {
+	for i, state := range []string{"queued", "processing", "failed"} {
 		t.Run(state, func(t *testing.T) {
 			// Separate addresses avoid counting dead GIN entries retained until vacuum.
 			identity["address"] = map[string]any{"kind": "thread", "ref": "C123:123." + strconv.Itoa(456+i)}
@@ -150,8 +150,9 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 			f.exec(t, `INSERT INTO integration_inbox
  (id,project_id,integration_id,receipt_key,payload,plan,state,claim_token,claim_expires_at,completed_at)
  SELECT id,$1,$2,'matching:'||id,'x'::bytea,
-   jsonb_build_object('a',jsonb_build_object('selection',$5::jsonb||'{"slot":"a"}'::jsonb),
-                      'b',jsonb_build_object('selection',$5::jsonb||'{"slot":"b"}'::jsonb)), $6::text,
+   jsonb_build_object('recipients',jsonb_build_object(
+                      'a',jsonb_build_object('selection',$5::jsonb||'{"slot":"a"}'::jsonb),
+                      'b',jsonb_build_object('selection',$5::jsonb||'{"slot":"b"}'::jsonb))), $6::text,
    CASE WHEN $6::text='processing' THEN uuidv7() ELSE NULL END,
    CASE WHEN $6::text='processing' THEN now()+interval '1 minute' ELSE NULL END,
    CASE WHEN $6::text='failed' THEN now() ELSE NULL END
@@ -198,14 +199,14 @@ func assertInboxRowsInspected(t *testing.T, plan inboxQueryPlan, maxRows float64
 func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	disabled := f.addIntegration(t, "disconnected", integrationstore.ProjectIntegrationSettings{}).ID
-	f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, disabled)
-	other := f.addIntegration(t, "other-ready", integrationstore.ProjectIntegrationSettings{}).ID
+	disabled := f.addIntegration(t, "disconnected", integrationstore.IntegrationSettings(`{}`)).ID
+	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, disabled)
+	other := f.addIntegration(t, "other-ready", integrationstore.IntegrationSettings(`{}`)).ID
 	f.exec(
 		t,
-		`INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,state,available_at,completed_at)
+		`INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,state,next_attempt_at,completed_at)
  SELECT $1,CASE WHEN n>24000 THEN $4::uuid WHEN n>16000 THEN $3::uuid ELSE $2::uuid END,'bulk:'||n,'x'::bytea,
- CASE WHEN n<=8000 OR n>24000 THEN 'pending' WHEN n<=16000 THEN 'completed' ELSE 'failed' END,
+ CASE WHEN n<=8000 OR n>24000 THEN 'queued' WHEN n<=16000 THEN 'completed' ELSE 'failed' END,
  CASE WHEN n<=8000 THEN now()+interval '1 day' ELSE now() END,
  CASE WHEN n>8000 AND n<=24000 THEN now() ELSE NULL END
  FROM generate_series(1,32000) n`,
@@ -215,46 +216,52 @@ func TestInboxPollAccessPathsIgnoreHealthyPendingAndHistory(t *testing.T) {
 		other,
 	)
 	f.exec(t, "ANALYZE integration_inbox")
-	f.exec(t, "ANALYZE project_integrations")
+	f.exec(t, "ANALYZE integrations")
 	for _, name := range []string{
 		"RecoverExpiredIntegrationInboxReceipts", "FailInactiveIntegrationInboxReceipts",
 		"CleanupDeletedIntegrationInboxReceipts",
 	} {
 		t.Run(name, func(t *testing.T) {
-			assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 100}), 0)
+			assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{
+				"row_limit": 100, "max_attempts": integrationstore.IntegrationInboxMaxAttempts,
+			}), 0)
 		})
 	}
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "OldestReadyIntegrationInboxLag", nil), 1)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxIntegrations", map[string]any{
-		"row_limit": 100, "after_project_id": uuid.Nil, "after_integration_id": uuid.Nil,
+		"max_attempts": integrationstore.IntegrationInboxMaxAttempts,
+		"row_limit":    100, "after_project_id": uuid.Nil, "after_integration_id": uuid.Nil,
 	}), 100)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupTerminalIntegrationInboxReceipts", map[string]any{
 		"row_limit": 100, "retention_milliseconds": time.Hour.Milliseconds(),
 	}), 0)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ClaimIntegrationInboxReceipt", map[string]any{
-		"project_id": f.project, "integration_id": f.integrationID,
+		"max_attempts": integrationstore.IntegrationInboxMaxAttempts,
+		"project_id":   f.project, "integration_id": f.integrationID,
 		"claim_token": uuid.New(), "lease_milliseconds": int64(60000),
 	}), 0)
 	f.accept(t, "expired")
 	r := f.claim(t)
 	f.exec(t, `UPDATE integration_inbox SET claim_expires_at=now()-interval '1 second' WHERE id=$1`, r.ID)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "RecoverExpiredIntegrationInboxReceipts", map[string]any{
-		"row_limit": 1,
+		"max_attempts": integrationstore.IntegrationInboxMaxAttempts,
+		"row_limit":    1,
 	}), 2)
 	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload)
  SELECT $1,$2,'inactive:'||n,'x'::bytea FROM generate_series(1,8000) n`, f.project, disabled)
 	f.exec(t, "ANALYZE integration_inbox")
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "ListReadyIntegrationInboxIntegrations", map[string]any{
-		"row_limit": 100, "after_project_id": uuid.Nil, "after_integration_id": uuid.Nil,
+		"max_attempts": integrationstore.IntegrationInboxMaxAttempts,
+		"row_limit":    100, "after_project_id": uuid.Nil, "after_integration_id": uuid.Nil,
 	}), 100)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "FailInactiveIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
-	f.exec(t, `UPDATE project_integrations SET deleted_at=now() WHERE id=$1`, disabled)
+	f.exec(t, `UPDATE integrations SET deleted_at=now() WHERE id=$1`, disabled)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "CleanupDeletedIntegrationInboxReceipts", map[string]any{
 		"row_limit": 1,
 	}), 2)
-	f.exec(t, `UPDATE integration_inbox SET available_at=now()+interval '1 day' WHERE state='pending'`)
+	f.exec(t, `UPDATE integration_inbox SET next_attempt_at=now()+interval '1 day' WHERE state='queued'`)
 	f.exec(t, "VACUUM ANALYZE integration_inbox")
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, "OldestReadyIntegrationInboxLag", nil), 0)
 }
@@ -270,25 +277,25 @@ func TestInboxInactiveRecoveryBatchesIntegrationsAcrossProjects(t *testing.T) {
 			id := uuid.New()
 			state, inboxState := "disconnected", "failed"
 			if integration == 4 {
-				state, inboxState = "active", "pending"
+				state, inboxState = "active", "queued"
 			}
-			f.exec(t, `INSERT INTO project_integrations
+			f.exec(t, `INSERT INTO integrations
  (id,org_id,project_id,installed_by_user_id,state,
-  provider_tenant_id,provider_account_ref,name,integration_type,credential_secret_id,created_at,updated_at)
+  provider_tenant_id,provider_account_ref,name,integration_kind,credential_secret_id,created_at,updated_at)
  VALUES($1,$2,$3,$4,$5,'batch-team',($1::uuid)::text,'integration-'||$7::text,'slack_thread',
- (SELECT credential_secret_id FROM project_integrations WHERE id=$6),now(),now())`,
+ (SELECT credential_secret_id FROM integrations WHERE id=$6),now(),now())`,
 				id, f.org, project, f.user, state, f.integrationID, strconv.Itoa(integration))
 			f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'batch-history:'||n,'x'::bytea,$3,
  CASE WHEN $3::text='failed' THEN now() ELSE NULL END FROM generate_series(1,4000) n`, project, id, inboxState)
 		}
 	}
-	f.exec(t, "ANALYZE project_integrations")
+	f.exec(t, "ANALYZE integrations")
 	f.exec(t, "ANALYZE integration_inbox")
 	name := "FailInactiveIntegrationInboxReceipts"
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 3}), 0)
 	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload)
- SELECT project_id,id,'batch-pending','x'::bytea FROM project_integrations WHERE state='disconnected'`)
+ SELECT project_id,id,'batch-pending','x'::bytea FROM integrations WHERE state='disconnected'`)
 	assertInboxRowsInspected(t, explainInboxQuery(t, f, name, map[string]any{"row_limit": 3}), 6)
 	query, args := bindInboxQueryFile(t, "integration_inbox.sql", name, map[string]any{"row_limit": 3})
 	for _, want := range []int64{3, 3, 2, 0} {
@@ -298,6 +305,6 @@ func TestInboxInactiveRecoveryBatchesIntegrationsAcrossProjects(t *testing.T) {
 	}
 	var remaining int
 	require.NoError(t, f.pool.QueryRow(f.ctx,
-		`SELECT count(*) FROM integration_inbox WHERE state='pending'`).Scan(&remaining))
+		`SELECT count(*) FROM integration_inbox WHERE state='queued'`).Scan(&remaining))
 	require.Equal(t, 8000, remaining, "healthy pending receipts remain unchanged")
 }

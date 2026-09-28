@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"io"
 	"log/slog"
 	"net/http"
@@ -157,14 +158,14 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	})
 	require.NoError(t, err)
 	f.version = version.ID
-	integration, err := f.store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+	integration, err := f.store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 		OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID,
-		Name: "deployment", IntegrationType: f.integrationSetup.IntegrationType,
+		Name: "deployment", IntegrationKind: f.integrationSetup.IntegrationKind,
 	})
 	require.NoError(t, err)
-	f.integrationSetup, err = f.store.Integrations().ConfigureProjectIntegration(
+	f.integrationSetup, err = f.store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID, IntegrationID: integration.ID,
 			InstalledByUserID: f.integrationSetup.InstalledByUserID, Provider: "discord",
 			ProviderTenantID: strconv.FormatInt(time.Now().UnixNano(), 10), ProviderAccountRef: "456",
@@ -188,16 +189,13 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		ProjectID: f.integrationSetup.ProjectID, Name: "deployment", CurrentConfigID: config.ID,
 	})
 	require.NoError(t, err)
-	f.integrationSetup, err = f.store.Integrations().UpdateProjectIntegration(
+	f.integrationSetup, err = f.store.Integrations().UpdateIntegration(
 		ctx,
 		f.integrationSetup.ID,
-		integrationstore.SaveProjectIntegrationInput{
+		integrationstore.SaveIntegrationInput{
 			OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID, Name: f.integrationSetup.Name,
-			IntegrationType: f.integrationSetup.IntegrationType,
-			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "mention",
-				Slots:   []integrationstore.IntegrationLaunchSlot{{Key: "helper", AgentProfileID: &profile.ID}},
-			}},
+			IntegrationKind: f.integrationSetup.IntegrationKind,
+			Settings:        integrationtest.ChatSettings("", profile.ID),
 		},
 	)
 	require.NoError(t, err)
@@ -215,7 +213,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		return NewIntegrationInboxWorker(f.store.Integrations(), consumer, IntegrationInboxWorkerOptions{})
 	}
 	revision := integrationstore.IntegrationRuntimeRevision{
-		ProjectID: f.integrationSetup.ProjectID, IntegrationID: f.integrationSetup.ID, Key: "discord/shard/0",
+		ProjectID: f.integrationSetup.ProjectID, IntegrationID: f.integrationSetup.ID,
 		SetupRevision: f.integrationSetup.SetupRevision, CredentialVersionID: f.version,
 	}
 	first, found, err := f.store.Integrations().ClaimIntegrationRuntime(ctx, revision, discordRuntimeLease)
@@ -283,7 +281,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		defer lock.Rollback(ctx)
 		_, err = lock.Exec(
 			ctx,
-			`SELECT runtime_key FROM integration_runtime WHERE integration_id=$1 FOR UPDATE`,
+			`SELECT integration_id FROM integration_runtime WHERE integration_id=$1 FOR UPDATE`,
 			f.integrationSetup.ID,
 		)
 		require.NoError(t, err)
@@ -300,7 +298,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 		one.requireResumableClose(t)
 	}
 	var captured, pending int
-	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE state='pending')
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE state='queued')
 		FROM integration_inbox WHERE integration_id=$1`, f.integrationSetup.ID).Scan(&captured, &pending))
 	require.Equal(t, 2, captured, "canceled intake cannot leave a receipt without its checkpoint")
 	require.Equal(t, 1, pending, "committed work remains available across deployment")
@@ -363,7 +361,7 @@ func testDiscordDeploymentHandoff(t *testing.T, scenario string) {
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`,
 		f.integrationSetup.ProjectID).Scan(&agents))
 	require.Equal(t, 1, agents)
-	actorTenant := integrationTestActor(t, f.integrationSetup.ID, "33").ProviderTenantID
+	actorTenant := integrationTestActor(t, f.integrationSetup, "33").ProviderTenantID
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE input.id=$2),
 		count(*) FILTER (WHERE actor.provider='integration' AND actor.provider_tenant_id=$3 AND actor.provider_user_id='33')
 		FROM agent_inputs input JOIN actors actor ON actor.id=input.actor_id

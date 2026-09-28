@@ -12,15 +12,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-type IntegrationDestination struct {
-	OrgID          uuid.UUID
-	ProjectID      uuid.UUID
-	AgentProfileID uuid.UUID
-	AgentID        uuid.UUID
-}
-
 type Access interface {
-	ValidateIntegrationDestination(context.Context, pgx.Tx, IntegrationDestination) error
 	ClearIntegrationTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
 }
 

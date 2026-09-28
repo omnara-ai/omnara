@@ -8,7 +8,7 @@ import (
 
 func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 	tests := []struct {
-		integrationType Type
+		integrationKind Kind
 		name, account   string
 		event           Event
 		addresses       []EventAddress
@@ -43,54 +43,54 @@ func TestEventRoutingAddressesAndLaunchTriggers(t *testing.T) {
 				Kind:      "message",
 				Mentioned: true,
 			},
-			[]EventAddress{{"thread", "456:789"}, {"channel", "456"}},
+			[]EventAddress{{"thread", "789"}, {"channel", "456"}},
 			"mention",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			definition, _ := Lookup(test.integrationType)
+			definition, _ := Lookup(test.integrationKind)
 			addresses, err := test.event.RoutingAddresses(test.account)
 			require.NoError(t, err)
 			require.Equal(t, test.addresses, addresses)
-			require.True(t, definition.MatchesLauncher(test.event, test.trigger))
-			require.False(t, definition.MatchesLauncher(test.event, "arbitrary"))
+			require.True(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, test.trigger), test.event))
+			if definition.IntegrationKind == GitHubPR {
+				require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "arbitrary"), test.event))
+			}
 		})
 	}
 	event := tests[0].event
 	definition, _ := Lookup(SlackThread)
 	event.Mentioned = false
-	require.False(t, definition.MatchesLauncher(event, "mention"))
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event))
 	event = tests[2].event
 	definition, _ = Lookup(DiscordThread)
 	addresses, err := event.RoutingAddresses("different-application-account")
 	require.NoError(t, err)
 	require.Equal(t, tests[2].addresses, addresses)
+	event.Scope.Discord.ChannelID = ""
+	addresses, err = event.RoutingAddresses("different-application-account")
+	require.NoError(t, err)
+	require.Equal(t, []EventAddress{{"thread", "789"}}, addresses, "unknown parent must not add a routing address")
 	event.Scope.Discord.GuildID = ""
-	require.False(t, definition.MatchesLauncher(event, "mention"), "Discord launchers do not support DMs")
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event),
+		"Discord launchers do not support DMs")
 	event = tests[1].event
 	definition, _ = Lookup(GitHubPR)
 	event.Kind = "commit"
 	event.Mentioned = true
-	require.False(t, definition.MatchesLauncher(event, "mention"), "commit text is not a provider mention event")
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), event),
+		"commit text is not a provider mention event")
 }
 
-func TestLauncherMatchesOnlyDeclaredTriggers(t *testing.T) {
+func TestLauncherMayBeAbsent(t *testing.T) {
 	definition, _ := Lookup(GitHubPR)
 	event := Event{
-		Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}},
-		Kind:  "review_comment", Mentioned: true,
+		Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "discussion_comment", Mentioned: true,
 	}
-	require.True(t, definition.MatchesLauncher(event, "mention"))
-	definition.LaunchTriggers = []string{"pull_request_opened"}
-	require.False(t, definition.SupportsLaunchTrigger("mention"))
-	require.False(t, definition.MatchesLauncher(event, "mention"))
-	event.Kind = "pull_request_opened"
-	require.True(t, definition.MatchesLauncher(event, "pull_request_opened"))
-	definition.LaunchTriggers = nil
-	require.False(t, definition.MatchesLauncher(event, "pull_request_opened"))
-
+	require.True(t, definition.MatchesLaunch(testLaunchSettings(GitHubPR, "mention"), event))
+	definition.Launcher = nil
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(GitHubPR, "mention"), event))
 	definition, _ = Lookup(SlackThread)
-	event.Kind = "discussion_comment"
-	require.False(t, definition.MatchesLauncher(event, "mention"), "events must belong to the integration's provider")
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(SlackThread, "mention"), event))
 }

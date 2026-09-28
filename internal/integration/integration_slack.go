@@ -35,11 +35,14 @@ type SlackInboxSecrets interface {
 }
 
 type SlackInboxIntegrations interface {
-	GetProjectIntegration(
+	GetIntegrationProfileChoice(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+	) (integrationstore.IntegrationProfileChoiceRecord, error)
+	GetIntegration(
 		context.Context,
 		uuid.UUID,
 		uuid.UUID,
-	) (integrationstore.ProjectIntegrationRecord, error)
+	) (integrationstore.IntegrationRecord, error)
 	GetConversationDisplayName(
 		context.Context, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress,
 	) (string, error)
@@ -67,17 +70,17 @@ func NewSlackIntegrationInboxProvider(
 
 func (p *SlackIntegrationInboxProvider) requestAccess(
 	ctx context.Context,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 ) (slack.OAuthConfig, string, func(context.Context) error, error) {
 	if p.secrets == nil || p.integrations == nil {
 		return slack.OAuthConfig{}, "", nil, fmt.Errorf("slack secret and integration resolvers are required")
 	}
 	checkIntegrationSetup := func(ctx context.Context) error {
-		latest, err := p.integrations.GetProjectIntegration(ctx, integrationSetup.ProjectID, integrationSetup.ID)
+		latest, err := p.integrations.GetIntegration(ctx, integrationSetup.ProjectID, integrationSetup.ID)
 		if err != nil {
 			return err
 		}
-		if latest.State != integrationstore.ProjectIntegrationStateActive || latest.Provider != "slack" ||
+		if latest.State != integrationstore.IntegrationStateActive || latest.Provider != "slack" ||
 			latest.ID != integrationSetup.ID || latest.OrgID != integrationSetup.OrgID ||
 			latest.ProjectID != integrationSetup.ProjectID ||
 			latest.CredentialSecretID != integrationSetup.CredentialSecretID ||
@@ -138,7 +141,7 @@ func (p *SlackIntegrationInboxProvider) requestAccess(
 }
 
 func NormalizeSlackIntegrationEvent(
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	payload []byte,
 ) (IntegrationEvent, bool, error) {
 	envelope, identity, ok, err := slackInboxEnvelope(integrationSetup, payload)
@@ -156,7 +159,7 @@ func NormalizeSlackIntegrationEvent(
 			scope.ThreadTS = event.TS
 		}
 	}
-	integrationActor, err := executionstore.IntegrationActorParams(integrationSetup.ID, event.User, nil)
+	integrationActor, err := executionstore.IntegrationActorParams(integrationSetup, event.User, nil)
 	if err != nil {
 		return IntegrationEvent{}, false, err
 	}
@@ -185,7 +188,7 @@ func NormalizeSlackIntegrationEvent(
 }
 
 func slackInboxEnvelope(
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	payload []byte,
 ) (slack.EventsEnvelope, slack.InstallIdentity, bool, error) {
 	if integrationSetup.Provider != "slack" {
@@ -255,14 +258,14 @@ func slackMentionsUser(text, user string) bool {
 
 func (p *SlackIntegrationInboxProvider) Expand(
 	ctx context.Context,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	payload []byte,
 ) (IntegrationInboxExpansion, error) {
 	return p.ExpandRouted(ctx, integrationSetup, payload, nil)
 }
 
 func (p *SlackIntegrationInboxProvider) ExpandRouted(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, payload []byte,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, payload []byte,
 	routeEvent func(IntegrationEvent) (bool, error),
 ) (IntegrationInboxExpansion, error) {
 	normalized, ok, err := NormalizeSlackIntegrationEvent(integrationSetup, payload)
@@ -379,7 +382,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 		}
 		normalized.Files = append(
 			normalized.Files,
-			IntegrationPlannedFile{ArtifactID: id, ProviderFileID: file.FileID, Expected: &expected},
+			executionstore.InboxPlannedFile{ArtifactID: id, ProviderFileID: file.FileID, Expected: &expected},
 		)
 		files[file.FileID] = IntegrationInboxFile{
 			Content:     file.Content,
@@ -415,7 +418,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 	if err != nil {
 		return IntegrationInboxExpansion{}, err
 	}
-	return IntegrationInboxExpansion{Events: []IntegrationEvent{normalized}, Files: files}, nil
+	return IntegrationInboxExpansion{Event: &normalized, Files: files}, nil
 }
 
 func slackInboxFileOptions() slack.FileDownloadOptions {
@@ -431,7 +434,7 @@ func slackInboxFileOptions() slack.FileDownloadOptions {
 
 func (p *SlackIntegrationInboxProvider) DownloadFile(
 	ctx context.Context,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	payload []byte,
 	fileID string,
 ) (IntegrationInboxFile, error) {
@@ -473,7 +476,7 @@ func (p *SlackIntegrationInboxProvider) DownloadFile(
 
 func (p *SlackIntegrationInboxProvider) acknowledge(
 	ctx context.Context,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	payload []byte,
 ) error {
 	envelope, _, ok, err := slackInboxEnvelope(integrationSetup, payload)

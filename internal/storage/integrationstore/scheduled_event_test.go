@@ -65,21 +65,23 @@ func TestScheduledPlanKeepsIntegrationAndConversationAuthority(t *testing.T) {
 			content, err := integrationdefinition.AppendInputContext("daily", root, json.RawMessage(`[{"type":"text","text":"Summarize activity."}]`))
 			require.NoError(t, err)
 			slot := map[string]any{
-				"scope": root, "selection": selection,
-				"launch": map[string]any{"profile_id": profileID, "initial_input": map[string]any{"content_blocks": content}},
+				"selection": selection,
+				"launch":    map[string]any{"profile_id": profileID},
 			}
 			plan := map[string]any{"scheduled": slot}
 			if scenario == "extra slot" {
 				plan["another"] = slot
 			}
-			raw, err := json.Marshal(plan)
+			raw, err := json.Marshal(map[string]any{
+				"message": map[string]any{"scope": root, "content_blocks": content}, "recipients": plan,
+			})
 			require.NoError(t, err)
-			err = receipt.ValidateScheduledPlan(integrationstore.ProjectIntegrationRecord{
+			err = receipt.ValidateScheduledPlan(integrationstore.IntegrationRecord{
 
 				ID:              receipt.IntegrationID,
 				ProjectID:       receipt.ProjectID,
 				Name:            "daily",
-				IntegrationType: integrationdefinition.DiscordThread,
+				IntegrationKind: integrationdefinition.DiscordThread,
 			}, raw)
 			if scenario == "valid" {
 				require.NoError(t, err)

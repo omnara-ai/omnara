@@ -2734,7 +2734,8 @@ paths:
         Deletes the profile, all of its profile versions, and any cron triggers targeting the
         profile. Agents launched from the profile are retained and keep running: each agent holds an
         immutable snapshot of the configuration it was launched with, so its reference to the profile
-        becomes historical provenance only. Deletion is blocked while a saved integration launcher references the profile, including a disconnected integration.
+        becomes historical provenance only. Integration settings may retain the public profile ID;
+        future launches fail as unavailable until those settings reference an available profile.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -2889,9 +2890,9 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: createProjectIntegrationOAuthSetup
+      operationId: createIntegrationOAuthSetup
       tags: [Integrations]
       summary: Connect an integration through OAuth
       description: >-
@@ -2945,9 +2946,9 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: createProjectIntegrationSlackSetup
+      operationId: createIntegrationSlackSetup
       tags: [Integrations]
       summary: Create a Slack provider app and connect it to an Omnara integration
       description: >-
@@ -3001,9 +3002,9 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: createProjectIntegrationGitHubSetup
+      operationId: createIntegrationGitHubSetup
       tags: [Integrations]
       summary: Start registration of a customer-owned GitHub App
       description: >-
@@ -3056,13 +3057,13 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: inspectProjectIntegrationGitHubInstallations
+      operationId: inspectIntegrationGitHubInstallations
       tags: [Integrations]
       summary: Inspect installations of a customer-owned GitHub App
       description: >-
-        Verifies the supplied project-available GitHub credential secret using App authentication and returns one bounded page of installations. Requires a browser session and project management access. Inspection does not connect or change this integration. Explicit confirmation uses ConfigureProjectIntegration with the returned provider_app_id, selected installation ID, credential secret ID and current expected setup revision. A saved secret remains usable while organization approval is pending; there is no expiring continuation. Guided links support github.com only.
+        Verifies the supplied project-available GitHub credential secret using App authentication and returns one bounded page of installations. Requires a browser session and project management access. Inspection does not connect or change this integration. Explicit confirmation uses ConfigureIntegration with the returned provider_app_id, selected installation ID, credential secret ID and current expected setup revision. A saved secret remains usable while organization approval is pending; there is no expiring continuation. Guided links support github.com only.
       security:
         - browserSessionCookie: []
           csrfHeader: []
@@ -3182,7 +3183,7 @@ paths:
           in: query
           description: Only return scheduled launches for this integration.
           schema:
-            $ref: '#/components/schemas/ProjectIntegrationID'
+            $ref: '#/components/schemas/IntegrationID'
         - name: sort
           in: query
           schema:
@@ -6861,7 +6862,7 @@ paths:
         schema:
           $ref: '#/components/schemas/ProjectID'
     get:
-      operationId: listProjectIntegrations
+      operationId: listIntegrations
       tags: [Integrations]
       summary: List project integrations
       parameters:
@@ -6873,7 +6874,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListProjectIntegrationsResponse'
+                $ref: '#/components/schemas/ListIntegrationsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6889,7 +6890,7 @@ paths:
         '5XX':
           $ref: '#/components/responses/ServerError'
     post:
-      operationId: createProjectIntegration
+      operationId: createIntegration
       tags: [Integrations]
       summary: Create an integration and optional launcher
       security:
@@ -6901,14 +6902,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SaveProjectIntegrationRequest'
+              $ref: '#/components/schemas/SaveIntegrationRequest'
       responses:
         '201':
           description: Create an integration and optional launcher.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectIntegration'
+                $ref: '#/components/schemas/Integration'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6939,9 +6940,9 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     get:
-      operationId: getProjectIntegration
+      operationId: getIntegration
       tags: [Integrations]
       summary: Get project integration
       responses:
@@ -6950,7 +6951,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectIntegration'
+                $ref: '#/components/schemas/Integration'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6966,10 +6967,10 @@ paths:
         '5XX':
           $ref: '#/components/responses/ServerError'
     put:
-      operationId: updateProjectIntegration
+      operationId: updateIntegration
       tags: [Integrations]
-      summary: Update integration launcher settings
-      description: Updates settings while preserving credentials. The request must echo the existing name and integration_type; changing either returns 400. A workspace or installation launcher must match the integration's verified provider identity.
+      summary: Update integration settings
+      description: Replaces integration-owned settings while preserving credentials. The request contains only settings; name and integration_kind are immutable and accepted only on create. Preserve integration-level fields when editing the launcher. Settings follow capabilities.settings.input_schema from the integration catalog.
       security:
         - bearerAuth: []
         - browserSessionCookie: []
@@ -6979,14 +6980,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SaveProjectIntegrationRequest'
+              $ref: '#/components/schemas/UpdateIntegrationRequest'
       responses:
         '200':
-          description: Update integration launcher settings.
+          description: Updated integration settings.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectIntegration'
+                $ref: '#/components/schemas/Integration'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7002,7 +7003,7 @@ paths:
         '5XX':
           $ref: '#/components/responses/ServerError'
     delete:
-      operationId: deleteProjectIntegration
+      operationId: deleteIntegration
       tags: [Integrations]
       summary: Delete integration setup and revoke its capabilities
       description: >-
@@ -7045,7 +7046,7 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     get:
       operationId: listIntegrationSubscriptions
       tags: [Integrations]
@@ -7127,7 +7128,7 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
       - name: subscriptionID
         in: path
         required: true
@@ -7175,29 +7176,29 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: configureProjectIntegration
+      operationId: configureIntegration
       tags: [Integrations]
       summary: Verify and configure integration credentials
       security:
         - bearerAuth: []
         - browserSessionCookie: []
           csrfHeader: []
-      description: Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. A workspace or installation launcher must match the verified provider identity.
+      description: Requires a user principal with project management permission. Slack credentials are configured through OAuth. A stale expected_setup_revision or a credential changed during verification returns 409; reload the integration and retry setup. Setup preserves integration settings; verified provider identity scopes incoming events.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ConfigureProjectIntegrationRequest'
+              $ref: '#/components/schemas/ConfigureIntegrationRequest'
       responses:
         '200':
           description: Integration setup.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectIntegration'
+                $ref: '#/components/schemas/Integration'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7230,9 +7231,9 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
     post:
-      operationId: disconnectProjectIntegration
+      operationId: disconnectIntegration
       tags: [Integrations]
       summary: Disconnect this integration without deleting its configuration
       security:
@@ -7245,7 +7246,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProjectIntegration'
+                $ref: '#/components/schemas/Integration'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8838,11 +8839,11 @@ components:
           minLength: 1
         return_to:
           type: string
-    IntegrationType:
+    IntegrationKind:
       type: string
       description: Registered integration implementation; independent of the saved integration's name and immutable ID.
       enum: [slack_thread, discord_thread, github_pr]
-      x-enum-varnames: [IntegrationTypeSlackThread, IntegrationTypeDiscordThread, IntegrationTypeGitHubPR]
+      x-enum-varnames: [IntegrationKindSlackThread, IntegrationKindDiscordThread, IntegrationKindGitHubPR]
     IntegrationProviderDisplayName:
       type: string
       maxLength: 512
@@ -8865,7 +8866,7 @@ components:
       required: [integration_id, setup_revision, provider, flow_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         setup_revision:
           type: integer
           x-go-type: int64
@@ -8915,7 +8916,7 @@ components:
       required: [integration_id, setup_revision, registration_url, manifest, expires_at]
       properties:
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         setup_revision:
           type: integer
           x-go-type: int64
@@ -9013,7 +9014,7 @@ components:
       required: [integration_id, setup_revision, provider, flow_id, slack_app_id, oauth_url, redirect_uri, events_url, actions_url, expires_at]
       properties:
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         setup_revision:
           type: integer
           x-go-type: int64
@@ -9631,7 +9632,7 @@ components:
       required: [enabled, permission]
       properties:
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
@@ -9665,7 +9666,7 @@ components:
       required: [integration_id]
       properties:
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
           x-go-type: publicid.ID
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
@@ -10017,7 +10018,7 @@ components:
           enum: [integration]
           x-enum-varnames: [IntegrationCronTriggerTargetTypeIntegration]
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         settings:
           type: object
           additionalProperties: true
@@ -10808,20 +10809,6 @@ components:
       additionalProperties:
         type: string
         maxLength: 512
-    IntegrationConversationAddress:
-      type: object
-      additionalProperties: false
-      required: [kind, ref]
-      description: A provider conversation address scoped to one integration. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
-      properties:
-        kind:
-          type: string
-          minLength: 1
-          maxLength: 128
-        ref:
-          type: string
-          minLength: 1
-          maxLength: 2048
     CreateAgentInputRequest:
       type: object
       additionalProperties: false
@@ -11700,19 +11687,19 @@ components:
     AgentInteractionDestination:
       type: object
       additionalProperties: false
-      required: [integration_type, handler_key, integration_id, integration_target_id, address]
+      required: [integration_kind, handler_key, integration_id, integration_target_id, conversation]
       description: Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
       properties:
-        integration_type:
-          $ref: '#/components/schemas/IntegrationType'
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
         handler_key:
           type: string
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         integration_target_id:
           $ref: '#/components/schemas/IntegrationTargetID'
-        address:
-          $ref: '#/components/schemas/IntegrationConversationAddress'
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
     InteractionPresentationReceipt:
       type: object
       additionalProperties: true
@@ -11763,11 +11750,10 @@ components:
           $ref: '#/components/schemas/Timestamp'
     ActorProvider:
       type: string
-      description: omnara for Omnara identities, integration for hosted integration senders, slack for historical Slack identities, or external for API-managed actors.
-      enum: [omnara, slack, integration, external]
+      description: omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
+      enum: [omnara, integration, external]
       x-enum-varnames:
         - ActorProviderOmnara
-        - ActorProviderSlack
         - ActorProviderIntegration
         - ActorProviderExternal
     Actor:
@@ -11785,13 +11771,14 @@ components:
           $ref: '#/components/schemas/ActorProvider'
         provider_tenant_id:
           type: string
-          description: Identity namespace. For integration actors, the configured project integration public ID; for historical Slack actors, the workspace ID. Retained for attribution after integration deletion.
+          description: Project-scoped identity namespace. Integration actors use a stable platform namespace (slack:<workspace ID>, discord, or github:github.com), shared across configured bots and integration kinds on that platform. Retained for attribution after integration deletion; not an authorization principal.
         provider_user_id:
           type: string
           description: Stable sender identifier within the actor identity namespace.
         display_name:
           type: string
         metadata:
+          description: Saved actor attributes. Hosted integration actors store source_label (such as Slack) for display without a live integration lookup.
           $ref: '#/components/schemas/Metadata'
         created_at:
           $ref: '#/components/schemas/Timestamp'
@@ -14149,82 +14136,48 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProjectMembershipGrant'
-    ProjectIntegrationID:
+    IntegrationID:
       type: string
       pattern: '^itg_[a-z2-7]{26}$'
-    IntegrationLaunchSlot:
+    IntegrationSettings:
+      type: object
+      additionalProperties: true
+      description: Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+    UpdateIntegrationRequest:
       type: object
       additionalProperties: false
-      required: [key]
-      description: A stable launcher slot selecting either a profile to launch or an existing agent to continue.
+      required: [settings]
+      description: Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.
       properties:
-        key:
-          type: string
-          minLength: 1
-          maxLength: 64
-        agent_profile_id:
-          $ref: '#/components/schemas/AgentProfileID'
-        agent_id:
-          $ref: '#/components/schemas/AgentID'
-      oneOf:
-        - required: [agent_profile_id]
-        - required: [agent_id]
-    IntegrationLauncher:
+        settings:
+          $ref: '#/components/schemas/IntegrationSettings'
+    SaveIntegrationRequest:
       type: object
       additionalProperties: false
-      required: [trigger, slots]
-      properties:
-        trigger:
-          type: string
-          description: Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
-        scope_kind:
-          type: string
-          minLength: 1
-          description: Required with scope_ref for Slack and GitHub. Omit for Discord; mentions can launch in every server where the bot is installed and permitted.
-        scope_ref:
-          type: string
-          minLength: 1
-          description: Provider identifier for the Slack or GitHub launcher scope. Omit for Discord; server and channel launch filters are not supported.
-        slots:
-          type: array
-          description: Integration-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
-          minItems: 1
-          maxItems: 16
-          items:
-            $ref: '#/components/schemas/IntegrationLaunchSlot'
-    ProjectIntegrationSettings:
-      type: object
-      additionalProperties: false
-      properties:
-        launcher:
-          $ref: '#/components/schemas/IntegrationLauncher'
-    SaveProjectIntegrationRequest:
-      type: object
-      additionalProperties: false
-      required: [name, integration_type, settings]
-      description: Creates a disconnected integration, or updates its launcher settings. Name and integration_type are immutable. Configure credentials through this integration's setup endpoints.
+      required: [name, integration_kind, settings]
+      description: Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
       properties:
         name:
-          $ref: '#/components/schemas/ProjectIntegrationName'
-        integration_type:
-          $ref: '#/components/schemas/IntegrationType'
+          $ref: '#/components/schemas/IntegrationName'
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
         settings:
-          $ref: '#/components/schemas/ProjectIntegrationSettings'
-    ProjectIntegration:
+          $ref: '#/components/schemas/IntegrationSettings'
+    Integration:
       type: object
       additionalProperties: false
-      required: [id, project_id, name, integration_type, state, setup_revision, settings, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
+      required: [id, project_id, name, integration_kind, state, setup_revision, settings, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
       properties:
         id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         project_id:
           $ref: '#/components/schemas/ProjectID'
         name:
-          $ref: '#/components/schemas/ProjectIntegrationName'
-        integration_type:
-          $ref: '#/components/schemas/IntegrationType'
+          $ref: '#/components/schemas/IntegrationName'
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
         state:
-          $ref: '#/components/schemas/ProjectIntegrationState'
+          $ref: '#/components/schemas/IntegrationState'
         setup_revision:
           type: integer
           x-go-type: int64
@@ -14233,9 +14186,9 @@ components:
         last_oauth_flow_id:
           $ref: '#/components/schemas/IntegrationOAuthFlowID'
         runtime_failure:
-          $ref: '#/components/schemas/ProjectIntegrationRuntimeFailure'
+          $ref: '#/components/schemas/IntegrationRuntimeFailure'
         settings:
-          $ref: '#/components/schemas/ProjectIntegrationSettings'
+          $ref: '#/components/schemas/IntegrationSettings'
         provider_tenant_id:
           type: string
         provider_account_ref:
@@ -14252,7 +14205,7 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
-    ProjectIntegrationRuntimeFailure:
+    IntegrationRuntimeFailure:
       type: object
       additionalProperties: false
       required: [message, retry_at]
@@ -14268,7 +14221,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/Timestamp'
           description: Earliest time the runtime may retry. A retry can start later.
-    ListProjectIntegrationsResponse:
+    ListIntegrationsResponse:
       type: object
       additionalProperties: false
       required: [data, next_cursor]
@@ -14276,7 +14229,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/ProjectIntegration'
+            $ref: '#/components/schemas/Integration'
         next_cursor:
           type: [string, 'null']
     # BEGIN GENERATED INTEGRATION CAPABILITY SCHEMAS
@@ -14359,15 +14312,15 @@ components:
       x-go-type-import:
         path: github.com/omnara-ai/omnara/internal/agentconfig
     # END GENERATED INTEGRATION CAPABILITY SCHEMAS
-    ProjectIntegrationName:
+    IntegrationName:
       type: string
       pattern: '^[a-zA-Z][a-zA-Z0-9-]{0,31}$'
       description: Immutable, project-unique integration name used in config keys and qualified tool names.
-    ProjectIntegrationState:
+    IntegrationState:
       type: string
       enum: [active, disconnected]
-      x-enum-varnames: [ProjectIntegrationStateActive, ProjectIntegrationStateDisconnected]
-    ConfigureProjectIntegrationRequest:
+      x-enum-varnames: [IntegrationStateActive, IntegrationStateDisconnected]
+    ConfigureIntegrationRequest:
       type: object
       additionalProperties: false
       required: [expected_setup_revision, provider_tenant_id, credential_secret_id]
@@ -14413,21 +14366,21 @@ components:
     IntegrationSubscriptionID:
       type: string
       pattern: '^isub_[a-z2-7]{26}$'
-    IntegrationSubscriptionConversation:
+    IntegrationConversation:
       type: object
       additionalProperties: true
       x-go-type: json.RawMessage
       x-go-type-skip-optional-pointer: true
-      description: One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+      description: One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id and validates their ID format, but subscription creation does not verify them against Discord or retain them as routing restrictions. Only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
     IntegrationSubscriptionAttachment:
       type: object
       additionalProperties: false
       required: [integration_id, conversation]
       properties:
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         conversation:
-          $ref: '#/components/schemas/IntegrationSubscriptionConversation'
+          $ref: '#/components/schemas/IntegrationConversation'
     CreateIntegrationSubscriptionRequest:
       type: object
       additionalProperties: false
@@ -14436,7 +14389,7 @@ components:
         agent_id:
           $ref: '#/components/schemas/AgentID'
         conversation:
-          $ref: '#/components/schemas/IntegrationSubscriptionConversation'
+          $ref: '#/components/schemas/IntegrationConversation'
     IntegrationSubscription:
       type: object
       additionalProperties: false
@@ -14447,13 +14400,13 @@ components:
         project_id:
           $ref: '#/components/schemas/ProjectID'
         integration_id:
-          $ref: '#/components/schemas/ProjectIntegrationID'
+          $ref: '#/components/schemas/IntegrationID'
         agent_id:
           $ref: '#/components/schemas/AgentID'
         agent_name:
           $ref: '#/components/schemas/AgentName'
         conversation:
-          $ref: '#/components/schemas/IntegrationSubscriptionConversation'
+          $ref: '#/components/schemas/IntegrationConversation'
         created_at:
           $ref: '#/components/schemas/Timestamp'
     ListIntegrationSubscriptionsResponse:
@@ -14482,6 +14435,9 @@ components:
       additionalProperties: false
       required: [tools]
       properties:
+        settings:
+          $ref: '#/components/schemas/IntegrationCapabilityDefinition'
+          description: Schema for this integration's complete settings document, including its optional launcher.
         tools:
           type: object
           additionalProperties:
@@ -14496,10 +14452,10 @@ components:
     IntegrationDefinition:
       type: object
       additionalProperties: false
-      required: [integration_type, capabilities]
+      required: [integration_kind, capabilities]
       properties:
-        integration_type:
-          $ref: '#/components/schemas/IntegrationType'
+        integration_kind:
+          $ref: '#/components/schemas/IntegrationKind'
         capabilities:
           $ref: '#/components/schemas/IntegrationCapabilities'
     ListIntegrationDefinitionsResponse:

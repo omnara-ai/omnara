@@ -49,10 +49,10 @@ func integrationSetupInputError(err error) error {
 }
 
 func integrationCredentialAlreadyVerified(
-	current *integrationstore.ProjectIntegrationRecord,
-	input integrationstore.ConfigureProjectIntegrationInput,
+	current *integrationstore.IntegrationRecord,
+	input integrationstore.ConfigureIntegrationInput,
 ) bool {
-	if current == nil || current.State != integrationstore.ProjectIntegrationStateActive ||
+	if current == nil || current.State != integrationstore.IntegrationStateActive ||
 		current.CredentialSecretID != input.CredentialSecretID ||
 		input.CredentialVersionID == uuid.Nil {
 		return false
@@ -65,8 +65,8 @@ func integrationCredentialAlreadyVerified(
 }
 
 func setVerifiedIntegrationIdentity(
-	input *integrationstore.ConfigureProjectIntegrationInput,
-	current *integrationstore.ProjectIntegrationRecord,
+	input *integrationstore.ConfigureIntegrationInput,
+	current *integrationstore.IntegrationRecord,
 	identity any,
 ) error {
 	metadata := make(map[string]json.RawMessage)

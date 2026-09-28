@@ -167,7 +167,7 @@ it.each([false, true])(
         respond: ({ body }) =>
           Response.json({
             ...integration,
-            ...schemas.zConfigureProjectIntegrationRequest.parse(body),
+            ...schemas.zConfigureIntegrationRequest.parse(body),
             state: 'active',
           }),
       },
@@ -306,8 +306,8 @@ it.each([false, true])(
     })
     expect(api.requestsTo('POST', projectPath + '/integrations')[0]?.body).toEqual({
       name: 'reviewer',
-      integration_type: 'github_pr',
-      settings: {},
+      integration_kind: 'github_pr',
+      settings: { sender_policy: 'writers' },
     })
     expect(api.requestsTo('POST', integrationPath + '/github-setup')[0]?.body).toEqual(
       organization
@@ -405,7 +405,7 @@ it.each([true, false])(
             ? pending
             : Response.json({
                 ...integration,
-                ...schemas.zConfigureProjectIntegrationRequest.parse(body),
+                ...schemas.zConfigureIntegrationRequest.parse(body),
                 state: 'active',
                 setup_revision: 2,
               }),

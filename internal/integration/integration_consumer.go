@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,13 +23,13 @@ type IntegrationInboxFile struct {
 }
 
 type IntegrationInboxExpansion struct {
-	Events []IntegrationEvent
-	Files  map[string]IntegrationInboxFile
+	Event *IntegrationEvent
+	Files map[string]IntegrationInboxFile
 }
 
 type IntegrationInboxProvider interface {
-	Expand(context.Context, integrationstore.ProjectIntegrationRecord, []byte) (IntegrationInboxExpansion, error)
-	DownloadFile(context.Context, integrationstore.ProjectIntegrationRecord, []byte, string) (IntegrationInboxFile, error)
+	Expand(context.Context, integrationstore.IntegrationRecord, []byte) (IntegrationInboxExpansion, error)
+	DownloadFile(context.Context, integrationstore.IntegrationRecord, []byte, string) (IntegrationInboxFile, error)
 }
 
 // ErrIntegrationInboundPermanent marks a provider-confirmed inaccessible inbound target
@@ -42,7 +41,7 @@ var ErrIntegrationInboundPermanent = errors.New("permanent integration inbound f
 // event; implementations must stop expansion when it returns false or an error.
 type IntegrationInboxRoutingProvider interface {
 	ExpandRouted(
-		context.Context, integrationstore.ProjectIntegrationRecord, []byte, func(IntegrationEvent) (bool, error),
+		context.Context, integrationstore.IntegrationRecord, []byte, func(IntegrationEvent) (bool, error),
 	) (IntegrationInboxExpansion, error)
 }
 
@@ -63,7 +62,7 @@ type IntegrationInboxConsumer struct {
 	artifacts IntegrationArtifactUploader
 	providers map[string]IntegrationInboxProvider
 	launchers *IntegrationLaunchWorkflow
-	scheduled map[integrationdefinition.Type]IntegrationScheduledHandler
+	scheduled map[integrationdefinition.Kind]IntegrationScheduledHandler
 }
 
 func NewIntegrationInboxConsumer(
@@ -129,12 +128,12 @@ func (c *IntegrationInboxConsumer) Consume(
 	if err != nil {
 		return nil, err
 	}
-	integrationSetup, err := c.inbox.GetProjectIntegrationByID(ctx, receipt.IntegrationID)
+	integrationSetup, err := c.inbox.GetIntegrationByID(ctx, receipt.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
 	if integrationSetup.ProjectID != lease.ProjectID ||
-		integrationSetup.State != integrationstore.ProjectIntegrationStateActive {
+		integrationSetup.State != integrationstore.IntegrationStateActive {
 		return nil, storeerr.ErrUnauthorized
 	}
 	if receipt.Source == integrationstore.IntegrationInboxSourceScheduled {
@@ -142,15 +141,22 @@ func (c *IntegrationInboxConsumer) Consume(
 	}
 	adapter := c.providers[integrationSetup.Provider]
 	var expansion IntegrationInboxExpansion
+	if receipt.Source == integrationstore.IntegrationInboxSourceChoice {
+		choice, err := c.inbox.GetIntegrationProfileChoice(ctx, receipt.ProjectID, receipt.IntegrationID, receipt.StateID)
+		if err != nil {
+			return nil, err
+		}
+		expansion.Event, err = selectedIntegrationEvent(choice)
+		if err != nil {
+			return nil, err
+		}
+		receipt.Payload = choice.Payload
+	}
 	if len(receipt.Plan) == 0 {
 		if adapter == nil {
 			return nil, fmt.Errorf("no inbox consumer for provider %s", integrationSetup.Provider)
 		}
-		if len(receipt.Events) != 0 {
-			if err := json.Unmarshal(receipt.Events, &expansion.Events); err != nil {
-				return nil, fmt.Errorf("decode decided integration events: %w", err)
-			}
-		} else {
+		if receipt.Source != integrationstore.IntegrationInboxSourceChoice {
 			unrouted := false
 			if provider, ok := adapter.(IntegrationInboxRoutingProvider); ok {
 				expansion, err = provider.ExpandRouted(
@@ -175,15 +181,19 @@ func (c *IntegrationInboxConsumer) Consume(
 			if c.launchers == nil {
 				return nil, fmt.Errorf("integration launcher workflow is required")
 			}
-			expansion.Events, err = c.launchers.Decide(ctx, lease, receipt, integrationSetup, expansion.Events)
-			if err != nil {
-				return nil, err
+			if expansion.Event != nil {
+				expansion.Event, err = c.launchers.Decide(ctx, lease, receipt, integrationSetup, *expansion.Event)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
-		if _, err = c.router.Freeze(ctx, lease, expansion.Events); err != nil {
+		if _, err = c.router.Freeze(ctx, lease, expansion.Event); err != nil {
 			return nil, err
 		}
+		resolvedPayload := receipt.Payload
 		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
+		receipt.Payload = resolvedPayload
 		if err != nil {
 			return nil, err
 		}
@@ -196,30 +206,22 @@ func (c *IntegrationInboxConsumer) Consume(
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]string, 0, len(plan))
-	for key := range plan {
+	keys := make([]string, 0, len(plan.Recipients))
+	for key := range plan.Recipients {
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
 	if preparer, ok := adapter.(interface {
 		PrepareConversation(
 			context.Context,
-			integrationstore.ProjectIntegrationRecord,
+			integrationstore.IntegrationRecord,
 			[]byte,
 			integrationdefinition.Scope,
 			func(context.Context) error,
 		) error
 	}); ok {
-		type conversation struct {
-			scope      integrationdefinition.Scope
-			recipients []string
-		}
-		conversations := map[integrationstore.ConversationAddress]conversation{}
-		for _, key := range keys {
-			if outcomes[key] != executionstore.InboxSlotPending {
-				continue
-			}
-			scope := plan[key].Scope
+		if len(keys) != 0 {
+			scope := plan.Message.Scope
 			if err := scope.Validate(integrationSetup.Provider); err != nil {
 				return nil, err
 			}
@@ -228,15 +230,12 @@ func (c *IntegrationInboxConsumer) Consume(
 				return nil, err
 			}
 			address := integrationstore.ConversationAddress{Kind: kind, Ref: ref}
-			group := conversations[address]
-			group.scope = scope
-			group.recipients = append(group.recipients, key)
-			conversations[address] = group
-		}
-		for address, group := range conversations {
 			checkRecipients := func(ctx context.Context) error {
 				var failures []error
-				for _, key := range group.recipients {
+				for _, key := range keys {
+					if outcomes[key] != executionstore.InboxSlotPending {
+						continue
+					}
 					if err := c.router.execution.CheckInboxConversationAuthority(ctx, lease, key, address); err == nil {
 						return nil
 					} else if !errors.Is(err, executionstore.ErrInboxRecipientSettled) {
@@ -249,19 +248,18 @@ func (c *IntegrationInboxConsumer) Consume(
 				return errors.Join(failures...)
 			}
 			if err := checkRecipients(ctx); err != nil {
-				if errors.Is(err, executionstore.ErrInboxRecipientSettled) {
-					continue
+				if !errors.Is(err, executionstore.ErrInboxRecipientSettled) {
+					return nil, err
 				}
-				return nil, err
-			}
-			if err := preparer.PrepareConversation(
-				ctx, integrationSetup, receipt.Payload, group.scope, checkRecipients,
-			); err != nil &&
-				!errors.Is(err, executionstore.ErrInboxRecipientSettled) {
-				return nil, err
+			} else {
+				err := preparer.PrepareConversation(ctx, integrationSetup, receipt.Payload, scope, checkRecipients)
+				if err != nil && !errors.Is(err, executionstore.ErrInboxRecipientSettled) {
+					return nil, err
+				}
 			}
 		}
 	}
+
 	cache := expansion.Files
 	if cache == nil {
 		cache = map[string]IntegrationInboxFile{}
@@ -269,11 +267,11 @@ func (c *IntegrationInboxConsumer) Consume(
 	prepared := make(map[string][]artifactstore.PreparedArtifact)
 	preparationFailures := make(map[string]error)
 	for _, key := range keys {
-		slot := plan[key]
-		if len(slot.Files) == 0 || outcomes[key] != executionstore.InboxSlotPending {
+		slot := plan.Recipients[key]
+		if len(slot.ArtifactIDs) == 0 || outcomes[key] != executionstore.InboxSlotPending {
 			continue
 		}
-		files, err := c.prepareFiles(ctx, adapter, integrationSetup, receipt.Payload, slot, cache)
+		files, err := c.prepareFiles(ctx, adapter, integrationSetup, receipt.Payload, *plan.Message, slot, cache)
 		if err == nil {
 			prepared[key] = files
 		}
@@ -300,7 +298,7 @@ func (c *IntegrationInboxConsumer) Consume(
 		return (result.Launch != nil && result.Launch.Created) || (result.Input != nil && result.Input.Created)
 	})
 	if acknowledger, ok := adapter.(interface {
-		acknowledge(context.Context, integrationstore.ProjectIntegrationRecord, []byte) error
+		acknowledge(context.Context, integrationstore.IntegrationRecord, []byte) error
 	}); ok && created {
 		if feedbackErr := acknowledger.acknowledge(ctx, integrationSetup, receipt.Payload); feedbackErr != nil {
 			log.WarnContext(
@@ -321,7 +319,7 @@ func (c *IntegrationInboxConsumer) Consume(
 				if dismissErr := c.presenter.DismissCanceled(
 					ctx,
 					lease.ProjectID,
-					plan[result.Slot].AgentID,
+					plan.Recipients[result.Slot].AgentID,
 					result.Input.CanceledInteractionIDs,
 				); dismissErr != nil {
 					log.WarnContext(
@@ -344,16 +342,21 @@ func (c *IntegrationInboxConsumer) Consume(
 func (c *IntegrationInboxConsumer) prepareFiles(
 	ctx context.Context,
 	adapter IntegrationInboxProvider,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	payload []byte,
+	message executionstore.InboxMessage,
 	slot IntegrationInboxSlot,
 	cache map[string]IntegrationInboxFile,
 ) ([]artifactstore.PreparedArtifact, error) {
 	if c.artifacts == nil {
 		return nil, fmt.Errorf("artifact uploader is required")
 	}
-	prepared := make([]artifactstore.PreparedArtifact, 0, len(slot.Files))
-	for _, file := range slot.Files {
+	prepared := make([]artifactstore.PreparedArtifact, 0, len(slot.ArtifactIDs))
+	_, files, err := message.RecipientContent(slot.ArtifactIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
 		if file.Expected == nil || file.Expected.ID != file.ArtifactID {
 			return nil, fmt.Errorf("file content was not pinned in the frozen plan")
 		}

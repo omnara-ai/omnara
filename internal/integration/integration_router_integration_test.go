@@ -5,8 +5,7 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"runtime"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"strings"
 	"sync"
 	"testing"
@@ -15,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationdb"
 	"github.com/omnara-ai/omnara/internal/testutil/storagefixture"
@@ -28,117 +27,54 @@ func TestMain(m *testing.M) { integrationdb.RunTestMain(m) }
 
 func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *testing.T) {
 	ctx := t.Context()
-	_, file, _, _ := runtime.Caller(0)
-	pool := integrationdb.OpenMigratedPool(t, ctx, filepath.Join(filepath.Dir(file), "../../migrations"))
-	ids := storagefixture.ProjectIDs{
-		OrgID:                   uuid.New(),
-		ProjectID:               uuid.New(),
-		ProviderAdminUserID:     uuid.New(),
-		ProviderSecretID:        uuid.New(),
-		ProviderSecretVersionID: uuid.New(),
-		ProviderConfigID:        uuid.New(),
-	}
-	storagefixture.SeedProject(t, ctx, pool, ids, time.Now())
-	store := storage.NewStore(pool)
-	integrations := store.Integrations()
-	router := NewIntegrationRouter(store.Execution(), integrations)
-	instruction := strings.Repeat("Review carefully. ", 18000) + "End."
-	base := storagefixture.SeedAgentConfig(
-		t,
-		ctx,
-		store.Models(),
-		store.Execution(),
-		ids.OrgID,
-		ids.ProjectID,
-		"instruction: "+instruction+"\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n",
-	)
-	profile, err := store.Execution().
-		CreateAgentProfile(
-			ctx,
-			executionstore.CreateAgentProfileInput{ProjectID: ids.ProjectID, Name: "review", CurrentConfigID: base.ID},
-		)
+	pool, store, ids, integrationID := integrationWorkerFixture(t)
+	inbox := store.Integrations()
+	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+		"instruction: "+strings.Repeat("Review carefully. ", 18000)+"End.\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+		ProjectID: ids.ProjectID, Name: "review", CurrentConfigID: base.ID,
+	})
 	require.NoError(t, err)
-	integrationSetup := uuid.Must(uuid.NewV7())
-	_, err = pool.Exec(
-		ctx,
-		`INSERT INTO project_integrations(id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,name,integration_type,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'active','T123','integration-router','chat','slack_thread',$5,now(),now())`,
-		integrationSetup,
-		ids.OrgID,
-		ids.ProjectID,
-		ids.ProviderAdminUserID,
-		ids.ProviderSecretID,
-	)
+	integration, err := inbox.UpdateIntegration(ctx, integrationID, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+		Settings: integrationtest.ChatSettings("", profile.ID),
+	})
 	require.NoError(t, err)
-	setup := integrationstore.SaveProjectIntegrationInput{
-		OrgID:           ids.OrgID,
-		ProjectID:       ids.ProjectID,
-		Name:            "chat",
-		IntegrationType: integrationdefinition.SlackThread,
-		Settings: integrationstore.ProjectIntegrationSettings{
-			Launcher: &integrationstore.IntegrationLauncher{
-				Trigger:   "mention",
-				ScopeKind: "workspace",
-				ScopeRef:  "T123",
-				Slots: []integrationstore.IntegrationLaunchSlot{
-					{Key: "a", AgentProfileID: &profile.ID},
-					{Key: "b", AgentProfileID: &profile.ID},
-				},
-			},
-		},
-	}
-	integration, err := store.Integrations().UpdateProjectIntegration(ctx, integrationSetup, setup)
+	existing, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
+		ProjectID: ids.ProjectID, AgentConfigID: base.ID,
+		LaunchedBy: identitystore.NewUserPrincipal(ids.ProviderAdminUserID),
+	})
 	require.NoError(t, err)
+	createTestIntegrationSubscription(t, store, integration, existing.Agent.ID, `{"channel_id":"C123"}`)
+	router := NewIntegrationRouter(store.Execution(), inbox)
 	claim := func(key string) integrationstore.IntegrationInboxRecord {
-		_, _, err := store.Integrations().
-			AcceptIntegrationReceipt(
-				ctx,
-				integrationstore.VerifiedIntegrationReceipt{
-					ProjectID:     ids.ProjectID,
-					IntegrationID: integrationSetup,
-					ReceiptKey:    key,
-					Payload:       []byte(`{"verified":true}`),
-				},
-			)
+		_, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+			ProjectID: ids.ProjectID, IntegrationID: integrationID, ReceiptKey: key, Payload: []byte(`{}`),
+		})
 		require.NoError(t, err)
-		r, found, err := store.Integrations().
-			ClaimIntegrationInbox(
-				ctx,
-				integrationstore.ClaimIntegrationInboxInput{
-					ProjectID:     ids.ProjectID,
-					IntegrationID: integrationSetup,
-					LeaseDuration: time.Minute,
-				},
-			)
+		receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+			ProjectID: ids.ProjectID, IntegrationID: integrationID, LeaseDuration: time.Minute,
+		})
 		require.NoError(t, err)
 		require.True(t, found)
-		return r
+		return receipt
 	}
-	receipts := []integrationstore.IntegrationInboxRecord{claim("first"), claim("second")}
-	placeholder := uuid.Must(uuid.NewV7())
+	receipts := []integrationstore.IntegrationInboxRecord{claim("first"), claim("competing")}
+	placeholder := uuid.New()
 	event := IntegrationEvent{
-		Event: integrationdefinition.Event{
-			Scope:     integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
-			Kind:      "message",
-			Mentioned: true,
-		},
-		SemanticKey: "message:1",
-		ContentBlocks: json.RawMessage(
-			`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`,
-		),
-		Files: []IntegrationPlannedFile{failedIntegrationFile(placeholder, []byte("review"))},
-		Actor: integrationTestActor(t, integrationSetup, "U123"),
+		Event: integrationdefinition.Event{Kind: "message", Mentioned: true, Scope: integrationdefinition.Scope{
+			Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"},
+		}},
+		SemanticKey: "message:1", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`),
+		Files: []executionstore.InboxPlannedFile{failedIntegrationFile(placeholder, []byte("review"))},
+		Actor: integrationTestActor(t, integration, "U123"),
 	}
 	plans := make([]IntegrationInboxPlan, 2)
 	failures := make([]error, 2)
 	var wg sync.WaitGroup
-	start := make(chan struct{})
 	for i := range receipts {
-		wg.Go(func() {
-			<-start
-			plans[i], failures[i] = freezeTestIntegrationEvents(ctx, router, receipts[i].Lease(), []IntegrationEvent{event})
-		})
+		wg.Go(func() { plans[i], failures[i] = freezeTestIntegrationEvent(ctx, router, receipts[i].Lease(), &event) })
 	}
-	close(start)
 	wg.Wait()
 	winner := 0
 	if failures[0] != nil {
@@ -147,158 +83,101 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 	require.NoError(t, failures[winner])
 	require.ErrorIs(t, failures[1-winner], integrationstore.ErrIntegrationSelectionReserved)
 	plan, receipt := plans[winner], receipts[winner]
-	require.Len(t, plan, 2)
-	frozen, err := integrations.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
-	require.NoError(t, err)
-	require.Less(t, len(frozen.Plan), 16*1024, "large profile definitions must not be copied into receipt plans")
-	var savedConfigIDs []uuid.UUID
-	for _, slot := range plan {
-		savedConfigIDs = append(savedConfigIDs, slot.Launch.AgentConfigID)
-	}
-	require.Equal(t, savedConfigIDs[0], savedConfigIDs[1], "equivalent derivations reuse an immutable config")
-	setup.Settings.Launcher.Slots[1].Key = "c"
-	_, err = store.Integrations().UpdateProjectIntegration(ctx, integration.ID, setup)
-	require.NoError(t, err)
-	var changed agentconfig.Compiled
-	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &changed))
-	changed.Instruction = "edited profile"
-	encoded, err := agentconfig.EncodeCompiled(changed)
-	require.NoError(t, err)
-	next, err := store.Execution().
-		CreateAgentConfig(
-			ctx,
-			executionstore.CreateAgentConfigInput{
-				ProjectID:               ids.ProjectID,
-				ConfiguredModelID:       base.ConfiguredModelID,
-				CompiledDefinition:      encoded.CanonicalJSON,
-				EffectiveDefinitionHash: encoded.Hash,
-			},
-		)
-	require.NoError(t, err)
-	_, err = store.Execution().
-		RetargetAgentProfile(
-			ctx,
-			executionstore.RetargetAgentProfileInput{
-				ProjectID:               ids.ProjectID,
-				ProfileID:               profile.ID,
-				ExpectedCurrentConfigID: base.ID,
-				ConfigID:                next.ID,
-				IdempotencyKey:          "retarget",
-			},
-		)
-	require.NoError(t, err)
-	prepared := make(map[string][]artifactstore.PreparedArtifact)
-	for key, slot := range plan {
-		if slot.Selection.Slot == "a" {
-			require.NotNil(t, slot.Files[0].Expected)
-			prepared[key] = []artifactstore.PreparedArtifact{*slot.Files[0].Expected}
+	require.Len(t, plan.Recipients, 2)
+	var launchKey, inputKey string
+	for key, slot := range plan.Recipients {
+		if slot.Launch != nil {
+			launchKey = key
+		} else {
+			inputKey = key
 		}
 	}
-	results, err := router.Admit(ctx, receipt.Lease(), prepared)
+	require.NotEmpty(t, launchKey)
+	require.NotEmpty(t, inputKey)
+	frozen, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.Less(t, len(frozen.Plan), 16*1024, "full profile configs are not copied into the work plan")
+	_, files, err := plan.Message.RecipientContent(plan.Recipients[inputKey].ArtifactIDs)
+	require.NoError(t, err)
+	results, err := router.Admit(
+		ctx, receipt.Lease(), map[string][]artifactstore.PreparedArtifact{inputKey: {*files[0].Expected}},
+	)
 	require.Error(t, err)
 	require.Len(t, results, 1)
-	require.Equal(t, "a", plan[results[0].Slot].Selection.Slot)
-	var count int
-	require.NoError(
-		t,
-		pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`, ids.ProjectID).Scan(&count),
+	require.True(t, results[0].Input.Created)
+	// Change the live profile config after partial admission: recovery keeps its frozen base/config IDs.
+	var compiled agentconfig.Compiled
+	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
+	compiled.Instruction = "edited profile"
+	encoded, err := agentconfig.EncodeCompiled(compiled)
+	require.NoError(t, err)
+	next, err := store.Execution().CreateAgentConfig(ctx, executionstore.CreateAgentConfigInput{
+		ProjectID: ids.ProjectID, ConfiguredModelID: base.ConfiguredModelID,
+		CompiledDefinition: encoded.CanonicalJSON, EffectiveDefinitionHash: encoded.Hash,
+	})
+	require.NoError(t, err)
+	_, err = store.Execution().RetargetAgentProfile(ctx, executionstore.RetargetAgentProfileInput{
+		ProjectID: ids.ProjectID, ProfileID: profile.ID, ExpectedCurrentConfigID: base.ID,
+		ConfigID: next.ID, IdempotencyKey: "retarget",
+	})
+	require.NoError(t, err)
+	require.NoError(t, inbox.WithIntegrationInboxLease(
+		ctx, receipt.Lease(), func(work *integrationstore.IntegrationInboxLeaseTx) error {
+			return work.Retry(ctx, time.Second, "partial upload")
+		},
+	))
+	_, err = pool.Exec(ctx,
+		`UPDATE integration_inbox SET next_attempt_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
+	require.NoError(t, err)
+	retry, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: ids.ProjectID, IntegrationID: integrationID, LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, receipt.ID, retry.ID)
+	require.NotEqual(t, receipt.ClaimToken, retry.ClaimToken)
+	recovered, err := router.Freeze(ctx, retry.Lease(), nil)
+	require.NoError(t, err)
+	require.JSONEq(t, string(githubEventJSON(t, plan)), string(githubEventJSON(t, recovered)))
+	uploads := &integrationConsumerUploads{}
+	provider := &integrationConsumerProvider{
+		file: IntegrationInboxFile{Content: []byte("review"), ContentType: "text/plain"},
+	}
+	consumer := NewIntegrationInboxConsumer(
+		router, inbox, uploads, map[string]IntegrationInboxProvider{"slack": provider},
+		nil, testIntegrationLaunchWorkflow(router),
 	)
-	require.Equal(t, 1, count)
-	partialReceipt := claim("partial-follow")
-	partialEvent := event
-	partialEvent.SemanticKey, partialEvent.Event.Mentioned = "message:partial-follow", false
-	partialEvent.ContentBlocks, partialEvent.Files = json.RawMessage(`[{"type":"text","text":"continue A"}]`), nil
-	partialPlan, err := freezeTestIntegrationEvents(ctx, router, partialReceipt.Lease(), []IntegrationEvent{partialEvent})
+	results, err = consumer.Consume(ctx, retry.Lease())
 	require.NoError(t, err)
-	require.Len(t, partialPlan, 1)
-	_, err = router.Admit(ctx, partialReceipt.Lease(), nil)
-	require.NoError(t, err)
-	recovered, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), nil)
-	require.NoError(t, err)
-	originalJSON, err := json.Marshal(plan)
-	require.NoError(t, err)
-	recoveredJSON, err := json.Marshal(recovered)
-	require.NoError(t, err)
-	require.JSONEq(t, string(originalJSON), string(recoveredJSON))
-	var pendingArtifacts []uuid.UUID
-	for _, slot := range recovered {
-		if slot.Selection.Slot == "b" {
-			pendingArtifacts = slot.ArtifactIDs
+	require.Len(t, results, 2)
+	require.Equal(t, plan.Recipients[launchKey].ArtifactIDs, uploads.probed, "retry prepares only the pending recipient")
+	require.Equal(t, 1, provider.downloads)
+	require.Equal(t, 1, uploads.uploads)
+	require.Zero(t, provider.expansions)
+	for _, result := range results {
+		if result.Launch != nil {
+			require.Equal(t, plan.Recipients[launchKey].AgentID, result.Launch.Agent.ID)
+			require.Equal(t, plan.Recipients[launchKey].Launch.AgentConfigID, result.Launch.Agent.CurrentConfigID)
+		} else {
+			require.False(t, result.Input.Created)
 		}
 	}
-	retryUploads := &integrationConsumerUploads{}
-	retryProvider := &integrationConsumerProvider{file: IntegrationInboxFile{
-		Content: []byte("review"), ContentType: "text/plain",
-	}}
-	retryConsumer := NewIntegrationInboxConsumer(router, integrations, retryUploads,
-		map[string]IntegrationInboxProvider{"slack": retryProvider}, nil, testIntegrationLaunchWorkflow(router))
-	results, err = retryConsumer.Consume(ctx, receipt.Lease())
-	require.NoError(t, err)
-	require.Len(t, results, 2)
-	require.Equal(t, pendingArtifacts, retryUploads.probed, "delivered slots must not re-read their uploaded files")
-	require.Equal(t, 1, retryProvider.downloads)
-	require.Equal(t, 1, retryUploads.uploads)
-	for _, result := range results {
-		config, _, err := store.Execution().GetAgentConfig(ctx, ids.ProjectID, result.Launch.Agent.CurrentConfigID)
-		require.NoError(t, err)
-		var compiled agentconfig.Compiled
-		require.NoError(t, json.Unmarshal(config.CompiledDefinition, &compiled))
-		require.Equal(t, instruction, compiled.Instruction)
-	}
-	require.NoError(
-		t,
-		pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE project_id=$1`, ids.ProjectID).Scan(&count),
-	)
+	var count int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_inputs WHERE project_id=$1 AND input_idempotency_key=$2`,
+		ids.ProjectID, event.SemanticKey,
+	).Scan(&count))
 	require.Equal(t, 2, count)
-	event.SemanticKey = "message:2"
-	event.ContentBlocks = json.RawMessage(`[{"type":"text","text":"follow up"}]`)
-	event.Files = nil
-	follow, err := freezeTestIntegrationEvents(ctx, router, receipts[1-winner].Lease(), []IntegrationEvent{event})
+	replay, err := consumer.Consume(ctx, retry.Lease())
 	require.NoError(t, err)
-	require.Len(t, follow, 2)
-	for _, slot := range follow {
-		require.Nil(t, slot.Selection)
-		require.NotNil(t, slot.Subscription)
-	}
-	_, err = router.Admit(ctx, receipts[1-winner].Lease(), nil)
-	require.NoError(t, err)
-	consumerReceipt := claim("consumer")
-	event.SemanticKey = "message:consumer"
-	provider := &integrationConsumerProvider{events: []IntegrationEvent{event}}
-	consumer := NewIntegrationInboxConsumer(
-		router,
-		integrations,
-		nil,
-		map[string]IntegrationInboxProvider{"slack": provider},
-		nil,
-		testIntegrationLaunchWorkflow(router),
-	)
-	consumed, err := consumer.Consume(ctx, consumerReceipt.Lease())
-	require.NoError(t, err)
-	require.Len(t, consumed, 2)
-	require.Equal(t, 1, provider.expansions)
-	provider.events = nil
-	consumed, err = consumer.Consume(ctx, consumerReceipt.Lease())
-	require.NoError(t, err)
-	require.Len(t, consumed, 2)
-	require.Equal(t, 1, provider.expansions)
-	for _, result := range consumed {
-		require.False(t, result.Input.Created)
-	}
-	_, err = pool.Exec(ctx, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, integrationSetup)
-	require.NoError(t, err)
-	results, err = router.Admit(ctx, receipt.Lease(), nil)
-	require.NoError(t, err)
-	require.Len(t, results, 2)
-	for _, result := range results {
-		require.False(t, result.Launch.Created)
-	}
+	require.Len(t, replay, 2)
+	require.Equal(t, 1, uploads.uploads)
 }
 
 func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T) {
 	for _, ownerState := range []integrationstore.IntegrationInboxState{
 		integrationstore.IntegrationInboxProcessing,
-		integrationstore.IntegrationInboxPending,
+		integrationstore.IntegrationInboxQueued,
 		integrationstore.IntegrationInboxFailed,
 	} {
 		t.Run(string(ownerState), func(t *testing.T) {
@@ -325,21 +204,14 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 					},
 				)
 			require.NoError(t, err)
-			_, err = inbox.UpdateProjectIntegration(
+			integration, err := inbox.UpdateIntegration(
 				ctx, integrationSetup,
-				integrationstore.SaveProjectIntegrationInput{
+				integrationstore.SaveIntegrationInput{
 					OrgID:           ids.OrgID,
 					ProjectID:       ids.ProjectID,
 					Name:            "chat",
-					IntegrationType: integrationdefinition.SlackThread,
-					Settings: integrationstore.ProjectIntegrationSettings{
-						Launcher: &integrationstore.IntegrationLauncher{
-							Trigger:   "mention",
-							ScopeKind: "workspace",
-							ScopeRef:  "T123",
-							Slots:     []integrationstore.IntegrationLaunchSlot{{Key: "reviewer", AgentProfileID: &profile.ID}},
-						},
-					},
+					IntegrationKind: integrationdefinition.SlackThread,
+					Settings:        integrationtest.ChatSettings("", profile.ID),
 				},
 			)
 			require.NoError(t, err)
@@ -380,11 +252,11 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 				},
 				SemanticKey:   "message:initial",
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-				Actor:         integrationTestActor(t, integrationSetup, "U123"),
+				Actor:         integrationTestActor(t, integration, "U123"),
 			}
-			plan, err := freezeTestIntegrationEvents(ctx, router, owner.Lease(), []IntegrationEvent{event})
+			plan, err := freezeTestIntegrationEvent(ctx, router, owner.Lease(), &event)
 			require.NoError(t, err)
-			require.Len(t, plan, 1)
+			require.Len(t, plan.Recipients, 1)
 			if ownerState != integrationstore.IntegrationInboxProcessing {
 				require.NoError(
 					t,
@@ -392,7 +264,7 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 						ctx,
 						owner.Lease(),
 						func(work *integrationstore.IntegrationInboxLeaseTx) error {
-							if ownerState == integrationstore.IntegrationInboxPending {
+							if ownerState == integrationstore.IntegrationInboxQueued {
 								return work.Retry(ctx, time.Hour, "media preparation retry")
 							}
 							return work.Fail(ctx, "launch failed permanently")
@@ -409,9 +281,9 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 					if i > 0 {
 						follow = capture(fmt.Sprintf("plain-follow-%d", i))
 					}
-					empty, err := freezeTestIntegrationEvents(ctx, router, follow.Lease(), []IntegrationEvent{event})
+					empty, err := freezeTestIntegrationEvent(ctx, router, follow.Lease(), &event)
 					require.NoError(t, err)
-					require.Empty(t, empty)
+					require.Empty(t, empty.Recipients)
 					_, err = router.Admit(ctx, follow.Lease(), nil)
 					require.NoError(t, err)
 					completed, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, follow.ID)
@@ -425,13 +297,13 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 				mention := capture("replacement-mention")
 				mentioned := event
 				mentioned.Event.Mentioned = true
-				fresh, err := freezeTestIntegrationEvents(ctx, router, mention.Lease(), []IntegrationEvent{mentioned})
+				fresh, err := freezeTestIntegrationEvent(ctx, router, mention.Lease(), &mentioned)
 				require.NoError(t, err)
-				require.Len(t, fresh, 1)
+				require.Len(t, fresh.Recipients, 1)
 				_, err = router.Admit(ctx, mention.Lease(), nil)
 				require.NoError(t, err)
 			} else {
-				_, err = freezeTestIntegrationEvents(ctx, router, follow.Lease(), []IntegrationEvent{event})
+				_, err = freezeTestIntegrationEvent(ctx, router, follow.Lease(), &event)
 				var reservation *integrationstore.IntegrationSelectionReservationError
 				require.ErrorAs(t, err, &reservation)
 				require.Equal(t, owner.ID, reservation.ReceiptID)
@@ -446,9 +318,9 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 			unrelated.Event.Scope = integrationdefinition.Scope{
 				Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "2.0"},
 			}
-			empty, err := freezeTestIntegrationEvents(ctx, router, other.Lease(), []IntegrationEvent{unrelated})
+			empty, err := freezeTestIntegrationEvent(ctx, router, other.Lease(), &unrelated)
 			require.NoError(t, err)
-			require.Empty(t, empty)
+			require.Empty(t, empty.Recipients)
 			_, err = router.Admit(ctx, other.Lease(), nil)
 			require.NoError(t, err)
 			if ownerState == integrationstore.IntegrationInboxFailed {
@@ -456,8 +328,8 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 				require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 				return
 			}
-			if ownerState == integrationstore.IntegrationInboxPending {
-				_, err := pool.Exec(ctx, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, owner.ID)
+			if ownerState == integrationstore.IntegrationInboxQueued {
+				_, err := pool.Exec(ctx, `UPDATE integration_inbox SET next_attempt_at=now() WHERE id=$1`, owner.ID)
 				require.NoError(t, err)
 			}
 			if ownerState != integrationstore.IntegrationInboxProcessing {
@@ -465,9 +337,9 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 			}
 			_, err = router.Admit(ctx, owner.Lease(), nil)
 			require.NoError(t, err)
-			continued, err := freezeTestIntegrationEvents(ctx, router, follow.Lease(), []IntegrationEvent{event})
+			continued, err := freezeTestIntegrationEvent(ctx, router, follow.Lease(), &event)
 			require.NoError(t, err)
-			require.Len(t, continued, 1)
+			require.Len(t, continued.Recipients, 1)
 			results, err := router.Admit(ctx, follow.Lease(), nil)
 			require.NoError(t, err)
 			require.True(t, results[0].Input.Created)

@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 		AgentConfigID: base.ID,
 	})
 	require.NoError(t, err)
-	integrationRecord, err := inbox.GetProjectIntegration(ctx, ids.ProjectID, integrationSetup)
+	integrationRecord, err := inbox.GetIntegration(ctx, ids.ProjectID, integrationSetup)
 	require.NoError(t, err)
 	createTestIntegrationSubscription(
 		t,
@@ -50,14 +51,11 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 		return profile
 	}
 	profile := createProfile("first")
-	setup := integrationstore.SaveProjectIntegrationInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationType: integrationdefinition.SlackThread,
-		Settings: integrationstore.ProjectIntegrationSettings{
-			Launcher: &integrationstore.IntegrationLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
-				Slots: []integrationstore.IntegrationLaunchSlot{{Key: "review", AgentProfileID: &profile.ID}}},
-		},
+	setup := integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+		Settings: integrationtest.ChatSettings("", profile.ID),
 	}
-	integration, err := inbox.UpdateProjectIntegration(ctx, integrationSetup, setup)
+	integration, err := inbox.UpdateIntegration(ctx, integrationSetup, setup)
 	require.NoError(t, err)
 	capture := func(key string) integrationstore.IntegrationInboxRecord {
 		t.Helper()
@@ -76,14 +74,14 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 		Event: integrationdefinition.Event{Kind: "message", Mentioned: true,
 			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor: integrationTestActor(t, integration.ID, "U123"),
+		Actor: integrationTestActor(t, integration, "U123"),
 	}
 	first := capture("first-delivery")
-	plan, err := freezeTestIntegrationEvents(ctx, router, first.Lease(), []IntegrationEvent{event})
+	plan, err := freezeTestIntegrationEvent(ctx, router, first.Lease(), &event)
 	require.NoError(t, err)
-	require.Len(t, plan, 2)
+	require.Len(t, plan.Recipients, 2)
 	var abandonedAgent uuid.UUID
-	for _, slot := range plan {
+	for _, slot := range plan.Recipients {
 		if slot.Launch != nil {
 			abandonedAgent = slot.AgentID
 		}
@@ -102,14 +100,14 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 		}),
 	)
 	replacement := createProfile("replacement")
-	setup.Settings.Launcher.Slots[0].AgentProfileID = &replacement.ID
-	_, err = inbox.UpdateProjectIntegration(ctx, integration.ID, setup)
+	setup.Settings = integrationtest.ChatSettings("", replacement.ID)
+	_, err = inbox.UpdateIntegration(ctx, integration.ID, setup)
 	require.NoError(t, err)
 	second := capture("sibling-delivery")
-	fresh, err := freezeTestIntegrationEvents(ctx, router, second.Lease(), []IntegrationEvent{event})
+	fresh, err := freezeTestIntegrationEvent(ctx, router, second.Lease(), &event)
 	require.NoError(t, err)
-	require.Len(t, fresh, 2)
-	for _, slot := range fresh {
+	require.Len(t, fresh.Recipients, 2)
+	for _, slot := range fresh.Recipients {
 		if slot.Launch != nil {
 			require.NotEqual(t, abandonedAgent, slot.AgentID)
 		}

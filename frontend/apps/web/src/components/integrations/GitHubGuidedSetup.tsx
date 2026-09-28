@@ -1,14 +1,14 @@
-import type { GitHubSetupInstallation, ProjectIntegration } from '@omnara/sdk'
+import type { GitHubSetupInstallation, Integration } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
-import { ProjectIntegrationNameField } from './ProjectIntegrationNameField'
-import { ProjectIntegrationCredentialPicker } from './ProjectIntegrationSetupCredentials'
+import { IntegrationNameField } from './IntegrationNameField'
+import { IntegrationCredentialPicker } from './IntegrationSetupCredentials'
 import type { GitHubInspection, useGitHubGuidedSetup } from './useGitHubGuidedSetup'
-import type { useProjectIntegrationDraft } from './useProjectIntegrationDraft'
+import type { useIntegrationDraft } from './useIntegrationDraft'
 
 const selectClass =
   'control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm'
@@ -27,8 +27,8 @@ export function GitHubGuidedSetup({
 }: {
   orgId: string
   projectId: string
-  existing?: ProjectIntegration
-  draft: ReturnType<typeof useProjectIntegrationDraft>
+  existing?: Integration
+  draft: ReturnType<typeof useIntegrationDraft>
   guided: ReturnType<typeof useGitHubGuidedSetup>
   busy: boolean
   error: string
@@ -55,17 +55,17 @@ export function GitHubGuidedSetup({
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-5">
           {!existing && (
-            <ProjectIntegrationNameField
+            <IntegrationNameField
               name={draft.name}
               onChange={draft.setName}
               saved={draft.integration}
             />
           )}
           {resuming ? (
-            <ProjectIntegrationCredentialPicker
+            <IntegrationCredentialPicker
               orgId={orgId}
               projectId={projectId}
-              integrationType="github_pr"
+              integrationKind="github_pr"
               value={guided.secretId}
               onChange={guided.changeCredential}
             />

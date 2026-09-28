@@ -45,9 +45,13 @@ func TestProviderIngressBodyLimits(t *testing.T) {
 				limit = slack.ActionBodyMaxBytes
 				destination, err := f.record.CapturedDestination()
 				require.NoError(t, err)
+				require.NotNil(t, destination)
+				channel, thread, err := slack.Destination(destination.Address.Kind, destination.Address.Ref)
+				require.NoError(t, err)
 				base = slackActionFormBody(t, slackActionPayloadInput{
 					Install: f.integration, AgentID: f.record.AgentID, IntegrationTargetID: destination.IntegrationTargetID,
-					InteractionID: f.record.ID, UserID: "U_OTHER", OptionValue: "0", ChannelID: "C123", MessageTS: "222.333",
+					InteractionID: f.record.ID, UserID: "U_OTHER", OptionValue: "0",
+					ChannelID: channel, MessageTS: "222.333", ThreadTS: thread,
 				}) + "&padding="
 			case "discord-interactions":
 				path, limit = "/api/integrations/discord/100/interactions", discord.InteractionMaxBytes
@@ -76,6 +80,10 @@ func TestProviderIngressBodyLimits(t *testing.T) {
 					require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 					if provider == "discord" {
 						require.JSONEq(t, `{"type":1}`, response.Body.String())
+					} else if endpoint == "slack-actions" {
+						var result map[string]any
+						require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+						require.Equal(t, "resolved", result["ok"], "a valid callback at the body limit must resolve")
 					}
 				}
 				current, found, err := f.project.Store.Execution().GetAgentInteraction(
@@ -86,7 +94,8 @@ func TestProviderIngressBodyLimits(t *testing.T) {
 				if endpoint == "slack-actions" && size == limit {
 					wantState = executionstore.AgentInteractionStateResolved
 				}
-				require.Equal(t, wantState, current.State, "oversized callbacks must not resolve a prompt")
+				require.Equal(t, wantState, current.State,
+					"unexpected interaction state for %s request of %d bytes (limit %d)", endpoint, size, limit)
 				var receipts int
 				require.NoError(t, f.pool.QueryRow(t.Context(),
 					`SELECT count(*) FROM integration_inbox WHERE integration_id=$1`, f.integration.ID).Scan(&receipts))
@@ -121,7 +130,7 @@ func TestSlackSharedBotUninstallVerifiesEachIntegrationAndFencesSetupRevision(t 
 			provider := newSlackEventsTestServer(t)
 			t.Cleanup(provider.Close)
 			f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "shared-uninstall")
-			second := projectIntegrationHTTPSecondProject(t, f.Handler, f.Project)
+			second := integrationHTTPSecondProject(t, f.Handler, f.Project)
 			profile := createSlackReadyHTTPProfile(t, f.Handler, second, "second-profile", second.AdminToken)
 			profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
 			verified := createSlackHTTPInstall(t, ctx, second, profileID, "A123", "T123", "U_BOT", "signing-secret")
@@ -136,14 +145,14 @@ func TestSlackSharedBotUninstallVerifiesEachIntegrationAndFencesSetupRevision(t 
 			var response *httptest.ResponseRecorder
 			if concurrentSetup {
 				tx := integrationdb.BeginTx(t, ctx, pool)
-				_, err := tx.Exec(ctx, `SELECT id FROM project_integrations WHERE id=$1 FOR UPDATE`, f.Install.ID)
+				_, err := tx.Exec(ctx, `SELECT id FROM integrations WHERE id=$1 FOR UPDATE`, f.Install.ID)
 				require.NoError(t, err)
 				done := integrationdb.RunAsync(func() (*httptest.ResponseRecorder, error) {
 					return performRequest(f.Handler, request), nil
 				})
-				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DisconnectProjectIntegration", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "DisconnectIntegration", 1)
 				_, err = tx.Exec(ctx,
-					`UPDATE project_integrations SET setup_revision=setup_revision+1,updated_at=now() WHERE id=$1`, f.Install.ID)
+					`UPDATE integrations SET setup_revision=setup_revision+1,updated_at=now() WHERE id=$1`, f.Install.ID)
 				require.NoError(t, err)
 				require.NoError(t, tx.Commit(ctx))
 				response = integrationdb.AwaitSuccess(t, done, "uninstall after new setup")
@@ -151,16 +160,16 @@ func TestSlackSharedBotUninstallVerifiesEachIntegrationAndFencesSetupRevision(t 
 				response = performRequest(f.Handler, request)
 			}
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-			for _, before := range []integrationstore.ProjectIntegrationRecord{f.Install, verified, unverified} {
-				after, err := f.Project.Store.Integrations().GetProjectIntegration(ctx, before.ProjectID, before.ID)
+			for _, before := range []integrationstore.IntegrationRecord{f.Install, verified, unverified} {
+				after, err := f.Project.Store.Integrations().GetIntegration(ctx, before.ProjectID, before.ID)
 				require.NoError(t, err)
 				if before.ID == unverified.ID {
 					require.Equal(t, before, after, "a sibling cannot borrow another integration's callback signature")
 					continue
 				}
-				wantState := integrationstore.ProjectIntegrationStateDisconnected
+				wantState := integrationstore.IntegrationStateDisconnected
 				if concurrentSetup && before.ID == f.Install.ID {
-					wantState = integrationstore.ProjectIntegrationStateActive
+					wantState = integrationstore.IntegrationStateActive
 				}
 				require.Equal(t, wantState, after.State)
 				require.Equal(t, before.SetupRevision+1, after.SetupRevision,
@@ -177,21 +186,21 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 	provider := newSlackEventsTestServer(t)
 	t.Cleanup(provider.Close)
 	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "channel-subscription")
-	integration, err := f.Project.Store.Integrations().UpdateProjectIntegration(
+	integration, err := f.Project.Store.Integrations().UpdateIntegration(
 		ctx,
 		f.Install.ID,
-		integrationstore.SaveProjectIntegrationInput{
+		integrationstore.SaveIntegrationInput{
 			OrgID:           f.Install.OrgID,
 			ProjectID:       f.Install.ProjectID,
 			Name:            f.Install.Name,
-			IntegrationType: f.Install.IntegrationType,
+			IntegrationKind: f.Install.IntegrationKind,
 		},
 	)
 	require.NoError(t, err)
-	require.Nil(t, integration.Settings.Launcher)
-	source := projectIntegrationHTTPSource(nil)
+	require.JSONEq(t, `{}`, string(integration.Settings))
+	source := integrationHTTPSource(nil)
 	config := createPublicHTTPAgentConfig(t, f.Handler, f.Project, "channel-subscription", "json",
-		projectIntegrationHTTPJSON(t, source), f.Project.AdminToken, http.StatusCreated)
+		integrationHTTPJSON(t, source), f.Project.AdminToken, http.StatusCreated)
 	configID := mustPublicHTTPID(t, publicid.KindAgentConfig, testutil.RequireType[string](t, config["id"]))
 	launched, err := f.Project.Store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: f.Project.ProjectUUID, AgentConfigID: configID, LaunchedBy: httpUserPrincipal(f.Project.AdminUserUUID),
@@ -215,7 +224,7 @@ func TestSlackChannelOnlySubscriptionReceivesRootMentionAndThreadReply(t *testin
 		{"reply-duplicate", "message", "C123", "111.333", "111.222", "here are the details", 2},
 		{"other-channel", "app_mention", "COTHER", "222.111", "", "<@U_BOT> other request", 2},
 	} {
-		body := projectIntegrationHTTPJSON(t, map[string]any{
+		body := integrationHTTPJSON(t, map[string]any{
 			"type": "event_callback", "team_id": "T123", "api_app_id": "A123", "event_id": event.key,
 			"authorizations": []any{map[string]any{"team_id": "T123", "user_id": "U_BOT", "is_bot": true}},
 			"event": map[string]any{"type": event.kind, "user": "U123", "text": event.text,

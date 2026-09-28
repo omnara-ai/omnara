@@ -24,8 +24,9 @@ return later using the saved credential. Nothing launches until you choose an
 agent profile and save the integration's launch settings.
 
 <Warning>
-Any human GitHub user who can comment on a connected repository can trigger
-configured mention launches and steer subscribed PR agents. Public and fork PRs
+By default, only people with repository write access can trigger configured
+mention launches and steer subscribed PR agents through comments. Choosing
+**Anyone** in **Who can direct agents** allows all human commenters. Public and fork PRs
 can trigger configured PR-open launches; authors do not need to be maintainers
 or collaborators. Choose a profile whose tools, machine access and secrets are
 appropriate for untrusted input, and review its tool permissions before enabling
@@ -45,9 +46,8 @@ Enterprise-owned Apps and enterprise-level installations report an unsupported
 setup instead of prompting repeated retries. Organization installations within
 GitHub Enterprise Cloud still use the ordinary organization flow.
 
-Manage repository access in GitHub. Omnara preserves existing repository-scoped
-launchers when you edit them, but the guided setup does not add another repository
-allowlist. Repository checkout and machine credentials remain separate from the
+Manage repository access in GitHub. Optionally restrict the launcher to one
+repository in the integration settings. Repository checkout and machine credentials remain separate from the
 App's PR comment permissions.
 
 ### Manual setup
@@ -106,7 +106,7 @@ tools:
   int__reviews__read: {}
   int__reviews__discussion_comment:
     permission: {mode: always_ask}
-  int__reviews__inline_comment:
+  int__reviews__review_comment:
     permission: {mode: always_ask}
   int__reviews__reply:
     permission: {mode: always_ask}
@@ -120,11 +120,21 @@ assign or change the tools' PR. Access to repository contents or a checkout is
 separate machine/profile configuration.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
-`discussion_comments` or `review_comments`; lists support `page` and `limit`.
-Large or binary diffs may be incomplete.
+`discussion_comments`, `review_comments`, `reviews` or `review_threads`.
+Comments, files and submitted `reviews` use `page` and `limit`; follow `next_page`
+until it is absent, including after an empty page. `reviews` includes the overall
+review body, state (such as `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED`), author,
+commit and submission time. Unpublished pending reviews are excluded.
+
+`review_threads` uses `cursor` and `limit` instead of `page`. Pass the returned
+`next_cursor` to read the next page; an absent cursor means the end. Each thread
+includes `is_resolved`, `is_outdated`, its path/line and, when available, a
+`comment_id` linking to the first available comment in `review_comments` or `reply`.
+Read comment bodies and replies with `review_comments`. Lists default to 30 items
+and accept a `limit` of 1–100. Large or binary diffs may be incomplete.
 
 `discussion_comment` posts a PR conversation comment using `body`.
-`inline_comment` posts on the diff using `body`, `commit_id`, `path`, `line` and
+`review_comment` posts on the diff using `body`, `commit_id`, `path`, `line` and
 `side` (`LEFT` or `RIGHT`); provide `start_line` and `start_side` together for a
 multiline comment. `reply` uses `comment_id` and `body` to reply to an existing
 review comment. These publish individual comments; Omnara does not stage a review
@@ -154,13 +164,11 @@ For PR-open launches, this is the project integration body for
 ```json
 {
   "name": "reviews",
-  "integration_type": "github_pr",
+  "integration_kind": "github_pr",
   "settings": {
     "launcher": {
       "trigger": "pull_request_opened",
-      "scope_kind": "installation",
-      "scope_ref": "67890",
-      "slots": [{"key": "reviewer", "agent_profile_id": "aprf_aeaqcaibaeaqcaibaeaqcaibae"}]
+      "profile": "aprf_aeaqcaibaeaqcaibaeaqcaibaeaq"
     }
   }
 }
@@ -168,10 +176,16 @@ For PR-open launches, this is the project integration body for
 
 The launcher derives the PR tools, adding missing entries and preserving explicit
 entries from the profile. It attaches a subscription for the triggering PR. An
-installation-scoped launcher applies to the repositories granted to that installation in GitHub. The API also supports an
-explicit `repository` scope with a numeric repository ID; editing an existing
-restricted launcher in the dashboard preserves that restriction. Use
-`trigger: "mention"` instead for explicit mentions in new human PR comments.
+unrestricted launcher applies to repositories granted to this installation. Set
+`launcher.repository_id` to a numeric repository ID string to narrow it. Use
+`trigger: "mention"` for mentions in new human PR comments. GitHub accepts exactly
+one profile. Updates contain only `settings`; name and kind are immutable.
+
+Top-level `settings.sender_policy` defaults to `writers` (repository write access).
+Explicitly choose `anyone` to allow all human commenters to launch or steer agents.
+This policy is independent of automatic PR-open launching and remains when the
+launcher is disabled. Preserve it when replacing launcher settings.
+
 Human discussion/review input steers the agent and cancels open interactions;
 PR opens and synchronization events queue. Bot comments, edits and unrelated
 issue comments do not become agent input.

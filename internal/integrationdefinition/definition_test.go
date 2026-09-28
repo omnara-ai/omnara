@@ -11,18 +11,19 @@ import (
 
 func TestRegistryAndTypedDestinations(t *testing.T) {
 	for _, test := range []struct {
-		integrationType           Type
+		integrationKind           Kind
 		provider, args, kind, key string
 	}{
 		{SlackThread, ProviderSlack, `{"channel_id":"C123","thread_ts":"111.222"}`, "thread", "C123:111.222"},
 		{GitHubPR, ProviderGitHub, `{"repository_id":9007199254740993,"pull_request":42}`,
 			"pull_request", "9007199254740993#42"},
-		{DiscordThread, ProviderDiscord, `{"guild_id":"123","channel_id":"456","thread_id":"789"}`, "thread", "456:789"},
+		{DiscordThread, ProviderDiscord, `{"guild_id":"123","channel_id":"456","thread_id":"789"}`, "thread", "789"},
+		{DiscordThread, ProviderDiscord, `{"thread_id":"789"}`, "thread", "789"},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
-			definition, ok := Lookup(test.integrationType)
+			definition, ok := Lookup(test.integrationKind)
 			require.True(t, ok)
-			require.Equal(t, test.integrationType, definition.IntegrationType)
+			require.Equal(t, test.integrationKind, definition.IntegrationKind)
 			require.Equal(t, test.provider, definition.Provider)
 			scope, err := ResolveDestination(test.provider, json.RawMessage(test.args))
 			require.NoError(t, err)
@@ -38,33 +39,33 @@ func TestRegistryAndTypedDestinations(t *testing.T) {
 	}
 }
 
-func TestIntegrationTypesPartitionRegisteredTransports(t *testing.T) {
-	seen := map[Type]bool{}
+func TestIntegrationKindsPartitionRegisteredTransports(t *testing.T) {
+	seen := map[Kind]bool{}
 	for _, provider := range []string{ProviderSlack, ProviderDiscord, ProviderGitHub} {
-		integrationTypes := IntegrationTypesForProvider(provider)
-		require.NotEmpty(t, integrationTypes)
-		for _, value := range integrationTypes {
-			integrationType := Type(value)
-			require.False(t, seen[integrationType], "each integration type belongs to exactly one transport")
-			seen[integrationType] = true
-			definition, ok := Lookup(integrationType)
+		integrationKinds := IntegrationKindsForProvider(provider)
+		require.NotEmpty(t, integrationKinds)
+		for _, value := range integrationKinds {
+			integrationKind := Kind(value)
+			require.False(t, seen[integrationKind], "each integration type belongs to exactly one transport")
+			seen[integrationKind] = true
+			definition, ok := Lookup(integrationKind)
 			require.True(t, ok)
-			require.Equal(t, integrationType, definition.IntegrationType)
+			require.Equal(t, integrationKind, definition.IntegrationKind)
 			require.Equal(t, provider, definition.Provider)
-			require.Equal(t, provider, ProviderForType(integrationType))
+			require.Equal(t, provider, ProviderForKind(integrationKind))
 		}
 	}
 	require.Len(t, seen, len(All()))
 	for _, definition := range All() {
-		require.True(t, seen[definition.IntegrationType], "registered types must be discoverable")
+		require.True(t, seen[definition.IntegrationKind], "registered types must be discoverable")
 	}
-	for _, unknown := range []Type{"", "slack", "slack_unregistered", "discord_unregistered", "github_unregistered"} {
+	for _, unknown := range []Kind{"", "slack", "slack_unregistered", "discord_unregistered", "github_unregistered"} {
 		_, ok := Lookup(unknown)
 		require.False(t, ok)
-		require.Empty(t, ProviderForType(unknown), "a transport prefix grants no authority")
+		require.Empty(t, ProviderForKind(unknown), "a transport prefix grants no authority")
 	}
 	for _, unknown := range []string{"", "unknown", "slack_thread", "discord_thread", "github_pr"} {
-		require.Empty(t, IntegrationTypesForProvider(unknown), "discovery accepts transport names only")
+		require.Empty(t, IntegrationKindsForProvider(unknown), "discovery accepts transport names only")
 	}
 }
 
@@ -82,13 +83,13 @@ func TestIntegrationLaunchDeclarations(t *testing.T) {
 		{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"},
 	}
 	for _, definition := range All() {
-		t.Run(string(definition.IntegrationType), func(t *testing.T) {
+		t.Run(string(definition.IntegrationKind), func(t *testing.T) {
 			if definition.SubscribeOnLaunch {
 				require.NotNil(t, definition.Subscription)
 			}
-			for _, trigger := range definition.LaunchTriggers {
+			for _, trigger := range []string{"mention"} {
 				require.True(t, slices.ContainsFunc(events, func(event Event) bool {
-					return definition.MatchesLauncher(event, trigger)
+					return definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, trigger), event)
 				}), "declared trigger %q must match a supported provider event", trigger)
 			}
 		})
@@ -97,18 +98,19 @@ func TestIntegrationLaunchDeclarations(t *testing.T) {
 
 func TestSubscriptionsPrepareConcreteConversation(t *testing.T) {
 	for _, test := range []struct {
-		integrationType         Type
+		integrationKind         Kind
 		conversation, kind, ref string
 	}{
 		{SlackThread, `{"channel_id":"C123","thread_ts":"1.2"}`, "thread", "C123:1.2"},
 		{SlackThread, `{"channel_id":"D123"}`, "dm", "D123"},
 		{SlackThread, `{"channel_id":"C123"}`, "channel", "C123"},
-		{DiscordThread, `{"channel_id":"123","thread_id":"456"}`, "thread", "123:456"},
+		{DiscordThread, `{"channel_id":"123","thread_id":"456"}`, "thread", "456"},
+		{DiscordThread, `{"thread_id":"456"}`, "thread", "456"},
 		{DiscordThread, `{"channel_id":"123"}`, "channel", "123"},
 		{GitHubPR, `{"repository_id":123,"pull_request":42}`, "pull_request", "123#42"},
 	} {
-		t.Run(string(test.integrationType)+"/"+test.kind, func(t *testing.T) {
-			d, _ := Lookup(test.integrationType)
+		t.Run(string(test.integrationKind)+"/"+test.kind, func(t *testing.T) {
+			d, _ := Lookup(test.integrationKind)
 			subscription := d.Subscription
 			schema, err := subscription.ConversationSchema()
 			require.NoError(t, err)
@@ -123,10 +125,14 @@ func TestSubscriptionsPrepareConcreteConversation(t *testing.T) {
 			require.NoError(t, err)
 			raw, err := parsed.ConversationJSON()
 			require.NoError(t, err)
-			require.JSONEq(t, test.conversation, string(raw))
+			if test.integrationKind == DiscordThread && test.kind == "thread" {
+				require.JSONEq(t, `{"thread_id":"456"}`, string(raw), "parent is metadata, not thread identity")
+			} else {
+				require.JSONEq(t, test.conversation, string(raw))
+			}
 			again, err := subscription.Prepare(raw)
 			require.NoError(t, err)
-			require.Equal(t, prepared, again)
+			require.Equal(t, parsed, again)
 			for _, raw := range []string{
 				`{}`, `null`, `[]`, `{"conversations":[]}`, `{"slack":{"channel_id":"C123"}}`,
 				`{"channel_id":"C123","events":["message"]}`, `{"channel_id":"bad"}`,
@@ -145,12 +151,12 @@ func TestSubscriptionsPrepareConcreteConversation(t *testing.T) {
 
 func TestIntegrationForwardingPolicy(t *testing.T) {
 	for _, definition := range All() {
-		t.Run(string(definition.IntegrationType), func(t *testing.T) {
+		t.Run(string(definition.IntegrationKind), func(t *testing.T) {
 			for _, event := range []string{
 				"message", "discussion_comment", "review_comment", "commit", "pull_request_opened", "unknown",
 			} {
 				want := event == "message"
-				if definition.IntegrationType == GitHubPR {
+				if definition.IntegrationKind == GitHubPR {
 					want = event == "discussion_comment" || event == "review_comment" || event == "commit"
 				}
 				require.Equal(t, want, definition.Forwards(event), event)
@@ -171,6 +177,7 @@ func TestParseConversationRejectsParentAndMismatchedAddresses(t *testing.T) {
 		{ProviderSlack, "thread", "C123:1.2:3.4"}, {ProviderSlack, "channel", "C123:1.2"},
 		{ProviderDiscord, "guild", "123"}, {ProviderDiscord, "thread", "123:"},
 		{ProviderDiscord, "dm", "123"}, {ProviderDiscord, "thread", "123:0"},
+		{ProviderDiscord, "thread", "123:456"},
 		{ProviderGitHub, "repository", "123"}, {ProviderGitHub, "installation", "123"},
 		{ProviderGitHub, "pull_request", "0#1"}, {ProviderGitHub, "pull_request", "1#0"},
 		{ProviderGitHub, "pull_request", "123"}, {ProviderGitHub, "pull_request", "1#1#1"},
@@ -197,12 +204,12 @@ func TestParseConversationRejectsParentAndMismatchedAddresses(t *testing.T) {
 
 func TestInteractionHandlersUseAssignedConversation(t *testing.T) {
 	for _, test := range []struct {
-		integrationType Type
+		integrationKind Kind
 		kind            string
 		ref             string
-	}{{SlackThread, "thread", "C123:1.2"}, {SlackThread, "dm", "D123"}, {DiscordThread, "thread", "123:456"}} {
-		t.Run(string(test.integrationType), func(t *testing.T) {
-			d, _ := Lookup(test.integrationType)
+	}{{SlackThread, "thread", "C123:1.2"}, {SlackThread, "dm", "D123"}, {DiscordThread, "thread", "456"}} {
+		t.Run(string(test.integrationKind), func(t *testing.T) {
+			d, _ := Lookup(test.integrationKind)
 			prepared, err := d.InteractionHandler.Prepare()
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(prepared.InputSchema, []byte(`{}`)))
@@ -255,7 +262,6 @@ func TestDestinationsRequireCompleteAddress(t *testing.T) {
 		{ProviderSlack, `{"thread_ts":"111.222"}`, "channel_id"},
 		{ProviderGitHub, `{"pull_request":42}`, "repository_id"},
 		{ProviderGitHub, `{"repository_id":123}`, "pull_request"},
-		{ProviderDiscord, `{"thread_id":"789"}`, "channel_id"},
 		{ProviderDiscord, `{"guild_id":"123"}`, "channel_id"},
 	} {
 		_, err := ResolveDestination(test.provider, []byte(test.args))

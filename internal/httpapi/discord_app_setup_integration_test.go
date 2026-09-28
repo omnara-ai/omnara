@@ -80,7 +80,7 @@ func TestDiscordHTTPSetupDiscoversBotIdentity(t *testing.T) {
 	require.Equal(t, "111", integration.ProviderTenantID)
 	require.Equal(t, "222", integration.ProviderAccountRef)
 	require.Equal(t, "Helper", integration.ProviderAgentDisplayName)
-	require.Equal(t, integrationstore.ProjectIntegrationStateActive, integration.State)
+	require.Equal(t, integrationstore.IntegrationStateActive, integration.State)
 }
 
 func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
@@ -129,12 +129,12 @@ func TestDiscordHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 			body["credential_secret_id"] = secretID
 			integration := createSetupHTTPIntegration(t, handler, project, "discord", integrationdefinition.DiscordThread)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
-				integrationSetupPath(t, project, integration), projectIntegrationHTTPJSON(t, body),
+				integrationSetupPath(t, project, integration), integrationHTTPJSON(t, body),
 				"", tc.want, authHeaders(project.AdminToken))
-			require.NotContains(t, projectIntegrationHTTPJSON(t, response), "private-discord-token")
+			require.NotContains(t, integrationHTTPJSON(t, response), "private-discord-token")
 			var count int
 			require.NoError(t, integrationPoolForHandler(t, handler).QueryRow(t.Context(),
-				`SELECT count(*) FROM project_integrations WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
+				`SELECT count(*) FROM integrations WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
 				Scan(&count))
 			require.Zero(t, count, "unverified credentials must not activate the integration")
 		})
@@ -163,7 +163,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 			f.update(t, http.StatusOK)
 			before := f.current(t)
 			require.Equal(t, "Helper", before.ProviderAgentDisplayName)
-			require.JSONEq(t, projectIntegrationHTTPJSON(t, config), string(before.ProviderConfig))
+			require.JSONEq(t, integrationHTTPJSON(t, config), string(before.ProviderConfig))
 			require.Equal(t, f.steps, calls, "saving settings reuses the verified credential")
 
 			rotated := requestJSONWithHeaders(t, f.handler, http.MethodPost,
@@ -172,7 +172,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 				`{"material":{"kind":"generic","value":"rotated-discord-token"}}`,
 				"", http.StatusOK, authHeaders(f.project.AdminToken))
 			require.Equal(t, float64(2), rotated["current_version_number"])
-			wantConfig := projectIntegrationHTTPJSON(t, config)
+			wantConfig := integrationHTTPJSON(t, config)
 			delete(f.body, "provider_config")
 			if tc.clear {
 				f.body["provider_config"] = map[string]any{}
@@ -192,7 +192,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 			response := requestJSONWithHeaders(t, f.handler, http.MethodGet,
 				strings.TrimSuffix(integrationSetupPath(t, f.project, f.integration), "/setup"),
 				"", "", http.StatusOK, authHeaders(f.project.AdminToken))
-			require.JSONEq(t, wantConfig, projectIntegrationHTTPJSON(t, response["provider_config"]))
+			require.JSONEq(t, wantConfig, integrationHTTPJSON(t, response["provider_config"]))
 
 			f.body["expected_setup_revision"] = before.SetupRevision
 			f.body["provider_config"] = map[string]any{"public_key": strings.Repeat("cd", 32)}
@@ -205,7 +205,7 @@ func TestDiscordHTTPTokenRotationProviderConfig(t *testing.T) {
 
 func configureDiscordHTTPIntegration(
 	t *testing.T, handler http.Handler, project publicHTTPProject, body map[string]any,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	integration := createSetupHTTPIntegration(t, handler, project, "discord", integrationdefinition.DiscordThread)
 	requestJSONWithHeaders(
@@ -213,13 +213,13 @@ func configureDiscordHTTPIntegration(
 		handler,
 		http.MethodPost,
 		integrationSetupPath(t, project, integration),
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
 	integration, err := project.Store.Integrations().
-		GetProjectIntegration(t.Context(), project.ProjectUUID, integration.ID)
+		GetIntegration(t.Context(), project.ProjectUUID, integration.ID)
 	require.NoError(t, err)
 	var identity discord.Identity
 	require.NoError(t, json.Unmarshal(integration.ProviderIdentity, &identity))

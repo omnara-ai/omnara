@@ -14,7 +14,7 @@ import (
 
 func (p *DiscordIntegrationInboxProvider) PublishScheduledRoot(
 	ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	launch integrationdefinition.ScheduledThreadLaunch,
 	receiptID uuid.UUID,
 	authority func(context.Context) error,
@@ -54,7 +54,7 @@ func (p *DiscordIntegrationInboxProvider) PublishScheduledRoot(
 
 func (p *DiscordIntegrationInboxProvider) EnsureScheduledThread(
 	ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	scope integrationdefinition.Scope,
 	authority func(context.Context) error,
 ) error {

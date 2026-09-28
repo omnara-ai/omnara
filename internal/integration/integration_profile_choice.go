@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -21,9 +23,9 @@ type IntegrationProfileChoiceExecution interface {
 }
 
 type IntegrationProfileChoiceProvider interface {
-	PresentProfileChoice(context.Context, integrationstore.ProjectIntegrationRecord,
+	PresentProfileChoice(context.Context, integrationstore.IntegrationRecord,
 		integrationstore.IntegrationProfileChoiceRecord, func(context.Context) error) (string, string, error)
-	DismissProfileChoice(context.Context, integrationstore.ProjectIntegrationRecord,
+	DismissProfileChoice(context.Context, integrationstore.IntegrationRecord,
 		integrationstore.IntegrationProfileChoiceRecord, string) error
 }
 
@@ -57,20 +59,20 @@ func profileChoiceExpiryText(expiresAt time.Time) string {
 func (
 	l *ChatIntegrationLauncher,
 ) Decide(ctx context.Context, input IntegrationLaunchContext) ([]IntegrationLaunchIntent, error) {
-	intents, err := EverySlotIntegrationLauncher(ctx, input)
+	if !integrationLaunchEligible(input) {
+		return l.decideProfiles(ctx, input, nil)
+	}
+	ids, err := integrationdefinition.ChatLaunchProfiles(input.Integration.Settings)
 	if err != nil {
 		return nil, err
 	}
-	var fixed, profiles []IntegrationLaunchIntent
-	for _, intent := range intents {
-		if intent.AgentID != uuid.Nil {
-			fixed = append(fixed, intent)
-		} else {
-			profiles = append(profiles, intent)
-		}
+	profiles := make([]IntegrationLaunchIntent, 0, len(ids))
+	for _, id := range ids {
+		profiles = append(profiles, IntegrationLaunchIntent{
+			IntegrationID: input.Integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: id,
+		})
 	}
-	chosen, err := l.decideProfiles(ctx, input, profiles)
-	return append(fixed, chosen...), err
+	return l.decideProfiles(ctx, input, profiles)
 }
 
 func (l *ChatIntegrationLauncher) decideProfiles(
@@ -85,8 +87,8 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 	if exists && choice.SelectedKey != "" {
 		return l.selectedChoiceIntent(ctx, choice)
 	}
-	if !exists && len(profiles) <= 1 {
-		return profiles, nil
+	if !exists && len(profiles) == 0 {
+		return nil, nil
 	}
 	var options []integrationstore.IntegrationProfileChoiceOption
 	if exists {
@@ -103,12 +105,20 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 		for _, intent := range profiles {
 			name, ok := names[intent.ProfileID]
 			if !ok {
-				return nil, fmt.Errorf("profile is no longer available: %w", ErrIntegrationLaunchUnavailable)
+				return nil, fmt.Errorf("configured launcher profile %s is unavailable: %w",
+					intent.ProfileID, ErrIntegrationLaunchUnavailable)
+			}
+			key, err := publicid.Encode(publicid.KindAgentProfile, intent.ProfileID)
+			if err != nil {
+				return nil, err
 			}
 			options = append(options, integrationstore.IntegrationProfileChoiceOption{
-				Key: intent.Slot, ProfileID: intent.ProfileID, Name: name,
+				Key: key, ProfileID: intent.ProfileID, Name: name,
 			})
 		}
+	}
+	if !exists && len(profiles) == 1 {
+		return profiles, nil
 	}
 	source := input.Event
 	source.Launches, source.Directed = nil, false
@@ -146,11 +156,11 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 			func(*integrationstore.IntegrationInboxLeaseTx) error { return nil }); err != nil {
 			return err
 		}
-		integration, err := l.store.GetProjectIntegration(ctx, choice.ProjectID, choice.IntegrationID)
+		integration, err := l.store.GetIntegration(ctx, choice.ProjectID, choice.IntegrationID)
 		if err != nil {
 			return err
 		}
-		if integration.State != integrationstore.ProjectIntegrationStateActive {
+		if integration.State != integrationstore.IntegrationStateActive {
 			return ErrIntegrationLaunchUnavailable
 		}
 		return nil
@@ -190,13 +200,13 @@ func (l *ChatIntegrationLauncher) selectedChoiceIntent(
 		if err != nil {
 			return nil, err
 		}
-		for key := range plan {
+		for key := range plan.Recipients {
 			if outcomes[key] == executionstore.InboxSlotDelivered {
 				return choiceIntent(choice), nil
 			}
 		}
 	}
-	if receipt.State == integrationstore.IntegrationInboxPending ||
+	if receipt.State == integrationstore.IntegrationInboxQueued ||
 		receipt.State == integrationstore.IntegrationInboxProcessing {
 		return nil, &integrationstore.IntegrationSelectionReservationError{ReceiptID: receipt.ID, State: receipt.State}
 	}
@@ -207,7 +217,7 @@ func choiceIntent(choice integrationstore.IntegrationProfileChoiceRecord) []Inte
 	for _, option := range choice.Options {
 		if option.Key == choice.SelectedKey {
 			return []IntegrationLaunchIntent{
-				{IntegrationID: choice.IntegrationID, Slot: option.Key, ProfileID: option.ProfileID},
+				{IntegrationID: choice.IntegrationID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: option.ProfileID},
 			}
 		}
 	}
@@ -215,7 +225,7 @@ func choiceIntent(choice integrationstore.IntegrationProfileChoiceRecord) []Inte
 }
 
 func SelectChatIntegrationProfile(
-	ctx context.Context, store *integrationstore.Store, integrationSetup integrationstore.ProjectIntegrationRecord,
+	ctx context.Context, store *integrationstore.Store, integrationSetup integrationstore.IntegrationRecord,
 	id uuid.UUID, key, actorID, channelID, messageID string,
 ) (integrationstore.IntegrationProfileChoiceRecord, error) {
 	for range 3 {
@@ -223,28 +233,26 @@ func SelectChatIntegrationProfile(
 		if err != nil {
 			return choice, err
 		}
-		var source IntegrationEvent
-		if err := json.Unmarshal(choice.Event, &source); err != nil {
-			return choice, fmt.Errorf("decode original integration request: %w", err)
-		}
-		selected := choice
-		selected.SelectedKey = key
-		source.Launches, source.Directed = choiceIntent(selected), true
-		if len(source.Launches) != 1 {
-			return choice, storeerr.ErrUnauthorized
-		}
-		events, err := json.Marshal([]IntegrationEvent{source})
-		if err != nil {
-			return choice, err
-		}
 		result, err := store.ChooseIntegrationProfile(ctx, integrationstore.ChooseIntegrationProfileInput{
 			ProjectID: integrationSetup.ProjectID, IntegrationID: integrationSetup.ID, ID: id,
 			Key: key, ActorID: actorID, MessageChannelID: channelID, MessageID: messageID,
-			SourceChoiceRevision: choice.Revision, SourceSetupRevision: integrationSetup.SetupRevision, Events: events,
+			SourceChoiceRevision: choice.Revision, SourceSetupRevision: integrationSetup.SetupRevision,
 		})
 		if !errors.Is(err, storeerr.ErrConflict) {
 			return result, err
 		}
 	}
 	return integrationstore.IntegrationProfileChoiceRecord{}, storeerr.ErrConflict
+}
+
+func selectedIntegrationEvent(choice integrationstore.IntegrationProfileChoiceRecord) (*IntegrationEvent, error) {
+	var event IntegrationEvent
+	if json.Unmarshal(choice.Event, &event) != nil {
+		return nil, fmt.Errorf("invalid saved profile-choice event")
+	}
+	event.Launches, event.Directed = choiceIntent(choice), true
+	if len(event.Launches) != 1 {
+		return nil, storeerr.ErrUnauthorized
+	}
+	return &event, nil
 }

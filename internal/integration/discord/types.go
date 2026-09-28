@@ -67,12 +67,13 @@ type Message struct {
 
 type Scope struct {
 	GuildID   string `json:"guild_id,omitempty"`
-	ChannelID string `json:"channel_id"`
+	ChannelID string `json:"channel_id,omitempty"`
 	ThreadID  string `json:"thread_id,omitempty"`
 }
 
 func (s Scope) valid() bool {
-	return validID(s.ChannelID) && (s.GuildID == "" || validID(s.GuildID)) &&
+	return (s.ChannelID != "" || s.ThreadID != "") &&
+		(s.ChannelID == "" || validID(s.ChannelID)) && (s.GuildID == "" || validID(s.GuildID)) &&
 		(s.ThreadID == "" || (validID(s.ThreadID) && s.ThreadID != s.ChannelID))
 }
 

@@ -4,15 +4,15 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, vi } from 'vitest'
 
 import type { FakeApi } from '@/test/fake-api'
-import { fakeId, projectIntegration } from '@/test/fixtures'
-import { renderProjectIntegration } from '@/test/project-integration-render'
+import { fakeId, integration as integrationFixture } from '@/test/fixtures'
+import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button } from '@/test/secret-editor'
 
 export const orgId = fakeId('org'),
   projectId = fakeId('proj'),
   secretId = fakeId('sec')
-export const integration = projectIntegration({ integration_type: 'github_pr' })
+export const integration = integrationFixture({ integration_kind: 'github_pr' })
 export const projectPath = `/api/v1/orgs/${orgId}/projects/${projectId}`
 export const integrationPath = projectPath + '/integrations/' + integration.id
 export const inspectPath = integrationPath + '/github-setup/installations'
@@ -56,7 +56,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 export function render(api: FakeApi, node: ReactNode) {
-  return renderProjectIntegration(root, api, node)
+  return renderIntegration(root, api, node)
 }
 export function click(name: string) {
   act(() => {

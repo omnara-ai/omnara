@@ -15,14 +15,14 @@ import {
   trigger,
 } from '@/components/agents/cron-trigger-test-fixture'
 import { EditCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
-import { ProjectIntegrationDetail } from '@/routes/ProjectIntegrationPage'
+import { IntegrationDetail } from '@/routes/IntegrationPage'
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { projectIntegration } from '@/test/fixtures'
+import { integration as integrationFixture } from '@/test/fixtures'
 import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
 it('uses the declared schedule capability, defaults, order and constraints without thread fields', async () => {
-  const integration = projectIntegration({
-    integration_type: 'github_pr',
+  const integration = integrationFixture({
+    integration_kind: 'github_pr',
     state: 'active',
     capabilities: {
       tools: {},
@@ -67,7 +67,7 @@ it('uses the declared schedule capability, defaults, order and constraints witho
   ])
   render(
     api,
-    <ProjectIntegrationDetail
+    <IntegrationDetail
       orgId={orgId}
       projectId={projectId}
       integrationId={integration.id}
@@ -131,7 +131,7 @@ it.each(['nested schema', 'additional saved settings'])(
           labels: { type: 'array', items: { type: 'string' } },
         },
       }
-    const integration = projectIntegration({
+    const integration = integrationFixture({
       state: 'active',
       capabilities: {
         tools: {},
@@ -207,7 +207,7 @@ it.each(['nested schema', 'additional saved settings'])(
 )
 
 it('blocks saving until the integration schedule schema loads and retries it from the dialog', async () => {
-  const integration = projectIntegration({ state: 'active' })
+  const integration = integrationFixture({ state: 'active' })
   const saved = trigger()
   let available = false
   const api = fakeApi([

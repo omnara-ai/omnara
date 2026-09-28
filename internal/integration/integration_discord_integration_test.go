@@ -5,6 +5,7 @@ package integration
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -28,7 +30,7 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			pool, store, ids, integrationID := integrationProviderFixture(t, "discord", "11", "22")
-			integrationSetup, err := store.Integrations().GetProjectIntegration(ctx, ids.ProjectID, integrationID)
+			integrationSetup, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
 			require.NoError(t, err)
 			f, provider := newDiscordInboxFixture(t)
 			f.integrationSetup = integrationSetup
@@ -60,21 +62,14 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 			require.NoError(t, err)
 			if scenario != "no launcher" {
 				_, err = store.Integrations().
-					UpdateProjectIntegration(
+					UpdateIntegration(
 						ctx, integrationID,
-						integrationstore.SaveProjectIntegrationInput{
+						integrationstore.SaveIntegrationInput{
 							OrgID:           ids.OrgID,
 							ProjectID:       ids.ProjectID,
 							Name:            "chat",
-							IntegrationType: integrationdefinition.DiscordThread,
-							Settings: integrationstore.ProjectIntegrationSettings{
-								Launcher: &integrationstore.IntegrationLauncher{
-									Trigger: "mention",
-									Slots: []integrationstore.IntegrationLaunchSlot{
-										{Key: "review", AgentProfileID: &profile.ID},
-									},
-								},
-							},
+							IntegrationKind: integrationdefinition.DiscordThread,
+							Settings:        integrationtest.ChatSettings("", profile.ID),
 						},
 					)
 				require.NoError(t, err)
@@ -133,7 +128,7 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 					if scenario == "revoked before preparation" && identityReads == 2 {
 						_, err := pool.Exec(
 							ctx,
-							`UPDATE project_integrations SET state='disconnected',updated_at=now() WHERE id=$1`,
+							`UPDATE integrations SET state='disconnected',updated_at=now() WHERE id=$1`,
 							integrationID,
 						)
 						assert.NoError(t, err)
@@ -172,7 +167,7 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 				latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 				require.NoError(t, err)
 				require.Equal(t, integrationstore.IntegrationInboxCompleted, latest.State)
-				require.JSONEq(t, `{}`, string(latest.Plan))
+				require.JSONEq(t, `{"recipients":{}}`, string(latest.Plan))
 				return
 			}
 			require.Equal(t, 1, f.posts)
@@ -208,8 +203,7 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 			worked, err = worker.RunOnce(ctx)
 			require.True(t, worked)
 			require.NoError(t, err)
-			require.Equal(t, []string{"GET /api/v10/channels/400"}, f.requests[beforeUnselected:],
-				"unsubscribed thread must not fetch identity, message or attachments")
+			require.Empty(t, f.requests[beforeUnselected:], "unsubscribed non-mention must not make any provider request")
 			var count int
 			require.NoError(
 				t,
@@ -256,73 +250,113 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 	}
 }
 
-func TestIntegrationDiscordEarlyReplyWaitsForFrozenLaunch(t *testing.T) {
-	ctx := t.Context()
-	_, store, ids, integrationID := integrationProviderFixture(t, "discord", "11", "22")
-	integration, err := store.Integrations().GetProjectIntegration(ctx, ids.ProjectID, integrationID)
-	require.NoError(t, err)
-	config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
-		"instruction: Help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
-		ProjectID: ids.ProjectID, Name: "discord", CurrentConfigID: config.ID,
-	})
-	require.NoError(t, err)
-	integration, err = store.Integrations().UpdateProjectIntegration(
-		ctx,
-		integrationID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: integration.Name, IntegrationType: integration.IntegrationType,
-			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "mention", Slots: []integrationstore.IntegrationLaunchSlot{{Key: "review", AgentProfileID: &profile.ID}},
-			}},
-		},
-	)
-	require.NoError(t, err)
-	f, provider := newDiscordInboxFixture(t)
-	f.integrationSetup, provider.integrations = integration, store.Integrations()
-	f.channels["500"] = discord.Channel{ID: "500", GuildID: "100", ParentID: "300", Type: 11}
-	router := NewIntegrationRouter(store.Execution(), store.Integrations())
-	consumer := NewIntegrationInboxConsumer(router, store.Integrations(), nil,
-		map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router))
-	capture := func(message discord.Message) integrationstore.IntegrationInboxRecord {
-		t.Helper()
-		_, _, err := store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
-			ProjectID:     ids.ProjectID,
-			IntegrationID: integrationID,
-			ReceiptKey:    message.ID,
-			Payload:       discordInboxPayload(t, message),
+func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) {
+	for _, viaMenu := range []bool{false, true} {
+		t.Run(fmt.Sprintf("accepted_menu=%t", viaMenu), func(t *testing.T) {
+			ctx := t.Context()
+			_, store, ids, integrationID := integrationProviderFixture(t, "discord", "11", "22")
+			integration, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
+			require.NoError(t, err)
+			config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
+				"instruction: Help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
+			profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
+				ProjectID: ids.ProjectID, Name: "discord", CurrentConfigID: config.ID,
+			})
+			require.NoError(t, err)
+			integration, err = store.Integrations().UpdateIntegration(
+				ctx,
+				integrationID,
+				integrationstore.SaveIntegrationInput{
+					OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: integration.Name, IntegrationKind: integration.IntegrationKind,
+					Settings: integrationtest.ChatSettings("", profile.ID),
+				},
+			)
+			require.NoError(t, err)
+			f, provider := newDiscordInboxFixture(t)
+			f.integrationSetup, provider.integrations = integration, store.Integrations()
+			f.channels["500"] = discord.Channel{ID: "500", GuildID: "100", ParentID: "300", Type: 11}
+			router := NewIntegrationRouter(store.Execution(), store.Integrations())
+			consumer := NewIntegrationInboxConsumer(router, store.Integrations(), nil,
+				map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router))
+			capture := func(message discord.Message) integrationstore.IntegrationInboxRecord {
+				t.Helper()
+				_, _, err := store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+					ProjectID:     ids.ProjectID,
+					IntegrationID: integrationID,
+					ReceiptKey:    message.ID,
+					Payload:       discordInboxPayload(t, message),
+				})
+				require.NoError(t, err)
+				receipt, found, err := store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+					ProjectID: ids.ProjectID, IntegrationID: integrationID, LeaseDuration: time.Minute,
+				})
+				require.NoError(t, err)
+				require.True(t, found)
+				return receipt
+			}
+			root := capture(f.message)
+			event, ok, err := NormalizeDiscordIntegrationEvent(integration, root.Payload, f.channels["300"])
+			require.NoError(t, err)
+			require.True(t, ok)
+			launchReceipt := root
+			if viaMenu {
+				profileKey, err := publicid.Encode(publicid.KindAgentProfile, profile.ID)
+				require.NoError(t, err)
+				raw, err := json.Marshal(event)
+				require.NoError(t, err)
+				choice, _, err := store.Integrations().EnsureIntegrationProfileChoice(ctx, root.Lease(),
+					integrationstore.EnsureIntegrationProfileChoiceInput{
+						IntegrationID: integrationID, Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "500"},
+						SourceKey: event.SemanticKey, Event: raw, Payload: root.Payload,
+						Options: []integrationstore.IntegrationProfileChoiceOption{
+							{Key: profileKey, Name: "Support", ProfileID: profile.ID},
+						},
+					})
+				require.NoError(t, err)
+				require.NoError(t, store.Integrations().RecordIntegrationProfileChoiceMessage(
+					ctx, ids.ProjectID, integrationID, choice.ID, "500", "600",
+				))
+				_, err = SelectChatIntegrationProfile(
+					ctx, store.Integrations(), integration, choice.ID, profileKey, "33", "500", "600",
+				)
+				require.NoError(t, err)
+				_, err = router.Freeze(ctx, root.Lease(), nil)
+				require.NoError(t, err)
+				_, err = router.Admit(ctx, root.Lease(), nil)
+				require.NoError(t, err)
+				var found bool
+				launchReceipt, found, err = store.Integrations().ClaimIntegrationInbox(
+					ctx, integrationstore.ClaimIntegrationInboxInput{
+						ProjectID: ids.ProjectID, IntegrationID: integrationID, LeaseDuration: time.Minute,
+					},
+				)
+				require.NoError(t, err)
+				require.True(t, found)
+				require.Equal(t, integrationstore.IntegrationInboxSourceChoice, launchReceipt.Source)
+				require.Empty(t, launchReceipt.Plan, "exercise the accepted-menu handoff before any launch plan exists")
+			} else {
+				plan, err := freezeTestIntegrationEvent(ctx, router, root.Lease(), &event)
+				require.NoError(t, err)
+				require.Len(t, plan.Recipients, 1)
+			}
+			reply := f.message
+			reply.ID, reply.ChannelID, reply.Mentions, reply.Content = "501", "500", nil, "continue"
+			receipt := capture(reply)
+			_, err = consumer.Consume(ctx, receipt.Lease())
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+			require.Empty(t, f.requests, "pending reservation is checked before provider I/O")
+			latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
+			require.NoError(t, err)
+			require.Empty(t, latest.Plan, "a pending launch must prevent an empty frozen plan")
+			launched, err := consumer.Consume(ctx, launchReceipt.Lease())
+			require.NoError(t, err)
+			require.Len(t, launched, 1)
+			delivered, err := consumer.Consume(ctx, receipt.Lease())
+			require.NoError(t, err)
+			require.Len(t, delivered, 1)
+			require.Equal(t, launched[0].Launch.Agent.ID, delivered[0].Input.AgentInput.AgentID)
 		})
-		require.NoError(t, err)
-		receipt, found, err := store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
-			ProjectID: ids.ProjectID, IntegrationID: integrationID, LeaseDuration: time.Minute,
-		})
-		require.NoError(t, err)
-		require.True(t, found)
-		return receipt
 	}
-	root := capture(f.message)
-	event, ok, err := NormalizeDiscordIntegrationEvent(integration, root.Payload, f.channels["300"])
-	require.NoError(t, err)
-	require.True(t, ok)
-	plan, err := freezeTestIntegrationEvents(ctx, router, root.Lease(), []IntegrationEvent{event})
-	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	reply := f.message
-	reply.ID, reply.ChannelID, reply.Mentions, reply.Content = "501", "500", nil, "continue"
-	receipt := capture(reply)
-	_, err = consumer.Consume(ctx, receipt.Lease())
-	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
-	require.Equal(t, []string{"GET /api/v10/channels/500"}, f.requests)
-	latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
-	require.NoError(t, err)
-	require.Empty(t, latest.Plan, "a pending launch must prevent an empty frozen plan")
-	launched, err := consumer.Consume(ctx, root.Lease())
-	require.NoError(t, err)
-	require.Len(t, launched, 1)
-	delivered, err := consumer.Consume(ctx, receipt.Lease())
-	require.NoError(t, err)
-	require.Len(t, delivered, 1)
-	require.Equal(t, launched[0].Launch.Agent.ID, delivered[0].Input.AgentInput.AgentID)
 }
 
 func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher(t *testing.T) {
@@ -330,9 +364,9 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 		t.Run(fmt.Sprintf("exact_thread=%t", exactThread), func(t *testing.T) {
 			ctx := t.Context()
 			pool, store, ids, integrationID := integrationProviderFixture(t, "discord", "11", "22")
-			integration, err := store.Integrations().GetProjectIntegration(ctx, ids.ProjectID, integrationID)
+			integration, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
 			require.NoError(t, err)
-			require.Nil(t, integration.Settings.Launcher)
+			require.JSONEq(t, `{}`, string(integration.Settings))
 			f, provider := newDiscordInboxFixture(t)
 			f.integrationSetup, provider.integrations = integration, store.Integrations()
 			config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
@@ -357,7 +391,7 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 					integration,
 					launched.Agent.ID,
 
-					`{"channel_id":"300","thread_id":"500"}`,
+					`{"thread_id":"500"}`,
 				)
 			}
 			router := NewIntegrationRouter(store.Execution(), store.Integrations())
@@ -402,17 +436,33 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 					require.Len(t, results, 1)
 				} else {
 					require.Empty(t, results, "even a thread mention cannot borrow its parent's subscription")
-					require.Equal(t, []string{"GET /api/v10/channels/500"}, f.requests)
+					if mention {
+						require.Equal(t, []string{"GET /api/v10/channels/500"}, f.requests)
+					} else {
+						require.Empty(t, f.requests, "a parent observer cannot route an ordinary thread reply")
+					}
 				}
 			}
+			f.requests = nil
+			ordinary := f.message
+			ordinary.ID, ordinary.Mentions, ordinary.Content = "503", nil, "ordinary channel message"
+			ordinaryReceipt := capture(ordinary.ID, ordinary)
+			results, err := consumer.Consume(ctx, ordinaryReceipt.Lease())
+			require.NoError(t, err)
+			require.Empty(t, results, "a channel subscriber still requires a mentioned starter")
+			require.Empty(t, f.requests)
+			ignored, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, ordinaryReceipt.ID)
+			require.NoError(t, err)
+			require.Equal(t, integrationstore.IntegrationInboxCompleted, ignored.State)
+			require.JSONEq(t, `{"recipients":{}}`, string(ignored.Plan), "the empty route decision must be frozen")
 			next := f.message
 			next.ID = "600"
 			receipt := capture("removed-after-freeze", next)
 			expansion, err := provider.Expand(ctx, integration, receipt.Payload)
 			require.NoError(t, err)
-			plan, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), expansion.Events)
+			plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), expansion.Event)
 			require.NoError(t, err)
-			require.Len(t, plan, 1)
+			require.Len(t, plan.Recipients, 1)
 			removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
 			_, err = consumer.Consume(ctx, receipt.Lease())
 			require.Error(t, err)

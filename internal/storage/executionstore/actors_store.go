@@ -21,7 +21,6 @@ import (
 
 const (
 	ActorProviderOmnara      = "omnara"
-	ActorProviderSlack       = "slack"
 	ActorProviderIntegration = "integration"
 	ActorProviderExternal    = "external"
 )
@@ -44,6 +43,9 @@ type UpsertActorIdentityInput struct {
 	ProviderTenantID string
 	ProviderUserID   string
 	DisplayName      string
+	// Metadata entries supplied by internal producers are merged into the saved
+	// attributes. Omitted entries preserve historical attribution.
+	Metadata resourcemeta.Metadata
 }
 
 func upsertActorIdentityTx(
@@ -60,6 +62,10 @@ func upsertActorIdentityTx(
 	if provider != ActorProviderExternal && providerTenantID == "" {
 		return ActorRecord{}, errors.New("provider tenant id is required for non-external actors")
 	}
+	metadata, err := input.Metadata.JSON()
+	if err != nil {
+		return ActorRecord{}, err
+	}
 	displayName := strings.TrimSpace(input.DisplayName)
 	identity := dbsqlc.GetActorByIdentityParams{
 		ProjectID:        input.ProjectID,
@@ -69,7 +75,22 @@ func upsertActorIdentityTx(
 	}
 	row, err := qtx.GetActorByIdentity(ctx, identity)
 	if err == nil && (displayName == "" || stringFromSQLCText(row.DisplayName) == displayName) {
-		return actorRecordFromSQLC(row), nil
+		unchanged := true
+		if len(input.Metadata) > 0 {
+			var stored resourcemeta.Metadata
+			if err := json.Unmarshal(row.Metadata, &stored); err != nil {
+				return ActorRecord{}, fmt.Errorf("decode actor metadata: %w", err)
+			}
+			for key, value := range input.Metadata {
+				if previous, exists := stored[key]; !exists || previous != value {
+					unchanged = false
+					break
+				}
+			}
+		}
+		if unchanged {
+			return actorRecordFromSQLC(row), nil
+		}
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ActorRecord{}, fmt.Errorf("upsert actor: %w", err)
@@ -80,6 +101,7 @@ func upsertActorIdentityTx(
 		ProviderTenantID: storeutil.TextFromEmpty(providerTenantID),
 		ProviderUserID:   providerUserID,
 		DisplayName:      displayName,
+		Metadata:         metadata,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		row, err = qtx.GetActorByIdentity(ctx, identity)

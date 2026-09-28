@@ -18,7 +18,7 @@ curl "$OMNARA_API/orgs/$ORG/projects/$PROJ/integrations/itg_3jehcyd5n6a2bfgik7mv
 ```
 
 ```typescript SDK
-const setup = await sdk.createProjectIntegrationOAuthSetup({
+const setup = await sdk.createIntegrationOAuthSetup({
   client,
   path: { orgID, projectID, integrationID: 'itg_3jehcyd5n6a2bfgik7mv4qtrwz' },
   body: {

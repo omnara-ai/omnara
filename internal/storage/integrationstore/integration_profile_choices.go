@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -33,7 +36,7 @@ func (s *Store) EnsureIntegrationProfileChoice(
 	if err != nil {
 		return result, false, err
 	}
-	if !bytes.Equal(work.record.Payload, input.Payload) || len(work.record.Events) != 0 {
+	if !bytes.Equal(work.record.Payload, input.Payload) || work.record.Source != IntegrationInboxSourceProvider {
 		return result, false, inboxInvalid("choice source must be the verified provider receipt")
 	}
 	if err := LockConversationTx(ctx, tx, lease.ProjectID, work.record.IntegrationID, input.Address); err != nil {
@@ -234,9 +237,6 @@ func (s *Store) ChooseIntegrationProfile(
 		input.SourceChoiceRevision <= 0 || input.SourceSetupRevision <= 0 {
 		return result, inboxInvalid("choice requires offered key, actor, message and source revisions")
 	}
-	if err := validateChoiceJSON(input.Events, '[', IntegrationInboxMaxEventsBytes); err != nil {
-		return result, err
-	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return result, err
@@ -247,7 +247,7 @@ func (s *Store) ChooseIntegrationProfile(
 	if err != nil {
 		return result, err
 	}
-	integration, err := getProjectIntegration(ctx, q, input.ProjectID, input.IntegrationID)
+	integration, err := getIntegration(ctx, q, input.ProjectID, input.IntegrationID)
 	if err != nil {
 		return result, err
 	}
@@ -295,7 +295,7 @@ func (s *Store) ChooseIntegrationProfile(
 	}
 	_, err = q.InsertIntegrationProfileChoiceInboxReceipt(ctx, dbsqlc.InsertIntegrationProfileChoiceInboxReceiptParams{
 		ProjectID: input.ProjectID, IntegrationID: input.IntegrationID, ReceiptKey: "choice:" + input.ID.String(),
-		Payload: row.Payload, Events: &input.Events,
+		StateID: &input.ID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, storeerr.ErrConflict
@@ -414,49 +414,50 @@ func replaceIntegrationProfileChoice(
 
 func integrationProfileChoiceIntegration(
 	ctx context.Context, q *dbsqlc.Queries, projectID, integrationID uuid.UUID,
-) (ProjectIntegrationRecord, error) {
+) (IntegrationRecord, error) {
 	row, err := q.GetIntegrationProfileChoiceIntegrationForShare(
 		ctx,
 		dbsqlc.GetIntegrationProfileChoiceIntegrationForShareParams{ProjectID: projectID, ID: integrationID},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ProjectIntegrationRecord{}, storeerr.ErrStateTransitionConflict
+		return IntegrationRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	if err != nil {
-		return ProjectIntegrationRecord{}, err
+		return IntegrationRecord{}, err
 	}
-	if ProjectIntegrationState(row.State) != ProjectIntegrationStateActive {
-		return ProjectIntegrationRecord{}, storeerr.ErrStateTransitionConflict
+	if IntegrationState(row.State) != IntegrationStateActive {
+		return IntegrationRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	integration, err := projectIntegrationRecord(row)
+	integration, err := integrationRecord(row)
 	if err != nil {
-		return ProjectIntegrationRecord{}, err
+		return IntegrationRecord{}, err
 	}
-	if integration.Settings.Launcher == nil {
-		return ProjectIntegrationRecord{}, storeerr.ErrStateTransitionConflict
+	if integration.IntegrationKind != integrationdefinition.SlackThread &&
+		integration.IntegrationKind != integrationdefinition.DiscordThread {
+		return IntegrationRecord{}, storeerr.ErrStateTransitionConflict
+	}
+	if launcher, err := integrationdefinition.ReadChatLauncher(integration.Settings); err != nil || launcher == nil {
+		return IntegrationRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	return integration, nil
 }
 
 func validateIntegrationProfileChoiceOptions(
-	ctx context.Context, q *dbsqlc.Queries, integration ProjectIntegrationRecord, options []IntegrationProfileChoiceOption,
+	ctx context.Context, q *dbsqlc.Queries, integration IntegrationRecord, options []IntegrationProfileChoiceOption,
 ) error {
+	configured, err := integrationdefinition.ChatLaunchProfiles(integration.Settings)
+	if err != nil {
+		return storeerr.ErrStateTransitionConflict
+	}
 	ids := make([]uuid.UUID, 0, len(options))
 	for _, option := range options {
-		found := false
-		for _, slot := range integration.Settings.Launcher.Slots {
-			if slot.Key == option.Key && slot.AgentProfileID != nil && *slot.AgentProfileID == option.ProfileID {
-				found = true
-				break
-			}
-		}
-		if !found {
+		key, err := publicid.Encode(publicid.KindAgentProfile, option.ProfileID)
+		if err != nil || option.Key != key || !slices.Contains(configured, option.ProfileID) {
 			return storeerr.ErrStateTransitionConflict
 		}
 		ids = append(ids, option.ProfileID)
 	}
-	// Profile deletion checks integration references under its profile lock. Taking that
-	// lock here would invert integration-save's profile-before-integration ordering.
+	// These reads reject stale menu choices; admission still locks the live profile.
 	profiles, err := q.GetAgentProfileDisplayNames(ctx, dbsqlc.GetAgentProfileDisplayNamesParams{
 		ProjectID: integration.ProjectID, ProfileIds: ids,
 	})
@@ -485,10 +486,10 @@ func validateIntegrationProfileChoice(input EnsureIntegrationProfileChoiceInput)
 	if len(input.Payload) == 0 || len(input.Payload) > IntegrationInboxMaxPayloadBytes {
 		return inboxInvalid("choice payload exceeds bounds")
 	}
-	if err := validateChoiceJSON(input.Event, '{', IntegrationInboxMaxEventsBytes); err != nil {
+	if err := validateChoiceJSON(input.Event, '{', IntegrationProfileChoiceMaxEventBytes); err != nil {
 		return err
 	}
-	if len(input.Options) == 0 || len(input.Options) > MaxIntegrationLaunchSlots {
+	if len(input.Options) == 0 || len(input.Options) > integrationdefinition.MaxChatProfiles {
 		return inboxInvalid("choice requires one to sixteen offered profiles")
 	}
 	seen := make(map[string]bool, len(input.Options))

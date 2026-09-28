@@ -153,13 +153,13 @@ model:
 		t.Fatalf("create integration credential secret: %v", err)
 	}
 	integration, err := fixture.Store.Integrations().
-		CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
-			Name: "implicit", IntegrationType: integrationdefinition.SlackThread,
+			Name: "implicit", IntegrationKind: integrationdefinition.SlackThread,
 		})
 	require.NoError(t, err)
 	install, err := fixture.Store.Integrations().
-		ConfigureProjectIntegration(ctx, integrationstore.ConfigureProjectIntegrationInput{
+		ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
 			OrgID:                 kernelTestOrgID,
 			ProjectID:             kernelTestProjectID,
 			IntegrationID:         integration.ID,
@@ -174,7 +174,7 @@ model:
 			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
 		})
 	require.NoError(t, err)
-	actor, err := executionstore.IntegrationActorParams(install.ID, "U_FIXTURE", nil)
+	actor, err := executionstore.IntegrationActorParams(install, "U_FIXTURE", nil)
 	require.NoError(t, err)
 	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
@@ -224,7 +224,7 @@ model:
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		executionstore.InteractionSelection{},
+		executionstore.InteractionSelection{AutoSelect: true},
 		selection,
 		"an origin without a handler remains dashboard only",
 	)
@@ -465,13 +465,13 @@ func attachKernelSlackHandler(
 	}
 	const handlerKey = "runtime-notifications"
 	integration, err := fixture.Store.Integrations().
-		CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
-			Name: handlerKey, IntegrationType: integrationdefinition.SlackThread,
+			Name: handlerKey, IntegrationKind: integrationdefinition.SlackThread,
 		})
 	require.NoError(t, err)
 	install, err := fixture.Store.Integrations().
-		ConfigureProjectIntegration(ctx, integrationstore.ConfigureProjectIntegrationInput{
+		ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
 			OrgID:                 kernelTestOrgID,
 			ProjectID:             kernelTestProjectID,
 			IntegrationID:         integration.ID,
@@ -513,7 +513,7 @@ func attachKernelSlackHandler(
 				require.Equal(t, install.Name, name)
 				return agentconfig.IntegrationResolution{
 					IntegrationID:   integrationID,
-					IntegrationType: install.IntegrationType,
+					IntegrationKind: install.IntegrationKind,
 				}, nil
 			},
 		},
@@ -560,7 +560,7 @@ func attachKernelSlackHandler(
 		fixture.Store.Integrations().
 			AssignAgentIntegrationConversationTx(ctx, tx, kernelTestProjectID, agentID, install.ID, address),
 	)
-	selection, err := fixture.Store.Execution().SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
 		ctx, tx, kernelTestProjectID, agentID, target.ID,
 	)
 	require.NoError(t, err)

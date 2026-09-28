@@ -1,7 +1,7 @@
 package integration
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -16,30 +16,45 @@ const selectedInboxFailureMessage = "I couldn't deliver this request to the agen
 	"Please mention me again to choose a profile."
 
 func checkInboxFailureReceipt(
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	receipt integrationstore.IntegrationInboxRecord,
 	provider string,
 ) error {
 	if receipt.ID == uuid.Nil || receipt.State != integrationstore.IntegrationInboxFailed ||
 		receipt.ProjectID != integration.ProjectID || receipt.IntegrationID != integration.ID ||
-		integration.State != integrationstore.ProjectIntegrationStateActive || integration.Provider != provider {
+		integration.State != integrationstore.IntegrationStateActive || integration.Provider != provider {
 		return storeerr.ErrUnauthorized
 	}
 	return nil
 }
 
 func inboxFailureSelectedEvent(
-	receipt integrationstore.IntegrationInboxRecord,
-	provider string,
+	ctx context.Context,
+	reader interface {
+		GetIntegrationProfileChoice(
+			context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+		) (integrationstore.IntegrationProfileChoiceRecord, error)
+	},
+	receipt integrationstore.IntegrationInboxRecord, provider string,
 ) (IntegrationEvent, error) {
-	var events []IntegrationEvent
-	if json.Unmarshal(receipt.Events, &events) != nil || len(events) != 1 || events[0].Event.Kind != "message" {
+	if receipt.Source != integrationstore.IntegrationInboxSourceChoice || receipt.StateID == uuid.Nil {
 		return IntegrationEvent{}, fmt.Errorf("invalid selected inbox failure source")
 	}
-	if err := events[0].Event.Scope.Validate(provider); err != nil {
+	choice, err := reader.GetIntegrationProfileChoice(ctx, receipt.ProjectID, receipt.IntegrationID, receipt.StateID)
+	if err != nil {
 		return IntegrationEvent{}, err
 	}
-	return events[0], nil
+	event, err := selectedIntegrationEvent(choice)
+	if err != nil {
+		return IntegrationEvent{}, err
+	}
+	if event.Event.Kind != "message" {
+		return IntegrationEvent{}, fmt.Errorf("invalid selected inbox failure event")
+	}
+	if err := event.Event.Scope.Validate(provider); err != nil {
+		return IntegrationEvent{}, err
+	}
+	return *event, nil
 }
 
 func scheduledInboxFailureScope(receipt integrationstore.IntegrationInboxRecord,
@@ -52,17 +67,14 @@ func scheduledInboxFailureScope(receipt integrationstore.IntegrationInboxRecord,
 	if err != nil {
 		return integrationdefinition.Scope{}, false, err
 	}
-	if len(plan) == 0 {
+	if len(plan.Recipients) == 0 {
 		return integrationdefinition.Scope{}, false, nil
 	}
-	if len(plan) != 1 {
+	if len(plan.Recipients) != 1 {
 		return integrationdefinition.Scope{}, false, fmt.Errorf("invalid scheduled failure plan")
 	}
-	for _, slot := range plan {
-		if err := slot.Scope.Validate(provider); err != nil {
-			return integrationdefinition.Scope{}, false, err
-		}
-		return slot.Scope, true, nil
+	if err := plan.Message.Scope.Validate(provider); err != nil {
+		return integrationdefinition.Scope{}, false, err
 	}
-	return integrationdefinition.Scope{}, false, nil
+	return plan.Message.Scope, true, nil
 }

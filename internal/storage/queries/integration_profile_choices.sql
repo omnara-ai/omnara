@@ -1,6 +1,6 @@
 -- name: GetIntegrationProfileChoiceIntegrationForShare :one
-SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, integration_type, settings, setup_revision
-FROM project_integrations
+SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, integration_kind, settings, setup_revision
+FROM integrations
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR SHARE;
 
@@ -9,11 +9,11 @@ WITH candidates AS (
     (SELECT choice.id, 0 AS priority
      FROM integration_states choice
      JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-       AND inbox.receipt_key = 'choice:' || choice.id::text
+       AND inbox.state_id = choice.id AND inbox.source = 'choice'
      WHERE choice.kind = 'profile_choice' AND choice.project_id = sqlc.arg(project_id) AND choice.integration_id = sqlc.arg(integration_id)
        AND choice.scope_kind = sqlc.arg(address_kind)::text
        AND choice.scope_ref = sqlc.arg(address_ref)::text AND COALESCE(choice.data->>'selected_key', '') <> ''
-       AND inbox.state IN ('pending', 'processing')
+       AND inbox.state IN ('queued', 'processing')
      LIMIT 1)
     UNION ALL
     (SELECT choice.id, 1 AS priority
@@ -26,7 +26,7 @@ WITH candidates AS (
            SELECT 1 FROM integration_inbox owner
            WHERE owner.id = CASE WHEN choice.kind = 'profile_choice'
                                 THEN (choice.data->>'owner_receipt_id')::uuid END AND owner.project_id = choice.project_id
-             AND owner.integration_id = choice.integration_id AND owner.state IN ('pending', 'processing')
+             AND owner.integration_id = choice.integration_id AND owner.state IN ('queued', 'processing')
        ))
      ORDER BY choice.expires_at, choice.id
      LIMIT 1)
@@ -40,18 +40,18 @@ LIMIT 1;
 SELECT inbox.id, inbox.state
 FROM integration_states choice
 JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-  AND inbox.receipt_key = 'choice:' || choice.id::text
+  AND inbox.state_id = choice.id AND inbox.source = 'choice'
 WHERE choice.kind = 'profile_choice' AND choice.project_id = sqlc.arg(project_id) AND choice.integration_id = sqlc.arg(integration_id)
   AND choice.scope_kind = sqlc.arg(address_kind)::text AND choice.scope_ref = sqlc.arg(address_ref)::text
   AND COALESCE(choice.data->>'selected_key', '') <> '' AND inbox.id <> sqlc.arg(receipt_id)
-  AND inbox.plan IS NULL AND inbox.state IN ('pending', 'processing')
+  AND inbox.plan IS NULL AND inbox.state IN ('queued', 'processing')
 LIMIT 1;
 
 -- name: InsertIntegrationProfileChoiceInboxReceipt :one
-INSERT INTO integration_inbox(project_id, integration_id, receipt_key, payload, events)
-VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), sqlc.arg(payload), sqlc.arg(events))
+INSERT INTO integration_inbox(project_id, integration_id, receipt_key, source, state_id)
+VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), 'choice', sqlc.narg(state_id)::uuid)
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, events, plan, state, attempt_count, available_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- Menu expiry must not remove the source replay barrier before its inbox receipt expires.
 -- name: CleanupExpiredIntegrationProfileChoices :execrows
@@ -61,7 +61,7 @@ WITH candidates AS (
       AND NOT EXISTS (
           SELECT 1 FROM integration_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-            AND inbox.receipt_key = 'choice:' || choice.id::text
+            AND inbox.state_id = choice.id AND inbox.source = 'choice'
       )
     ORDER BY choice.expires_at, choice.id
     LIMIT sqlc.arg(row_limit)

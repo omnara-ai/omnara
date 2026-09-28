@@ -28,10 +28,10 @@ const githubManifestStateTTL = time.Hour
 
 var githubOrganizationLogin = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 
-func (s strictOpenAPIServer) CreateProjectIntegrationGitHubSetup(
+func (s strictOpenAPIServer) CreateIntegrationGitHubSetup(
 	ctx context.Context,
-	request openapi.CreateProjectIntegrationGitHubSetupRequestObject,
-) (openapi.CreateProjectIntegrationGitHubSetupResponseObject, error) {
+	request openapi.CreateIntegrationGitHubSetupRequestObject,
+) (openapi.CreateIntegrationGitHubSetupResponseObject, error) {
 	if err := authorizeOperationPrincipal(ctx, principalKindBrowserSession); err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (s strictOpenAPIServer) CreateProjectIntegrationGitHubSetup(
 	if err != nil {
 		return nil, err
 	}
-	integration, err := s.projectIntegrationForSetup(ctx, scope, request.IntegrationID)
+	integration, err := s.integrationForSetup(ctx, scope, request.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (s strictOpenAPIServer) CreateProjectIntegrationGitHubSetup(
 			"pull_request_review_comment",
 		},
 	}
-	return openapi.CreateProjectIntegrationGitHubSetup201JSONResponse(openapi.GitHubSetup{
+	return openapi.CreateIntegrationGitHubSetup201JSONResponse(openapi.GitHubSetup{
 		IntegrationId: request.IntegrationID, SetupRevision: integration.SetupRevision,
 		RegistrationUrl: registration + "?" + url.Values{"state": {token}}.Encode(),
 		Manifest:        manifest, ExpiresAt: expires,
@@ -150,14 +150,14 @@ func (s *Server) validateGitHubGuidedSetup() error {
 	return nil
 }
 
-func validateGitHubRegistrationApp(integration integrationstore.ProjectIntegrationRecord, revision int64) error {
-	if integration.IntegrationType != integrationdefinition.GitHubPR {
+func validateGitHubRegistrationApp(integration integrationstore.IntegrationRecord, revision int64) error {
+	if integration.IntegrationKind != integrationdefinition.GitHubPR {
 		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this integration does not support GitHub setup")
 	}
 	if integration.SetupRevision != revision {
-		return apierror.ProjectScoped(integrationstore.ErrProjectIntegrationSetupChanged)
+		return apierror.ProjectScoped(integrationstore.ErrIntegrationSetupChanged)
 	}
-	if integration.ProviderTenantID != "" || integration.State == integrationstore.ProjectIntegrationStateActive {
+	if integration.ProviderTenantID != "" || integration.State == integrationstore.IntegrationStateActive {
 		return apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
 			"use existing GitHub App credentials to reconnect this integration",
@@ -171,7 +171,7 @@ func githubIntegrationReturnPath(projectID, integrationID uuid.UUID) (string, er
 	if err != nil {
 		return "", err
 	}
-	integration, err := publicid.Encode(publicid.KindProjectIntegration, integrationID)
+	integration, err := publicid.Encode(publicid.KindIntegration, integrationID)
 	if err != nil {
 		return "", err
 	}

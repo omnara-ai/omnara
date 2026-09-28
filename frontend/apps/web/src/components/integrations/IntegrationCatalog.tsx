@@ -21,25 +21,25 @@ export function IntegrationCatalog({ orgId, projectId }: { orgId: string; projec
     <div className="grid gap-4 sm:grid-cols-3">
       {query.data.data.map((definition) => {
         const label = integrationCatalog.find(
-          (integration) => integration.integrationType === definition.integration_type,
+          (integration) => integration.integrationKind === definition.integration_kind,
         )
         return (
           <Link
-            key={definition.integration_type}
-            to="/projects/$projectId/integrations/new/$integrationType"
-            params={{ projectId, integrationType: definition.integration_type }}
+            key={definition.integration_kind}
+            to="/projects/$projectId/integrations/new/$integrationKind"
+            params={{ projectId, integrationKind: definition.integration_kind }}
             className="hover:bg-muted/40 focus-visible:ring-ring flex flex-col gap-3 rounded-lg border p-5 transition-colors focus-visible:outline-none focus-visible:ring-2"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <IntegrationIcon integrationType={definition.integration_type} />
-                <h2 className="font-medium">{label?.name ?? definition.integration_type}</h2>
+                <IntegrationIcon integrationKind={definition.integration_kind} />
+                <h2 className="font-medium">{label?.name ?? definition.integration_kind}</h2>
               </div>
               <ArrowRight className="text-muted-foreground size-4" aria-hidden="true" />
             </div>
             <p className="text-muted-foreground text-sm leading-relaxed">{label?.description}</p>
             <span className="mt-auto pt-2 text-sm font-medium">
-              Set up {label?.name ?? definition.integration_type}
+              Set up {label?.name ?? definition.integration_kind}
             </span>
           </Link>
         )

@@ -13,7 +13,7 @@ can be used independently; see [Integrations](/integrations/overview).
 
 ## Connect Slack
 
-Choose **Slack threads** and enter an Omnara integration name such as `engineering`.
+Choose **Slack bot** and enter an Omnara integration name such as `engineering`.
 On the same page, connect an existing Slack app or let Omnara create the Slack registration using
 an app configuration token from [Slack's app settings](https://api.slack.com/apps).
 The bot token obtained through OAuth represents the bot's access to that workspace;
@@ -22,7 +22,7 @@ it is different from the configuration token used to create the registration.
 With the CLI or API, create the Omnara integration first:
 
 ```json
-{"name":"engineering","integration_type":"slack_thread","settings":{}}
+{"name":"engineering","integration_kind":"slack_thread","settings":{}}
 ```
 
 Submit that body to `POST /orgs/{orgID}/projects/{projectID}/integrations`, then use its
@@ -70,15 +70,14 @@ For API setup, add this `settings.launcher` to the integration's create/update b
 
 ```json
 {
-  "trigger":"mention",
-  "scope_kind":"channel",
-  "scope_ref":"C123",
-  "slots":[{"key":"assistant","agent_profile_id":"aprf_aeaqcaibaeaqcaibaeaqcaibae"}]
+  "channel_id":"C123",
+  "profiles":["aprf_aeaqcaibaeaqcaibaeaqcaibaeaq"]
 }
 ```
 
-Use `scope_kind: "workspace"` and the Slack workspace ID for workspace-wide
-mentions. Keep slot keys stable when editing.
+Omit `channel_id` to allow mentions wherever this bot has access in the connected
+workspace. Profiles are ordered, distinct public IDs. Update requests contain only
+`settings`; the integration name and kind are supplied only on create.
 
 ## Scheduled threads
 
@@ -125,8 +124,7 @@ The handler uses the conversation assigned when the integration launches the age
 Select it with `{"handler":"engineering","args":{}}`; the model does not supply
 channel or thread IDs. The list tool shows the assigned destination. Adding a
 handler to a manual config does not create an assignment or grant another conversation.
-Incoming messages from the assigned conversation select the handler automatically,
-including the first launch input. The dashboard always remains available.
+With automatic selection enabled, the last content input admitted into a new turn selects its eligible handler. Inputs from the dashboard, API, or an integration without a handler select dashboard-only delivery. Waiting inputs do not change the current turn. Set `auto_select: false` with `set_interaction_handler` to pin a choice; set it to `true` to follow future inputs again. Omitting it keeps the current mode. The list tool reports the mode. The dashboard always remains available.
 
 Slack interaction notifications run independently of the waiting agent. Delivery is
 best effort: a full worker queue or restart can lose the external notification.

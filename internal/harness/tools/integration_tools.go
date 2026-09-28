@@ -35,7 +35,7 @@ func runIntegrationTool(ctx context.Context, call asyncToolContext) (asyncPhaseR
 	if err != nil {
 		return integrationToolFailure(err)
 	}
-	switch access.Integration.IntegrationType {
+	switch access.Integration.IntegrationKind {
 	case integrationdefinition.SlackThread:
 		return runSlackTool(ctx, call, record, access)
 	case integrationdefinition.DiscordThread:
@@ -43,7 +43,7 @@ func runIntegrationTool(ctx context.Context, call asyncToolContext) (asyncPhaseR
 	case integrationdefinition.GitHubPR:
 		return runGitHubTool(ctx, call, record, access)
 	default:
-		return integrationToolFailure(fmt.Errorf("unsupported integration type %q", access.Integration.IntegrationType))
+		return integrationToolFailure(fmt.Errorf("unsupported integration type %q", access.Integration.IntegrationKind))
 	}
 }
 

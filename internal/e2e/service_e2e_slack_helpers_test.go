@@ -42,16 +42,16 @@ import (
 
 func seedServiceSlackIntegration(
 	t *testing.T, ctx context.Context, env *serviceE2EEnvironment, project deterministicProject, store *storage.Store,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	created := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/integrations",
-		map[string]any{"name": "chat", "integration_type": integrationdefinition.SlackThread, "settings": map[string]any{}},
+		map[string]any{"name": "chat", "integration_kind": integrationdefinition.SlackThread, "settings": map[string]any{}},
 		"", project.adminToken, http.StatusCreated)
-	integrationID, err := publicid.Decode(publicid.KindProjectIntegration, testutil.RequireType[string](t, created["id"]))
+	integrationID, err := publicid.Decode(publicid.KindIntegration, testutil.RequireType[string](t, created["id"]))
 	require.NoError(t, err)
 	projectID, err := publicid.Decode(publicid.KindProject, project.projectID)
 	require.NoError(t, err)
-	integration, err := store.Integrations().GetProjectIntegration(ctx, projectID, integrationID)
+	integration, err := store.Integrations().GetIntegration(ctx, projectID, integrationID)
 	require.NoError(t, err)
 	userID, err := publicid.Decode(publicid.KindUser, project.adminUserID)
 	require.NoError(t, err)
@@ -64,9 +64,9 @@ func seedServiceSlackIntegration(
 		},
 	})
 	require.NoError(t, err)
-	integration, err = store.Integrations().ConfigureProjectIntegration(
+	integration, err = store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                    integration.OrgID,
 			ProjectID:                projectID,
 			IntegrationID:            integration.ID,
@@ -109,15 +109,16 @@ func startServiceSlackWorkers(
 	launcher := integrationruntime.NewChatIntegrationLauncher(store.Integrations(), store.Execution(), providers)
 	launches := integrationruntime.NewIntegrationLaunchWorkflow(
 		router,
-		map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
+		map[integrationdefinition.Kind]integrationruntime.IntegrationLauncher{
 			integrationdefinition.SlackThread: launcher.Decide,
 		},
+		providers,
 	)
 	scheduled := integrationruntime.NewThreadIntegrationScheduledHandler(router, store.Integrations(), slackProvider)
 	consumer := integrationruntime.NewIntegrationInboxConsumer(router, store.Integrations(), store.Artifacts(), providers,
 		integrationruntime.InteractionPresenter{Store: store, HTTPClient: client}, launches,
 		integrationruntime.WithIntegrationScheduledHandlers(
-			map[integrationdefinition.Type]integrationruntime.IntegrationScheduledHandler{
+			map[integrationdefinition.Kind]integrationruntime.IntegrationScheduledHandler{
 				integrationdefinition.SlackThread: scheduled.Handle,
 			},
 		))

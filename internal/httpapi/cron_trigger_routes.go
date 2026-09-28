@@ -111,7 +111,7 @@ func (s strictOpenAPIServer) listCronTriggers(
 		filters.AgentID = agentID
 	}
 	if params.IntegrationId != nil {
-		integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, *params.IntegrationId)
+		integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, *params.IntegrationId)
 		if !ok {
 			return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration_id")
 		}
@@ -296,7 +296,7 @@ func parseCronTriggerTarget(input openapi.CronTriggerTarget) (executionstore.Cro
 				"invalid integration target",
 			)
 		}
-		integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, target.IntegrationId)
+		integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, target.IntegrationId)
 		if !ok {
 			return executionstore.CronTriggerTarget{}, apierror.FromCode(
 				openapi.ErrorCodeInvalidRequest,
@@ -368,7 +368,7 @@ func cronTriggerTargetResponse(target executionstore.CronTriggerTarget) (openapi
 	var response openapi.CronTriggerTarget
 	switch target.Kind {
 	case executionstore.CronTriggerTargetIntegration:
-		integrationID, err := publicID(publicid.KindProjectIntegration, target.ID)
+		integrationID, err := publicID(publicid.KindIntegration, target.ID)
 		if err != nil {
 			return response, err
 		}

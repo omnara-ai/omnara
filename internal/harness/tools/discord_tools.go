@@ -50,7 +50,7 @@ func runDiscordTool(
 	if err := client.CheckIdentity(ctx); err != nil {
 		return discordToolFailure(err)
 	}
-	providerScope := discord.Scope{ChannelID: address.ChannelID, ThreadID: address.ThreadID}
+	providerScope := discord.Scope{GuildID: address.GuildID, ChannelID: address.ChannelID, ThreadID: address.ThreadID}
 	if access.Authority.Definition.Operation == toolcatalog.IntegrationOperationRead {
 		var input discordReadInput
 		if err := decodeSingleStrictJSON(record.Input, &input, "Discord read"); err != nil {
@@ -102,7 +102,7 @@ func runDiscordTool(
 	content, err := structuredToolResultContent(
 		map[string]any{
 			"integration": access.Integration.Name,
-			"channel_id":  address.ChannelID,
+			"channel_id":  message.ChannelID,
 			"message_id":  message.ID,
 			"thread_id":   address.ThreadID,
 		},

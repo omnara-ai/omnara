@@ -1,25 +1,76 @@
 import * as z from 'zod'
 
 import type {
-  IntegrationLauncher,
-  IntegrationLaunchSlot,
+  IntegrationKind,
   IntegrationProviderConfig,
-  IntegrationType,
-  SaveProjectIntegrationRequest,
+  IntegrationSettings,
+  SaveIntegrationRequest,
+  UpdateIntegrationRequest,
 } from './generated/types.gen'
-import { zAgentProfileId, zProjectIntegrationName } from './generated/zod.gen'
+import { zAgentProfileId, zIntegrationName } from './generated/zod.gen'
 
 const discordPublicKeyPattern = '[a-fA-F0-9]{64}'
 const discordPublicKey = z.string().regex(new RegExp(`^${discordPublicKeyPattern}$`))
+const profilesSchema = z
+  .array(zAgentProfileId)
+  .max(16)
+  .refine((ids) => new Set(ids).size === ids.length, 'Choose each profile only once.')
+const channelSchema = z
+  .string()
+  .trim()
+  .regex(/^[CG][A-Z0-9]+$/, 'Enter a Slack channel ID, such as C123.')
+const repositorySchema = z
+  .string()
+  .trim()
+  .regex(/^[1-9][0-9]*$/, 'Enter a positive repository ID without leading zeros.')
+  .refine((id) => BigInt(id) <= 9223372036854775807n, 'The repository ID is too large.')
+const triggerSchema = z.enum(['mention', 'pull_request_opened'])
+const senderPolicySchema = z.enum(['writers', 'anyone'])
+const chatLauncherSchema = z
+  .object({ profiles: profilesSchema.min(1), channel_id: channelSchema.optional() })
+  .strict()
+const githubLauncherSchema = z
+  .object({
+    profile: zAgentProfileId,
+    trigger: triggerSchema,
+    repository_id: repositorySchema.optional(),
+  })
+  .strict()
+
+export type ChatIntegrationLauncher = z.output<typeof chatLauncherSchema>
+export type GitHubIntegrationLauncher = z.output<typeof githubLauncherSchema>
+
+export function chatIntegrationLauncher(settings: IntegrationSettings) {
+  return settings.launcher === undefined ? undefined : chatLauncherSchema.parse(settings.launcher)
+}
+
+export function githubIntegrationSettings(settings: IntegrationSettings) {
+  return {
+    sender_policy: senderPolicySchema.parse(settings.sender_policy ?? 'writers'),
+    launcher:
+      settings.launcher === undefined ? undefined : githubLauncherSchema.parse(settings.launcher),
+  }
+}
+
+export function profileIntegrationProfiles(integration: {
+  integration_kind: IntegrationKind
+  settings: IntegrationSettings
+}) {
+  if (integration.integration_kind === 'github_pr') {
+    const launcher = githubIntegrationSettings(integration.settings).launcher
+    return launcher ? [launcher.profile] : []
+  }
+  return chatIntegrationLauncher(integration.settings)?.profiles ?? []
+}
 
 export function profileIntegrationDiscordKeyStatus(input: {
-  integrationType?: IntegrationType
-  slots: readonly Pick<IntegrationLaunchSlot, 'agent_profile_id' | 'agent_id'>[]
+  integrationKind?: IntegrationKind
+  launcher: boolean
   interactions: boolean
   providerConfig?: IntegrationProviderConfig
 }) {
   const required =
-    input.integrationType === 'discord_thread' && (input.slots.length > 0 || input.interactions)
+    input.integrationKind === 'discord_thread' && (input.launcher || input.interactions)
   return {
     required,
     missing: required && !discordPublicKey.safeParse(input.providerConfig?.public_key).success,
@@ -28,128 +79,59 @@ export function profileIntegrationDiscordKeyStatus(input: {
 }
 
 export function profileIntegrationSetup(input: {
-  integrationType: IntegrationType
+  integrationKind: IntegrationKind
   name: string
   profileId?: string
-  /** Full offered list for Slack/Discord; when supplied, replaces profileId. */
+  /** Ordered alternatives for Slack/Discord; replaces profileId when supplied. */
   profileIds?: readonly string[]
   /** Defaults to true; use false to create a metadata-only draft. */
   launcher?: boolean
-  scopeRef?: string
-  scopeKind?: 'workspace' | 'channel' | 'repository' | 'installation'
+  channelId?: string
+  repositoryId?: string
   trigger?: 'mention' | 'pull_request_opened'
-}): SaveProjectIntegrationRequest {
-  const { integrationType } = input
-  const name = zProjectIntegrationName.parse(input.name)
-  const setup: SaveProjectIntegrationRequest = {
-    name,
-    integration_type: integrationType,
-    settings: {},
-  }
+  senderPolicy?: 'writers' | 'anyone'
+}): SaveIntegrationRequest {
+  const settings: IntegrationSettings = {}
+  if (input.integrationKind === 'github_pr')
+    settings.sender_policy = senderPolicySchema.parse(input.senderPolicy ?? 'writers')
   if (input.launcher !== false) {
-    const profileIds = parseProfileIds(
-      input.profileIds ?? (input.profileId ? [input.profileId] : []),
-    )
-    if (profileIds.length === 0) throw new Error('Choose at least one profile.')
-    if (integrationType === 'github_pr' && profileIds.length !== 1) {
-      throw new Error('The GitHub setup helper requires one profile.')
+    const profiles = profilesSchema
+      .min(1, 'Choose at least one profile.')
+      .parse(input.profileIds ?? (input.profileId ? [input.profileId] : []))
+    if (input.integrationKind === 'github_pr') {
+      if (profiles.length !== 1) throw new Error('GitHub requires exactly one profile.')
+      if (input.channelId) throw new Error('GitHub launchers do not accept a channel.')
+      settings.launcher = githubLauncherSchema.parse({
+        profile: profiles[0],
+        trigger: input.trigger ?? 'pull_request_opened',
+        repository_id: input.repositoryId === '' ? undefined : input.repositoryId,
+      })
+    } else {
+      if (input.repositoryId || (input.trigger && input.trigger !== 'mention'))
+        throw new Error('Chat launchers start from mentions.')
+      if (input.integrationKind === 'discord_thread' && input.channelId)
+        throw new Error('Manage Discord bot access in Discord.')
+      settings.launcher = chatLauncherSchema.parse({
+        profiles,
+        channel_id: input.channelId === '' ? undefined : input.channelId,
+      })
     }
-    setup.settings.launcher = {
-      ...profileIntegrationLauncherScope(input),
-      slots: profileIds.map((id, index) => ({
-        key: index === 0 ? 'default' : `profile_${index + 1}`,
-        agent_profile_id: id,
-      })),
-    }
   }
-  return setup
-}
-
-export function profileIntegrationLauncherScope(input: {
-  integrationType: IntegrationType
-  scopeKind?: string
-  scopeRef?: string
-  trigger?: string
-}): Pick<IntegrationLauncher, 'scope_kind' | 'scope_ref' | 'trigger'> {
-  const { integrationType } = input
-  const trigger =
-    input.trigger ?? (integrationType === 'github_pr' ? 'pull_request_opened' : 'mention')
-  if (
-    !(integrationType === 'github_pr' ? ['mention', 'pull_request_opened'] : ['mention']).includes(
-      trigger,
-    )
-  ) {
-    throw new Error('The launch trigger does not belong to this integration type.')
-  }
-  if (integrationType === 'discord_thread') {
-    if (input.scopeKind || input.scopeRef)
-      throw new Error('Discord mentions work wherever the bot has access; omit launcher scope.')
-    return { trigger }
-  }
-  const scopeKind =
-    input.scopeKind ?? (integrationType === 'slack_thread' ? 'workspace' : 'installation')
-  if (
-    !(
-      integrationType === 'slack_thread' ? ['workspace', 'channel'] : ['repository', 'installation']
-    ).includes(scopeKind)
-  ) {
-    throw new Error('The launcher scope does not belong to this integration type.')
-  }
-  let scopeRef = input.scopeRef?.trim() ?? ''
-  if (integrationType === 'slack_thread') {
-    if (
-      scopeKind === 'workspace' ? !/^T[A-Z0-9]+$/.test(scopeRef) : !/^[CG][A-Z0-9]+$/.test(scopeRef)
-    ) {
-      throw new Error(
-        scopeKind === 'workspace'
-          ? 'Enter a Slack workspace ID, such as T123.'
-          : 'Enter a Slack channel ID, such as C123.',
-      )
-    }
-  } else {
-    if (!/^[1-9][0-9]*$/.test(scopeRef))
-      throw new Error('Enter a positive ID without leading zeros.')
-    if (BigInt(scopeRef) > 9223372036854775807n) throw new Error('The scope ID is too large.')
-    scopeRef = BigInt(scopeRef).toString()
-  }
-  return { trigger, scope_kind: scopeKind, scope_ref: scopeRef }
+  const name = zIntegrationName.safeParse(input.name.trim())
+  if (!name.success)
+    throw new Error('Use 1–32 letters, numbers or hyphens, starting with a letter.')
+  return { name: name.data, integration_kind: input.integrationKind, settings }
 }
 
 export function profileIntegrationProfileUpdate(
-  integration: SaveProjectIntegrationRequest,
+  integration: Pick<SaveIntegrationRequest, 'integration_kind' | 'settings'>,
   profileIds: readonly string[],
-): SaveProjectIntegrationRequest {
-  const { launcher } = integration.settings
-  if (!launcher || !['slack_thread', 'discord_thread'].includes(integration.integration_type)) {
-    throw new Error('Profile editing requires a Slack or Discord launcher.')
-  }
-  const ids = parseProfileIds(profileIds)
-  const slots = launcher.slots.filter(
-    (slot) =>
-      Boolean(slot.agent_id) || !slot.agent_profile_id || ids.includes(slot.agent_profile_id),
-  )
-  const keys = new Set(launcher.slots.map((slot) => slot.key))
-  for (const id of ids) {
-    if (slots.some((slot) => !slot.agent_id && slot.agent_profile_id === id)) continue
-    let suffix = 1
-    while (keys.has(`profile_${suffix}`)) suffix++
-    const slot: IntegrationLaunchSlot = { key: `profile_${suffix}`, agent_profile_id: id }
-    keys.add(slot.key)
-    slots.push(slot)
-  }
-  if (slots.length === 0) throw new Error('Choose at least one profile.')
-  if (slots.length > 16)
-    throw new Error('An integration setup supports at most 16 slots, including existing agents.')
-  return {
-    name: integration.name,
-    integration_type: integration.integration_type,
-    settings: { ...integration.settings, launcher: { ...launcher, slots } },
-  }
-}
-
-function parseProfileIds(ids: readonly string[]) {
-  if (ids.length > 16) throw new Error('Choose at most 16 profiles.')
-  const parsed = ids.map((id) => zAgentProfileId.parse(id))
-  if (new Set(parsed).size !== parsed.length) throw new Error('Choose each profile only once.')
-  return parsed
+): UpdateIntegrationRequest {
+  if (!['slack_thread', 'discord_thread'].includes(integration.integration_kind))
+    throw new Error('Profile editing requires a Slack or Discord integration.')
+  const profiles = profilesSchema.parse(profileIds)
+  const settings = { ...integration.settings }
+  if (profiles.length === 0) delete settings.launcher
+  else settings.launcher = { ...chatIntegrationLauncher(settings), profiles }
+  return { settings }
 }

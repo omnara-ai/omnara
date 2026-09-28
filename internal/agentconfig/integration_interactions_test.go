@@ -3,7 +3,7 @@ package agentconfig
 import (
 	"testing"
 
-	"github.com/omnara-ai/omnara/internal/integrationdefinition"
+	"encoding/json"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/stretchr/testify/require"
 )
@@ -33,10 +33,10 @@ func TestHandlerPaginationKeepsCurrentSelectionOutsidePage(t *testing.T) {
 	handler := InteractionHandlerEntry{
 		Description: "Slack",
 		InputSchema: []byte(`{"type":"object"}`),
-		Destination: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123"}},
+		Destination: json.RawMessage(`{"channel_id":"C123"}`),
 	}
 	handlers := map[string]InteractionHandlerEntry{"alpha": handler, "beta": handler, "gamma": handler}
-	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, publicidTestID(120))
+	integrationID, err := publicid.Encode(publicid.KindIntegration, publicidTestID(120))
 	require.NoError(t, err)
 	selection := &HandlerSelection{
 		Handler: "gamma", IntegrationID: integrationID, Args: []byte(`{}`), Destination: handler.Destination,

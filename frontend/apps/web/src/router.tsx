@@ -144,39 +144,39 @@ const projectAgentsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
-const projectIntegrationsRoute = createRoute({
+const integrationsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations',
   component: lazyRouteComponent(
-    () => import('@/routes/ProjectIntegrationsPage'),
-    'ProjectIntegrationsPage',
+    () => import('@/routes/IntegrationsPage'),
+    'IntegrationsPage',
   ),
 })
 
-const projectIntegrationCatalogRoute = createRoute({
+const integrationCatalogRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations/new',
   component: lazyRouteComponent(
-    () => import('@/routes/CreateProjectIntegrationPage'),
-    'CreateProjectIntegrationPage',
+    () => import('@/routes/CreateIntegrationPage'),
+    'CreateIntegrationPage',
   ),
 })
 
-const createProjectIntegrationRoute = createRoute({
+const createIntegrationRoute = createRoute({
   getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/integrations/new/$integrationType',
+  path: '/projects/$projectId/integrations/new/$integrationKind',
   component: lazyRouteComponent(
-    () => import('@/routes/CreateProjectIntegrationPage'),
-    'CreateProjectIntegrationPage',
+    () => import('@/routes/CreateIntegrationPage'),
+    'CreateIntegrationPage',
   ),
 })
 
-const projectIntegrationDetailRoute = createRoute({
+const integrationDetailRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/integrations/$integrationId',
   component: lazyRouteComponent(
-    () => import('@/routes/ProjectIntegrationPage'),
-    'ProjectIntegrationPage',
+    () => import('@/routes/IntegrationPage'),
+    'IntegrationPage',
   ),
 })
 
@@ -333,10 +333,10 @@ const routeTree = rootRoute.addChildren([
       apiTokensRoute,
       projectRoute,
       projectAgentsRoute,
-      projectIntegrationsRoute,
-      projectIntegrationCatalogRoute,
-      createProjectIntegrationRoute,
-      projectIntegrationDetailRoute,
+      integrationsRoute,
+      integrationCatalogRoute,
+      createIntegrationRoute,
+      integrationDetailRoute,
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,

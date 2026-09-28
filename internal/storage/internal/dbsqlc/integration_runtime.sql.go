@@ -16,15 +16,14 @@ import (
 const checkpointIntegrationRuntime = `-- name: CheckpointIntegrationRuntime :execrows
 UPDATE integration_runtime
 SET checkpoint = $1::jsonb, updated_at = statement_timestamp()
-WHERE project_id = $2 AND integration_id = $3 AND runtime_key = $4
-  AND claim_token = $5::uuid AND claim_expires_at > statement_timestamp()
+WHERE project_id = $2 AND integration_id = $3
+  AND claim_token = $4::uuid AND claim_expires_at > statement_timestamp()
 `
 
 type CheckpointIntegrationRuntimeParams struct {
 	Checkpoint    *json.RawMessage
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
-	RuntimeKey    string
 	ClaimToken    uuid.UUID
 }
 
@@ -33,7 +32,6 @@ func (q *Queries) CheckpointIntegrationRuntime(ctx context.Context, arg Checkpoi
 		arg.Checkpoint,
 		arg.ProjectID,
 		arg.IntegrationID,
-		arg.RuntimeKey,
 		arg.ClaimToken,
 	)
 	if err != nil {
@@ -43,15 +41,15 @@ func (q *Queries) CheckpointIntegrationRuntime(ctx context.Context, arg Checkpoi
 }
 
 const claimIntegrationRuntime = `-- name: ClaimIntegrationRuntime :one
-INSERT INTO integration_runtime(project_id, integration_id, runtime_key, setup_revision,
+INSERT INTO integration_runtime(project_id, integration_id, setup_revision,
     credential_version_id, claim_token, claim_expires_at)
-SELECT integration.project_id, integration.id, $1, integration.setup_revision,
-    $2, $3,
-    statement_timestamp() + $4::bigint * interval '1 millisecond'
-FROM project_integrations integration
-WHERE integration.project_id = $5 AND integration.id = $6
-  AND integration.setup_revision = $7 AND integration.deleted_at IS NULL
-ON CONFLICT (project_id, integration_id, runtime_key) DO UPDATE
+SELECT integration.project_id, integration.id, integration.setup_revision,
+    $1, $2,
+    statement_timestamp() + $3::bigint * interval '1 millisecond'
+FROM integrations integration
+WHERE integration.project_id = $4 AND integration.id = $5
+  AND integration.setup_revision = $6 AND integration.deleted_at IS NULL
+ON CONFLICT (project_id, integration_id) DO UPDATE
 SET checkpoint = CASE WHEN integration_runtime.setup_revision = EXCLUDED.setup_revision
                        AND integration_runtime.credential_version_id = EXCLUDED.credential_version_id
                       THEN integration_runtime.checkpoint ELSE NULL END,
@@ -59,14 +57,13 @@ SET checkpoint = CASE WHEN integration_runtime.setup_revision = EXCLUDED.setup_r
     claim_token = EXCLUDED.claim_token, claim_expires_at = EXCLUDED.claim_expires_at,
     last_error = NULL, updated_at = statement_timestamp()
 WHERE (integration_runtime.claim_expires_at IS NULL OR integration_runtime.claim_expires_at <= statement_timestamp())
-  AND (integration_runtime.available_at <= statement_timestamp()
+  AND (integration_runtime.next_attempt_at <= statement_timestamp()
        OR integration_runtime.setup_revision <> EXCLUDED.setup_revision
        OR integration_runtime.credential_version_id <> EXCLUDED.credential_version_id)
 RETURNING checkpoint, claim_expires_at
 `
 
 type ClaimIntegrationRuntimeParams struct {
-	RuntimeKey          string
 	CredentialVersionID uuid.UUID
 	ClaimToken          *uuid.UUID
 	LeaseMilliseconds   int64
@@ -82,7 +79,6 @@ type ClaimIntegrationRuntimeRow struct {
 
 func (q *Queries) ClaimIntegrationRuntime(ctx context.Context, arg ClaimIntegrationRuntimeParams) (ClaimIntegrationRuntimeRow, error) {
 	row := q.db.QueryRow(ctx, claimIntegrationRuntime,
-		arg.RuntimeKey,
 		arg.CredentialVersionID,
 		arg.ClaimToken,
 		arg.LeaseMilliseconds,
@@ -97,35 +93,33 @@ func (q *Queries) ClaimIntegrationRuntime(ctx context.Context, arg ClaimIntegrat
 
 const countUnclaimedIntegrationRuntimes = `-- name: CountUnclaimedIntegrationRuntimes :one
 SELECT count(*)
-FROM project_integrations integration
+FROM integrations integration
 JOIN projects project ON project.id = integration.project_id AND project.deleted_at IS NULL
 JOIN orgs org ON org.id = integration.org_id AND org.deleted_at IS NULL
-WHERE integration.integration_type = ANY($1::text[])
+WHERE integration.integration_kind = ANY($1::text[])
   AND integration.state = 'active' AND integration.deleted_at IS NULL
   AND NOT EXISTS (
       SELECT 1 FROM integration_runtime runtime
       WHERE runtime.project_id = integration.project_id AND runtime.integration_id = integration.id
-        AND runtime.runtime_key = $2
         AND runtime.claim_expires_at > statement_timestamp()
   )
 `
 
 type CountUnclaimedIntegrationRuntimesParams struct {
-	IntegrationTypes []string
-	RuntimeKey       string
+	IntegrationKinds []string
 }
 
 func (q *Queries) CountUnclaimedIntegrationRuntimes(ctx context.Context, arg CountUnclaimedIntegrationRuntimesParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnclaimedIntegrationRuntimes, arg.IntegrationTypes, arg.RuntimeKey)
+	row := q.db.QueryRow(ctx, countUnclaimedIntegrationRuntimes, arg.IntegrationKinds)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const getIntegrationRuntimeFailure = `-- name: GetIntegrationRuntimeFailure :one
-SELECT coalesce(runtime.last_error, '') AS message, runtime.available_at AS retry_at
+SELECT coalesce(runtime.last_error, '') AS message, runtime.next_attempt_at AS retry_at
 FROM integration_runtime runtime
-JOIN project_integrations integration ON integration.project_id = runtime.project_id AND integration.id = runtime.integration_id
+JOIN integrations integration ON integration.project_id = runtime.project_id AND integration.id = runtime.integration_id
 JOIN projects project ON project.id = integration.project_id AND project.deleted_at IS NULL
 JOIN orgs org ON org.id = integration.org_id AND org.deleted_at IS NULL
 JOIN secrets secret ON secret.org_id = integration.org_id AND secret.id = integration.credential_secret_id
@@ -139,8 +133,6 @@ WHERE integration.project_id = $1 AND integration.id = $2
        OR EXISTS (SELECT 1 FROM secret_grants grant_row
            WHERE grant_row.org_id = integration.org_id AND grant_row.secret_id = secret.id
              AND grant_row.target_project_id = integration.project_id))
-ORDER BY runtime.updated_at DESC, runtime.runtime_key
-LIMIT 1
 `
 
 type GetIntegrationRuntimeFailureParams struct {
@@ -164,18 +156,17 @@ func (q *Queries) GetIntegrationRuntimeFailure(ctx context.Context, arg GetInteg
 const integrationRuntimeClaimable = `-- name: IntegrationRuntimeClaimable :one
 SELECT NOT EXISTS (
     SELECT 1 FROM integration_runtime
-    WHERE project_id = $1 AND integration_id = $2 AND runtime_key = $3
+    WHERE project_id = $1 AND integration_id = $2
       AND (claim_expires_at > statement_timestamp()
-           OR (available_at > statement_timestamp()
-               AND setup_revision = $4
-               AND credential_version_id = $5))
+           OR (next_attempt_at > statement_timestamp()
+               AND setup_revision = $3
+               AND credential_version_id = $4))
 ) AS claimable
 `
 
 type IntegrationRuntimeClaimableParams struct {
 	ProjectID           uuid.UUID
 	IntegrationID       uuid.UUID
-	RuntimeKey          string
 	SetupRevision       int64
 	CredentialVersionID uuid.UUID
 }
@@ -185,7 +176,6 @@ func (q *Queries) IntegrationRuntimeClaimable(ctx context.Context, arg Integrati
 	row := q.db.QueryRow(ctx, integrationRuntimeClaimable,
 		arg.ProjectID,
 		arg.IntegrationID,
-		arg.RuntimeKey,
 		arg.SetupRevision,
 		arg.CredentialVersionID,
 	)
@@ -195,17 +185,17 @@ func (q *Queries) IntegrationRuntimeClaimable(ctx context.Context, arg Integrati
 }
 
 const listPersistentIntegrations = `-- name: ListPersistentIntegrations :many
-WITH integration_types AS (
-    SELECT DISTINCT unnest($3::text[]) AS integration_type
+WITH integration_kinds AS (
+    SELECT DISTINCT unnest($3::text[]) AS integration_kind
 )
 SELECT page.id, page.project_id
-FROM integration_types
+FROM integration_kinds
 CROSS JOIN LATERAL (
     SELECT integration.id, integration.project_id
-    FROM project_integrations integration
+    FROM integrations integration
     JOIN projects project ON project.id = integration.project_id
     JOIN orgs org ON org.id = project.org_id
-    WHERE integration.integration_type = integration_types.integration_type AND integration.state = 'active' AND integration.deleted_at IS NULL
+    WHERE integration.integration_kind = integration_kinds.integration_kind AND integration.state = 'active' AND integration.deleted_at IS NULL
       AND project.deleted_at IS NULL AND org.deleted_at IS NULL
       AND ($1::uuid IS NULL OR integration.id > $1::uuid)
     ORDER BY integration.id
@@ -218,7 +208,7 @@ LIMIT $2
 type ListPersistentIntegrationsParams struct {
 	AfterID          *uuid.UUID
 	RowLimit         int32
-	IntegrationTypes []string
+	IntegrationKinds []string
 }
 
 type ListPersistentIntegrationsRow struct {
@@ -227,7 +217,7 @@ type ListPersistentIntegrationsRow struct {
 }
 
 func (q *Queries) ListPersistentIntegrations(ctx context.Context, arg ListPersistentIntegrationsParams) ([]ListPersistentIntegrationsRow, error) {
-	rows, err := q.db.Query(ctx, listPersistentIntegrations, arg.AfterID, arg.RowLimit, arg.IntegrationTypes)
+	rows, err := q.db.Query(ctx, listPersistentIntegrations, arg.AfterID, arg.RowLimit, arg.IntegrationKinds)
 	if err != nil {
 		return nil, err
 	}
@@ -247,37 +237,35 @@ func (q *Queries) ListPersistentIntegrations(ctx context.Context, arg ListPersis
 }
 
 const lockIntegrationRuntime = `-- name: LockIntegrationRuntime :one
-SELECT runtime_key FROM integration_runtime
-WHERE project_id = $1 AND integration_id = $2 AND runtime_key = $3
+SELECT integration_id FROM integration_runtime
+WHERE project_id = $1 AND integration_id = $2
 FOR UPDATE
 `
 
 type LockIntegrationRuntimeParams struct {
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
-	RuntimeKey    string
 }
 
 // Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
-func (q *Queries) LockIntegrationRuntime(ctx context.Context, arg LockIntegrationRuntimeParams) (string, error) {
-	row := q.db.QueryRow(ctx, lockIntegrationRuntime, arg.ProjectID, arg.IntegrationID, arg.RuntimeKey)
-	var runtime_key string
-	err := row.Scan(&runtime_key)
-	return runtime_key, err
+func (q *Queries) LockIntegrationRuntime(ctx context.Context, arg LockIntegrationRuntimeParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockIntegrationRuntime, arg.ProjectID, arg.IntegrationID)
+	var integration_id uuid.UUID
+	err := row.Scan(&integration_id)
+	return integration_id, err
 }
 
 const readIntegrationRuntimeLease = `-- name: ReadIntegrationRuntimeLease :one
 SELECT checkpoint, claim_expires_at
 FROM integration_runtime
-WHERE project_id = $1 AND integration_id = $2 AND runtime_key = $3
-  AND setup_revision = $4 AND credential_version_id = $5
-  AND claim_token = $6::uuid AND claim_expires_at > statement_timestamp()
+WHERE project_id = $1 AND integration_id = $2
+  AND setup_revision = $3 AND credential_version_id = $4
+  AND claim_token = $5::uuid AND claim_expires_at > statement_timestamp()
 `
 
 type ReadIntegrationRuntimeLeaseParams struct {
 	ProjectID           uuid.UUID
 	IntegrationID       uuid.UUID
-	RuntimeKey          string
 	SetupRevision       int64
 	CredentialVersionID uuid.UUID
 	ClaimToken          uuid.UUID
@@ -292,7 +280,6 @@ func (q *Queries) ReadIntegrationRuntimeLease(ctx context.Context, arg ReadInteg
 	row := q.db.QueryRow(ctx, readIntegrationRuntimeLease,
 		arg.ProjectID,
 		arg.IntegrationID,
-		arg.RuntimeKey,
 		arg.SetupRevision,
 		arg.CredentialVersionID,
 		arg.ClaimToken,
@@ -305,10 +292,10 @@ func (q *Queries) ReadIntegrationRuntimeLease(ctx context.Context, arg ReadInteg
 const releaseIntegrationRuntime = `-- name: ReleaseIntegrationRuntime :execrows
 UPDATE integration_runtime
 SET claim_token = NULL, claim_expires_at = NULL,
-    available_at = statement_timestamp() + $1::bigint * interval '1 millisecond',
+    next_attempt_at = statement_timestamp() + $1::bigint * interval '1 millisecond',
     last_error = $2, updated_at = statement_timestamp()
-WHERE project_id = $3 AND integration_id = $4 AND runtime_key = $5
-  AND claim_token = $6::uuid AND claim_expires_at > statement_timestamp()
+WHERE project_id = $3 AND integration_id = $4
+  AND claim_token = $5::uuid AND claim_expires_at > statement_timestamp()
 `
 
 type ReleaseIntegrationRuntimeParams struct {
@@ -316,7 +303,6 @@ type ReleaseIntegrationRuntimeParams struct {
 	LastError         *string
 	ProjectID         uuid.UUID
 	IntegrationID     uuid.UUID
-	RuntimeKey        string
 	ClaimToken        uuid.UUID
 }
 
@@ -326,7 +312,6 @@ func (q *Queries) ReleaseIntegrationRuntime(ctx context.Context, arg ReleaseInte
 		arg.LastError,
 		arg.ProjectID,
 		arg.IntegrationID,
-		arg.RuntimeKey,
 		arg.ClaimToken,
 	)
 	if err != nil {
@@ -338,15 +323,14 @@ func (q *Queries) ReleaseIntegrationRuntime(ctx context.Context, arg ReleaseInte
 const renewIntegrationRuntime = `-- name: RenewIntegrationRuntime :execrows
 UPDATE integration_runtime
 SET claim_expires_at = statement_timestamp() + $1::bigint * interval '1 millisecond', updated_at = statement_timestamp()
-WHERE project_id = $2 AND integration_id = $3 AND runtime_key = $4
-  AND claim_token = $5::uuid AND claim_expires_at > statement_timestamp()
+WHERE project_id = $2 AND integration_id = $3
+  AND claim_token = $4::uuid AND claim_expires_at > statement_timestamp()
 `
 
 type RenewIntegrationRuntimeParams struct {
 	LeaseMilliseconds int64
 	ProjectID         uuid.UUID
 	IntegrationID     uuid.UUID
-	RuntimeKey        string
 	ClaimToken        uuid.UUID
 }
 
@@ -355,7 +339,6 @@ func (q *Queries) RenewIntegrationRuntime(ctx context.Context, arg RenewIntegrat
 		arg.LeaseMilliseconds,
 		arg.ProjectID,
 		arg.IntegrationID,
-		arg.RuntimeKey,
 		arg.ClaimToken,
 	)
 	if err != nil {

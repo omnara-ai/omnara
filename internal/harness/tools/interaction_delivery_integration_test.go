@@ -108,8 +108,8 @@ func TestInteractionDeliveryRetriesPreflightWithinAttempt(t *testing.T) {
 						return
 					}
 					if scenario == "revoked_during_retry" {
-						_, err := f.Store.Integrations().DisconnectProjectIntegration(ctx,
-							integrationstore.DisconnectProjectIntegrationInput{ProjectID: toolsTestProjectID, IntegrationID: f.Install.ID})
+						_, err := f.Store.Integrations().DisconnectIntegration(ctx,
+							integrationstore.DisconnectIntegrationInput{ProjectID: toolsTestProjectID, IntegrationID: f.Install.ID})
 						if err != nil {
 							t.Error(err)
 						}

@@ -6,8 +6,8 @@ WITH matches AS MATERIALIZED (
   FROM integration_inbox
   WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
     AND id <> sqlc.arg(receipt_id) AND plan IS NOT NULL
-    AND state IN ('pending', 'processing')
-    AND jsonb_path_query_array(plan, '$.*.selection') @> jsonb_build_array(sqlc.arg(selection)::jsonb)
+    AND state IN ('queued', 'processing')
+    AND jsonb_path_query_array(plan, '$.recipients.*.selection') @> jsonb_build_array(sqlc.arg(selection)::jsonb)
 )
 SELECT id, state FROM matches
 ORDER BY id

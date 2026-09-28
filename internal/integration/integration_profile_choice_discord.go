@@ -13,7 +13,7 @@ import (
 )
 
 func (p *DiscordIntegrationInboxProvider) PresentProfileChoice(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord,
 	choice integrationstore.IntegrationProfileChoiceRecord, check func(context.Context) error,
 ) (string, string, error) {
 	if DiscordInteractionPublicKey(integrationSetup.ProviderConfig) == "" {
@@ -64,7 +64,7 @@ func (p *DiscordIntegrationInboxProvider) PresentProfileChoice(
 }
 
 func (p *DiscordIntegrationInboxProvider) DismissProfileChoice(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord,
 	choice integrationstore.IntegrationProfileChoiceRecord, text string,
 ) error {
 	var source IntegrationEvent

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,25 +27,27 @@ import (
 )
 
 type githubFeedbackFixture struct {
-	mu          sync.Mutex
-	integration integrationstore.ProjectIntegrationRecord
-	version     uuid.UUID
-	payload     secrets.Payload
-	revoked     bool
-	beforePR    func()
-	requests    []string
-	posts       []string
-	postCode    int
-	repoID      int64
+	mu               sync.Mutex
+	integration      integrationstore.IntegrationRecord
+	version          uuid.UUID
+	payload          secrets.Payload
+	revoked          bool
+	beforePR         func()
+	requests         []string
+	posts            []string
+	postCode         int
+	repoID           int64
+	permission       string
+	permissionUserID int64
 }
 
-func (f *githubFeedbackFixture) GetProjectIntegration(_ context.Context, projectID, integrationID uuid.UUID) (
-	integrationstore.ProjectIntegrationRecord, error,
+func (f *githubFeedbackFixture) GetIntegration(_ context.Context, projectID, integrationID uuid.UUID) (
+	integrationstore.IntegrationRecord, error,
 ) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if projectID != f.integration.ProjectID || integrationID != f.integration.ID {
-		return integrationstore.ProjectIntegrationRecord{}, storeerr.ErrUnauthorized
+		return integrationstore.IntegrationRecord{}, storeerr.ErrUnauthorized
 	}
 	return f.integration, nil
 }
@@ -80,7 +83,9 @@ func newGitHubFeedbackFixture(t *testing.T) (*githubFeedbackFixture, *GitHubInte
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	privateKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	f := &githubFeedbackFixture{integration: githubEventIntegration(), version: uuid.New(), repoID: 1001,
+	f := &githubFeedbackFixture{
+		integration: githubEventIntegration(), version: uuid.New(), repoID: 1001,
+		permission: "write", permissionUserID: 71,
 		payload: secrets.Payload{
 			secrets.KeyAppID: "123", secrets.KeyPrivateKey: string(privateKey), secrets.KeyWebhookSecret: "webhook-secret",
 		}}
@@ -107,7 +112,8 @@ func newGitHubFeedbackFixture(t *testing.T) (*githubFeedbackFixture, *GitHubInte
 			}
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant))
 			assert.Equal(t, []int64{1001}, grant.Repositories)
-			assert.Equal(t, map[string]string{"pull_requests": "write"}, grant.Permissions)
+			assert.Contains(t, []string{"read", "write"}, grant.Permissions["pull_requests"])
+			assert.Len(t, grant.Permissions, 1)
 			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 				"token": "scoped-token", "expires_at": time.Now().Add(time.Hour),
 			}))
@@ -117,6 +123,10 @@ func newGitHubFeedbackFixture(t *testing.T) (*githubFeedbackFixture, *GitHubInte
 		repo := github.Repository{ID: f.repoID, Name: "repository", Owner: github.User{Login: "owner"}}
 		var response any
 		switch r.URL.Path {
+		case "/repos/owner/repository/collaborators/human/permission":
+			response = map[string]any{
+				"permission": f.permission, "user": map[string]any{"id": f.permissionUserID, "login": "human"},
+			}
 		case "/installation/repositories":
 			response = map[string]any{"total_count": 1, "repositories": []github.Repository{repo}}
 		case "/repos/owner/repository/pulls/42":
@@ -276,4 +286,81 @@ func TestGitHubNotifyInboxFailureDoesNotRetryUnknownSend(t *testing.T) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	require.Len(t, f.posts, 1)
+}
+
+func TestGitHubSenderPolicyGatesInputsAndFailureMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name, policy, permission string
+		allowed                  bool
+	}{
+		{"default denies reader", "", "read", false},
+		{"writer directs without launcher", "", "write", true},
+		{"explicit anyone", "anyone", "read", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, p := newGitHubFeedbackFixture(t)
+			f.permission = tc.permission
+			f.integration.Settings = json.RawMessage(`{}`)
+			if tc.policy != "" {
+				f.integration.Settings = json.RawMessage(`{"sender_policy":"` + tc.policy + `"}`)
+			}
+			for _, kind := range []string{"issue_comment", "pull_request_review_comment", "pull_request_review"} {
+				event := githubEventFixture(kind)
+				raw := githubEventJSON(t, event)
+				expanded, err := p.ExpandRouted(t.Context(), f.integration, raw,
+					func(IntegrationEvent) (bool, error) { return true, nil })
+				require.NoError(t, err)
+				require.Equal(t, tc.allowed, expanded.Event != nil)
+				f.posts = nil
+				receipt := feedbackReceipt(f.integration, raw)
+				require.NoError(t, p.NotifyInboxFailure(t.Context(), f.integration, receipt, inboxFailureMessage))
+				require.Equal(t, tc.allowed, len(f.posts) == 1)
+			}
+			event := githubEventFixture("pull_request")
+			event.Action = "opened"
+			expanded, err := p.Expand(t.Context(), f.integration, githubEventJSON(t, event))
+			require.NoError(t, err)
+			require.NotNil(t, expanded.Event, "automatic PR events remain independent of commenter policy")
+		})
+	}
+}
+
+func TestGitHubRoutingPrecedesProviderAccess(t *testing.T) {
+	for _, kind := range []string{"issue_comment", "pull_request_review_comment", "pull_request_review"} {
+		t.Run(kind, func(t *testing.T) {
+			raw := githubEventJSON(t, githubEventFixture(kind))
+			provider := GitHubIntegrationInboxProvider{}
+			called := false
+			expansion, err := provider.ExpandRouted(t.Context(), githubEventIntegration(), raw,
+				func(event IntegrationEvent) (bool, error) {
+					called = true
+					require.Equal(t, int64(1001), event.Event.Scope.GitHub.RepositoryID)
+					return false, nil
+				})
+			require.NoError(t, err)
+			require.True(t, called)
+			require.Nil(t, expansion.Event)
+			unavailable := errors.New("routing unavailable")
+			_, err = provider.ExpandRouted(t.Context(), githubEventIntegration(), raw,
+				func(IntegrationEvent) (bool, error) { return false, unavailable })
+			require.ErrorIs(t, err, unavailable)
+		})
+	}
+}
+
+func TestGitHubPlannedFailureDoesNotRepeatSenderPermissionRead(t *testing.T) {
+	f, provider := newGitHubFeedbackFixture(t)
+	raw := githubEventJSON(t, githubEventFixture("issue_comment"))
+	event, ok, err := NormalizeGitHubIntegrationEvent(f.integration, raw)
+	require.NoError(t, err)
+	require.True(t, ok)
+	receipt := feedbackReceipt(f.integration, raw)
+	receipt.Plan = feedbackPlan(t, event.Event.Scope)
+	require.NoError(t, provider.NotifyInboxFailure(t.Context(), f.integration, receipt, inboxFailureMessage))
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require.Len(t, f.posts, 1)
+	for _, request := range f.requests {
+		require.NotContains(t, request, "/permission")
+	}
 }

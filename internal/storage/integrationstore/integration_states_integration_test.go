@@ -114,7 +114,7 @@ func TestIntegrationStateDeadlineAndDeletedOwnership(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Nil(t, indefinite.ExpiresAt)
-	require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integrationID))
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID))
 	count, err = f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count, "deleted ownership reclaims every state kind")
@@ -136,7 +136,7 @@ func TestIntegrationProfileChoiceMaximumSourceRoundTrip(t *testing.T) {
 	f := newProfileChoiceFixture(t)
 	input := f.input
 	input.Payload = bytes.Repeat([]byte{0, 255, '<', '\n'}, integrationstore.IntegrationInboxMaxPayloadBytes/4)
-	input.Event = json.RawMessage(`{"text":"` + strings.Repeat("a", integrationstore.IntegrationInboxMaxEventsBytes-512) + `"}`)
+	input.Event = json.RawMessage(`{"text":"` + strings.Repeat("a", integrationstore.IntegrationProfileChoiceMaxEventBytes-512) + `"}`)
 	input.SourceKey = "maximum-source"
 	receipt := f.receipt(t, "maximum-source", input.Payload)
 	choice, created, err := f.store.EnsureIntegrationProfileChoice(f.ctx, receipt.Lease(), input)
@@ -156,7 +156,7 @@ func TestIntegrationProfileChoiceMaximumSourceRoundTrip(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(f.ctx,
 		`SELECT payload FROM integration_inbox WHERE project_id=$1 AND integration_id=$2 AND receipt_key=$3`,
 		f.project, f.integrationID, "choice:"+choice.ID.String()).Scan(&payload))
-	require.Equal(t, input.Payload, payload, "trusted handoff preserves the complete source")
+	require.Nil(t, payload, "trusted handoff references the saved source without duplicating it")
 }
 
 func TestIntegrationProfileChoicePendingLookupAcrossRetainedHistory(t *testing.T) {

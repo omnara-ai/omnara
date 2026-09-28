@@ -182,7 +182,7 @@ func TestInboxInputOutcomesSurviveArchivalAndDeletedTargets(t *testing.T) {
 		f.ctx, pending.Lease(), "recipient", slot.Input.Origin.Address), executionstore.ErrInboxRecipientSettled)
 	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, pending.Lease()))
 	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, delivered.Lease()))
-	require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
+	require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
 	var deleted bool
 	require.NoError(t, f.store.pool.QueryRow(f.ctx,
 		`SELECT deleted_at IS NOT NULL FROM integration_targets WHERE id=$1`, input.AgentInput.IntegrationTargetID,

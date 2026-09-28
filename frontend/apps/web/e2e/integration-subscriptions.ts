@@ -1,9 +1,9 @@
 import {
   type CreateAgentRequest,
   type CreateIntegrationSubscriptionRequest,
+  type Integration,
+  type IntegrationKind,
   type IntegrationSubscription,
-  type IntegrationType,
-  type ProjectIntegration,
   schemas,
   zJsonText,
 } from '@omnara/sdk'
@@ -39,7 +39,7 @@ async function request(
 
 export async function exerciseIntegrationConversations(
   page: Page,
-  integration: ProjectIntegration,
+  integration: Integration,
   profileId: string,
   apiProjectPath: string,
 ) {
@@ -47,9 +47,9 @@ export async function exerciseIntegrationConversations(
   expect(profileResponse.status).toBe(200)
   const profile = zJsonText.pipe(schemas.zAgentProfile).parse(profileResponse.body)
   const conversation =
-    integration.integration_type === 'github_pr'
+    integration.integration_kind === 'github_pr'
       ? { repository_id: 333, pull_request: 1 }
-      : { channel_id: '333333333333333333', thread_id: '444444444444444444' }
+      : { thread_id: '444444444444444444' }
   const launchResponse = await request(page, `${apiProjectPath}/agents`, {
     config: profile.current_config_id,
     profile: profile.id,
@@ -65,11 +65,12 @@ export async function exerciseIntegrationConversations(
   const initial = zJsonText.pipe(schemas.zListIntegrationSubscriptionsResponse).parse(listing.body)
   expect(initial.data).toHaveLength(1)
   const first = schemas.zIntegrationSubscription.parse(initial.data[0])
-  expect(first).toMatchObject({ agent_id: agent.id, agent_name: agent.name, conversation })
+  expect(first).toMatchObject({ agent_id: agent.id, agent_name: agent.name })
+  expect(first.conversation).toEqual(conversation)
   const attached = await request(page, path, {
     agent_id: agent.id,
     conversation:
-      integration.integration_type === 'github_pr'
+      integration.integration_kind === 'github_pr'
         ? { repository_id: 333, pull_request: 2 }
         : {
             guild_id: '111111111111111111',
@@ -79,6 +80,11 @@ export async function exerciseIntegrationConversations(
   })
   expect(attached.status).toBe(201)
   const second = zJsonText.pipe(schemas.zIntegrationSubscription).parse(attached.body)
+  expect(second.conversation).toEqual(
+    integration.integration_kind === 'github_pr'
+      ? { repository_id: 333, pull_request: 2 }
+      : { thread_id: '555555555555555555' },
+  )
   await page.goto(`/projects/${integration.project_id}/integrations/${integration.id}`)
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
   await expect(section).toBeVisible()
@@ -89,7 +95,7 @@ export async function exerciseIntegrationConversations(
     'href',
     `/projects/${integration.project_id}/agents/${agent.id}/events`,
   )
-  await auditConversationLayout(page, integration.integration_type, 'connected')
+  await auditConversationLayout(page, integration.integration_kind, 'connected')
   await stopConversation(page, integration, first, apiProjectPath)
   await expect(section.getByRole('listitem')).toHaveCount(1)
   return second
@@ -97,22 +103,20 @@ export async function exerciseIntegrationConversations(
 
 async function stopConversation(
   page: Page,
-  integration: ProjectIntegration,
+  integration: Integration,
   subscription: IntegrationSubscription,
   apiProjectPath: string,
 ) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
   let label: string
-  if (integration.integration_type === 'github_pr') {
+  if (integration.integration_kind === 'github_pr') {
     const address = z
       .object({ repository_id: z.number(), pull_request: z.number() })
       .parse(subscription.conversation)
     label = `Repository ${address.repository_id} · PR #${address.pull_request}`
   } else {
-    const address = z
-      .object({ channel_id: z.string(), thread_id: z.string() })
-      .parse(subscription.conversation)
-    label = `Channel ${address.channel_id} · Thread ${address.thread_id}`
+    const address = z.object({ thread_id: z.string() }).parse(subscription.conversation)
+    label = `Thread ${address.thread_id}`
   }
   const row = section.getByRole('listitem').filter({ has: page.getByText(label, { exact: true }) })
   await expect(row).toBeVisible()
@@ -134,21 +138,21 @@ async function stopConversation(
 
 export async function stopDisconnectedConversation(
   page: Page,
-  integration: ProjectIntegration,
+  integration: Integration,
   subscription: IntegrationSubscription,
   apiProjectPath: string,
 ) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
   await expect(section).toBeVisible()
   await expect(section).toContainText('Forwarding is paused')
-  await auditConversationLayout(page, integration.integration_type, 'disconnected')
+  await auditConversationLayout(page, integration.integration_kind, 'disconnected')
   await stopConversation(page, integration, subscription, apiProjectPath)
   await expect(section).toContainText('No conversations yet.')
 }
 
 async function auditConversationLayout(
   page: Page,
-  integrationType: IntegrationType,
+  integrationKind: IntegrationKind,
   state: string,
 ) {
   const section = page.getByRole('region', { name: 'Conversations', exact: true })
@@ -160,7 +164,7 @@ async function auditConversationLayout(
       .poll(() => section.evaluate((element) => element.scrollWidth <= element.clientWidth))
       .toBe(true)
     await expect(section.getByRole('button', { name: /^Stop forwarding/ }).first()).toBeVisible()
-    const name = `${integrationType}-${state}-conversations-${width}`
+    const name = `${integrationKind}-${state}-conversations-${width}`
     const path = test.info().outputPath(`${name}.png`)
     await section.screenshot({ path })
     await test.info().attach(name, { path, contentType: 'image/png' })

@@ -16,7 +16,7 @@ func NewIntegrationInboxRecorder(set *Set) *IntegrationInboxRecorder {
 	m := &IntegrationInboxRecorder{
 		oldestReadyLag: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "omnara", Subsystem: "integration_inbox", Name: "oldest_ready_lag_seconds",
-			Help: "Sampled age since available_at of the oldest due pending receipt, including inactive scopes. " +
+			Help: "Sampled age since next_attempt_at of the oldest due queued receipt, including inactive scopes. " +
 				"Zero when empty; NaN before a sample or on failure.",
 		}),
 		lastSuccess: prometheus.NewGauge(prometheus.GaugeOpts{

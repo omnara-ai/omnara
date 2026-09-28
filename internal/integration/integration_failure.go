@@ -44,11 +44,11 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(ctx context.Context, projectI
 	}
 	if unfinished {
 		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		integration, err := c.inbox.GetProjectIntegrationByID(noticeCtx, receipt.IntegrationID)
+		integration, err := c.inbox.GetIntegrationByID(noticeCtx, receipt.IntegrationID)
 		if err == nil {
 			if provider, ok := c.providers[integration.Provider].(interface {
 				NotifyInboxFailure(
-					context.Context, integrationstore.ProjectIntegrationRecord, integrationstore.IntegrationInboxRecord, string,
+					context.Context, integrationstore.IntegrationRecord, integrationstore.IntegrationInboxRecord, string,
 				) error
 			}); ok {
 				err = provider.NotifyInboxFailure(noticeCtx, integration, receipt, message)

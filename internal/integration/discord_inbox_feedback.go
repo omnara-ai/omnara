@@ -14,7 +14,7 @@ import (
 )
 
 func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord, receipt integrationstore.IntegrationInboxRecord, text string,
+	integration integrationstore.IntegrationRecord, receipt integrationstore.IntegrationInboxRecord, text string,
 ) error {
 	if err := checkInboxFailureReceipt(integration, receipt, integrationdefinition.ProviderDiscord); err != nil {
 		return err
@@ -35,10 +35,8 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 		}
 		scope = discord.Scope(*known.Discord)
 		root, text = true, scheduledInboxFailureMessage
-	case receipt.Source != integrationstore.IntegrationInboxSourceProvider:
-		return nil
-	case len(receipt.Events) != 0:
-		event, err := inboxFailureSelectedEvent(receipt, integrationdefinition.ProviderDiscord)
+	case receipt.Source == integrationstore.IntegrationInboxSourceChoice:
+		event, err := inboxFailureSelectedEvent(ctx, p.integrations, receipt, integrationdefinition.ProviderDiscord)
 		if err != nil {
 			return err
 		}
@@ -54,6 +52,8 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 			(!root && metadata.SourceChannelID != scope.ThreadID) {
 			return fmt.Errorf("discord failure source differs from its conversation")
 		}
+	case receipt.Source != integrationstore.IntegrationInboxSourceProvider:
+		return nil
 	default:
 		message, ok, err := discordInboxMessage(integration, receipt.Payload)
 		if err != nil || !ok {

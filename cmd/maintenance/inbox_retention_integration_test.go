@@ -60,15 +60,15 @@ event_webhook:
 	live := createMaintenanceInboxIntegration(t, store, ids, "live").ID
 	disconnected := createMaintenanceInboxIntegration(t, store, ids, "disconnected").ID
 	deleted := createMaintenanceInboxIntegration(t, store, ids, "deleted").ID
-	applied, err := store.Integrations().DisconnectProjectIntegration(
+	applied, err := store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID: ids.ProjectID, IntegrationID: disconnected,
 		},
 	)
 	require.NoError(t, err)
 	require.True(t, applied)
-	require.NoError(t, store.Integrations().DeleteProjectIntegration(ctx, ids.OrgID, ids.ProjectID, deleted))
+	require.NoError(t, store.Integrations().DeleteIntegration(ctx, ids.OrgID, ids.ProjectID, deleted))
 	_, err = pool.Exec(ctx, `INSERT INTO integration_inbox
  (project_id,integration_id,receipt_key,payload,state,completed_at)
  SELECT $1,$2,'old:'||n,'verified raw callback'::bytea,'completed',statement_timestamp()-interval '8 days'
@@ -85,7 +85,7 @@ event_webhook:
  VALUES ($1,$2,'recent','recent callback'::bytea,'completed',statement_timestamp()-interval '6 days','{}'),
         ($1,$2,'failed','failed callback'::bytea,'failed',statement_timestamp(),'{"slot":{"identity":"frozen"}}'),
         ($1,$3,'disabled-failed','disabled callback'::bytea,'failed',statement_timestamp(),'{}'),
-        ($1,$2,'pending','pending callback'::bytea,'pending',NULL,NULL)`, ids.ProjectID, live, disconnected)
+        ($1,$2,'queued','pending callback'::bytea,'queued',NULL,NULL)`, ids.ProjectID, live, disconnected)
 	require.NoError(t, err)
 	type retainedReceipt struct {
 		key, state, payload, plan string
@@ -93,7 +93,7 @@ event_webhook:
 	readRetained := func() []retainedReceipt {
 		rows, err := pool.Query(ctx, `SELECT receipt_key,state,convert_from(payload,'UTF8'),
  coalesce(plan::text,'') FROM integration_inbox
- WHERE receipt_key IN ('recent','failed','disabled-failed','pending') ORDER BY receipt_key`)
+ WHERE receipt_key IN ('recent','failed','disabled-failed','queued') ORDER BY receipt_key`)
 		require.NoError(t, err)
 		defer rows.Close()
 		var result []retainedReceipt
@@ -219,10 +219,10 @@ func newMaintenanceInboxStore(t *testing.T, pool *pgxpool.Pool, ids storagefixtu
 
 func createMaintenanceInboxIntegration(
 	t *testing.T, store *storage.Store, ids storagefixture.ProjectIDs, name string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	ctx := t.Context()
-	input := integrationstore.ConfigureProjectIntegrationInput{
+	input := integrationstore.ConfigureIntegrationInput{
 		OrgID: ids.OrgID, ProjectID: ids.ProjectID, InstalledByUserID: ids.ProviderAdminUserID,
 	}
 	input.Provider, input.ProviderTenantID, input.ProviderAccountRef = "github", "123", "456"
@@ -235,15 +235,15 @@ func createMaintenanceInboxIntegration(
 		Name: name + "-credentials", Actor: identitystore.NewUserPrincipal(ids.ProviderAdminUserID), Material: material,
 	})
 	require.NoError(t, err)
-	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, IntegrationType: integrationdefinition.GitHubPR,
+	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: name, IntegrationKind: integrationdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
 	input.IntegrationID, input.ExpectedSetupRevision = integration.ID, integration.SetupRevision
 	input.CredentialSecretID, input.CredentialVersionID = credential.ID, version.ID
-	integration, err = store.Integrations().ConfigureProjectIntegration(ctx, input)
+	integration, err = store.Integrations().ConfigureIntegration(ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectIntegrationStateActive, integration.State)
+	require.Equal(t, integrationstore.IntegrationStateActive, integration.State)
 	require.Equal(t, credential.ID, integration.CredentialSecretID)
 	return integration
 }

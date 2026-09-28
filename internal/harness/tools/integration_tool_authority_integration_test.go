@@ -26,7 +26,7 @@ import (
 func TestIntegrationToolApprovalShowsResolvedDestination(t *testing.T) {
 	for _, tt := range []struct{ provider, operation, input, destination string }{
 		{"slack", "post_message", `{"text":"Review ready"}`, `{"channel_id":"C123","thread_ts":"111.222"}`},
-		{"discord", "post_message", `{"content":"Review ready"}`, `{"channel_id":"444","thread_id":"555"}`},
+		{"discord", "post_message", `{"content":"Review ready"}`, `{"thread_id":"555"}`},
 		{"github", "discussion_comment", `{"body":"Review ready"}`, `{"repository_id":123,"pull_request":7}`},
 	} {
 		t.Run(tt.provider, func(t *testing.T) {
@@ -109,9 +109,9 @@ func TestIntegrationToolApprovalFailsInvalidScopeBeforeProviderIO(t *testing.T) 
 			call := f.recordPendingToolCall(t, ctx, "invalid",
 				toolcatalog.IntegrationToolName("chat", test.operation), test.args, f.Now)
 			if test.name == "disconnected" {
-				_, err := f.Store.Integrations().DisconnectProjectIntegration(
+				_, err := f.Store.Integrations().DisconnectIntegration(
 					ctx,
-					integrationstore.DisconnectProjectIntegrationInput{
+					integrationstore.DisconnectIntegrationInput{
 						ProjectID: toolsTestProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 					},
 				)
@@ -261,9 +261,9 @@ func TestIntegrationToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						case "removed":
 							delete(source.Tools, call.Name)
 						case "integration-disconnected":
-							_, err := f.Store.Integrations().DisconnectProjectIntegration(
+							_, err := f.Store.Integrations().DisconnectIntegration(
 								ctx,
-								integrationstore.DisconnectProjectIntegrationInput{
+								integrationstore.DisconnectIntegrationInput{
 									ProjectID: toolsTestProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 								},
 							)
@@ -280,7 +280,7 @@ func TestIntegrationToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 						case "rebound":
 							require.NoError(
 								t,
-								f.Store.Integrations().DeleteProjectIntegration(ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID),
+								f.Store.Integrations().DeleteIntegration(ctx, toolsTestOrgID, toolsTestProjectID, f.Install.ID),
 							)
 							replacement := createSlackToolIntegration(t, ctx, f.Store, f.User.ID, "chat", "replacement")
 							require.NotEqual(t, f.Install.ID, replacement.ID)
@@ -338,7 +338,7 @@ func TestIntegrationToolApprovalDoesNotBypassCurrentConfig(t *testing.T) {
 					require.Equal(t, wantOutcome, record.Outcome)
 					listed := f
 					if scenario == "rebound" {
-						listed.Install, err = f.Store.Integrations().GetProjectIntegrationByName(ctx, toolsTestProjectID, "chat")
+						listed.Install, err = f.Store.Integrations().GetIntegrationByName(ctx, toolsTestProjectID, "chat")
 						require.NoError(t, err)
 					}
 					require.Empty(t, integrationToolSubscriptions(t, listed), "approval and sending must not create subscriptions")
@@ -501,7 +501,7 @@ func TestIntegrationToolMissingContextBeforeProviderIO(t *testing.T) {
 		{"discord", "post_message", `{"content":"hello"}`},
 		{"github", "read", `{}`},
 		{"github", "discussion_comment", `{"body":"Review"}`},
-		{"github", "inline_comment", `{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`},
+		{"github", "review_comment", `{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`},
 		{"github", "reply", `{"comment_id":31,"body":"Resolved"}`},
 	} {
 		t.Run(test.provider+"/"+test.operation, func(t *testing.T) {

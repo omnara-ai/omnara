@@ -5,7 +5,7 @@ import {
   integrationScheduleFieldError,
   integrationScheduleJson,
 } from '@/components/integrations/integration-schedule-schema'
-import { ProjectIntegrationProfilePicker } from '@/components/integrations/ProjectIntegrationProfilePicker'
+import { IntegrationProfilePicker } from '@/components/integrations/IntegrationProfilePicker'
 import type { useIntegrationScheduleSettings } from '@/components/integrations/useIntegrationScheduleSettings'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -96,7 +96,7 @@ export function IntegrationCronTriggerFields({
     }
     if (property['x-omnara-control'] === 'agent_profile')
       return (
-        <ProjectIntegrationProfilePicker
+        <IntegrationProfilePicker
           key={key}
           orgId={orgId}
           projectId={projectId}

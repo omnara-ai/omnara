@@ -21,7 +21,7 @@ type IntegrationInboxArtifactCleaner interface {
 }
 
 func integrationInboxPlanHasArtifacts(plan IntegrationInboxPlan) bool {
-	for _, slot := range plan {
+	for _, slot := range plan.Recipients {
 		if len(slot.ArtifactIDs) != 0 {
 			return true
 		}
@@ -60,8 +60,8 @@ func CleanupTerminalIntegrationInboxArtifacts(
 	if err != nil {
 		return err
 	}
-	keys := make([]string, 0, len(plan))
-	for key, slot := range plan {
+	keys := make([]string, 0, len(plan.Recipients))
+	for key, slot := range plan.Recipients {
 		for _, id := range slot.ArtifactIDs {
 			if id == uuid.Nil {
 				return fmt.Errorf("terminal slot %s has an invalid artifact ID", key)
@@ -72,7 +72,7 @@ func CleanupTerminalIntegrationInboxArtifacts(
 	slices.Sort(keys)
 	var failures []error
 	for _, key := range keys {
-		slot := plan[key]
+		slot := plan.Recipients[key]
 		for _, id := range slot.ArtifactIDs {
 			if err := ctx.Err(); err != nil {
 				return errors.Join(append(failures, err)...)

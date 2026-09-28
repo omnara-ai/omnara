@@ -1,11 +1,11 @@
-import { type ProjectIntegration, schemas } from '@omnara/sdk'
+import { type Integration, schemas } from '@omnara/sdk'
 import { expect, type Page } from '@playwright/test'
 
 import { readIntegration } from './fixtures'
 
 export async function exerciseDiscordIntegrationSchedule(
   page: Page,
-  integration: ProjectIntegration,
+  integration: Integration,
   profileId: string,
   profileName: string,
   apiProjectPath: string,
@@ -24,7 +24,7 @@ export async function exerciseDiscordIntegrationSchedule(
   await mentions.getByRole('button', { name: 'Save changes', exact: true }).click()
   const saved = await savedSettings
   expect(saved.status()).toBe(200)
-  expect(schemas.zProjectIntegration.parse(await saved.json()).settings.launcher).toBeUndefined()
+  expect(schemas.zIntegration.parse(await saved.json()).settings.launcher).toBeUndefined()
   await expect(mentions.getByRole('button', { name: 'Choose profiles', exact: true })).toBeVisible()
   const name = `${integration.name} schedule`
   const schedules = page.getByRole('region', { name: 'Schedules', exact: true })

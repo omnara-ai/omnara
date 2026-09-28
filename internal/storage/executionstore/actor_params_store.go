@@ -8,9 +8,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
@@ -23,14 +25,23 @@ type ActorParams struct {
 	Metadata         resourcemeta.Metadata `json:"metadata,omitempty"`
 }
 
-func IntegrationActorParams(integrationID uuid.UUID, userID string, displayName *string) (ActorParams, error) {
-	tenantID, err := publicid.Encode(publicid.KindProjectIntegration, integrationID)
+func IntegrationActorParams(
+	integration integrationstore.IntegrationRecord,
+	userID string,
+	displayName *string,
+) (ActorParams, error) {
+	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
+	if !ok || definition.Provider != integration.Provider {
+		return ActorParams{}, errors.New("integration actor requires a matching integration kind and provider")
+	}
+	tenantID, sourceLabel, err := definition.ActorIdentity(integration.ProviderTenantID)
 	if err != nil {
 		return ActorParams{}, err
 	}
 	return ActorParams{
 		Provider: ActorProviderIntegration, ProviderTenantID: tenantID,
 		ProviderUserID: userID, DisplayName: displayName,
+		Metadata: resourcemeta.Metadata{"source_label": sourceLabel},
 	}, nil
 }
 
@@ -145,6 +156,7 @@ func resolveActorTx(
 			ProviderTenantID: params.ProviderTenantID,
 			ProviderUserID:   params.ProviderUserID,
 			DisplayName:      displayName,
+			Metadata:         params.Metadata,
 		})
 	}
 	if err != nil {

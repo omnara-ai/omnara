@@ -8,13 +8,13 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Store) DeleteProjectIntegrationOnceForIntegration(
+func (s *Store) DeleteIntegrationOnceForIntegration(
 	ctx context.Context,
 	projectID, integrationID uuid.UUID,
 ) error {
-	integration, err := s.GetProjectIntegration(ctx, projectID, integrationID)
+	integration, err := s.GetIntegration(ctx, projectID, integrationID)
 	if err != nil {
 		return err
 	}
-	return s.deleteProjectIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
+	return s.deleteIntegrationOnce(ctx, integration.OrgID, projectID, integrationID)
 }

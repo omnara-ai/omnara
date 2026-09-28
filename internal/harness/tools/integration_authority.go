@@ -22,7 +22,7 @@ type integrationToolAccess struct {
 	Conversation      integrationdefinition.Scope
 	OriginalContract  agentconfig.RuntimeContract
 	CurrentConfigID   uuid.UUID
-	Integration       integrationstore.ProjectIntegrationRecord
+	Integration       integrationstore.IntegrationRecord
 	Credential        secrets.Payload
 	CredentialVersion uuid.UUID
 }
@@ -66,7 +66,7 @@ func (e Executor) resolveIntegrationToolAuthority(
 			errors.New("integration tool was not configured for this call"),
 		)
 	}
-	integration, err := e.Store.Integrations().GetProjectIntegration(ctx, turn.ProjectID, pinned.IntegrationID)
+	integration, err := e.Store.Integrations().GetIntegration(ctx, turn.ProjectID, pinned.IntegrationID)
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return integrationToolAccess{}, integrationToolPreparationFailure(errors.New("integration is unavailable"))
 	}
@@ -74,12 +74,12 @@ func (e Executor) resolveIntegrationToolAuthority(
 		return integrationToolAccess{}, err
 	}
 	name, _, valid := toolcatalog.SplitIntegrationToolName(tool.Name)
-	if !valid || integration.Name != name || integration.State != integrationstore.ProjectIntegrationStateActive ||
+	if !valid || integration.Name != name || integration.State != integrationstore.IntegrationStateActive ||
 		integration.OrgID != turn.OrgID {
 		return integrationToolAccess{}, integrationToolPreparationFailure(errors.New("integration is unavailable"))
 	}
 	metadata := map[uuid.UUID]agentconfig.IntegrationResolution{
-		pinned.IntegrationID: {IntegrationID: pinned.IntegrationID, IntegrationType: integration.IntegrationType},
+		pinned.IntegrationID: {IntegrationID: pinned.IntegrationID, IntegrationKind: integration.IntegrationKind},
 	}
 	authority, err := agentconfig.ResolveIntegrationToolAuthority(original, current, tool.Name, metadata)
 	if err != nil {
@@ -154,7 +154,7 @@ func (e Executor) prepareIntegrationToolAccess(
 		return integrationToolAccess{}, err
 	}
 	access.Conversation = conversation
-	kind, err := integrationstore.ProjectIntegrationCredentialKind(access.Integration.Provider)
+	kind, err := integrationstore.IntegrationCredentialKind(access.Integration.Provider)
 	if err != nil {
 		return integrationToolAccess{}, err
 	}
@@ -195,7 +195,7 @@ func (e Executor) recheckIntegrationToolAccess(
 		}
 		ref := access.Authority.Tool.IntegrationID
 		metadata := map[uuid.UUID]agentconfig.IntegrationResolution{
-			ref: {IntegrationID: ref, IntegrationType: access.Integration.IntegrationType},
+			ref: {IntegrationID: ref, IntegrationKind: access.Integration.IntegrationKind},
 		}
 		if _, err := agentconfig.ResolveIntegrationToolAuthority(
 			access.OriginalContract,
@@ -206,11 +206,11 @@ func (e Executor) recheckIntegrationToolAccess(
 			return fmt.Errorf("%w: %w", ErrToolAuthorizationInvalidated, err)
 		}
 	}
-	integration, err := e.Store.Integrations().GetProjectIntegration(ctx, turn.ProjectID, access.Integration.ID)
+	integration, err := e.Store.Integrations().GetIntegration(ctx, turn.ProjectID, access.Integration.ID)
 	if err != nil {
 		return err
 	}
-	if integration.State != integrationstore.ProjectIntegrationStateActive ||
+	if integration.State != integrationstore.IntegrationStateActive ||
 		integration.SetupRevision != access.Integration.SetupRevision {
 		return fmt.Errorf("%w: integration setup changed; submit a new call", ErrToolAuthorizationInvalidated)
 	}

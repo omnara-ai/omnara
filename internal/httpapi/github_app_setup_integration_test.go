@@ -81,12 +81,12 @@ func TestGitHubHTTPSetupRejectsUnverifiedIdentity(t *testing.T) {
 			body["credential_secret_id"] = secretID
 			integration := createSetupHTTPIntegration(t, handler, project, "github", integrationdefinition.GitHubPR)
 			response := requestJSONWithHeaders(t, handler, http.MethodPost,
-				integrationSetupPath(t, project, integration), projectIntegrationHTTPJSON(t, body),
+				integrationSetupPath(t, project, integration), integrationHTTPJSON(t, body),
 				"", tc.want, authHeaders(project.AdminToken))
-			require.NotContains(t, projectIntegrationHTTPJSON(t, response), "private provider body")
+			require.NotContains(t, integrationHTTPJSON(t, response), "private provider body")
 			var count int
 			require.NoError(t, integrationPoolForHandler(t, handler).QueryRow(t.Context(),
-				`SELECT count(*) FROM project_integrations WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
+				`SELECT count(*) FROM integrations WHERE project_id=$1 AND state='active'`, project.ProjectUUID).
 				Scan(&count))
 			require.Zero(t, count, "public setup must not save an unverified integration")
 		})
@@ -180,9 +180,9 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 	body["credential_secret_id"] = f.secretID
 	body["expected_setup_revision"] = f.integration.SetupRevision
 	path := integrationSetupPath(t, f.project, f.integration)
-	requestJSONWithHeaders(t, f.handler, http.MethodPost, path, projectIntegrationHTTPJSON(t, body),
+	requestJSONWithHeaders(t, f.handler, http.MethodPost, path, integrationHTTPJSON(t, body),
 		"", http.StatusOK, authHeaders(f.project.AdminToken))
-	current, err := f.project.Store.Integrations().GetProjectIntegration(
+	current, err := f.project.Store.Integrations().GetIntegration(
 		t.Context(), f.project.ProjectUUID, f.integration.ID)
 	require.NoError(t, err)
 	var identity github.AppIdentity
@@ -210,7 +210,7 @@ func TestGitHubHTTPSetupRefreshesRenamedBotLogin(t *testing.T) {
 type githubSetupJourney struct {
 	handler     http.Handler
 	project     publicHTTPProject
-	integration integrationstore.ProjectIntegrationRecord
+	integration integrationstore.IntegrationRecord
 	secretID    string
 }
 
@@ -245,12 +245,12 @@ func newGitHubSetupJourney(t *testing.T, seed string, options ...Option) githubS
 		handler,
 		http.MethodPost,
 		integrationSetupPath(t, project, integration),
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	integration, err = project.Store.Integrations().GetProjectIntegration(t.Context(), project.ProjectUUID, integration.ID)
+	integration, err = project.Store.Integrations().GetIntegration(t.Context(), project.ProjectUUID, integration.ID)
 	require.NoError(t, err)
 	return githubSetupJourney{
 		handler:     handler,

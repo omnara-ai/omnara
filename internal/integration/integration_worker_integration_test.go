@@ -49,16 +49,16 @@ func integrationProviderFixture(
 	storagefixture.SeedProject(t, t.Context(), pool, ids, time.Now())
 	store := storage.NewStore(pool)
 	integrationSetup := uuid.Must(uuid.NewV7())
-	integrationTypes := integrationdefinition.IntegrationTypesForProvider(provider)
-	require.Len(t, integrationTypes, 1, "fixture requires an explicit registered type for this transport")
+	integrationKinds := integrationdefinition.IntegrationKindsForProvider(provider)
+	require.Len(t, integrationKinds, 1, "fixture requires an explicit registered type for this transport")
 	_, err := pool.Exec(
 		t.Context(),
-		`INSERT INTO project_integrations(id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,name,integration_type,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'active',$6,$7,'chat',$8,$5,now(),now())`,
+		`INSERT INTO integrations(id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,name,integration_kind,credential_secret_id,created_at,updated_at) VALUES($1,$2,$3,$4,'active',$6,$7,'chat',$8,$5,now(),now())`,
 		integrationSetup,
 		ids.OrgID,
 		ids.ProjectID,
 		ids.ProviderAdminUserID,
-		ids.ProviderSecretID, tenant, account, integrationTypes[0],
+		ids.ProviderSecretID, tenant, account, integrationKinds[0],
 	)
 	require.NoError(t, err)
 	return pool, store, ids, integrationSetup
@@ -79,7 +79,7 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	ctx := t.Context()
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	integration, err := inbox.GetProjectIntegration(ctx, ids.ProjectID, integrationSetup)
+	integration, err := inbox.GetIntegration(ctx, ids.ProjectID, integrationSetup)
 	require.NoError(t, err)
 	var agents []uuid.UUID
 	for range 2 {
@@ -96,7 +96,7 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 		Event: integrationdefinition.Event{Kind: "message",
 			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor:         integrationTestActor(t, integrationSetup, "U123"),
+		Actor:         integrationTestActor(t, integration, "U123"),
 	}
 	receipt, _, err := inbox.AcceptIntegrationReceipt(
 		ctx,
@@ -113,11 +113,11 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	consumer := integrationWorkerConsumerFunc(
 		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
 			event.SemanticKey = lease.ReceiptID.String()
-			plan, err := freezeTestIntegrationEvents(ctx, router, lease, []IntegrationEvent{event})
+			plan, err := freezeTestIntegrationEvent(ctx, router, lease, &event)
 			if err != nil {
 				return nil, err
 			}
-			for key, slot := range plan {
+			for key, slot := range plan.Recipients {
 				if slot.AgentID == agents[0] {
 					result, err := store.Execution().AdmitInboxInputSlot(ctx, lease, key, nil)
 					if err != nil {
@@ -145,7 +145,7 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.ErrorIs(t, err, transient)
 	first, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.IntegrationInboxPending, first.State)
+	require.Equal(t, integrationstore.IntegrationInboxQueued, first.State)
 	require.Contains(t, first.LastError, transient.Error())
 	require.Len(t, admissions, 1)
 	require.True(t, admissions[0].Created)
@@ -153,8 +153,8 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	require.NoError(t, err)
 	var plan IntegrationInboxPlan
 	require.NoError(t, json.Unmarshal(first.Plan, &plan))
-	require.Len(t, plan, 2)
-	for key, slot := range plan {
+	require.Len(t, plan.Recipients, 2)
+	for key, slot := range plan.Recipients {
 		if slot.AgentID == agents[0] {
 			require.Equal(t, executionstore.InboxSlotDelivered, outcomes[key])
 		} else {
@@ -162,8 +162,8 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 		}
 	}
 	require.Zero(t, finalizations, "no failure notice during retry")
-	require.WithinDuration(t, time.Now().Add(time.Hour), first.AvailableAt, 5*time.Second)
-	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=7,available_at=now() WHERE id=$1`, receipt.ID)
+	require.WithinDuration(t, time.Now().Add(time.Hour), first.NextAttemptAt, 5*time.Second)
+	_, err = pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=7,next_attempt_at=now() WHERE id=$1`, receipt.ID)
 	require.NoError(t, err)
 	worked, err = worker.RunOnce(ctx)
 	require.True(t, worked)
@@ -203,7 +203,7 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	fresh, err = inbox.GetIntegrationInbox(ctx, ids.ProjectID, fresh.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1, fresh.AttemptCount)
-	require.Equal(t, integrationstore.IntegrationInboxPending, fresh.State)
+	require.Equal(t, integrationstore.IntegrationInboxQueued, fresh.State)
 }
 
 func TestIntegrationInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T) {
@@ -250,7 +250,7 @@ func TestIntegrationInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T)
 				require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 				err = inbox.WithIntegrationInboxLease(ctx, lease,
 					func(work *integrationstore.IntegrationInboxLeaseTx) error {
-						return work.FreezePlan(ctx, json.RawMessage(`{}`))
+						return work.FreezePlan(ctx, json.RawMessage(`{"recipients":{}}`))
 					})
 				if err != nil {
 					return nil, err
@@ -304,7 +304,7 @@ func TestIntegrationInboxWorkerSlowReceiptDoesNotBlockSameIntegration(t *testing
 				ctx,
 				lease,
 				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					return work.FreezePlan(ctx, json.RawMessage(`{}`))
+					return work.FreezePlan(ctx, json.RawMessage(`{"recipients":{}}`))
 				},
 			)
 			if err == nil {
@@ -334,20 +334,20 @@ func TestIntegrationInboxWorkerSlowReceiptDoesNotBlockSameIntegration(t *testing
 }
 
 func seedIndependentIntegration(
-	t *testing.T, pool *pgxpool.Pool, template integrationstore.ProjectIntegrationRecord, name string,
-) integrationstore.ProjectIntegrationRecord {
+	t *testing.T, pool *pgxpool.Pool, template integrationstore.IntegrationRecord, name string,
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
-	_, err := pool.Exec(t.Context(), `INSERT INTO project_integrations
-		(id,org_id,project_id,name,integration_type,settings,installed_by_user_id,state,
+	_, err := pool.Exec(t.Context(), `INSERT INTO integrations
+		(id,org_id,project_id,name,integration_kind,settings,installed_by_user_id,state,
 		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
 		 provider_metadata,setup_revision,created_at,updated_at)
-		SELECT $2,org_id,project_id,$3,integration_type,settings,installed_by_user_id,state,
+		SELECT $2,org_id,project_id,$3,integration_kind,settings,installed_by_user_id,state,
 		 provider_tenant_id,provider_account_ref,credential_secret_id,provider_config,provider_identity,
 		 provider_metadata,setup_revision,now(),now()
-		FROM project_integrations WHERE id=$1`, template.ID, id, name)
+		FROM integrations WHERE id=$1`, template.ID, id, name)
 	require.NoError(t, err)
-	integration, err := storage.NewStore(pool).Integrations().GetProjectIntegration(t.Context(), template.ProjectID, id)
+	integration, err := storage.NewStore(pool).Integrations().GetIntegration(t.Context(), template.ProjectID, id)
 	require.NoError(t, err)
 	return integration
 }
@@ -423,9 +423,9 @@ func TestIntegrationInboxWorkerOnlyMarkedInboundFailuresAreTerminal(t *testing.T
 				require.Equal(t, 1, finalized, "duplicate intake must not finalize again")
 				require.Equal(t, 1, attempts, "terminal input must not retry")
 			} else {
-				require.Equal(t, integrationstore.IntegrationInboxPending, current.State)
+				require.Equal(t, integrationstore.IntegrationInboxQueued, current.State)
 				require.Nil(t, current.CompletedAt)
-				require.True(t, current.AvailableAt.After(time.Now()))
+				require.True(t, current.NextAttemptAt.After(time.Now()))
 				require.Zero(t, finalized)
 			}
 		})

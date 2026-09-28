@@ -275,16 +275,18 @@ func (q *Queries) UpdateActorDisplayName(ctx context.Context, arg UpdateActorDis
 }
 
 const upsertActorIdentity = `-- name: UpsertActorIdentity :one
-INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
+INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at)
 VALUES (
   $1, $2, $3,
   $4, NULLIF($5::text, ''),
-  transaction_timestamp(), transaction_timestamp()
+  $6::jsonb, transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id) DO UPDATE
 SET display_name = coalesce(excluded.display_name, actors.display_name),
+    metadata = actors.metadata || excluded.metadata,
     updated_at = excluded.updated_at
 WHERE coalesce(excluded.display_name, actors.display_name) IS DISTINCT FROM actors.display_name
+   OR actors.metadata || excluded.metadata IS DISTINCT FROM actors.metadata
 RETURNING id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
 `
 
@@ -294,6 +296,7 @@ type UpsertActorIdentityParams struct {
 	ProviderTenantID *string
 	ProviderUserID   string
 	DisplayName      string
+	Metadata         json.RawMessage
 }
 
 func (q *Queries) UpsertActorIdentity(ctx context.Context, arg UpsertActorIdentityParams) (Actor, error) {
@@ -303,6 +306,7 @@ func (q *Queries) UpsertActorIdentity(ctx context.Context, arg UpsertActorIdenti
 		arg.ProviderTenantID,
 		arg.ProviderUserID,
 		arg.DisplayName,
+		arg.Metadata,
 	)
 	var i Actor
 	err := row.Scan(

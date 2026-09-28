@@ -51,10 +51,10 @@ func (q *Queries) GetInteractionCallbackIntegrationID(ctx context.Context, arg G
 
 const getInteractionDestinationTarget = `-- name: GetInteractionDestinationTarget :one
 SELECT target.id, target.integration_id AS integration_id,
-       target.provider_ref_kind, target.provider_ref, target.display_name,
+       target.scope_kind, target.scope_ref, target.display_name,
        integration.state AS integration_state
 FROM integration_targets target
-JOIN project_integrations integration
+JOIN integrations integration
   ON integration.project_id = target.project_id AND integration.id = target.integration_id
 WHERE target.project_id = $1 AND target.agent_id = $2
   AND target.id = $3 AND target.deleted_at IS NULL
@@ -70,8 +70,8 @@ type GetInteractionDestinationTargetParams struct {
 type GetInteractionDestinationTargetRow struct {
 	ID               uuid.UUID
 	IntegrationID    uuid.UUID
-	ProviderRefKind  string
-	ProviderRef      string
+	ScopeKind        string
+	ScopeRef         string
 	DisplayName      string
 	IntegrationState string
 }
@@ -82,8 +82,8 @@ func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetIn
 	err := row.Scan(
 		&i.ID,
 		&i.IntegrationID,
-		&i.ProviderRefKind,
-		&i.ProviderRef,
+		&i.ScopeKind,
+		&i.ScopeRef,
 		&i.DisplayName,
 		&i.IntegrationState,
 	)
@@ -91,8 +91,8 @@ func (q *Queries) GetInteractionDestinationTarget(ctx context.Context, arg GetIn
 }
 
 const getInteractionSelection = `-- name: GetInteractionSelection :one
-SELECT current_config_id, integration_target_id,
-       coalesce(interaction_handler_key, '') AS handler_key
+SELECT current_config_id, interaction_target_id,
+       coalesce(interaction_handler_key, '') AS handler_key, interaction_auto_select
 FROM agents
 WHERE project_id = $1 AND id = $2
 `
@@ -103,15 +103,21 @@ type GetInteractionSelectionParams struct {
 }
 
 type GetInteractionSelectionRow struct {
-	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
-	HandlerKey          string
+	CurrentConfigID       uuid.UUID
+	InteractionTargetID   *uuid.UUID
+	HandlerKey            string
+	InteractionAutoSelect bool
 }
 
 func (q *Queries) GetInteractionSelection(ctx context.Context, arg GetInteractionSelectionParams) (GetInteractionSelectionRow, error) {
 	row := q.db.QueryRow(ctx, getInteractionSelection, arg.ProjectID, arg.AgentID)
 	var i GetInteractionSelectionRow
-	err := row.Scan(&i.CurrentConfigID, &i.IntegrationTargetID, &i.HandlerKey)
+	err := row.Scan(
+		&i.CurrentConfigID,
+		&i.InteractionTargetID,
+		&i.HandlerKey,
+		&i.InteractionAutoSelect,
+	)
 	return i, err
 }
 
@@ -151,14 +157,15 @@ func (q *Queries) RecordAgentInteractionPresentationReceipt(ctx context.Context,
 
 const setInteractionSelection = `-- name: SetInteractionSelection :execrows
 UPDATE agents
-SET integration_target_id = $1::uuid,
+SET interaction_target_id = $1::uuid,
     interaction_handler_key = $2::text,
+    interaction_auto_select = $3::boolean,
     updated_at = statement_timestamp()
-WHERE agents.project_id = $3 AND agents.id = $4
+WHERE agents.project_id = $4 AND agents.id = $5
   AND (($1::uuid IS NULL AND $2::text IS NULL)
     OR ($2::text <> '' AND EXISTS (
       SELECT 1 FROM integration_targets target
-      JOIN project_integrations integration
+      JOIN integrations integration
         ON integration.project_id = target.project_id
        AND integration.id = target.integration_id
       WHERE target.project_id = agents.project_id AND target.agent_id = agents.id
@@ -170,6 +177,7 @@ WHERE agents.project_id = $3 AND agents.id = $4
 type SetInteractionSelectionParams struct {
 	TargetID   *uuid.UUID
 	HandlerKey *string
+	AutoSelect bool
 	ProjectID  uuid.UUID
 	AgentID    uuid.UUID
 }
@@ -178,6 +186,7 @@ func (q *Queries) SetInteractionSelection(ctx context.Context, arg SetInteractio
 	result, err := q.db.Exec(ctx, setInteractionSelection,
 		arg.TargetID,
 		arg.HandlerKey,
+		arg.AutoSelect,
 		arg.ProjectID,
 		arg.AgentID,
 	)

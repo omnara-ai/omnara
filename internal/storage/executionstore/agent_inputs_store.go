@@ -593,6 +593,17 @@ func admitLockedAgentInputsAndOpenTurnTx(
 		admittedInputs = append(admittedInputs, agentInput)
 		admittedEvents = append(admittedEvents, event)
 	}
+	for i := len(admittedInputs) - 1; i >= 0; i-- {
+		if admittedInputs[i].InputKind != "content" {
+			continue
+		}
+		if _, err := SelectInteractionDestinationForOriginTx(
+			ctx, tx, input.ProjectID, input.AgentID, admittedInputs[i].IntegrationTargetID,
+		); err != nil {
+			return AdmittedAgentInputTurn{}, fmt.Errorf("select admitted input interaction destination: %w", err)
+		}
+		break
+	}
 	sequence, err := qtx.NextTurnSequence(
 		ctx,
 		dbsqlc.NextTurnSequenceParams{ProjectID: input.ProjectID, AgentID: input.AgentID},

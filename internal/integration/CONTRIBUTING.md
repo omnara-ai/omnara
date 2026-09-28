@@ -9,7 +9,7 @@ For user setup, see [Integrations](../../docs/integrations/overview.mdx); for de
 
 | Responsibility | Owner |
 | --- | --- |
-| Integration type, capabilities, addresses and schedule schema | `internal/integrationdefinition` |
+| Integration kind, capabilities, addresses and schedule schema | `internal/integrationdefinition` |
 | Tool schemas | `internal/toolcatalog/integration_tools.go` |
 | Config name resolution and pinned integration IDs | `internal/agentconfig`, `internal/agentconfigcompile` |
 | Tool execution and credential checks | `internal/harness/tools/integration_tools.go`, `integration_authority.go` and provider tool files |
@@ -22,9 +22,9 @@ For user setup, see [Integrations](../../docs/integrations/overview.mdx); for de
 
 Start with `slack_thread`, `discord_thread` or `github_pr`. Adding an operation to
 an existing integration usually touches its definition, tool schema and provider executor.
-A new integration type also needs the PostgreSQL constraint and OpenAPI enum updated,
+A new integration kind also needs the PostgreSQL constraint and OpenAPI enum updated,
 then regenerated contracts. Keep provider classification in the code registry;
-several integration types can share a transport without another database column.
+several integration kinds can share a transport without another database column.
 
 ## Identity and capabilities
 
@@ -94,10 +94,12 @@ a replacement for a stopped conversation.
 
 The shipped interaction handlers resolve the assigned conversation from integration
 state and accept empty arguments. Shared storage looks up its existing target;
-selection does not create targets or grants. Accepted eligible input
-origins select a handler; an ineligible origin clears the selection, while an input
-without an origin preserves it. The model can change the selection. Each question or approval
-captures its destination. Callback owner IDs only route the request: verify that
+selection does not create targets or grants. In automatic mode, the last new content
+input admitted to a turn selects its eligible handler; dashboard and other inputs
+without a handler clear that selection. Receipt alone does not retarget a running
+turn. The model can select a destination and pin it with `auto_select: false`;
+omitting that option preserves the current mode. Each question or approval captures
+its destination. Callback owner IDs only route the request: verify that
 owner's signature, live setup and captured conversation before resolving it.
 Presentation failures leave the interaction available through the dashboard/API.
 Notifications use the nonblocking background runner after creation commits, with
@@ -105,9 +107,13 @@ bounded in-memory retries. A full queue or restart can lose the external notific
 there is no durable presentation queue. Confirmed receipts support callbacks and
 dismissal, including sends that finish after cancellation.
 
-Use `executionstore.IntegrationActorParams` for sender attribution. Actors use `integration` and
-the saved integration's public ID, without a foreign key that would erase history on
-integration deletion. Authentication belongs to verified intake, not actor metadata.
+Use `executionstore.IntegrationActorParams` with the verified integration record for sender
+attribution. `Definition.ActorIdentity` owns the stable platform namespace: Slack workspace,
+Discord, or GitHub.com, paired with the platform user ID and scoped to the project. Different
+configured bots and integration kinds on the same platform share person identity; do not
+merge people across projects or platforms. Actors use `integration`, with a saved
+`metadata.source_label` for display and no integration foreign key. Identity and labels
+survive integration deletion. Authentication belongs to verified intake, not actor metadata.
 
 ## Events, retries and state
 
@@ -119,13 +125,22 @@ failures before durable intake; see the [operational guide](../../docs/integrati
 Signature verification and receipt insertion do not form an atomic credential
 rotation fence: a just-replaced key can still admit an already-verified request.
 
-Declare supported launch triggers and set `SubscribeOnLaunch` explicitly in the
-integration definition. Subscription capability and automatic launch attachment are
-independent choices; a capable integration may leave launch subscription disabled.
-Launchers still add the integration's declared tools and handler, preserving
-explicit config choices; tool scope does not change that composition policy.
-Provider event matching and a custom launcher must agree with the declaration,
-because early routing can discard events before the launcher runs.
+Define the complete settings JSON schema with optional `Definition.Settings`, and
+launcher matching/authorization with `Definition.Launcher`. The kernel stores JSON;
+it does not inspect profiles, triggers or scope fields. Follow the schedule schema
+pattern. `Matches` covers event and scope; `AuthorizeIntent` rechecks the exact
+resource and internal launch key at both planning passes. An absent launcher
+capability cannot authorize work. Set `SubscribeOnLaunch` independently.
+
+The current chat helpers take ordered distinct public profile IDs, offer exactly
+one selection, and resolve references at runtime. GitHub takes one profile and a
+trigger. No setup profile locks or reverse deletion guard exist. Core still enforces
+project/principal access, live resources, atomic admission and semantic idempotency.
+Missing profiles must not silently narrow a menu; report unavailable. Keep the
+internal launch key stable (`default` or `scheduled`), independent of profile order.
+Only true saved launch ownership suppresses a launcher; receive-only subscriptions
+must not. Shipped helpers are optional implementation reuse, not a mandatory settings
+contract for future integrations.
 
 Normalize provider events outside database transactions. Launcher policy decides
 which profiles or agents to select; the router freezes those decisions and config
@@ -175,7 +190,7 @@ Typed replacement codecs must reject unknown fields or preserve them explicitly.
 ## Schedules and provider differences
 
 Integrations publish schedule settings and validation; cron owns timing and durable
-handoff. Register scheduled handlers by integration type. Form hints such as
+handoff. Register scheduled handlers by integration kind. Form hints such as
 `x-omnara-control` only affect presentation; the JSON editor remains available.
 References in settings resolve when the integration handles an occurrence. Retries then
 use the frozen plan. Disabling a schedule stops future firings, not accepted work.

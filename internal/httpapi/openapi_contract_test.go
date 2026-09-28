@@ -152,7 +152,7 @@ func TestOpenAPIIntegrationIDsUseSharedSchemas(t *testing.T) {
 		}
 		t.Run(path, func(t *testing.T) {
 			for name, schema := range map[string]string{
-				"orgID": "OrganizationID", "projectID": "ProjectID", "integrationID": "ProjectIntegrationID",
+				"orgID": "OrganizationID", "projectID": "ProjectID", "integrationID": "IntegrationID",
 				"subscriptionID": "IntegrationSubscriptionID",
 			} {
 				if !strings.Contains(path, "{"+name+"}") {
@@ -410,8 +410,8 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
-		"ProjectIntegration.name":                                        "#/components/schemas/ProjectIntegrationName",
-		"SaveProjectIntegrationRequest.name":                             "#/components/schemas/ProjectIntegrationName",
+		"Integration.name":                                        "#/components/schemas/IntegrationName",
+		"SaveIntegrationRequest.name":                             "#/components/schemas/IntegrationName",
 		"Agent.name":                                                     "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                                    "#/components/schemas/AgentName",
 		"IntegrationSubscription.agent_name":                             "#/components/schemas/AgentName",
@@ -426,10 +426,10 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"CurrentUserIdentity.display_name":                               "",
 		"DiscoveredProviderModel.display_name":                           "",
 		"ExternalActorParams.display_name":                               "",
-		"ProjectIntegration.provider_agent_display_name":                 "#/components/schemas/IntegrationProviderDisplayName",
-		"ConfigureProjectIntegrationRequest.provider_agent_display_name": "#/components/schemas/IntegrationProviderDisplayName",
-		"ProjectIntegration.provider_config":                             "#/components/schemas/IntegrationProviderConfig",
-		"ConfigureProjectIntegrationRequest.provider_config":             "#/components/schemas/IntegrationProviderConfig",
+		"Integration.provider_agent_display_name":                 "#/components/schemas/IntegrationProviderDisplayName",
+		"ConfigureIntegrationRequest.provider_agent_display_name": "#/components/schemas/IntegrationProviderDisplayName",
+		"Integration.provider_config":                             "#/components/schemas/IntegrationProviderConfig",
+		"ConfigureIntegrationRequest.provider_config":             "#/components/schemas/IntegrationProviderConfig",
 		"IntegrationTarget.display_name":                                 "",
 		"MachinePool.provider_config":                                    "",
 		"MCPRegistryHeader.name":                                         "",

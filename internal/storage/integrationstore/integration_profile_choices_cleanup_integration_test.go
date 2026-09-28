@@ -39,9 +39,9 @@ func TestIntegrationProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *tes
 			require.NotEqual(t, choice.ID, recent.ID)
 			switch scope {
 			case "disconnected":
-				f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+				f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
 			case "integration":
-				require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integrationID))
+				require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID))
 			case "project":
 				f.exec(t, `UPDATE projects SET deleted_at=now() WHERE id=$1`, f.project)
 			case "organization":
@@ -69,30 +69,34 @@ func TestIntegrationProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *tes
 			require.NoError(t, tx.Rollback(f.ctx))
 			count, err = f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 1)
 			require.NoError(t, err)
-			if deleted {
-				require.EqualValues(t, 1, count, "failed work cannot retain payloads for deleted scopes")
-				_, err = f.store.GetIntegrationProfileChoice(f.ctx, f.project, f.integrationID, choice.ID)
-				require.ErrorIs(t, err, storeerr.ErrNotFound)
-			} else {
-				require.Zero(t, count)
-				require.Equal(t, choice, f.readChoice(t, choice.ID), "retained failures keep their source barrier")
-			}
+			require.Zero(t, count, "referencing receipts retain saved state even in deleted scopes")
+			require.Equal(t, choice, f.readChoice(t, choice.ID))
 			require.Equal(t, failed, f.read(t, failed.ID), "chooser cleanup leaves the retained terminal receipt intact")
 			count, err = f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 1)
 			require.NoError(t, err)
 			require.Zero(t, count)
-			if !deleted {
+			if deleted {
+				// A bounded cleanup can leave the chosen receipt behind; state
+				// cleanup must remain safe until that receipt's batch is removed.
+				for range 4 {
+					_, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
+					require.NoError(t, err)
+				}
+			} else {
 				f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '8 days' WHERE id=$1`, failed.ID)
 				count, err = f.store.CleanupTerminalIntegrationInbox(f.ctx, 7*24*time.Hour, 1)
 				require.NoError(t, err)
 				require.EqualValues(t, 1, count)
-				count, err = f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 1)
-				require.NoError(t, err)
-				require.EqualValues(t, 1, count, "receipt cleanup releases the old choice's source barrier")
-				_, err = f.store.GetIntegrationProfileChoice(f.ctx, f.project, f.integrationID, choice.ID)
-				require.ErrorIs(t, err, storeerr.ErrNotFound)
+			}
+			count, err = f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 1)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, count, "receipt deletion releases its saved state")
+			_, err = f.store.GetIntegrationProfileChoice(f.ctx, f.project, f.integrationID, choice.ID)
+			require.ErrorIs(t, err, storeerr.ErrNotFound)
+			if !deleted {
 				require.Equal(t, recent, f.readChoice(t, recent.ID))
 			}
+
 		})
 	}
 }
@@ -111,7 +115,7 @@ func TestIntegrationProfileChoiceCleanupSharesBatchAcrossExpiryAndDeletedScopes(
 	recent, _, err := f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), input)
 	require.NoError(t, err)
 	deleted := f.addIntegration(t, "deleted", f.integration.Settings).ID
-	require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, deleted))
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, deleted))
 	f.exec(t, `INSERT INTO integration_states
  (project_id,integration_id,kind,key,scope_kind,scope_ref,data,expires_at)
  SELECT project_id,$1,kind,key,scope_kind,scope_ref,data,expires_at

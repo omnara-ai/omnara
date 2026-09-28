@@ -138,7 +138,7 @@ func deleteProjectRelationshipsTx(
 	if err := q.DeleteProjectCronTriggers(ctx, dbsqlc.DeleteProjectCronTriggersParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project cron triggers: %w", err)
 	}
-	if err := q.DeleteProjectIntegrationsForProjectDeletion(ctx, dbsqlc.DeleteProjectIntegrationsForProjectDeletionParams{ProjectID: projectID}); err != nil {
+	if err := q.DeleteIntegrationsForProjectDeletion(ctx, dbsqlc.DeleteIntegrationsForProjectDeletionParams{ProjectID: projectID}); err != nil {
 		return fmt.Errorf("delete project integrations: %w", err)
 	}
 	if err := q.DeleteProjectSubscriptions(ctx, dbsqlc.DeleteProjectSubscriptionsParams{ProjectID: projectID}); err != nil {

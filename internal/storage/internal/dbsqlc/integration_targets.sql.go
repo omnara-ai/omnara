@@ -7,20 +7,19 @@ package dbsqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const getAgentConversationTarget = `-- name: GetAgentConversationTarget :one
-SELECT id, project_id, agent_id, integration_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot,
+SELECT id, project_id, agent_id, integration_id, scope_ref,
+       scope_kind, display_name, launch_key,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = $1 AND agent_id = $2
   AND integration_id = $3
-  AND provider_ref_kind = $4 AND provider_ref = $5
+  AND scope_kind = $4 AND scope_ref = $5
   AND deleted_at IS NULL
 `
 
@@ -33,18 +32,17 @@ type GetAgentConversationTargetParams struct {
 }
 
 type GetAgentConversationTargetRow struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	ProviderRef      string
-	ProviderRefKind  string
-	DisplayName      string
-	ProviderMetadata json.RawMessage
-	SelectionSlot    *string
-	DeletedAt        *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentConversationTargetParams) (GetAgentConversationTargetRow, error) {
@@ -61,11 +59,10 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.ProviderRef,
-		&i.ProviderRefKind,
+		&i.ScopeRef,
+		&i.ScopeKind,
 		&i.DisplayName,
-		&i.ProviderMetadata,
-		&i.SelectionSlot,
+		&i.LaunchKey,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -77,7 +74,7 @@ const getConversationDisplayName = `-- name: GetConversationDisplayName :one
 SELECT display_name
 FROM integration_targets
 WHERE project_id = $1 AND integration_id = $2
-  AND provider_ref_kind = $3 AND provider_ref = $4
+  AND scope_kind = $3 AND scope_ref = $4
   AND deleted_at IS NULL AND display_name <> ''
 ORDER BY updated_at DESC, id DESC
 LIMIT 1
@@ -103,13 +100,13 @@ func (q *Queries) GetConversationDisplayName(ctx context.Context, arg GetConvers
 }
 
 const getIntegrationSelectionTarget = `-- name: GetIntegrationSelectionTarget :one
-SELECT id, project_id, agent_id, integration_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot,
+SELECT id, project_id, agent_id, integration_id, scope_ref,
+       scope_kind, display_name, launch_key,
        deleted_at, created_at, updated_at
 FROM integration_targets
 WHERE project_id = $1 AND integration_id = $2
-  AND provider_ref_kind = $3 AND provider_ref = $4
-  AND selection_slot = $5
+  AND scope_kind = $3 AND scope_ref = $4
+  AND launch_key = $5
 `
 
 type GetIntegrationSelectionTargetParams struct {
@@ -121,18 +118,17 @@ type GetIntegrationSelectionTargetParams struct {
 }
 
 type GetIntegrationSelectionTargetRow struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	ProviderRef      string
-	ProviderRefKind  string
-	DisplayName      string
-	ProviderMetadata json.RawMessage
-	SelectionSlot    *string
-	DeletedAt        *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (q *Queries) GetIntegrationSelectionTarget(ctx context.Context, arg GetIntegrationSelectionTargetParams) (GetIntegrationSelectionTargetRow, error) {
@@ -149,11 +145,10 @@ func (q *Queries) GetIntegrationSelectionTarget(ctx context.Context, arg GetInte
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.ProviderRef,
-		&i.ProviderRefKind,
+		&i.ScopeRef,
+		&i.ScopeKind,
 		&i.DisplayName,
-		&i.ProviderMetadata,
-		&i.SelectionSlot,
+		&i.LaunchKey,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -163,13 +158,13 @@ func (q *Queries) GetIntegrationSelectionTarget(ctx context.Context, arg GetInte
 
 const insertIntegrationConversationTarget = `-- name: InsertIntegrationConversationTarget :one
 INSERT INTO integration_targets(project_id, agent_id, integration_id,
-    provider_ref_kind, provider_ref, display_name, selection_slot, created_at, updated_at)
+    scope_kind, scope_ref, display_name, launch_key, created_at, updated_at)
 VALUES ($1, $2, $3,
     $4, $5, $6, $7,
     transaction_timestamp(), transaction_timestamp())
 ON CONFLICT DO NOTHING
-RETURNING id, project_id, agent_id, integration_id, provider_ref,
-          provider_ref_kind, display_name, provider_metadata, selection_slot,
+RETURNING id, project_id, agent_id, integration_id, scope_ref,
+          scope_kind, display_name, launch_key,
           deleted_at, created_at, updated_at
 `
 
@@ -184,18 +179,17 @@ type InsertIntegrationConversationTargetParams struct {
 }
 
 type InsertIntegrationConversationTargetRow struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	ProviderRef      string
-	ProviderRefKind  string
-	DisplayName      string
-	ProviderMetadata json.RawMessage
-	SelectionSlot    *string
-	DeletedAt        *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (q *Queries) InsertIntegrationConversationTarget(ctx context.Context, arg InsertIntegrationConversationTargetParams) (InsertIntegrationConversationTargetRow, error) {
@@ -214,11 +208,10 @@ func (q *Queries) InsertIntegrationConversationTarget(ctx context.Context, arg I
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.ProviderRef,
-		&i.ProviderRefKind,
+		&i.ScopeRef,
+		&i.ScopeKind,
 		&i.DisplayName,
-		&i.ProviderMetadata,
-		&i.SelectionSlot,
+		&i.LaunchKey,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -227,13 +220,13 @@ func (q *Queries) InsertIntegrationConversationTarget(ctx context.Context, arg I
 }
 
 const listConversationSelections = `-- name: ListConversationSelections :many
-SELECT id, project_id, agent_id, integration_id, provider_ref,
-       provider_ref_kind, display_name, provider_metadata, selection_slot,
+SELECT id, project_id, agent_id, integration_id, scope_ref,
+       scope_kind, display_name, launch_key,
        deleted_at, created_at, updated_at
 FROM integration_targets target
 WHERE target.project_id = $1 AND target.integration_id = $2
-  AND target.provider_ref_kind = $3 AND target.provider_ref = $4
-  AND target.selection_slot IS NOT NULL
+  AND target.scope_kind = $3 AND target.scope_ref = $4
+  AND target.launch_key IS NOT NULL
 ORDER BY target.id
 `
 
@@ -245,18 +238,17 @@ type ListConversationSelectionsParams struct {
 }
 
 type ListConversationSelectionsRow struct {
-	ID               uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	ProviderRef      string
-	ProviderRefKind  string
-	DisplayName      string
-	ProviderMetadata json.RawMessage
-	SelectionSlot    *string
-	DeletedAt        *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Keep retired selections so a later comment cannot launch a replacement agent.
@@ -279,11 +271,10 @@ func (q *Queries) ListConversationSelections(ctx context.Context, arg ListConver
 			&i.ProjectID,
 			&i.AgentID,
 			&i.IntegrationID,
-			&i.ProviderRef,
-			&i.ProviderRefKind,
+			&i.ScopeRef,
+			&i.ScopeKind,
 			&i.DisplayName,
-			&i.ProviderMetadata,
-			&i.SelectionSlot,
+			&i.LaunchKey,
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,

@@ -1,18 +1,18 @@
-import type { IntegrationSubscription, ProjectIntegration } from '@omnara/sdk'
+import type { Integration, IntegrationSubscription } from '@omnara/sdk'
 import { z } from 'zod'
 
 const slackAddress = z.object({ channel_id: z.string(), thread_ts: z.string().optional() })
 const discordAddress = z.object({
-  channel_id: z.string(),
+  channel_id: z.string().optional(),
   thread_id: z.string().optional(),
 })
 const githubAddress = z.object({ repository_id: z.number(), pull_request: z.number() })
 
 export function integrationConversation(
-  integration: ProjectIntegration,
+  integration: Integration,
   subscription: IntegrationSubscription,
 ) {
-  switch (integration.integration_type) {
+  switch (integration.integration_kind) {
     case 'slack_thread': {
       const address = slackAddress.safeParse(subscription.conversation)
       if (!address.success) break
@@ -33,9 +33,10 @@ export function integrationConversation(
       const address = discordAddress.safeParse(subscription.conversation)
       if (!address.success) break
       const { channel_id, thread_id } = address.data
+      if (!channel_id && !thread_id) break
       // Indexed subscription addresses contain no guild ID for a Discord URL.
       return {
-        label: `Channel ${channel_id}${thread_id ? ` · Thread ${thread_id}` : ''}`,
+        label: thread_id ? `Thread ${thread_id}` : `Channel ${channel_id}`,
       }
     }
     case 'github_pr': {

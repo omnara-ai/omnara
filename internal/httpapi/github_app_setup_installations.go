@@ -14,10 +14,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 )
 
-func (s strictOpenAPIServer) InspectProjectIntegrationGitHubInstallations(
+func (s strictOpenAPIServer) InspectIntegrationGitHubInstallations(
 	ctx context.Context,
-	request openapi.InspectProjectIntegrationGitHubInstallationsRequestObject,
-) (openapi.InspectProjectIntegrationGitHubInstallationsResponseObject, error) {
+	request openapi.InspectIntegrationGitHubInstallationsRequestObject,
+) (openapi.InspectIntegrationGitHubInstallationsResponseObject, error) {
 	if err := authorizeOperationPrincipal(ctx, principalKindBrowserSession); err != nil {
 		return nil, err
 	}
@@ -25,14 +25,14 @@ func (s strictOpenAPIServer) InspectProjectIntegrationGitHubInstallations(
 	if err != nil {
 		return nil, err
 	}
-	integration, err := s.projectIntegrationForSetup(ctx, scope, request.IntegrationID)
+	integration, err := s.integrationForSetup(ctx, scope, request.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.server.validateGitHubGuidedSetup(); err != nil {
 		return nil, err
 	}
-	if integration.IntegrationType != integrationdefinition.GitHubPR {
+	if integration.IntegrationKind != integrationdefinition.GitHubPR {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "this integration does not support GitHub setup")
 	}
 	if request.Body == nil {
@@ -113,5 +113,5 @@ func (s strictOpenAPIServer) InspectProjectIntegrationGitHubInstallations(
 	if installations.NextPage > 0 {
 		response.NextPage = &installations.NextPage
 	}
-	return openapi.InspectProjectIntegrationGitHubInstallations200JSONResponse(response), nil
+	return openapi.InspectIntegrationGitHubInstallations200JSONResponse(response), nil
 }

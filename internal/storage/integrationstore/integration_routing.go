@@ -7,12 +7,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type IntegrationRoutingCandidates struct {
-	Launcher      *ProjectIntegrationRecord
+	Launcher      *IntegrationRecord
 	Subscriptions []IntegrationSubscriptionRecord
 	Selections    []IntegrationTargetRecord
 }
@@ -77,26 +78,20 @@ func (s *Store) IntegrationRoutingCandidatesTx(
 			unique = append(unique, scope)
 		}
 	}
-	integration, err := getProjectIntegration(ctx, dbsqlc.New(tx), projectID, integrationID)
+	integration, err := getIntegration(ctx, dbsqlc.New(tx), projectID, integrationID)
 	if err != nil {
 		return IntegrationRoutingCandidates{}, err
 	}
-	if integration.State != ProjectIntegrationStateActive {
+	if integration.State != IntegrationStateActive {
 		return IntegrationRoutingCandidates{}, storeerr.ErrUnauthorized
 	}
 	q := dbsqlc.New(tx)
 	result := IntegrationRoutingCandidates{}
-	if launcher := integration.Settings.Launcher; launcher != nil {
-		if integration.Provider == IntegrationProviderDiscord && launcher.ScopeKind == "" && launcher.ScopeRef == "" {
-			result.Launcher = &integration
-		}
-		for _, scope := range unique {
-			if launcher.ScopeKind == scope.Kind && launcher.ScopeRef == scope.Ref {
-				result.Launcher = &integration
-				break
-			}
-		}
+	if definition, ok := integrationdefinition.Lookup(integration.IntegrationKind); ok && definition.Launcher != nil {
+		// The definition evaluates settings and event scope before planning a launch.
+		result.Launcher = &integration
 	}
+
 	rawScopes, err := json.Marshal(unique)
 	if err != nil {
 		return IntegrationRoutingCandidates{}, err

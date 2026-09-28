@@ -31,9 +31,9 @@ func fanoutIntegrations(
 		string,
 		uuid.UUID,
 		int,
-	) ([]integrationstore.ProjectIntegrationRecord, error),
+	) ([]integrationstore.IntegrationRecord, error),
 	provider, tenant, account string,
-	accept func(context.Context, integrationstore.ProjectIntegrationRecord) (bool, error),
+	accept func(context.Context, integrationstore.IntegrationRecord) (bool, error),
 ) (integrationFanoutResult, error) {
 	var result integrationFanoutResult
 	var retryErr error
@@ -59,9 +59,9 @@ func fanoutIntegrations(
 			}
 			after = integration.ID
 			// Acknowledge disconnected integrations to avoid retries: https://docs.slack.dev/apis/events-api/#responding
-			eligible := integration.State == integrationstore.ProjectIntegrationStateActive ||
+			eligible := integration.State == integrationstore.IntegrationStateActive ||
 				(provider == integrationstore.IntegrationProviderSlack &&
-					integration.State == integrationstore.ProjectIntegrationStateDisconnected &&
+					integration.State == integrationstore.IntegrationStateDisconnected &&
 					integration.CredentialSecretID != uuid.Nil)
 			if !eligible || integration.DeletedAt != nil || integration.Provider != provider ||
 				integration.ProviderTenantID != tenant || integration.ProviderAccountRef != account {
@@ -85,7 +85,7 @@ func fanoutIntegrations(
 					"setup_revision", integration.SetupRevision, "stage", stage,
 					"retryable", retryable, "error_type", fmt.Sprintf("%T", err))
 				if retryable {
-					if integration.State == integrationstore.ProjectIntegrationStateDisconnected {
+					if integration.State == integrationstore.IntegrationStateDisconnected {
 						disconnectedVerificationErr = err
 					} else {
 						retryErr = err

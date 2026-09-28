@@ -32,7 +32,7 @@ type integrationInteractionFixture struct {
 	store                         *Store
 	user                          identitystore.UserRecord
 	profile                       executionstore.AgentProfileRecord
-	integration, otherIntegration integrationstore.ProjectIntegrationRecord
+	integration, otherIntegration integrationstore.IntegrationRecord
 	process                       processDaemonFixture
 	handlers                      map[string]agentconfig.IntegrationCapabilityCompiled
 	a, b                          integrationstore.IntegrationTargetRecord
@@ -89,7 +89,7 @@ func newIntegrationInteractionFixture(t *testing.T) integrationInteractionFixtur
 			f.store.Integrations().
 				AssignAgentIntegrationConversationTx(
 					ctx, tx, testProjectID, f.process.AgentID, target.IntegrationID,
-					integrationstore.ConversationAddress{Kind: target.ProviderRefKind, Ref: target.ProviderRef},
+					integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef},
 				),
 		)
 	}
@@ -135,20 +135,20 @@ func (f integrationInteractionFixture) target(
 func (f integrationInteractionFixture) createIntegration(
 	t *testing.T,
 	name string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	credential := createIntegrationCredential(t, f.ctx, f.store, testProjectID, f.user.ID, name)
 	secret, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, credential)
 	require.NoError(t, err)
-	integration, err := f.store.Integrations().CreateProjectIntegration(
+	integration, err := f.store.Integrations().CreateIntegration(
 		f.ctx,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: testOrgID, ProjectID: testProjectID, Name: name, IntegrationType: integrationdefinition.SlackThread,
+		integrationstore.SaveIntegrationInput{
+			OrgID: testOrgID, ProjectID: testProjectID, Name: name, IntegrationKind: integrationdefinition.SlackThread,
 		},
 	)
 	require.NoError(t, err)
 	integration, err = f.store.Integrations().
-		ConfigureProjectIntegration(f.ctx, integrationstore.ConfigureProjectIntegrationInput{
+		ConfigureIntegration(f.ctx, integrationstore.ConfigureIntegrationInput{
 			OrgID:                 testOrgID,
 			ProjectID:             testProjectID,
 			IntegrationID:         integration.ID,
@@ -210,9 +210,9 @@ func (f integrationInteractionFixture) change(
 func (f integrationInteractionFixture) disable(t *testing.T) {
 	t.Helper()
 	changed, err := f.store.Integrations().
-		DisconnectProjectIntegration(
+		DisconnectIntegration(
 			f.ctx,
-			integrationstore.DisconnectProjectIntegrationInput{
+			integrationstore.DisconnectIntegrationInput{
 				ProjectID:     testProjectID,
 				IntegrationID: f.integration.ID,
 			},
@@ -231,7 +231,7 @@ func (f integrationInteractionFixture) selectOrigin(
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
-	selection, err := f.store.Execution().SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, f.process.AgentID, targetID,
 	)
 	require.NoError(t, err)
@@ -248,6 +248,17 @@ func (f integrationInteractionFixture) selectOrigin(
 func (f integrationInteractionFixture) question(t *testing.T) executionstore.AgentInteractionRecord {
 	t.Helper()
 	id := createToolCallForProcessTest(t, f.ctx, f.process, uuid.NewString(), "ask_question")
+	return createQuestionInteractionForTest(t, f.ctx, f.process, id)
+}
+
+func (f integrationInteractionFixture) questionForOrigin(
+	t *testing.T, targetID uuid.UUID,
+) executionstore.AgentInteractionRecord {
+	t.Helper()
+	id := createToolCallForProcessTest(t, f.ctx, f.process, uuid.NewString(), "ask_question")
+	// The tool helper admits originless seed content. Set this fixture's explicit
+	// origin afterward; unsupported origins still clear and pinned choices still hold.
+	f.selectOrigin(t, targetID)
 	return createQuestionInteractionForTest(t, f.ctx, f.process, id)
 }
 
@@ -275,10 +286,10 @@ func (f integrationInteractionFixture) callback(
 			Resolution: interactionform.Resolution{
 				Answers: []interactionform.Answer{{OptionIndices: []int{0}}},
 			},
-			Actor: mustIntegrationActorParams(t, f.integration.ID, user),
+			Actor: mustIntegrationActorParams(t, f.integration, user),
 		},
-		IntegrationID: f.integration.ID, IntegrationType: integrationdefinition.SlackThread,
-		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
+		IntegrationID: f.integration.ID, IntegrationKind: integrationdefinition.SlackThread,
+		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ScopeRef},
 	}
 }
 
@@ -303,10 +314,12 @@ func TestIntegrationInteractionsSelectionAndCapturedQuestion(t *testing.T) {
 	f := newIntegrationInteractionFixture(t)
 	selection := f.selectOrigin(t, f.a.ID)
 	require.Equal(t, "chat", selection.HandlerKey)
-	require.Equal(t, selection, f.selectOrigin(t, uuid.Nil), "originless inputs preserve selection")
-	question := f.question(t)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, f.selectOrigin(t, uuid.Nil),
+		"originless inputs clear automatic selection")
+	question := f.questionForOrigin(t, f.a.ID)
 	destination, err := question.CapturedDestination()
 	require.NoError(t, err)
+	require.NotNil(t, destination)
 	require.Equal(t, f.a.ID, destination.IntegrationTargetID)
 	require.Equal(t, f.integration.ID, destination.IntegrationID)
 	require.Equal(t, "chat", destination.HandlerKey)
@@ -358,7 +371,7 @@ func TestIntegrationInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 	f.selectOrigin(t, f.a.ID)
 	f.handlers["overlap"] = f.handlers["chat"]
 	f.change(t, f.handlers)
-	require.Equal(t, executionstore.InteractionSelection{}, f.selectOrigin(t, f.a.ID),
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, f.selectOrigin(t, f.a.ID),
 		"ambiguous origin clears the selection")
 	toolID := createToolCallForProcessTest(
 		t,
@@ -380,9 +393,11 @@ func TestIntegrationInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 					HandlerKey: key,
 					Args:       json.RawMessage(`{}`),
 				},
-				executionstore.ToolCallCompletionInput{
-					Outcome:            executionstore.ToolResultOutcomeSucceeded,
-					ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+				func(executionstore.InteractionSelection) (executionstore.ToolCallCompletionInput, error) {
+					return executionstore.ToolCallCompletionInput{
+						Outcome:            executionstore.ToolResultOutcomeSucceeded,
+						ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+					}, nil
 				},
 			), nil
 		}
@@ -395,12 +410,12 @@ func TestIntegrationInteractionsOriginAmbiguityAndExplicitChoice(t *testing.T) {
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, "overlap", current.HandlerKey)
-	require.Equal(t, current, f.selectOrigin(t, uuid.Nil))
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, f.selectOrigin(t, uuid.Nil))
 	unsupported := f.target(t, f.process.AgentID, "C789:555.666")
-	require.Equal(t, executionstore.InteractionSelection{}, f.selectOrigin(t, unsupported.ID))
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, f.selectOrigin(t, unsupported.ID))
 	require.Empty(
 		t,
-		f.question(t).Destination,
+		f.questionForOrigin(t, unsupported.ID).Destination,
 		"unsupported origin does not fall back to a prior handler",
 	)
 }
@@ -413,8 +428,7 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 		t.Run(revoke, func(t *testing.T) {
 			t.Parallel()
 			f := newIntegrationInteractionFixture(t)
-			f.selectOrigin(t, f.a.ID)
-			question := f.question(t)
+			question := f.questionForOrigin(t, f.a.ID)
 			switch revoke {
 			case "handler removed":
 				delete(f.handlers, "chat")
@@ -451,7 +465,7 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 				f.ctx, tx, testProjectID, f.process.AgentID,
 			)
 			require.NoError(t, err)
-			require.Equal(t, executionstore.InteractionSelection{}, selection)
+			require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 			require.NoError(t, tx.Commit(f.ctx))
 			_, err = f.store.Execution().GetAgentInteractionForPresentation(
 				f.ctx, testProjectID, f.process.AgentID, question.ID,
@@ -475,18 +489,20 @@ func TestIntegrationInteractionsRevocationPreservesDashboardAndSnapshot(t *testi
 func TestIntegrationInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	for _, change := range []func(*executionstore.ResolveAgentInteractionFromHandlerInput){
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.IntegrationID = uuid.New() },
-		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Address.Ref = f.b.ProviderRef },
+		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Address.Ref = f.b.ScopeRef },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
-			v.IntegrationType = integrationdefinition.DiscordThread
+			v.IntegrationKind = integrationdefinition.DiscordThread
 		},
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.IntegrationTargetID = f.b.ID },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) { v.Actor = nil },
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
-			v.Actor.ProviderTenantID = "OTHER_APP"
+			v.Actor.ProviderTenantID = "slack:T_OTHER_WORKSPACE"
+		},
+		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
+			v.Actor.ProviderTenantID = "discord"
 		},
 		func(v *executionstore.ResolveAgentInteractionFromHandlerInput) {
 			v.Actor.Provider = executionstore.ActorProviderExternal
@@ -504,11 +520,13 @@ func TestIntegrationInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
-	_, err = f.store.Execution().SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, f.process.AgentID, foreign.ID,
 	)
-	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	require.NoError(t, tx.Rollback(f.ctx))
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
+		"another agent's target is ineligible and must clear automatic selection")
+	require.NoError(t, tx.Commit(f.ctx))
 	_, err = f.store.Execution().
 		GetAgentInteractionForPresentation(f.ctx, uuid.New(), f.process.AgentID, question.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
@@ -521,8 +539,7 @@ func TestIntegrationInteractionsIdentityCannotRedirectCapturedPrompt(t *testing.
 		t.Run(change, func(t *testing.T) {
 			t.Parallel()
 			f := newIntegrationInteractionFixture(t)
-			f.selectOrigin(t, f.a.ID)
-			question := f.question(t)
+			question := f.questionForOrigin(t, f.a.ID)
 			if change == "handler key reused" {
 				replacement := f.createIntegration(t, "replacement")
 				handler := f.handlers["chat"]
@@ -532,7 +549,7 @@ func TestIntegrationInteractionsIdentityCannotRedirectCapturedPrompt(t *testing.
 			} else {
 				_, err := f.store.pool.Exec(
 					f.ctx,
-					`UPDATE integration_targets SET provider_ref='C123:999.888' WHERE project_id=$1 AND agent_id=$2 AND id=$3`,
+					`UPDATE integration_targets SET scope_ref='C123:999.888' WHERE project_id=$1 AND agent_id=$2 AND id=$3`,
 					testProjectID,
 					f.process.AgentID,
 					f.a.ID,
@@ -558,7 +575,6 @@ func TestIntegrationInteractionsIdentityCannotRedirectCapturedPrompt(t *testing.
 func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrationGate(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
 	toolID := createToolCallForProcessTestWithPermission(
 		t,
 		f.ctx,
@@ -567,11 +583,12 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 		"run_command",
 		false,
 	)
+	f.selectOrigin(t, f.a.ID)
 	request, err := toolpermission.ParseRequest(permissionRequestForStorageTest(t, "run_command"))
 	require.NoError(t, err)
 	integrationGate := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(t, dbsqlc.New(integrationGate).LockProjectIntegrationLifecycleExclusive(f.ctx,
-		dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
+	require.NoError(t, dbsqlc.New(integrationGate).LockIntegrationLifecycleExclusive(f.ctx,
+		dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
 	selectionTx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	_, err = dbsqlc.New(selectionTx).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
@@ -585,7 +602,7 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 			})
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
-	_, err = f.store.Execution().SelectInteractionDestinationForOriginTx(
+	_, err = executionstore.SelectInteractionDestinationForOriginTx(
 		f.ctx, selectionTx, testProjectID, f.process.AgentID, f.b.ID,
 	)
 	require.NoError(t, err)
@@ -601,9 +618,9 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 	require.Equal(t, "other", destination.HandlerKey)
 	require.NoError(t, integrationGate.Rollback(f.ctx))
 	callback := f.callback(t, interaction, "U_OTHER_PARTICIPANT")
-	callback.Address.Ref = f.b.ProviderRef
+	callback.Address.Ref = f.b.ScopeRef
 	callback.IntegrationID = f.otherIntegration.ID
-	callback.Actor = mustIntegrationActorParams(t, f.otherIntegration.ID, "U_OTHER_PARTICIPANT")
+	callback.Actor = mustIntegrationActorParams(t, f.otherIntegration, "U_OTHER_PARTICIPANT")
 	callback.Resolution.Answers[0].OptionIndices = []int{toolpermission.AllowOptionIndex}
 	_, err = f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, callback)
 	require.NoError(t, err)
@@ -625,12 +642,11 @@ WHERE interaction.id=$1`, interaction.ID).Scan(&provider, &tenant, &sender))
 func TestIntegrationInteractionsCallbackFencesRevocationBeforeAgentLock(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	revocation := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	q := dbsqlc.New(revocation)
-	require.NoError(t, q.LockProjectIntegrationLifecycleExclusive(f.ctx,
-		dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
+	require.NoError(t, q.LockIntegrationLifecycleExclusive(f.ctx,
+		dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
 	doneInput := f.callback(t, question, "U_OTHER")
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().
@@ -640,7 +656,7 @@ func TestIntegrationInteractionsCallbackFencesRevocationBeforeAgentLock(t *testi
 		t,
 		f.ctx,
 		f.store.pool,
-		"LockProjectIntegrationLifecycleShared",
+		"LockIntegrationLifecycleShared",
 		1,
 	)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
@@ -651,7 +667,7 @@ func TestIntegrationInteractionsCallbackFencesRevocationBeforeAgentLock(t *testi
 	require.NoError(t, err, "callback must not hold the agent while waiting for its integration")
 	_, err = revocation.Exec(
 		f.ctx,
-		`UPDATE project_integrations SET state='disconnected' WHERE project_id=$1 AND id=$2`,
+		`UPDATE integrations SET state='disconnected' WHERE project_id=$1 AND id=$2`,
 		testProjectID,
 		f.integration.ID,
 	)
@@ -665,13 +681,12 @@ func TestIntegrationInteractionsCallbackFencesRevocationBeforeAgentLock(t *testi
 func TestIntegrationInteractionsCallbackFencesVerifiedSetupRevision(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	input := f.callback(t, question, "U_OTHER")
 	input.SourceSetupRevision = f.integration.SetupRevision
 	rotation := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(t, dbsqlc.New(rotation).LockProjectIntegrationLifecycleExclusive(f.ctx,
-		dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
+	require.NoError(t, dbsqlc.New(rotation).LockIntegrationLifecycleExclusive(f.ctx,
+		dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID}))
 	done := integrationdb.RunAsync(func() (executionstore.AgentInteractionRecord, error) {
 		return f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, input)
 	})
@@ -679,12 +694,12 @@ func TestIntegrationInteractionsCallbackFencesVerifiedSetupRevision(t *testing.T
 		t,
 		f.ctx,
 		f.store.pool,
-		"LockProjectIntegrationLifecycleShared",
+		"LockIntegrationLifecycleShared",
 		1,
 	)
 	_, err := rotation.Exec(
 		f.ctx,
-		`UPDATE project_integrations SET setup_revision=setup_revision+1 WHERE project_id=$1 AND id=$2`,
+		`UPDATE integrations SET setup_revision=setup_revision+1 WHERE project_id=$1 AND id=$2`,
 		testProjectID,
 		f.integration.ID,
 	)
@@ -693,7 +708,7 @@ func TestIntegrationInteractionsCallbackFencesVerifiedSetupRevision(t *testing.T
 	result := integrationdb.Await(t, done, "callback verified before integration setup revision changed")
 	require.ErrorIs(t, result.Err, storeerr.ErrUnauthorized)
 	require.Equal(t, executionstore.AgentInteractionStateOpen, f.read(t, question.ID).State)
-	current, err := f.store.Integrations().GetProjectIntegration(f.ctx, testProjectID, f.integration.ID)
+	current, err := f.store.Integrations().GetIntegration(f.ctx, testProjectID, f.integration.ID)
 	require.NoError(t, err)
 	input.SourceSetupRevision = current.SetupRevision
 	resolved, err := f.store.Execution().ResolveAgentInteractionFromHandler(f.ctx, input)
@@ -707,8 +722,7 @@ func TestIntegrationInteractionsReceiptCancelRaceAndLateConfirmation(t *testing.
 		t.Run(fmt.Sprintf("late=%v", late), func(t *testing.T) {
 			t.Parallel()
 			f := newIntegrationInteractionFixture(t)
-			f.selectOrigin(t, f.a.ID)
-			question := f.question(t)
+			question := f.questionForOrigin(t, f.a.ID)
 			input := receiptForIntegrationInteraction(t, question)
 			cancelInput := executionstore.CancelAgentInput{
 				ProjectID: testProjectID,
@@ -785,8 +799,7 @@ func TestIntegrationInteractionsReceiptCancelRaceAndLateConfirmation(t *testing.
 func TestIntegrationInteractionsConcurrentParticipantsResolveOnce(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	barrier := integrationdb.BeginTx(t, f.ctx, f.store.pool)
 	_, err := dbsqlc.New(barrier).LockAgentInProject(f.ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: testProjectID, ID: f.process.AgentID,
@@ -834,8 +847,7 @@ func TestIntegrationInteractionsConcurrentParticipantsResolveOnce(t *testing.T) 
 func TestIntegrationInteractionsCallbackRechecksConfigAfterAgentLockWait(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	definition := f.definition(t, "handler revoked while callback waits", nil)
 	config, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
 	require.NoError(t, err)
@@ -870,8 +882,7 @@ func TestIntegrationInteractionsCallbackRechecksConfigAfterAgentLockWait(t *test
 func TestIntegrationInteractionsDatabaseKeepsSnapshotAndLifecycleImmutable(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	for _, update := range []string{
 		`destination = '{}'`,
 		`destination = NULL`,
@@ -933,9 +944,9 @@ func TestInteractionSelectionDatabaseRequiresCompleteSelection(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
 	for _, fields := range []string{
-		"integration_target_id=$2",
+		"interaction_target_id=$2",
 		"interaction_handler_key='chat'",
-		"integration_target_id=$2, interaction_handler_key=''",
+		"interaction_target_id=$2, interaction_handler_key=''",
 	} {
 		args := []any{f.process.AgentID}
 		if strings.Contains(fields, "$2") {
@@ -949,5 +960,5 @@ func TestInteractionSelectionDatabaseRequiresCompleteSelection(t *testing.T) {
 	selection, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 }

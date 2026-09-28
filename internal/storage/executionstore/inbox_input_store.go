@@ -22,11 +22,11 @@ type InboxMessageSibling struct {
 }
 
 type InboxInputSlot struct {
-	Scope        integrationdefinition.Scope  `json:"scope"`
-	Files        []InboxPlannedFile           `json:"files,omitempty"`
-	Sibling      *InboxMessageSibling         `json:"sibling,omitempty"`
+	Scope        integrationdefinition.Scope  `json:"-"`
+	Files        []InboxPlannedFile           `json:"-"`
+	Sibling      *InboxMessageSibling         `json:"-"`
 	AgentID      uuid.UUID                    `json:"agent_id"`
-	Input        CreateAgentContentInputInput `json:"input"`
+	Input        CreateAgentContentInputInput `json:"-"`
 	ArtifactIDs  []uuid.UUID                  `json:"artifact_ids,omitempty"`
 	Subscription *InboxSubscriptionAuthority  `json:"subscription,omitempty"`
 }
@@ -183,11 +183,16 @@ func decodeInboxInputSlot(
 	if json.Unmarshal(raw, &slot) != nil || slot.AgentID == uuid.Nil {
 		return fail()
 	}
-	if (slot.Input.ProjectID != uuid.Nil && slot.Input.ProjectID != receipt.ProjectID) ||
-		(slot.Input.AgentID != uuid.Nil && slot.Input.AgentID != slot.AgentID) || slot.Input.Origin == nil ||
-		slot.Input.Origin.IntegrationID != receipt.IntegrationID || slot.Input.Actor == nil {
-		return fail()
+	message, err := inboxMessage(receipt)
+	if err != nil {
+		return slot, nil, err
 	}
+	content, files, err := message.RecipientContent(slot.ArtifactIDs)
+	if err != nil {
+		return slot, nil, err
+	}
+	slot.Scope, slot.Sibling, slot.Files = message.Scope, message.Sibling, files
+	slot.Input = message.input(receipt.ProjectID, slot.AgentID, content)
 	if slot.Sibling != nil &&
 		(slot.Sibling.Key == "" || slot.Sibling.Key == slot.Input.IdempotencyKey ||
 			len(slot.Sibling.Key) > 512 || len(slot.Sibling.AttachmentNotice) > 16384) {
@@ -195,7 +200,6 @@ func decodeInboxInputSlot(
 	}
 	slot.Input.ProjectID, slot.Input.AgentID = receipt.ProjectID, slot.AgentID
 	var blocks []CreateContentBlockInput
-	var err error
 	slot.Input, blocks, err = prepareOriginContentInput(slot.Input)
 	if err != nil {
 		return slot, nil, err

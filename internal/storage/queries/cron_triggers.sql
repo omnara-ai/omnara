@@ -29,7 +29,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
+           'state', receipt.state,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
            'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled integration action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
@@ -52,7 +52,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
+           'state', receipt.state,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
            'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled integration action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
@@ -76,7 +76,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
+           'state', receipt.state,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
            'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled integration action failed.' ELSE NULL END
        ) END::jsonb AS last_run,
@@ -123,7 +123,7 @@ SELECT trigger.id, project.org_id, trigger.project_id, trigger.name,
        trigger.delivery_mode, trigger.enabled, trigger.last_fired_at, trigger.next_fire_after,
        trigger.failure_report,
        CASE WHEN receipt.id IS NOT NULL THEN jsonb_build_object(
-           'state', CASE receipt.state WHEN 'pending' THEN 'queued' ELSE receipt.state END,
+           'state', receipt.state,
            'created_at', receipt.created_at, 'updated_at', receipt.updated_at,
            'failure_message', CASE WHEN receipt.state = 'failed' THEN 'Scheduled integration action failed.' ELSE NULL END
        ) END::jsonb AS last_run,

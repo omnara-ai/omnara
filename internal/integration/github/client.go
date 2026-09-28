@@ -148,6 +148,9 @@ func (c *appClient) do(
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
 		return nil, nil, errors.New("invalid github API path")
 	}
+	// GraphQL queries use POST but are safe to retry, unlike comment publication
+	// or other POST operations such as token issuance.
+	read := method == http.MethodGet || (method == http.MethodPost && path == "/graphql" && !mutation)
 	for attempt := range 3 {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -174,7 +177,7 @@ func (c *appClient) do(
 		if apiErr == nil {
 			return data, header, nil
 		}
-		if method != http.MethodGet || apiErr.Code != TransientFailure || attempt == 2 || ctx.Err() != nil {
+		if !read || apiErr.Code != TransientFailure || attempt == 2 || ctx.Err() != nil {
 			return nil, nil, apiErr
 		}
 		delay := max(time.Duration(attempt+1)*100*time.Millisecond, apiErr.RetryAfter)

@@ -1,11 +1,11 @@
-import { useOmnaraClient, useProjectIntegrationOAuthCompletion } from '@omnara/react'
+import { useIntegrationOAuthCompletion,useOmnaraClient } from '@omnara/react'
 import {
   ApiError,
-  type GetProjectIntegrationError,
+  type GetIntegrationError,
+  type Integration,
   type IntegrationOAuthSetup,
-  type ProjectIntegration,
 } from '@omnara/sdk'
-import { listProjectIntegrationsQueryKey } from '@omnara/sdk/tanstack'
+import { listIntegrationsQueryKey } from '@omnara/sdk/tanstack'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
@@ -14,12 +14,12 @@ import { slackOAuthErrorDescription } from './slackOAuthErrors'
 export function useSlackAuthorization(
   orgId: string,
   projectId: string,
-  onConnected?: (integration: ProjectIntegration) => void,
+  onConnected?: (integration: Integration) => void,
 ) {
   const client = useOmnaraClient()
   const cache = useQueryClient()
   const [pending, setPending] = useState<IntegrationOAuthSetup>()
-  const completion = useProjectIntegrationOAuthCompletion(
+  const completion = useIntegrationOAuthCompletion(
     orgId,
     projectId,
     pending?.integration_id ?? '',
@@ -36,7 +36,7 @@ export function useSlackAuthorization(
     let canceled = false
     void cache
       .invalidateQueries({
-        queryKey: listProjectIntegrationsQueryKey({
+        queryKey: listIntegrationsQueryKey({
           path: { orgID: orgId, projectID: projectId },
           client,
         }),
@@ -62,8 +62,8 @@ export function useSlackAuthorization(
 function authorizationFailure(
   pending: IntegrationOAuthSetup | undefined,
   connected: boolean,
-  integration: ProjectIntegration | undefined,
-  error: GetProjectIntegrationError | null,
+  integration: Integration | undefined,
+  error: GetIntegrationError | null,
 ) {
   if (!pending || connected) return ''
   if (error instanceof ApiError && error.status === 404)

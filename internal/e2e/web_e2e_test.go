@@ -240,12 +240,12 @@ func webE2EVerifiedIntegrationSetupFixture(
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /integrations/{integration_id}/setup", func(w http.ResponseWriter, r *http.Request) {
-		integrationID, err := publicid.Decode(publicid.KindProjectIntegration, r.PathValue("integration_id"))
+		integrationID, err := publicid.Decode(publicid.KindIntegration, r.PathValue("integration_id"))
 		if err != nil {
 			http.Error(w, "invalid integration id", http.StatusBadRequest)
 			return
 		}
-		integration, err := store.Integrations().GetProjectIntegration(r.Context(), projectID, integrationID)
+		integration, err := store.Integrations().GetIntegration(r.Context(), projectID, integrationID)
 		if err != nil || integration.OrgID != orgID {
 			http.Error(
 				w,
@@ -254,7 +254,7 @@ func webE2EVerifiedIntegrationSetupFixture(
 			)
 			return
 		}
-		var body openapi.ConfigureProjectIntegrationRequest
+		var body openapi.ConfigureIntegrationRequest
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&body) != nil ||
@@ -279,7 +279,7 @@ func webE2EVerifiedIntegrationSetupFixture(
 			http.Error(w, "browser credential was not persisted", http.StatusBadRequest)
 			return
 		}
-		input := integrationstore.ConfigureProjectIntegrationInput{
+		input := integrationstore.ConfigureIntegrationInput{
 			OrgID: orgID, ProjectID: projectID, IntegrationID: integration.ID,
 			ExpectedSetupRevision: body.ExpectedSetupRevision, InstalledByUserID: userID,
 			Provider: integration.Provider, ProviderTenantID: "111", ProviderAccountRef: "222",
@@ -304,13 +304,13 @@ func webE2EVerifiedIntegrationSetupFixture(
 		if body.ProviderAgentDisplayName != nil {
 			input.ProviderAgentDisplayName = *body.ProviderAgentDisplayName
 		}
-		configured, err := store.Integrations().ConfigureProjectIntegration(r.Context(), input)
+		configured, err := store.Integrations().ConfigureIntegration(r.Context(), input)
 		if err != nil {
 			t.Errorf("configure verified browser integration: %v", err)
 			http.Error(w, "could not configure verified integration", http.StatusInternalServerError)
 			return
 		}
-		id, err := publicid.Encode(publicid.KindProjectIntegration, configured.ID)
+		id, err := publicid.Encode(publicid.KindIntegration, configured.ID)
 		if err != nil {
 			t.Errorf("encode provider fixture integration: %v", err)
 			http.Error(w, "could not encode integration", http.StatusInternalServerError)
@@ -342,14 +342,14 @@ func TestWebE2EVerifiedIntegrationSetupFixture(t *testing.T) {
 		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindOrganization, project.orgID)),
 		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindProject, project.projectID)),
 		uuid.MustParse(mustDecodeServiceE2EPublicID(t, publicid.KindUser, project.adminUserID)))
-	for _, test := range []struct{ provider, integrationType string }{
+	for _, test := range []struct{ provider, integrationKind string }{
 		{"github", "github_pr"},
 		{"discord", "discord_thread"},
 	} {
 		provider := test.provider
 		integration := env.requestJSON(t, ctx, http.MethodPost, project.projectPath+"/integrations", map[string]any{
 			"name":             "browser-" + provider,
-			"integration_type": test.integrationType,
+			"integration_kind": test.integrationKind,
 			"settings":         map[string]any{},
 		}, "", project.adminToken, http.StatusCreated)
 		integrationID := testutil.RequireType[string](t, integration["id"])
@@ -415,7 +415,7 @@ func TestWebE2EVerifiedIntegrationSetupFixture(t *testing.T) {
 			http.StatusOK,
 		)
 		require.Equal(t, "active", configured["state"])
-		require.Equal(t, test.integrationType, configured["integration_type"])
+		require.Equal(t, test.integrationKind, configured["integration_kind"])
 		require.Equal(t, secret["id"], configured["credential_secret_id"])
 		require.Equal(t, float64(2), configured["setup_revision"])
 		if provider == "discord" {

@@ -40,7 +40,7 @@ type capturedHTTPFixture struct {
 	handler        http.Handler
 	project        publicHTTPProject
 	pool           *pgxpool.Pool
-	integration    integrationstore.ProjectIntegrationRecord
+	integration    integrationstore.IntegrationRecord
 	callbackStatus int
 	signingSecret  string
 	record         executionstore.AgentInteractionRecord
@@ -166,7 +166,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	material := secrets.Material(secrets.GenericMaterial{Value: "test-bot-token"})
-	tenant, account, ref := "100", "200", "300:301"
+	tenant, account, ref := "100", "200", "301"
 	config := json.RawMessage(`{"public_key":"` + hex.EncodeToString(publicKey) + `"}`)
 	identity := json.RawMessage(`{}`)
 	if provider == "slack" {
@@ -191,19 +191,19 @@ func newCapturedHTTPFixtureWithDismiss(
 		Actor:          httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	integrationTypes := integrationdefinition.IntegrationTypesForProvider(provider)
-	require.Len(t, integrationTypes, 1)
-	integrationType := integrationdefinition.Type(integrationTypes[0])
-	integration, err := project.Store.Integrations().CreateProjectIntegration(
+	integrationKinds := integrationdefinition.IntegrationKindsForProvider(provider)
+	require.Len(t, integrationKinds, 1)
+	integrationKind := integrationdefinition.Kind(integrationKinds[0])
+	integration, err := project.Store.Integrations().CreateIntegration(
 		ctx,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationType: integrationType,
+		integrationstore.SaveIntegrationInput{
+			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationKind: integrationKind,
 		},
 	)
 	require.NoError(t, err)
-	integration, err = project.Store.Integrations().ConfigureProjectIntegration(
+	integration, err = project.Store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                 project.OrgUUID,
 			ProjectID:             project.ProjectUUID,
 			IntegrationID:         integration.ID,
@@ -235,7 +235,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		project,
 		"captured",
 		"json",
-		projectIntegrationHTTPJSON(t, source),
+		integrationHTTPJSON(t, source),
 		project.AdminToken,
 		201,
 	)
@@ -255,7 +255,7 @@ func newCapturedHTTPFixtureWithDismiss(
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(
+		integrationHTTPJSON(
 			t,
 			map[string]any{"profile": profile["id"], "config": configID},
 		),
@@ -285,12 +285,12 @@ func newCapturedHTTPFixtureWithDismiss(
 			Address: address,
 		})
 	require.NoError(t, err)
-	selection, err := project.Store.Execution().SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
 		ctx, tx, project.ProjectUUID, agentUUID, origin.ID,
 	)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InteractionSelection{
-		HandlerKey: "support", IntegrationTargetID: origin.ID,
+		AutoSelect: true, HandlerKey: "support", IntegrationTargetID: origin.ID,
 	}, selection)
 	require.NoError(t, tx.Commit(ctx))
 	requestJSONWithHeaders(
@@ -298,13 +298,15 @@ func newCapturedHTTPFixtureWithDismiss(
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/agents/"+agentID+"/inputs",
-		projectIntegrationHTTPJSON(t, map[string]any{
+		integrationHTTPJSON(t, map[string]any{
 			"content_blocks": []any{map[string]any{"type": "text", "text": "Please respond"}},
 		}),
 		"input",
 		201,
 		authHeaders(project.AdminToken),
 	)
+	// The dashboard input clears automatic selection on admission. The explicit
+	// setter in this tool batch selects support again before the prompt is captured.
 	record := createInteractionForAgent(
 		t,
 		ctx,
@@ -321,7 +323,7 @@ func newCapturedHTTPFixtureWithDismiss(
 	destination, err := record.CapturedDestination()
 	require.NoError(t, err)
 	require.Equal(t, &executionstore.InteractionDestination{
-		IntegrationType: integrationType, HandlerKey: "support", IntegrationID: integration.ID,
+		IntegrationKind: integrationKind, HandlerKey: "support", IntegrationID: integration.ID,
 		IntegrationTargetID: origin.ID, Address: address,
 	}, destination)
 	presenter := integrationruntime.InteractionPresenter{Store: project.Store, HTTPClient: client}
@@ -382,7 +384,7 @@ func (f capturedHTTPFixture) discordRequest(
 	for _, change := range changes {
 		change(payload)
 	}
-	body := projectIntegrationHTTPJSON(t, payload)
+	body := integrationHTTPJSON(t, payload)
 	timestamp := fmt.Sprint(time.Now().Unix())
 	headers := map[string]string{"Content-Type": "application/json", "X-Signature-Timestamp": timestamp,
 		"X-Signature-Ed25519": hex.EncodeToString(ed25519.Sign(f.key, []byte(timestamp+body)))}
@@ -434,7 +436,7 @@ func (f capturedHTTPFixture) slackRequest(
 	for _, change := range changes {
 		change(payload)
 	}
-	values.Set("payload", projectIntegrationHTTPJSON(t, payload))
+	values.Set("payload", integrationHTTPJSON(t, payload))
 	body = values.Encode()
 	secret := f.signingSecret
 	if secret == "" {
@@ -545,7 +547,7 @@ func TestCapturedInteractionCallbacksResolveVerifiedSurface(t *testing.T) {
 				require.Equal(t, executionstore.AgentInteractionStateOpen, current.State)
 				_, err = f.pool.Exec(
 					t.Context(),
-					"UPDATE agents SET integration_target_id=NULL, interaction_handler_key=NULL WHERE id=$1",
+					"UPDATE agents SET interaction_target_id=NULL, interaction_handler_key=NULL WHERE id=$1",
 					f.record.AgentID,
 				)
 				require.NoError(t, err)
@@ -601,7 +603,7 @@ func assertCapturedPermissionPrompt(t *testing.T, f capturedHTTPFixture) {
 		require.JSONEq(t, `[
 			{"text":{"type":"plain_text","text":"Allow"},"value":"0"},
 			{"text":{"type":"plain_text","text":"Deny"},"value":"1"}
-		]`, projectIntegrationHTTPJSON(t, element["options"]))
+		]`, integrationHTTPJSON(t, element["options"]))
 		actions := testutil.RequireType[map[string]any](t, blocks[2])
 		buttons := testutil.RequireType[[]any](t, actions["elements"])
 		require.Len(t, buttons, 1)
@@ -611,7 +613,7 @@ func assertCapturedPermissionPrompt(t *testing.T, f capturedHTTPFixture) {
 		return
 	}
 	var rows []discord.ActionRow
-	require.NoError(t, json.Unmarshal([]byte(projectIntegrationHTTPJSON(t, prompt["components"])), &rows))
+	require.NoError(t, json.Unmarshal([]byte(integrationHTTPJSON(t, prompt["components"])), &rows))
 	require.Len(t, rows, 1)
 	require.Len(t, rows[0].Components, 2)
 	require.NotContains(t, prompt["content"], "optional text")
@@ -645,8 +647,8 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 				f := newCapturedHTTPFixture(t, provider, "question")
 				switch revoked {
 				case "integration":
-					_, err := f.project.Store.Integrations().DisconnectProjectIntegration(
-						t.Context(), integrationstore.DisconnectProjectIntegrationInput{
+					_, err := f.project.Store.Integrations().DisconnectIntegration(
+						t.Context(), integrationstore.DisconnectIntegrationInput{
 							ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
 							ExpectedSetupRevision: &f.integration.SetupRevision,
 						},
@@ -729,7 +731,7 @@ INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, d
 VALUES ($1, 'integration', $2, 'U_OTHER', 'Grace Hopper', now(), now())
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id)
 DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.updated_at`,
-		f.project.ProjectUUID, testPublicID(t, publicid.KindProjectIntegration, f.integration.ID))
+		f.project.ProjectUUID, "slack:T123")
 	require.NoError(t, err)
 	require.Equal(t, "resolved", f.slackRequest(t, false)["ok"])
 	actorID, inputKind := interactionResolvingInput(
@@ -744,12 +746,15 @@ DO UPDATE SET display_name = excluded.display_name, updated_at = excluded.update
 	actor, err := f.project.Store.Execution().GetActor(t.Context(), f.project.ProjectUUID, actorID)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.ActorProviderIntegration, actor.Provider)
+	require.Equal(t, "slack:T123", actor.ProviderTenantID)
+	require.Equal(t, "Grace Hopper", actor.DisplayName)
+	require.JSONEq(t, `{"source_label":"Slack"}`, string(actor.Metadata))
 	require.Equal(t, "U_OTHER", actor.ProviderUserID)
 	names, err := f.project.Store.Execution().ListActorDisplayNames(
 		t.Context(),
 		f.project.ProjectUUID,
 		executionstore.ActorProviderIntegration,
-		testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
+		"slack:T123",
 		[]string{"U_OTHER"},
 	)
 	require.NoError(t, err)
@@ -913,18 +918,22 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, destination)
 				captured := testutil.RequireType[map[string]any](t, listed["destination"])
+				conversation := map[string]any{"thread_id": "301"}
+				if provider == "slack" {
+					conversation = map[string]any{"channel_id": "C123", "thread_ts": "111.222"}
+				}
 				require.Equal(t, map[string]any{
-					"integration_type":      string(f.integration.IntegrationType),
+					"integration_kind":      string(f.integration.IntegrationKind),
 					"handler_key":           "support",
-					"integration_id":        testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
+					"integration_id":        testPublicID(t, publicid.KindIntegration, f.integration.ID),
 					"integration_target_id": testPublicID(t, publicid.KindIntegrationTarget, destination.IntegrationTargetID),
-					"address":               map[string]any{"kind": destination.Address.Kind, "ref": destination.Address.Ref},
+					"conversation":          conversation,
 				}, captured)
 				var receipt map[string]any
 				require.NoError(t, json.Unmarshal(f.record.PresentationReceipt, &receipt))
 				require.Equal(t, receipt, listed["presentation_receipt"])
-				require.NotContains(t, projectIntegrationHTTPJSON(t, listed), f.integration.ID.String())
-				require.NotContains(t, projectIntegrationHTTPJSON(t, listed), destination.IntegrationTargetID.String())
+				require.NotContains(t, integrationHTTPJSON(t, listed), f.integration.ID.String())
+				require.NotContains(t, integrationHTTPJSON(t, listed), destination.IntegrationTargetID.String())
 				headers := apiHeaders
 				if surface == "dashboard" {
 					headers = browserHeaders
@@ -934,7 +943,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 					`{"answers":[{"option_indices":[1],"text":"Please wait"}]}`, "", http.StatusOK, headers)
 				require.Equal(t, "resolved", resolved["state"])
 				require.JSONEq(t, `{"answers":[{"option_indices":[1],"text":"Please wait"}]}`,
-					projectIntegrationHTTPJSON(t, resolved["resolution"]))
+					integrationHTTPJSON(t, resolved["resolution"]))
 				require.Equal(t, captured, resolved["destination"])
 				require.Equal(t, receipt, resolved["presentation_receipt"])
 				require.Equal(t, resolved, read(apiHeaders))
@@ -949,7 +958,7 @@ func TestCapturedInteractionPublicVisibilityAndResolution(t *testing.T) {
 func capturedSiblingIntegration(
 	t *testing.T,
 	f capturedHTTPFixture,
-) (integrationstore.ProjectIntegrationRecord, ed25519.PrivateKey) {
+) (integrationstore.IntegrationRecord, ed25519.PrivateKey) {
 	t.Helper()
 	publicKey, key, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
@@ -965,19 +974,19 @@ func capturedSiblingIntegration(
 		Name: "sibling", Material: material, Actor: httpUserPrincipal(f.project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	integration, err := f.project.Store.Integrations().CreateProjectIntegration(
+	integration, err := f.project.Store.Integrations().CreateIntegration(
 		t.Context(),
-		integrationstore.SaveProjectIntegrationInput{
+		integrationstore.SaveIntegrationInput{
 			OrgID:           f.integration.OrgID,
 			ProjectID:       f.integration.ProjectID,
 			Name:            "sibling",
-			IntegrationType: f.integration.IntegrationType,
+			IntegrationKind: f.integration.IntegrationKind,
 		},
 	)
 	require.NoError(t, err)
-	integration, err = f.project.Store.Integrations().ConfigureProjectIntegration(
+	integration, err = f.project.Store.Integrations().ConfigureIntegration(
 		t.Context(),
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                 f.integration.OrgID,
 			ProjectID:             f.integration.ProjectID,
 			IntegrationID:         integration.ID,
@@ -1033,9 +1042,9 @@ func TestCapturedDiscordPingAcceptsAnyActiveSharedIntegration(t *testing.T) {
 	t.Parallel()
 	f := newCapturedHTTPFixture(t, "discord", "question")
 	_, key := capturedSiblingIntegration(t, f)
-	_, err := f.project.Store.Integrations().DisconnectProjectIntegration(
+	_, err := f.project.Store.Integrations().DisconnectIntegration(
 		t.Context(),
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID: f.integration.ProjectID, IntegrationID: f.integration.ID,
 		},
 	)
@@ -1068,12 +1077,11 @@ func (f capturedHTTPFixture) runtimeLockID(t *testing.T) uuid.UUID {
 func TestCapturedDiscordThreadGuardsPromptAndRuntimeMessage(t *testing.T) {
 	for _, operation := range []string{"prompt", "runtime"} {
 		for _, resource := range []struct {
-			name, parent, guild string
-			kind                int
+			name, guild string
+			kind        int
 		}{
-			{"wrong_parent", "999", "500", 11},
-			{"not_a_thread", "300", "500", 0},
-			{"missing_guild", "300", "", 11},
+			{"not_a_thread", "500", 0},
+			{"missing_guild", "", 11},
 		} {
 			t.Run(operation+"/"+resource.name, func(t *testing.T) {
 				var sends atomic.Int32
@@ -1082,7 +1090,7 @@ func TestCapturedDiscordThreadGuardsPromptAndRuntimeMessage(t *testing.T) {
 					providerOverride: func(w http.ResponseWriter, r *http.Request) bool {
 						if r.URL.Path == "/api/v10/channels/301" {
 							writeJSON(w, http.StatusOK, map[string]any{
-								"id": "301", "parent_id": resource.parent,
+								"id": "301", "parent_id": "300",
 								"guild_id": resource.guild, "type": resource.kind,
 							})
 							return true
@@ -1328,7 +1336,7 @@ func TestCapturedDiscordRuntimeMessageWithoutInteractionKey(t *testing.T) {
 	})
 	_, err := f.pool.Exec(
 		t.Context(),
-		`UPDATE project_integrations SET provider_config='{}' WHERE id=$1`,
+		`UPDATE integrations SET provider_config='{}' WHERE id=$1`,
 		f.integration.ID,
 	)
 	require.NoError(t, err)
@@ -1371,7 +1379,7 @@ func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
 	})
 	_, err := f.pool.Exec(
 		t.Context(),
-		`UPDATE project_integrations SET provider_config='{}' WHERE id=$1`,
+		`UPDATE integrations SET provider_config='{}' WHERE id=$1`,
 		f.integration.ID,
 	)
 	require.NoError(t, err)

@@ -26,36 +26,27 @@ type IntegrationEvent struct {
 	Actor                  executionstore.ActorParams            `json:"actor"`
 	DeliveryMode           executionstore.AgentInputDeliveryMode `json:"delivery_mode,omitempty"`
 	CancelOpenInteractions bool                                  `json:"cancel_open_interactions,omitempty"`
-	Files                  []IntegrationPlannedFile              `json:"files,omitempty"`
+	Files                  []executionstore.InboxPlannedFile     `json:"files,omitempty"`
 }
 
 type IntegrationLaunchIntent struct {
 	IntegrationID uuid.UUID `json:"integration_id"`
 	Slot          string    `json:"slot"`
 	ProfileID     uuid.UUID `json:"profile_id,omitempty"`
-	AgentID       uuid.UUID `json:"agent_id,omitempty"`
-}
-
-type IntegrationPlannedFile struct {
-	ArtifactID     uuid.UUID                       `json:"artifact_id"`
-	ProviderFileID string                          `json:"provider_file_id"`
-	Expected       *artifactstore.PreparedArtifact `json:"expected,omitempty"`
 }
 
 type IntegrationInboxSlot struct {
-	Sibling      *executionstore.InboxMessageSibling          `json:"sibling,omitempty"`
-	Scope        integrationdefinition.Scope                  `json:"scope"`
-	EventOrder   int                                          `json:"event_order"`
-	Selection    *integrationstore.InboxIntegrationSelection  `json:"selection,omitempty"`
-	AgentID      uuid.UUID                                    `json:"agent_id"`
-	Launch       *executionstore.InboxLaunchPlan              `json:"launch,omitempty"`
-	Input        *executionstore.CreateAgentContentInputInput `json:"input,omitempty"`
-	ArtifactIDs  []uuid.UUID                                  `json:"artifact_ids,omitempty"`
-	Files        []IntegrationPlannedFile                     `json:"files,omitempty"`
-	Subscription *executionstore.InboxSubscriptionAuthority   `json:"subscription,omitempty"`
+	Selection    *integrationstore.InboxIntegrationSelection `json:"selection,omitempty"`
+	AgentID      uuid.UUID                                   `json:"agent_id"`
+	Launch       *executionstore.InboxLaunchPlan             `json:"launch,omitempty"`
+	ArtifactIDs  []uuid.UUID                                 `json:"artifact_ids,omitempty"`
+	Subscription *executionstore.InboxSubscriptionAuthority  `json:"subscription,omitempty"`
 }
 
-type IntegrationInboxPlan map[string]IntegrationInboxSlot
+type IntegrationInboxPlan struct {
+	Message    *executionstore.InboxMessage    `json:"message,omitempty"`
+	Recipients map[string]IntegrationInboxSlot `json:"recipients"`
+}
 
 type IntegrationExecutionStore interface {
 	CreateAgentConfig(context.Context, executionstore.CreateAgentConfigInput) (executionstore.AgentConfigRecord, error)
@@ -86,8 +77,11 @@ type IntegrationExecutionStore interface {
 }
 
 type IntegrationRoutingStore interface {
+	GetIntegrationProfileChoice(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+	) (integrationstore.IntegrationProfileChoiceRecord, error)
 	GetIntegrationInbox(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationInboxRecord, error)
-	GetProjectIntegrationByID(context.Context, uuid.UUID) (integrationstore.ProjectIntegrationRecord, error)
+	GetIntegrationByID(context.Context, uuid.UUID) (integrationstore.IntegrationRecord, error)
 	WithIntegrationInboxLease(
 		context.Context,
 		integrationstore.IntegrationInboxLease,
@@ -132,24 +126,16 @@ func (r *IntegrationRouter) Admit(
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]string, 0, len(plan))
-	for key := range plan {
+	keys := make([]string, 0, len(plan.Recipients))
+	for key := range plan.Recipients {
 		keys = append(keys, key)
 	}
-	slices.SortFunc(keys, func(a, b string) int {
-		if plan[a].EventOrder < plan[b].EventOrder {
-			return -1
-		}
-		if plan[a].EventOrder > plan[b].EventOrder {
-			return 1
-		}
-		return slices.Compare([]byte(a), []byte(b))
-	})
+	slices.Sort(keys)
 	results := make([]IntegrationSlotAdmission, 0, len(keys))
 	var failures []error
 	for _, key := range keys {
 		result := IntegrationSlotAdmission{Slot: key}
-		if plan[key].Launch != nil {
+		if plan.Recipients[key].Launch != nil {
 			value, admitErr := r.execution.AdmitInboxLaunchSlot(ctx, lease, key, prepared[key])
 			err = admitErr
 			result.Launch = &value
@@ -186,13 +172,13 @@ func (r *IntegrationRouter) Admit(
 
 func decodeIntegrationInboxPlan(raw json.RawMessage) (IntegrationInboxPlan, error) {
 	var plan IntegrationInboxPlan
-	if json.Unmarshal(raw, &plan) != nil || plan == nil {
-		return nil, fmt.Errorf("receipt has no valid frozen integration plan")
+	if json.Unmarshal(raw, &plan) != nil || plan.Recipients == nil {
+		return IntegrationInboxPlan{}, fmt.Errorf("receipt has no valid frozen integration plan")
 	}
-	for key, slot := range plan {
-		if slot.AgentID == uuid.Nil || (slot.Launch == nil) == (slot.Input == nil) ||
-			(slot.Selection != nil) != (slot.Launch != nil) {
-			return nil, fmt.Errorf("invalid integration plan slot %s", key)
+	for key, slot := range plan.Recipients {
+		if plan.Message == nil || slot.AgentID == uuid.Nil ||
+			(slot.Selection != nil) != (slot.Launch != nil) || (slot.Launch != nil && slot.Subscription != nil) {
+			return IntegrationInboxPlan{}, fmt.Errorf("invalid integration plan slot %s", key)
 		}
 	}
 	return plan, nil

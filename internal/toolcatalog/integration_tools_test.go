@@ -11,26 +11,26 @@ import (
 )
 
 func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
-	for _, integrationType := range []integrationdefinition.Type{
+	for _, integrationKind := range []integrationdefinition.Kind{
 		integrationdefinition.SlackThread, integrationdefinition.DiscordThread, integrationdefinition.GitHubPR,
 	} {
-		definition, ok := integrationdefinition.Lookup(integrationType)
+		definition, ok := integrationdefinition.Lookup(integrationKind)
 		require.True(t, ok)
 		for _, operation := range definition.Tools {
-			t.Run(string(definition.IntegrationType)+"/"+operation, func(t *testing.T) {
-				tool, ok := LookupIntegrationTool(definition.IntegrationType, operation)
+			t.Run(string(definition.IntegrationKind)+"/"+operation, func(t *testing.T) {
+				tool, ok := LookupIntegrationTool(definition.IntegrationKind, operation)
 				require.True(t, ok)
 				require.Equal(t, IntegrationToolScopeConversation, tool.Scope)
 				action := `{}`
 				switch operation {
 				case IntegrationOperationPostMessage:
 					action = `{"text":"hello"}`
-					if definition.IntegrationType == integrationdefinition.DiscordThread {
+					if definition.IntegrationKind == integrationdefinition.DiscordThread {
 						action = `{"content":"hello"}`
 					}
 				case IntegrationOperationDiscussionComment:
 					action = `{"body":"review"}`
-				case IntegrationOperationInlineComment:
+				case IntegrationOperationReviewComment:
 					action = `{"body":"review","commit_id":"abc","path":"a.go","line":7,"side":"RIGHT"}`
 				case IntegrationOperationReply:
 					action = `{"body":"reply","comment_id":9007199254740995}`
@@ -58,7 +58,7 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 
 func TestIntegrationToolScopeDeclaration(t *testing.T) {
 	tool := IntegrationToolDefinition{
-		IntegrationType: integrationdefinition.SlackThread,
+		IntegrationKind: integrationdefinition.SlackThread,
 		Operation:       "lookup",
 		Description:     "Look up a user.",
 	}
@@ -83,8 +83,8 @@ func TestIntegrationToolScopeDeclaration(t *testing.T) {
 func TestDeclaredIntegrationToolsHaveValidSchemas(t *testing.T) {
 	for _, integration := range integrationdefinition.All() {
 		for _, operation := range integration.Tools {
-			t.Run(string(integration.IntegrationType)+"/"+operation, func(t *testing.T) {
-				tool, found := LookupIntegrationTool(integration.IntegrationType, operation)
+			t.Run(string(integration.IntegrationKind)+"/"+operation, func(t *testing.T) {
+				tool, found := LookupIntegrationTool(integration.IntegrationKind, operation)
 				require.True(t, found)
 				_, err := tool.Prepare(IntegrationToolName("example", operation))
 				require.NoError(t, err)
@@ -93,13 +93,35 @@ func TestDeclaredIntegrationToolsHaveValidSchemas(t *testing.T) {
 	}
 }
 
-func TestInlineCommentDependentArguments(t *testing.T) {
-	tool, _ := LookupIntegrationTool(integrationdefinition.GitHubPR, IntegrationOperationInlineComment)
-	entry, err := tool.Prepare(IntegrationToolName("reviews", IntegrationOperationInlineComment))
+func TestReviewCommentDependentArguments(t *testing.T) {
+	tool, _ := LookupIntegrationTool(integrationdefinition.GitHubPR, IntegrationOperationReviewComment)
+	entry, err := tool.Prepare(IntegrationToolName("reviews", IntegrationOperationReviewComment))
 	require.NoError(t, err)
 	base := `{"body":"review","commit_id":"abc","path":"a.go","line":7,"side":"RIGHT","start_line":3}`
 	require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(base)))
 	require.NoError(t, jsonschema.Validate(entry.InputSchema, []byte(base[:len(base)-1]+`,"start_side":"RIGHT"}`)))
+}
+
+func TestGitHubReviewReadSchemas(t *testing.T) {
+	tool, found := LookupIntegrationTool(integrationdefinition.GitHubPR, IntegrationOperationRead)
+	require.True(t, found)
+	entry, err := tool.Prepare(IntegrationToolName("reviews", IntegrationOperationRead))
+	require.NoError(t, err)
+	for _, input := range []string{
+		`{"section":"reviews","page":2,"limit":100}`,
+		`{"section":"review_threads","cursor":"opaque-cursor","limit":1}`,
+	} {
+		require.NoError(t, jsonschema.Validate(entry.InputSchema, []byte(input)))
+	}
+	for _, input := range []string{
+		`{"section":"reviews","page":0}`,
+		`{"section":"review_threads","limit":101}`,
+		`{"section":"review_threads","cursor":""}`,
+		`{"section":"review_threads","repository_id":42}`,
+		`{"section":"pending_reviews"}`,
+	} {
+		require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(input)))
+	}
 }
 
 func TestIntegrationToolPreparationKeepsCachedDefinitionsIsolated(t *testing.T) {

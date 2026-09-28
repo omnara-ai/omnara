@@ -75,6 +75,21 @@ export {
   useIntegrationSubscriptions,
 } from './domains/integration-subscriptions'
 export {
+  useConfigureIntegration,
+  useCreateIntegration,
+  useCreateIntegrationGitHubSetup,
+  useCreateIntegrationOAuthSetup,
+  useCreateIntegrationSlackSetup,
+  useDeleteIntegration,
+  useDisconnectIntegration,
+  useInspectIntegrationGitHubInstallations,
+  useIntegration,
+  useIntegrationDefinitions,
+  useIntegrationOAuthCompletion,
+  useIntegrations,
+  useUpdateIntegration,
+} from './domains/integrations'
+export {
   useAcceptInvitation,
   useDeclineInvitation,
   usePendingInvitations,
@@ -199,21 +214,6 @@ export {
   useUpdateProjectMachinePoolGrant,
   useUpdateProjectModelGrant,
 } from './domains/project-grants'
-export {
-  useConfigureProjectIntegration,
-  useCreateProjectIntegration,
-  useCreateProjectIntegrationGitHubSetup,
-  useCreateProjectIntegrationOAuthSetup,
-  useCreateProjectIntegrationSlackSetup,
-  useDeleteProjectIntegration,
-  useDisconnectProjectIntegration,
-  useInspectProjectIntegrationGitHubInstallations,
-  useIntegrationDefinitions,
-  useProjectIntegration,
-  useProjectIntegrationOAuthCompletion,
-  useProjectIntegrations,
-  useUpdateProjectIntegration,
-} from './domains/project-integrations'
 export { useCreateProject, useProjects, useVisibleProjectsList } from './domains/projects'
 export {
   type ProjectAvailableSecretListFilters,

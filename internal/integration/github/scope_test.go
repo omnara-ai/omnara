@@ -39,12 +39,20 @@ func scopeOperations() []struct {
 			_, err := c.ListReviewComments(ctx, s, PageOptions{})
 			return err
 		}},
+		{"reviews", func(ctx context.Context, c *Client, s Scope) error {
+			_, err := c.ListReviews(ctx, s, PageOptions{})
+			return err
+		}},
+		{"review-threads", func(ctx context.Context, c *Client, s Scope) error {
+			_, err := c.ListReviewThreads(ctx, s, ReviewThreadsOptions{})
+			return err
+		}},
 		{"discussion-post", func(ctx context.Context, c *Client, s Scope) error {
 			_, err := c.CreateDiscussionComment(ctx, s, "comment")
 			return err
 		}},
-		{"inline", func(ctx context.Context, c *Client, s Scope) error {
-			_, err := c.CreateInlineComment(ctx, s, InlineCommentArgs{
+		{"review-comment", func(ctx context.Context, c *Client, s Scope) error {
+			_, err := c.CreateReviewComment(ctx, s, ReviewCommentArgs{
 				Body: "inline", CommitID: "commit", Path: "file.go", Line: 1, Side: "RIGHT",
 			})
 			return err
@@ -100,6 +108,13 @@ func TestRepositoryIdentitySurvivesRenameAndNameReuse(t *testing.T) {
 			return
 		}
 		prPath := pullPath(repository, 42)
+		if r.URL.Path == "/graphql" {
+			if r.Method != http.MethodPost || grant != "read" {
+				t.Error("thread query did not use read permissions")
+			}
+			json.NewEncoder(w).Encode(testReviewThreadsResponse([]any{}, false, nil))
+			return
+		}
 		if r.Method == http.MethodPost {
 			if grant != "write" || (r.URL.Path != repoPath(repository)+"/issues/42/comments" &&
 				r.URL.Path != prPath+"/comments" && r.URL.Path != prPath+"/comments/7/replies") {
@@ -113,9 +128,9 @@ func TestRepositoryIdentitySurvivesRenameAndNameReuse(t *testing.T) {
 			if r.Header.Get("Accept") == "application/vnd.github.diff" {
 				fmt.Fprint(w, "diff --git a/file b/file\n+change\n")
 			} else {
-				json.NewEncoder(w).Encode(PullRequest{ID: 7, Number: 42, Base: Branch{Repo: &repository}})
+				json.NewEncoder(w).Encode(PullRequest{ID: 7, NodeID: "PR_7", Number: 42, Base: Branch{Repo: &repository}})
 			}
-		case prPath + "/files", prPath + "/comments", repoPath(repository) + "/issues/42/comments":
+		case prPath + "/files", prPath + "/comments", prPath + "/reviews", repoPath(repository) + "/issues/42/comments":
 			fmt.Fprint(w, `[]`)
 		case repoPath(repository) + "/pulls/comments/8":
 			fmt.Fprintf(w, `{"id":8,"in_reply_to_id":7,"pull_request_url":%q}`, "http://"+r.Host+prPath)

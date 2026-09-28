@@ -18,7 +18,7 @@ func TestIntegrationSetupNameConflictAndMalformedID(t *testing.T) {
 	t.Parallel()
 	f := newProjectSlackOAuthFixture(t, nil)
 	conflict := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/integrations",
-		`{"name":"slack","integration_type":"slack_thread","settings":{}}`, "", http.StatusConflict,
+		`{"name":"slack","integration_kind":"slack_thread","settings":{}}`, "", http.StatusConflict,
 		authHeaders(f.project.AdminToken))
 	require.Equal(t, "conflict", conflict["code"])
 	require.Equal(t, `conflict: an integration named "slack" already exists in this project; choose a different name`,
@@ -35,7 +35,7 @@ func TestIntegrationSetupNameConflictAndMalformedID(t *testing.T) {
 	for _, suffix := range []string{"/setup", "/disconnect"} {
 		body := ""
 		if suffix == "/setup" {
-			body = projectIntegrationHTTPJSON(t, map[string]any{
+			body = integrationHTTPJSON(t, map[string]any{
 				"expected_setup_revision": 1,
 				"credential_secret_id":    testPublicID(t, publicid.KindSecret, f.integration.ID),
 				"provider_tenant_id":      "T123", "provider_account_ref": "A123",
@@ -54,7 +54,7 @@ func TestIntegrationOAuthDeletedCallbackUsesOnlyValidatedSealedReturnTo(t *testi
 	t.Parallel()
 	f := newProjectSlackOAuthFixture(t, nil)
 	token, _ := f.start(t, false)
-	require.NoError(t, f.project.Store.Integrations().DeleteProjectIntegration(t.Context(),
+	require.NoError(t, f.project.Store.Integrations().DeleteIntegration(t.Context(),
 		f.project.OrgUUID, f.project.ProjectUUID, f.integration.ID))
 	other := bootstrapPublicHTTPProject(t, f.handler, "other-oauth-user")
 	for _, tc := range []struct {

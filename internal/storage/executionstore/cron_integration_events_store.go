@@ -84,7 +84,7 @@ func (s *Store) CreateCronTriggerIntegrationEvent(ctx context.Context, claimed C
 	if unavailable != "" {
 		return false, skipCronIntegrationEventTx(ctx, tx, q, claimed, unavailable)
 	}
-	integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, current.Target.ID)
+	integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, current.Target.ID)
 	if err != nil {
 		return false, err
 	}

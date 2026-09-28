@@ -70,7 +70,7 @@ func TestScheduledLaunchPinsCurrentConfigBeforePublication(t *testing.T) {
 				if duringPublication {
 					expected = f.profile.CurrentConfigID
 				}
-				require.Equal(t, expected, plan["scheduled"].Launch.DerivedBaseConfigID)
+				require.Equal(t, expected, plan.Recipients["scheduled"].Launch.DerivedBaseConfigID)
 				config, found, err := f.store.Execution().GetAgentConfig(t.Context(), f.ids.ProjectID,
 					results[0].Launch.Agent.CurrentConfigID)
 				require.NoError(t, err)
@@ -97,15 +97,15 @@ func TestScheduledLaunchRetryReusesConfigFrozenBeforeProfileEdit(t *testing.T) {
 			require.ErrorContains(t, worker.consume(t.Context(), receipt), "thread preparation unavailable")
 			frozen, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
 			require.NoError(t, err)
-			require.Equal(t, integrationstore.IntegrationInboxPending, frozen.State)
+			require.Equal(t, integrationstore.IntegrationInboxQueued, frozen.State)
 			plan, err := decodeIntegrationInboxPlan(frozen.Plan)
 			require.NoError(t, err)
-			require.Equal(t, before.ID, plan["scheduled"].Launch.DerivedBaseConfigID)
+			require.Equal(t, before.ID, plan.Recipients["scheduled"].Launch.DerivedBaseConfigID)
 			after := f.retargetProfile("This later edit must not change the frozen launch")
 			require.NotEqual(t, before.ID, after.ID)
 			f.provider.ensure = nil
 			_, err = f.pool.Exec(t.Context(),
-				`UPDATE integration_inbox SET available_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
+				`UPDATE integration_inbox SET next_attempt_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
 			require.NoError(t, err)
 			resumed := f.claim()
 			require.Equal(t, receipt.ID, resumed.ID)
@@ -113,7 +113,7 @@ func TestScheduledLaunchRetryReusesConfigFrozenBeforeProfileEdit(t *testing.T) {
 			results, err := f.consumer.Consume(t.Context(), resumed.Lease())
 			require.NoError(t, err)
 			require.Len(t, results, 1)
-			require.Equal(t, plan["scheduled"].AgentID, results[0].Launch.Agent.ID)
+			require.Equal(t, plan.Recipients["scheduled"].AgentID, results[0].Launch.Agent.ID)
 			config, found, err := f.store.Execution().GetAgentConfig(t.Context(), f.ids.ProjectID,
 				results[0].Launch.Agent.CurrentConfigID)
 			require.NoError(t, err)

@@ -156,7 +156,7 @@ func TestPublicActorPutRejectsProviderField(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "actor-put-provider")
-	for _, provider := range []string{"omnara", "slack", "external", ""} {
+	for _, provider := range []string{"omnara", "integration", "external", ""} {
 		requestJSONWithHeaders(
 			t,
 			handler,

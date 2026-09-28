@@ -109,11 +109,11 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	integrations := []uuid.UUID{firstIntegration}
 	for i := 1; i < 16; i++ {
 		id := uuid.Must(uuid.NewV7())
-		_, err := pool.Exec(ctx, `INSERT INTO project_integrations
+		_, err := pool.Exec(ctx, `INSERT INTO integrations
  (id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
-  name,integration_type,credential_secret_id,created_at,updated_at)
+  name,integration_kind,credential_secret_id,created_at,updated_at)
  SELECT $2,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
-  $3,integration_type,credential_secret_id,now(),now() FROM project_integrations WHERE id=$1`,
+  $3,integration_kind,credential_secret_id,now(),now() FROM integrations WHERE id=$1`,
 			firstIntegration, id, fmt.Sprintf("load-%d", i))
 		require.NoError(t, err)
 		integrations = append(integrations, id)
@@ -260,7 +260,7 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 		group.Go(func() error {
 			for phase.Err() == nil && workCtx.Err() == nil {
 				begin := time.Now()
-				_, err := inbox.GetProjectIntegration(workCtx, ids.ProjectID, firstIntegration)
+				_, err := inbox.GetIntegration(workCtx, ids.ProjectID, firstIntegration)
 				if err != nil {
 					return err
 				}
@@ -317,7 +317,7 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	require.NoError(t, pool.QueryRow(ctx, `SELECT
  count(*) FILTER (WHERE receipt_key LIKE 'live:%'),
  count(*) FILTER (WHERE receipt_key LIKE 'live:%' AND state='completed'),
- count(*) FILTER (WHERE receipt_key LIKE 'live:%' AND state='pending'),
+ count(*) FILTER (WHERE receipt_key LIKE 'live:%' AND state='queued'),
  count(*) FILTER (WHERE state='completed' AND completed_at<now()-interval '7 days')
  FROM integration_inbox`).Scan(&live, &done, &pending, &expired))
 	require.Equal(t, admission.count(), live)

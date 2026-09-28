@@ -8,6 +8,7 @@ import (
 )
 
 const IntegrationProfileChoiceMinRetention = 7 * 24 * time.Hour
+const IntegrationProfileChoiceMaxEventBytes = 256 * 1024
 
 type IntegrationProfileChoiceOption struct {
 	Key       string    `json:"key"`
@@ -44,6 +45,5 @@ type ChooseIntegrationProfileInput struct {
 	Key, ActorID                 string
 	MessageChannelID, MessageID  string
 	SourceChoiceRevision         int64
-	Events                       json.RawMessage
 	SourceSetupRevision          int64
 }

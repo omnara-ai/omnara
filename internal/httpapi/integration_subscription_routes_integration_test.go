@@ -17,7 +17,7 @@ import (
 func subscriptionHTTPAgent(t *testing.T, f integrationLaunchHTTPFixture) string {
 	t.Helper()
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, map[string]any{"config": f.configID, "name": "Subscribed agent"}),
+		integrationHTTPJSON(t, map[string]any{"config": f.configID, "name": "Subscribed agent"}),
 		"subscription-agent", http.StatusCreated, authHeaders(f.project.AdminToken))
 	return testutil.RequireType[string](t, testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 }
@@ -37,7 +37,7 @@ func TestIntegrationSubscriptionsHTTPPaginationAndDetachReplay(t *testing.T) {
 	create := func(channel string) map[string]any {
 		t.Helper()
 		return requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
-			projectIntegrationHTTPJSON(t, subscriptionHTTPBody(agentID, channel)), "", http.StatusCreated, headers)
+			integrationHTTPJSON(t, subscriptionHTTPBody(agentID, channel)), "", http.StatusCreated, headers)
 	}
 	first := create("C100")
 	firstID := testutil.RequireType[string](t, first["id"])
@@ -102,7 +102,7 @@ func TestIntegrationSubscriptionsHTTPPermissionsAndIsolation(t *testing.T) {
 	f := newIntegrationLaunchHTTPFixture(t, "subscription-auth")
 	agentID := subscriptionHTTPAgent(t, f)
 	path := f.project.ProjectPath + "/integrations/" + f.integrationID + "/subscriptions"
-	body := projectIntegrationHTTPJSON(t, subscriptionHTTPBody(agentID, "C123"))
+	body := integrationHTTPJSON(t, subscriptionHTTPBody(agentID, "C123"))
 	headers := authHeaders(f.project.AdminToken)
 	attached := requestJSONWithHeaders(t, f.handler, http.MethodPost, path, body, "", http.StatusCreated, headers)
 	id := testutil.RequireType[string](t, attached["id"])
@@ -125,9 +125,9 @@ func TestIntegrationSubscriptionsHTTPPermissionsAndIsolation(t *testing.T) {
 			requestJSONWithHeaders(t, f.handler, op.method, op.path, op.body, "", status, authHeaders(token))
 		}
 	}
-	other := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
+	other := integrationHTTPSecondProject(t, f.handler, f.project)
 	otherIntegration := createSlackHTTPIntegration(t, t.Context(), other, "AOTHER", "TOTHER", "Other")
-	otherIntegrationID := testPublicID(t, publicid.KindProjectIntegration, otherIntegration.ID)
+	otherIntegrationID := testPublicID(t, publicid.KindIntegration, otherIntegration.ID)
 	otherPath := other.ProjectPath + "/integrations/" + otherIntegrationID + "/subscriptions"
 	for _, prefix := range []string{
 		other.ProjectPath + "/integrations/" + f.integrationID, f.project.ProjectPath + "/integrations/" + otherIntegrationID,
@@ -146,7 +146,7 @@ func TestIntegrationSubscriptionsHTTPPermissionsAndIsolation(t *testing.T) {
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, otherPath, body, "", http.StatusNotFound, headers)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, otherPath+"/"+id, "", "", http.StatusNoContent, headers)
 	secondIntegration := createSlackHTTPIntegration(t, t.Context(), f.project, "ASECOND", "TSECOND", "Second")
-	secondID := testPublicID(t, publicid.KindProjectIntegration, secondIntegration.ID)
+	secondID := testPublicID(t, publicid.KindIntegration, secondIntegration.ID)
 	secondPath := f.project.ProjectPath + "/integrations/" + secondID + "/subscriptions"
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, secondPath+"/"+id, "", "", http.StatusNoContent, headers)
 	for _, emptyPath := range []string{otherPath, secondPath} {
@@ -184,7 +184,7 @@ func TestIntegrationSubscriptionsHTTPValidation(t *testing.T) {
 		body := subscriptionHTTPBody(agentID, "C123")
 		tc.edit(body)
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
-			projectIntegrationHTTPJSON(t, body), "", http.StatusBadRequest, headers)
+			integrationHTTPJSON(t, body), "", http.StatusBadRequest, headers)
 	}
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path+"/"+agentID, "", "", http.StatusBadRequest, headers)
 	requestJSONWithHeaders(t, f.handler, http.MethodGet,
@@ -197,27 +197,27 @@ func TestIntegrationSubscriptionsHTTPGitHubAddressReplay(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "subscription-github-address")
 	config := createPublicHTTPAgentConfig(t, f.handler, f.project, "subscription-config", "json",
-		projectIntegrationHTTPJSON(t, projectIntegrationHTTPSource(nil)), f.project.AdminToken, http.StatusCreated)
+		integrationHTTPJSON(t, integrationHTTPSource(nil)), f.project.AdminToken, http.StatusCreated)
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, map[string]any{"config": config["id"]}),
+		integrationHTTPJSON(t, map[string]any{"config": config["id"]}),
 		"subscription-agent", http.StatusCreated, authHeaders(f.project.AdminToken))
 	agentID := testutil.RequireType[map[string]any](t, launched["agent"])["id"]
 	path := f.project.ProjectPath +
-		"/integrations/" + testPublicID(t, publicid.KindProjectIntegration, f.integration.ID) + "/subscriptions"
+		"/integrations/" + testPublicID(t, publicid.KindIntegration, f.integration.ID) + "/subscriptions"
 	body := map[string]any{
 		"agent_id":     agentID,
 		"conversation": map[string]any{"repository_id": int64(9007199254740993), "pull_request": 42},
 	}
 	headers := authHeaders(f.project.AdminToken)
 	first := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
-		projectIntegrationHTTPJSON(t, body), "", http.StatusCreated, headers)
+		integrationHTTPJSON(t, body), "", http.StatusCreated, headers)
 	var ref string
 	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
 		`SELECT scope_ref FROM integration_subscriptions WHERE id=$1`,
 		mustPublicHTTPID(t, publicid.KindIntegrationSubscription, testutil.RequireType[string](t, first["id"]))).Scan(&ref))
 	require.Equal(t, "9007199254740993#42", ref, "provider IDs must not round through float64 at the HTTP boundary")
 	duplicate := requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
-		projectIntegrationHTTPJSON(t, body), "", http.StatusCreated, headers)
+		integrationHTTPJSON(t, body), "", http.StatusCreated, headers)
 	require.Equal(t, first, duplicate)
 	page := requestJSONWithHeaders(t, f.handler, http.MethodGet, path, "", "", http.StatusOK, headers)
 	require.Equal(t, []any{first}, page["data"], "repeated attachment preserves a single routing subscription")

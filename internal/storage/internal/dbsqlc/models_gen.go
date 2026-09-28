@@ -216,13 +216,36 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
-	MaxActiveProjectIntegrationsPerProject    int64
+	MaxActiveIntegrationsPerProject           int64
 	MaxActiveIntegrationSubscriptionsPerAgent int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {
 	OrgID     uuid.UUID
 	MachineID uuid.UUID
+}
+
+type Integration struct {
+	ID                       uuid.UUID
+	OrgID                    uuid.UUID
+	ProjectID                uuid.UUID
+	InstalledByUserID        *uuid.UUID
+	State                    string
+	ProviderTenantID         *string
+	ProviderAccountRef       *string
+	ProviderAgentDisplayName string
+	CredentialSecretID       *uuid.UUID
+	ProviderConfig           json.RawMessage
+	ProviderIdentity         json.RawMessage
+	ProviderMetadata         json.RawMessage
+	LastOauthFlowID          *uuid.UUID
+	DeletedAt                *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	Name                     string
+	IntegrationKind          string
+	Settings                 json.RawMessage
+	SetupRevision            int64
 }
 
 type IntegrationInbox struct {
@@ -232,11 +255,11 @@ type IntegrationInbox struct {
 	ReceiptKey     string
 	Payload        []byte
 	Source         string
-	Events         *json.RawMessage
+	StateID        *uuid.UUID
 	Plan           *json.RawMessage
 	State          string
 	AttemptCount   int32
-	AvailableAt    time.Time
+	NextAttemptAt  time.Time
 	ClaimToken     *uuid.UUID
 	ClaimExpiresAt *time.Time
 	LastError      *string
@@ -442,29 +465,6 @@ type ProcessAction struct {
 	UpdatedAt          time.Time
 	StateReasonCode    *string
 	StateReasonMessage string
-}
-
-type ProjectIntegration struct {
-	ID                       uuid.UUID
-	OrgID                    uuid.UUID
-	ProjectID                uuid.UUID
-	InstalledByUserID        *uuid.UUID
-	State                    string
-	ProviderTenantID         *string
-	ProviderAccountRef       *string
-	ProviderAgentDisplayName string
-	CredentialSecretID       *uuid.UUID
-	ProviderConfig           json.RawMessage
-	ProviderIdentity         json.RawMessage
-	ProviderMetadata         json.RawMessage
-	LastOauthFlowID          *uuid.UUID
-	DeletedAt                *time.Time
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	Name                     string
-	IntegrationType          string
-	Settings                 json.RawMessage
-	SetupRevision            int64
 }
 
 type ProjectMembership struct {

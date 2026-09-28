@@ -11,7 +11,7 @@ import (
 )
 
 func (p *SlackIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord, receipt integrationstore.IntegrationInboxRecord, text string,
+	integration integrationstore.IntegrationRecord, receipt integrationstore.IntegrationInboxRecord, text string,
 ) error {
 	if err := checkInboxFailureReceipt(integration, receipt, integrationdefinition.ProviderSlack); err != nil {
 		return err
@@ -29,15 +29,15 @@ func (p *SlackIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
 			return nil
 		}
 		text = scheduledInboxFailureMessage
-	case receipt.Source != integrationstore.IntegrationInboxSourceProvider:
-		return nil
-	case len(receipt.Events) != 0:
-		event, err := inboxFailureSelectedEvent(receipt, integrationdefinition.ProviderSlack)
+	case receipt.Source == integrationstore.IntegrationInboxSourceChoice:
+		event, err := inboxFailureSelectedEvent(ctx, p.integrations, receipt, integrationdefinition.ProviderSlack)
 		if err != nil {
 			return err
 		}
 		scope = event.Event.Scope
 		text = selectedInboxFailureMessage
+	case receipt.Source != integrationstore.IntegrationInboxSourceProvider:
+		return nil
 	default:
 		event, ok, err := NormalizeSlackIntegrationEvent(integration, receipt.Payload)
 		if err != nil || !ok {

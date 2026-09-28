@@ -131,7 +131,7 @@ func TestInteractionPresenterRechecksIntegrationBeforeRetry(t *testing.T) {
 		t.Fatal("presentation did not start")
 	}
 	_, err = f.Store.Integrations().
-		DisconnectProjectIntegration(ctx, integrationstore.DisconnectProjectIntegrationInput{
+		DisconnectIntegration(ctx, integrationstore.DisconnectIntegrationInput{
 			ProjectID:             toolsTestProjectID,
 			IntegrationID:         f.Install.ID,
 			ExpectedSetupRevision: &f.Install.SetupRevision,

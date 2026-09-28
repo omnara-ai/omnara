@@ -19,7 +19,7 @@ func TestScheduledLaunchPreservesToolsAndSavesReplyContext(t *testing.T) {
 			base, found, err := f.store.Execution().GetAgentConfig(t.Context(), f.ids.ProjectID, f.profile.CurrentConfigID)
 			require.NoError(t, err)
 			require.True(t, found)
-			integration, err := f.store.Integrations().GetProjectIntegration(t.Context(), f.ids.ProjectID, f.integrationID)
+			integration, err := f.store.Integrations().GetIntegration(t.Context(), f.ids.ProjectID, f.integrationID)
 			require.NoError(t, err)
 			source := base.Source + `
 tools:
@@ -33,7 +33,7 @@ tools:
 				ResolveIntegrationName: func(string) (agentconfig.IntegrationResolution, error) {
 					return agentconfig.IntegrationResolution{
 						IntegrationID:   f.integrationID,
-						IntegrationType: integration.IntegrationType,
+						IntegrationKind: integration.IntegrationKind,
 					}, nil
 				},
 			})

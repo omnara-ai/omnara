@@ -1,8 +1,11 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,14 +63,14 @@ func (s *integrationPlanExecution) GetAgentProfile(
 
 type integrationPlanStore struct {
 	IntegrationRoutingStore
-	integrationSetup integrationstore.ProjectIntegrationRecord
+	integrationSetup integrationstore.IntegrationRecord
 	receipt          integrationstore.IntegrationInboxRecord
 }
 
-func (s *integrationPlanStore) GetProjectIntegrationByID(
+func (s *integrationPlanStore) GetIntegrationByID(
 	context.Context,
 	uuid.UUID,
-) (integrationstore.ProjectIntegrationRecord, error) {
+) (integrationstore.IntegrationRecord, error) {
 	return s.integrationSetup, nil
 }
 
@@ -85,7 +88,7 @@ func integrationPlannerFixture(
 	*IntegrationRouter,
 	*integrationPlanExecution,
 	*integrationPlanStore,
-	integrationstore.ProjectIntegrationRecord,
+	integrationstore.IntegrationRecord,
 	IntegrationEvent,
 ) {
 	t.Helper()
@@ -113,7 +116,7 @@ func integrationPlannerFixture(
 		ResolveIntegrationName: func(string) (agentconfig.IntegrationResolution, error) {
 			return agentconfig.IntegrationResolution{
 				IntegrationID:   integrationID,
-				IntegrationType: integrationdefinition.SlackThread,
+				IntegrationKind: integrationdefinition.SlackThread,
 			}, nil
 		},
 	})
@@ -136,14 +139,14 @@ func integrationPlannerFixture(
 		},
 	}
 	integrations := &integrationPlanStore{
-		integrationSetup: integrationstore.ProjectIntegrationRecord{
+		integrationSetup: integrationstore.IntegrationRecord{
 			ID:   integrationID,
-			Name: "chat", IntegrationType: integrationdefinition.SlackThread,
+			Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
 			OrgID:             org,
 			ProjectID:         project,
 			Provider:          "slack",
 			ProviderTenantID:  "T123",
-			State:             integrationstore.ProjectIntegrationStateActive,
+			State:             integrationstore.IntegrationStateActive,
 			InstalledByUserID: uuid.New(),
 		},
 	}
@@ -153,17 +156,7 @@ func integrationPlannerFixture(
 		IntegrationID: integrations.integrationSetup.ID,
 	}
 	integration := integrations.integrationSetup
-	integration.Settings = integrationstore.ProjectIntegrationSettings{
-		Launcher: &integrationstore.IntegrationLauncher{
-			Trigger:   "mention",
-			ScopeKind: "workspace",
-			ScopeRef:  "T123",
-			Slots: []integrationstore.IntegrationLaunchSlot{
-				{Key: "a", AgentProfileID: &execution.profile.ID},
-				{Key: "b", AgentProfileID: &execution.profile.ID},
-			},
-		},
-	}
+	integration.Settings = integrationtest.ChatSettings("", execution.profile.ID)
 	event := IntegrationEvent{
 		Event: integrationdefinition.Event{
 			Scope:     integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
@@ -172,7 +165,7 @@ func integrationPlannerFixture(
 		},
 		SemanticKey:   "message:1",
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
-		Actor:         integrationTestActor(t, integration.ID, "U123"),
+		Actor:         integrationTestActor(t, integration, "U123"),
 	}
 	return NewIntegrationRouter(execution, integrations), execution, integrations, integration, event
 }
@@ -185,27 +178,28 @@ func TestIntegrationPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T)
 	event.ContentBlocks = json.RawMessage(
 		`[{"type":"text","text":"review"},{"type":"media_ref","artifact_id":"` + oldID.String() + `"}]`,
 	)
-	event.Files = []IntegrationPlannedFile{{ArtifactID: oldID, ProviderFileID: "F123"}}
-	requests, err := prepareIntegrationEvents([]IntegrationEvent{event}, integrations.integrationSetup)
+	event.Files = []executionstore.InboxPlannedFile{{ArtifactID: oldID, ProviderFileID: "F123"}}
+	request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
 	require.NoError(t, err)
-	requests[0].candidates.Launcher = &integration
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
+	request.candidates.Launcher = &integration
+	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, &request)
+	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
-	require.Len(t, plan, 2)
+	require.Len(t, plan.Recipients, 1)
 	require.Equal(t, 1, execution.reads)
 	agents, artifacts := map[uuid.UUID]bool{}, map[uuid.UUID]bool{}
-	for _, slot := range plan {
+	for _, slot := range plan.Recipients {
+		_, files, err := plan.Message.RecipientContent(slot.ArtifactIDs)
+		require.NoError(t, err)
 		require.Equal(t, uuid.Version(7), slot.AgentID.Version())
 		require.False(t, agents[slot.AgentID])
 		agents[slot.AgentID] = true
 		require.Equal(t, execution.profile.CurrentConfig.ID, slot.Launch.DerivedBaseConfigID)
 		require.Empty(t, execution.configs[slot.Launch.AgentConfigID].Source)
-		require.Nil(t, slot.Input)
-		require.Len(t, slot.Files, 1)
-		require.False(t, artifacts[slot.Files[0].ArtifactID])
-		artifacts[slot.Files[0].ArtifactID] = true
-		require.NotEqual(t, oldID, slot.Files[0].ArtifactID)
+		require.Len(t, files, 1)
+		require.False(t, artifacts[files[0].ArtifactID])
+		artifacts[files[0].ArtifactID] = true
+		require.NotEqual(t, oldID, files[0].ArtifactID)
 		var compiled agentconfig.Compiled
 		require.NoError(t, json.Unmarshal(execution.configs[slot.Launch.AgentConfigID].CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
@@ -239,89 +233,13 @@ func TestIntegrationPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T)
 	}
 	integrations.receipt.Plan, err = json.Marshal(plan)
 	require.NoError(t, err)
-	integrations.integrationSetup.State = integrationstore.ProjectIntegrationStateDisconnected
+	integrations.integrationSetup.State = integrationstore.IntegrationStateDisconnected
 	got, err := router.Freeze(t.Context(), integrations.receipt.Lease(), nil)
 	require.NoError(t, err)
 	require.Equal(t, plan, got)
-	got, err = freezeTestIntegrationEvents(t.Context(), router, integrations.receipt.Lease(), nil)
+	got, err = freezeTestIntegrationEvent(t.Context(), router, integrations.receipt.Lease(), nil)
 	require.NoError(t, err, "the policy helper must also leave frozen retries untouched")
 	require.Equal(t, plan, got)
-}
-
-func TestIntegrationPlanExistingTriggersOverlapAndRetiredSelection(t *testing.T) {
-	router, execution, integrations, integration, event := integrationPlannerFixture(t)
-	agent := uuid.New()
-	integration.Settings.Launcher.Slots = append(
-		integration.Settings.Launcher.Slots,
-		integrationstore.IntegrationLaunchSlot{Key: "trigger", AgentID: &agent},
-	)
-	requests, err := prepareIntegrationEvents([]IntegrationEvent{event}, integrations.integrationSetup)
-	require.NoError(t, err)
-	requests[0].candidates = integrationstore.IntegrationRoutingCandidates{
-		Launcher: &integration,
-		Subscriptions: []integrationstore.IntegrationSubscriptionRecord{
-			{
-				AgentID: agent,
-				Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"},
-			},
-		},
-		Selections: []integrationstore.IntegrationTargetRecord{
-			{IntegrationID: integration.ID, SelectionSlot: "removed-old-slot"},
-		},
-	}
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
-	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	require.Zero(t, execution.reads)
-	for _, slot := range plan {
-		require.Nil(t, slot.Selection)
-		require.Nil(t, slot.Launch)
-		require.Nil(t, slot.Subscription, "explicit trigger is independent of subscription revocation")
-		require.Equal(t, agent, slot.AgentID)
-	}
-	requests[0].candidates.Selections = nil
-	requests[0].candidates.Subscriptions[0].Address = requests[0].address
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
-	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	requests[0].candidates.Subscriptions[0].Address = integrationstore.ConversationAddress{Kind: "channel", Ref: "C123"}
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
-	require.NoError(t, err)
-	require.Len(t, plan, 3)
-}
-
-func TestIntegrationPlanExpansionContinuesLauncherRuntimeSubscription(t *testing.T) {
-	router, _, integrations, integration, first := integrationPlannerFixture(t)
-	second := first
-	second.SemanticKey = "message:0"
-	second.Event.Mentioned = false
-	requests, err := prepareIntegrationEvents([]IntegrationEvent{first, second}, integrations.integrationSetup)
-	require.NoError(t, err)
-	for i := range requests {
-		requests[i].candidates.Launcher = &integration
-	}
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
-	require.NoError(t, err)
-	require.Len(t, plan, 4)
-	var launches, inputs int
-	for _, slot := range plan {
-		if slot.Launch != nil {
-			launches++
-			require.Zero(t, slot.EventOrder)
-			require.Equal(t, first.SemanticKey, slot.Launch.InitialInput.SemanticEventKey)
-		} else {
-			inputs++
-			require.Equal(t, 1, slot.EventOrder)
-			require.NotNil(t, slot.Subscription)
-			require.Equal(t, second.SemanticKey, slot.Input.IdempotencyKey)
-		}
-	}
-	require.Equal(t, 2, launches)
-	require.Equal(t, 2, inputs)
 }
 
 func TestIntegrationPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
@@ -332,57 +250,57 @@ func TestIntegrationPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 		Discord: &integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
 	}
 	event.Event.Mentioned = false
-	requests, err := prepareIntegrationEvents([]IntegrationEvent{event}, integrations.integrationSetup)
+	request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
 	require.NoError(t, err)
 	parent, exact := uuid.New(), uuid.New()
-	requests[0].candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
+	request.candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
 		{
 			AgentID: parent,
 			Address: integrationstore.ConversationAddress{Kind: "channel", Ref: "300"},
 		},
 		{
 			AgentID: exact,
-			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"},
+			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "500"},
 		},
 	}
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
+	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, &request)
+	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	for _, slot := range plan {
+	require.Len(t, plan.Recipients, 1)
+	for _, slot := range plan.Recipients {
 		require.Equal(t, exact, slot.AgentID)
 	}
-	requests[0].candidates.Subscriptions = requests[0].candidates.Subscriptions[:1]
-	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, requests)
-	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
+	request.candidates.Subscriptions = request.candidates.Subscriptions[:1]
+	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, &request)
+	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
-	require.Empty(t, plan, "parent authority must not subscribe every thread")
+	require.Empty(t, plan.Recipients, "parent authority must not subscribe every thread")
 }
 
 func TestIntegrationPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	router, execution, integrations, integration, event := integrationPlannerFixture(t)
-	requests, err := prepareIntegrationEvents([]IntegrationEvent{event}, integrations.integrationSetup)
+	request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
 	require.NoError(t, err)
-	requests[0].candidates.Launcher = &integration
-	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
+	request.candidates.Launcher = &integration
+	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
-	require.Empty(t, plan, "matching saved setups do not authorize an implicit launch")
+	require.Empty(t, plan.Recipients, "matching saved setups do not authorize an implicit launch")
 	require.Zero(t, execution.reads)
 
-	requests[0].event.Event.Mentioned = false
-	requests[0].event.Directed = true
-	requests[0].event.Launches = []IntegrationLaunchIntent{
-		{IntegrationID: integration.ID, Slot: "b", ProfileID: execution.profile.ID},
+	request.event.Event.Mentioned = true
+	request.event.Directed = true
+	request.event.Launches = []IntegrationLaunchIntent{
+		{IntegrationID: integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: execution.profile.ID},
 	}
-	requests[0].candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
-		{AgentID: uuid.New(), Address: requests[0].address},
+	request.candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
+		{AgentID: uuid.New(), Address: request.address},
 	}
-	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
+	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	for _, slot := range plan {
+	require.Len(t, plan.Recipients, 1)
+	for _, slot := range plan.Recipients {
 		require.NotNil(t, slot.Launch)
-		require.Equal(t, "b", slot.Selection.Slot)
+		require.Equal(t, integrationdefinition.ProfileLaunchKey, slot.Selection.Slot)
 	}
 }
 
@@ -393,133 +311,34 @@ func TestIntegrationPlanRejectsUnavailableLaunchIntents(t *testing.T) {
 	}{
 		{"absent integration", func(r *integrationEventCandidates) { r.candidates.Launcher = nil }},
 		{"disabled integration", func(r *integrationEventCandidates) {
-			r.candidates.Launcher.State = integrationstore.ProjectIntegrationStateDisconnected
+			r.candidates.Launcher.State = integrationstore.IntegrationStateDisconnected
 		}},
 		{"wrong project", func(r *integrationEventCandidates) { r.candidates.Launcher.ProjectID = uuid.New() }},
-		{"removed launcher", func(r *integrationEventCandidates) { r.candidates.Launcher.Settings.Launcher = nil }},
-		{"removed slot", func(r *integrationEventCandidates) { r.candidates.Launcher.Settings.Launcher.Slots = nil }},
+		{"removed launcher", func(r *integrationEventCandidates) { r.candidates.Launcher.Settings = json.RawMessage(`{}`) }},
 		{"retargeted profile", func(r *integrationEventCandidates) {
-			other := uuid.New()
-			r.candidates.Launcher.Settings.Launcher.Slots[0].AgentProfileID = &other
-		}},
-		{"changed to fixed agent", func(r *integrationEventCandidates) {
-			other := uuid.New()
-			r.candidates.Launcher.Settings.Launcher.Slots[0] = integrationstore.IntegrationLaunchSlot{
-				Key: "a", AgentID: &other,
-			}
+			r.candidates.Launcher.Settings = integrationtest.ChatSettings("", uuid.New())
 		}},
 		{"missing expected recipient", func(r *integrationEventCandidates) { r.event.Launches[0].ProfileID = uuid.Nil }},
-		{"ambiguous recipient", func(r *integrationEventCandidates) { r.event.Launches[0].AgentID = uuid.New() }},
-		{"retargeted fixed agent", func(r *integrationEventCandidates) {
-			actual, expected := uuid.New(), uuid.New()
-			r.candidates.Launcher.Settings.Launcher.Slots[0] = integrationstore.IntegrationLaunchSlot{
-				Key: "a", AgentID: &actual,
-			}
-			r.event.Launches[0].ProfileID, r.event.Launches[0].AgentID = uuid.Nil, expected
-		}},
 		{"retired selection", func(r *integrationEventCandidates) {
 			now := time.Now()
 			r.candidates.Selections = []integrationstore.IntegrationTargetRecord{{
-				IntegrationID: r.event.Launches[0].IntegrationID, SelectionSlot: "a", AgentID: uuid.New(), DeletedAt: &now,
+				IntegrationID: r.event.Launches[0].IntegrationID, LaunchKey: "a", AgentID: uuid.New(), DeletedAt: &now,
 			}}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			router, execution, integrations, integration, event := integrationPlannerFixture(t)
 			event.Launches = []IntegrationLaunchIntent{
-				{IntegrationID: integration.ID, Slot: "a", ProfileID: execution.profile.ID},
+				{IntegrationID: integration.ID, Slot: integrationdefinition.ProfileLaunchKey, ProfileID: execution.profile.ID},
 			}
-			requests, err := prepareIntegrationEvents([]IntegrationEvent{event}, integrations.integrationSetup)
+			request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
 			require.NoError(t, err)
-			requests[0].candidates.Launcher = &integration
-			test.change(&requests[0])
-			plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
+			request.candidates.Launcher = &integration
+			test.change(&request)
+			plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 			require.ErrorIs(t, err, ErrIntegrationLaunchUnavailable)
-			require.Empty(t, plan)
+			require.Empty(t, plan.Recipients)
 			require.Zero(t, execution.reads, "stale choices must fail before profile derivation")
-		})
-	}
-}
-
-func TestIntegrationPlanDirectedExpansionReusesSelectedIdentity(t *testing.T) {
-	for _, settled := range []bool{false, true} {
-		name := "planned in expansion"
-		if settled {
-			name = "settled without subscription"
-		}
-		t.Run(name, func(t *testing.T) {
-			router, execution, integrations, integration, first := integrationPlannerFixture(t)
-			first.Directed = true
-			first.Launches = []IntegrationLaunchIntent{
-				{IntegrationID: integration.ID, Slot: "a", ProfileID: execution.profile.ID},
-				{IntegrationID: integration.ID, Slot: "b", ProfileID: execution.profile.ID},
-			}
-			second := first
-			second.SemanticKey = "message:files"
-			second.Event.Mentioned = false
-			second.Launches = second.Launches[:1]
-			oldArtifact := uuid.Must(uuid.NewV7())
-			second.ContentBlocks = json.RawMessage(
-				`[{"type":"media_ref","artifact_id":"` + oldArtifact.String() + `"}]`,
-			)
-			second.Files = []IntegrationPlannedFile{{ArtifactID: oldArtifact, ProviderFileID: "F123"}}
-			first.Launches = append(first.Launches, first.Launches[0])
-			requests, err := prepareIntegrationEvents([]IntegrationEvent{first, second}, integrations.integrationSetup)
-			require.NoError(t, err)
-			agents := map[string]uuid.UUID{"a": uuid.New(), "b": uuid.New()}
-			for i := range requests {
-				requests[i].candidates.Launcher = &integration
-				requests[i].candidates.Subscriptions = []integrationstore.IntegrationSubscriptionRecord{
-					{AgentID: uuid.New(), Address: requests[i].address},
-				}
-				if settled {
-					for slot, agent := range agents {
-						requests[i].candidates.Selections = append(requests[i].candidates.Selections,
-							integrationstore.IntegrationTargetRecord{
-								IntegrationID: integration.ID,
-								SelectionSlot: slot,
-								AgentID:       agent,
-							})
-					}
-				}
-			}
-			plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, requests)
-			require.NoError(t, err)
-			require.Len(t, plan, 3, "two chosen slots, then a file only for the chosen original recipient")
-			launches := 0
-			for _, slot := range plan {
-				if slot.Launch != nil {
-					launches++
-					require.Zero(t, slot.EventOrder)
-					agents[slot.Selection.Slot] = slot.AgentID
-				}
-			}
-			if settled {
-				require.Zero(t, launches)
-				require.Zero(t, execution.reads)
-			} else {
-				require.Equal(t, 2, launches)
-				require.Equal(t, 1, execution.reads)
-			}
-			inputs := 0
-			for _, slot := range plan {
-				if slot.Input == nil {
-					continue
-				}
-				require.Nil(t, slot.Selection)
-				require.Nil(t, slot.Subscription, "explicit original-source delivery does not depend on a subscription")
-				if slot.EventOrder == 1 {
-					inputs++
-					require.Equal(t, agents["a"], slot.AgentID)
-					require.Equal(t, second.SemanticKey, slot.Input.IdempotencyKey)
-					require.Len(t, slot.Files, 1)
-					require.NotEqual(t, oldArtifact, slot.Files[0].ArtifactID)
-				} else {
-					require.Contains(t, []uuid.UUID{agents["a"], agents["b"]}, slot.AgentID)
-					require.Equal(t, first.SemanticKey, slot.Input.IdempotencyKey)
-				}
-			}
-			require.Equal(t, 1, inputs, "directed files must skip even subscriptions planned earlier in this expansion")
 		})
 	}
 }
@@ -561,7 +380,7 @@ func TestIntegrationLaunchPreservesEntireExistingCapabilities(t *testing.T) {
 
 func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing.T) {
 	for _, test := range []struct {
-		integrationType integrationdefinition.Type
+		integrationKind integrationdefinition.Kind
 		provider        string
 		scope           integrationdefinition.Scope
 		address         string
@@ -589,14 +408,14 @@ func TestIntegrationLaunchSuppliesProviderCapabilitiesAndReplyContext(t *testing
 		t.Run(test.provider, func(t *testing.T) {
 			_, execution, _, integration, _ := integrationPlannerFixture(t)
 			base := execution.profile.CurrentConfig
-			integration.Provider, integration.IntegrationType, integration.Name = test.provider, test.integrationType, "receiver"
+			integration.Provider, integration.IntegrationKind, integration.Name = test.provider, test.integrationKind, "receiver"
 			derived, subscriptions, err := deriveIntegrationLaunch(base, integration, test.scope)
 			require.NoError(t, err)
 			require.Len(t, subscriptions, 1)
 			subscription := subscriptions[0]
 			var compiled agentconfig.Compiled
 			require.NoError(t, json.Unmarshal(derived.CompiledDefinition, &compiled))
-			definition, _ := integrationdefinition.Lookup(integration.IntegrationType)
+			definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
 			for _, operation := range definition.Tools {
 				require.Equal(
 					t,
@@ -684,14 +503,14 @@ func TestIntegrationLaunchPreservesInteractionToolOverrides(t *testing.T) {
 	encoded, err := agentconfig.EncodeCompiled(compiled)
 	require.NoError(t, err)
 	base.CompiledDefinition, base.EffectiveDefinitionHash = encoded.CanonicalJSON, encoded.Hash
-	for _, integrationType := range []integrationdefinition.Type{
+	for _, integrationKind := range []integrationdefinition.Kind{
 		integrationdefinition.SlackThread, integrationdefinition.DiscordThread, integrationdefinition.GitHubPR,
 	} {
-		t.Run(string(integrationType), func(t *testing.T) {
+		t.Run(string(integrationKind), func(t *testing.T) {
 			integration := integration
 			var scope integrationdefinition.Scope
-			integration.IntegrationType = integrationType
-			switch integrationType {
+			integration.IntegrationKind = integrationKind
+			switch integrationKind {
 			case integrationdefinition.SlackThread:
 				scope = event.Event.Scope
 			case integrationdefinition.DiscordThread:
@@ -716,114 +535,67 @@ func TestIntegrationLaunchPreservesInteractionToolOverrides(t *testing.T) {
 	}
 }
 
-func TestIntegrationPlanFrozenSubscriptionsRouteLaterMessagesAndMedia(t *testing.T) {
-	for _, provider := range []string{
-		integrationdefinition.ProviderSlack, integrationdefinition.ProviderDiscord, integrationdefinition.ProviderGitHub,
-	} {
-		t.Run(provider, func(t *testing.T) {
-			router, execution, integrations, integration, first := integrationPlannerFixture(t)
-			integration.Name = "receiver"
-			integration.Settings.Launcher.Slots = integration.Settings.Launcher.Slots[:1]
-			kind := "message"
-			otherScope := integrationdefinition.Scope{
-				Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.3"},
-			}
-			switch provider {
-			case integrationdefinition.ProviderDiscord:
-				integration.Provider = provider
-				integration.IntegrationType, integration.ProviderTenantID = integrationdefinition.DiscordThread, "11"
-				first.Event.Scope = integrationdefinition.Scope{
-					Discord: &integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
-				}
-				otherScope = integrationdefinition.Scope{
-					Discord: &integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "501"},
-				}
-			case integrationdefinition.ProviderGitHub:
-				integration.Provider, integration.IntegrationType = provider, integrationdefinition.GitHubPR
-				integration.ProviderTenantID, integration.ProviderAccountRef = "11", "22"
-				first.Event.Scope = integrationdefinition.Scope{
-					GitHub: &integrationdefinition.GitHubScope{RepositoryID: 123, PullRequest: 42},
-				}
-				otherScope = integrationdefinition.Scope{
-					GitHub: &integrationdefinition.GitHubScope{RepositoryID: 123, PullRequest: 43},
-				}
-				first.Event.Kind = "pull_request_opened"
-				kind = "commit"
-			}
-			integrations.integrationSetup = integration
-			first.Actor = integrationTestActor(t, integration.ID, first.Actor.ProviderUserID)
-			first.SemanticKey = "z:launch"
-			first.Launches = []IntegrationLaunchIntent{
-				{IntegrationID: integration.ID, Slot: "a", ProfileID: execution.profile.ID},
-			}
-			reply := first
-			reply.Launches, reply.Event.Mentioned, reply.Event.Kind = nil, false, kind
-			reply.SemanticKey = "b:reply"
-			before := reply
-			before.SemanticKey = "c:before-launch"
-			media := reply
-			media.SemanticKey = "a:media"
-			placeholder := uuid.New()
-			media.ContentBlocks = json.RawMessage(`[{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`)
-			media.Files = []IntegrationPlannedFile{{ArtifactID: placeholder, ProviderFileID: "F123"}}
-			other := reply
-			other.SemanticKey, other.Event.Scope = "other:conversation", otherScope
-			events := []IntegrationEvent{before, first, reply, media, other}
-			if provider == integrationdefinition.ProviderGitHub {
-				excluded := reply
-				excluded.SemanticKey, excluded.Event.Kind = "excluded:event", "pull_request_opened"
-				events = append(events, excluded)
-			}
-			requests, err := prepareIntegrationEvents(events, integration)
-			require.NoError(t, err)
-			for i := range requests {
-				requests[i].candidates.Launcher = &integration
-			}
-			plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integration, requests)
-			require.NoError(t, err)
-			require.Len(t, plan, 3, "only the launch and later matching conversation/events receive input")
-			var agentID uuid.UUID
-			for _, slot := range plan {
-				if slot.Launch == nil {
-					continue
-				}
-				agentID = slot.AgentID
-				require.Equal(t, 1, slot.EventOrder)
-				require.Len(t, slot.Launch.Subscriptions, 1)
-				subscription := slot.Launch.Subscriptions[0]
-				require.Equal(t, integration.ID, subscription.IntegrationID)
-				conversation, err := first.Event.Scope.ConversationJSON()
-				require.NoError(t, err)
-				require.JSONEq(t, string(conversation), string(subscription.Conversation))
-			}
-			require.NotEqual(t, uuid.Nil, agentID)
-			addressKind, addressRef, err := first.Event.Scope.Conversation()
-			require.NoError(t, err)
-			for _, slot := range plan {
-				if slot.Input == nil {
-					continue
-				}
-				require.Equal(t, agentID, slot.AgentID)
-				require.Equal(t, &executionstore.InboxSubscriptionAuthority{
-					Alternatives: []integrationstore.ConversationAddress{{Kind: addressKind, Ref: addressRef}},
-				}, slot.Subscription)
-				if slot.EventOrder == 3 {
-					require.Len(t, slot.Files, 1)
-					require.NotEqual(t, placeholder, slot.Files[0].ArtifactID)
-					require.Equal(t, "F123", slot.Files[0].ProviderFileID)
-				} else {
-					require.Equal(t, 2, slot.EventOrder)
-				}
-			}
-			integrations.receipt.Plan, err = json.Marshal(plan)
-			require.NoError(t, err)
-			execution.profile.CurrentConfig = executionstore.AgentConfigRecord{}
-			integrations.integrationSetup.IntegrationType = "no-longer-available"
-			replayed, err := router.Freeze(t.Context(), integrations.receipt.Lease(), []IntegrationEvent{other})
-			require.NoError(t, err)
-			replayedJSON, err := json.Marshal(replayed)
-			require.NoError(t, err)
-			require.JSONEq(t, string(integrations.receipt.Plan), string(replayedJSON))
+func TestIntegrationPlanLargeSingleMessageFanoutSharesContentAndDeduplicatesAgents(t *testing.T) {
+	router, _, integrations, _, event := integrationPlannerFixture(t)
+	text := "large-single-message:" + strings.Repeat("<&>\n", 25000)
+	content, err := json.Marshal([]map[string]string{{"type": "text", "text": text}})
+	require.NoError(t, err)
+	event.ContentBlocks = content
+	request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
+	require.NoError(t, err)
+	// The planner accepts the full routing budget, not an invented aggregate 64 cap.
+	for range 8 * 16 {
+		id := uuid.New()
+		request.candidates.Subscriptions = append(request.candidates.Subscriptions,
+			integrationstore.IntegrationSubscriptionRecord{AgentID: id, Address: request.address},
+			integrationstore.IntegrationSubscriptionRecord{AgentID: id, Address: request.scopes[1]})
+	}
+	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
+	require.NoError(t, err)
+	require.Len(t, plan.Recipients, 128)
+	raw, err := json.Marshal(plan)
+	require.NoError(t, err)
+	require.Equal(t, 1, bytes.Count(raw, []byte("large-single-message:")))
+	require.Less(t, len(raw), len(event.ContentBlocks)+128*1024)
+	require.Less(t, len(raw), integrationstore.IntegrationInboxMaxPlanBytes)
+	for _, slot := range plan.Recipients {
+		require.Len(t, slot.Subscription.Alternatives, 2)
+		recipient, err := json.Marshal(slot)
+		require.NoError(t, err)
+		require.NotContains(t, string(recipient), "content_blocks")
+		require.NotContains(t, string(recipient), "metadata")
+	}
+}
+
+func TestIntegrationPlanRecipientAllowanceCoversSupportedFacts(t *testing.T) {
+	// Routing addresses from supported providers are canonical ASCII IDs, so their
+	// schema byte maxima incur no JSON escape expansion. Files contribute UUIDs only.
+	slot := IntegrationInboxSlot{
+		AgentID: uuid.Must(uuid.NewV7()), Subscription: &executionstore.InboxSubscriptionAuthority{},
+	}
+	for range 8 {
+		slot.Subscription.Alternatives = append(slot.Subscription.Alternatives, integrationstore.ConversationAddress{
+			Kind: strings.Repeat("x", 128), Ref: strings.Repeat("C", 2048),
 		})
 	}
+	for range 20 {
+		slot.ArtifactIDs = append(slot.ArtifactIDs, uuid.Must(uuid.NewV7()))
+	}
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: strings.Repeat("C", 2048)}
+	slot.Selection = &integrationstore.InboxIntegrationSelection{
+		IntegrationID: uuid.New(), Address: address, Slot: "scheduled",
+	}
+	slot.Launch = &executionstore.InboxLaunchPlan{
+		ProfileID: uuid.New(), AgentConfigID: uuid.New(), DerivedBaseConfigID: uuid.New(),
+		IdempotencyKey: strings.Repeat("x", 128),
+		Subscriptions: []integrationstore.IntegrationSubscriptionAttachment{{
+			IntegrationID: uuid.New(), Conversation: json.RawMessage(`{"channel_id":"` + strings.Repeat("C", 2048) + `"}`),
+		}},
+	}
+	// This combines even the mutually exclusive launch/subscription facts to bound
+	// either real recipient; indentation overestimates jsonb's separator spaces.
+	raw, err := json.MarshalIndent(slot, "", " ")
+	require.NoError(t, err)
+	require.Less(t, len(raw), 32*1024)
+	t.Logf("conservative recipient envelope: %d bytes of 32768", len(raw))
 }

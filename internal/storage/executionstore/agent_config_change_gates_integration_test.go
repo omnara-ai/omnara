@@ -47,9 +47,9 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(t *testing.T
 	require.NoError(t, err)
 	require.NoError(t, f.store.Integrations().AssignAgentIntegrationConversationTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, f.integration.ID,
-		integrationstore.ConversationAddress{Kind: target.ProviderRefKind, Ref: target.ProviderRef},
+		integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef},
 	))
-	selection, err := f.store.Execution().SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, target.ID,
 	)
 	require.NoError(t, err)
@@ -65,8 +65,8 @@ func TestConfigChangeDropsPreviousIntegrationWithoutItsGate(t *testing.T) {
 	launch := f.launchWithSelectedIntegration(t)
 	before := f.subscriptions(t, launch.Agent.ID)
 	control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-	require.NoError(t, dbsqlc.New(control).LockProjectIntegrationLifecycleExclusive(
-		f.ctx, dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+	require.NoError(t, dbsqlc.New(control).LockIntegrationLifecycleExclusive(
+		f.ctx, dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 	))
 	ctx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
 	defer cancel()
@@ -79,17 +79,18 @@ func TestConfigChangeDropsPreviousIntegrationWithoutItsGate(t *testing.T) {
 	require.Equal(t, changed.AgentConfig.ID, current.CurrentConfigID)
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection, "removed handler must still be reconciled")
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
+		"removed handler must still be reconciled")
 	require.Equal(t, before, f.subscriptions(t, launch.Agent.ID), "receiving remains independent of config")
 }
 
 func (f integrationActivationFixture) revokeIntegrationForConfigGateTest(state string) error {
 	if state == "deleted" {
-		return f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID)
+		return f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID)
 	}
-	_, err := f.store.Integrations().DisconnectProjectIntegration(
+	_, err := f.store.Integrations().DisconnectIntegration(
 		f.ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID: testProjectID, IntegrationID: f.integration.ID,
 		},
 	)
@@ -125,15 +126,15 @@ func TestConfigChangeSerializesNextIntegrationWithRevocation(t *testing.T) {
 					changed = integrationdb.RunAsync(change)
 					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentMachineSources", 1)
 					revoked = integrationdb.RunAsyncError(revoke)
-					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleExclusive", 1)
+					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleExclusive", 1)
 				} else {
-					require.NoError(t, dbsqlc.New(control).LockProjectIntegrationLifecycleShared(
-						f.ctx, dbsqlc.LockProjectIntegrationLifecycleSharedParams{IntegrationID: f.integration.ID},
+					require.NoError(t, dbsqlc.New(control).LockIntegrationLifecycleShared(
+						f.ctx, dbsqlc.LockIntegrationLifecycleSharedParams{IntegrationID: f.integration.ID},
 					))
 					revoked = integrationdb.RunAsyncError(revoke)
-					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleExclusive", 1)
+					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleExclusive", 1)
 					changed = integrationdb.RunAsync(change)
-					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleShared", 1)
+					integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 				}
 				require.NoError(t, control.Commit(f.ctx))
 				result := integrationdb.AwaitSuccess(t, changed, "config change racing integration revocation")
@@ -147,7 +148,7 @@ func TestConfigChangeSerializesNextIntegrationWithRevocation(t *testing.T) {
 				if state == "deleted" || order == "revocation-first" {
 					selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
 					require.NoError(t, err)
-					require.Equal(t, executionstore.InteractionSelection{}, selection)
+					require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 				}
 				if state == "deleted" {
 					require.Empty(t, f.subscriptions(t, launch.Agent.ID), "deletion removes subscriptions")
@@ -178,8 +179,8 @@ func TestConfigChangeReplaySkipsRevokedIntegrationGate(t *testing.T) {
 			require.NoError(t, f.revokeIntegrationForConfigGateTest(state))
 			before := f.subscriptions(t, launch.Agent.ID)
 			control := integrationdb.BeginTx(t, f.ctx, f.store.pool)
-			require.NoError(t, dbsqlc.New(control).LockProjectIntegrationLifecycleExclusive(
-				f.ctx, dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+			require.NoError(t, dbsqlc.New(control).LockIntegrationLifecycleExclusive(
+				f.ctx, dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 			))
 			ctx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
 			defer cancel()
@@ -197,7 +198,7 @@ func TestConfigChangeReplaySkipsRevokedIntegrationGate(t *testing.T) {
 			require.Equal(t, before, f.subscriptions(t, launch.Agent.ID), "replay cannot restore subscriptions")
 			selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, launch.Agent.ID)
 			require.NoError(t, err)
-			require.Equal(t, executionstore.InteractionSelection{}, selection)
+			require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 			var events int
 			require.NoError(t, f.store.pool.QueryRow(f.ctx,
 				`SELECT count(*) FROM agent_events WHERE agent_id=$1 AND agent_input_id=$2`,

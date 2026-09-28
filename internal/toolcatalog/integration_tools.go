@@ -12,7 +12,7 @@ const (
 	IntegrationOperationRead              = "read"
 	IntegrationOperationPostMessage       = "post_message"
 	IntegrationOperationDiscussionComment = "discussion_comment"
-	IntegrationOperationInlineComment     = "inline_comment"
+	IntegrationOperationReviewComment     = "review_comment"
 	IntegrationOperationReply             = "reply"
 )
 
@@ -25,7 +25,7 @@ const (
 
 type IntegrationToolDefinition struct {
 	Operation       string
-	IntegrationType integrationdefinition.Type
+	IntegrationKind integrationdefinition.Kind
 	Scope           IntegrationToolScope
 	Description     string
 	required        []string
@@ -35,15 +35,15 @@ type IntegrationToolDefinition struct {
 var integrationToolDefinitions = buildIntegrationToolDefinitions()
 
 func LookupIntegrationTool(
-	integrationType integrationdefinition.Type,
+	integrationKind integrationdefinition.Kind,
 	operation string,
 ) (IntegrationToolDefinition, bool) {
-	integration, ok := integrationdefinition.Lookup(integrationType)
+	integration, ok := integrationdefinition.Lookup(integrationKind)
 	if !ok || !slices.Contains(integration.Tools, operation) {
 		return IntegrationToolDefinition{}, false
 	}
 	for _, tool := range integrationToolDefinitions {
-		if tool.IntegrationType == integrationType && tool.Operation == operation {
+		if tool.IntegrationKind == integrationKind && tool.Operation == operation {
 			return tool, true
 		}
 	}
@@ -62,7 +62,7 @@ func (d IntegrationToolDefinition) Prepare(name string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	if d.IntegrationType == integrationdefinition.GitHubPR && d.Operation == IntegrationOperationInlineComment {
+	if d.IntegrationKind == integrationdefinition.GitHubPR && d.Operation == IntegrationOperationReviewComment {
 		var schema map[string]any
 		_ = json.Unmarshal(entry.InputSchema, &schema)
 		schema["dependentRequired"] = map[string][]string{"start_line": {"start_side"}, "start_side": {"start_line"}}
@@ -86,14 +86,14 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 	return []IntegrationToolDefinition{
 		{
 			Operation:       IntegrationOperationRead,
-			IntegrationType: integrationdefinition.SlackThread,
+			IntegrationKind: integrationdefinition.SlackThread,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Read messages from this agent's assigned Slack conversation.",
 			properties:      map[string]any{"cursor": text(), "limit": limit()},
 		},
 		{
 			Operation:       IntegrationOperationPostMessage,
-			IntegrationType: integrationdefinition.SlackThread,
+			IntegrationKind: integrationdefinition.SlackThread,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Post a message to this agent's assigned Slack conversation.",
 			required:        []string{"text"},
@@ -104,31 +104,34 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		},
 		{
 			Operation:       IntegrationOperationRead,
-			IntegrationType: integrationdefinition.GitHubPR,
+			IntegrationKind: integrationdefinition.GitHubPR,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Read the selected GitHub pull request. section defaults to pull_request; " +
-				"comment and file sections are paginated with page and limit. " +
+				"reviews returns submitted review bodies and states. Comments, reviews and files use page and limit; " +
+				"follow next_page even after an empty page. review_threads returns resolution/outdated state and " +
+				"a comment_id linking to review_comments/reply; use cursor and limit, following next_cursor. " +
 				"Diff/file patches can be incomplete for very large or binary changes.",
 			properties: map[string]any{
 				"section": map[string]any{
 					"type": "string",
-					"enum": []string{"pull_request", "discussion_comments", "review_comments", "files", "diff"},
+					"enum": []string{"pull_request", "discussion_comments", "review_comments", "reviews", "review_threads", "files", "diff"},
 				},
-				"page":  positive(),
-				"limit": limit(),
+				"page":   positive(),
+				"limit":  limit(),
+				"cursor": map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
 			},
 		},
 		{
 			Operation:       IntegrationOperationDiscussionComment,
-			IntegrationType: integrationdefinition.GitHubPR,
+			IntegrationKind: integrationdefinition.GitHubPR,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Post a discussion comment on the selected GitHub pull request.",
 			required:        []string{"body"},
 			properties:      map[string]any{"body": text()},
 		},
 		{
-			Operation:       IntegrationOperationInlineComment,
-			IntegrationType: integrationdefinition.GitHubPR,
+			Operation:       IntegrationOperationReviewComment,
+			IntegrationKind: integrationdefinition.GitHubPR,
 			Scope:           IntegrationToolScopeConversation,
 			Description: "Post a review comment on a diff in the selected GitHub pull request. " +
 				"Use start_line and start_side together for a multiline comment.",
@@ -145,7 +148,7 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		},
 		{
 			Operation:       IntegrationOperationReply,
-			IntegrationType: integrationdefinition.GitHubPR,
+			IntegrationKind: integrationdefinition.GitHubPR,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Reply to a review comment in the selected GitHub pull request.",
 			required:        []string{"comment_id", "body"},
@@ -153,14 +156,14 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 		},
 		{
 			Operation:       IntegrationOperationRead,
-			IntegrationType: integrationdefinition.DiscordThread,
+			IntegrationKind: integrationdefinition.DiscordThread,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Read messages from this agent's assigned Discord thread.",
 			properties:      map[string]any{"before": text(), "limit": limit()},
 		},
 		{
 			Operation:       IntegrationOperationPostMessage,
-			IntegrationType: integrationdefinition.DiscordThread,
+			IntegrationKind: integrationdefinition.DiscordThread,
 			Scope:           IntegrationToolScopeConversation,
 			Description:     "Post a message to this agent's assigned Discord thread. Content must be at most 2000 characters.",
 			required:        []string{"content"},

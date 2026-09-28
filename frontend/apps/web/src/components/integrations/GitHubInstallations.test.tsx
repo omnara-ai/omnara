@@ -5,7 +5,7 @@ import { act } from 'react'
 import { expect, it, vi } from 'vitest'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { projectIntegration } from '@/test/fixtures'
+import { integration as integrationFixture } from '@/test/fixtures'
 import { button, waitForUI } from '@/test/secret-editor'
 
 import { ConnectGitHubForm } from './ConnectGitHubForm'
@@ -74,8 +74,8 @@ it('keeps a saved callback credential after setup changes and confirms against t
     '',
     `/?github_setup_error=integration_setup_changed&credentials_secret_ref=${secretId}`,
   )
-  const current = projectIntegration({
-    integration_type: 'github_pr',
+  const current = integrationFixture({
+    integration_kind: 'github_pr',
     state: 'active',
     setup_revision: 3,
     provider_tenant_id: '111',
@@ -144,7 +144,7 @@ it('resumes a saved credential after approval and connects only on explicit conf
             )
           : Response.json({
               ...integration,
-              ...schemas.zConfigureProjectIntegrationRequest.parse(body),
+              ...schemas.zConfigureIntegrationRequest.parse(body),
               state: 'active',
               setup_revision: 2,
               provider_agent_display_name: 'Team reviewer',

@@ -25,7 +25,7 @@ type GitHubInboxSecrets interface {
 }
 
 type GitHubInboxIntegrations interface {
-	GetProjectIntegration(context.Context, uuid.UUID, uuid.UUID) (integrationstore.ProjectIntegrationRecord, error)
+	GetIntegration(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationRecord, error)
 }
 
 func NewGitHubIntegrationInboxProvider(config github.Config, secrets GitHubInboxSecrets,
@@ -36,7 +36,7 @@ func NewGitHubIntegrationInboxProvider(config github.Config, secrets GitHubInbox
 }
 
 func (p GitHubIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord, receipt integrationstore.IntegrationInboxRecord, text string,
+	integration integrationstore.IntegrationRecord, receipt integrationstore.IntegrationInboxRecord, text string,
 ) error {
 	if err := checkInboxFailureReceipt(integration, receipt, integrationdefinition.ProviderGitHub); err != nil {
 		return err
@@ -60,6 +60,16 @@ func (p GitHubIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	requiresPermission, err := githubEventRequiresSenderPermission(integration, event)
+	if err != nil {
+		return err
+	}
+	if requiresPermission && len(receipt.Plan) == 0 {
+		allowed, err := githubEventSenderAllowed(ctx, client, event)
+		if err != nil || !allowed {
+			return err
+		}
+	}
 	scope := github.Scope{RepositoryID: event.Event.Scope.GitHub.RepositoryID,
 		PullRequest: event.Event.Scope.GitHub.PullRequest}
 	var metadata GitHubEventMetadata
@@ -75,17 +85,17 @@ func (p GitHubIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
 }
 
 func (p GitHubIntegrationInboxProvider) requestAccess(ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 ) (*github.Client, error) {
 	if p.integrations == nil || p.secrets == nil {
 		return nil, fmt.Errorf("GitHub secret and integration resolvers are required")
 	}
 	checkIntegration := func(ctx context.Context) error {
-		latest, err := p.integrations.GetProjectIntegration(ctx, integration.ProjectID, integration.ID)
+		latest, err := p.integrations.GetIntegration(ctx, integration.ProjectID, integration.ID)
 		if err != nil {
 			return err
 		}
-		if latest.State != integrationstore.ProjectIntegrationStateActive ||
+		if latest.State != integrationstore.IntegrationStateActive ||
 			latest.Provider != integrationdefinition.ProviderGitHub ||
 			latest.ID != integration.ID || latest.ProjectID != integration.ProjectID || latest.OrgID != integration.OrgID ||
 			latest.ProviderTenantID != integration.ProviderTenantID ||

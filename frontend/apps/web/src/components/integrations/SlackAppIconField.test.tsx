@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { fakeApi } from '@/test/fake-api'
-import { fakeId, projectIntegration } from '@/test/fixtures'
-import { renderProjectIntegration } from '@/test/project-integration-render'
+import { fakeId, integration as integrationFixture } from '@/test/fixtures'
+import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
@@ -81,13 +81,13 @@ it.each(['replace', 'switch mode'] as const)(
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
-    const context = renderProjectIntegration(
+    const context = renderIntegration(
       root,
       fakeApi([]),
       <ConnectSlackForm
         orgId={fakeId('org')}
         projectId={fakeId('proj')}
-        integration={projectIntegration({ integration_type: 'slack_thread' })}
+        integration={integrationFixture({ integration_kind: 'slack_thread' })}
       />,
     )
     function select(file: File) {

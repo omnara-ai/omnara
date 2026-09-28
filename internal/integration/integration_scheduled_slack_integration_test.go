@@ -52,15 +52,15 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			f := newScheduledJourney(t)
 			_, err := f.pool.Exec(t.Context(),
-				`UPDATE project_integrations SET provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`, f.integrationID)
+				`UPDATE integrations SET provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`, f.integrationID)
 			require.NoError(t, err)
 			receipt := f.fire()
 			event, err := receipt.ScheduledEvent()
 			require.NoError(t, err)
-			integration, err := f.store.Integrations().GetProjectIntegrationByID(t.Context(), f.integrationID)
+			integration, err := f.store.Integrations().GetIntegrationByID(t.Context(), f.integrationID)
 			require.NoError(t, err)
 			launch, err := integrationdefinition.PrepareThreadSchedule(
-				integration.IntegrationType,
+				integration.IntegrationKind,
 				event.Settings,
 				event.Occurrence,
 			)
@@ -108,9 +108,9 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 				require.Error(t, err)
 				require.NotErrorIs(t, err, ErrScheduledActionFailed)
 				if test.status == http.StatusTooManyRequests {
-					require.WithinDuration(t, time.Now().Add(2*time.Minute), saved.AvailableAt, 5*time.Second)
+					require.WithinDuration(t, time.Now().Add(2*time.Minute), saved.NextAttemptAt, 5*time.Second)
 				}
-				require.Equal(t, integrationstore.IntegrationInboxPending, saved.State)
+				require.Equal(t, integrationstore.IntegrationInboxQueued, saved.State)
 			} else {
 				require.ErrorIs(t, err, ErrScheduledActionFailed)
 				require.Equal(t, integrationstore.IntegrationInboxFailed, saved.State)
@@ -126,7 +126,7 @@ func TestScheduledSlackPublicationOutcomes(t *testing.T) {
 			var next integrationstore.IntegrationInboxRecord
 			if test.retry {
 				_, err = f.pool.Exec(t.Context(),
-					`UPDATE integration_inbox SET available_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
+					`UPDATE integration_inbox SET next_attempt_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
 				require.NoError(t, err)
 				next = f.claim()
 				require.Equal(t, receipt.ID, next.ID)

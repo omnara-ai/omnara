@@ -34,6 +34,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/testutil"
 	"github.com/omnara-ai/omnara/internal/testutil/integrationblob"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"github.com/omnara-ai/omnara/internal/testutil/modeltest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
@@ -135,7 +136,7 @@ func TestSlackEventsIntegrationMentionCreatesIntegrationTargetInputAndDedupesMes
 			),
 	)
 	require.Equal(t, body, string(captured), "capture must preserve exact signed bytes")
-	require.Equal(t, "pending", state)
+	require.Equal(t, "queued", state)
 	drainSlackJourney(t, ctx, fixture.Project, fixture.Slack)
 	if response["ok"] != "received" {
 		t.Fatalf("event response=%v want received", response)
@@ -148,9 +149,6 @@ func TestSlackEventsIntegrationMentionCreatesIntegrationTargetInputAndDedupesMes
 	)
 	if err != nil {
 		t.Fatalf("get integration target: %v", err)
-	}
-	if string(integrationTarget.ProviderMetadata) != "{}" {
-		t.Fatalf("integration target metadata = %s want {}", integrationTarget.ProviderMetadata)
 	}
 	input, found, err := fixture.Project.Store.Execution().GetIntegrationTargetInputByIdempotency(
 		ctx,
@@ -179,12 +177,13 @@ func TestSlackEventsIntegrationMentionCreatesIntegrationTargetInputAndDedupesMes
 	if err != nil {
 		t.Fatalf("get producer actor: %v", err)
 	}
-	if actor.ProviderTenantID != testPublicID(t, publicid.KindProjectIntegration, fixture.Install.ID) {
-		t.Fatalf("actor namespace = %q, want configured integration ID", actor.ProviderTenantID)
+	if actor.ProviderTenantID != "slack:T123" {
+		t.Fatalf("actor namespace = %q, want Slack workspace namespace", actor.ProviderTenantID)
 	}
 	if actor.Provider != executionstore.ActorProviderIntegration {
 		t.Fatalf("actor provider = %q, want integration", actor.Provider)
 	}
+	require.JSONEq(t, `{"source_label":"Slack"}`, string(actor.Metadata))
 	if input.DeliveryMode != executionstore.DeliveryModeSteering {
 		t.Fatalf(
 			"integration input delivery mode = %q, want steering",
@@ -199,13 +198,7 @@ func TestSlackEventsIntegrationMentionCreatesIntegrationTargetInputAndDedupesMes
 	if err != nil {
 		t.Fatalf("get launched agent: %v", err)
 	}
-	if agent.IntegrationTargetID != integrationTarget.ID {
-		t.Fatalf(
-			"integration target target = %s want %s",
-			agent.IntegrationTargetID,
-			integrationTarget.ID,
-		)
-	}
+	require.Equal(t, uuid.Nil, agent.InteractionTargetID, "receipt alone must not select an interaction target")
 
 	messageCopy := `{
 		"type":"event_callback",
@@ -264,6 +257,18 @@ func TestSlackEventsIntegrationMentionCreatesIntegrationTargetInputAndDedupesMes
 	if response["ok"] != "received" {
 		t.Fatalf("redelivery response=%v want received", response)
 	}
+	claim, found, err := fixture.Project.Store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Len(t, claim.Model.AdmittedInputTurn.Inputs, 1, "mention copies and redelivery must not duplicate input")
+	admitted := claim.Model.AdmittedInputTurn.Inputs[0]
+	require.Equal(t, input.ID, admitted.ID)
+	require.Equal(t, agent.ID, admitted.AgentID)
+	require.Equal(t, integrationTarget.ID, admitted.IntegrationTargetID)
+	agent, err = fixture.Project.Store.Execution().GetAgentInProject(ctx, fixture.Project.ProjectUUID, agent.ID)
+	require.NoError(t, err)
+	require.Equal(t, integrationTarget.ID, agent.InteractionTargetID, "admission selects the mention origin")
 
 	threadBody := `{
 		"type":"event_callback",
@@ -702,7 +707,7 @@ func TestSlackEventsResolvesMentionedUserDisplayNameInMemory(t *testing.T) {
 		ctx,
 		fixture.Project.ProjectUUID,
 		executionstore.ActorProviderIntegration,
-		testPublicID(t, publicid.KindProjectIntegration, fixture.Install.ID),
+		"slack:T123",
 		[]string{"U456"},
 	)
 	if err != nil {
@@ -1157,7 +1162,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if response["ok"] != "ignored" {
 		t.Fatalf("oauth token revoked response=%v want ignored", response)
 	}
-	updated, err := fixture.Project.Store.Integrations().GetProjectIntegration(
+	updated, err := fixture.Project.Store.Integrations().GetIntegration(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1165,7 +1170,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get install: %v", err)
 	}
-	if updated.State != integrationstore.ProjectIntegrationStateActive {
+	if updated.State != integrationstore.IntegrationStateActive {
 		t.Fatalf("oauth-only revoke disabled install: %+v", updated)
 	}
 
@@ -1191,7 +1196,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if response["ok"] != "disabled" {
 		t.Fatalf("bot token revoked response=%v want disabled", response)
 	}
-	updated, err = fixture.Project.Store.Integrations().GetProjectIntegration(
+	updated, err = fixture.Project.Store.Integrations().GetIntegration(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1199,7 +1204,7 @@ func TestSlackEventsLifecycleDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get disabled install: %v", err)
 	}
-	if updated.State != integrationstore.ProjectIntegrationStateDisconnected {
+	if updated.State != integrationstore.IntegrationStateDisconnected {
 		t.Fatalf("install state=%q want disabled", updated.State)
 	}
 
@@ -1280,7 +1285,7 @@ func TestSlackEventsIntegrationUninstalledDisablesInstall(t *testing.T) {
 	if response["ok"] != "disabled" {
 		t.Fatalf("app_uninstalled response=%v want disabled", response)
 	}
-	updated, err := fixture.Project.Store.Integrations().GetProjectIntegration(
+	updated, err := fixture.Project.Store.Integrations().GetIntegration(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1288,7 +1293,7 @@ func TestSlackEventsIntegrationUninstalledDisablesInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get project integration: %v", err)
 	}
-	if updated.State != integrationstore.ProjectIntegrationStateDisconnected {
+	if updated.State != integrationstore.IntegrationStateDisconnected {
 		t.Fatalf("install state=%q want disabled", updated.State)
 	}
 }
@@ -1438,7 +1443,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if response["ok"] != "disabled" {
 		t.Fatalf("second app uninstall response=%v want disabled", response)
 	}
-	first, err := fixture.Project.Store.Integrations().GetProjectIntegration(
+	first, err := fixture.Project.Store.Integrations().GetIntegration(
 		ctx,
 		fixture.Project.ProjectUUID,
 		fixture.Install.ID,
@@ -1446,7 +1451,7 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get first install: %v", err)
 	}
-	second, err := fixture.Project.Store.Integrations().GetProjectIntegration(
+	second, err := fixture.Project.Store.Integrations().GetIntegration(
 		ctx,
 		fixture.Project.ProjectUUID,
 		secondInstall.ID,
@@ -1454,8 +1459,8 @@ func TestSlackEventsAndActionsRouteByProviderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get second install: %v", err)
 	}
-	if first.State != integrationstore.ProjectIntegrationStateActive ||
-		second.State != integrationstore.ProjectIntegrationStateDisconnected {
+	if first.State != integrationstore.IntegrationStateActive ||
+		second.State != integrationstore.IntegrationStateDisconnected {
 		t.Fatalf("install statees: first=%q second=%q", first.State, second.State)
 	}
 }
@@ -1780,9 +1785,6 @@ func TestSlackEventsDMCreatesInputAndTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dm integration target: %v", err)
 	}
-	if string(integrationTarget.ProviderMetadata) != "{}" {
-		t.Fatalf("dm integration target metadata = %s want {}", integrationTarget.ProviderMetadata)
-	}
 	agent, err := fixture.Project.Store.Execution().GetAgentInProject(
 		ctx,
 		fixture.Project.ProjectUUID,
@@ -1791,13 +1793,18 @@ func TestSlackEventsDMCreatesInputAndTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dm agent: %v", err)
 	}
-	if agent.IntegrationTargetID != integrationTarget.ID {
-		t.Fatalf(
-			"integration target target = %s want %s",
-			agent.IntegrationTargetID,
-			integrationTarget.ID,
-		)
-	}
+	require.Equal(t, uuid.Nil, agent.InteractionTargetID, "receipt alone must not select an interaction target")
+	claim, found, err := fixture.Project.Store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Len(t, claim.Model.AdmittedInputTurn.Inputs, 1)
+	admitted := claim.Model.AdmittedInputTurn.Inputs[0]
+	require.Equal(t, agent.ID, admitted.AgentID)
+	require.Equal(t, integrationTarget.ID, admitted.IntegrationTargetID)
+	agent, err = fixture.Project.Store.Execution().GetAgentInProject(ctx, fixture.Project.ProjectUUID, agent.ID)
+	require.NoError(t, err)
+	require.Equal(t, integrationTarget.ID, agent.InteractionTargetID, "admission selects the DM origin")
 	var reactionForm map[string]string
 	select {
 	case reactionForm = <-reactionForms:
@@ -3085,7 +3092,7 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 		for attempt := 1; attempt <= integrationstore.IntegrationInboxMaxAttempts; attempt++ {
 			if attempt > 1 {
 				_, err := pool.Exec(ctx,
-					`UPDATE integration_inbox SET available_at=now() WHERE project_id=$1 AND receipt_key=$2`,
+					`UPDATE integration_inbox SET next_attempt_at=now() WHERE project_id=$1 AND receipt_key=$2`,
 					fixture.Project.ProjectUUID, "slack:"+eventID)
 				require.NoError(t, err)
 			}
@@ -3100,7 +3107,7 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 			var attempts int
 			var completed, retryScheduled bool
 			require.NoError(t, pool.QueryRow(ctx, `
-SELECT plan,state,last_error,attempt_count,completed_at IS NOT NULL,available_at > updated_at
+SELECT plan,state,last_error,attempt_count,completed_at IS NOT NULL,next_attempt_at > updated_at
 FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 `, fixture.Project.ProjectUUID, "slack:"+eventID).Scan(
 				&plan, &state, &lastError, &attempts, &completed, &retryScheduled))
@@ -3113,7 +3120,7 @@ FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 				require.JSONEq(t, string(frozenPlan), string(plan), "retries retain the frozen plan")
 			}
 			if attempt < integrationstore.IntegrationInboxMaxAttempts {
-				require.Equal(t, "pending", state)
+				require.Equal(t, "queued", state)
 				require.False(t, completed)
 				require.True(t, retryScheduled, "retry keeps the existing backoff")
 				select {
@@ -3349,7 +3356,7 @@ func TestSlackEventsNameUpdatesRefreshDisplayNames(t *testing.T) {
 		ctx,
 		fixture.Project.ProjectUUID,
 		executionstore.ActorProviderIntegration,
-		testPublicID(t, publicid.KindProjectIntegration, fixture.Install.ID),
+		"slack:T123",
 		[]string{"U123"},
 	)
 	if err != nil {
@@ -3576,7 +3583,7 @@ type slackEventsIntegrationFixture struct {
 	ProfileID uuid.UUID
 	Handler   http.Handler
 	Project   publicHTTPProject
-	Install   integrationstore.ProjectIntegrationRecord
+	Install   integrationstore.IntegrationRecord
 }
 
 func newSlackEventsIntegrationFixture(
@@ -3816,8 +3823,8 @@ func assertAgentInputText(
 		}
 		require.NoError(t, json.Unmarshal([]byte(raw), &captured))
 		var integrationName, kind, ref string
-		require.NoError(t, pool.QueryRow(ctx, `SELECT integration.name, target.provider_ref_kind, target.provider_ref
-			FROM integration_targets target JOIN project_integrations integration ON integration.id=target.integration_id
+		require.NoError(t, pool.QueryRow(ctx, `SELECT integration.name, target.scope_kind, target.scope_ref
+			FROM integration_targets target JOIN integrations integration ON integration.id=target.integration_id
 			WHERE target.project_id=$1 AND target.id=$2`, input.ProjectID, input.IntegrationTargetID).
 			Scan(&integrationName, &kind, &ref))
 		require.Equal(t, integrationName, captured.Integration)
@@ -3871,7 +3878,7 @@ func createSlackHTTPInstall(
 	project publicHTTPProject,
 	profileID uuid.UUID,
 	appID, workspaceID, botUserID, signingSecret string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	credentialPayload, err := slack.CredentialPayload(slack.AppCredentials{
 		BotToken:      "xoxb-" + appID,
@@ -3889,23 +3896,20 @@ func createSlackHTTPInstall(
 		appID+"-credentials-"+uuid.NewString()[:8],
 		credentialPayload,
 	)
-	integration, err := project.Store.Integrations().CreateProjectIntegration(
+	integration, err := project.Store.Integrations().CreateIntegration(
 		ctx,
-		integrationstore.SaveProjectIntegrationInput{
+		integrationstore.SaveIntegrationInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID,
-			Name: "slack-" + uuid.NewString()[:8], IntegrationType: integrationdefinition.SlackThread,
-			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "mention", ScopeKind: "workspace", ScopeRef: workspaceID,
-				Slots: []integrationstore.IntegrationLaunchSlot{{Key: "default", AgentProfileID: &profileID}},
-			}},
+			Name: "slack-" + uuid.NewString()[:8], IntegrationKind: integrationdefinition.SlackThread,
+			Settings: integrationtest.ChatSettings("", profileID),
 		},
 	)
 	require.NoError(t, err)
 	credential, err := project.Store.Secrets().GetSecret(ctx, project.OrgUUID, credentialSecret)
 	require.NoError(t, err)
-	install, err := project.Store.Integrations().ConfigureProjectIntegration(
+	install, err := project.Store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                 project.OrgUUID,
 			ProjectID:             project.ProjectUUID,
 			IntegrationID:         integration.ID,
@@ -3951,7 +3955,7 @@ func createSlackHTTPInstallSecret(
 
 type slackActionPayloadInput struct {
 	ChannelID, MessageTS, ThreadTS string
-	Install                        integrationstore.ProjectIntegrationRecord
+	Install                        integrationstore.IntegrationRecord
 	AgentID                        uuid.UUID
 	IntegrationTargetID            uuid.UUID
 	InteractionID                  uuid.UUID
@@ -4217,9 +4221,11 @@ func createInteractionForAgent(
 			}, func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 				return executionstore.SetInteractionHandlerForToolCall(executionstore.SelectInteractionHandlerInput{
 					HandlerKey: selection.Handler, Args: selection.Args,
-				}, executionstore.ToolCallCompletionInput{
-					Outcome:            executionstore.ToolResultOutcomeSucceeded,
-					ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+				}, func(executionstore.InteractionSelection) (executionstore.ToolCallCompletionInput, error) {
+					return executionstore.ToolCallCompletionInput{
+						Outcome:            executionstore.ToolResultOutcomeSucceeded,
+						ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+					}, nil
 				}), nil
 			})
 			require.NoError(t, err, "select explicit handler destination before creating the interaction")
@@ -4281,7 +4287,7 @@ func slackJourneyTarget(
 	t.Helper()
 	rows, err := pool.Query(
 		ctx,
-		`SELECT id FROM integration_targets WHERE project_id=$1 AND integration_id=$2 AND provider_ref=$3 AND deleted_at IS NULL ORDER BY id`,
+		`SELECT id FROM integration_targets WHERE project_id=$1 AND integration_id=$2 AND scope_ref=$3 AND deleted_at IS NULL ORDER BY id`,
 		projectID,
 		integrationID,
 		ref,
@@ -4334,9 +4340,10 @@ func slackJourneyWorker(
 	)
 	launchers := integrationruntime.NewIntegrationLaunchWorkflow(
 		router,
-		map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
+		map[integrationdefinition.Kind]integrationruntime.IntegrationLauncher{
 			integrationdefinition.SlackThread: chatLauncher.Decide,
 		},
+		providers,
 	)
 	consumer := integrationruntime.NewIntegrationInboxConsumer(
 		router,
@@ -4378,7 +4385,7 @@ func TestSlackSharedWebhookPersistsEachIntegrationAndRetriesPartialFailure(t *te
 			provider := newSlackEventsTestServer(t)
 			t.Cleanup(provider.Close)
 			f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "slack-integration-fanout")
-			second := projectIntegrationHTTPSecondProject(t, f.Handler, f.Project)
+			second := integrationHTTPSecondProject(t, f.Handler, f.Project)
 			profile := createSlackReadyHTTPProfile(t, f.Handler, second, "second-profile", second.AdminToken)
 			profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
 			other := createSlackHTTPInstall(t, ctx, second, profileID, "A123", "T123", "U_BOT", "signing-secret")
@@ -4422,7 +4429,7 @@ func TestSlackSharedWebhookPersistsEachIntegrationAndRetriesPartialFailure(t *te
 				requestJSONWithHeaders(t, f.Handler, http.MethodPost, integrationEventsPath, body, "", http.StatusOK,
 					unitSlackSignedHeaders(body, "signing-secret"))
 			}
-			for _, integration := range []integrationstore.ProjectIntegrationRecord{f.Install, other} {
+			for _, integration := range []integrationstore.IntegrationRecord{f.Install, other} {
 				var payload []byte
 				require.NoError(t, pool.QueryRow(ctx,
 					`SELECT count(*) FROM integration_inbox WHERE project_id=$1 AND integration_id=$2`, integration.ProjectID, integration.ID).Scan(&count))

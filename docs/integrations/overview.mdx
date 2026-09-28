@@ -21,14 +21,16 @@ same rules as an MCP server name: a letter followed by letters, digits or hyphen
 up to 32 characters. Names and integration types cannot be changed after creation.
 
 The integration type identifies its behavior: `slack_thread`, `discord_thread` or
-`github_pr`. Create and update requests use `integration_type`, for example:
+`github_pr`. Create requests use `integration_kind`, for example:
 
 ```json
-{"name":"engineering","integration_type":"slack_thread","settings":{}}
+{"name":"engineering","integration_kind":"slack_thread","settings":{}}
 ```
 
+Updates contain only `settings`; the integration name and kind are immutable.
+
 `GET /orgs/{orgID}/projects/{projectID}/integration-definitions` lists each registered
-`integration_type` and its `capabilities`. Saved integrations also expose `integration_type`; neither
+`integration_kind` and its `capabilities`. Saved integrations also expose `integration_kind`; neither
 record includes a provider classification. Saved integrations use `itg_` IDs;
 profile choices use `ipc_` IDs, while agent interactions keep `int_` IDs.
 Code contributors register a precise
@@ -121,7 +123,9 @@ silently acquire a different integration, sending context or permission after a 
 ## Subscribe a conversation
 
 A subscription connects one integration, one agent and one concrete provider
-conversation. Multiple integrations or conversations can forward to the same agent.
+conversation. At most 16 agents can subscribe to the same conversation through one
+integration; adding another returns HTTP 409. Multiple integrations or conversations
+can forward to the same agent.
 Subscriptions belong to the integration: saving, activating or changing an agent config
 never adds or removes them. Source YAML has no `listeners` block.
 
@@ -160,8 +164,7 @@ Open the integration's **Conversations** section and choose **Stop forwarding**,
 This stops incoming forwarding for that subscription. The agent, sending tools,
 interaction handlers and history remain. A stopped selected thread does not
 launch a replacement agent on the next mention. Explicitly attach the conversation
-again through the API to resume forwarding. Independent existing-agent launcher
-slots and already accepted chooser handoffs are not canceled by this deletion.
+again through the API to resume forwarding. Already accepted chooser handoffs are not canceled by this deletion.
 
 Repeating an active attachment returns the same subscription. A fresh attachment
 after deletion receives a new ID, so retrying an old DELETE cannot remove the new attachment. Integration disconnection preserves subscriptions;
@@ -177,7 +180,7 @@ an integration schedule; the launch assigns its sending conversation and reply s
 agents from mentions. With one offered profile, the agent starts immediately.
 With several profiles, the bot presents a selection menu and starts only the
 chosen profile. [GitHub](/integrations/github) can start work from a PR mention
-or PR creation; its launcher runs each configured slot.
+or PR creation using one configured profile.
 
 A profile launch derives a config with the integration's tools and supported interaction
 handler, and separately attaches a subscription for that conversation. The profile
@@ -185,8 +188,13 @@ stays unchanged. Existing explicit entries win as complete entries, including
 disabled tools and permissions. The launcher adds missing entries only; the
 capability additions are the same for every conversation using that profile and
 integration. The destination belongs to the integration-agent context, not the derived config.
-An existing-agent launcher slot forwards input without adding capabilities or
-sending context.
+Launcher settings belong to each integration's schema, published in
+`capabilities.settings.input_schema`. Settings use public profile IDs and resolve
+profiles when launching; removing a profile is allowed, and an unavailable profile
+requires updating the launcher. There are no named slots or existing-agent launcher
+options. Use ordinary subscriptions to forward to existing agents. A receive-only
+subscription does not prevent launching. True saved launch ownership prevents a
+replacement even after archival; explicit restart is deferred.
 
 The create-agent API accepts `tools` and `interaction_handlers` when deriving a
 config from a pinned config or profile, plus independent `subscriptions`
@@ -287,10 +295,13 @@ conversation can answer its questions and approvals without an Omnara account.
 Use explicit tool permissions to restrict or disable `set_interaction_handler`
 when the model should not change the selected handler.
 
-Use `{"handler":null,"args":{}}` for dashboard only. A newly accepted provider input
-selects its unique eligible handler. An ineligible origin clears the selection;
-an input without a provider origin preserves it. Each interaction captures its
-destination when created, so changing the selection does not move an existing prompt.
+Use `{"handler":null,"args":{}}` for dashboard only. Automatic selection starts enabled:
+when the agent receives a batch of inputs, its last new message selects an eligible
+handler or clears the selection if none applies, including dashboard/API messages.
+Receipt alone does not redirect a running turn. Pass `auto_select: false` to pin your
+choice, or `true` to resume automatic selection; omitting it preserves the current mode.
+The list and setter return that mode. Each interaction captures its destination when
+created, so changing the selection does not move an existing prompt.
 
 The dashboard remains available if provider presentation fails. Removing a handler,
 disconnecting its integration, or losing its assigned conversation invalidates external

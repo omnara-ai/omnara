@@ -11,20 +11,20 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (s *Store) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
+func (s *Store) UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 	ctx context.Context,
 	projectID, integrationID uuid.UUID,
-	providerRefPrefix, displayName string,
+	scopeRefPrefix, displayName string,
 ) error {
-	if projectID == uuid.Nil || integrationID == uuid.Nil || providerRefPrefix == "" || displayName == "" {
+	if projectID == uuid.Nil || integrationID == uuid.Nil || scopeRefPrefix == "" || displayName == "" {
 		return errors.New("project, integration, provider ref prefix, and display name are required")
 	}
-	_, err := s.q.UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
+	_, err := s.q.UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 		ctx,
-		dbsqlc.UpdateIntegrationTargetDisplayNamesByProviderRefPrefixParams{
+		dbsqlc.UpdateIntegrationTargetDisplayNamesByScopeRefPrefixParams{
 			ProjectID:         projectID,
 			IntegrationID:     integrationID,
-			ProviderRefPrefix: providerRefPrefix,
+			ScopeRefPrefix: scopeRefPrefix,
 			DisplayName:       displayName,
 		},
 	)
@@ -72,9 +72,9 @@ func integrationTargetRecordFromGetSQLC(
 ) IntegrationTargetRecord {
 	return integrationTargetRecord(dbsqlc.GetAgentConversationTargetRow{
 		ID: row.ID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
-		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
-		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
-		SelectionSlot: row.SelectionSlot,
+		ScopeRef: row.ScopeRef, ScopeKind: row.ScopeKind,
+		DisplayName: row.DisplayName,
+		LaunchKey: row.LaunchKey,
 		DeletedAt:     row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, row.OrgID)
 }

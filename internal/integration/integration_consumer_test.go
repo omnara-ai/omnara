@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"testing"
 
 	"github.com/google/uuid"
@@ -44,21 +45,21 @@ type integrationConsumerProvider struct {
 	downloads  int
 	file       IntegrationInboxFile
 	expansions int
-	events     []IntegrationEvent
+	event      *IntegrationEvent
 }
 
 func (p *integrationConsumerProvider) Expand(
 	context.Context,
-	integrationstore.ProjectIntegrationRecord,
+	integrationstore.IntegrationRecord,
 	[]byte,
 ) (IntegrationInboxExpansion, error) {
 	p.expansions++
-	return IntegrationInboxExpansion{Events: p.events, Files: map[string]IntegrationInboxFile{"F123": p.file}}, nil
+	return IntegrationInboxExpansion{Event: p.event, Files: map[string]IntegrationInboxFile{"F123": p.file}}, nil
 }
 
 func (p *integrationConsumerProvider) DownloadFile(
 	context.Context,
-	integrationstore.ProjectIntegrationRecord,
+	integrationstore.IntegrationRecord,
 	[]byte,
 	string,
 ) (IntegrationInboxFile, error) {
@@ -78,8 +79,12 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 		SizeBytes:   int64(len(content)),
 	}
 	slot := IntegrationInboxSlot{
-		AgentID: uuid.Must(uuid.NewV7()),
-		Files:   []IntegrationPlannedFile{{ArtifactID: id, ProviderFileID: "F123", Expected: &expected}},
+		AgentID:     uuid.Must(uuid.NewV7()),
+		ArtifactIDs: []uuid.UUID{id},
+	}
+	message := executionstore.InboxMessage{
+		ContentBlocks: []byte(`[{"type":"media_ref","artifact_id":"` + id.String() + `"}]`),
+		Files:         []executionstore.InboxPlannedFile{{ArtifactID: id, ProviderFileID: "F123", Expected: &expected}},
 	}
 	uploads := &integrationConsumerUploads{}
 	provider := &integrationConsumerProvider{file: file}
@@ -88,8 +93,9 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 	prepared, err := consumer.prepareFiles(
 		t.Context(),
 		provider,
-		integrationstore.ProjectIntegrationRecord{},
+		integrationstore.IntegrationRecord{},
 		nil,
+		message,
 		slot,
 		cache,
 	)
@@ -101,8 +107,9 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 	prepared, err = consumer.prepareFiles(
 		t.Context(),
 		nil,
-		integrationstore.ProjectIntegrationRecord{},
+		integrationstore.IntegrationRecord{},
 		nil,
+		message,
 		slot,
 		nil,
 	)
@@ -114,8 +121,9 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 	_, err = consumer.prepareFiles(
 		t.Context(),
 		provider,
-		integrationstore.ProjectIntegrationRecord{},
+		integrationstore.IntegrationRecord{},
 		nil,
+		message,
 		slot,
 		map[string]IntegrationInboxFile{},
 	)

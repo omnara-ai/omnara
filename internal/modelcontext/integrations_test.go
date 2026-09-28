@@ -19,7 +19,7 @@ func integrationContextFixture(t *testing.T, source string) (*fakeContextStore, 
 	t.Helper()
 	integrationID := testIDN(940)
 	integrations := map[uuid.UUID]agentconfig.IntegrationResolution{
-		integrationID: {IntegrationID: integrationID, IntegrationType: integrationdefinition.SlackThread},
+		integrationID: {IntegrationID: integrationID, IntegrationKind: integrationdefinition.SlackThread},
 	}
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(`
 instruction: Help the user.
@@ -108,7 +108,7 @@ func TestBuildOmitsUnavailableIntegrationToolsWithoutChangingStoredConfig(t *tes
 			if state == "recreated name" {
 				replacement := testIDN(942)
 				store.integrationDefinitions[replacement] = agentconfig.IntegrationResolution{
-					IntegrationID: replacement, IntegrationType: integrationdefinition.SlackThread,
+					IntegrationID: replacement, IntegrationKind: integrationdefinition.SlackThread,
 				}
 			}
 			bundle := buildIntegrationContext(t, store)

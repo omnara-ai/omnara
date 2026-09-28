@@ -67,14 +67,13 @@ describe('generated integration capability contracts', () => {
     expect(zIntegrationCapabilityDefinition.safeParse({}).success).toBe(false)
   })
 
-  it('preserves complete captured handler arguments', () => {
+  it('exposes a captured destination in provider fields', () => {
     const destination = {
-      integration_type: 'slack_thread',
+      integration_kind: 'slack_thread',
       handler_key: 'support',
       integration_id: `itg_${'a'.repeat(26)}`,
       integration_target_id: `itgt_${'a'.repeat(26)}`,
-      args: { channel_id: 'C123', thread_ts: '111.222' },
-      address: { kind: 'thread', ref: 'C123:111.222' },
+      conversation: { channel_id: 'C123', thread_ts: '111.222' },
     }
     expect(zAgentInteractionDestination.parse(destination)).toEqual(destination)
   })

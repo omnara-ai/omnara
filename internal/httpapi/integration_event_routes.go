@@ -43,9 +43,9 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 	}
 	response := ""
 	var rejected error
-	result, err := fanoutIntegrations(ctx, s.store.Integrations().ListProjectIntegrationsForProviderEventVerification,
+	result, err := fanoutIntegrations(ctx, s.store.Integrations().ListIntegrationsForProviderEventVerification,
 		integrationstore.IntegrationProviderSlack, envelope.TeamID, envelope.APIAppID,
-		func(ctx context.Context, integration integrationstore.ProjectIntegrationRecord) (bool, error) {
+		func(ctx context.Context, integration integrationstore.IntegrationRecord) (bool, error) {
 			credentials, err := s.integrationSlackCredentials(ctx, integration)
 			if err != nil {
 				return false, err
@@ -83,7 +83,7 @@ func (s *Server) integrationEventsRoute(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) acceptSlackEvent(
-	ctx context.Context, integration integrationstore.ProjectIntegrationRecord, envelope slack.EventsEnvelope, raw []byte,
+	ctx context.Context, integration integrationstore.IntegrationRecord, envelope slack.EventsEnvelope, raw []byte,
 ) (string, error) {
 	if !slack.EventCallbackEnvelope(envelope) {
 		return "ignored", nil
@@ -101,11 +101,11 @@ func (s *Server) acceptSlackEvent(
 	if envelope.EventID == "" {
 		return "", storeerr.InvalidRequest(errors.New("missing event id"))
 	}
-	if integration.State != integrationstore.ProjectIntegrationStateActive {
+	if integration.State != integrationstore.IntegrationStateActive {
 		return "ignored", nil
 	}
 	if slack.DisabledInstallEvent(identity.BotUserID, envelope.Event) {
-		_, err := s.store.Integrations().DisconnectProjectIntegration(ctx, integrationstore.DisconnectProjectIntegrationInput{
+		_, err := s.store.Integrations().DisconnectIntegration(ctx, integrationstore.DisconnectIntegrationInput{
 			ProjectID: integration.ProjectID, IntegrationID: integration.ID, ExpectedSetupRevision: &integration.SetupRevision,
 		})
 		return "disabled", err
@@ -139,11 +139,11 @@ func (s *Server) acceptSlackEvent(
 
 func (s *Server) applyIntegrationNameUpdate(
 	ctx context.Context,
-	install integrationstore.ProjectIntegrationRecord,
+	install integrationstore.IntegrationRecord,
 	update slack.NameUpdate,
 ) error {
 	if update.ConversationID != "" {
-		return s.store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
+		return s.store.Integrations().UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 			ctx,
 			install.ProjectID,
 			install.ID,
@@ -151,7 +151,7 @@ func (s *Server) applyIntegrationNameUpdate(
 			update.DisplayName,
 		)
 	}
-	actor, err := executionstore.IntegrationActorParams(install.ID, update.UserID, nil)
+	actor, err := executionstore.IntegrationActorParams(install, update.UserID, nil)
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func (s *Server) applyIntegrationNameUpdate(
 
 func (s *Server) integrationSlackCredentials(
 	ctx context.Context,
-	install integrationstore.ProjectIntegrationRecord,
+	install integrationstore.IntegrationRecord,
 ) (slack.AppCredentials, error) {
 	credential, err := s.store.Secrets().ReadProjectAvailableSecretPayload(
 		ctx,

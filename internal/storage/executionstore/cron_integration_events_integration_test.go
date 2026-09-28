@@ -266,15 +266,15 @@ func TestCronIntegrationEventLifecycle(t *testing.T) {
 			switch scenario {
 			case "disconnect":
 				_, err := f.store.Integrations().
-					DisconnectProjectIntegration(
+					DisconnectIntegration(
 						f.ctx,
-						integrationstore.DisconnectProjectIntegrationInput{ProjectID: testProjectID, IntegrationID: f.integration.ID},
+						integrationstore.DisconnectIntegrationInput{ProjectID: testProjectID, IntegrationID: f.integration.ID},
 					)
 				require.NoError(t, err)
 			case "delete_integration":
 				require.NoError(
 					t,
-					f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID),
+					f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID),
 				)
 			case "delete_profile":
 				require.NoError(t, f.store.Execution().DeleteAgentProfile(f.ctx, testProjectID, f.profile.ID))

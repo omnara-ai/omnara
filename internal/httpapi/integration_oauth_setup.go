@@ -17,10 +17,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-func (s strictOpenAPIServer) CreateProjectIntegrationOAuthSetup(
+func (s strictOpenAPIServer) CreateIntegrationOAuthSetup(
 	ctx context.Context,
-	request openapi.CreateProjectIntegrationOAuthSetupRequestObject,
-) (openapi.CreateProjectIntegrationOAuthSetupResponseObject, error) {
+	request openapi.CreateIntegrationOAuthSetupRequestObject,
+) (openapi.CreateIntegrationOAuthSetupResponseObject, error) {
 	scope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func (s strictOpenAPIServer) CreateProjectIntegrationOAuthSetup(
 	if err != nil {
 		return nil, err
 	}
-	return openapi.CreateProjectIntegrationOAuthSetup201JSONResponse(*result), nil
+	return openapi.CreateIntegrationOAuthSetup201JSONResponse(*result), nil
 }
 
 func (s strictOpenAPIServer) createIntegrationOAuthSetup(
@@ -42,7 +42,7 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
 			"integration OAuth setup requires a configured public URL and secret encryption keys")
 	}
-	integration, err := s.projectIntegrationForSetup(ctx, scope, integrationRef)
+	integration, err := s.integrationForSetup(ctx, scope, integrationRef)
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +144,10 @@ func (s strictOpenAPIServer) createIntegrationOAuthSetup(
 	}, nil
 }
 
-func (s strictOpenAPIServer) CreateProjectIntegrationSlackSetup(
+func (s strictOpenAPIServer) CreateIntegrationSlackSetup(
 	ctx context.Context,
-	request openapi.CreateProjectIntegrationSlackSetupRequestObject,
-) (openapi.CreateProjectIntegrationSlackSetupResponseObject, error) {
+	request openapi.CreateIntegrationSlackSetupRequestObject,
+) (openapi.CreateIntegrationSlackSetupResponseObject, error) {
 	scope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -156,7 +156,7 @@ func (s strictOpenAPIServer) CreateProjectIntegrationSlackSetup(
 	if err != nil {
 		return nil, err
 	}
-	return openapi.CreateProjectIntegrationSlackSetup201JSONResponse(*result), nil
+	return openapi.CreateIntegrationSlackSetup201JSONResponse(*result), nil
 }
 
 func (s strictOpenAPIServer) createSlackSetup(
@@ -172,7 +172,7 @@ func (s strictOpenAPIServer) createSlackSetup(
 	if err := validateSlackSetupPublicURL(s.server.publicURL); err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeServiceUnavailable, err.Error())
 	}
-	integration, err := s.projectIntegrationForSetup(ctx, scope, integrationRef)
+	integration, err := s.integrationForSetup(ctx, scope, integrationRef)
 	if err != nil {
 		return nil, err
 	}

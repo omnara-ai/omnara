@@ -286,7 +286,8 @@ func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integratio
 		return nil
 	}
 	outcome := "lease_lost"
-	terminal := (len(receipt.Events) != 0 && errors.Is(err, ErrIntegrationLaunchUnavailable)) ||
+	terminal := (receipt.Source == integrationstore.IntegrationInboxSourceChoice &&
+		errors.Is(err, ErrIntegrationLaunchUnavailable)) ||
 		errors.Is(err, ErrScheduledActionFailed) || errors.Is(err, ErrIntegrationInboundPermanent)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
 		retryCtx, retryCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

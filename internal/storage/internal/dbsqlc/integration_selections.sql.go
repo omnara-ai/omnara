@@ -18,8 +18,8 @@ WITH matches AS MATERIALIZED (
   FROM integration_inbox
   WHERE project_id = $1 AND integration_id = $2
     AND id <> $3 AND plan IS NOT NULL
-    AND state IN ('pending', 'processing')
-    AND jsonb_path_query_array(plan, '$.*.selection') @> jsonb_build_array($4::jsonb)
+    AND state IN ('queued', 'processing')
+    AND jsonb_path_query_array(plan, '$.recipients.*.selection') @> jsonb_build_array($4::jsonb)
 )
 SELECT id, state FROM matches
 ORDER BY id

@@ -1,6 +1,6 @@
 -- name: GetInteractionSelection :one
-SELECT current_config_id, integration_target_id,
-       coalesce(interaction_handler_key, '') AS handler_key
+SELECT current_config_id, interaction_target_id,
+       coalesce(interaction_handler_key, '') AS handler_key, interaction_auto_select
 FROM agents
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(agent_id);
 
@@ -12,14 +12,15 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(interaction_id)
 
 -- name: SetInteractionSelection :execrows
 UPDATE agents
-SET integration_target_id = sqlc.narg(target_id)::uuid,
+SET interaction_target_id = sqlc.narg(target_id)::uuid,
     interaction_handler_key = sqlc.narg(handler_key)::text,
+    interaction_auto_select = sqlc.arg(auto_select)::boolean,
     updated_at = statement_timestamp()
 WHERE agents.project_id = sqlc.arg(project_id) AND agents.id = sqlc.arg(agent_id)
   AND ((sqlc.narg(target_id)::uuid IS NULL AND sqlc.narg(handler_key)::text IS NULL)
     OR (sqlc.narg(handler_key)::text <> '' AND EXISTS (
       SELECT 1 FROM integration_targets target
-      JOIN project_integrations integration
+      JOIN integrations integration
         ON integration.project_id = target.project_id
        AND integration.id = target.integration_id
       WHERE target.project_id = agents.project_id AND target.agent_id = agents.id
@@ -29,10 +30,10 @@ WHERE agents.project_id = sqlc.arg(project_id) AND agents.id = sqlc.arg(agent_id
 
 -- name: GetInteractionDestinationTarget :one
 SELECT target.id, target.integration_id AS integration_id,
-       target.provider_ref_kind, target.provider_ref, target.display_name,
+       target.scope_kind, target.scope_ref, target.display_name,
        integration.state AS integration_state
 FROM integration_targets target
-JOIN project_integrations integration
+JOIN integrations integration
   ON integration.project_id = target.project_id AND integration.id = target.integration_id
 WHERE target.project_id = sqlc.arg(project_id) AND target.agent_id = sqlc.arg(agent_id)
   AND target.id = sqlc.arg(target_id) AND target.deleted_at IS NULL

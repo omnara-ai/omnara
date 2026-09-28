@@ -46,7 +46,7 @@ type AgentRecord struct {
 	Name                string     `json:"name,omitempty"`
 	CurrentConfigID     uuid.UUID  `json:"current_config_id"`
 	Model               AgentModelDisplay
-	IntegrationTargetID uuid.UUID `json:"integration_target_id,omitempty"`
+	InteractionTargetID uuid.UUID `json:"interaction_target_id,omitempty"`
 	IntegrationTarget   IntegrationTargetDisplay
 	IdempotencyKey      string     `json:"idempotency_key,omitempty"`
 	NextEventSequence   int64      `json:"-"`

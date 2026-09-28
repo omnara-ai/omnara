@@ -41,8 +41,8 @@ limit. Start with the default pool of 10 maximum connections and measure queue
 lag and database contention before increasing concurrency or replica counts.
 
 Workers sample `omnara_integration_inbox_oldest_ready_lag_seconds` about every 30 seconds,
-including while every consumer is busy. This measures time since `available_at`
-for the oldest due pending receipt, including inactive integrations awaiting recovery;
+including while every consumer is busy. This measures time since `next_attempt_at`
+for the oldest due queued receipt, including inactive integrations awaiting recovery;
 future retry delays and processing leases are excluded. Scrapes read cached
 values and never query the inbox. The metric has no integration or project labels and
 reports zero for an empty ready queue, or `NaN` before sampling or after a failed
@@ -50,7 +50,7 @@ sample. Check `omnara_integration_inbox_lag_sample_last_success_timestamp_second
 freshness; it remains unchanged on failure. Each worker observes the same global
 queue, so compare the maximum lag across workers rather than summing it.
 
-Expired claims and inactive pending work each receive their own 100-row recovery
+Expired claims and inactive queued work each receive their own 100-row recovery
 allowance. Full batches continue for a one-second soft budget, checked between
 recovery calls. The current call (two SQL statements) may finish beyond that
 budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget

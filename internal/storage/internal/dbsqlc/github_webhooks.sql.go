@@ -17,13 +17,13 @@ SELECT DISTINCT ON (integration.credential_secret_id)
   integration.provider_agent_display_name, integration.credential_secret_id,
   integration.provider_config, integration.provider_identity, integration.provider_metadata,
   integration.last_oauth_flow_id, integration.deleted_at, integration.created_at, integration.updated_at,
-  integration.name, integration.integration_type, integration.settings, integration.setup_revision
-FROM project_integrations integration
+  integration.name, integration.integration_kind, integration.settings, integration.setup_revision
+FROM integrations integration
 JOIN projects project ON project.id = integration.project_id AND project.org_id = integration.org_id
 JOIN orgs org ON org.id = integration.org_id
 JOIN secrets credential ON credential.id = integration.credential_secret_id AND credential.org_id = integration.org_id
 JOIN secret_versions version ON version.id = credential.current_version_id AND version.secret_id = credential.id
-WHERE integration.integration_type = ANY($1::text[])
+WHERE integration.integration_kind = ANY($1::text[])
   AND integration.provider_tenant_id = $2::text
   AND integration.deleted_at IS NULL AND project.deleted_at IS NULL AND org.deleted_at IS NULL
   AND credential.deleted_at IS NULL AND credential.management_kind = 'tenant'
@@ -41,7 +41,7 @@ LIMIT $3::integer
 `
 
 type ListGitHubWebhookCredentialIntegrationsParams struct {
-	IntegrationTypes []string
+	IntegrationKinds []string
 	GithubAppID      string
 	RowLimit         int32
 }
@@ -49,15 +49,15 @@ type ListGitHubWebhookCredentialIntegrationsParams struct {
 // Ping/unknown-installation verification only; ordinary deliveries verify each
 // matching integration independently rather than borrowing these fallback credentials.
 // Include disconnected integrations so signed callbacks can be acknowledged without work.
-func (q *Queries) ListGitHubWebhookCredentialIntegrations(ctx context.Context, arg ListGitHubWebhookCredentialIntegrationsParams) ([]ProjectIntegration, error) {
-	rows, err := q.db.Query(ctx, listGitHubWebhookCredentialIntegrations, arg.IntegrationTypes, arg.GithubAppID, arg.RowLimit)
+func (q *Queries) ListGitHubWebhookCredentialIntegrations(ctx context.Context, arg ListGitHubWebhookCredentialIntegrationsParams) ([]Integration, error) {
+	rows, err := q.db.Query(ctx, listGitHubWebhookCredentialIntegrations, arg.IntegrationKinds, arg.GithubAppID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ProjectIntegration{}
+	items := []Integration{}
 	for rows.Next() {
-		var i ProjectIntegration
+		var i Integration
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -76,7 +76,7 @@ func (q *Queries) ListGitHubWebhookCredentialIntegrations(ctx context.Context, a
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Name,
-			&i.IntegrationType,
+			&i.IntegrationKind,
 			&i.Settings,
 			&i.SetupRevision,
 		); err != nil {

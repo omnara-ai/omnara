@@ -8,23 +8,23 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 )
 
 type HandlerSelection struct {
-	Handler       string                      `json:"handler"`
-	IntegrationID string                      `json:"integration_id"`
-	Args          json.RawMessage             `json:"args"`
-	Destination   integrationdefinition.Scope `json:"destination"`
+	Handler       string          `json:"handler"`
+	IntegrationID string          `json:"integration_id"`
+	Args          json.RawMessage `json:"args"`
+	Destination   json.RawMessage `json:"destination"`
 }
 type InteractionHandlerEntry struct {
-	Destination integrationdefinition.Scope `json:"destination"`
-	Handler     string                      `json:"handler"`
-	Description string                      `json:"description"`
-	InputSchema json.RawMessage             `json:"input_schema"`
+	Destination json.RawMessage `json:"destination"`
+	Handler     string          `json:"handler"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
 }
 type InteractionHandlerPage struct {
+	AutoSelect bool                      `json:"auto_select"`
 	Handlers   []InteractionHandlerEntry `json:"handlers"`
 	Selection  *HandlerSelection         `json:"selection"`
 	NextCursor string                    `json:"next_cursor,omitempty"`

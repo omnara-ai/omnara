@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationConsumerSameExpansionSubscriptionAdmitsMessagesAndMedia(t *testing.T) {
+func TestIntegrationConsumerLaterReceiptsUseLaunchedSubscriptionForMessagesAndMedia(t *testing.T) {
 	t.Parallel()
 	_, store, ids, integrationID := integrationWorkerFixture(t)
 	ctx := t.Context()
@@ -28,15 +29,12 @@ func TestIntegrationConsumerSameExpansionSubscriptionAdmitsMessagesAndMedia(t *t
 		ProjectID: ids.ProjectID, Name: "review", CurrentConfigID: base.ID,
 	})
 	require.NoError(t, err)
-	_, err = store.Integrations().UpdateProjectIntegration(
+	integration, err := store.Integrations().UpdateIntegration(
 		ctx,
 		integrationID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationType: integrationdefinition.SlackThread,
-			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123",
-				Slots: []integrationstore.IntegrationLaunchSlot{{Key: "review", AgentProfileID: &profile.ID}},
-			}},
+		integrationstore.SaveIntegrationInput{
+			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+			Settings: integrationtest.ChatSettings("C123", profile.ID),
 		},
 	)
 	require.NoError(t, err)
@@ -53,7 +51,7 @@ func TestIntegrationConsumerSameExpansionSubscriptionAdmitsMessagesAndMedia(t *t
 		Event: integrationdefinition.Event{Kind: "message", Mentioned: true,
 			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}},
 		SemanticKey: "z:launch", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-		Actor: integrationTestActor(t, integrationID, "U123"),
+		Actor: integrationTestActor(t, integration, "U123"),
 	}
 	reply := event
 	reply.SemanticKey, reply.Event.Mentioned = "b:reply", false
@@ -61,65 +59,77 @@ func TestIntegrationConsumerSameExpansionSubscriptionAdmitsMessagesAndMedia(t *t
 	placeholder := uuid.New()
 	media.SemanticKey = "a:files"
 	media.ContentBlocks = json.RawMessage(`[{"type":"media_ref","artifact_id":"` + placeholder.String() + `"}]`)
-	media.Files = []IntegrationPlannedFile{failedIntegrationFile(placeholder, []byte("review"))}
+	media.Files = []executionstore.InboxPlannedFile{failedIntegrationFile(placeholder, []byte("review"))}
 	router := NewIntegrationRouter(store.Execution(), store.Integrations())
-	plan, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), []IntegrationEvent{event, reply, media})
-	require.NoError(t, err)
-	require.Len(t, plan, 3)
 	var plannedAgent uuid.UUID
-	for _, slot := range plan {
-		if slot.Launch != nil {
-			plannedAgent = slot.AgentID
-			require.Len(t, slot.Launch.Subscriptions, 1)
-		}
-	}
-	require.NotEqual(t, uuid.Nil, plannedAgent)
-	for _, slot := range plan {
-		require.Equal(t, plannedAgent, slot.AgentID)
-		if slot.Input != nil {
-			require.NotNil(t, slot.Subscription)
-		}
-	}
 	uploads := &integrationConsumerUploads{}
-	provider := &integrationConsumerProvider{file: IntegrationInboxFile{
-		Content: []byte("review"), ContentType: "text/plain",
-	}}
-	consumer := NewIntegrationInboxConsumer(router, store.Integrations(), uploads,
-		map[string]IntegrationInboxProvider{"slack": provider}, nil, testIntegrationLaunchWorkflow(router))
-	results, err := consumer.Consume(ctx, receipt.Lease())
-	require.NoError(t, err)
-	require.Len(t, results, 3)
-	require.Equal(t, 1, uploads.uploads)
-	require.NotNil(t, results[0].Launch, "admission must launch before later expansion inputs")
-	require.True(t, results[0].Launch.Created)
-	for _, result := range results[1:] {
-		require.NotNil(t, result.Input)
-		require.True(t, result.Input.Created)
-		require.Equal(t, plannedAgent, result.Input.AgentInput.AgentID)
+	provider := &integrationConsumerProvider{
+		file: IntegrationInboxFile{Content: []byte("review"), ContentType: "text/plain"},
 	}
+	consumer := NewIntegrationInboxConsumer(
+		router, store.Integrations(), uploads, map[string]IntegrationInboxProvider{"slack": provider},
+		nil, testIntegrationLaunchWorkflow(router),
+	)
+	for i, incoming := range []IntegrationEvent{event, reply, media} {
+		if i > 0 {
+			_, _, err = store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+				ProjectID: ids.ProjectID, IntegrationID: integrationID, ReceiptKey: incoming.SemanticKey, Payload: []byte(`{}`),
+			})
+			require.NoError(t, err)
+			receipt, found, err = store.Integrations().ClaimIntegrationInbox(
+				ctx, integrationstore.ClaimIntegrationInboxInput{
+					ProjectID: ids.ProjectID, IntegrationID: integrationID, LeaseDuration: time.Minute,
+				},
+			)
+			require.NoError(t, err)
+			require.True(t, found)
+		}
+		plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &incoming)
+		require.NoError(t, err)
+		require.Len(t, plan.Recipients, 1)
+		for _, slot := range plan.Recipients {
+			if i == 0 {
+				plannedAgent = slot.AgentID
+				require.Len(t, slot.Launch.Subscriptions, 1)
+			} else {
+				require.Equal(t, plannedAgent, slot.AgentID)
+				require.NotNil(t, slot.Subscription)
+			}
+		}
+		results, err := consumer.Consume(ctx, receipt.Lease())
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		if i == 0 {
+			require.True(t, results[0].Launch.Created)
+		} else {
+			require.True(t, results[0].Input.Created)
+		}
+		replayed, err := router.Admit(ctx, receipt.Lease(), nil)
+		require.NoError(t, err)
+		require.Len(t, replayed, 1)
+		if i == 0 {
+			require.False(t, replayed[0].Launch.Created)
+		} else {
+			require.False(t, replayed[0].Input.Created)
+		}
+	}
+	require.Equal(t, 1, uploads.uploads)
 	subscriptions, err := store.Integrations().ListIntegrationSubscriptions(
-		ctx,
-		integrationstore.ListIntegrationSubscriptionsInput{
+		ctx, integrationstore.ListIntegrationSubscriptionsInput{
 			ProjectID: ids.ProjectID, IntegrationID: integrationID, Limit: 100,
 		},
 	)
 	require.NoError(t, err)
 	require.Len(t, subscriptions.Subscriptions, 1)
 	require.Equal(t, plannedAgent, subscriptions.Subscriptions[0].AgentID)
-	replayed, err := router.Admit(ctx, receipt.Lease(), nil)
-	require.NoError(t, err)
-	require.Len(t, replayed, 3)
-	require.False(t, replayed[0].Launch.Created)
-	for _, result := range replayed[1:] {
-		require.False(t, result.Input.Created)
-	}
+
 }
 
 func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testing.T) {
 	t.Parallel()
 	_, store, ids, integrationID := integrationProviderFixture(t, "github", "11", "22")
 	ctx := t.Context()
-	integration, err := store.Integrations().GetProjectIntegration(ctx, ids.ProjectID, integrationID)
+	integration, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
 	require.NoError(t, err)
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
@@ -141,7 +151,7 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 			GitHub: &integrationdefinition.GitHubScope{RepositoryID: 123, PullRequest: 42},
 		}},
 		SemanticKey: "commit:1", ContentBlocks: json.RawMessage(`[{"type":"text","text":"new commit"}]`),
-		Actor: integrationTestActor(t, integrationID, "33"),
+		Actor: integrationTestActor(t, integration, "33"),
 	}
 	capture := func(key string) integrationstore.IntegrationInboxRecord {
 		t.Helper()
@@ -163,23 +173,20 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 	frozen, err := router.freezeEmptyIfUnrouted(ctx, excludedReceipt.Lease(), integration, excluded)
 	require.NoError(t, err)
 	require.True(t, frozen, "launch-only events do not keep subscription processing alive")
-	plan, err := router.Freeze(ctx, excludedReceipt.Lease(), []IntegrationEvent{event})
+	plan, err := router.Freeze(ctx, excludedReceipt.Lease(), &event)
 	require.NoError(t, err)
-	require.Empty(t, plan)
+	require.Empty(t, plan.Recipients)
 	_, err = router.Admit(ctx, excludedReceipt.Lease(), nil)
 	require.NoError(t, err)
-	integration, err = store.Integrations().UpdateProjectIntegration(
-		ctx, integration.ID, integrationstore.SaveProjectIntegrationInput{
-			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: integration.Name, IntegrationType: integration.IntegrationType,
-			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "pull_request_opened", ScopeKind: "installation", ScopeRef: integration.ProviderAccountRef,
-				Slots: []integrationstore.IntegrationLaunchSlot{{Key: "review", AgentID: &launched.Agent.ID}},
-			}},
+	integration, err = store.Integrations().UpdateIntegration(
+		ctx, integration.ID, integrationstore.SaveIntegrationInput{
+			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: integration.Name, IntegrationKind: integration.IntegrationKind,
+			Settings: integrationtest.GitHubSettings(uuid.New(), "pull_request_opened", ""),
 		},
 	)
 	require.NoError(t, err)
 	launcherCalled := false
-	workflow := NewIntegrationLaunchWorkflow(router, map[integrationdefinition.Type]IntegrationLauncher{
+	workflow := NewIntegrationLaunchWorkflow(router, map[integrationdefinition.Kind]IntegrationLauncher{
 		integrationdefinition.GitHubPR: func(
 			_ context.Context, input IntegrationLaunchContext,
 		) ([]IntegrationLaunchIntent, error) {
@@ -187,26 +194,26 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 			require.Empty(t, input.Candidates.Subscriptions, "launch decisions use the same forwarding policy")
 			return nil, nil
 		},
-	})
+	}, nil)
 	unforwarded := capture("launch-decision")
-	decided, err := workflow.Decide(ctx, unforwarded.Lease(), unforwarded, integration, []IntegrationEvent{excluded})
+	decided, err := workflow.Decide(ctx, unforwarded.Lease(), unforwarded, integration, excluded)
 	require.NoError(t, err)
 	require.True(t, launcherCalled)
 	plan, err = router.Freeze(ctx, unforwarded.Lease(), decided)
 	require.NoError(t, err)
-	require.Empty(t, plan, "an existing subscription does not receive PR-open without a launch decision")
+	require.Empty(t, plan.Recipients, "an existing subscription does not receive PR-open without a launch decision")
 	_, err = router.Admit(ctx, unforwarded.Lease(), nil)
 	require.NoError(t, err)
 	receipt := capture("included")
-	plan, err = router.Freeze(ctx, receipt.Lease(), []IntegrationEvent{event})
+	plan, err = router.Freeze(ctx, receipt.Lease(), &event)
 	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	for _, slot := range plan {
+	require.Len(t, plan.Recipients, 1)
+	for _, slot := range plan.Recipients {
 		require.Equal(t, []integrationstore.ConversationAddress{{Kind: "pull_request", Ref: "123#42"}},
 			slot.Subscription.Alternatives)
 	}
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
-	_, err = router.Freeze(ctx, receipt.Lease(), []IntegrationEvent{excluded})
+	_, err = router.Freeze(ctx, receipt.Lease(), &excluded)
 	require.NoError(t, err)
 	results, err := router.Admit(ctx, receipt.Lease(), nil)
 	require.Error(t, err)
@@ -239,7 +246,7 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 }
 
 func createTestIntegrationSubscription(
-	t *testing.T, store *storage.Store, integration integrationstore.ProjectIntegrationRecord, agentID uuid.UUID,
+	t *testing.T, store *storage.Store, integration integrationstore.IntegrationRecord, agentID uuid.UUID,
 	conversation string,
 ) integrationstore.IntegrationSubscriptionRecord {
 	t.Helper()
@@ -254,7 +261,7 @@ func createTestIntegrationSubscription(
 }
 
 func removeTestAgentSubscriptions(
-	t *testing.T, store *storage.Store, integration integrationstore.ProjectIntegrationRecord, agentID uuid.UUID,
+	t *testing.T, store *storage.Store, integration integrationstore.IntegrationRecord, agentID uuid.UUID,
 ) {
 	t.Helper()
 	input := integrationstore.ListIntegrationSubscriptionsInput{

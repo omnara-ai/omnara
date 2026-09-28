@@ -36,13 +36,13 @@ func TestIntegrationInboxConsumerCleanupReadsOnlyForPlannedArtifacts(t *testing.
 	for _, scenario := range []string{"empty", "text only", "file"} {
 		t.Run(scenario, func(t *testing.T) {
 			projectID, receiptID := uuid.New(), uuid.New()
-			plan := IntegrationInboxPlan{}
+			plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{}}
 			if scenario != "empty" {
-				slot := IntegrationInboxSlot{AgentID: uuid.New(), Input: &executionstore.CreateAgentContentInputInput{}}
+				slot := IntegrationInboxSlot{AgentID: uuid.New()}
 				if scenario == "file" {
 					slot.ArtifactIDs = []uuid.UUID{uuid.New()}
 				}
-				plan["slot"] = slot
+				plan.Recipients["slot"] = slot
 			}
 			raw, err := json.Marshal(plan)
 			require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestIntegrationInboxConsumerCleanupReadsOnlyForPlannedArtifacts(t *testing.
 			require.NoError(t, err)
 			if scenario == "file" {
 				require.Equal(t, 3, inbox.reads, "completed replay still attempts unused-upload cleanup")
-				require.Equal(t, plan["slot"].ArtifactIDs, artifacts.checked)
+				require.Equal(t, plan.Recipients["slot"].ArtifactIDs, artifacts.checked)
 			} else {
 				require.Equal(t, 2, inbox.reads, "only consumer and router reads; no cleanup read")
 				require.Empty(t, artifacts.checked)
@@ -76,7 +76,7 @@ func TestIntegrationInboxCleanupChecksAllPlannedArtifactsOnlyAfterTerminalReceip
 		state       integrationstore.IntegrationInboxState
 		wantChecked bool
 	}{
-		{"pending", integrationstore.IntegrationInboxPending, false},
+		{"queued", integrationstore.IntegrationInboxQueued, false},
 		{"processing", integrationstore.IntegrationInboxProcessing, false},
 		{"completed", integrationstore.IntegrationInboxCompleted, true},
 		{"failed", integrationstore.IntegrationInboxFailed, true},
@@ -86,11 +86,13 @@ func TestIntegrationInboxCleanupChecksAllPlannedArtifactsOnlyAfterTerminalReceip
 			artifactIDs := []uuid.UUID{uuid.New(), uuid.New()}
 			slot := IntegrationInboxSlot{
 				AgentID: agentID, ArtifactIDs: artifactIDs[:1],
-				Input: &executionstore.CreateAgentContentInputInput{},
 			}
 			otherSlot := slot
 			otherSlot.ArtifactIDs = artifactIDs[1:]
-			plan, err := json.Marshal(IntegrationInboxPlan{"a": slot, "b": otherSlot})
+			plan, err := json.Marshal(IntegrationInboxPlan{
+				Message:    &executionstore.InboxMessage{},
+				Recipients: map[string]IntegrationInboxSlot{"a": slot, "b": otherSlot},
+			})
 			require.NoError(t, err)
 			receipt := integrationstore.IntegrationInboxRecord{
 				ID: receiptID, ProjectID: projectID, State: scenario.state,

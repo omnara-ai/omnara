@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/agentconfigcompile"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
@@ -42,7 +43,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 45))
+			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 46))
 			ids := storagefixture.ProjectIDs{
 				OrgID: uuid.New(), ProjectID: uuid.New(), ProviderAdminUserID: uuid.New(),
 				ProviderSecretID: uuid.New(), ProviderSecretVersionID: uuid.New(), ProviderConfigID: uuid.New(),
@@ -138,7 +139,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			err = applyProductionPostgresMigrations(ctx, db)
 			if invalidLiveCredentials {
 				require.ErrorContains(t, err, liveID.String())
-				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
 				var state string
 				var credential sql.NullString
 				require.NoError(
@@ -159,7 +160,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
+			require.Equal(t, int64(48), currentPostgresMigrationVersion(t, ctx, db))
 			var subscriptions int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
 			require.Zero(t, subscriptions, "neither live nor deleted integration history grants receive routes at cutover")
@@ -175,7 +176,7 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 			}
 			var slot sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT selection_slot FROM integration_targets WHERE id=$1`, targetID).Scan(&slot))
+				`SELECT launch_key FROM integration_targets WHERE id=$1`, targetID).Scan(&slot))
 			require.False(t, slot.Valid)
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(
@@ -202,12 +203,14 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				var credential sql.NullString
 				var deleted bool
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT name,state,credential_secret_id::text,deleted_at IS NOT NULL,
-					settings->'launcher'->'slots'->0->>'agent_profile_id' FROM project_integrations WHERE id=$1`, expected.id).
+					settings #>> '{launcher,profiles,0}' FROM integrations WHERE id=$1`, expected.id).
 					Scan(&name, &state, &credential, &deleted, &launcherProfile))
 				require.Equal(t, expected.name, name)
 				require.Equal(t, expected.state, state)
 				require.Equal(t, expected.deleted, deleted)
-				require.Equal(t, profileID.String(), launcherProfile)
+				encodedProfile, err := publicid.Encode(publicid.KindAgentProfile, profileID)
+				require.NoError(t, err)
+				require.Equal(t, encodedProfile, launcherProfile)
 				require.Equal(t, !deleted, credential.Valid)
 				if credential.Valid {
 					require.Equal(t, credentialID.String(), credential.String)
@@ -285,7 +288,7 @@ func assertSlackTombstoneSourceResave(
 		tool := contract.IntegrationTools["int__slack__post_message"]
 		require.False(t, tool.Enabled)
 		require.Equal(t, liveID, tool.IntegrationID)
-		integration, err := store.Integrations().GetProjectIntegrationByName(ctx, ids.ProjectID, "slack")
+		integration, err := store.Integrations().GetIntegrationByName(ctx, ids.ProjectID, "slack")
 		require.NoError(t, err)
 		require.Equal(t, "disconnected", string(integration.State))
 	}
@@ -317,7 +320,7 @@ func assertSlackTombstoneSourceResave(
 	}
 	var replacementID uuid.UUID
 	require.NoError(t, db.QueryRowContext(ctx,
-		`INSERT INTO project_integrations(org_id,project_id,name,integration_type,state,created_at,updated_at)
+		`INSERT INTO integrations(org_id,project_id,name,integration_kind,state,created_at,updated_at)
         VALUES($1,$2,$3,'slack_thread','disconnected',now(),now()) RETURNING id`,
 		ids.OrgID, ids.ProjectID, reusedName).Scan(
 		&replacementID,

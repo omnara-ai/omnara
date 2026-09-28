@@ -27,7 +27,7 @@ func createDiscordToolIntegration(
 	ctx context.Context,
 	store *storage.Store,
 	userID uuid.UUID,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	secret, version, err := store.Secrets().
 		CreateSecret(
@@ -42,16 +42,16 @@ func createDiscordToolIntegration(
 			},
 		)
 	require.NoError(t, err)
-	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 		OrgID:           toolsTestOrgID,
 		ProjectID:       toolsTestProjectID,
 		Name:            "chat",
-		IntegrationType: integrationdefinition.DiscordThread,
+		IntegrationKind: integrationdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
-	integration, err = store.Integrations().ConfigureProjectIntegration(
+	integration, err = store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                 toolsTestOrgID,
 			ProjectID:             toolsTestProjectID,
 			IntegrationID:         integration.ID,
@@ -70,7 +70,7 @@ func createDiscordToolIntegration(
 }
 
 func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
-	for _, scenario := range []string{"foreign-parent", "not-thread", "wrong-bot", "wrong-app", "valid"} {
+	for _, scenario := range []string{"parent-not-in-assignment", "not-thread", "wrong-bot", "wrong-app", "valid"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			f := newIntegrationToolFixtureWithOptions(t, ctx, "discord-scope", toolFixtureOptions{
@@ -79,7 +79,7 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 			posts := 0
 			thread := map[string]any{"id": "555", "parent_id": "444", "guild_id": "333", "type": 11}
 			switch scenario {
-			case "foreign-parent":
+			case "parent-not-in-assignment":
 				thread["parent_id"] = "999"
 			case "not-thread":
 				thread["type"] = 0
@@ -136,11 +136,11 @@ func TestDiscordToolScopeAndIdentityBeforePublication(t *testing.T) {
 			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 			require.NoError(t, err)
 			require.Empty(t, integrationToolSubscriptions(t, f), "sending must not create subscriptions")
-			if scenario == "valid" {
+			if scenario == "valid" || scenario == "parent-not-in-assignment" {
 				require.Equal(t, executionstore.ToolResultOutcomeSucceeded, record.Outcome)
 				require.Equal(t, 1, posts)
 				body := toolResultMapFromTestParts(t, result.ContentParts)
-				require.Equal(t, "444", body["channel_id"])
+				require.Equal(t, "555", body["channel_id"], "report the provider destination, not an unknown parent")
 				require.Equal(t, "555", body["thread_id"])
 				replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
 				require.NoError(t, err)

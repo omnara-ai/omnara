@@ -25,8 +25,9 @@ const (
 // InboxPlannedFile reads the immutable metadata needed for storage admission.
 // Provider file identity and fetching remain owned by the integration consumer.
 type InboxPlannedFile struct {
-	ArtifactID uuid.UUID                       `json:"artifact_id"`
-	Expected   *artifactstore.PreparedArtifact `json:"expected,omitempty"`
+	ArtifactID     uuid.UUID                       `json:"artifact_id"`
+	ProviderFileID string                          `json:"provider_file_id"`
+	Expected       *artifactstore.PreparedArtifact `json:"expected,omitempty"`
 }
 
 type inboxSlotResult struct {
@@ -98,11 +99,13 @@ func (s *Store) CompleteIntegrationInbox(ctx context.Context, lease integrations
 }
 
 func inboxPlanSlots(receipt integrationstore.IntegrationInboxRecord) (map[string]json.RawMessage, error) {
-	var slots map[string]json.RawMessage
-	if json.Unmarshal(receipt.Plan, &slots) != nil || slots == nil {
+	var plan struct {
+		Recipients map[string]json.RawMessage `json:"recipients"`
+	}
+	if json.Unmarshal(receipt.Plan, &plan) != nil || plan.Recipients == nil {
 		return nil, storeerr.InvalidRequest(errors.New("invalid frozen inbox plan"))
 	}
-	return slots, nil
+	return plan.Recipients, nil
 }
 
 func inboxPlanSlot(receipt integrationstore.IntegrationInboxRecord, key string) (json.RawMessage, error) {
@@ -143,7 +146,7 @@ func inboxInputScope(scope integrationdefinition.Scope, integrationID uuid.UUID)
 	if scope.Provider() == "" {
 		return "", storeerr.InvalidRequest(errors.New("inbox scope requires a provider"))
 	}
-	return integrationstore.IdempotencyScope(integrationstore.ProjectIntegrationRecord{
+	return integrationstore.IdempotencyScope(integrationstore.IntegrationRecord{
 		ID: integrationID, Provider: scope.Provider(),
 	}), nil
 }

@@ -30,6 +30,32 @@ func (q *Queries) CountAgentIntegrationSubscriptions(ctx context.Context, arg Co
 	return column_1, err
 }
 
+const countIntegrationConversationSubscriptions = `-- name: CountIntegrationConversationSubscriptions :one
+SELECT count(*)::bigint FROM integration_subscriptions
+WHERE project_id = $1 AND integration_id = $2
+  AND scope_kind = $3 AND scope_ref = $4
+`
+
+type CountIntegrationConversationSubscriptionsParams struct {
+	ProjectID     uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeKind     string
+	ScopeRef      string
+}
+
+// The unique conversation index permits only one subscription per agent at this exact address.
+func (q *Queries) CountIntegrationConversationSubscriptions(ctx context.Context, arg CountIntegrationConversationSubscriptionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countIntegrationConversationSubscriptions,
+		arg.ProjectID,
+		arg.IntegrationID,
+		arg.ScopeKind,
+		arg.ScopeRef,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const deleteAgentIntegrationSubscriptions = `-- name: DeleteAgentIntegrationSubscriptions :exec
 DELETE FROM integration_subscriptions WHERE project_id = $1 AND agent_id = $2
 `
@@ -60,17 +86,17 @@ func (q *Queries) DeleteIntegrationSubscription(ctx context.Context, arg DeleteI
 	return err
 }
 
-const deleteProjectIntegrationSubscriptions = `-- name: DeleteProjectIntegrationSubscriptions :exec
+const deleteIntegrationSubscriptions = `-- name: DeleteIntegrationSubscriptions :exec
 DELETE FROM integration_subscriptions WHERE project_id = $1 AND integration_id = $2
 `
 
-type DeleteProjectIntegrationSubscriptionsParams struct {
+type DeleteIntegrationSubscriptionsParams struct {
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
 }
 
-func (q *Queries) DeleteProjectIntegrationSubscriptions(ctx context.Context, arg DeleteProjectIntegrationSubscriptionsParams) error {
-	_, err := q.db.Exec(ctx, deleteProjectIntegrationSubscriptions, arg.ProjectID, arg.IntegrationID)
+func (q *Queries) DeleteIntegrationSubscriptions(ctx context.Context, arg DeleteIntegrationSubscriptionsParams) error {
+	_, err := q.db.Exec(ctx, deleteIntegrationSubscriptions, arg.ProjectID, arg.IntegrationID)
 	return err
 }
 
@@ -155,7 +181,7 @@ SELECT EXISTS (
     SELECT 1
     FROM integration_subscriptions subscription
     JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
-    JOIN project_integrations integration ON integration.project_id = subscription.project_id AND integration.id = subscription.integration_id
+    JOIN integrations integration ON integration.project_id = subscription.project_id AND integration.id = subscription.integration_id
     WHERE subscription.project_id = $1 AND subscription.agent_id = $2
       AND subscription.integration_id = $3
       AND subscription.scope_kind = $4 AND subscription.scope_ref = $5
@@ -295,7 +321,7 @@ SELECT subscription.id, subscription.project_id, subscription.agent_id, subscrip
        subscription.created_at
 FROM jsonb_to_recordset($1::jsonb) AS scope(kind text, ref text)
 JOIN integration_subscriptions subscription ON subscription.scope_kind = scope.kind AND subscription.scope_ref = scope.ref
-JOIN project_integrations integration ON integration.project_id = subscription.project_id AND integration.id = subscription.integration_id
+JOIN integrations integration ON integration.project_id = subscription.project_id AND integration.id = subscription.integration_id
 JOIN agents agent ON agent.project_id = subscription.project_id AND agent.id = subscription.agent_id
 WHERE subscription.project_id = $2 AND subscription.integration_id = $3
   AND integration.state = 'active' AND integration.deleted_at IS NULL AND agent.state = 'active'

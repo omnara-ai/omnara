@@ -49,7 +49,7 @@ func (s strictOpenAPIServer) preparePublicAgentLaunch(
 	}
 	if body.Subscriptions != nil {
 		for _, source := range *body.Subscriptions {
-			integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, source.IntegrationId)
+			integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, source.IntegrationId)
 			if !ok {
 				return input, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid subscription integration_id")
 			}

@@ -21,9 +21,11 @@ import (
 func githubToolTestCalls() []model.ToolCall {
 	return []model.ToolCall{
 		{ID: "read", Name: "int__chat__read", Input: json.RawMessage(`{}`)},
+		{ID: "reviews", Name: "int__chat__read", Input: json.RawMessage(`{"section":"reviews"}`)},
+		{ID: "threads", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review_threads"}`)},
 		{ID: "discussion", Name: "int__chat__discussion_comment", Input: json.RawMessage(`{"body":"Review"}`)},
 		{
-			ID: "inline", Name: "int__chat__inline_comment",
+			ID: "review-comment", Name: "int__chat__review_comment",
 			Input: json.RawMessage(`{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`),
 		},
 		{ID: "reply", Name: "int__chat__reply", Input: json.RawMessage(`{"comment_id":31,"body":"Resolved"}`)},
@@ -48,9 +50,9 @@ func TestGitHubIntegrationAuthorityBeforeEveryRequest(t *testing.T) {
 				changeInput := integrationToolConfigChangeInput(t, f, source)
 				revoke := func() error {
 					if scenario == "disconnected" {
-						_, err := f.Store.Integrations().DisconnectProjectIntegration(
+						_, err := f.Store.Integrations().DisconnectIntegration(
 							ctx,
-							integrationstore.DisconnectProjectIntegrationInput{
+							integrationstore.DisconnectIntegrationInput{
 								ProjectID: f.Agent.ProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 							},
 						)

@@ -35,12 +35,12 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
 	createIntegration := func(name string) uuid.UUID {
 		t.Helper()
-		return f.addIntegration(t, name, integrationstore.ProjectIntegrationSettings{}).ID
+		return f.addIntegration(t, name, integrationstore.IntegrationSettings(`{}`)).ID
 	}
 	input := integrationstore.EnsureConversationTargetInput{
 		ProjectID: f.project, AgentID: launch.Agent.ID,
 		Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
-		IntegrationID: createIntegration("first"), SelectionSlot: "agent",
+		IntegrationID: createIntegration("first"), LaunchKey: "agent",
 	}
 	ensure := func(
 		input integrationstore.EnsureConversationTargetInput,
@@ -57,10 +57,10 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replay.ID)
 	require.False(t, replay.Created)
-	input.SelectionSlot = "another-slot"
+	input.LaunchKey = "another-slot"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
-	input.SelectionSlot = "agent"
+	input.LaunchKey = "agent"
 	input.IntegrationID = createIntegration("second")
 	sharedAgent, err := ensure(input)
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	input.AgentID = secondLaunch.Agent.ID
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "an integration slot cannot select another agent")
-	input.SelectionSlot = "reviewer"
+	input.LaunchKey = "reviewer"
 	second, err := ensure(input)
 	require.NoError(t, err)
 	require.NotEqual(t, first.ID, second.ID)
@@ -93,27 +93,27 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 		),
 	)
 	require.Zero(t, subscriptions)
-	input.SelectionSlot = ""
+	input.LaunchKey = ""
 	attribution, err := ensure(input)
 	require.NoError(t, err)
 	require.Equal(t, second.ID, attribution.ID)
-	require.Equal(t, "reviewer", attribution.SelectionSlot, "input attribution must preserve launch selection")
+	require.Equal(t, "reviewer", attribution.LaunchKey, "input attribution must preserve launch selection")
 
 	originalAddress := input.Address
 	input.Address.Ref = "C123:789.123"
 	attribution, err = ensure(input)
 	require.NoError(t, err)
-	require.Empty(t, attribution.SelectionSlot)
+	require.Empty(t, attribution.LaunchKey)
 	replay, err = ensure(input)
 	require.NoError(t, err)
 	require.Equal(t, attribution.ID, replay.ID)
-	require.Empty(t, replay.SelectionSlot)
+	require.Empty(t, replay.LaunchKey)
 	input.Address = originalAddress
 
 	input.IntegrationID = first.IntegrationID
 	attribution, err = ensure(input)
 	require.NoError(t, err)
-	require.Empty(t, attribution.SelectionSlot)
+	require.Empty(t, attribution.LaunchKey)
 	_, err = store.CreateIntegrationSubscription(f.ctx, integrationstore.CreateIntegrationSubscriptionInput{
 		OrgID: f.org, ProjectID: f.project, IntegrationID: input.IntegrationID, AgentID: input.AgentID,
 		Conversation: []byte(`{"channel_id":"C123","thread_ts":"123.456"}`),
@@ -121,7 +121,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	require.NoError(t, err)
 
 	f.exec(t, `UPDATE integration_targets SET deleted_at=now() WHERE id=$1`, second.ID)
-	input.IntegrationID, input.SelectionSlot = second.IntegrationID, "reviewer"
+	input.IntegrationID, input.LaunchKey = second.IntegrationID, "reviewer"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	tx, err := f.pool.Begin(f.ctx)

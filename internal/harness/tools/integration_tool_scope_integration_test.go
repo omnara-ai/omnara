@@ -55,9 +55,9 @@ func TestStandaloneIntegrationToolAccessAndRevocation(t *testing.T) {
 				_, err = executor.resolveIntegrationToolAuthority(ctx, f.turn(), record)
 				require.ErrorIs(t, err, ErrToolAuthorizationInvalidated)
 			case "integration":
-				_, err := f.Store.Integrations().DisconnectProjectIntegration(
+				_, err := f.Store.Integrations().DisconnectIntegration(
 					ctx,
-					integrationstore.DisconnectProjectIntegrationInput{
+					integrationstore.DisconnectIntegrationInput{
 						ProjectID: f.Agent.ProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 					},
 				)

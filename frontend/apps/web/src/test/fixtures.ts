@@ -2,10 +2,10 @@ import type {
   AgentConfigModel,
   CurrentUser,
   CurrentUserOrg,
+  Integration,
   IntegrationDefinition,
   MachinePool,
   OrgInvitation,
-  ProjectIntegration,
   ProjectMachinePoolGrant,
 } from '@omnara/sdk'
 
@@ -122,20 +122,20 @@ export function orgInvitation(overrides: Partial<OrgInvitation> = {}): OrgInvita
 }
 
 export function integrationDefinition(
-  integrationType: IntegrationDefinition['integration_type'] = 'slack_thread',
+  integrationKind: IntegrationDefinition['integration_kind'] = 'slack_thread',
 ): IntegrationDefinition {
   const capability = {
     input_schema: { type: 'object', properties: {} },
   }
   const definition: IntegrationDefinition = {
-    integration_type: integrationType,
+    integration_kind: integrationKind,
     capabilities: {
       tools:
-        integrationType === 'github_pr'
+        integrationKind === 'github_pr'
           ? {
               read: capability,
               discussion_comment: capability,
-              inline_comment: capability,
+              review_comment: capability,
               reply: capability,
             }
           : { read: capability, post_message: capability },
@@ -144,7 +144,7 @@ export function integrationDefinition(
       },
     },
   }
-  if (integrationType !== 'github_pr') {
+  if (integrationKind !== 'github_pr') {
     definition.capabilities.interaction_handler = capability
     definition.capabilities.schedule = {
       description: 'Start a fresh agent in a new channel thread on each run.',
@@ -174,9 +174,9 @@ export function integrationDefinition(
           channel_id: {
             type: 'string',
             title: 'Channel ID',
-            pattern: integrationType === 'slack_thread' ? '^[CG][A-Z0-9]+$' : '^[1-9][0-9]*$',
+            pattern: integrationKind === 'slack_thread' ? '^[CG][A-Z0-9]+$' : '^[1-9][0-9]*$',
             description:
-              integrationType === 'slack_thread'
+              integrationKind === 'slack_thread'
                 ? 'Use a Slack channel ID beginning with C or G.'
                 : 'Use a Discord text or announcement channel ID.',
           },
@@ -204,15 +204,15 @@ export function integrationDefinition(
   return definition
 }
 
-export function projectIntegration(
-  overrides: Partial<ProjectIntegration> = {},
-): ProjectIntegration {
-  const definition = integrationDefinition(overrides.integration_type)
+export function integration(
+  overrides: Partial<Integration> = {},
+): Integration {
+  const definition = integrationDefinition(overrides.integration_kind)
   return {
     id: fakeId('itg'),
     project_id: fakeId('proj'),
     name: 'engineering',
-    integration_type: definition.integration_type,
+    integration_kind: definition.integration_kind,
     state: 'disconnected',
     setup_revision: 1,
     settings: {},

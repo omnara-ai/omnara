@@ -51,34 +51,34 @@ func (s *Server) verifySignedSlackCallback(
 	r *http.Request,
 	raw []byte,
 	ownerID uuid.UUID, appID, workspaceID string,
-) (integrationstore.ProjectIntegrationRecord, bool) {
+) (integrationstore.IntegrationRecord, bool) {
 	if s.store == nil {
 		apierror.Write(w, openapi.ErrorCodeServiceUnavailable, "store unavailable")
-		return integrationstore.ProjectIntegrationRecord{}, false
+		return integrationstore.IntegrationRecord{}, false
 	}
 	if appID == "" || workspaceID == "" {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack callback identity")
-		return integrationstore.ProjectIntegrationRecord{}, false
+		return integrationstore.IntegrationRecord{}, false
 	}
-	install, err := s.store.Integrations().GetProjectIntegrationByID(r.Context(), ownerID)
+	install, err := s.store.Integrations().GetIntegrationByID(r.Context(), ownerID)
 	if err != nil {
 		writeIntegrationProviderError(w, err)
-		return integrationstore.ProjectIntegrationRecord{}, false
+		return integrationstore.IntegrationRecord{}, false
 	}
-	if install.State != integrationstore.ProjectIntegrationStateActive ||
+	if install.State != integrationstore.IntegrationStateActive ||
 		install.Provider != integrationstore.IntegrationProviderSlack ||
 		install.ProviderTenantID != workspaceID || install.ProviderAccountRef != appID {
 		apierror.Write(w, openapi.ErrorCodeForbidden, "invalid slack callback owner")
-		return integrationstore.ProjectIntegrationRecord{}, false
+		return integrationstore.IntegrationRecord{}, false
 	}
 	credentials, err := s.integrationSlackCredentials(r.Context(), install)
 	if err != nil {
 		writeIntegrationProviderError(w, err)
-		return integrationstore.ProjectIntegrationRecord{}, false
+		return integrationstore.IntegrationRecord{}, false
 	}
 	if !slack.ValidSignature(r.Header, raw, credentials.SigningSecret, time.Now().UTC()) {
 		apierror.Write(w, openapi.ErrorCodeUnauthorized, "invalid signature")
-		return integrationstore.ProjectIntegrationRecord{}, false
+		return integrationstore.IntegrationRecord{}, false
 	}
 	return install, true
 }

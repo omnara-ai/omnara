@@ -41,7 +41,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			_, err := pool.Exec(ctx, `INSERT INTO org_memberships(org_id,user_id,role,created_at) VALUES($1,$2,'owner',now())`,
 				ids.OrgID, ids.ProviderAdminUserID)
 			require.NoError(t, err)
-			integration, err := store.Integrations().GetProjectIntegration(ctx, ids.ProjectID, integrationID)
+			integration, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
 			require.NoError(t, err)
 			config := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 				"instruction: Help\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
@@ -83,7 +83,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			require.True(t, eligible)
 			if scenario != "revoked sibling" {
 				id := uuid.New()
-				event.Files = []IntegrationPlannedFile{
+				event.Files = []executionstore.InboxPlannedFile{
 					{ArtifactID: id, ProviderFileID: "600", Expected: &artifactstore.PreparedArtifact{
 						ID: id, Filename: "note.txt", ContentType: "text/plain",
 						Digest: blobstore.ContentDigest([]byte("note")), SizeBytes: 4,
@@ -97,28 +97,28 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 				checks:                    map[string]int{},
 			}
 			router := NewIntegrationRouter(execution, store.Integrations())
-			plan, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), []IntegrationEvent{event})
+			plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &event)
 			require.NoError(t, err)
-			require.Len(t, plan, count)
+			require.Len(t, plan.Recipients, count)
 			var activeKey, archivedKey string
 			if scenario == "active sibling with file" {
-				keys := make([]string, 0, len(plan))
-				for key := range plan {
+				keys := make([]string, 0, len(plan.Recipients))
+				for key := range plan.Recipients {
 					keys = append(keys, key)
 				}
 				slices.Sort(keys)
 				activeKey, archivedKey = keys[0], keys[1]
-				agents[0], agents[1] = plan[archivedKey].AgentID, plan[activeKey].AgentID
+				agents[0], agents[1] = plan.Recipients[archivedKey].AgentID, plan.Recipients[activeKey].AgentID
 			}
 			_, _, err = store.Execution().ArchiveAgent(ctx, ids.ProjectID, agents[0], principal)
 			require.NoError(t, err)
 			var artifacts IntegrationArtifactUploader
 			if scenario == "active sibling with file" {
 				uploads := &discordInboxArtifacts{uploaded: map[uuid.UUID][]byte{}}
-				for _, slot := range plan {
+				for _, slot := range plan.Recipients {
 					if slot.AgentID != agents[0] {
-						for _, file := range slot.Files {
-							uploads.uploaded[file.ArtifactID] = []byte("note")
+						for _, id := range slot.ArtifactIDs {
+							uploads.uploaded[id] = []byte("note")
 						}
 					}
 				}
@@ -142,7 +142,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			require.Len(t, results, count)
 			for _, result := range results {
 				require.NotNil(t, result.Input)
-				if plan[result.Slot].AgentID == agents[0] {
+				if plan.Recipients[result.Slot].AgentID == agents[0] {
 					require.Equal(t, executionstore.InboxInputSkipAgentArchived, result.Input.Skipped)
 				} else {
 					require.True(t, result.Input.Created)

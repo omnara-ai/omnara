@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ type choiceTestProvider struct {
 }
 
 func (p *choiceTestProvider) PresentProfileChoice(
-	ctx context.Context, _ integrationstore.ProjectIntegrationRecord,
+	ctx context.Context, _ integrationstore.IntegrationRecord,
 	choice integrationstore.IntegrationProfileChoiceRecord, check func(context.Context) error) (string, string, error) {
 	if err := check(ctx); err != nil {
 		return "", "", err
@@ -44,13 +45,13 @@ func (p *choiceTestProvider) PresentProfileChoice(
 	return "C123", choice.ID.String(), nil
 }
 
-func (p *choiceTestProvider) DismissProfileChoice(_ context.Context, _ integrationstore.ProjectIntegrationRecord,
+func (p *choiceTestProvider) DismissProfileChoice(_ context.Context, _ integrationstore.IntegrationRecord,
 	_ integrationstore.IntegrationProfileChoiceRecord, text string) error {
 	p.notices = append(p.notices, text)
 	return nil
 }
 
-func (p *choiceTestProvider) NotifyInboxFailure(_ context.Context, _ integrationstore.ProjectIntegrationRecord,
+func (p *choiceTestProvider) NotifyInboxFailure(_ context.Context, _ integrationstore.IntegrationRecord,
 	_ integrationstore.IntegrationInboxRecord, _ string) error {
 	p.notices = append(p.notices, "Request failed")
 	return nil
@@ -61,9 +62,9 @@ type choiceJourney struct {
 	pool             *pgxpool.Pool
 	store            *storage.Store
 	ids              storagefixture.ProjectIDs
-	integrationSetup integrationstore.ProjectIntegrationRecord
+	integrationSetup integrationstore.IntegrationRecord
 	profiles         []executionstore.AgentProfileRecord
-	integration      integrationstore.ProjectIntegrationRecord
+	integration      integrationstore.IntegrationRecord
 	provider         *choiceTestProvider
 	consumer         *IntegrationInboxConsumer
 	event            IntegrationEvent
@@ -73,7 +74,7 @@ func newChoiceJourney(t *testing.T, profileCount int) *choiceJourney {
 	t.Helper()
 	pool, store, ids, integrationID := integrationWorkerFixture(t)
 	ctx := t.Context()
-	integrationSetup, err := store.Integrations().GetProjectIntegrationByID(ctx, integrationID)
+	integrationSetup, err := store.Integrations().GetIntegrationByID(ctx, integrationID)
 	require.NoError(t, err)
 	f := &choiceJourney{
 		t:                t,
@@ -85,23 +86,21 @@ func newChoiceJourney(t *testing.T, profileCount int) *choiceJourney {
 	}
 	base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 		"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
-	var slots []integrationstore.IntegrationLaunchSlot
+	var profileIDs []uuid.UUID
 	for _, name := range []string{"light", "heavy"}[:profileCount] {
 		profile, err := store.Execution().CreateAgentProfile(ctx, executionstore.CreateAgentProfileInput{
 			ProjectID: ids.ProjectID, Name: name, CurrentConfigID: base.ID,
 		})
 		require.NoError(t, err)
 		f.profiles = append(f.profiles, profile)
-		slots = append(slots, integrationstore.IntegrationLaunchSlot{Key: name, AgentProfileID: &profile.ID})
+		profileIDs = append(profileIDs, profile.ID)
 	}
-	f.integration, err = store.Integrations().UpdateProjectIntegration(
+	f.integration, err = store.Integrations().UpdateIntegration(
 		ctx,
 		integrationID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationType: integrationdefinition.SlackThread,
-			Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "mention", ScopeKind: "channel", ScopeRef: "C123", Slots: slots,
-			}},
+		integrationstore.SaveIntegrationInput{
+			OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+			Settings: integrationtest.ChatSettings("C123", profileIDs...),
 		},
 	)
 	require.NoError(t, err)
@@ -111,7 +110,7 @@ func newChoiceJourney(t *testing.T, profileCount int) *choiceJourney {
 			Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"},
 		}},
 		SemanticKey: "slack:message:T123:C123:1.2", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review my original request"}]`),
-		Actor: integrationTestActor(t, f.integration.ID, "U_ORIGINAL"),
+		Actor: integrationTestActor(t, f.integration, "U_ORIGINAL"),
 	}
 	f.restart()
 	return f
@@ -121,9 +120,9 @@ func (f *choiceJourney) restart() {
 	providers := map[string]IntegrationInboxProvider{"slack": f.provider}
 	router := NewIntegrationRouter(f.store.Execution(), f.store.Integrations())
 	launcher := NewChatIntegrationLauncher(f.store.Integrations(), f.store.Execution(), providers)
-	workflow := NewIntegrationLaunchWorkflow(router, map[integrationdefinition.Type]IntegrationLauncher{
+	workflow := NewIntegrationLaunchWorkflow(router, map[integrationdefinition.Kind]IntegrationLauncher{
 		integrationdefinition.SlackThread: launcher.Decide,
-	})
+	}, providers)
 	f.consumer = NewIntegrationInboxConsumer(
 		router,
 		f.store.Integrations(),
@@ -144,8 +143,8 @@ func (f *choiceJourney) receive(key string, event IntegrationEvent) []Integratio
 			Payload:       []byte(`{"original":true}`),
 		})
 	require.NoError(f.t, err)
-	event.Actor = integrationTestActor(f.t, f.integrationSetup.ID, event.Actor.ProviderUserID)
-	f.provider.events = []IntegrationEvent{event}
+	event.Actor = integrationTestActor(f.t, f.integrationSetup, event.Actor.ProviderUserID)
+	f.provider.event = &event
 	receipt := f.claim()
 	results, err := f.consumer.Consume(f.t.Context(), receipt.Lease())
 	require.NoError(f.t, err)
@@ -165,6 +164,12 @@ func (f *choiceJourney) claim() integrationstore.IntegrationInboxRecord {
 
 func (f *choiceJourney) choose(choice integrationstore.IntegrationProfileChoiceRecord, key string) {
 	f.t.Helper()
+	for _, option := range choice.Options {
+		if option.Name == key {
+			key = option.Key
+			break
+		}
+	}
 	selected, err := SelectChatIntegrationProfile(f.t.Context(), f.store.Integrations(), f.integrationSetup, choice.ID,
 		key, "U_CHOOSER", "C123", choice.ID.String())
 	require.NoError(f.t, err)
@@ -257,8 +262,8 @@ func TestChatProfileChoiceFastClickBeforeOwnerFreeze(t *testing.T) {
 	})
 	require.NoError(t, err)
 	owner := f.claim()
-	f.provider.events = []IntegrationEvent{f.event}
-	_, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.integrationSetup, f.provider.events)
+	f.provider.event = &f.event
+	_, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.integrationSetup, *f.provider.event)
 	require.NoError(t, err)
 	require.Len(t, f.provider.menus, 1)
 	f.choose(f.provider.menus[0], "heavy")
@@ -296,7 +301,7 @@ type blockedChoiceProvider struct {
 }
 
 func (p *blockedChoiceProvider) PresentProfileChoice(
-	ctx context.Context, _ integrationstore.ProjectIntegrationRecord,
+	ctx context.Context, _ integrationstore.IntegrationRecord,
 	choice integrationstore.IntegrationProfileChoiceRecord, check func(context.Context) error) (string, string, error) {
 	if err := check(ctx); err != nil {
 		return "", "", err
@@ -359,14 +364,14 @@ func TestUnavailableChatSetupDoesNotDropOtherLaunchesOrSubscriptions(t *testing.
 	router := NewIntegrationRouter(f.store.Execution(), f.store.Integrations())
 	workflow := NewIntegrationLaunchWorkflow(
 		router,
-		map[integrationdefinition.Type]IntegrationLauncher{integrationdefinition.SlackThread: func(
+		map[integrationdefinition.Kind]IntegrationLauncher{integrationdefinition.SlackThread: func(
 			ctx context.Context, input IntegrationLaunchContext,
 		) ([]IntegrationLaunchIntent, error) {
 			if unavailable[input.Integration.ID] {
 				return nil, ErrIntegrationLaunchUnavailable
 			}
-			return EverySlotIntegrationLauncher(ctx, input)
-		}},
+			return testProfileIntegrationLauncher(ctx, input)
+		}}, nil,
 	)
 	f.consumer = NewIntegrationInboxConsumer(router, f.store.Integrations(), nil,
 		map[string]IntegrationInboxProvider{"slack": f.provider}, nil, workflow)
@@ -397,7 +402,7 @@ func TestChatProfileChoiceRetainsAttachmentDigestBeforeSelection(t *testing.T) {
 	sibling := f.event
 	sibling.SemanticKey = "files-callback"
 	sibling.Sibling = &executionstore.InboxMessageSibling{Key: f.event.SemanticKey, AttachmentNotice: "Original files"}
-	sibling.Files = []IntegrationPlannedFile{
+	sibling.Files = []executionstore.InboxPlannedFile{
 		{ArtifactID: id, ProviderFileID: "F123", Expected: &artifactstore.PreparedArtifact{
 			ID: id, ContentType: "text/plain", Filename: "review.txt",
 			Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content)),
@@ -437,13 +442,12 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	f := newChoiceJourney(t, 2)
 	require.Empty(t, f.receive("mention", f.event))
 	f.choose(f.provider.menus[0], "heavy")
-	settings := f.integration.Settings
-	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
-	_, err := f.store.Integrations().UpdateProjectIntegration(
+	settings := integrationtest.ChatSettings("C123", f.profiles[0].ID)
+	_, err := f.store.Integrations().UpdateIntegration(
 		t.Context(),
 		f.integration.ID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationType: f.integration.IntegrationType,
+		integrationstore.SaveIntegrationInput{
+			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationKind: f.integration.IntegrationKind,
 			Name: f.integration.Name, Settings: settings,
 		},
 	)
@@ -455,7 +459,7 @@ func TestChatProfileChoiceEditedSlotCannotLaunchReplacement(t *testing.T) {
 	var state string
 	var attempts, agents int
 	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT state,attempt_count FROM integration_inbox WHERE project_id=$1 AND events IS NOT NULL`,
+		`SELECT state,attempt_count FROM integration_inbox WHERE project_id=$1 AND source = 'choice'`,
 		f.ids.ProjectID).Scan(&state, &attempts))
 	require.Equal(t, "failed", state)
 	require.Equal(t, 1, attempts)
@@ -493,20 +497,21 @@ func TestChatProfileChoiceLateFilesReachEachChosenAgentWithoutSubscription(t *te
 
 	content := []byte("the original attachment")
 	id := uuid.New()
-	file := IntegrationPlannedFile{ArtifactID: id, ProviderFileID: "F123", Expected: &artifactstore.PreparedArtifact{
-		ID: id, ContentType: "text/plain", Filename: "review.txt",
-		SizeBytes: int64(len(content)), Digest: blobstore.ContentDigest(content),
-	}}
+	file := executionstore.InboxPlannedFile{
+		ArtifactID: id, ProviderFileID: "F123", Expected: &artifactstore.PreparedArtifact{
+			ID: id, ContentType: "text/plain", Filename: "review.txt",
+			SizeBytes: int64(len(content)), Digest: blobstore.ContentDigest(content),
+		}}
 	f.provider.file = IntegrationInboxFile{Content: content, ContentType: "text/plain", Filename: "review.txt"}
 	attachment := f.event
 	attachment.SemanticKey = f.event.Sibling.Key
 	attachment.Sibling = &executionstore.InboxMessageSibling{
 		Key: f.event.SemanticKey, AttachmentNotice: "Files from the original message",
 	}
-	attachment.Files = []IntegrationPlannedFile{file}
+	attachment.Files = []executionstore.InboxPlannedFile{file}
 	attachment.ContentBlocks, err = json.Marshal([]map[string]any{{"type": "media_ref", "artifact_id": id.String()}})
 	require.NoError(t, err)
-	for _, integration := range []integrationstore.ProjectIntegrationRecord{f.integration, other} {
+	for _, integration := range []integrationstore.IntegrationRecord{f.integration, other} {
 		f.integrationSetup = integration
 		results = f.receive("late-files", attachment)
 		require.Len(t, results, 1)
@@ -538,9 +543,12 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			selected := f.claim()
 			router := NewIntegrationRouter(f.store.Execution(), f.store.Integrations())
 			if scenario.frozen {
-				var events []IntegrationEvent
-				require.NoError(t, json.Unmarshal(selected.Events, &events))
-				_, err := router.Freeze(ctx, selected.Lease(), events)
+				choice, err := f.store.Integrations().GetIntegrationProfileChoice(
+					ctx, selected.ProjectID, selected.IntegrationID, selected.StateID)
+				require.NoError(t, err)
+				event, err := selectedIntegrationEvent(choice)
+				require.NoError(t, err)
+				_, err = router.Freeze(ctx, selected.Lease(), event)
 				require.NoError(t, err)
 			}
 			_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
@@ -551,7 +559,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			reply := f.claim()
 			event := f.event
 			event.SemanticKey, event.Event.Mentioned = "early-reply", scenario.mentioned
-			f.provider.events = []IntegrationEvent{event}
+			f.provider.event = &event
 			if !scenario.mentioned {
 				_, err = router.freezeEmptyIfUnrouted(ctx, reply.Lease(), f.integrationSetup, event)
 				require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved,
@@ -597,28 +605,23 @@ func TestChatProfileChoiceStaleMenuDoesNotBlockFreshSelection(t *testing.T) {
 	ctx := t.Context()
 	require.Empty(t, f.receive("old-menu", f.event))
 	old := f.provider.menus[0]
-	settings := f.integration.Settings
-	settings.Launcher.Slots[1].AgentProfileID = &f.profiles[0].ID
-	_, err := f.store.Integrations().UpdateProjectIntegration(
+	settings := integrationtest.ChatSettings("C123", f.profiles[0].ID)
+	_, err := f.store.Integrations().UpdateIntegration(
 		ctx,
 		f.integration.ID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationType: f.integration.IntegrationType,
+		integrationstore.SaveIntegrationInput{
+			OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationKind: f.integration.IntegrationKind,
 			Name: f.integration.Name, Settings: settings,
 		},
 	)
 	require.NoError(t, err)
 	_, err = SelectChatIntegrationProfile(ctx, f.store.Integrations(), f.integrationSetup, old.ID,
-		"heavy", "U_CHOOSER", "C123", old.ID.String())
+		old.Options[1].Key, "U_CHOOSER", "C123", old.ID.String())
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	next := f.event
 	next.SemanticKey = "new-mention"
-	require.Empty(t, f.receive("new-mention", next))
-	require.Len(t, f.provider.menus, 2)
-	require.NotEqual(t, old.ID, f.provider.menus[1].ID)
-	f.choose(f.provider.menus[1], "heavy")
-	results, err := f.consumer.Consume(ctx, f.claim().Lease())
-	require.NoError(t, err)
+	results := f.receive("new-mention", next)
+	require.Len(t, f.provider.menus, 1, "one remaining profile launches directly")
 	require.Len(t, results, 1)
 	require.Equal(t, f.profiles[0].ID, results[0].Launch.Agent.AgentProfileID)
 }
@@ -633,13 +636,12 @@ func TestChatProfileChoiceFailedSourceCannotLaunchAgain(t *testing.T) {
 	require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(ctx, original.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.Fail(ctx, "before planning") }))
 	changeProfile := func(id uuid.UUID) {
-		settings := f.integration.Settings
-		settings.Launcher.Slots[1].AgentProfileID = &id
-		_, err := f.store.Integrations().UpdateProjectIntegration(
+		settings := integrationtest.ChatSettings("C123", id)
+		_, err := f.store.Integrations().UpdateIntegration(
 			ctx,
 			f.integration.ID,
-			integrationstore.SaveProjectIntegrationInput{
-				OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationType: f.integration.IntegrationType,
+			integrationstore.SaveIntegrationInput{
+				OrgID: f.ids.OrgID, ProjectID: f.ids.ProjectID, IntegrationKind: f.integration.IntegrationKind,
 				Name: f.integration.Name, Settings: settings,
 			},
 		)
@@ -648,15 +650,12 @@ func TestChatProfileChoiceFailedSourceCannotLaunchAgain(t *testing.T) {
 	changeProfile(f.profiles[0].ID)
 	next := f.event
 	next.SemanticKey = "replacement-mention"
-	require.Empty(t, f.receive("replacement-mention", next))
-	require.Len(t, f.provider.menus, 2, "failed unplanned work must allow a fresh request")
-	f.choose(f.provider.menus[1], "heavy")
-	results, err := f.consumer.Consume(ctx, f.claim().Lease())
-	require.NoError(t, err)
+	results := f.receive("replacement-mention", next)
+	require.Len(t, f.provider.menus, 1, "one replacement profile launches directly")
 	require.Len(t, results, 1)
 	require.Equal(t, f.profiles[0].ID, results[0].Launch.Agent.AgentProfileID)
 	changeProfile(f.profiles[1].ID)
-	_, err = f.consumer.Consume(ctx, original.Lease())
+	_, err := f.consumer.Consume(ctx, original.Lease())
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 	f.choose(f.provider.menus[0], "heavy")
 	_, found, err := f.store.Integrations().ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
@@ -684,15 +683,18 @@ func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
 			f.choose(choice, "heavy")
 			selected := f.claim()
 			if frozen {
-				var events []IntegrationEvent
-				require.NoError(t, json.Unmarshal(selected.Events, &events))
-				_, err := NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), events)
+				choice, err := f.store.Integrations().GetIntegrationProfileChoice(
+					ctx, selected.ProjectID, selected.IntegrationID, selected.StateID)
+				require.NoError(t, err)
+				event, err := selectedIntegrationEvent(choice)
+				require.NoError(t, err)
+				_, err = NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), event)
 				require.NoError(t, err)
 			}
 			sibling := f.event
 			sibling.SemanticKey = f.event.Sibling.Key
 			sibling.Sibling = &executionstore.InboxMessageSibling{Key: f.event.SemanticKey}
-			f.provider.events = []IntegrationEvent{sibling}
+			f.provider.event = &sibling
 			_, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 				ProjectID: f.ids.ProjectID, IntegrationID: f.integration.ID, ReceiptKey: "late-callback", Payload: []byte(`{}`),
 			})
@@ -738,13 +740,16 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 	require.Empty(t, f.receive("mention", f.event))
 	f.choose(f.provider.menus[0], "heavy")
 	selected := f.claim()
-	var events []IntegrationEvent
-	require.NoError(t, json.Unmarshal(selected.Events, &events))
-	plan, err := NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), events)
+	choice, err := inbox.GetIntegrationProfileChoice(
+		ctx, selected.ProjectID, selected.IntegrationID, selected.StateID)
 	require.NoError(t, err)
-	require.Len(t, plan, 1)
+	event, err := selectedIntegrationEvent(choice)
+	require.NoError(t, err)
+	plan, err := NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), event)
+	require.NoError(t, err)
+	require.Len(t, plan.Recipients, 1)
 	var agentID uuid.UUID
-	for key := range plan {
+	for key := range plan.Recipients {
 		result, err := f.store.Execution().AdmitInboxLaunchSlot(ctx, selected.Lease(), key, nil)
 		require.NoError(t, err)
 		agentID = result.Agent.ID

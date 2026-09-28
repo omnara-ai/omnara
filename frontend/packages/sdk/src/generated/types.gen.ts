@@ -834,7 +834,7 @@ export type CreateIntegrationOAuthSetupRequest = {
 /**
  * Registered integration implementation; independent of the saved integration's name and immutable ID.
  */
-export type IntegrationType = 'slack_thread' | 'discord_thread' | 'github_pr';
+export type IntegrationKind = 'slack_thread' | 'discord_thread' | 'github_pr';
 
 /**
  * Provider account display label, at most 512 UTF-8 bytes. Leading and trailing whitespace is trimmed on save. Empty means no label; an omitted or empty value clears the label on account-management updates.
@@ -849,7 +849,7 @@ export type IntegrationProviderConfig = {
 };
 
 export type IntegrationOAuthSetup = {
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
     /**
      * Integration setup revision captured by this authorization flow.
      */
@@ -876,7 +876,7 @@ export type CreateGitHubSetupRequest = {
 };
 
 export type GitHubSetup = {
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
     setup_revision: number;
     registration_url: string;
     /**
@@ -928,7 +928,7 @@ export type SlackSetupIcon = {
 };
 
 export type SlackSetup = {
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
     /**
      * Integration setup revision captured by this authorization flow.
      */
@@ -1294,7 +1294,7 @@ export type CompiledMachineSource = {
 };
 
 export type CompiledTool = {
-    integration_id?: ProjectIntegrationId;
+    integration_id?: IntegrationId;
     enabled: boolean;
     type?: 'built_in' | 'custom';
     permission: ToolPermissionSelection;
@@ -1306,7 +1306,7 @@ export type CompiledTool = {
 };
 
 export type CompiledIntegrationCapability = {
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
 };
 
 export type CompiledMcpServer = {
@@ -1472,7 +1472,7 @@ export type AgentProfileCronTriggerTarget = {
 
 export type IntegrationCronTriggerTarget = {
     type: 'integration';
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
     /**
      * Settings validated by the target integration's published schedule input schema. Each accepted occurrence retains its own copy. Integration resource references are resolved when the integration handles the occurrence.
      */
@@ -1953,14 +1953,6 @@ export type Metadata = {
  */
 export type MachineMetadata = {
     [key: string]: string;
-};
-
-/**
- * A provider conversation address scoped to one integration. The provider defines the kind and canonical ref, such as a Slack thread or a GitHub pull request.
- */
-export type IntegrationConversationAddress = {
-    kind: string;
-    ref: string;
 };
 
 export type CreateAgentInputRequest = {
@@ -2469,11 +2461,11 @@ export type ResolveAgentInteractionRequest = {
  * Immutable handler and destination captured when the interaction was created. Provider delivery and callbacks check current integration and handler authority. Dashboard/API resolution remains available independently.
  */
 export type AgentInteractionDestination = {
-    integration_type: IntegrationType;
+    integration_kind: IntegrationKind;
     handler_key: string;
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
     integration_target_id: IntegrationTargetId;
-    address: IntegrationConversationAddress;
+    conversation: IntegrationConversation;
 };
 
 /**
@@ -2519,9 +2511,9 @@ export type AgentInteraction = {
 };
 
 /**
- * omnara for Omnara identities, integration for hosted integration senders, slack for historical Slack identities, or external for API-managed actors.
+ * omnara for Omnara identities, integration for hosted integration senders, or external for API-managed actors.
  */
-export type ActorProvider = 'omnara' | 'slack' | 'integration' | 'external';
+export type ActorProvider = 'omnara' | 'integration' | 'external';
 
 export type Actor = {
     id: ActorId;
@@ -2529,7 +2521,7 @@ export type Actor = {
     project_id: ProjectId;
     provider: ActorProvider;
     /**
-     * Identity namespace. For integration actors, the configured project integration public ID; for historical Slack actors, the workspace ID. Retained for attribution after integration deletion.
+     * Project-scoped identity namespace. Integration actors use a stable platform namespace (slack:<workspace ID>, discord, or github:github.com), shared across configured bots and integration kinds on that platform. Retained for attribution after integration deletion; not an authorization principal.
      */
     provider_tenant_id?: string;
     /**
@@ -2537,6 +2529,9 @@ export type Actor = {
      */
     provider_user_id: string;
     display_name?: string;
+    /**
+     * Saved actor attributes. Hosted integration actors store source_label (such as Slack) for display without a live integration lookup.
+     */
     metadata: Metadata;
     created_at: Timestamp;
     updated_at: Timestamp;
@@ -3772,59 +3767,44 @@ export type ListProjectMembershipGrantsResponse = {
     data: Array<ProjectMembershipGrant>;
 };
 
-export type ProjectIntegrationId = string;
+export type IntegrationId = string;
 
-export type IntegrationLaunchSlot = unknown & {
-    key: string;
-    agent_profile_id?: AgentProfileId;
-    agent_id?: AgentId;
-};
-
-export type IntegrationLauncher = {
-    /**
-     * Provider behavior trigger. Slack and Discord support mention; GitHub supports mention or pull_request_opened.
-     */
-    trigger: string;
-    /**
-     * Required with scope_ref for Slack and GitHub. Omit for Discord; mentions can launch in every server where the bot is installed and permitted.
-     */
-    scope_kind?: string;
-    /**
-     * Provider identifier for the Slack or GitHub launcher scope. Omit for Discord; server and channel launch filters are not supported.
-     */
-    scope_ref?: string;
-    /**
-     * Integration-owned launch choices. Slack and Discord offer profile slots as alternatives, launching immediately for one or showing a menu for several. GitHub runs each configured slot. Existing-agent slots receive the event directly.
-     */
-    slots: Array<IntegrationLaunchSlot>;
-};
-
-export type ProjectIntegrationSettings = {
-    launcher?: IntegrationLauncher;
+/**
+ * Integration-owned settings JSON. Validate against capabilities.settings.input_schema from the integration catalog. Public profile references use aprf_ IDs and resolve at runtime.
+ */
+export type IntegrationSettings = {
+    [key: string]: unknown;
 };
 
 /**
- * Creates a disconnected integration, or updates its launcher settings. Name and integration_type are immutable. Configure credentials through this integration's setup endpoints.
+ * Replaces integration settings. Name and integration_kind are immutable and only accepted on create. Preserve integration-level fields when editing launcher settings.
  */
-export type SaveProjectIntegrationRequest = {
-    name: ProjectIntegrationName;
-    integration_type: IntegrationType;
-    settings: ProjectIntegrationSettings;
+export type UpdateIntegrationRequest = {
+    settings: IntegrationSettings;
 };
 
-export type ProjectIntegration = {
-    id: ProjectIntegrationId;
+/**
+ * Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
+ */
+export type SaveIntegrationRequest = {
+    name: IntegrationName;
+    integration_kind: IntegrationKind;
+    settings: IntegrationSettings;
+};
+
+export type Integration = {
+    id: IntegrationId;
     project_id: ProjectId;
-    name: ProjectIntegrationName;
-    integration_type: IntegrationType;
-    state: ProjectIntegrationState;
+    name: IntegrationName;
+    integration_kind: IntegrationKind;
+    state: IntegrationState;
     /**
      * Credential and transport revision. Launcher edits leave this value unchanged.
      */
     setup_revision: number;
     last_oauth_flow_id?: IntegrationOAuthFlowId;
-    runtime_failure?: ProjectIntegrationRuntimeFailure;
-    settings: ProjectIntegrationSettings;
+    runtime_failure?: IntegrationRuntimeFailure;
+    settings: IntegrationSettings;
     provider_tenant_id: string;
     provider_account_ref: string;
     provider_agent_display_name: IntegrationProviderDisplayName;
@@ -3838,7 +3818,7 @@ export type ProjectIntegration = {
 /**
  * Most recent connection failure for the active integration's current setup and credential version. Returned only by Get integration, not list or mutation responses. Omission does not establish provider connectivity; a runtime lease is not a connection check.
  */
-export type ProjectIntegrationRuntimeFailure = {
+export type IntegrationRuntimeFailure = {
     /**
      * Connection failure recorded by the integration runtime.
      */
@@ -3849,8 +3829,8 @@ export type ProjectIntegrationRuntimeFailure = {
     retry_at: Timestamp;
 };
 
-export type ListProjectIntegrationsResponse = {
-    data: Array<ProjectIntegration>;
+export type ListIntegrationsResponse = {
+    data: Array<Integration>;
     next_cursor: string | null;
 };
 
@@ -3887,14 +3867,14 @@ export type ConfigToolSource = {
 /**
  * Immutable, project-unique integration name used in config keys and qualified tool names.
  */
-export type ProjectIntegrationName = string;
+export type IntegrationName = string;
 
-export type ProjectIntegrationState = 'active' | 'disconnected';
+export type IntegrationState = 'active' | 'disconnected';
 
 /**
  * Verifies credentials for this saved integration. GitHub tenant/account are the numeric App ID and Installation ID; the secret is github_app_credentials. Discord tenant is the Application ID; its generic secret contains the bot token, from which the bot User ID is discovered automatically. Reconnect preserves the original verified provider identity. A concurrent setup change rejects this request. Credential payloads are never returned.
  */
-export type ConfigureProjectIntegrationRequest = {
+export type ConfigureIntegrationRequest = {
     expected_setup_revision: number;
     provider_tenant_id: string;
     /**
@@ -3925,29 +3905,29 @@ export type IntegrationCapabilityDefinition = {
 export type IntegrationSubscriptionId = string;
 
 /**
- * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id and optional thread_id; GitHub uses repository_id and pull_request. Discord also accepts optional guild_id as input metadata, but it is not retained in the canonical address or returned by create/list responses. No credentials or runtime state.
+ * One concrete provider address, validated by the integration's capabilities.subscription.conversation_schema. Slack uses channel_id and optional thread_ts; Discord uses channel_id for a channel or thread_id for a thread; GitHub uses repository_id and pull_request. Discord accepts optional parent channel_id and guild_id alongside thread_id as validation hints; only thread_id is retained in a canonical thread address and returned by create/list responses. No credentials or runtime state.
  */
-export type IntegrationSubscriptionConversation = {
+export type IntegrationConversation = {
     [key: string]: unknown;
 };
 
 export type IntegrationSubscriptionAttachment = {
-    integration_id: ProjectIntegrationId;
-    conversation: IntegrationSubscriptionConversation;
+    integration_id: IntegrationId;
+    conversation: IntegrationConversation;
 };
 
 export type CreateIntegrationSubscriptionRequest = {
     agent_id: AgentId;
-    conversation: IntegrationSubscriptionConversation;
+    conversation: IntegrationConversation;
 };
 
 export type IntegrationSubscription = {
     id: IntegrationSubscriptionId;
     project_id: ProjectId;
-    integration_id: ProjectIntegrationId;
+    integration_id: IntegrationId;
     agent_id: AgentId;
     agent_name: AgentName;
-    conversation: IntegrationSubscriptionConversation;
+    conversation: IntegrationConversation;
     created_at: Timestamp;
 };
 
@@ -3969,6 +3949,10 @@ export type IntegrationSubscriptionDefinition = {
 };
 
 export type IntegrationCapabilities = {
+    /**
+     * Schema for this integration's complete settings document, including its optional launcher.
+     */
+    settings?: IntegrationCapabilityDefinition;
     tools: {
         [key: string]: IntegrationCapabilityDefinition;
     };
@@ -3981,7 +3965,7 @@ export type IntegrationCapabilities = {
 };
 
 export type IntegrationDefinition = {
-    integration_type: IntegrationType;
+    integration_kind: IntegrationKind;
     capabilities: IntegrationCapabilities;
 };
 
@@ -8876,18 +8860,18 @@ export type UpdateAgentProfileResponses = {
 
 export type UpdateAgentProfileResponse = UpdateAgentProfileResponses[keyof UpdateAgentProfileResponses];
 
-export type CreateProjectIntegrationOAuthSetupData = {
+export type CreateIntegrationOAuthSetupData = {
     body: CreateIntegrationOAuthSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/oauth/setup';
 };
 
-export type CreateProjectIntegrationOAuthSetupErrors = {
+export type CreateIntegrationOAuthSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -8934,29 +8918,29 @@ export type CreateProjectIntegrationOAuthSetupErrors = {
     };
 };
 
-export type CreateProjectIntegrationOAuthSetupError = CreateProjectIntegrationOAuthSetupErrors[keyof CreateProjectIntegrationOAuthSetupErrors];
+export type CreateIntegrationOAuthSetupError = CreateIntegrationOAuthSetupErrors[keyof CreateIntegrationOAuthSetupErrors];
 
-export type CreateProjectIntegrationOAuthSetupResponses = {
+export type CreateIntegrationOAuthSetupResponses = {
     /**
      * Integration OAuth setup created.
      */
     201: IntegrationOAuthSetup;
 };
 
-export type CreateProjectIntegrationOAuthSetupResponse = CreateProjectIntegrationOAuthSetupResponses[keyof CreateProjectIntegrationOAuthSetupResponses];
+export type CreateIntegrationOAuthSetupResponse = CreateIntegrationOAuthSetupResponses[keyof CreateIntegrationOAuthSetupResponses];
 
-export type CreateProjectIntegrationSlackSetupData = {
+export type CreateIntegrationSlackSetupData = {
     body: CreateSlackSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/slack-setup';
 };
 
-export type CreateProjectIntegrationSlackSetupErrors = {
+export type CreateIntegrationSlackSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -9003,29 +8987,29 @@ export type CreateProjectIntegrationSlackSetupErrors = {
     };
 };
 
-export type CreateProjectIntegrationSlackSetupError = CreateProjectIntegrationSlackSetupErrors[keyof CreateProjectIntegrationSlackSetupErrors];
+export type CreateIntegrationSlackSetupError = CreateIntegrationSlackSetupErrors[keyof CreateIntegrationSlackSetupErrors];
 
-export type CreateProjectIntegrationSlackSetupResponses = {
+export type CreateIntegrationSlackSetupResponses = {
     /**
      * Slack app created and OAuth setup started.
      */
     201: SlackSetup;
 };
 
-export type CreateProjectIntegrationSlackSetupResponse = CreateProjectIntegrationSlackSetupResponses[keyof CreateProjectIntegrationSlackSetupResponses];
+export type CreateIntegrationSlackSetupResponse = CreateIntegrationSlackSetupResponses[keyof CreateIntegrationSlackSetupResponses];
 
-export type CreateProjectIntegrationGitHubSetupData = {
+export type CreateIntegrationGitHubSetupData = {
     body: CreateGitHubSetupRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup';
 };
 
-export type CreateProjectIntegrationGitHubSetupErrors = {
+export type CreateIntegrationGitHubSetupErrors = {
     /**
      * The request was invalid.
      */
@@ -9072,29 +9056,29 @@ export type CreateProjectIntegrationGitHubSetupErrors = {
     };
 };
 
-export type CreateProjectIntegrationGitHubSetupError = CreateProjectIntegrationGitHubSetupErrors[keyof CreateProjectIntegrationGitHubSetupErrors];
+export type CreateIntegrationGitHubSetupError = CreateIntegrationGitHubSetupErrors[keyof CreateIntegrationGitHubSetupErrors];
 
-export type CreateProjectIntegrationGitHubSetupResponses = {
+export type CreateIntegrationGitHubSetupResponses = {
     /**
      * GitHub setup information verified.
      */
     201: GitHubSetup;
 };
 
-export type CreateProjectIntegrationGitHubSetupResponse = CreateProjectIntegrationGitHubSetupResponses[keyof CreateProjectIntegrationGitHubSetupResponses];
+export type CreateIntegrationGitHubSetupResponse = CreateIntegrationGitHubSetupResponses[keyof CreateIntegrationGitHubSetupResponses];
 
-export type InspectProjectIntegrationGitHubInstallationsData = {
+export type InspectIntegrationGitHubInstallationsData = {
     body: InspectGitHubInstallationsRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/github-setup/installations';
 };
 
-export type InspectProjectIntegrationGitHubInstallationsErrors = {
+export type InspectIntegrationGitHubInstallationsErrors = {
     /**
      * The request was invalid.
      */
@@ -9141,16 +9125,16 @@ export type InspectProjectIntegrationGitHubInstallationsErrors = {
     };
 };
 
-export type InspectProjectIntegrationGitHubInstallationsError = InspectProjectIntegrationGitHubInstallationsErrors[keyof InspectProjectIntegrationGitHubInstallationsErrors];
+export type InspectIntegrationGitHubInstallationsError = InspectIntegrationGitHubInstallationsErrors[keyof InspectIntegrationGitHubInstallationsErrors];
 
-export type InspectProjectIntegrationGitHubInstallationsResponses = {
+export type InspectIntegrationGitHubInstallationsResponses = {
     /**
      * GitHub setup information verified.
      */
     200: GitHubInstallations;
 };
 
-export type InspectProjectIntegrationGitHubInstallationsResponse = InspectProjectIntegrationGitHubInstallationsResponses[keyof InspectProjectIntegrationGitHubInstallationsResponses];
+export type InspectIntegrationGitHubInstallationsResponse = InspectIntegrationGitHubInstallationsResponses[keyof InspectIntegrationGitHubInstallationsResponses];
 
 export type ListCronTriggersData = {
     body?: never;
@@ -9174,7 +9158,7 @@ export type ListCronTriggersData = {
         /**
          * Only return scheduled launches for this integration.
          */
-        integration_id?: ProjectIntegrationId;
+        integration_id?: IntegrationId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -14755,7 +14739,7 @@ export type DownloadDaemonArtifactResponses = {
 
 export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
 
-export type ListProjectIntegrationsData = {
+export type ListIntegrationsData = {
     body?: never;
     path: {
         orgID: OrganizationId;
@@ -14774,7 +14758,7 @@ export type ListProjectIntegrationsData = {
     url: '/orgs/{orgID}/projects/{projectID}/integrations';
 };
 
-export type ListProjectIntegrationsErrors = {
+export type ListIntegrationsErrors = {
     /**
      * The request was invalid.
      */
@@ -14817,19 +14801,19 @@ export type ListProjectIntegrationsErrors = {
     };
 };
 
-export type ListProjectIntegrationsError = ListProjectIntegrationsErrors[keyof ListProjectIntegrationsErrors];
+export type ListIntegrationsError = ListIntegrationsErrors[keyof ListIntegrationsErrors];
 
-export type ListProjectIntegrationsResponses = {
+export type ListIntegrationsResponses = {
     /**
      * List project integrations.
      */
-    200: ListProjectIntegrationsResponse;
+    200: ListIntegrationsResponse;
 };
 
-export type ListProjectIntegrationsResponse2 = ListProjectIntegrationsResponses[keyof ListProjectIntegrationsResponses];
+export type ListIntegrationsResponse2 = ListIntegrationsResponses[keyof ListIntegrationsResponses];
 
-export type CreateProjectIntegrationData = {
-    body: SaveProjectIntegrationRequest;
+export type CreateIntegrationData = {
+    body: SaveIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
@@ -14838,7 +14822,7 @@ export type CreateProjectIntegrationData = {
     url: '/orgs/{orgID}/projects/{projectID}/integrations';
 };
 
-export type CreateProjectIntegrationErrors = {
+export type CreateIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -14881,29 +14865,29 @@ export type CreateProjectIntegrationErrors = {
     };
 };
 
-export type CreateProjectIntegrationError = CreateProjectIntegrationErrors[keyof CreateProjectIntegrationErrors];
+export type CreateIntegrationError = CreateIntegrationErrors[keyof CreateIntegrationErrors];
 
-export type CreateProjectIntegrationResponses = {
+export type CreateIntegrationResponses = {
     /**
      * Create an integration and optional launcher.
      */
-    201: ProjectIntegration;
+    201: Integration;
 };
 
-export type CreateProjectIntegrationResponse = CreateProjectIntegrationResponses[keyof CreateProjectIntegrationResponses];
+export type CreateIntegrationResponse = CreateIntegrationResponses[keyof CreateIntegrationResponses];
 
-export type DeleteProjectIntegrationData = {
+export type DeleteIntegrationData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
 };
 
-export type DeleteProjectIntegrationErrors = {
+export type DeleteIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -14946,29 +14930,29 @@ export type DeleteProjectIntegrationErrors = {
     };
 };
 
-export type DeleteProjectIntegrationError = DeleteProjectIntegrationErrors[keyof DeleteProjectIntegrationErrors];
+export type DeleteIntegrationError = DeleteIntegrationErrors[keyof DeleteIntegrationErrors];
 
-export type DeleteProjectIntegrationResponses = {
+export type DeleteIntegrationResponses = {
     /**
      * Delete integration setup and revoke its capabilities.
      */
     204: void;
 };
 
-export type DeleteProjectIntegrationResponse = DeleteProjectIntegrationResponses[keyof DeleteProjectIntegrationResponses];
+export type DeleteIntegrationResponse = DeleteIntegrationResponses[keyof DeleteIntegrationResponses];
 
-export type GetProjectIntegrationData = {
+export type GetIntegrationData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
 };
 
-export type GetProjectIntegrationErrors = {
+export type GetIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -15011,29 +14995,29 @@ export type GetProjectIntegrationErrors = {
     };
 };
 
-export type GetProjectIntegrationError = GetProjectIntegrationErrors[keyof GetProjectIntegrationErrors];
+export type GetIntegrationError = GetIntegrationErrors[keyof GetIntegrationErrors];
 
-export type GetProjectIntegrationResponses = {
+export type GetIntegrationResponses = {
     /**
      * Get project integration.
      */
-    200: ProjectIntegration;
+    200: Integration;
 };
 
-export type GetProjectIntegrationResponse = GetProjectIntegrationResponses[keyof GetProjectIntegrationResponses];
+export type GetIntegrationResponse = GetIntegrationResponses[keyof GetIntegrationResponses];
 
-export type UpdateProjectIntegrationData = {
-    body: SaveProjectIntegrationRequest;
+export type UpdateIntegrationData = {
+    body: UpdateIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}';
 };
 
-export type UpdateProjectIntegrationErrors = {
+export type UpdateIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -15076,23 +15060,23 @@ export type UpdateProjectIntegrationErrors = {
     };
 };
 
-export type UpdateProjectIntegrationError = UpdateProjectIntegrationErrors[keyof UpdateProjectIntegrationErrors];
+export type UpdateIntegrationError = UpdateIntegrationErrors[keyof UpdateIntegrationErrors];
 
-export type UpdateProjectIntegrationResponses = {
+export type UpdateIntegrationResponses = {
     /**
      * Update integration launcher settings.
      */
-    200: ProjectIntegration;
+    200: Integration;
 };
 
-export type UpdateProjectIntegrationResponse = UpdateProjectIntegrationResponses[keyof UpdateProjectIntegrationResponses];
+export type UpdateIntegrationResponse = UpdateIntegrationResponses[keyof UpdateIntegrationResponses];
 
 export type ListIntegrationSubscriptionsData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: {
         /**
@@ -15166,7 +15150,7 @@ export type CreateIntegrationSubscriptionData = {
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/subscriptions';
@@ -15231,7 +15215,7 @@ export type DeleteIntegrationSubscriptionData = {
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
         subscriptionID: IntegrationSubscriptionId;
     };
     query?: never;
@@ -15292,18 +15276,18 @@ export type DeleteIntegrationSubscriptionResponses = {
 
 export type DeleteIntegrationSubscriptionResponse = DeleteIntegrationSubscriptionResponses[keyof DeleteIntegrationSubscriptionResponses];
 
-export type ConfigureProjectIntegrationData = {
-    body: ConfigureProjectIntegrationRequest;
+export type ConfigureIntegrationData = {
+    body: ConfigureIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup';
 };
 
-export type ConfigureProjectIntegrationErrors = {
+export type ConfigureIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -15350,29 +15334,29 @@ export type ConfigureProjectIntegrationErrors = {
     };
 };
 
-export type ConfigureProjectIntegrationError = ConfigureProjectIntegrationErrors[keyof ConfigureProjectIntegrationErrors];
+export type ConfigureIntegrationError = ConfigureIntegrationErrors[keyof ConfigureIntegrationErrors];
 
-export type ConfigureProjectIntegrationResponses = {
+export type ConfigureIntegrationResponses = {
     /**
      * Integration setup.
      */
-    200: ProjectIntegration;
+    200: Integration;
 };
 
-export type ConfigureProjectIntegrationResponse = ConfigureProjectIntegrationResponses[keyof ConfigureProjectIntegrationResponses];
+export type ConfigureIntegrationResponse = ConfigureIntegrationResponses[keyof ConfigureIntegrationResponses];
 
-export type DisconnectProjectIntegrationData = {
+export type DisconnectIntegrationData = {
     body?: never;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;
-        integrationID: ProjectIntegrationId;
+        integrationID: IntegrationId;
     };
     query?: never;
     url: '/orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/disconnect';
 };
 
-export type DisconnectProjectIntegrationErrors = {
+export type DisconnectIntegrationErrors = {
     /**
      * The request was invalid.
      */
@@ -15419,16 +15403,16 @@ export type DisconnectProjectIntegrationErrors = {
     };
 };
 
-export type DisconnectProjectIntegrationError = DisconnectProjectIntegrationErrors[keyof DisconnectProjectIntegrationErrors];
+export type DisconnectIntegrationError = DisconnectIntegrationErrors[keyof DisconnectIntegrationErrors];
 
-export type DisconnectProjectIntegrationResponses = {
+export type DisconnectIntegrationResponses = {
     /**
      * Integration setup.
      */
-    200: ProjectIntegration;
+    200: Integration;
 };
 
-export type DisconnectProjectIntegrationResponse = DisconnectProjectIntegrationResponses[keyof DisconnectProjectIntegrationResponses];
+export type DisconnectIntegrationResponse = DisconnectIntegrationResponses[keyof DisconnectIntegrationResponses];
 
 export type ListIntegrationDefinitionsData = {
     body?: never;

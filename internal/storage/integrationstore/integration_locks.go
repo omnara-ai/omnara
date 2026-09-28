@@ -16,10 +16,10 @@ func LockIntegrationsTx(
 ) error {
 	// Compiled references remain readable after revocation; only additional integrations
 	// supply live authority.
-	return lockProjectIntegrationsTx(ctx, tx, projectID, referenced, additional)
+	return lockIntegrationsTx(ctx, tx, projectID, referenced, additional)
 }
 
-func lockProjectIntegrationsTx(
+func lockIntegrationsTx(
 	ctx context.Context, tx pgx.Tx, projectID uuid.UUID, referenced, required []uuid.UUID,
 ) error {
 	ids := make(map[uuid.UUID]bool)
@@ -37,7 +37,7 @@ func lockProjectIntegrationsTx(
 	slices.SortFunc(ordered, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
 	q := dbsqlc.New(tx)
 	for _, id := range ordered {
-		if err := q.LockProjectIntegrationLifecycleShared(ctx, dbsqlc.LockProjectIntegrationLifecycleSharedParams{
+		if err := q.LockIntegrationLifecycleShared(ctx, dbsqlc.LockIntegrationLifecycleSharedParams{
 			IntegrationID: id,
 		}); err != nil {
 			return err
@@ -46,7 +46,7 @@ func lockProjectIntegrationsTx(
 	if len(ordered) == 0 {
 		return nil
 	}
-	integrations, err := q.ListProjectIntegrationMetadataByIDs(ctx, dbsqlc.ListProjectIntegrationMetadataByIDsParams{
+	integrations, err := q.ListIntegrationMetadataByIDs(ctx, dbsqlc.ListIntegrationMetadataByIDsParams{
 		ProjectID: projectID, Ids: ordered,
 	})
 	if err != nil {
@@ -62,7 +62,7 @@ func lockProjectIntegrationsTx(
 		if integration.DeletedAt != nil {
 			return storeerr.ErrNotFound
 		}
-		if integration.State != string(ProjectIntegrationStateActive) {
+		if integration.State != string(IntegrationStateActive) {
 			return storeerr.ErrUnauthorized
 		}
 	}

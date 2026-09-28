@@ -15,7 +15,7 @@ const GitHubWebhookCredentialLimit = 16
 
 func (s *Store) ListGitHubWebhookCredentialIntegrations(
 	ctx context.Context, appID string, limit int,
-) ([]ProjectIntegrationRecord, error) {
+) ([]IntegrationRecord, error) {
 	id, err := strconv.ParseInt(appID, 10, 64)
 	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != appID {
 		return nil, storeerr.InvalidRequest(errors.New("GitHub App ID must be a canonical positive integer"))
@@ -26,15 +26,15 @@ func (s *Store) ListGitHubWebhookCredentialIntegrations(
 		))
 	}
 	rows, err := s.q.ListGitHubWebhookCredentialIntegrations(ctx, dbsqlc.ListGitHubWebhookCredentialIntegrationsParams{
-		IntegrationTypes: integrationdefinition.IntegrationTypesForProvider(integrationdefinition.ProviderGitHub),
+		IntegrationKinds: integrationdefinition.IntegrationKindsForProvider(integrationdefinition.ProviderGitHub),
 		GithubAppID:      appID, RowLimit: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list GitHub webhook credential integrations: %w", err)
 	}
-	result := make([]ProjectIntegrationRecord, 0, len(rows))
+	result := make([]IntegrationRecord, 0, len(rows))
 	for _, row := range rows {
-		integration, err := projectIntegrationRecord(row)
+		integration, err := integrationRecord(row)
 		if err != nil {
 			return nil, err
 		}

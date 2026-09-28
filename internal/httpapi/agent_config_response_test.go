@@ -63,7 +63,7 @@ func TestPublicCompiledDefinition(t *testing.T) {
 		`"signing_secret_id":"`+id.String()+`"`, `"signing_secret_id":"`+public(publicid.KindSecret)+`"`,
 		`"id":"`+id.String()+`"`, `"id":"`+public(publicid.KindSkill)+`"`,
 		`"profile_id":"`+id.String()+`"`, `"profile_id":"`+public(publicid.KindAgentProfile)+`"`,
-		`"integration_id":"`+id.String()+`"`, `"integration_id":"`+public(publicid.KindProjectIntegration)+`"`,
+		`"integration_id":"`+id.String()+`"`, `"integration_id":"`+public(publicid.KindIntegration)+`"`,
 	).Replace(source)
 	decode := func(raw []byte) any {
 		var value any
@@ -110,7 +110,7 @@ func TestCompiledConfigVariants(t *testing.T) {
 	require.NoError(t, err)
 	secretID, err := publicid.Encode(publicid.KindSecret, uuid.New())
 	require.NoError(t, err)
-	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, uuid.New())
+	integrationID, err := publicid.Encode(publicid.KindIntegration, uuid.New())
 	require.NoError(t, err)
 	for _, test := range []struct {
 		schema, raw string

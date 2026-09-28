@@ -106,7 +106,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	integration, err := s.store.Integrations().GetProjectIntegration(r.Context(), state.ProjectID, state.IntegrationID)
+	integration, err := s.store.Integrations().GetIntegration(r.Context(), state.ProjectID, state.IntegrationID)
 	if storeerr.IsNotFound(err) {
 		s.redirectOAuthOutcome(w, r, state.ReturnTo, url.Values{"integration_oauth_error": {"integration_deleted"}})
 		return
@@ -208,7 +208,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		return
 	}
 	install, err := s.store.Integrations().
-		ConfigureProjectIntegration(r.Context(), integrationstore.ConfigureProjectIntegrationInput{
+		ConfigureIntegration(r.Context(), integrationstore.ConfigureIntegrationInput{
 			OrgID:                    state.OrgID,
 			ProjectID:                state.ProjectID,
 			IntegrationID:            state.IntegrationID,
@@ -235,10 +235,10 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		switch {
 		case errors.Is(err, storeerr.ErrIntegrationOAuthFlowConsumed):
 			outcome = "flow_consumed"
-		case errors.Is(err, integrationstore.ErrProjectIntegrationSetupChanged):
+		case errors.Is(err, integrationstore.ErrIntegrationSetupChanged):
 			outcome = "integration_setup_changed"
 		case storeerr.IsNotFound(err):
-			_, integrationErr := s.store.Integrations().GetProjectIntegration(r.Context(), state.ProjectID, state.IntegrationID)
+			_, integrationErr := s.store.Integrations().GetIntegration(r.Context(), state.ProjectID, state.IntegrationID)
 			if storeerr.IsNotFound(integrationErr) {
 				outcome = "integration_deleted"
 			}
@@ -256,7 +256,7 @@ func (s *Server) integrationOAuthCallbackRoute(w http.ResponseWriter, r *http.Re
 		)
 		return
 	}
-	integrationID, err := publicID(publicid.KindProjectIntegration, install.ID)
+	integrationID, err := publicID(publicid.KindIntegration, install.ID)
 	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeInternalError)
 		return

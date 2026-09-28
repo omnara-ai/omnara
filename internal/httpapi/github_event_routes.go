@@ -30,9 +30,9 @@ const githubIntakeTimeout = 5 * time.Second
 const githubWebhookCredentialLimit = integrationstore.GitHubWebhookCredentialLimit
 
 type githubIntakeStore interface {
-	ListProjectIntegrationsByProviderIdentity(
+	ListIntegrationsByProviderIdentity(
 		context.Context, string, string, string, uuid.UUID, int,
-	) ([]integrationstore.ProjectIntegrationRecord, error)
+	) ([]integrationstore.IntegrationRecord, error)
 	AcceptIntegrationReceipt(context.Context, integrationstore.VerifiedIntegrationReceipt) (
 		integrationstore.IntegrationInboxRecord, bool, error,
 	)
@@ -46,7 +46,7 @@ type githubIntakeSecrets interface {
 
 type GitHubWebhookCredentialIntegrations func(
 	context.Context, string, int,
-) ([]integrationstore.ProjectIntegrationRecord, error)
+) ([]integrationstore.IntegrationRecord, error)
 
 func (s *Server) GitHubEventsHandler() http.Handler {
 	if s.store == nil {
@@ -105,9 +105,9 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	var result integrationFanoutResult
 	var invalidWebhook bool
 	if hint.Installation.ID > 0 {
-		result, err = fanoutIntegrations(ctx, h.store.ListProjectIntegrationsByProviderIdentity,
+		result, err = fanoutIntegrations(ctx, h.store.ListIntegrationsByProviderIdentity,
 			integrationstore.IntegrationProviderGitHub, appID, strconv.FormatInt(hint.Installation.ID, 10),
-			func(ctx context.Context, integration integrationstore.ProjectIntegrationRecord) (bool, error) {
+			func(ctx context.Context, integration integrationstore.IntegrationRecord) (bool, error) {
 				event, verified, err := h.verifyIntegrationCredential(ctx, r.Header, raw, appID, integration)
 				if verified && err != nil {
 					invalidWebhook = true
@@ -178,7 +178,7 @@ func (h *githubIntakeHandler) verifyIntegrationCredential(
 	header http.Header,
 	raw []byte,
 	appID string,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 ) (github.Webhook, bool, error) {
 	if integration.Provider != integrationstore.IntegrationProviderGitHub || integration.ProviderTenantID != appID ||
 		integration.CredentialSecretID == uuid.Nil {

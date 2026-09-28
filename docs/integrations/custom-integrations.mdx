@@ -88,8 +88,9 @@ The first accepted answer wins; later conflicting answers are rejected.
 Your application decides where to present an interaction and retains its remote
 message IDs. If it handles all presentation, leave built-in integration interaction
 handlers unconfigured. When configured, those handlers still deliver to the
-captured Slack or Discord destination; ordinary API input does not override that
-selection. An optional `destination` or `presentation_receipt` describes Omnara's
+captured destination. In automatic mode, admitting an ordinary API message clears
+the selected built-in handler for future interactions; pinning it with `auto_select: false`
+preserves the choice. An optional `destination` or `presentation_receipt` describes Omnara's
 built-in presentation, not a delivery request to your service.
 
 Use [event stream](/events/streaming) updates as hints, then refresh the durable

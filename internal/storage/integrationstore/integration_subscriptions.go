@@ -74,12 +74,12 @@ func (s *Store) DeleteIntegrationSubscription(
 		return err
 	}
 	q := dbsqlc.New(tx)
-	if err := q.LockProjectIntegrationLifecycleShared(ctx, dbsqlc.LockProjectIntegrationLifecycleSharedParams{
+	if err := q.LockIntegrationLifecycleShared(ctx, dbsqlc.LockIntegrationLifecycleSharedParams{
 		IntegrationID: integrationID,
 	}); err != nil {
 		return err
 	}
-	if _, err := getProjectIntegration(ctx, q, projectID, integrationID); err != nil {
+	if _, err := getIntegration(ctx, q, projectID, integrationID); err != nil {
 		return err
 	}
 	row, err := q.GetIntegrationSubscription(ctx, dbsqlc.GetIntegrationSubscriptionParams{
@@ -112,7 +112,7 @@ func (s *Store) ListIntegrationSubscriptions(
 			errors.New("project, integration and limit between 1 and 100 are required"),
 		)
 	}
-	integration, err := getProjectIntegration(ctx, s.q, input.ProjectID, input.IntegrationID)
+	integration, err := getIntegration(ctx, s.q, input.ProjectID, input.IntegrationID)
 	if err != nil {
 		return ListIntegrationSubscriptionsResult{}, err
 	}

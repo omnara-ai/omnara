@@ -17,7 +17,7 @@ func (s strictOpenAPIServer) ListIntegrationSubscriptions(
 	if err != nil {
 		return nil, err
 	}
-	integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, request.IntegrationID)
+	integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, request.IntegrationID)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration id")
 	}
@@ -64,7 +64,7 @@ func (s strictOpenAPIServer) CreateIntegrationSubscription(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, request.IntegrationID)
+	integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, request.IntegrationID)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration id")
 	}
@@ -95,7 +95,7 @@ func (s strictOpenAPIServer) DeleteIntegrationSubscription(
 	if err != nil {
 		return nil, err
 	}
-	integrationID, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, request.IntegrationID)
+	integrationID, ok := parseOpenAPIPublicID(publicid.KindIntegration, request.IntegrationID)
 	if !ok {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid integration id")
 	}
@@ -122,7 +122,7 @@ func integrationSubscriptionResponse(
 	if err != nil {
 		return openapi.IntegrationSubscription{}, err
 	}
-	integrationID, err := publicID(publicid.KindProjectIntegration, subscription.IntegrationID)
+	integrationID, err := publicID(publicid.KindIntegration, subscription.IntegrationID)
 	if err != nil {
 		return openapi.IntegrationSubscription{}, err
 	}

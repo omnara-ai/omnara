@@ -74,7 +74,7 @@ func (s *Store) CheckInboxConversationAuthority(
 	q := dbsqlc.New(tx)
 	var resources []uuid.UUID
 	if envelope.Launch != nil {
-		resources, err = launchIntegrationIDsTx(ctx, q, launch.Launch.launchInput(lease.ProjectID))
+		resources, err = launchIntegrationIDsTx(ctx, q, launch.Launch.launchInput(lease.ProjectID, launch.InitialInput))
 		if err != nil {
 			return err
 		}

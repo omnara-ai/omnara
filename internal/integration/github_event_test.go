@@ -15,10 +15,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-func githubEventIntegration() integrationstore.ProjectIntegrationRecord {
-	return integrationstore.ProjectIntegrationRecord{
-		ID: uuid.New(), ProjectID: uuid.New(), Provider: "github", ProviderTenantID: "123", ProviderAccountRef: "456",
-		State:            integrationstore.ProjectIntegrationStateActive,
+func githubEventIntegration() integrationstore.IntegrationRecord {
+	return integrationstore.IntegrationRecord{
+		Settings:        json.RawMessage(`{}`),
+		IntegrationKind: integrationdefinition.GitHubPR,
+		ID:              uuid.New(),
+		ProjectID:       uuid.New(), Provider: "github", ProviderTenantID: "123", ProviderAccountRef: "456",
+		State:            integrationstore.IntegrationStateActive,
 		ProviderIdentity: json.RawMessage(`{"bot_user_id":999,"bot_login":"helper[bot]"}`),
 	}
 }
@@ -94,8 +97,10 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 			if event.Event.Scope.GitHub.RepositoryID != 1001 || event.Event.Scope.GitHub.PullRequest != 42 {
 				t.Fatalf("scope: %+v", event.Event.Scope)
 			}
-			if definition.MatchesLauncher(event.Event, "mention") != tc.steering ||
-				definition.MatchesLauncher(event.Event, "pull_request_opened") == tc.steering {
+			mentionSettings := testLaunchSettings(definition.IntegrationKind, "mention")
+			openSettings := testLaunchSettings(definition.IntegrationKind, "pull_request_opened")
+			if definition.MatchesLaunch(mentionSettings, event.Event) != tc.steering ||
+				definition.MatchesLaunch(openSettings, event.Event) == tc.steering {
 				t.Fatalf("trigger: %+v", event.Event)
 			}
 			mode := executionstore.DeliveryModeQueued
@@ -104,7 +109,7 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 			}
 			if event.DeliveryMode != mode || event.Actor.ProviderUserID != "71" ||
 				event.Actor.Provider != executionstore.ActorProviderIntegration ||
-				event.Actor.ProviderTenantID != integrationTestActor(t, integrationSetup.ID, "").ProviderTenantID {
+				event.Actor.ProviderTenantID != "github:github.com" || event.Actor.Metadata["source_label"] != "GitHub" {
 				t.Fatalf("delivery/actor: %+v", event)
 			}
 			var blocks []map[string]string
@@ -191,30 +196,30 @@ func TestGitHubNormalizeRejectsWrongIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
-		edit func(*githubEventPayload, *integrationstore.ProjectIntegrationRecord)
+		edit func(*githubEventPayload, *integrationstore.IntegrationRecord)
 	}{
-		{"installation", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) {
+		{"installation", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) {
 			p.Installation.ID++
 		}},
-		{"app", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) {
+		{"app", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) {
 			p.Installation.AppID = 321
 		}},
-		{"repository", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) { p.Repository.ID++ }},
-		{"missing repository", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) {
+		{"repository", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) { p.Repository.ID++ }},
+		{"missing repository", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) {
 			p.PullRequest.Base.Repo = nil
 		}},
-		{"PR number", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) {
+		{"PR number", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) {
 			p.PullRequest.Number = 0
 		}},
-		{"comment ID", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) { p.Comment.ID = 0 }},
-		{"sender", func(p *githubEventPayload, _ *integrationstore.ProjectIntegrationRecord) { p.Sender.ID++ }},
-		{"bot identity absent", func(_ *githubEventPayload, c *integrationstore.ProjectIntegrationRecord) {
+		{"comment ID", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) { p.Comment.ID = 0 }},
+		{"sender", func(p *githubEventPayload, _ *integrationstore.IntegrationRecord) { p.Sender.ID++ }},
+		{"bot identity absent", func(_ *githubEventPayload, c *integrationstore.IntegrationRecord) {
 			c.ProviderIdentity = nil
 		}},
-		{"wrong provider", func(_ *githubEventPayload, c *integrationstore.ProjectIntegrationRecord) {
+		{"wrong provider", func(_ *githubEventPayload, c *integrationstore.IntegrationRecord) {
 			c.Provider = "slack"
 		}},
-		{"noncanonical app", func(_ *githubEventPayload, c *integrationstore.ProjectIntegrationRecord) {
+		{"noncanonical app", func(_ *githubEventPayload, c *integrationstore.IntegrationRecord) {
 			c.ProviderTenantID = "0123"
 		}},
 	} {
@@ -279,12 +284,13 @@ func TestGitHubInboxAdapter(t *testing.T) {
 	t.Parallel()
 	provider := GitHubIntegrationInboxProvider{}
 	integrationSetup := githubEventIntegration()
+	integrationSetup.Settings = json.RawMessage(`{"sender_policy":"anyone"}`)
 	expansion, err := provider.Expand(
 		t.Context(),
 		integrationSetup,
 		githubEventJSON(t, githubEventFixture("issue_comment")),
 	)
-	if err != nil || len(expansion.Events) != 1 || len(expansion.Files) != 0 {
+	if err != nil || expansion.Event == nil || len(expansion.Files) != 0 {
 		t.Fatalf("expansion: %+v %v", expansion, err)
 	}
 	if _, err = provider.DownloadFile(t.Context(), integrationSetup, nil, "file"); err == nil {

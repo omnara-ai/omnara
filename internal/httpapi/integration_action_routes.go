@@ -83,7 +83,7 @@ func (s *Server) integrationActionsRoute(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) resolveIntegrationInteractionAction(
 	r *http.Request,
-	install integrationstore.ProjectIntegrationRecord,
+	install integrationstore.IntegrationRecord,
 	envelope slack.ActionsEnvelope,
 ) (map[string]any, error) {
 	actionValue, err := slack.PromptActionFromActions(envelope)
@@ -123,7 +123,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 	}
 	if destination == nil || destination.IntegrationID != install.ID ||
 		destination.IntegrationTargetID != integrationTargetID ||
-		destination.IntegrationType != install.IntegrationType {
+		destination.IntegrationKind != install.IntegrationKind {
 		return nil, storeerr.ErrUnauthorized
 	}
 	var receipt integrationruntime.InteractionReceipt
@@ -150,11 +150,11 @@ func (s *Server) resolveIntegrationInteractionAction(
 	if err != nil {
 		return nil, err
 	}
-	latest, err := s.store.Integrations().GetProjectIntegration(r.Context(), install.ProjectID, install.ID)
+	latest, err := s.store.Integrations().GetIntegration(r.Context(), install.ProjectID, install.ID)
 	if err != nil {
 		return nil, err
 	}
-	if latest.State != integrationstore.ProjectIntegrationStateActive || latest.SetupRevision != install.SetupRevision {
+	if latest.State != integrationstore.IntegrationStateActive || latest.SetupRevision != install.SetupRevision {
 		return nil, storeerr.ErrUnauthorized
 	}
 	if existing.State != executionstore.AgentInteractionStateOpen {
@@ -169,7 +169,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 		return map[string]any{"ok": "invalid", "text": resolutionResult.InvalidReason}, nil
 	}
 	resolution := resolutionResult.Resolution
-	actor, err := executionstore.IntegrationActorParams(install.ID, envelope.User.ID, nil)
+	actor, err := executionstore.IntegrationActorParams(install, envelope.User.ID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func (s *Server) resolveIntegrationInteractionAction(
 	actor.DisplayName = &displayName
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
 		IntegrationID: install.ID, SourceSetupRevision: install.SetupRevision,
-		IntegrationType: install.IntegrationType, Address: destination.Address,
+		IntegrationKind: install.IntegrationKind, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
 			ProjectID:           install.ProjectID,
 			AgentID:             agentID,

@@ -22,9 +22,11 @@ func handlerSelectionPlan(key, args string) executionstore.ToolCallPlan {
 	return func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
 		return executionstore.SetInteractionHandlerForToolCall(
 			executionstore.SelectInteractionHandlerInput{HandlerKey: key, Args: json.RawMessage(args)},
-			executionstore.ToolCallCompletionInput{
-				Outcome:            executionstore.ToolResultOutcomeSucceeded,
-				ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+			func(executionstore.InteractionSelection) (executionstore.ToolCallCompletionInput, error) {
+				return executionstore.ToolCallCompletionInput{
+					Outcome:            executionstore.ToolResultOutcomeSucceeded,
+					ResultContentParts: json.RawMessage(`[{"type":"text","text":"selected"}]`),
+				}, nil
 			},
 		), nil
 	}
@@ -88,7 +90,7 @@ func TestIntegrationHandlerSelectionRequiresAssignedTarget(t *testing.T) {
 					Scan(&before),
 			)
 			if test != "assigned" && test != "missing-target" {
-				require.Equal(t, executionstore.InteractionSelection{}, f.selectOrigin(t, f.a.ID))
+				require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, f.selectOrigin(t, f.a.ID))
 			}
 			call := f.selectionCall(t)
 			for attempt := range 2 {
@@ -113,7 +115,7 @@ func TestIntegrationHandlerSelectionRequiresAssignedTarget(t *testing.T) {
 			if test == "assigned" {
 				require.Equal(t, f.a.ID, selected.IntegrationTargetID)
 			} else {
-				require.Equal(t, executionstore.InteractionSelection{}, selected)
+				require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selected)
 			}
 		})
 	}
@@ -122,14 +124,13 @@ func TestIntegrationHandlerSelectionRequiresAssignedTarget(t *testing.T) {
 func TestIntegrationHandlerActivationClearsRevokedSelectionAndPreservesCapture(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
-	prompt := f.question(t)
+	prompt := f.questionForOrigin(t, f.a.ID)
 	delete(f.handlers, "chat")
 	f.change(t, f.handlers)
 	selection, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 	require.JSONEq(t, string(prompt.Destination), string(f.read(t, prompt.ID).Destination))
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
 	require.NoError(t, err, "revocation preserves attribution/history")
@@ -192,7 +193,7 @@ func TestIntegrationHandlerPendingSelectionCannotAcquireChangedAuthority(t *test
 			if change == "unrelated" {
 				require.Equal(t, "chat", selection.HandlerKey)
 			} else {
-				require.Equal(t, executionstore.InteractionSelection{}, selection)
+				require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 			}
 		})
 	}
@@ -206,9 +207,9 @@ func TestIntegrationHandlerSelectionIntegrationGatePrecedesAgentLock(t *testing.
 	q := dbsqlc.New(revocation)
 	require.NoError(
 		t,
-		q.LockProjectIntegrationLifecycleExclusive(
+		q.LockIntegrationLifecycleExclusive(
 			f.ctx,
-			dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+			dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 		),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.ExecuteToolCallResult, error) {
@@ -219,7 +220,7 @@ func TestIntegrationHandlerSelectionIntegrationGatePrecedesAgentLock(t *testing.
 		t,
 		f.ctx,
 		f.store.pool,
-		"LockProjectIntegrationLifecycleShared",
+		"LockIntegrationLifecycleShared",
 		1,
 	)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
@@ -231,7 +232,7 @@ func TestIntegrationHandlerSelectionIntegrationGatePrecedesAgentLock(t *testing.
 	require.NoError(t, err, "selection cannot hold the agent while waiting for the integration")
 	_, err = revocation.Exec(
 		f.ctx,
-		`UPDATE project_integrations SET state='disconnected' WHERE project_id=$1 AND id=$2`,
+		`UPDATE integrations SET state='disconnected' WHERE project_id=$1 AND id=$2`,
 		testProjectID,
 		f.integration.ID,
 	)
@@ -242,14 +243,14 @@ func TestIntegrationHandlerSelectionIntegrationGatePrecedesAgentLock(t *testing.
 	selection, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 }
 
 func TestIntegrationHandlerSelectionValidatesArgsWithoutMutation(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	initial := f.selectOrigin(t, f.a.ID)
 	input := f.selectionCall(t)
+	initial := f.selectOrigin(t, f.a.ID)
 	for _, args := range []string{
 		`{"channel_id":"C123","thread_ts":"111.222"}`, `{"channel_id":"C123","thread_ts":"invalid"}`, `{"integration_id":"replacement"}`, `{"extra":true}`, `null`, `[]`,
 	} {
@@ -269,5 +270,5 @@ func TestIntegrationHandlerSelectionValidatesArgsWithoutMutation(t *testing.T) {
 	selected, err := f.store.Execution().
 		GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selected)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selected)
 }

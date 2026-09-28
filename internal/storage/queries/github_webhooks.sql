@@ -9,13 +9,13 @@ SELECT DISTINCT ON (integration.credential_secret_id)
   integration.provider_agent_display_name, integration.credential_secret_id,
   integration.provider_config, integration.provider_identity, integration.provider_metadata,
   integration.last_oauth_flow_id, integration.deleted_at, integration.created_at, integration.updated_at,
-  integration.name, integration.integration_type, integration.settings, integration.setup_revision
-FROM project_integrations integration
+  integration.name, integration.integration_kind, integration.settings, integration.setup_revision
+FROM integrations integration
 JOIN projects project ON project.id = integration.project_id AND project.org_id = integration.org_id
 JOIN orgs org ON org.id = integration.org_id
 JOIN secrets credential ON credential.id = integration.credential_secret_id AND credential.org_id = integration.org_id
 JOIN secret_versions version ON version.id = credential.current_version_id AND version.secret_id = credential.id
-WHERE integration.integration_type = ANY(sqlc.arg(integration_types)::text[])
+WHERE integration.integration_kind = ANY(sqlc.arg(integration_kinds)::text[])
   AND integration.provider_tenant_id = sqlc.arg(github_app_id)::text
   AND integration.deleted_at IS NULL AND project.deleted_at IS NULL AND org.deleted_at IS NULL
   AND credential.deleted_at IS NULL AND credential.management_kind = 'tenant'

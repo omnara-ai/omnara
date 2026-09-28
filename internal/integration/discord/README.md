@@ -38,13 +38,15 @@ the client and require intervention; it is never silently skipped. Only Guild
 Messages and Message Content intents are requested, avoiding unused guild snapshots.
 Changing intents takes effect on the next IDENTIFY, not a resumed session.
 
-`MESSAGE_CREATE` identifies a thread without its parent channel. Each eligible
-message therefore requires `GetChannel` before the indexed routing check can
-resolve the stored `parent:thread` address. Unrelated visible traffic still costs
-an inbox receipt, database work and a REST lookup, sharing the bot's quota with
-replies. The routing check includes pending launch reservations; absence of a
-subscription alone cannot safely discard a message. Identity and attachment
-requests run only after this check finds a recipient.
+`MESSAGE_CREATE` identifies a thread by its own channel ID. That ID is the
+canonical thread address; the parent channel is optional metadata. Non-mentions
+run the indexed exact-thread routing check before REST. The check includes pending
+launch reservations and accepted profile-choice handoffs; absence of a subscription
+alone cannot safely discard a message. Parent-channel subscriptions receive only
+mentioned starters, not ordinary thread traffic. Routed messages and mentions then
+use `GetChannel` to verify and normalize provider facts. Unrelated non-mentions
+still cost an inbox receipt and database work, but no REST request. Identity and
+attachment requests run only after routing finds a recipient.
 
 ## Threads and sends
 
@@ -53,6 +55,11 @@ uses that message's ID. `EnsureThread` reconciles uncertain creation by GET at t
 identity rather than blindly retrying POST. The caller must freeze authorized
 recipients before creating the thread and recheck authority before every attempt.
 Stopping an agent never archives, deletes or otherwise mutates its Discord thread.
+
+Provider `Scope` accepts a thread ID without a parent channel. When callers supply
+parent or guild IDs to a provider operation, `prepare` checks them against Discord's
+channel response. Subscription creation only validates their ID format and stores
+the canonical thread ID; it neither calls Discord nor retains those optional fields.
 
 Message creation uses the same logical-send nonce and payload for bounded retries
 with `enforce_nonce`. Discord's nonce deduplication window is short; a final unknown

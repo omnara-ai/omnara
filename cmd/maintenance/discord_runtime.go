@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/metrics"
@@ -16,9 +18,7 @@ func runDiscordRuntimeMetricsLoop(
 	recorder *metrics.DiscordRuntimeDemandRecorder,
 ) {
 	for ctx.Err() == nil {
-		sampleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		count, err := store.CountUnclaimedDiscordIntegrations(sampleCtx)
-		cancel()
+		count, err := sampleDiscordRuntimeDemand(ctx, log, store.CountUnclaimedDiscordIntegrations)
 		recorder.RecordUnclaimed(count, err)
 		if err != nil && ctx.Err() == nil {
 			log.Warn("sample unclaimed Discord integrations", "error", err)
@@ -31,4 +31,20 @@ func runDiscordRuntimeMetricsLoop(
 		case <-timer.C:
 		}
 	}
+}
+
+func sampleDiscordRuntimeDemand(
+	ctx context.Context,
+	log *slog.Logger,
+	sample func(context.Context) (int64, error),
+) (count int64, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("discord runtime demand sample panicked: %v", recovered)
+			log.Error("Discord runtime demand sample panicked", "error", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return sample(ctx)
 }

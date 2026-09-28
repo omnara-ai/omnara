@@ -7,23 +7,24 @@ import (
 	"strings"
 )
 
-type Type string
+type Kind string
 
 const (
 	ProviderSlack        = "slack"
 	ProviderGitHub       = "github"
 	ProviderDiscord      = "discord"
-	SlackThread     Type = "slack_thread"
-	GitHubPR        Type = "github_pr"
-	DiscordThread   Type = "discord_thread"
+	SlackThread     Kind = "slack_thread"
+	GitHubPR        Kind = "github_pr"
+	DiscordThread   Kind = "discord_thread"
 )
 
 type Definition struct {
-	IntegrationType    Type
+	IntegrationKind    Kind
 	Provider           string
 	Tools              []string
 	Subscription       *SubscriptionDefinition
-	LaunchTriggers     []string
+	Settings           *SettingsDefinition
+	Launcher           *LauncherDefinition
 	SubscribeOnLaunch  bool
 	InteractionHandler *InteractionHandlerDefinition
 	Schedule           *ScheduleDefinition
@@ -31,48 +32,51 @@ type Definition struct {
 
 func All() []Definition {
 	definitions := make([]Definition, 0, 3)
-	for _, id := range []Type{DiscordThread, GitHubPR, SlackThread} {
+	for _, id := range []Kind{DiscordThread, GitHubPR, SlackThread} {
 		definition, _ := Lookup(id)
 		definitions = append(definitions, definition)
 	}
 	return definitions
 }
 
-func Lookup(id Type) (Definition, bool) {
+func Lookup(id Kind) (Definition, bool) {
 	var d Definition
 	switch id {
 	case SlackThread:
 		d = Definition{
-			IntegrationType:    id,
+			IntegrationKind:    id,
 			Provider:           ProviderSlack,
 			Tools:              []string{"read", "post_message"},
 			Subscription:       &SubscriptionDefinition{Provider: ProviderSlack, Events: []string{"message"}},
-			LaunchTriggers:     []string{"mention"},
+			Settings:           newChatSettings(ProviderSlack),
+			Launcher:           newChatLauncher(ProviderSlack),
 			SubscribeOnLaunch:  true,
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderSlack},
 			Schedule:           slackThreadSchedule,
 		}
 	case DiscordThread:
 		d = Definition{
-			IntegrationType:    id,
+			IntegrationKind:    id,
 			Provider:           ProviderDiscord,
 			Tools:              []string{"read", "post_message"},
 			Subscription:       &SubscriptionDefinition{Provider: ProviderDiscord, Events: []string{"message"}},
-			LaunchTriggers:     []string{"mention"},
+			Settings:           newChatSettings(ProviderDiscord),
+			Launcher:           newChatLauncher(ProviderDiscord),
 			SubscribeOnLaunch:  true,
 			InteractionHandler: &InteractionHandlerDefinition{Provider: ProviderDiscord},
 			Schedule:           discordThreadSchedule,
 		}
 	case GitHubPR:
 		d = Definition{
-			IntegrationType: id,
+			IntegrationKind: id,
 			Provider:        ProviderGitHub,
-			Tools:           []string{"read", "discussion_comment", "inline_comment", "reply"},
+			Tools:           []string{"read", "discussion_comment", "review_comment", "reply"},
 			Subscription: &SubscriptionDefinition{
 				Provider: ProviderGitHub,
 				Events:   []string{"discussion_comment", "review_comment", "commit"},
 			},
-			LaunchTriggers:    []string{"mention", "pull_request_opened"},
+			Settings:          githubSettings,
+			Launcher:          githubLauncher,
 			SubscribeOnLaunch: true,
 		}
 	default:
@@ -81,18 +85,18 @@ func Lookup(id Type) (Definition, bool) {
 	return d, true
 }
 
-func IntegrationTypesForProvider(provider string) []string {
+func IntegrationKindsForProvider(provider string) []string {
 	var types []string
 	for _, definition := range All() {
 		if definition.Provider == provider {
-			types = append(types, string(definition.IntegrationType))
+			types = append(types, string(definition.IntegrationKind))
 		}
 	}
 	return types
 }
 
-func ProviderForType(integrationType Type) string {
-	definition, _ := Lookup(integrationType)
+func ProviderForKind(integrationKind Kind) string {
+	definition, _ := Lookup(integrationKind)
 	return definition.Provider
 }
 
@@ -114,7 +118,7 @@ type GitHubScope struct {
 
 type DiscordScope struct {
 	GuildID   string `json:"guild_id,omitempty"`
-	ChannelID string `json:"channel_id"`
+	ChannelID string `json:"channel_id,omitempty"`
 	ThreadID  string `json:"thread_id,omitempty"`
 }
 
@@ -156,10 +160,11 @@ func (s Scope) Validate(provider string) error {
 		if s.Discord == nil {
 			break
 		}
-		if !discordID.MatchString(s.Discord.ChannelID) ||
+		if (s.Discord.ChannelID == "" && s.Discord.ThreadID == "") ||
+			(s.Discord.ChannelID != "" && !discordID.MatchString(s.Discord.ChannelID)) ||
 			(s.Discord.GuildID != "" && !discordID.MatchString(s.Discord.GuildID)) ||
 			(s.Discord.ThreadID != "" && !discordID.MatchString(s.Discord.ThreadID)) {
-			return fmt.Errorf("discord scope requires concrete channel_id, guild_id and thread_id values when supplied")
+			return fmt.Errorf("discord scope requires channel_id or thread_id, with concrete IDs when supplied")
 		}
 		return nil
 	}
@@ -201,7 +206,7 @@ func (s Scope) Conversation() (kind, key string, err error) {
 		), nil
 	case s.Discord != nil:
 		if s.Discord.ThreadID != "" {
-			return "thread", s.Discord.ChannelID + ":" + s.Discord.ThreadID, nil
+			return "thread", s.Discord.ThreadID, nil
 		}
 		return "channel", s.Discord.ChannelID, nil
 	default:

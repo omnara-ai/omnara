@@ -3,6 +3,7 @@ package integrationstore
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func TestIntegrationProfileChoiceStateCodec(t *testing.T) {
 	}
 	t.Run("aggregate options bound", func(t *testing.T) {
 		record := base
-		record.Options = make([]IntegrationProfileChoiceOption, MaxIntegrationLaunchSlots)
+		record.Options = make([]IntegrationProfileChoiceOption, integrationdefinition.MaxChatProfiles)
 		for i := range record.Options {
 			record.Options[i] = IntegrationProfileChoiceOption{
 				Key: string(rune('a' + i)), ProfileID: uuid.New(), Name: strings.Repeat("\x01", 512),
@@ -83,7 +84,7 @@ func TestIntegrationProfileChoiceStateCodec(t *testing.T) {
 	t.Run("maximum bytes and HTML event fit together", func(t *testing.T) {
 		record := base
 		record.Payload = bytes.Repeat([]byte{0xff}, IntegrationInboxMaxPayloadBytes)
-		record.Event = json.RawMessage(`{"text":"` + strings.Repeat("<&>", (IntegrationInboxMaxEventsBytes-20)/3) + `"}`)
+		record.Event = json.RawMessage(`{"text":"` + strings.Repeat("<&>", (IntegrationProfileChoiceMaxEventBytes-20)/3) + `"}`)
 		data, err := encodeIntegrationProfileChoice(record)
 		require.NoError(t, err)
 		require.Less(t, len(data), integrationStateMaxDataBytes)

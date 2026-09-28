@@ -62,8 +62,8 @@ func (s *Store) resolveInputOriginTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	input CreateAgentContentInputInput,
-) (CreateAgentContentInputInput, integrationstore.ProjectIntegrationRecord, error) {
-	integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, input.Origin.IntegrationID)
+) (CreateAgentContentInputInput, integrationstore.IntegrationRecord, error) {
+	integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, input.Origin.IntegrationID)
 	if err != nil {
 		return input, integration, err
 	}
@@ -74,11 +74,11 @@ func (s *Store) resolveInputOriginTx(
 	return input, integration, nil
 }
 
-func validateIntegrationInputActor(integrationID uuid.UUID, actor *ActorParams) error {
+func validateIntegrationInputActor(integration integrationstore.IntegrationRecord, actor *ActorParams) error {
 	if actor == nil || strings.TrimSpace(actor.ProviderUserID) == "" {
 		return storeerr.ErrUnauthorized
 	}
-	expected, err := IntegrationActorParams(integrationID, actor.ProviderUserID, nil)
+	expected, err := IntegrationActorParams(integration, actor.ProviderUserID, nil)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (s *Store) admitOriginContentTx(
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := validateIntegrationInputActor(integration.ID, input.Actor); err != nil {
+	if err := validateIntegrationInputActor(integration, input.Actor); err != nil {
 		return InboxInputResult{}, err
 	}
 	agent, err := loadAgentInProjectTx(ctx, tx, input.ProjectID, input.AgentID)
@@ -132,17 +132,6 @@ func (s *Store) admitOriginContentTx(
 	created, err := createAgentContentInputTx(ctx, notifications, tx, dbsqlc.New(tx), agent, input, blocks)
 	if err != nil {
 		return InboxInputResult{}, err
-	}
-	if created.created {
-		if _, err := s.SelectInteractionDestinationForOriginTx(
-			ctx,
-			tx,
-			input.ProjectID,
-			input.AgentID,
-			target.ID,
-		); err != nil {
-			return InboxInputResult{}, err
-		}
 	}
 	return InboxInputResult{
 		AgentInput:             created.agentInput,
@@ -176,7 +165,7 @@ func (s *Store) originContentReplayTx(
 		return InboxInputResult{}, false, err
 	}
 	if target.AgentID != input.AgentID || target.IntegrationID != input.Origin.IntegrationID ||
-		target.ProviderRefKind != input.Origin.Address.Kind || target.ProviderRef != input.Origin.Address.Ref {
+		target.ScopeKind != input.Origin.Address.Kind || target.ScopeRef != input.Origin.Address.Ref {
 		return InboxInputResult{}, false, storeerr.ErrIdempotencyConflict
 	}
 	content, err := agentInputContentBlocks(ctx, q, input.ProjectID, input.AgentID, []uuid.UUID{existing.ID})

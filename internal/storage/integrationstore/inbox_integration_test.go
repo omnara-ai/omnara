@@ -56,9 +56,9 @@ func newInboxFixture(t *testing.T) inboxFixture {
 	})
 	require.NoError(t, err)
 	integrationID := uuid.New()
-	_, err = pool.Exec(ctx, `INSERT INTO project_integrations
+	_, err = pool.Exec(ctx, `INSERT INTO integrations
  (id,org_id,project_id,installed_by_user_id,state,
-  provider_tenant_id,provider_account_ref,name,integration_type,credential_secret_id,created_at,updated_at)
+  provider_tenant_id,provider_account_ref,name,integration_kind,credential_secret_id,created_at,updated_at)
  VALUES($1,$2,$3,$4,'active','T123','inbox-integration','inbox-integration','slack_thread',$5,now(),now())`,
 		integrationID, ids.OrgID, ids.ProjectID, ids.ProviderAdminUserID, ids.ProviderSecretID)
 	require.NoError(t, err)
@@ -81,19 +81,19 @@ func (f inboxFixture) accept(t *testing.T, key string) integrationstore.Integrat
 func (f inboxFixture) addIntegration(
 	t *testing.T,
 	name string,
-	settings integrationstore.ProjectIntegrationSettings,
-) integrationstore.ProjectIntegrationRecord {
+	settings integrationstore.IntegrationSettings,
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	raw, err := json.Marshal(settings)
 	require.NoError(t, err)
 	id := uuid.New()
-	f.exec(t, `INSERT INTO project_integrations
+	f.exec(t, `INSERT INTO integrations
  (id,org_id,project_id,installed_by_user_id,state,provider_tenant_id,provider_account_ref,
-  credential_secret_id,name,integration_type,settings,created_at,updated_at)
+  credential_secret_id,name,integration_kind,settings,created_at,updated_at)
  SELECT $1,org_id,project_id,installed_by_user_id,'active',provider_tenant_id,provider_account_ref,
-        credential_secret_id,$2,integration_type,$3,now(),now() FROM project_integrations WHERE id=$4`,
+        credential_secret_id,$2,integration_kind,$3,now(),now() FROM integrations WHERE id=$4`,
 		id, name, raw, f.integrationID)
-	integration, err := f.store.GetProjectIntegration(f.ctx, f.project, id)
+	integration, err := f.store.GetIntegration(f.ctx, f.project, id)
 	require.NoError(t, err)
 	return integration
 }
@@ -160,9 +160,9 @@ func TestInboxVerifiedReceiptDeduplicationAndIsolation(t *testing.T) {
 		`UPDATE integration_inbox SET payload=decode(repeat('00',1048577),'hex') WHERE id=$1`,
 		`UPDATE integration_inbox SET payload=''::bytea WHERE id=$1`,
 		`UPDATE integration_inbox SET receipt_key=repeat('x',513) WHERE id=$1`,
-		`UPDATE integration_inbox SET plan=jsonb_build_object('x',repeat('x',262145)) WHERE id=$1`,
+		`UPDATE integration_inbox SET plan=jsonb_build_object('x',repeat('x',12615681)) WHERE id=$1`,
 		`UPDATE integration_inbox SET last_error=repeat('x',4097) WHERE id=$1`,
-		`UPDATE integration_inbox SET attempt_count=9 WHERE id=$1`,
+		`UPDATE integration_inbox SET attempt_count=-1 WHERE id=$1`,
 		`UPDATE integration_inbox SET state='failed' WHERE id=$1`,
 		`UPDATE integration_inbox SET completed_at=now() WHERE id=$1`,
 	} {
@@ -225,7 +225,7 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	f.accept(t, "crashing")
 	r := f.claim(t)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		plan := json.RawMessage(`{"slot":{"agent_id":"pinned","artifact_id":"pinned-blob"}}`)
+		plan := json.RawMessage(`{"message":{},"recipients":{"slot":{"agent_id":"pinned","artifact_id":"pinned-blob"}}}`)
 		return w.FreezePlan(f.ctx, plan)
 	})
 	original := f.read(t, r.ID)
@@ -261,7 +261,7 @@ func TestInboxFrozenPlanRetryAndAtomicCompletion(t *testing.T) {
 	f := newInboxFixture(t)
 	f.accept(t, "slots")
 	r := f.claim(t)
-	plan := json.RawMessage(`{"one":{"agent_id":"one"},"two":{"agent_id":"two"}}`)
+	plan := json.RawMessage(`{"message":{},"recipients":{"one":{"agent_id":"one"},"two":{"agent_id":"two"}}}`)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
 		return w.FreezePlan(f.ctx, plan)
 	})
@@ -272,7 +272,7 @@ func TestInboxFrozenPlanRetryAndAtomicCompletion(t *testing.T) {
 		return w.FreezePlan(f.ctx, plan)
 	})
 	err := f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.FreezePlan(f.ctx, json.RawMessage(`{"one":{"agent_id":"replacement"}}`))
+		return w.FreezePlan(f.ctx, json.RawMessage(`{"message":{},"recipients":{"one":{"agent_id":"replacement"}}}`))
 	})
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	original := f.read(t, r.ID)
@@ -294,9 +294,9 @@ func TestInboxFrozenPlanRetryAndAtomicCompletion(t *testing.T) {
 		return w.Retry(f.ctx, time.Second, "temporarily unavailable")
 	})
 	pending := f.read(t, r.ID)
-	require.Equal(t, integrationstore.IntegrationInboxPending, pending.State)
+	require.Equal(t, integrationstore.IntegrationInboxQueued, pending.State)
 	require.Equal(t, original.Plan, pending.Plan)
-	f.exec(t, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, r.ID)
+	f.exec(t, `UPDATE integration_inbox SET next_attempt_at=now() WHERE id=$1`, r.ID)
 	reclaimed := f.claim(t)
 	require.NotEqual(t, r.ClaimToken, reclaimed.ClaimToken)
 	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
@@ -366,7 +366,7 @@ func TestInboxLeaseRevalidatedAfterLockWaitAndInsideTransaction(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-			return w.FreezePlan(f.ctx, json.RawMessage(`{}`))
+			return w.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`))
 		})
 	}()
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationInboxReceipt", 1)
@@ -388,7 +388,7 @@ func TestInboxLeaseRevalidatedAfterLockWaitAndInsideTransaction(t *testing.T) {
 		`UPDATE integration_inbox SET claim_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, r.ID)
 	require.NoError(t, err)
 	require.ErrorIs(t, w.CheckLease(f.ctx), integrationstore.ErrIntegrationInboxLeaseLost)
-	require.ErrorIs(t, w.FreezePlan(f.ctx, json.RawMessage(`{}`)), integrationstore.ErrIntegrationInboxLeaseLost)
+	require.ErrorIs(t, w.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)), integrationstore.ErrIntegrationInboxLeaseLost)
 	require.ErrorIs(t, w.Complete(f.ctx), integrationstore.ErrIntegrationInboxLeaseLost)
 	require.NoError(t, tx.Rollback(f.ctx))
 	var display string
@@ -405,7 +405,7 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 		return w.Retry(f.ctx, time.Hour, strings.Repeat("🙂", 4096))
 	})
 	read := f.read(t, r.ID)
-	require.Equal(t, integrationstore.IntegrationInboxPending, read.State)
+	require.Equal(t, integrationstore.IntegrationInboxQueued, read.State)
 	require.Nil(t, read.CompletedAt)
 	require.LessOrEqual(t, len(read.LastError), 4096)
 	ready, err := f.store.ListReadyIntegrationInboxIntegrations(f.ctx, integrationstore.IntegrationInboxIntegration{}, 100)
@@ -416,7 +416,7 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, ok)
-	f.exec(t, `UPDATE integration_inbox SET available_at=now(),attempt_count=7 WHERE id=$1`, r.ID)
+	f.exec(t, `UPDATE integration_inbox SET next_attempt_at=now(),attempt_count=7 WHERE id=$1`, r.ID)
 	r = f.claim(t)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
 		return w.Retry(f.ctx, time.Second, "last failure")
@@ -427,7 +427,7 @@ func TestInboxRetrySchedulingFailureAndBoundedCleanup(t *testing.T) {
 		f.accept(t, fmt.Sprintf("done-%d", i))
 		claimed := f.claim(t)
 		f.mutate(t, claimed, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-			if err := w.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+			if err := w.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 				return err
 			}
 			return w.Complete(f.ctx)
@@ -449,13 +449,13 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	f := newInboxFixture(t)
 	f.accept(t, "processing")
 	r := f.claim(t)
-	pending := f.accept(t, "pending")
+	pending := f.accept(t, "queued")
 	tx, err := f.pool.Begin(f.ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(f.ctx) }()
 	require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
-	require.NoError(t, dbsqlc.New(tx).LockProjectIntegrationLifecycleExclusive(f.ctx,
-		dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integrationID}))
+	require.NoError(t, dbsqlc.New(tx).LockIntegrationLifecycleExclusive(f.ctx,
+		dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integrationID}))
 	done := make(chan error, 1)
 	go func() {
 		_, _, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
@@ -463,13 +463,13 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 		})
 		done <- err
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectIntegrationLifecycleShared", 1)
-	_, err = tx.Exec(f.ctx, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationLifecycleShared", 1)
+	_, err = tx.Exec(f.ctx, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(f.ctx))
 	require.ErrorIs(t, <-done, storeerr.ErrUnauthorized)
 	err = f.store.WithIntegrationInboxLease(f.ctx, r.Lease(), func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.FreezePlan(f.ctx, json.RawMessage(`{}`))
+		return w.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`))
 	})
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	ready, err := f.store.ListReadyIntegrationInboxIntegrations(f.ctx, integrationstore.IntegrationInboxIntegration{}, 100)
@@ -493,7 +493,7 @@ func TestInboxScopeLifecycleFencesAdmissionAndPurgesDeletedPayloads(t *testing.T
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.Zero(t, n)
-	f.exec(t, `UPDATE project_integrations SET deleted_at=now() WHERE id=$1`, f.integrationID)
+	f.exec(t, `UPDATE integrations SET deleted_at=now() WHERE id=$1`, f.integrationID)
 	n, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
@@ -508,7 +508,7 @@ func TestInboxRejectsDeletedProjectAndOrganization(t *testing.T) {
 		t.Run(scope, func(t *testing.T) {
 			t.Parallel()
 			f := newInboxFixture(t)
-			r := f.accept(t, "pending")
+			r := f.accept(t, "queued")
 			if scope == "project" {
 				f.exec(t, `UPDATE projects SET deleted_at=now() WHERE id=$1`, f.project)
 			} else {
@@ -543,9 +543,9 @@ func TestInboxMultipleHandlesObserveFrozenPlanAndTerminalState(t *testing.T) {
 	require.NoError(t, err)
 	second, err := f.store.LockIntegrationInboxLeaseTx(f.ctx, tx, r.Lease())
 	require.NoError(t, err)
-	plan := json.RawMessage(`{"one":{},"two":{}}`)
+	plan := json.RawMessage(`{"message":{},"recipients":{"one":{},"two":{}}}`)
 	require.NoError(t, first.FreezePlan(f.ctx, plan))
-	require.ErrorIs(t, second.FreezePlan(f.ctx, json.RawMessage(`{"replacement":{}}`)), storeerr.ErrConflict)
+	require.ErrorIs(t, second.FreezePlan(f.ctx, json.RawMessage(`{"message":{},"recipients":{"replacement":{}}}`)), storeerr.ErrConflict)
 	require.NoError(t, second.Complete(f.ctx))
 	require.ErrorIs(t, first.Complete(f.ctx), integrationstore.ErrIntegrationInboxLeaseLost)
 	require.NoError(t, tx.Commit(f.ctx))
@@ -566,13 +566,13 @@ func TestInboxDisableWaitsForAtomicAdmission(t *testing.T) {
 	require.NoError(t, err)
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.store.DisconnectProjectIntegration(f.ctx, integrationstore.DisconnectProjectIntegrationInput{
+		_, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
 			ProjectID: f.project, IntegrationID: f.integrationID,
 		})
 		done <- err
 	}()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectIntegrationLifecycleExclusive", 1)
-	require.NoError(t, w.FreezePlan(f.ctx, json.RawMessage(`{}`)))
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationLifecycleExclusive", 1)
+	require.NoError(t, w.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)))
 	require.NoError(t, w.Complete(f.ctx))
 	require.NoError(t, tx.Commit(f.ctx))
 	require.NoError(t, <-done)
@@ -584,7 +584,7 @@ func TestInboxJSONBNormalizedSizeBoundaryIsExplicitAndAtomic(t *testing.T) {
 	f := newInboxFixture(t)
 	f.accept(t, "json-size")
 	r := f.claim(t)
-	prefix, suffix := `{"slot":{"data":"`, `"}}`
+	prefix, suffix := `{"message":{"data":"`, `"},"recipients":{}}`
 	remaining := integrationstore.IntegrationInboxMaxPlanBytes - len(prefix) - len(suffix)
 	oversized := json.RawMessage(prefix + strings.Repeat("x", remaining) + suffix)
 	require.Len(t, oversized, integrationstore.IntegrationInboxMaxPlanBytes)
@@ -617,10 +617,10 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	f.exec(t, `UPDATE project_integrations SET credential_secret_id=$2 WHERE id=$1`, f.integrationID, credential.ID)
-	integration, err := f.store.GetProjectIntegration(f.ctx, f.project, f.integrationID)
+	f.exec(t, `UPDATE integrations SET credential_secret_id=$2 WHERE id=$1`, f.integrationID, credential.ID)
+	integration, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
 	require.NoError(t, err)
-	input := integrationstore.ConfigureProjectIntegrationInput{
+	input := integrationstore.ConfigureIntegrationInput{
 
 		OrgID:             f.org,
 		ProjectID:         f.project,
@@ -647,19 +647,19 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 	_, err = tx.Exec(f.ctx, `SELECT id FROM secrets WHERE id=$1 FOR UPDATE`, credential.ID)
 	require.NoError(t, err)
 	done := make(chan error, 1)
-	go func() { _, err := f.store.ConfigureProjectIntegration(f.ctx, input); done <- err }()
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockProjectIntegrationLifecycleExclusive", 1)
-	during, err := f.store.GetProjectIntegration(f.ctx, f.project, f.integrationID)
+	go func() { _, err := f.store.ConfigureIntegration(f.ctx, input); done <- err }()
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.pool, "LockIntegrationLifecycleExclusive", 1)
+	during, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectIntegrationStateActive, during.State)
-	require.NoError(t, work.FreezePlan(f.ctx, json.RawMessage(`{}`)))
+	require.Equal(t, integrationstore.IntegrationStateActive, during.State)
+	require.NoError(t, work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)))
 	require.NoError(t, work.Complete(f.ctx))
 	require.NoError(t, tx.Commit(f.ctx))
 	require.NoError(t, <-done)
-	after, err := f.store.GetProjectIntegration(f.ctx, f.project, f.integrationID)
+	after, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
 	require.NoError(t, err)
 	require.Equal(t, f.integrationID, after.ID)
-	require.Equal(t, integrationstore.ProjectIntegrationStateActive, after.State)
+	require.Equal(t, integrationstore.IntegrationStateActive, after.State)
 	require.Equal(t, integration.SetupRevision+1, after.SetupRevision)
 	require.Equal(t, credential.ID, after.CredentialSecretID)
 	require.Equal(t, integrationstore.IntegrationInboxCompleted, f.read(t, receipt.ID).State)
@@ -667,20 +667,20 @@ func TestInboxSetupUpdateWaitsForAtomicAdmission(t *testing.T) {
 
 func TestInboxDiscoveryPagesIntegrationsIndependentlyOfBacklog(t *testing.T) {
 	t.Parallel()
-	f, _, setup := projectIntegrationSetupFixture(t)
+	f, _, setup := integrationSetupFixture(t)
 	var integrations []integrationstore.IntegrationInboxIntegration
 	for i := range 4 {
-		integration, err := f.store.CreateProjectIntegration(f.ctx, integrationstore.SaveProjectIntegrationInput{
+		integration, err := f.store.CreateIntegration(f.ctx, integrationstore.SaveIntegrationInput{
 
 			OrgID:           f.org,
 			ProjectID:       f.project,
 			Name:            fmt.Sprintf("discovery-%d", i),
-			IntegrationType: integrationdefinition.SlackThread,
+			IntegrationKind: integrationdefinition.SlackThread,
 		})
 		require.NoError(t, err)
 		setup.IntegrationID, setup.ExpectedSetupRevision = integration.ID, integration.SetupRevision
 		setup.OAuthFlowID = uuid.Must(uuid.NewV7())
-		_, err = f.store.ConfigureProjectIntegration(f.ctx, setup)
+		_, err = f.store.ConfigureIntegration(f.ctx, setup)
 		require.NoError(t, err)
 		integrations = append(
 			integrations,
@@ -694,10 +694,10 @@ func TestInboxDiscoveryPagesIntegrationsIndependentlyOfBacklog(t *testing.T) {
 	}
 	f.exec(
 		t,
-		`UPDATE integration_inbox SET available_at=now()+interval '1 day' WHERE integration_id=$1`,
+		`UPDATE integration_inbox SET next_attempt_at=now()+interval '1 day' WHERE integration_id=$1`,
 		integrations[0].IntegrationID,
 	)
-	_, err := f.store.DisconnectProjectIntegration(f.ctx, integrationstore.DisconnectProjectIntegrationInput{
+	_, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
 		ProjectID: f.project, IntegrationID: integrations[1].IntegrationID,
 	})
 	require.NoError(t, err)
@@ -734,9 +734,9 @@ func TestInboxDiscoveryPagesIntegrationsIndependentlyOfBacklog(t *testing.T) {
 func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	disabled := f.addIntegration(t, "inactive-backlog", integrationstore.ProjectIntegrationSettings{}).ID
-	f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, disabled)
-	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,available_at)
+	disabled := f.addIntegration(t, "inactive-backlog", integrationstore.IntegrationSettings(`{}`)).ID
+	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, disabled)
+	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,next_attempt_at)
  SELECT $1,$2,'inactive:'||n,'x'::bytea,statement_timestamp()-interval '2 hours'
  FROM generate_series(1,250) n`, f.project, disabled)
 	f.exec(t, `INSERT INTO integration_inbox
@@ -751,7 +751,7 @@ func TestInboxRecoveryMakesProgressThroughMixedBacklogs(t *testing.T) {
 	require.EqualValues(t, 200, count, "both backlogs get an independent allowance")
 	var expiredLeft, inactiveLeft int
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FILTER (WHERE state='processing'),
- count(*) FILTER (WHERE integration_id=$1 AND state='pending') FROM integration_inbox`, disabled).
+ count(*) FILTER (WHERE integration_id=$1 AND state='queued') FROM integration_inbox`, disabled).
 		Scan(&expiredLeft, &inactiveLeft))
 	require.Equal(t, 50, expiredLeft, "inactive backlog cannot starve expired leases")
 	require.Equal(t, 150, inactiveLeft, "expired backlog cannot starve the inactive frontier")
@@ -776,20 +776,20 @@ func TestInboxOldestReadyLagUsesAvailabilityAndDistinguishesFailure(t *testing.T
 	t.Parallel()
 	f := newInboxFixture(t)
 	f.exec(t, `INSERT INTO integration_inbox
- (project_id,integration_id,receipt_key,payload,created_at,available_at,state,completed_at)
- VALUES ($1,$2,'future','x'::bytea,now()-interval '3 days',now()+interval '1 hour','pending',NULL),
+ (project_id,integration_id,receipt_key,payload,created_at,next_attempt_at,state,completed_at)
+ VALUES ($1,$2,'future','x'::bytea,now()-interval '3 days',now()+interval '1 hour','queued',NULL),
         ($1,$2,'history','x'::bytea,now()-interval '4 days',now()-interval '4 days','completed',now())`,
 		f.project, f.integrationID)
 	lag, err := f.store.OldestReadyIntegrationInboxLag(f.ctx)
 	require.NoError(t, err)
 	require.Zero(t, lag, "future retries and terminal history are not ready work")
-	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,created_at,available_at)
+	f.exec(t, `INSERT INTO integration_inbox(project_id,integration_id,receipt_key,payload,created_at,next_attempt_at)
  VALUES ($1,$2,'ready','x'::bytea,now()-interval '2 days',now()-interval '90 seconds')`, f.project, f.integrationID)
-	f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
 	lag, err = f.store.OldestReadyIntegrationInboxLag(f.ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, lag, 90*time.Second, "inactive ready receipts remain visible until recovery")
-	require.Less(t, lag, 2*time.Minute, "lag measures available_at, not original receipt age")
+	require.Less(t, lag, 2*time.Minute, "lag measures next_attempt_at, not original receipt age")
 	ctx, cancel := context.WithCancel(f.ctx)
 	cancel()
 	_, err = f.store.OldestReadyIntegrationInboxLag(ctx)

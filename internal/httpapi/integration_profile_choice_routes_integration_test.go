@@ -26,6 +26,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ type profileChoiceHTTPFixture struct {
 	handler       http.Handler
 	project       publicHTTPProject
 	pool          *pgxpool.Pool
-	integration   integrationstore.ProjectIntegrationRecord
+	integration   integrationstore.IntegrationRecord
 	options       []integrationstore.IntegrationProfileChoiceOption
 	key           ed25519.PrivateKey
 	updates       chan map[string]any
@@ -72,17 +73,17 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 	material := secrets.Material(secrets.GenericMaterial{Value: "test-bot-token"})
-	tenant, account, scopeKind, scopeRef := "100", "200", "", ""
+	tenant, account := "100", "200"
 	config := json.RawMessage(
-		projectIntegrationHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}),
+		integrationHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}),
 	)
 	identity := json.RawMessage(`{}`)
-	integrationType := integrationdefinition.DiscordThread
+	integrationKind := integrationdefinition.DiscordThread
 	if provider == integrationdefinition.ProviderSlack {
-		integrationType = integrationdefinition.SlackThread
+		integrationKind = integrationdefinition.SlackThread
 		material = secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-test", ClientID: "client",
 			ClientSecret: "client-secret", SigningSecret: "signing-secret"}
-		tenant, account, scopeKind, scopeRef = "T123", "A123", "workspace", "T123"
+		tenant, account = "T123", "A123"
 		config, identity = json.RawMessage(`{}`), json.RawMessage(`{"bot_user_id":"U_BOT"}`)
 	}
 	secret, _, err := project.Store.Secrets().CreateSecret(t.Context(), secretstore.CreateSecretInput{
@@ -90,16 +91,16 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 		Name: "bot", Material: material, Actor: httpUserPrincipal(project.AdminUserUUID),
 	})
 	require.NoError(t, err)
-	integration, err := project.Store.Integrations().CreateProjectIntegration(
+	integration, err := project.Store.Integrations().CreateIntegration(
 		t.Context(),
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationType: integrationType,
+		integrationstore.SaveIntegrationInput{
+			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationKind: integrationKind,
 		},
 	)
 	require.NoError(t, err)
-	integration, err = project.Store.Integrations().ConfigureProjectIntegration(
+	integration, err = project.Store.Integrations().ConfigureIntegration(
 		t.Context(),
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                 project.OrgUUID,
 			ProjectID:             project.ProjectUUID,
 			IntegrationID:         integration.ID,
@@ -123,32 +124,25 @@ func newProfileChoiceHTTPFixture(t *testing.T, provider string) profileChoiceHTT
 	f := profileChoiceHTTPFixture{
 		handler: handler, project: project, pool: pool, integration: integration, key: privateKey, updates: updates,
 	}
-	var slots []integrationstore.IntegrationLaunchSlot
+	var profiles []uuid.UUID
 	for _, name := range []string{"Support", "Reviewer"} {
 		profile, err := project.Store.Execution().CreateAgentProfile(t.Context(), executionstore.CreateAgentProfileInput{
 			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: name, CurrentConfigID: configID,
 		})
 		require.NoError(t, err)
-		key := strings.ToLower(name)
-		slots = append(slots, integrationstore.IntegrationLaunchSlot{Key: key, AgentProfileID: &profile.ID})
+		key := testPublicID(t, publicid.KindAgentProfile, profile.ID)
+		profiles = append(profiles, profile.ID)
 		f.options = append(
 			f.options,
 			integrationstore.IntegrationProfileChoiceOption{Key: key, ProfileID: profile.ID, Name: name},
 		)
 	}
-	f.integration, err = project.Store.Integrations().UpdateProjectIntegration(
+	f.integration, err = project.Store.Integrations().UpdateIntegration(
 		t.Context(),
 		integration.ID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationType: integrationType,
-			Settings: integrationstore.ProjectIntegrationSettings{
-				Launcher: &integrationstore.IntegrationLauncher{
-					Trigger:   "mention",
-					ScopeKind: scopeKind,
-					ScopeRef:  scopeRef,
-					Slots:     slots,
-				},
-			},
+		integrationstore.SaveIntegrationInput{
+			OrgID: project.OrgUUID, ProjectID: project.ProjectUUID, Name: "support", IntegrationKind: integrationKind,
+			Settings: integrationtest.ChatSettings("", profiles...),
 		},
 	)
 	require.NoError(t, err)
@@ -171,11 +165,12 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 		}
 		scope = integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: channel, ThreadTS: thread}}
 	}
+	actor, err := executionstore.IntegrationActorParams(f.integration, originalActor, nil)
+	require.NoError(t, err)
 	source := integrationruntime.IntegrationEvent{
 		Event:       integrationdefinition.Event{Kind: "message", Mentioned: true, Scope: scope},
 		SemanticKey: "source:" + message, ContentBlocks: json.RawMessage(`[{"type":"text","text":"original request"}]`),
-		Actor: executionstore.ActorParams{Provider: executionstore.ActorProviderIntegration,
-			ProviderTenantID: testPublicID(t, publicid.KindProjectIntegration, f.integration.ID), ProviderUserID: originalActor},
+		Actor:        actor,
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
 	}
 	kind, ref, err := scope.Conversation()
@@ -187,7 +182,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.Nil(t, accepted.Events)
+	require.Equal(t, uuid.Nil, accepted.StateID)
 	claimed, found, err := store.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
 		LeaseDuration: integrationstore.IntegrationInboxMaxLease,
@@ -198,7 +193,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	choice, created, err := store.EnsureIntegrationProfileChoice(t.Context(), claimed.Lease(),
 		integrationstore.EnsureIntegrationProfileChoiceInput{
 			IntegrationID: f.integration.ID, Address: integrationstore.ConversationAddress{Kind: kind, Ref: ref},
-			SourceKey: source.SemanticKey, Event: json.RawMessage(projectIntegrationHTTPJSON(t, source)),
+			SourceKey: source.SemanticKey, Event: json.RawMessage(integrationHTTPJSON(t, source)),
 			Payload: payload, Options: f.options,
 		})
 	require.NoError(t, err)
@@ -245,6 +240,12 @@ func (f profileChoiceHTTPFixture) callback(
 	badSignature bool, change func(map[string]any),
 ) *httptest.ResponseRecorder {
 	t.Helper()
+	for _, option := range f.options {
+		if strings.EqualFold(option.Name, key) {
+			key = option.Key
+			break
+		}
+	}
 	id := testPublicID(t, publicid.KindIntegrationProfileChoice, choiceID)
 	path := "/api/integrations/discord/" +
 		f.integration.ProviderTenantID + "/interactions"
@@ -270,7 +271,7 @@ func (f profileChoiceHTTPFixture) callback(
 	if change != nil {
 		change(payload)
 	}
-	body := projectIntegrationHTTPJSON(t, payload)
+	body := integrationHTTPJSON(t, payload)
 	timestamp := fmt.Sprint(time.Now().Unix())
 	headers := map[string]string{"Content-Type": "application/json", "X-Signature-Timestamp": timestamp,
 		"X-Signature-Ed25519": hex.EncodeToString(ed25519.Sign(f.key, []byte(timestamp+body)))}
@@ -332,7 +333,7 @@ func TestIntegrationProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *test
 			response := f.callback(t, menu, menu.ID, "reviewer", actor, false, nil)
 			f.assertAccepted(t, response, menu)
 			chosen := f.readChoice(t, menu.ID)
-			require.Equal(t, "reviewer", chosen.SelectedKey)
+			require.Equal(t, f.options[1].Key, chosen.SelectedKey)
 			require.Equal(t, actor, chosen.SelectedBy, "a participant other than the original requester can choose")
 			f.assertReceiptCount(t, menu.ID, 1)
 			var receiptID uuid.UUID
@@ -341,20 +342,13 @@ func TestIntegrationProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *test
 				f.project.ProjectUUID, f.integration.ID, "choice:"+menu.ID.String()).Scan(&receiptID))
 			receipt, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.project.ProjectUUID, receiptID)
 			require.NoError(t, err)
-			require.Equal(t, integrationstore.IntegrationInboxPending, receipt.State)
+			require.Equal(t, integrationstore.IntegrationInboxQueued, receipt.State)
 			require.Nil(t, receipt.Plan, "the callback does not plan or admit a launch")
-			require.Equal(t, menu.Payload, receipt.Payload)
-			var expected integrationruntime.IntegrationEvent
-			require.NoError(t, json.Unmarshal(menu.Event, &expected))
-			expected.Directed = true
-			expected.Launches = []integrationruntime.IntegrationLaunchIntent{{
-				IntegrationID: f.integration.ID, Slot: "reviewer", ProfileID: f.options[1].ProfileID,
-			}}
-			require.JSONEq(
-				t,
-				projectIntegrationHTTPJSON(t, []integrationruntime.IntegrationEvent{expected}),
-				string(receipt.Events),
-			)
+			require.Nil(t, receipt.Payload, "receipt must not duplicate the saved provider source")
+			require.Equal(t, integrationstore.IntegrationInboxSourceChoice, receipt.Source)
+			require.Equal(t, menu.Payload, chosen.Payload)
+			require.Equal(t, menu.ID, receipt.StateID, "the receipt references the immutable source choice")
+			require.Equal(t, menu.Event, chosen.Event)
 			for _, replay := range []struct{ key, actor string }{{"reviewer", actor}, {"support", actor + "2"}} {
 				f.assertAccepted(t, f.callback(t, menu, menu.ID, replay.key, replay.actor, false, nil), menu)
 				replayed := f.readChoice(t, menu.ID)
@@ -445,12 +439,11 @@ func TestIntegrationProfileChoiceDiscordRetiresUnavailableMenu(t *testing.T) {
 			f := newProfileChoiceHTTPFixture(t, integrationdefinition.ProviderDiscord)
 			menu := f.menu(t, false)
 			if staleProfile {
-				settings := f.integration.Settings
-				settings.Launcher.Slots = settings.Launcher.Slots[:1]
-				_, err := f.project.Store.Integrations().UpdateProjectIntegration(t.Context(), f.integration.ID,
-					integrationstore.SaveProjectIntegrationInput{
+				settings := integrationtest.ChatSettings("", f.options[0].ProfileID)
+				_, err := f.project.Store.Integrations().UpdateIntegration(t.Context(), f.integration.ID,
+					integrationstore.SaveIntegrationInput{
 						OrgID: f.project.OrgUUID, ProjectID: f.project.ProjectUUID,
-						Name: f.integration.Name, IntegrationType: f.integration.IntegrationType, Settings: settings,
+						Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind, Settings: settings,
 					})
 				require.NoError(t, err)
 			} else {
@@ -477,12 +470,12 @@ func TestIntegrationProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *test
 			t.Parallel()
 			f := newProfileChoiceHTTPFixture(t, provider)
 			menu := f.menu(t, false)
-			other := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
+			other := integrationHTTPSecondProject(t, f.handler, f.project)
 			publicKey, privateKey, err := ed25519.GenerateKey(nil)
 			require.NoError(t, err)
 			material := secrets.Material(secrets.GenericMaterial{Value: "other-token"})
 			config := json.RawMessage(
-				projectIntegrationHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}),
+				integrationHTTPJSON(t, map[string]string{"public_key": hex.EncodeToString(publicKey)}),
 			)
 			if provider == integrationdefinition.ProviderSlack {
 				material = secrets.SlackAppCredentialsMaterial{AccessToken: "xoxb-other", ClientID: "client",
@@ -494,16 +487,16 @@ func TestIntegrationProfileChoiceSharedBotAuthenticatesCapturedOwnerOnly(t *test
 				Name: "other-bot", Material: material, Actor: httpUserPrincipal(other.AdminUserUUID),
 			})
 			require.NoError(t, err)
-			integration, err := f.project.Store.Integrations().CreateProjectIntegration(
-				t.Context(), integrationstore.SaveProjectIntegrationInput{
+			integration, err := f.project.Store.Integrations().CreateIntegration(
+				t.Context(), integrationstore.SaveIntegrationInput{
 					OrgID: other.OrgUUID, ProjectID: other.ProjectUUID,
-					Name: "sibling", IntegrationType: f.integration.IntegrationType,
+					Name: "sibling", IntegrationKind: f.integration.IntegrationKind,
 				},
 			)
 			require.NoError(t, err)
-			integration, err = f.project.Store.Integrations().ConfigureProjectIntegration(
+			integration, err = f.project.Store.Integrations().ConfigureIntegration(
 				t.Context(),
-				integrationstore.ConfigureProjectIntegrationInput{
+				integrationstore.ConfigureIntegrationInput{
 					OrgID:                 other.OrgUUID,
 					ProjectID:             other.ProjectUUID,
 					IntegrationID:         integration.ID,
@@ -542,14 +535,11 @@ func TestIntegrationProfileChoiceMetadataEditPreservesCallbackAuthority(t *testi
 			t.Parallel()
 			f := newProfileChoiceHTTPFixture(t, provider)
 			menu := f.menu(t, false)
-			settings := f.integration.Settings
-			launcher := *settings.Launcher
-			launcher.Slots = []integrationstore.IntegrationLaunchSlot{launcher.Slots[1], launcher.Slots[0]}
-			settings.Launcher = &launcher
+			settings := integrationtest.ChatSettings("", f.options[1].ProfileID, f.options[0].ProfileID)
 			updated, err := f.project.Store.Integrations().
-				UpdateProjectIntegration(t.Context(), f.integration.ID, integrationstore.SaveProjectIntegrationInput{
+				UpdateIntegration(t.Context(), f.integration.ID, integrationstore.SaveIntegrationInput{
 					OrgID: f.integration.OrgID, ProjectID: f.integration.ProjectID, Name: f.integration.Name,
-					IntegrationType: f.integration.IntegrationType, Settings: settings,
+					IntegrationKind: f.integration.IntegrationKind, Settings: settings,
 				})
 			require.NoError(t, err)
 			require.Equal(t, f.integration.SetupRevision, updated.SetupRevision)
@@ -570,7 +560,7 @@ func TestIntegrationProfileChoiceRejectsSetupChangedAfterAuthentication(t *testi
 	)
 	require.NoError(t, err)
 	updated, err := f.project.Store.Integrations().
-		ConfigureProjectIntegration(t.Context(), integrationstore.ConfigureProjectIntegrationInput{
+		ConfigureIntegration(t.Context(), integrationstore.ConfigureIntegrationInput{
 			OrgID:                 f.integration.OrgID,
 			ProjectID:             f.integration.ProjectID,
 			IntegrationID:         f.integration.ID,

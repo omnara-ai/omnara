@@ -67,19 +67,27 @@ func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 	selection := InboxIntegrationSelection{
 		IntegrationID: integrationID, Address: ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, Slot: "default",
 	}
-	plan, err := json.Marshal(map[string]any{"one": map[string]any{"selection": selection}})
+	plan, err := json.Marshal(map[string]any{
+		"message": map[string]any{}, "recipients": map[string]any{"one": map[string]any{"selection": selection}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := inboxSelectionIdentities(plan, integrationID); err != nil {
+	identities, err := inboxSelectionIdentities(plan, integrationID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(identities) != 1 || !identities[integrationSelectionIdentity{
+		IntegrationID: integrationID, Address: selection.Address,
+	}][selection.Slot] {
+		t.Fatalf("frozen recipient selection missing: %v", identities)
 	}
 	if _, err := inboxSelectionIdentities(plan, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("another integration's selection accepted: %v", err)
 	}
-	duplicate, err := json.Marshal(map[string]any{
+	duplicate, err := json.Marshal(map[string]any{"message": map[string]any{}, "recipients": map[string]any{
 		"one": map[string]any{"selection": selection}, "two": map[string]any{"selection": selection},
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +104,7 @@ func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
 
 func TestIntegrationRuntimeRequiresPositiveSetupRevision(t *testing.T) {
 	valid := IntegrationRuntimeRevision{
-		ProjectID: uuid.New(), IntegrationID: uuid.New(), Key: "shard/0", SetupRevision: 1, CredentialVersionID: uuid.New(),
+		ProjectID: uuid.New(), IntegrationID: uuid.New(), SetupRevision: 1, CredentialVersionID: uuid.New(),
 	}
 	if err := valid.validate(); err != nil {
 		t.Fatal(err)
@@ -111,13 +119,17 @@ func TestIntegrationRuntimeRequiresPositiveSetupRevision(t *testing.T) {
 }
 
 func TestInboxPlanShapeAndBounds(t *testing.T) {
-	for _, raw := range []string{`{}`, `{"one":{"agent_id":"pinned"},"two":{"config_id":"pinned"}}`} {
+	for _, raw := range []string{
+		`{"recipients":{}}`, `{"message":{},"recipients":{"one":{"agent_id":"pinned"},"two":{"config_id":"pinned"}}}`,
+	} {
 		if _, err := inboxSlots(json.RawMessage(raw)); err != nil {
 			t.Fatalf("valid plan %s: %v", raw, err)
 		}
 	}
 	for _, raw := range []string{
 		"", `null`, `[]`, `{"one":null}`, `{"one":[]}`, `{" ":{}}`, `{} {}`,
+		`{"one":{"selection":{"slot":"scheduled"}}}`,
+		`{"recipients":{"one":{}}}`, `{"message":{},"recipients":{"one":null}}`,
 		`{"one":{"data":"` + strings.Repeat("x", IntegrationInboxMaxPlanBytes) + `"}}`,
 	} {
 		if _, err := inboxSlots(json.RawMessage(raw)); !errors.Is(err, storeerr.ErrInvalidRequest) {

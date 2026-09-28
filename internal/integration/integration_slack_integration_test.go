@@ -75,12 +75,12 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(
 		ctx,
-		`UPDATE project_integrations SET credential_secret_id=$2,provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`,
+		`UPDATE integrations SET credential_secret_id=$2,provider_identity='{"bot_user_id":"UBOT"}' WHERE id=$1`,
 		integrationID,
 		credential.ID,
 	)
 	require.NoError(t, err)
-	integrationSetup, err := store.Integrations().GetProjectIntegration(ctx, ids.ProjectID, integrationID)
+	integrationSetup, err := store.Integrations().GetIntegration(ctx, ids.ProjectID, integrationID)
 	require.NoError(t, err)
 	_, err = store.Secrets().GetProjectOwnedSecretPayload(ctx, ids.OrgID, ids.ProjectID, credential.ID)
 	require.Error(t, err, "this fixture must require the grant-aware read")
@@ -107,7 +107,7 @@ func TestSlackInboxUsesGrantedCredentialsAndStopsAfterRevocation(t *testing.T) {
 	)
 	expanded, err := provider.Expand(ctx, integrationSetup, payload)
 	require.NoError(t, err)
-	require.Len(t, expanded.Events, 1)
+	require.NotNil(t, expanded.Event)
 	before := requests.Load()
 	require.Positive(t, before)
 	_, err = store.Secrets().

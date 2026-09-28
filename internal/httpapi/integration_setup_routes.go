@@ -18,90 +18,90 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (s strictOpenAPIServer) ConfigureProjectIntegration(
+func (s strictOpenAPIServer) ConfigureIntegration(
 	ctx context.Context,
-	request openapi.ConfigureProjectIntegrationRequestObject,
-) (openapi.ConfigureProjectIntegrationResponseObject, error) {
+	request openapi.ConfigureIntegrationRequestObject,
+) (openapi.ConfigureIntegrationResponseObject, error) {
 	scope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	current, err := s.projectIntegrationForSetup(ctx, scope, request.IntegrationID)
+	current, err := s.integrationForSetup(ctx, scope, request.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
-	input, err := s.projectIntegrationSetupInput(ctx, scope, request.Body, &current)
+	input, err := s.integrationSetupInput(ctx, scope, request.Body, &current)
 	if err != nil {
 		return nil, integrationSetupInputError(err)
 	}
-	record, err := s.server.store.Integrations().ConfigureProjectIntegration(ctx, input)
+	record, err := s.server.store.Integrations().ConfigureIntegration(ctx, input)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := projectIntegrationResponse(record)
+	response, err := integrationResponse(record)
 	if err != nil {
 		return nil, err
 	}
-	return openapi.ConfigureProjectIntegration200JSONResponse(response), nil
+	return openapi.ConfigureIntegration200JSONResponse(response), nil
 }
 
-func (s strictOpenAPIServer) DisconnectProjectIntegration(
+func (s strictOpenAPIServer) DisconnectIntegration(
 	ctx context.Context,
-	request openapi.DisconnectProjectIntegrationRequestObject,
-) (openapi.DisconnectProjectIntegrationResponseObject, error) {
+	request openapi.DisconnectIntegrationRequestObject,
+) (openapi.DisconnectIntegrationResponseObject, error) {
 	scope, err := projectScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	current, err := s.projectIntegrationForSetup(ctx, scope, request.IntegrationID)
+	current, err := s.integrationForSetup(ctx, scope, request.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
 	_, err = s.server.store.Integrations().
-		DisconnectProjectIntegration(
+		DisconnectIntegration(
 			ctx,
-			integrationstore.DisconnectProjectIntegrationInput{ProjectID: scope.project.ID, IntegrationID: current.ID},
+			integrationstore.DisconnectIntegrationInput{ProjectID: scope.project.ID, IntegrationID: current.ID},
 		)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	current, err = s.server.store.Integrations().GetProjectIntegration(ctx, scope.project.ID, current.ID)
+	current, err = s.server.store.Integrations().GetIntegration(ctx, scope.project.ID, current.ID)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
-	response, err := projectIntegrationResponse(current)
+	response, err := integrationResponse(current)
 	if err != nil {
 		return nil, err
 	}
-	return openapi.DisconnectProjectIntegration200JSONResponse(response), nil
+	return openapi.DisconnectIntegration200JSONResponse(response), nil
 }
 
-func (s strictOpenAPIServer) projectIntegrationForSetup(
+func (s strictOpenAPIServer) integrationForSetup(
 	ctx context.Context,
 	scope projectScopeRecord,
 	ref string,
-) (integrationstore.ProjectIntegrationRecord, error) {
-	id, ok := parseOpenAPIPublicID(publicid.KindProjectIntegration, ref)
+) (integrationstore.IntegrationRecord, error) {
+	id, ok := parseOpenAPIPublicID(publicid.KindIntegration, ref)
 	if !ok {
-		return integrationstore.ProjectIntegrationRecord{}, apierror.FromCode(
+		return integrationstore.IntegrationRecord{}, apierror.FromCode(
 			openapi.ErrorCodeInvalidRequest,
 			"invalid integration id",
 		)
 	}
-	integration, err := s.server.store.Integrations().GetProjectIntegration(ctx, scope.project.ID, id)
+	integration, err := s.server.store.Integrations().GetIntegration(ctx, scope.project.ID, id)
 	if err != nil {
-		return integrationstore.ProjectIntegrationRecord{}, apierror.ProjectScoped(err)
+		return integrationstore.IntegrationRecord{}, apierror.ProjectScoped(err)
 	}
 	return integration, nil
 }
 
-func (s strictOpenAPIServer) projectIntegrationSetupInput(
+func (s strictOpenAPIServer) integrationSetupInput(
 	ctx context.Context,
 	scope projectScopeRecord,
-	body *openapi.ConfigureProjectIntegrationRequest,
-	current *integrationstore.ProjectIntegrationRecord,
-) (integrationstore.ConfigureProjectIntegrationInput, error) {
-	var input integrationstore.ConfigureProjectIntegrationInput
+	body *openapi.ConfigureIntegrationRequest,
+	current *integrationstore.IntegrationRecord,
+) (integrationstore.ConfigureIntegrationInput, error) {
+	var input integrationstore.ConfigureIntegrationInput
 	if body == nil {
 		return input, storeerr.InvalidRequest(errors.New("request body is required"))
 	}
@@ -109,7 +109,7 @@ func (s strictOpenAPIServer) projectIntegrationSetupInput(
 	if err != nil {
 		return input, *err
 	}
-	input = integrationstore.ConfigureProjectIntegrationInput{
+	input = integrationstore.ConfigureIntegrationInput{
 		OrgID:                    scope.project.OrgID,
 		ProjectID:                scope.project.ID,
 		InstalledByUserID:        principal.ID,
@@ -124,7 +124,7 @@ func (s strictOpenAPIServer) projectIntegrationSetupInput(
 		ProviderConfig:           current.ProviderConfig,
 	}
 	if input.ExpectedSetupRevision != current.SetupRevision {
-		return input, integrationstore.ErrProjectIntegrationSetupChanged
+		return input, integrationstore.ErrIntegrationSetupChanged
 	}
 	if current.Provider == integrationstore.IntegrationProviderSlack {
 		return input, storeerr.InvalidRequest(
@@ -138,7 +138,7 @@ func (s strictOpenAPIServer) projectIntegrationSetupInput(
 		}
 		input.ProviderConfig = config
 	}
-	kind, kindErr := integrationstore.ProjectIntegrationCredentialKind(input.Provider)
+	kind, kindErr := integrationstore.IntegrationCredentialKind(input.Provider)
 	if kindErr != nil {
 		return input, storeerr.InvalidRequest(kindErr)
 	}

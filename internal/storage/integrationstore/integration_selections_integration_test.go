@@ -4,6 +4,7 @@ package integrationstore_test
 
 import (
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"sync"
 	"testing"
 
@@ -23,25 +24,15 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 		t,
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1 LIMIT 1`, f.project).Scan(&profileID),
 	)
-	f.exec(t, `UPDATE project_integrations SET provider_tenant_id='T123' WHERE id=$1`, f.integrationID)
-	setup := integrationstore.SaveProjectIntegrationInput{
+	f.exec(t, `UPDATE integrations SET provider_tenant_id='T123' WHERE id=$1`, f.integrationID)
+	setup := integrationstore.SaveIntegrationInput{
 		OrgID:           f.org,
 		ProjectID:       f.project,
 		Name:            "inbox-integration",
-		IntegrationType: integrationdefinition.SlackThread,
-		Settings: integrationstore.ProjectIntegrationSettings{
-			Launcher: &integrationstore.IntegrationLauncher{
-				Trigger:   "mention",
-				ScopeKind: "workspace",
-				ScopeRef:  "T123",
-				Slots: []integrationstore.IntegrationLaunchSlot{
-					{Key: "a", AgentProfileID: &profileID},
-					{Key: "b", AgentProfileID: &profileID},
-				},
-			},
-		},
+		IntegrationKind: integrationdefinition.SlackThread,
+		Settings:        integrationtest.ChatSettings("", profileID),
 	}
-	integration, err := store.UpdateProjectIntegration(f.ctx, f.integrationID, setup)
+	integration, err := store.UpdateIntegration(f.ctx, f.integrationID, setup)
 	require.NoError(t, err)
 	plan := func(keys ...string) json.RawMessage {
 		t.Helper()
@@ -53,7 +44,7 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 				"selection": integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID,
 					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"}, Slot: key}}
 		}
-		raw, err := json.Marshal(slots)
+		raw, err := json.Marshal(map[string]any{"message": map[string]any{}, "recipients": slots})
 		require.NoError(t, err)
 		return raw
 	}
@@ -92,8 +83,8 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 	require.NotEqual(t, -1, winner)
 	require.JSONEq(t, string(plans[winner]), string(f.read(t, receipts[winner].ID).Plan))
 	require.Empty(t, f.read(t, receipts[1-winner].ID).Plan)
-	setup.Settings.Launcher.Slots[1].Key = "c"
-	_, err = store.UpdateProjectIntegration(f.ctx, integration.ID, setup)
+	setup.Settings = integrationtest.ChatSettings("C456", uuid.New())
+	_, err = store.UpdateIntegration(f.ctx, integration.ID, setup)
 	require.NoError(t, err)
 	blockedPlan := plan("c")
 	err = store.WithIntegrationInboxLease(

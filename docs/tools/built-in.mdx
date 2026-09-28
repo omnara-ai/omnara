@@ -253,8 +253,11 @@ independently of pagination. No eligible handlers means an empty list.
 `set_interaction_handler` takes a `handler` key and `args` matching its schema.
 An integration may infer the destination from its agent state; in that case its
 schema accepts empty arguments. Use `{"handler":null,"args":{}}` for dashboard only.
-The choice persists for future questions and approvals; existing prompts keep their
-captured destination. A new provider input can select its eligible handler automatically.
+Pass `auto_select: false` to pin the choice, or `true` to enable automatic selection;
+omitting it preserves the current mode. In automatic mode, the last new message admitted
+to a turn selects its eligible handler, or clears the choice if none applies. Dashboard
+and API messages therefore select dashboard-only delivery. Existing prompts keep their
+captured destination. Both tools report the current automatic-selection mode.
 
 ## Subagents
 

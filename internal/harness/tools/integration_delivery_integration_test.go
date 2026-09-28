@@ -48,7 +48,7 @@ type integrationToolFixture struct {
 	Lock               executionstore.AgentRuntimeLockRecord
 	ModelCallContextID uuid.UUID
 	ModelOutputEventID uuid.UUID
-	Install            integrationstore.ProjectIntegrationRecord
+	Install            integrationstore.IntegrationRecord
 	Target             integrationstore.IntegrationTargetRecord
 	Now                time.Time
 	WithMCP            bool
@@ -172,9 +172,9 @@ func TestIntegrationQuestionPromptDisabledTargetFallsBackToOmnara(t *testing.T) 
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "question-disabled-target")
 	prepareInteractionPromptFixture(t, ctx, fixture)
-	if _, err := fixture.Store.Integrations().DisconnectProjectIntegration(
+	if _, err := fixture.Store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID:             toolsTestProjectID,
 			IntegrationID:         fixture.Install.ID,
 			ExpectedSetupRevision: &fixture.Install.SetupRevision,
@@ -646,9 +646,9 @@ func TestIntegrationPermissionPromptDisabledTargetFallsBackToOmnara(t *testing.T
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "permission-disabled-target")
 	prepareInteractionPromptFixture(t, ctx, fixture)
-	if _, err := fixture.Store.Integrations().DisconnectProjectIntegration(
+	if _, err := fixture.Store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID:             toolsTestProjectID,
 			IntegrationID:         fixture.Install.ID,
 			ExpectedSetupRevision: &fixture.Install.SetupRevision,
@@ -866,7 +866,7 @@ WHERE id = $1`,
 func newIntegrationToolFixture(t *testing.T, ctx context.Context, label string) integrationToolFixture {
 	f := newIntegrationToolFixtureWithMCP(t, ctx, label, false)
 	f.Target = seedToolContext(t, ctx, f.Pool, f.Store, f.Agent, f.Install,
-		integrationstore.ConversationAddress{Kind: f.Target.ProviderRefKind, Ref: f.Target.ProviderRef})
+		integrationstore.ConversationAddress{Kind: f.Target.ScopeKind, Ref: f.Target.ScopeRef})
 	return f
 }
 
@@ -947,7 +947,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	}
 	ensureIntegrationToolsProjectAdmin(t, ctx, store, user.ID, now)
 
-	var install integrationstore.ProjectIntegrationRecord
+	var install integrationstore.IntegrationRecord
 	if fixtureOptions.withDiscordIntegration {
 		install = createDiscordToolIntegration(t, ctx, store, user.ID)
 	} else if fixtureOptions.withGitHubIntegration {
@@ -960,7 +960,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if fixtureOptions.withDiscordIntegration {
 		address = integrationstore.ConversationAddress{Kind: "channel", Ref: "444"}
 		if fixtureOptions.withToolContext {
-			address = integrationstore.ConversationAddress{Kind: "thread", Ref: "444:555"}
+			address = integrationstore.ConversationAddress{Kind: "thread", Ref: "555"}
 		}
 	} else if fixtureOptions.withGitHubIntegration {
 		address = integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#7"}
@@ -969,7 +969,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 		address = fixtureOptions.toolContextAddress
 	}
 	origin := &executionstore.LaunchInputOrigin{IntegrationID: install.ID, Address: address}
-	integrationActor, err := executionstore.IntegrationActorParams(install.ID, "U_FIXTURE", nil)
+	integrationActor, err := executionstore.IntegrationActorParams(install, "U_FIXTURE", nil)
 	require.NoError(t, err)
 	actor := &integrationActor
 	if fixtureOptions.withToolContext {
@@ -1034,7 +1034,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	require.NoError(t, json.Unmarshal(launch.AgentConfig.CompiledDefinition, &compiled))
 	integrationID := install.ID
 	prepared, err := agentconfig.PrepareIntegrationTools(compiled, map[uuid.UUID]agentconfig.IntegrationResolution{
-		integrationID: {IntegrationID: integrationID, IntegrationType: install.IntegrationType},
+		integrationID: {IntegrationID: integrationID, IntegrationKind: install.IntegrationKind},
 	})
 	require.NoError(t, err)
 	integrationTools := map[string]ToolSpec{}
@@ -1063,7 +1063,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 
 func seedToolContext(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool, store *storage.Store,
-	agent executionstore.AgentRecord, integration integrationstore.ProjectIntegrationRecord,
+	agent executionstore.AgentRecord, integration integrationstore.IntegrationRecord,
 	address integrationstore.ConversationAddress,
 ) integrationstore.IntegrationTargetRecord {
 	t.Helper()
@@ -1274,7 +1274,7 @@ tools:
 		if permission == "" {
 			permission = toolpermission.ModeAlwaysAllow
 		}
-		for _, operation := range []string{"read", "discussion_comment", "inline_comment", "reply"} {
+		for _, operation := range []string{"read", "discussion_comment", "review_comment", "reply"} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
 	}
@@ -1408,19 +1408,19 @@ func resolveToolsIntegrationName(
 	store *storage.Store,
 	name string,
 ) (agentconfig.IntegrationResolution, error) {
-	result, err := store.Integrations().ListProjectIntegrations(ctx, integrationstore.ListProjectIntegrationsInput{
+	result, err := store.Integrations().ListIntegrations(ctx, integrationstore.ListIntegrationsInput{
 		ProjectID: toolsTestProjectID, NamePattern: name, Limit: 100,
 	})
 	if err != nil {
 		return agentconfig.IntegrationResolution{}, err
 	}
 	for _, integration := range result.Integrations {
-		if integration.Name != name || integration.State != integrationstore.ProjectIntegrationStateActive {
+		if integration.Name != name || integration.State != integrationstore.IntegrationStateActive {
 			continue
 		}
 		return agentconfig.IntegrationResolution{
 			IntegrationID:   integration.ID,
-			IntegrationType: integration.IntegrationType,
+			IntegrationKind: integration.IntegrationKind,
 		}, nil
 	}
 	return agentconfig.IntegrationResolution{}, storeerr.ErrNotFound
@@ -1428,7 +1428,7 @@ func resolveToolsIntegrationName(
 
 func createSlackToolIntegration(
 	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID, name, label string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	secret, version, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
 		OrgID:          toolsTestOrgID,
@@ -1444,13 +1444,13 @@ func createSlackToolIntegration(
 		},
 	})
 	require.NoError(t, err)
-	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: name, IntegrationType: integrationdefinition.SlackThread,
+	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: name, IntegrationKind: integrationdefinition.SlackThread,
 	})
 	require.NoError(t, err)
-	integration, err = store.Integrations().ConfigureProjectIntegration(
+	integration, err = store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID:                 toolsTestOrgID,
 			ProjectID:             toolsTestProjectID,
 			IntegrationID:         integration.ID,

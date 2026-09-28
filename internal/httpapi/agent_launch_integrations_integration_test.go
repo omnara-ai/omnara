@@ -39,7 +39,7 @@ func newIntegrationLaunchHTTPFixture(t *testing.T, seed string) integrationLaunc
 		configID:        configID,
 		integrationName: integration.Name,
 		profileID:       testutil.RequireType[string](t, profile["id"]),
-		integrationID:   testPublicID(t, publicid.KindProjectIntegration, integration.ID),
+		integrationID:   testPublicID(t, publicid.KindIntegration, integration.ID),
 		launchToken:     customIntegrationHTTPKey(t, handler, project, "launch-manager", "admin"),
 	}
 }
@@ -78,7 +78,7 @@ func TestPublicIntegrationLaunchAtomicRollbackAndReplay(t *testing.T) {
 		CREATE TRIGGER reject_launch_initial BEFORE INSERT ON agent_inputs
 		FOR EACH ROW EXECUTE FUNCTION reject_launch_initial()`)
 	require.NoError(t, err)
-	body := projectIntegrationHTTPJSON(t, f.body())
+	body := integrationHTTPJSON(t, f.body())
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		body, "atomic-launch", http.StatusInternalServerError, authHeaders(f.launchToken))
 	require.Equal(t, before, f.counts(t), "failed input must leave no config, agent, input, target, subscription or actor")
@@ -99,7 +99,7 @@ func TestPublicIntegrationLaunchAtomicRollbackAndReplay(t *testing.T) {
 	require.True(t, found)
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(stored.CompiledDefinition, &compiled))
-	integrationUUID := mustPublicHTTPID(t, publicid.KindProjectIntegration, f.integrationID)
+	integrationUUID := mustPublicHTTPID(t, publicid.KindIntegration, f.integrationID)
 	require.Equal(t, integrationUUID, compiled.InteractionHandlers[f.integrationName].IntegrationID)
 	toolName := toolcatalog.IntegrationToolName(f.integrationName, toolcatalog.IntegrationOperationRead)
 	require.Equal(t, integrationUUID, compiled.Tools[toolName].IntegrationID)
@@ -148,7 +148,7 @@ func TestPublicIntegrationLaunchAtomicRollbackAndReplay(t *testing.T) {
 		"content_blocks": []any{map[string]any{"type": "text", "text": "changed\x00"}},
 	}
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, changed), "atomic-launch", http.StatusOK, authHeaders(f.launchToken))
+		integrationHTTPJSON(t, changed), "atomic-launch", http.StatusOK, authHeaders(f.launchToken))
 	require.Equal(t, after, f.counts(t))
 }
 
@@ -158,31 +158,31 @@ func TestPublicIntegrationLaunchAuthorizationAndIntegrationBoundary(t *testing.T
 	before := f.counts(t)
 	operator := customIntegrationHTTPKey(t, f.handler, f.project, "operator", "operator")
 	viewer := customIntegrationHTTPKey(t, f.handler, f.project, "viewer", "viewer")
-	body := projectIntegrationHTTPJSON(t, f.body())
+	body := integrationHTTPJSON(t, f.body())
 	for _, token := range []string{operator, viewer} {
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 			body, "denied", http.StatusForbidden, authHeaders(token))
 	}
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		body, "denied", http.StatusUnauthorized, nil)
-	other := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
+	other := integrationHTTPSecondProject(t, f.handler, f.project)
 	otherIntegration := createSlackHTTPIntegration(t, t.Context(), other, "A999", "T999", "Other support")
 	for _, name := range []string{otherIntegration.Name, "missing-integration"} {
 		request := f.body()
 		for key, value := range hostedLaunchHTTPCapabilities(
 			name,
-			testPublicID(t, publicid.KindProjectIntegration, otherIntegration.ID),
+			testPublicID(t, publicid.KindIntegration, otherIntegration.ID),
 		) {
 			request[key] = value
 		}
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-			projectIntegrationHTTPJSON(t, request), "denied-integration", http.StatusBadRequest, authHeaders(f.launchToken))
+			integrationHTTPJSON(t, request), "denied-integration", http.StatusBadRequest, authHeaders(f.launchToken))
 	}
 	require.Equal(t, before, f.counts(t))
 	plain := f.body()
 	removeLaunchHTTPCapabilities(plain)
 	created := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, plain), "operator-launch", http.StatusCreated, authHeaders(operator))
+		integrationHTTPJSON(t, plain), "operator-launch", http.StatusCreated, authHeaders(operator))
 	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, created["agent_config"])["id"])
 	require.Equal(t, before[0], f.counts(t)[0])
 	require.Equal(t, before[4], f.counts(t)[4], "ordinary input creates no subscription")
@@ -193,7 +193,7 @@ func TestPublicIntegrationLaunchWithoutProfile(t *testing.T) {
 	f := newIntegrationLaunchHTTPFixture(t, "integration-launch-no-profile")
 	body := f.body()
 	delete(body, "profile")
-	encoded := projectIntegrationHTTPJSON(t, body)
+	encoded := integrationHTTPJSON(t, body)
 	before := f.counts(t)
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 		encoded, "pinned-launch", http.StatusCreated, authHeaders(f.launchToken))
@@ -255,11 +255,11 @@ func TestPublicIntegrationLaunchRejectsInvalidAttachmentsAndInput(t *testing.T) 
 		body := f.body()
 		tc.edit(body)
 		response := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-			projectIntegrationHTTPJSON(t, body), tc.key, http.StatusBadRequest, authHeaders(f.launchToken))
+			integrationHTTPJSON(t, body), tc.key, http.StatusBadRequest, authHeaders(f.launchToken))
 		require.NotEmpty(t, response["error"], tc.name)
 	}
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, f.body()), "user-actor", http.StatusBadRequest, f.project.adminBrowserAuthHeaders())
+		integrationHTTPJSON(t, f.body()), "user-actor", http.StatusBadRequest, f.project.adminBrowserAuthHeaders())
 	require.Equal(t, before, f.counts(t))
 }
 
@@ -274,14 +274,14 @@ func TestPublicIntegrationLaunchPreservesPinnedProfileConfigContract(t *testing.
 	body["config"] = otherID
 	before := f.counts(t)
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, body), "foreign-profile-config", http.StatusNotFound, authHeaders(f.launchToken))
+		integrationHTTPJSON(t, body), "foreign-profile-config", http.StatusNotFound, authHeaders(f.launchToken))
 	require.Equal(t, before, f.counts(t), "derivation must not bypass profile membership")
 	requestJSONWithHeaders(t, f.handler, http.MethodPost,
 		f.project.ProjectPath+"/agent-profiles/"+f.profileID+"/config",
-		projectIntegrationHTTPJSON(t, map[string]any{"config": otherID, "expected_current_config_id": f.configID}),
+		integrationHTTPJSON(t, map[string]any{"config": otherID, "expected_current_config_id": f.configID}),
 		"retarget-profile", http.StatusOK, authHeaders(f.project.AdminToken))
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, f.body()), "historical-profile-config", http.StatusCreated, authHeaders(f.launchToken))
+		integrationHTTPJSON(t, f.body()), "historical-profile-config", http.StatusCreated, authHeaders(f.launchToken))
 }
 
 func TestPublicIntegrationLaunchInitialInputReplay(t *testing.T) {
@@ -299,7 +299,7 @@ func TestPublicIntegrationLaunchInitialInputReplay(t *testing.T) {
 				removeLaunchHTTPCapabilities(body)
 			}
 			before := f.counts(t)
-			encoded := projectIntegrationHTTPJSON(t, body)
+			encoded := integrationHTTPJSON(t, body)
 			launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
 				encoded, "launch-event", http.StatusCreated, authHeaders(f.launchToken))
 			agent := testutil.RequireType[map[string]any](t, launched["agent"])
@@ -319,7 +319,7 @@ func TestPublicIntegrationLaunchInitialInputReplay(t *testing.T) {
 				f.handler,
 				http.MethodPost,
 				path,
-				projectIntegrationHTTPJSON(t, body["initial_input"]),
+				integrationHTTPJSON(t, body["initial_input"]),
 				"launch-event",
 				http.StatusCreated,
 				authHeaders(f.launchToken),
@@ -327,7 +327,7 @@ func TestPublicIntegrationLaunchInitialInputReplay(t *testing.T) {
 			require.NotEqual(t, testutil.RequireType[map[string]any](t, launched["agent_input"])["id"],
 				testutil.RequireType[map[string]any](t, input["agent_input"])["id"])
 			replay = requestJSONWithHeaders(t, f.handler, http.MethodPost, path,
-				projectIntegrationHTTPJSON(t, body["initial_input"]), "launch-event", http.StatusOK, authHeaders(f.launchToken))
+				integrationHTTPJSON(t, body["initial_input"]), "launch-event", http.StatusOK, authHeaders(f.launchToken))
 			require.Equal(t, input["agent_input"], replay["agent_input"])
 			require.Equal(t, after[2]+1, f.counts(t)[2])
 		})
@@ -361,11 +361,11 @@ func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing
 	for _, role := range []string{"viewer", "operator"} {
 		token := customIntegrationHTTPKey(t, f.handler, f.project, "subscription-launch-"+role, role)
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-			projectIntegrationHTTPJSON(t, body), "subscription-launch", http.StatusForbidden, authHeaders(token))
+			integrationHTTPJSON(t, body), "subscription-launch", http.StatusForbidden, authHeaders(token))
 	}
 	require.Equal(t, before, f.counts(t), "subscription-only launch still requires manage")
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, body), "subscription-launch", http.StatusCreated, authHeaders(f.launchToken))
+		integrationHTTPJSON(t, body), "subscription-launch", http.StatusCreated, authHeaders(f.launchToken))
 	agent := testutil.RequireType[map[string]any](t, launched["agent"])
 	require.Equal(t, f.configID, agent["current_config_id"])
 	require.Equal(t, f.configID, testutil.RequireType[map[string]any](t, launched["agent_config"])["id"])
@@ -387,7 +387,7 @@ func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing
 		map[string]any{"integration_id": f.integrationID, "conversation": map[string]any{}},
 	}
 	replay := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, body), "subscription-launch", http.StatusOK, authHeaders(f.launchToken))
+		integrationHTTPJSON(t, body), "subscription-launch", http.StatusOK, authHeaders(f.launchToken))
 	require.Equal(t, agent["id"], testutil.RequireType[map[string]any](t, replay["agent"])["id"])
 	require.Equal(t, after, f.counts(t), "launch replay cannot restore a detached subscription")
 }
@@ -395,7 +395,7 @@ func TestPublicSubscriptionOnlyLaunchPreservesConfigAndDetachedReplay(t *testing
 func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationLaunchHTTPFixture(t, "subscription-launch-invalid")
-	other := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
+	other := integrationHTTPSecondProject(t, f.handler, f.project)
 	foreign := createSlackHTTPIntegration(t, t.Context(), other, "AFOREIGN", "TFOREIGN", "Foreign")
 	before := f.counts(t)
 	for _, tc := range []struct {
@@ -404,10 +404,10 @@ func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T)
 		edit   func(map[string]any)
 	}{
 		{"unknown-integration", http.StatusNotFound, func(a map[string]any) {
-			a["integration_id"] = testPublicID(t, publicid.KindProjectIntegration, uuid.New())
+			a["integration_id"] = testPublicID(t, publicid.KindIntegration, uuid.New())
 		}},
 		{"foreign-integration", http.StatusNotFound, func(a map[string]any) {
-			a["integration_id"] = testPublicID(t, publicid.KindProjectIntegration, foreign.ID)
+			a["integration_id"] = testPublicID(t, publicid.KindIntegration, foreign.ID)
 		}},
 		{"wrong-id-kind", http.StatusBadRequest, func(a map[string]any) { a["integration_id"] = f.configID }},
 		{"unexpected-property", http.StatusBadRequest, func(a map[string]any) { a["unexpected"] = true }},
@@ -423,7 +423,7 @@ func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T)
 		tc.edit(bad)
 		body["subscriptions"] = append(testutil.RequireType[[]any](t, body["subscriptions"]), bad)
 		requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-			projectIntegrationHTTPJSON(t, body), "invalid-subscription", tc.status, authHeaders(f.launchToken))
+			integrationHTTPJSON(t, body), "invalid-subscription", tc.status, authHeaders(f.launchToken))
 		require.Equal(t, before, f.counts(t), "failed validation must roll back all launch resources: %s", tc.name)
 	}
 	body := f.body()
@@ -433,6 +433,6 @@ func TestPublicSubscriptionLaunchValidationRollsBackAllAttachments(t *testing.T)
 	}
 	body["subscriptions"] = attachments
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, body), "too-many-subscriptions", http.StatusBadRequest, authHeaders(f.launchToken))
+		integrationHTTPJSON(t, body), "too-many-subscriptions", http.StatusBadRequest, authHeaders(f.launchToken))
 	require.Equal(t, before, f.counts(t))
 }

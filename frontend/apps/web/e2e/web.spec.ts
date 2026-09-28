@@ -589,32 +589,32 @@ test('walks a new organization through onboarding to its first chat', async ({ p
   expect(failures).toEqual([])
 })
 
-for (const integrationType of ['github_pr', 'discord_thread'] as const) {
-  test(`saves ${integrationType} integration-owned setup, launcher, tool selections and independent lifecycle`, async ({
+for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
+  test(`saves ${integrationKind} integration-owned setup, launcher, tool selections and independent lifecycle`, async ({
     page,
   }) => {
     test.setTimeout(60_000)
     const failures = installIntegrationFailureTracking(page)
-    const integrationName = `${integrationType.replaceAll('_', '-')}-browser-${test.info().retry}`
-    const profileName = uniqueName(`${integrationType} Integration Profile`)
+    const integrationName = `${integrationKind.replaceAll('_', '-')}-browser-${test.info().retry}`
+    const profileName = uniqueName(`${integrationKind} Integration Profile`)
     await createProfile(page, profileName, 'Answer in the selected conversation.')
     const profilePath = new URL(page.url()).pathname,
       profileId = schemas.zAgentProfileId.parse(profilePath.split('/').at(-1))
     const { integration, apiProjectPath } = await connectIntegrationWithCredentialRetry(
       page,
       projectID,
-      integrationType,
+      integrationKind,
       integrationName,
       failures,
     )
     const integrationPath = `/projects/${projectID}/integrations/${integration.id}`
     const launch = page.getByRole('region', {
-      name: integrationType === 'github_pr' ? 'Pull requests' : 'Mentions',
+      name: integrationKind === 'github_pr' ? 'Pull requests' : 'Mentions',
       exact: true,
     })
 
     const secretID = schemas.zSecretId.parse(integration.credential_secret_id)
-    if (integrationType === 'discord_thread') {
+    if (integrationKind === 'discord_thread') {
       await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveValue(
         new RegExp(`/api/integrations/discord/${integration.provider_tenant_id}/interactions$`),
       )
@@ -635,7 +635,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
         apiProjectPath,
       )
     }
-    if (integrationType === 'github_pr') {
+    if (integrationKind === 'github_pr') {
       const launcher = launch.getByRole('checkbox', {
         name: 'Launch agents from GitHub events',
         exact: true,
@@ -651,16 +651,16 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     }
     await page
       .getByPlaceholder(
-        integrationType === 'github_pr' ? 'Choose an agent profile…' : 'Search agent profiles…',
+        integrationKind === 'github_pr' ? 'Choose an agent profile…' : 'Search agent profiles…',
       )
       .fill(profileName)
     await page.getByRole('option', { name: profileName, exact: true }).click()
-    if (integrationType === 'discord_thread') {
+    if (integrationKind === 'discord_thread') {
       await expect(
         page.getByRole('button', { name: `Remove ${profileName}`, exact: true }),
       ).toBeVisible()
     }
-    if (integrationType === 'github_pr')
+    if (integrationKind === 'github_pr')
       await expect(launch.getByLabel('Repository ID', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
     const savedLauncher = page.waitForResponse(
@@ -669,16 +669,13 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
         new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
     )
     await page.getByRole('button', { name: 'Save changes', exact: true }).click()
-    const launched = schemas.zProjectIntegration.parse(await (await savedLauncher).json())
-    expect(launched.settings.launcher?.slots).toEqual([
-      { key: 'default', agent_profile_id: profileId },
-    ])
-    expect(launched.settings.launcher?.scope_kind).toBe(
-      integrationType === 'github_pr' ? 'installation' : undefined,
+    const launched = schemas.zIntegration.parse(await (await savedLauncher).json())
+    expect(launched.settings.launcher).toEqual(
+      integrationKind === 'github_pr'
+        ? { profile: profileId, trigger: 'pull_request_opened' }
+        : { profiles: [profileId] },
     )
-    if (integrationType === 'discord_thread')
-      expect(launched.settings.launcher).not.toHaveProperty('scope_ref')
-    else expect(launched.settings.launcher?.scope_ref).toBe(integration.provider_account_ref)
+    if (integrationKind === 'github_pr') expect(launched.settings.sender_policy).toBe('writers')
     expect(launched.setup_revision).toBe(integration.setup_revision)
     await expect(page).toHaveURL(integrationPath)
     await expect(launch.getByRole('link', { name: profileName, exact: true })).toBeVisible()
@@ -686,7 +683,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     await expect(page.getByRole('heading', { name: integrationName, exact: true })).toBeVisible()
     await launch.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(launch.getByLabel('Integration name', { exact: true })).toHaveCount(0)
-    if (integrationType === 'github_pr')
+    if (integrationKind === 'github_pr')
       await page.getByLabel('Launch when').selectOption('mention')
     const updated = page.waitForResponse(
       (response) =>
@@ -694,13 +691,16 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
         new URL(response.url()).pathname.endsWith(`/integrations/${integration.id}`),
     )
     await page.getByRole('button', { name: 'Save changes', exact: true }).click()
-    const changedIntegration = schemas.zProjectIntegration.parse(await (await updated).json())
+    const changedIntegration = schemas.zIntegration.parse(await (await updated).json())
     expect(changedIntegration.name).toBe(integrationName)
-    expect(changedIntegration.settings.launcher?.slots).toEqual(launched.settings.launcher?.slots)
+    expect(changedIntegration.settings.launcher).toEqual(
+      integrationKind === 'github_pr'
+        ? { profile: profileId, trigger: 'mention' }
+        : launched.settings.launcher,
+    )
     expect(changedIntegration.setup_revision).toBe(integration.setup_revision)
     await expectIntegrationCapabilities(page, changedIntegration)
-    if (integrationType === 'github_pr') {
-      expect(changedIntegration.settings.launcher?.trigger).toBe('mention')
+    if (integrationKind === 'github_pr') {
       await expect(page.getByRole('region', { name: 'Advanced', exact: true })).toContainText(
         '/api/integrations/github/111/events',
       )
@@ -709,7 +709,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     await page.goto(profilePath)
     await page.getByRole('button', { name: 'YAML', exact: true }).click()
     const selectedTool = `int__${integration.name}__read`
-    const selectedHandlers = integrationType === 'discord_thread' ? { [integration.name]: {} } : {}
+    const selectedHandlers = integrationKind === 'discord_thread' ? { [integration.name]: {} } : {}
     await replaceConfigEditor(
       page,
       JSON.stringify({
@@ -736,7 +736,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     })
     const tools = schemas.zResolvedAgentConfigTools.parse(await previewResponse.json()).tools
     expect(tools).toContainEqual(expect.objectContaining({ name: selectedTool, enabled: true }))
-    const excludedTool = integrationType === 'github_pr' ? 'discussion_comment' : 'post_message'
+    const excludedTool = integrationKind === 'github_pr' ? 'discussion_comment' : 'post_message'
     expect(tools.map((tool) => tool.name)).not.toContain(
       `int__${integration.name}__${excludedTool}`,
     )
@@ -758,15 +758,15 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
       apiProjectPath,
     )
 
-    await openIntegrationSetup(page, projectID, integrationType, `${integrationName}-2`)
-    await fillProviderAccount(page, integrationType)
+    await openIntegrationSetup(page, projectID, integrationKind, `${integrationName}-2`)
+    await fillProviderAccount(page, integrationKind)
     await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
     await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
-    if (integrationType === 'discord_thread')
+    if (integrationKind === 'discord_thread')
       await page.getByLabel('Public key', { exact: true }).fill('ab'.repeat(32))
     const secondCreation = integrationCreation(page)
     await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
-    const secondary = schemas.zProjectIntegration.parse(await (await secondCreation).json())
+    const secondary = schemas.zIntegration.parse(await (await secondCreation).json())
     await expect(launch.getByRole('button', { name: 'Save changes', exact: true })).toBeVisible()
     await launch.getByRole('button', { name: 'Skip for now', exact: true }).click()
     expect(await readIntegration(page, apiProjectPath, secondary.id)).toMatchObject({
@@ -789,7 +789,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     )
     await page.getByRole('button', { name: 'Integration actions', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Disconnect integration', exact: true }).click()
-    const offline = schemas.zProjectIntegration.parse(await (await disconnected).json())
+    const offline = schemas.zIntegration.parse(await (await disconnected).json())
     expect(offline.state).toBe('disconnected')
     expect(offline.setup_revision).toBeGreaterThan(integration.setup_revision)
     expect(offline.settings).toEqual(changedIntegration.settings)
@@ -798,7 +798,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     await page.getByRole('button', { name: 'Reconnect account', exact: true }).click()
     await expect(
       page.getByLabel(
-        integrationType === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID',
+        integrationKind === 'github_pr' ? 'GitHub App ID' : 'Discord Application ID',
         {
           exact: true,
         },
@@ -814,7 +814,7 @@ for (const integrationType of ['github_pr', 'discord_thread'] as const) {
     await connection.getByRole('button', { name: 'Reconnect integration', exact: true }).click()
     expect((await reconfigured).status()).toBe(200)
     await expect(connection).toHaveCount(0)
-    if (integrationType === 'discord_thread') {
+    if (integrationKind === 'discord_thread') {
       await expect(page.getByLabel('Interactions Endpoint URL', { exact: true })).toHaveValue(
         new RegExp(`/api/integrations/discord/${integration.provider_tenant_id}/interactions$`),
       )

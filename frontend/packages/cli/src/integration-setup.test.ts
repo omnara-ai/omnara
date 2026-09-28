@@ -1,10 +1,4 @@
-import {
-  createOmnaraClient,
-  type IntegrationLauncher,
-  type IntegrationType,
-  type JsonBody,
-  schemas,
-} from '@omnara/sdk'
+import { createOmnaraClient, type IntegrationKind, type JsonBody, schemas } from '@omnara/sdk'
 import { expect, it, vi } from 'vitest'
 import * as z from 'zod'
 
@@ -25,11 +19,11 @@ const report = () => ({
 })
 const json = (value: JsonBody, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
-const integration = (integrationType: IntegrationType) => ({
+const integration = (integrationKind: IntegrationKind) => ({
   id: path.integrationID,
   project_id: path.projectID,
   name: 'support',
-  integration_type: integrationType,
+  integration_kind: integrationKind,
   state: 'active',
   setup_revision: 2,
   settings: {},
@@ -43,22 +37,12 @@ const integration = (integrationType: IntegrationType) => ({
 })
 
 it.each(['slack_thread', 'discord_thread'] as const)(
-  'edits %s profile choices without touching credentials or existing-agent slots',
-  async (integrationType) => {
+  'edits %s profile choices using a settings-only update',
+  async (integrationKind) => {
     const second = `aprf_${'b'.repeat(26)}`
-    const launcher: IntegrationLauncher = {
-      trigger: 'mention',
-      slots: [
-        { key: 'original', agent_profile_id: id('aprf') },
-        { key: 'continue', agent_id: id('agt') },
-      ],
-    }
-    if (integrationType === 'slack_thread') {
-      launcher.scope_kind = 'workspace'
-      launcher.scope_ref = 'T123'
-    }
+    const launcher = { profiles: [id('aprf')] }
     const saved = {
-      ...integration(integrationType),
+      ...integration(integrationKind),
       settings: { launcher },
     }
     const requests: Request[] = []
@@ -68,13 +52,8 @@ it.each(['slack_thread', 'discord_thread'] as const)(
         const request = new Request(input, init)
         requests.push(request)
         if (request.method === 'GET') return json(z.json().parse(saved))
-        const body = schemas.zSaveProjectIntegrationRequest.parse(await request.clone().json())
-        expect(body).toMatchObject({ name: saved.name, integration_type: saved.integration_type })
-        expect(body.settings.launcher?.slots).toEqual([
-          { key: 'original', agent_profile_id: id('aprf') },
-          { key: 'continue', agent_id: id('agt') },
-          { key: 'profile_1', agent_profile_id: second },
-        ])
+        const body = schemas.zUpdateIntegrationRequest.parse(await request.clone().json())
+        expect(body).toEqual({ settings: { launcher: { profiles: [id('aprf'), second] } } })
         return json(z.json().parse({ ...saved, ...body }))
       },
     })

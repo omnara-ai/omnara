@@ -29,7 +29,7 @@ import (
 func TestIntegrationOAuthScopeAndInputValidation(t *testing.T) {
 	t.Parallel()
 	f := newProjectSlackOAuthFixture(t, nil)
-	integrationRef := testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)
+	integrationRef := testPublicID(t, publicid.KindIntegration, f.integration.ID)
 	path, body := projectSlackSetupRequest(t, f.project, integrationRef, false)
 	for _, invalid := range []string{
 		`{}`, `{"client_id":"client","client_secret":"secret","signing_secret":""}`,
@@ -51,7 +51,7 @@ func TestIntegrationOAuthScopeAndInputValidation(t *testing.T) {
 		t,
 		f.handler,
 		http.MethodPost,
-		strings.Replace(path, integrationRef, testPublicID(t, publicid.KindProjectIntegration, other.ID), 1),
+		strings.Replace(path, integrationRef, testPublicID(t, publicid.KindIntegration, other.ID), 1),
 		body,
 		"",
 		http.StatusBadRequest,
@@ -61,7 +61,7 @@ func TestIntegrationOAuthScopeAndInputValidation(t *testing.T) {
 		path, body := projectSlackSetupRequest(
 			t,
 			f.project,
-			testPublicID(t, publicid.KindProjectIntegration, uuid.New()),
+			testPublicID(t, publicid.KindIntegration, uuid.New()),
 			manifest,
 		)
 		requestJSONWithHeaders(
@@ -84,7 +84,7 @@ func TestIntegrationSlackSetupNameIconAndPublicURLValidation(t *testing.T) {
 	f := newProjectSlackOAuthFixture(t, nil)
 	path := f.project.ProjectPath + "/integrations/" + testPublicID(
 		t,
-		publicid.KindProjectIntegration,
+		publicid.KindIntegration,
 		f.integration.ID,
 	) + "/slack-setup"
 	for _, name := range []string{"", strings.Repeat("x", 36), "SlackBot"} {
@@ -93,7 +93,7 @@ func TestIntegrationSlackSetupNameIconAndPublicURLValidation(t *testing.T) {
 			f.handler,
 			http.MethodPost,
 			path,
-			projectIntegrationHTTPJSON(
+			integrationHTTPJSON(
 				t,
 				map[string]any{"app_name": name, "app_configuration_token": "configuration-token"},
 			),
@@ -119,7 +119,7 @@ func TestIntegrationSlackSetupNameIconAndPublicURLValidation(t *testing.T) {
 			route, body := projectSlackSetupRequest(
 				t,
 				f.project,
-				testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
+				testPublicID(t, publicid.KindIntegration, f.integration.ID),
 				manifest,
 			)
 			requestJSONWithHeaders(
@@ -149,7 +149,7 @@ func TestIntegrationOAuthRejectsForeignIdentityWithoutLosingCurrentCredentials(t
 		require.NoError(t, err)
 		require.Equal(t, "setup_save_failed", location.Query().Get("integration_oauth_error"))
 		after, err := f.project.Store.Integrations().
-			GetProjectIntegration(t.Context(), f.project.ProjectUUID, current.ID)
+			GetIntegration(t.Context(), f.project.ProjectUUID, current.ID)
 		require.NoError(t, err)
 		require.Equal(t, current, after)
 		require.Equal(
@@ -161,7 +161,7 @@ func TestIntegrationOAuthRejectsForeignIdentityWithoutLosingCurrentCredentials(t
 	path, body := projectSlackSetupRequest(
 		t,
 		f.project,
-		testPublicID(t, publicid.KindProjectIntegration, f.integration.ID),
+		testPublicID(t, publicid.KindIntegration, f.integration.ID),
 		true,
 	)
 	requestJSONWithHeaders(
@@ -231,7 +231,7 @@ func TestIntegrationOAuthProviderFailuresLeaveSavedIntegrationDisconnected(t *te
 	require.EqualValues(t, 2, f.exchanges.Load(), "provider denial must not exchange a code")
 	require.Zero(t, countSlackOAuthCredentialSecrets(t, t.Context(), f.project.Store, f.project))
 	current, err := f.project.Store.Integrations().
-		GetProjectIntegration(t.Context(), f.project.ProjectUUID, f.integration.ID)
+		GetIntegration(t.Context(), f.project.ProjectUUID, f.integration.ID)
 	require.NoError(t, err)
 	require.Equal(t, f.integration, current)
 }
@@ -322,24 +322,19 @@ func completeSlackOAuthInstall(
 	handler http.Handler,
 	project publicHTTPProject,
 	profileID, browserSessionToken, code string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	created := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		project.ProjectPath+"/integrations",
-		projectIntegrationHTTPJSON(t, map[string]any{
+		integrationHTTPJSON(t, map[string]any{
 			"name":             "slack-" + uuid.NewString()[:8],
-			"integration_type": integrationdefinition.SlackThread,
+			"integration_kind": integrationdefinition.SlackThread,
 			"settings": map[string]any{
 				"launcher": map[string]any{
-					"trigger":    "mention",
-					"scope_kind": "workspace",
-					"scope_ref":  "T123",
-					"slots": []any{
-						map[string]any{"key": "default", "agent_profile_id": profileID},
-					},
+					"profiles": []string{profileID},
 				},
 			},
 		}),
@@ -368,10 +363,10 @@ func completeSlackOAuthInstall(
 	require.Equal(t, "success", location.Query().Get("integration_oauth"))
 	require.Equal(t, integrationRef, location.Query().Get("integration_id"))
 	integration, err := project.Store.Integrations().
-		GetProjectIntegration(
+		GetIntegration(
 			t.Context(),
 			project.ProjectUUID,
-			mustPublicHTTPID(t, publicid.KindProjectIntegration, integrationRef),
+			mustPublicHTTPID(t, publicid.KindIntegration, integrationRef),
 		)
 	require.NoError(t, err)
 	return integration

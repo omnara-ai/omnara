@@ -19,11 +19,8 @@ import (
 
 var ErrIntegrationRuntimeLeaseLost = errors.New("integration runtime lease lost")
 
-const DiscordRuntimeKey = "discord/shard/0"
-
 type IntegrationRuntimeRevision struct {
 	ProjectID, IntegrationID uuid.UUID
-	Key                      string
 	SetupRevision            int64
 	CredentialVersionID      uuid.UUID
 }
@@ -45,8 +42,7 @@ type IntegrationRuntimeFailure struct {
 
 func (s *Store) CountUnclaimedDiscordIntegrations(ctx context.Context) (int64, error) {
 	return s.q.CountUnclaimedIntegrationRuntimes(ctx, dbsqlc.CountUnclaimedIntegrationRuntimesParams{
-		IntegrationTypes: integrationdefinition.IntegrationTypesForProvider(integrationdefinition.ProviderDiscord),
-		RuntimeKey:       DiscordRuntimeKey,
+		IntegrationKinds: integrationdefinition.IntegrationKindsForProvider(integrationdefinition.ProviderDiscord),
 	})
 }
 
@@ -69,12 +65,9 @@ func (s *Store) GetIntegrationRuntimeFailure(
 
 func (r IntegrationRuntimeRevision) validate() error {
 	if r.ProjectID == uuid.Nil || r.IntegrationID == uuid.Nil || r.CredentialVersionID == uuid.Nil ||
-		r.SetupRevision <= 0 ||
-		len(r.Key) == 0 ||
-		len(r.Key) > 128 ||
-		dbsafe.Text(r.Key) != nil {
+		r.SetupRevision <= 0 {
 		return storeerr.InvalidRequest(
-			errors.New("runtime requires project, integration, key and credential/configuration revisions"),
+			errors.New("runtime requires project, integration and credential/configuration revisions"),
 		)
 	}
 	return nil
@@ -98,7 +91,7 @@ func (s *Store) ListPersistentIntegrations(
 	rows, err := s.q.ListPersistentIntegrations(
 		ctx,
 		dbsqlc.ListPersistentIntegrationsParams{
-			IntegrationTypes: integrationdefinition.IntegrationTypesForProvider(integrationdefinition.ProviderDiscord),
+			IntegrationKinds: integrationdefinition.IntegrationKindsForProvider(integrationdefinition.ProviderDiscord),
 			AfterID:          storeutil.IDFromNil(after), RowLimit: int32(limit),
 		},
 	)
@@ -124,7 +117,7 @@ func (s *Store) ClaimIntegrationRuntime(
 		return IntegrationRuntimeClaim{}, false, err
 	}
 	claimable, err := s.q.IntegrationRuntimeClaimable(ctx, dbsqlc.IntegrationRuntimeClaimableParams{
-		ProjectID: revision.ProjectID, IntegrationID: revision.IntegrationID, RuntimeKey: revision.Key,
+		ProjectID: revision.ProjectID, IntegrationID: revision.IntegrationID,
 		SetupRevision: revision.SetupRevision, CredentialVersionID: revision.CredentialVersionID,
 	})
 	if err != nil || !claimable {
@@ -141,7 +134,7 @@ func (s *Store) ClaimIntegrationRuntime(
 	token := uuid.New()
 	q := dbsqlc.New(tx)
 	_, err = q.ClaimIntegrationRuntime(ctx, dbsqlc.ClaimIntegrationRuntimeParams{
-		ProjectID: revision.ProjectID, IntegrationID: revision.IntegrationID, RuntimeKey: revision.Key,
+		ProjectID: revision.ProjectID, IntegrationID: revision.IntegrationID,
 		SetupRevision: revision.SetupRevision, CredentialVersionID: revision.CredentialVersionID,
 		ClaimToken: &token, LeaseMilliseconds: duration.Milliseconds(),
 	})
@@ -175,7 +168,7 @@ func (s *Store) lockRuntimeAuthority(ctx context.Context, tx pgx.Tx, revision In
 		return err
 	}
 	q := dbsqlc.New(tx)
-	integration, err := getProjectIntegration(ctx, q, revision.ProjectID, revision.IntegrationID)
+	integration, err := getIntegration(ctx, q, revision.ProjectID, revision.IntegrationID)
 	if err != nil {
 		return err
 	}
@@ -209,7 +202,6 @@ func runtimeLeaseParams(lease IntegrationRuntimeLease) dbsqlc.ReadIntegrationRun
 	return dbsqlc.ReadIntegrationRuntimeLeaseParams{
 		ProjectID:           lease.ProjectID,
 		IntegrationID:       lease.IntegrationID,
-		RuntimeKey:          lease.Key,
 		SetupRevision:       lease.SetupRevision,
 		CredentialVersionID: lease.CredentialVersionID,
 		ClaimToken:          lease.Token,
@@ -241,7 +233,6 @@ func (s *Store) withIntegrationRuntime(
 		dbsqlc.LockIntegrationRuntimeParams{
 			ProjectID:     lease.ProjectID,
 			IntegrationID: lease.IntegrationID,
-			RuntimeKey:    lease.Key,
 		},
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -273,7 +264,6 @@ func (s *Store) RenewIntegrationRuntime(
 		rows, err := q.RenewIntegrationRuntime(ctx, dbsqlc.RenewIntegrationRuntimeParams{
 			ProjectID:         lease.ProjectID,
 			IntegrationID:     lease.IntegrationID,
-			RuntimeKey:        lease.Key,
 			ClaimToken:        lease.Token,
 			LeaseMilliseconds: duration.Milliseconds(),
 		})
@@ -327,7 +317,6 @@ func (s *Store) CommitIntegrationRuntime(
 		rows, err := q.CheckpointIntegrationRuntime(ctx, dbsqlc.CheckpointIntegrationRuntimeParams{
 			ProjectID:     lease.ProjectID,
 			IntegrationID: lease.IntegrationID,
-			RuntimeKey:    lease.Key,
 			ClaimToken:    lease.Token,
 			Checkpoint:    checkpointValue,
 		})
@@ -352,7 +341,7 @@ func (s *Store) ReleaseIntegrationRuntime(
 		return storeerr.InvalidRequest(errors.New("invalid runtime release"))
 	}
 	rows, err := s.q.ReleaseIntegrationRuntime(ctx, dbsqlc.ReleaseIntegrationRuntimeParams{
-		ProjectID: lease.ProjectID, IntegrationID: lease.IntegrationID, RuntimeKey: lease.Key, ClaimToken: lease.Token,
+		ProjectID: lease.ProjectID, IntegrationID: lease.IntegrationID, ClaimToken: lease.Token,
 		DelayMilliseconds: delay.Milliseconds(), LastError: storeutil.TextFromEmpty(failure),
 	})
 	if err == nil && rows != 1 {

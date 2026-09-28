@@ -1,4 +1,4 @@
-import { useProjectIntegration } from '@omnara/react'
+import { useIntegration } from '@omnara/react'
 import type { IntegrationCronTriggerTarget } from '@omnara/sdk'
 import { useState } from 'react'
 
@@ -9,7 +9,7 @@ export function useIntegrationScheduleSettings(
   projectId: string,
   integrationId: string,
 ) {
-  const integration = useProjectIntegration(orgId, projectId, integrationId)
+  const integration = useIntegration(orgId, projectId, integrationId)
   const [jsonDraft, setJsonDraft] = useState<string>()
   const schema = integration.data?.capabilities.schedule?.input_schema
   return {

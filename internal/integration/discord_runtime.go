@@ -76,7 +76,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 						if active[ref.IntegrationID] {
 							continue
 						}
-						integrationSetup, err := r.Integrations.GetProjectIntegration(
+						integrationSetup, err := r.Integrations.GetIntegration(
 							scanCtx,
 							ref.ProjectID,
 							ref.IntegrationID,
@@ -96,7 +96,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 						}
 						revision := integrationstore.IntegrationRuntimeRevision{
 							ProjectID: integrationSetup.ProjectID, IntegrationID: integrationSetup.ID,
-							Key: integrationstore.DiscordRuntimeKey, SetupRevision: integrationSetup.SetupRevision,
+							SetupRevision:       integrationSetup.SetupRevision,
 							CredentialVersionID: secret.Secret.CurrentVersionID,
 						}
 						started := time.Now()
@@ -130,7 +130,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 
 func (r *DiscordRuntime) run(
 	parent context.Context,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	claim integrationstore.IntegrationRuntimeClaim,
 	claimedAt time.Time,
 	log *slog.Logger,
@@ -210,7 +210,7 @@ func discordRuntimeFailureMessage(err error) string {
 
 func (r *DiscordRuntime) connect(
 	ctx context.Context,
-	integrationSetup integrationstore.ProjectIntegrationRecord,
+	integrationSetup integrationstore.IntegrationRecord,
 	claim integrationstore.IntegrationRuntimeClaim,
 ) error {
 	credential, err := r.Secrets.ReadProjectAvailableSecretPayload(

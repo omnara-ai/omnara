@@ -30,7 +30,7 @@ type scheduledTestProvider struct {
 
 func (p *scheduledTestProvider) PublishScheduledRoot(
 	ctx context.Context,
-	_ integrationstore.ProjectIntegrationRecord,
+	_ integrationstore.IntegrationRecord,
 	_ integrationdefinition.ScheduledThreadLaunch,
 	_ uuid.UUID,
 	check func(context.Context) error,
@@ -48,7 +48,7 @@ func (p *scheduledTestProvider) PublishScheduledRoot(
 }
 func (p *scheduledTestProvider) EnsureScheduledThread(
 	ctx context.Context,
-	_ integrationstore.ProjectIntegrationRecord,
+	_ integrationstore.IntegrationRecord,
 	_ integrationdefinition.Scope,
 	check func(context.Context) error,
 ) error {
@@ -125,8 +125,8 @@ func newScheduledProviderJourney(t *testing.T, providerName string) *scheduledJo
 	consumer := NewIntegrationInboxConsumer(
 		router, store.Integrations(), nil, nil,
 		nil, testIntegrationLaunchWorkflow(router),
-		WithIntegrationScheduledHandlers(map[integrationdefinition.Type]IntegrationScheduledHandler{
-			integrationdefinition.Type(integrationdefinition.IntegrationTypesForProvider(providerName)[0]): handler.Handle,
+		WithIntegrationScheduledHandlers(map[integrationdefinition.Kind]IntegrationScheduledHandler{
+			integrationdefinition.Kind(integrationdefinition.IntegrationKindsForProvider(providerName)[0]): handler.Handle,
 		}),
 	)
 	return &scheduledJourney{
@@ -210,13 +210,20 @@ func TestScheduledLaunchHasConversationContextWithoutMentionLauncher(t *testing.
 		subscriptions.Subscriptions[0].Address,
 	)
 	require.NotEqual(t, uuid.Nil, launched.IntegrationTarget.ID)
-	var selected uuid.UUID
-	var handler string
-	require.NoError(t, f.pool.QueryRow(
-		t.Context(), "SELECT integration_target_id,interaction_handler_key FROM agents WHERE id=$1", launched.Agent.ID,
-	).Scan(&selected, &handler))
-	require.Equal(t, launched.IntegrationTarget.ID, selected, "first interaction must already have its thread")
-	require.Equal(t, "chat", handler)
+	selected, err := f.store.Execution().GetInteractionSelection(t.Context(), f.ids.ProjectID, launched.Agent.ID)
+	require.NoError(t, err)
+	require.Equal(t, uuid.Nil, selected.IntegrationTargetID, "queued input does not select a destination")
+	claim, found, err := f.store.Execution().ClaimNextAgentWork(t.Context(), executionstore.ClaimNextAgentWorkInput{
+		WorkerProcessID: uuid.New(), LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Equal(t, launched.AgentInput.ID, claim.Model.AdmittedInputTurn.Inputs[0].ID)
+	selected, err = f.store.Execution().GetInteractionSelection(t.Context(), f.ids.ProjectID, launched.Agent.ID)
+	require.NoError(t, err)
+	require.Equal(t, launched.IntegrationTarget.ID, selected.IntegrationTargetID, "the first admitted turn has its thread")
+	require.Equal(t, "chat", selected.HandlerKey)
 	var provider string
 	require.NoError(t, f.pool.QueryRow(
 		t.Context(),
@@ -247,16 +254,16 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 	saved, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
 	require.NotEmpty(t, saved.Plan)
-	require.Equal(t, integrationstore.IntegrationInboxPending, saved.State)
+	require.Equal(t, integrationstore.IntegrationInboxQueued, saved.State)
 	plan, err := decodeIntegrationInboxPlan(saved.Plan)
 	require.NoError(t, err)
-	require.Equal(t, f.provider.root, plan["scheduled"].Scope)
-	require.Len(t, plan["scheduled"].Launch.Subscriptions, 1)
-	require.Equal(t, f.integrationID, plan["scheduled"].Launch.Subscriptions[0].IntegrationID)
+	require.Equal(t, f.provider.root, plan.Message.Scope)
+	require.Len(t, plan.Recipients["scheduled"].Launch.Subscriptions, 1)
+	require.Equal(t, f.integrationID, plan.Recipients["scheduled"].Launch.Subscriptions[0].IntegrationID)
 	require.JSONEq(
 		t,
 		`{"channel_id":"C123","thread_ts":"100.1"}`,
-		string(plan["scheduled"].Launch.Subscriptions[0].Conversation),
+		string(plan.Recipients["scheduled"].Launch.Subscriptions[0].Conversation),
 	)
 	follow, _, err := f.store.Integrations().AcceptIntegrationReceipt(
 		t.Context(),
@@ -267,19 +274,19 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 	require.NoError(t, err)
 	claimed := f.claim()
 	require.Equal(t, follow.ID, claimed.ID)
-	integration, err := f.store.Integrations().GetProjectIntegrationByID(t.Context(), f.integrationID)
+	integration, err := f.store.Integrations().GetIntegrationByID(t.Context(), f.integrationID)
 	require.NoError(t, err)
 	event := IntegrationEvent{
 		Event:         integrationdefinition.Event{Kind: "message", Scope: f.provider.root},
 		SemanticKey:   "reply",
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Also consider this"}]`),
-		Actor:         integrationTestActor(t, integration.ID, "U123"),
+		Actor:         integrationTestActor(t, integration, "U123"),
 	}
 	_, err = f.consumer.router.freezeEmptyIfUnrouted(t.Context(), claimed.Lease(), integration, event)
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
 	f.provider.ensure = nil
 	_, err = f.pool.Exec(t.Context(),
-		`UPDATE integration_inbox SET available_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
+		`UPDATE integration_inbox SET next_attempt_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)
 	require.NoError(t, err)
 	resumed := f.claim()
 	require.Equal(t, receipt.ID, resumed.ID)
@@ -287,7 +294,7 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 	result, err := f.consumer.Consume(t.Context(), resumed.Lease())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	require.Equal(t, plan["scheduled"].AgentID, result[0].Launch.Agent.ID)
+	require.Equal(t, plan.Recipients["scheduled"].AgentID, result[0].Launch.Agent.ID)
 	require.Equal(t, 1, f.provider.posts)
 	require.Equal(t, 2, f.provider.ensures)
 	after, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)

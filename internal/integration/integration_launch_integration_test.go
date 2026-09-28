@@ -35,9 +35,9 @@ func TestIntegrationLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			event := f.event
 			event.Directed = true
-			event.Launches = []IntegrationLaunchIntent{{IntegrationID: uuid.New(), AgentID: uuid.New()}}
+			event.Launches = []IntegrationLaunchIntent{{IntegrationID: uuid.New(), ProfileID: uuid.New()}}
 			calls := 0
-			workflow := NewIntegrationLaunchWorkflow(f.consumer.router, map[integrationdefinition.Type]IntegrationLauncher{
+			workflow := NewIntegrationLaunchWorkflow(f.consumer.router, map[integrationdefinition.Kind]IntegrationLauncher{
 				integrationdefinition.SlackThread: func(
 					_ context.Context,
 					input IntegrationLaunchContext,
@@ -49,18 +49,18 @@ func TestIntegrationLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 					}
 					return nil, nil
 				},
-			})
-			result, err := workflow.Decide(ctx, receipt.Lease(), receipt, f.integrationSetup, []IntegrationEvent{event})
+			}, nil)
+			result, err := workflow.Decide(ctx, receipt.Lease(), receipt, f.integrationSetup, event)
 			require.Equal(t, 1, calls)
 			if test.foreignLauncher {
 				require.ErrorContains(t, err, "returned an intent for another integration")
 				require.Nil(t, result)
 			} else {
 				require.NoError(t, err)
-				require.Len(t, result, 1)
-				require.False(t, result[0].Directed)
-				require.Empty(t, result[0].Launches)
-				require.Equal(t, event.ContentBlocks, result[0].ContentBlocks)
+				require.NotNil(t, result)
+				require.False(t, result.Directed)
+				require.Empty(t, result.Launches)
+				require.Equal(t, event.ContentBlocks, result.ContentBlocks)
 			}
 		})
 	}
@@ -86,23 +86,22 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 			base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 				"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
 			agentIDs := make([]uuid.UUID, 2)
-			var slots []integrationstore.IntegrationLaunchSlot
-			for i, key := range []string{"archived", "active"} {
+			for i := range agentIDs {
 				launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 					ProjectID: ids.ProjectID, AgentConfigID: base.ID, LaunchedBy: principal,
 				})
 				require.NoError(t, err)
 				agentIDs[i] = launched.Agent.ID
-				slots = append(slots, integrationstore.IntegrationLaunchSlot{Key: key, AgentID: &agentIDs[i]})
 			}
 			inbox := store.Integrations()
-			_, err = inbox.UpdateProjectIntegration(ctx, integrationID, integrationstore.SaveProjectIntegrationInput{
-				OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationType: integrationdefinition.SlackThread,
-				Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-					Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123", Slots: slots,
-				}},
+			integration, err := inbox.UpdateIntegration(ctx, integrationID, integrationstore.SaveIntegrationInput{
+				OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+				Settings: integrationstore.IntegrationSettings(`{}`),
 			})
 			require.NoError(t, err)
+			for _, agentID := range agentIDs {
+				createTestIntegrationSubscription(t, store, integration, agentID, `{"channel_id":"C123","thread_ts":"1.2"}`)
+			}
 			archive := func() {
 				_, _, err := store.Execution().ArchiveAgent(ctx, ids.ProjectID, agentIDs[0], principal)
 				require.NoError(t, err)
@@ -125,27 +124,27 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 					Kind:  "message", Mentioned: true,
 				},
 				SemanticKey: "message:archive", ContentBlocks: json.RawMessage(`[{"type":"text","text":"review"}]`),
-				Actor: integrationTestActor(t, integrationID, "U123"),
+				Actor: integrationTestActor(t, integration, "U123"),
 			}
 			router := NewIntegrationRouter(store.Execution(), inbox)
-			plan, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), []IntegrationEvent{event})
+			plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &event)
 			require.NoError(t, err)
 			if archiveBeforeDecision {
-				require.Len(t, plan, 1, "known archived destinations are omitted")
-				for _, slot := range plan {
+				require.Len(t, plan.Recipients, 1, "known archived destinations are omitted")
+				for _, slot := range plan.Recipients {
 					require.Equal(t, agentIDs[1], slot.AgentID)
 				}
 			} else {
-				require.Len(t, plan, 2)
+				require.Len(t, plan.Recipients, 2)
 				archive()
 			}
 			admitted, err := router.Admit(ctx, receipt.Lease(), nil)
 			require.NoError(t, err)
-			require.Len(t, admitted, len(plan))
+			require.Len(t, admitted, len(plan.Recipients))
 			var delivered uuid.UUID
 			for _, result := range admitted {
 				require.NotNil(t, result.Input)
-				if plan[result.Slot].AgentID == agentIDs[0] {
+				if plan.Recipients[result.Slot].AgentID == agentIDs[0] {
 					require.Equal(t, executionstore.InboxInputSkipAgentArchived, result.Input.Skipped)
 					require.False(t, result.Input.Created)
 				} else {
@@ -161,7 +160,7 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 			require.NoError(t, err)
 			for _, result := range replayed {
 				require.False(t, result.Input.Created)
-				if plan[result.Slot].AgentID == agentIDs[1] {
+				if plan.Recipients[result.Slot].AgentID == agentIDs[1] {
 					require.Equal(t, delivered, result.Input.AgentInput.ID)
 				}
 			}

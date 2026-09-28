@@ -280,11 +280,12 @@ func main() {
 	)
 	integrationLaunchers := integrationruntime.NewIntegrationLaunchWorkflow(
 		integrationRouter,
-		map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
+		map[integrationdefinition.Kind]integrationruntime.IntegrationLauncher{
 			integrationdefinition.SlackThread:   chatLauncher.Decide,
 			integrationdefinition.DiscordThread: chatLauncher.Decide,
-			integrationdefinition.GitHubPR:      integrationruntime.EverySlotIntegrationLauncher,
+			integrationdefinition.GitHubPR:      integrationruntime.GitHubIntegrationLauncher,
 		},
+		integrationProviders,
 	)
 	integrationLaunchers.Log = log
 	integrationConsumer := integrationruntime.NewIntegrationInboxConsumer(
@@ -295,7 +296,7 @@ func main() {
 		integrationruntime.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log},
 		integrationLaunchers,
 		integrationruntime.WithIntegrationScheduledHandlers(
-			map[integrationdefinition.Type]integrationruntime.IntegrationScheduledHandler{
+			map[integrationdefinition.Kind]integrationruntime.IntegrationScheduledHandler{
 				integrationdefinition.SlackThread: integrationruntime.NewThreadIntegrationScheduledHandler(
 					integrationRouter, store.Integrations(), slackProvider,
 				).Handle,

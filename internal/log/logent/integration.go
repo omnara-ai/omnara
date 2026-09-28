@@ -7,7 +7,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-func Integration(ctx context.Context, install integrationstore.ProjectIntegrationRecord) {
+func Integration(ctx context.Context, install integrationstore.IntegrationRecord) {
 	log.Attach(ctx, log.Fields{
 		"org.id":                           install.OrgID,
 		"project.id":                       install.ProjectID,
@@ -22,7 +22,7 @@ func Integration(ctx context.Context, install integrationstore.ProjectIntegratio
 
 func IntegrationEvent(
 	ctx context.Context,
-	install integrationstore.ProjectIntegrationRecord,
+	install integrationstore.IntegrationRecord,
 	classification string,
 	eventType string,
 ) {

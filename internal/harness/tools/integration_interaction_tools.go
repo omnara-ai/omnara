@@ -11,8 +11,9 @@ import (
 )
 
 type setInteractionHandlerRequest struct {
-	Handler *string         `json:"handler"`
-	Args    json.RawMessage `json:"args"`
+	AutoSelect *bool           `json:"auto_select,omitempty"`
+	Handler    *string         `json:"handler"`
+	Args       json.RawMessage `json:"args"`
 }
 
 func interactionToolRegistrations() []toolRegistration {
@@ -86,22 +87,29 @@ func setInteractionHandler(
 	); err != nil {
 		return nil, err
 	}
-	selection := executionstore.SelectInteractionHandlerInput{Args: input.Args}
-	var current *setInteractionHandlerRequest
+	selection := executionstore.SelectInteractionHandlerInput{Args: input.Args, AutoSelect: input.AutoSelect}
 	if input.Handler != nil {
 		selection.HandlerKey = *input.Handler
-		current = &input
 	}
-	content, err := structuredToolResultContent(struct {
-		Selection *setInteractionHandlerRequest `json:"selection"`
-	}{Selection: current})
-	if err != nil {
-		return nil, err
+	completion := func(saved executionstore.InteractionSelection) (executionstore.ToolCallCompletionInput, error) {
+		type destination struct {
+			Handler string          `json:"handler"`
+			Args    json.RawMessage `json:"args"`
+		}
+		var current *destination
+		if saved.HandlerKey != "" {
+			current = &destination{Handler: saved.HandlerKey, Args: input.Args}
+		}
+		content, err := structuredToolResultContent(struct {
+			Selection  *destination `json:"selection"`
+			AutoSelect bool         `json:"auto_select"`
+		}{Selection: current, AutoSelect: saved.AutoSelect})
+		if err != nil {
+			return executionstore.ToolCallCompletionInput{}, err
+		}
+		return successfulToolCallCompletion(content)
 	}
-	completion, err := successfulToolCallCompletion(content)
-	if err != nil {
-		return nil, err
-	}
+
 	return executeInTransaction(
 		executionstore.SetInteractionHandlerForToolCall(selection, completion),
 		func(err error) (transactionalPhaseResult, error) {

@@ -34,8 +34,8 @@ type SchedulePlan struct {
 	Slots           []ScheduleSlot
 }
 
-func ValidateScheduleSettings(integrationType Type, settings json.RawMessage) (json.RawMessage, error) {
-	definition, ok := Lookup(integrationType)
+func ValidateScheduleSettings(integrationKind Kind, settings json.RawMessage) (json.RawMessage, error) {
+	definition, ok := Lookup(integrationKind)
 	if !ok || definition.Schedule == nil {
 		return nil, fmt.Errorf("integration does not support schedules")
 	}
@@ -57,8 +57,8 @@ func ValidateScheduleSettings(integrationType Type, settings json.RawMessage) (j
 	return jsoncanonical.Normalize(settings)
 }
 
-func ValidateSchedulePlan(integrationType Type, plan SchedulePlan) error {
-	definition, ok := Lookup(integrationType)
+func ValidateSchedulePlan(integrationKind Kind, plan SchedulePlan) error {
+	definition, ok := Lookup(integrationKind)
 	if !ok || definition.Schedule == nil || definition.Schedule.ValidatePlan == nil {
 		return fmt.Errorf("integration does not authorize scheduled work")
 	}

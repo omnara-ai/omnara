@@ -494,16 +494,6 @@ func (s *Store) DeleteAgentProfile(ctx context.Context, projectID, id uuid.UUID)
 	if _, err := lockAgentProfileTx(ctx, qtx, projectID, id); err != nil {
 		return err
 	}
-	hasIntegration, err := qtx.AgentProfileHasProjectIntegration(
-		ctx,
-		dbsqlc.AgentProfileHasProjectIntegrationParams{ProjectID: projectID, ProfileID: id},
-	)
-	if err != nil {
-		return fmt.Errorf("check agent profile integrations: %w", err)
-	}
-	if hasIntegration {
-		return fmt.Errorf("agent profile is referenced by an integration: %w", storeerr.ErrConflict)
-	}
 	rows, err := qtx.DeleteAgentProfile(
 		ctx,
 		dbsqlc.DeleteAgentProfileParams{ProjectID: projectID, ProfileID: id},

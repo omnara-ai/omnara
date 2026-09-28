@@ -32,12 +32,12 @@ func TestSlackDisconnectedEventsVerifyRetainedCredentialsAndReconnect(t *testing
 	t.Cleanup(provider.Close)
 	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "disconnected-events")
 	integrations := f.Project.Store.Integrations()
-	applied, err := integrations.DisconnectProjectIntegration(ctx, integrationstore.DisconnectProjectIntegrationInput{
+	applied, err := integrations.DisconnectIntegration(ctx, integrationstore.DisconnectIntegrationInput{
 		ProjectID: f.Install.ProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
 	})
 	require.NoError(t, err)
 	require.True(t, applied)
-	disconnected, err := integrations.GetProjectIntegration(ctx, f.Install.ProjectID, f.Install.ID)
+	disconnected, err := integrations.GetIntegration(ctx, f.Install.ProjectID, f.Install.ID)
 	require.NoError(t, err)
 	require.Equal(t, f.Install.CredentialSecretID, disconnected.CredentialSecretID)
 	require.Equal(t, f.Install.SetupRevision+1, disconnected.SetupRevision)
@@ -56,7 +56,7 @@ func TestSlackDisconnectedEventsVerifyRetainedCredentialsAndReconnect(t *testing
 	request(disconnectedSlackEvent, "wrong-signing-secret", http.StatusUnauthorized)
 	require.Equal(t, "ignored", request(disconnectedSlackEvent, "signing-secret", http.StatusOK)["ok"])
 	assertReceipts(0)
-	unchanged, err := integrations.GetProjectIntegration(ctx, disconnected.ProjectID, disconnected.ID)
+	unchanged, err := integrations.GetIntegration(ctx, disconnected.ProjectID, disconnected.ID)
 	require.NoError(t, err)
 	require.Equal(t, disconnected, unchanged, "acknowledging an event must not mutate the disconnected setup")
 
@@ -67,21 +67,21 @@ func TestSlackDisconnectedEventsVerifyRetainedCredentialsAndReconnect(t *testing
 	secretID := createSlackHTTPInstallSecret(t, ctx, f.Project, "reconnected-credentials", payload)
 	secret, err := f.Project.Store.Secrets().GetSecret(ctx, f.Install.OrgID, secretID)
 	require.NoError(t, err)
-	setup := integrationstore.ConfigureProjectIntegrationInput{
+	setup := integrationstore.ConfigureIntegrationInput{
 		OrgID: f.Install.OrgID, ProjectID: f.Install.ProjectID, IntegrationID: f.Install.ID,
 		ExpectedSetupRevision: f.Install.SetupRevision, InstalledByUserID: f.Project.AdminUserUUID,
 		Provider: "slack", ProviderTenantID: "T123", ProviderAccountRef: "A123",
 		CredentialSecretID: secret.ID, CredentialVersionID: secret.CurrentVersionID,
 		ProviderIdentity: disconnected.ProviderIdentity, OAuthFlowID: uuid.Must(uuid.NewV7()),
 	}
-	_, err = integrations.ConfigureProjectIntegration(ctx, setup)
+	_, err = integrations.ConfigureIntegration(ctx, setup)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "stale setup must not change which signature is trusted")
 	request(disconnectedSlackEvent, "new-signing-secret", http.StatusUnauthorized)
 	require.Equal(t, "ignored", request(disconnectedSlackEvent, "signing-secret", http.StatusOK)["ok"])
 	setup.ExpectedSetupRevision = disconnected.SetupRevision
-	reconnected, err := integrations.ConfigureProjectIntegration(ctx, setup)
+	reconnected, err := integrations.ConfigureIntegration(ctx, setup)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectIntegrationStateActive, reconnected.State)
+	require.Equal(t, integrationstore.IntegrationStateActive, reconnected.State)
 	require.Equal(t, disconnected.SetupRevision+1, reconnected.SetupRevision)
 	request(disconnectedSlackEvent, "signing-secret", http.StatusUnauthorized)
 	assertReceipts(0)
@@ -93,7 +93,7 @@ func TestSlackDisconnectedEventsVerifyRetainedCredentialsAndReconnect(t *testing
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT payload FROM integration_inbox WHERE integration_id=$1`, f.Install.ID).Scan(&captured))
 	require.Equal(t, disconnectedSlackEvent, string(captured), "ignored delivery must not consume the inbox dedup key")
-	require.NoError(t, integrations.DeleteProjectIntegration(ctx, f.Install.OrgID, f.Install.ProjectID, f.Install.ID))
+	require.NoError(t, integrations.DeleteIntegration(ctx, f.Install.OrgID, f.Install.ProjectID, f.Install.ID))
 	request(strings.ReplaceAll(disconnectedSlackEvent, "Ev-disconnected", "Ev-deleted"),
 		"new-signing-secret", http.StatusUnauthorized)
 	assertReceipts(1)
@@ -106,30 +106,30 @@ func TestSlackDisconnectedSiblingCannotAuthorizeIntakeOrPoisonActiveIntegration(
 	provider := newSlackEventsTestServer(t)
 	t.Cleanup(provider.Close)
 	f := newSlackEventsIntegrationFixture(t, ctx, pool, provider, "disconnected-sibling")
-	second := projectIntegrationHTTPSecondProject(t, f.Handler, f.Project)
+	second := integrationHTTPSecondProject(t, f.Handler, f.Project)
 	profile := createSlackReadyHTTPProfile(t, f.Handler, second, "second-profile", second.AdminToken)
 	profileID := mustPublicHTTPID(t, publicid.KindAgentProfile, testutil.RequireType[string](t, profile["id"]))
 	different := createSlackHTTPInstall(t, ctx, second, profileID, "A123", "T123", "U_BOT", "disconnected-signing-secret")
 	same := createSlackHTTPInstall(t, ctx, second, profileID, "A123", "T123", "U_BOT", "signing-secret")
 	integrations := f.Project.Store.Integrations()
-	for _, integration := range []integrationstore.ProjectIntegrationRecord{different, same} {
-		applied, err := integrations.DisconnectProjectIntegration(ctx, integrationstore.DisconnectProjectIntegrationInput{
+	for _, integration := range []integrationstore.IntegrationRecord{different, same} {
+		applied, err := integrations.DisconnectIntegration(ctx, integrationstore.DisconnectIntegrationInput{
 			ProjectID: integration.ProjectID, IntegrationID: integration.ID, ExpectedSetupRevision: &integration.SetupRevision,
 		})
 		require.NoError(t, err)
 		require.True(t, applied)
 	}
-	active, err := integrations.ListProjectIntegrationsByProviderIdentity(ctx, "slack", "T123", "A123", uuid.Nil, 100)
+	active, err := integrations.ListIntegrationsByProviderIdentity(ctx, "slack", "T123", "A123", uuid.Nil, 100)
 	require.NoError(t, err)
 	require.Len(t, active, 1, "ordinary ingress lookup remains active-only")
 	require.Equal(t, f.Install.ID, active[0].ID)
-	tenant, err := integrations.ListProjectIntegrationsByProviderTenant(ctx, "slack", "T123", uuid.Nil, 100)
+	tenant, err := integrations.ListIntegrationsByProviderTenant(ctx, "slack", "T123", uuid.Nil, 100)
 	require.NoError(t, err)
 	require.Equal(t, active, tenant, "tenant lookup must also retain active-only semantics")
 	var candidateIDs []uuid.UUID
 	after := uuid.Nil
 	for {
-		page, err := integrations.ListProjectIntegrationsForProviderEventVerification(ctx, "slack", "T123", "A123", after, 1)
+		page, err := integrations.ListIntegrationsForProviderEventVerification(ctx, "slack", "T123", "A123", after, 1)
 		require.NoError(t, err)
 		if len(page) == 0 {
 			break
@@ -147,7 +147,7 @@ func TestSlackDisconnectedSiblingCannotAuthorizeIntakeOrPoisonActiveIntegration(
 	}
 	assertReceipts := func(activeCount int) {
 		t.Helper()
-		for _, integration := range []integrationstore.ProjectIntegrationRecord{f.Install, different, same} {
+		for _, integration := range []integrationstore.IntegrationRecord{f.Install, different, same} {
 			var count int
 			require.NoError(t, pool.QueryRow(ctx,
 				`SELECT count(*) FROM integration_inbox WHERE integration_id=$1`, integration.ID).Scan(&count))

@@ -35,7 +35,7 @@ With an organization and project selected:
 
 ```sh
 omnara integrations definitions
-omnara integrations create --body '{"name":"engineering","integration_type":"slack_thread","settings":{}}'
+omnara integrations create --body '{"name":"engineering","integration_kind":"slack_thread","settings":{}}'
 omnara integrations list
 ```
 
@@ -59,7 +59,7 @@ an existing credential of the matching provider kind. Read `setup_revision` from
 rejects a stale revision.
 
 ```sh
-omnara integrations create --body '{"name":"reviewer","integration_type":"github_pr","settings":{}}'
+omnara integrations create --body '{"name":"reviewer","integration_kind":"github_pr","settings":{}}'
 # Set INTEGRATION_ID to this new integration's ID and SETUP_REVISION to its current setup_revision.
 omnara integrations configure "$INTEGRATION_ID" --expected-setup-revision "$SETUP_REVISION" \
   --provider-tenant-id "$GITHUB_APP_ID" --provider-account-ref "$GITHUB_INSTALLATION_ID" \
@@ -75,32 +75,26 @@ Interactions Endpoint URL to
 `https://YOUR_OMNARA_HOST/api/integrations/discord/APPLICATION_ID/interactions`.
 Omnara manages one Gateway connection per saved Discord integration.
 
-`integrations update` replaces launcher settings and requires the unchanged integration name and
-`integration_type`. For the Slack integration above, replace the example workspace and profile
-IDs with your own:
+`integrations update` replaces the integration's settings. Only `settings` belongs in
+an update; name and `integration_kind` are supplied on create.
 
 ```sh
 omnara integrations update "$SLACK_INTEGRATION_ID" --body '{
-  "name": "engineering",
-  "integration_type": "slack_thread",
-  "settings": {
-    "launcher": {
-      "trigger": "mention",
-      "scope_kind": "workspace",
-      "scope_ref": "T123",
-      "slots": [{"key": "default", "agent_profile_id": "aprf_aaaaaaaaaaaaaaaaaaaaaaaaaa"}]
-    }
-  }
+  "settings": {"launcher": {"profiles": ["aprf_aeaqcaibaeaqcaibaeaqcaibaeaq"]}}
 }'
 omnara integrations profiles "$SLACK_INTEGRATION_ID" --profile-ids "$PROFILE_ID" --profile-ids "$SECOND_PROFILE_ID"
 ```
 
-Slack workspace scopes must match the connected workspace. GitHub launchers can use
-`repository` with a numeric repository ID and `mention` or `pull_request_opened`.
-Discord launchers use `mention` with `scope_kind` and `scope_ref` omitted;
-they have no configured server or channel filter.
-`integrations profiles` edits offered Slack or Discord profiles while preserving existing
-agent slots. One profile launches immediately; several offer a selection menu.
+Slack can optionally restrict mentions with `launcher.channel_id`. Discord has no
+server or channel filter. Both take ordered, distinct public profile IDs: one starts
+immediately; several offer a menu selecting exactly one. `integrations profiles`
+preserves the integration's other settings.
+
+GitHub uses `launcher.profile`, `launcher.trigger` (`mention` or `pull_request_opened`),
+and optional `launcher.repository_id`. Its top-level `sender_policy` defaults to
+`writers`; explicitly choose `anyone` to allow every human commenter to direct agents.
+Preserve `sender_policy` when editing or removing `launcher`. The definitions catalog
+publishes each integration's complete settings schema in `capabilities.settings`.
 
 Select tools and interaction handlers independently in agent configurations:
 tools use keys such as `int__engineering__post_message`, and interaction handlers

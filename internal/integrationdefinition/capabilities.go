@@ -13,11 +13,7 @@ type SubscriptionDefinition struct {
 }
 
 func (d SubscriptionDefinition) ConversationSchema() (json.RawMessage, error) {
-	properties, required, err := DestinationProperties(d.Provider)
-	if err != nil {
-		return nil, err
-	}
-	return objectSchema(properties, required)
+	return destinationSchema(d.Provider)
 }
 
 func (d SubscriptionDefinition) Prepare(conversation json.RawMessage) (Scope, error) {

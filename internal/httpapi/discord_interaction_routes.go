@@ -49,7 +49,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid interaction", http.StatusBadRequest)
 		return
 	}
-	var integration integrationstore.ProjectIntegrationRecord
+	var integration integrationstore.IntegrationRecord
 	var err error
 	if hint.Type == discord.InteractionTypePing {
 		integration, err = s.discordPingIntegration(ctx, applicationID, r.Header, raw)
@@ -57,7 +57,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		var ownerID uuid.UUID
 		ownerID, err = s.discordCallbackOwner(ctx, hint)
 		if err == nil {
-			integration, err = s.store.Integrations().GetProjectIntegrationByID(ctx, ownerID)
+			integration, err = s.store.Integrations().GetIntegrationByID(ctx, ownerID)
 		}
 	}
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *Server) discordInteractionsRoute(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if integration.Provider != integrationdefinition.ProviderDiscord || integration.ProviderTenantID != applicationID ||
-		integration.State != integrationstore.ProjectIntegrationStateActive {
+		integration.State != integrationstore.IntegrationStateActive {
 		http.Error(w, "invalid interaction owner", http.StatusForbidden)
 		return
 	}
@@ -113,29 +113,29 @@ func (s *Server) discordCallbackOwner(ctx context.Context, input discord.Interac
 
 func (s *Server) discordPingIntegration(
 	ctx context.Context, applicationID string, header http.Header, raw []byte,
-) (integrationstore.ProjectIntegrationRecord, error) {
+) (integrationstore.IntegrationRecord, error) {
 	after := uuid.Nil
 	var retryErr error
 	for {
 		if err := ctx.Err(); err != nil {
-			return integrationstore.ProjectIntegrationRecord{}, err
+			return integrationstore.IntegrationRecord{}, err
 		}
-		page, err := s.store.Integrations().ListProjectIntegrationsByProviderTenant(
+		page, err := s.store.Integrations().ListIntegrationsByProviderTenant(
 			ctx, integrationdefinition.ProviderDiscord, applicationID, after, integrationIngressPageSize,
 		)
 		if err != nil {
-			return integrationstore.ProjectIntegrationRecord{}, err
+			return integrationstore.IntegrationRecord{}, err
 		}
 		if len(page) > integrationIngressPageSize {
-			return integrationstore.ProjectIntegrationRecord{}, fmt.Errorf("integration ingress page exceeds limit")
+			return integrationstore.IntegrationRecord{}, fmt.Errorf("integration ingress page exceeds limit")
 		}
 		for _, integration := range page {
 			if integration.ID == uuid.Nil || integration.ID.String() <= after.String() {
-				return integrationstore.ProjectIntegrationRecord{}, fmt.Errorf("integration ingress cursor did not advance")
+				return integrationstore.IntegrationRecord{}, fmt.Errorf("integration ingress cursor did not advance")
 			}
 			after = integration.ID
 			if integration.Provider != integrationdefinition.ProviderDiscord || integration.ProviderTenantID != applicationID ||
-				integration.State != integrationstore.ProjectIntegrationStateActive {
+				integration.State != integrationstore.IntegrationStateActive {
 				continue
 			}
 			if !discordPingKeyMatches(integration, header, raw) {
@@ -157,15 +157,15 @@ func (s *Server) discordPingIntegration(
 		}
 		if len(page) < integrationIngressPageSize {
 			if retryErr != nil {
-				return integrationstore.ProjectIntegrationRecord{}, retryErr
+				return integrationstore.IntegrationRecord{}, retryErr
 			}
-			return integrationstore.ProjectIntegrationRecord{}, storeerr.ErrNotFound
+			return integrationstore.IntegrationRecord{}, storeerr.ErrNotFound
 		}
 	}
 }
 
 // This only selects a PING key; the handler must still validate timestamp age and protocol.
-func discordPingKeyMatches(integration integrationstore.ProjectIntegrationRecord, header http.Header, raw []byte) bool {
+func discordPingKeyMatches(integration integrationstore.IntegrationRecord, header http.Header, raw []byte) bool {
 	key, err := hex.DecodeString(integrationruntime.DiscordInteractionPublicKey(integration.ProviderConfig))
 	if err != nil || len(key) != ed25519.PublicKeySize {
 		return false
@@ -189,7 +189,7 @@ func discordInteractionNotice(text string) (discord.InteractionResponse, error) 
 }
 
 func (s *Server) resolveDiscordInteraction(
-	ctx context.Context, integration integrationstore.ProjectIntegrationRecord, input discord.Interaction,
+	ctx context.Context, integration integrationstore.IntegrationRecord, input discord.Interaction,
 ) (discord.InteractionResponse, error) {
 	if strings.HasPrefix(input.Data.CustomID, discord.ProfileChoiceCustomIDPrefix) {
 		return s.discordProfileChoiceAction(ctx, integration, input)
@@ -216,7 +216,7 @@ func (s *Server) resolveDiscordInteraction(
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
-	if destination == nil || destination.IntegrationType != integration.IntegrationType ||
+	if destination == nil || destination.IntegrationKind != integration.IntegrationKind ||
 		destination.IntegrationID != integration.ID {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
@@ -247,11 +247,11 @@ func (s *Server) resolveDiscordInteraction(
 		}
 		return discord.InteractionResponse{}, err
 	}
-	latest, err := s.store.Integrations().GetProjectIntegration(ctx, integration.ProjectID, integration.ID)
+	latest, err := s.store.Integrations().GetIntegration(ctx, integration.ProjectID, integration.ID)
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
-	if latest.State != integrationstore.ProjectIntegrationStateActive ||
+	if latest.State != integrationstore.IntegrationStateActive ||
 		latest.SetupRevision != integration.SetupRevision {
 		return discordInteractionNotice("This prompt is unavailable.")
 	}
@@ -275,13 +275,13 @@ func (s *Server) resolveDiscordInteraction(
 	if name == "" {
 		name = actor.Username
 	}
-	integrationActor, err := executionstore.IntegrationActorParams(integration.ID, actor.ID, &name)
+	integrationActor, err := executionstore.IntegrationActorParams(integration, actor.ID, &name)
 	if err != nil {
 		return discord.InteractionResponse{}, err
 	}
 	resolve := executionstore.ResolveAgentInteractionFromHandlerInput{
 		IntegrationID: integration.ID, SourceSetupRevision: integration.SetupRevision,
-		IntegrationType: integration.IntegrationType, Address: destination.Address,
+		IntegrationKind: integration.IntegrationKind, Address: destination.Address,
 		ResolveAgentInteractionInput: executionstore.ResolveAgentInteractionInput{
 			ProjectID: record.ProjectID, AgentID: record.AgentID, ID: record.ID, Resolution: *resolution,
 			Actor: &integrationActor,

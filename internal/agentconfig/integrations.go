@@ -19,7 +19,7 @@ type IntegrationCapabilityCompiled struct {
 
 type IntegrationResolution struct {
 	IntegrationID   uuid.UUID
-	IntegrationType integrationdefinition.Type
+	IntegrationKind integrationdefinition.Kind
 }
 
 func cacheIntegrationResolver(opts CompileOptions) CompileOptions {
@@ -39,8 +39,8 @@ func cacheIntegrationResolver(opts CompileOptions) CompileOptions {
 		if integration.IntegrationID == uuid.Nil {
 			return IntegrationResolution{}, fmt.Errorf("resolver returned an empty integration ID")
 		}
-		if _, ok := integrationdefinition.Lookup(integration.IntegrationType); !ok {
-			return IntegrationResolution{}, fmt.Errorf("unknown integration type %q", integration.IntegrationType)
+		if _, ok := integrationdefinition.Lookup(integration.IntegrationKind); !ok {
+			return IntegrationResolution{}, fmt.Errorf("unknown integration type %q", integration.IntegrationKind)
 		}
 		cache[name] = integration
 		return integration, nil
@@ -63,7 +63,7 @@ func compileIntegrationTool(name string, source AgentConfigToolSource, opts Comp
 	if err != nil {
 		return ToolCompiled{}, issueOr(jsonPointer("tools", name), err)
 	}
-	definition, ok := toolcatalog.LookupIntegrationTool(integration.IntegrationType, operation)
+	definition, ok := toolcatalog.LookupIntegrationTool(integration.IntegrationKind, operation)
 	if !ok {
 		return ToolCompiled{}, issuef(jsonPointer("tools", name), "integration does not export operation %q", operation)
 	}
@@ -99,7 +99,7 @@ func compileIntegrationCapabilities(source AgentConfigSource, opts CompileOption
 		if err != nil {
 			return issueOr(jsonPointer(field, name), err)
 		}
-		definition, _ := integrationdefinition.Lookup(integration.IntegrationType)
+		definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
 		if definition.InteractionHandler == nil {
 			return issuef(jsonPointer(field, name), "integration does not export an interaction handler")
 		}

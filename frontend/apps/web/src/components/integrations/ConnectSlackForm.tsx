@@ -1,9 +1,9 @@
 import {
-  useCreateProjectIntegrationOAuthSetup,
-  useCreateProjectIntegrationSlackSetup,
+  useCreateIntegrationOAuthSetup,
+  useCreateIntegrationSlackSetup,
   useOmnaraClient,
 } from '@omnara/react'
-import type { IntegrationOAuthSetup, ProjectIntegration } from '@omnara/sdk'
+import type { Integration,IntegrationOAuthSetup } from '@omnara/sdk'
 import { createFormHook, createFormHookContexts, formOptions } from '@tanstack/react-form'
 import { type ReactNode, useState } from 'react'
 
@@ -23,11 +23,11 @@ import {
   slackAppNameMaxLength,
   slackConnectionFormValid,
 } from './ConnectSlackFormState'
-import { projectIntegrationFormError } from './projectIntegrationFormState'
-import { ProjectIntegrationNameField } from './ProjectIntegrationNameField'
-import { ProjectIntegrationSetupGroup } from './ProjectIntegrationSetupGroup'
+import { integrationFormError } from './integrationFormState'
+import { IntegrationNameField } from './IntegrationNameField'
+import { IntegrationSetupGroup } from './IntegrationSetupGroup'
 import { SlackAppIconField } from './SlackAppIconField'
-import { useProjectIntegrationDraft } from './useProjectIntegrationDraft'
+import { useIntegrationDraft } from './useIntegrationDraft'
 import { useSlackAuthorization } from './useSlackAuthorization'
 
 const { fieldContext, formContext } = createFormHookContexts()
@@ -52,8 +52,8 @@ const slackSetupForm = formOptions({
 interface SlackConnectionProps {
   orgId: string
   projectId: string
-  integration?: ProjectIntegration
-  onConnected?: (integration: ProjectIntegration) => void
+  integration?: Integration
+  onConnected?: (integration: Integration) => void
   onCancel?: () => void
   footerAction?: ReactNode
 }
@@ -66,14 +66,14 @@ export function ConnectSlackForm({
   onCancel,
   footerAction,
 }: SlackConnectionProps) {
-  const { integration, name, setName, ensureIntegration } = useProjectIntegrationDraft(
+  const { integration, name, setName, ensureIntegration } = useIntegrationDraft(
     orgId,
     projectId,
     'slack_thread',
     existing,
   )
-  const createOAuthSetup = useCreateProjectIntegrationOAuthSetup(orgId, projectId)
-  const createSlackSetup = useCreateProjectIntegrationSlackSetup(orgId, projectId)
+  const createOAuthSetup = useCreateIntegrationOAuthSetup(orgId, projectId)
+  const createSlackSetup = useCreateIntegrationSlackSetup(orgId, projectId)
   const reconnect = Boolean(integration?.provider_tenant_id)
   const [existingAppSelected, setExistingAppSelected] = useState(false)
   const existingApp = reconnect || existingAppSelected
@@ -85,7 +85,7 @@ export function ConnectSlackForm({
       if (!slackSetupValid(existingApp, value)) return
       setError('')
       await startSetup(value).catch((cause: unknown) => {
-        setError(projectIntegrationFormError(cause, 'Could not start integration setup'))
+        setError(integrationFormError(cause, 'Could not start integration setup'))
       })
     },
   })
@@ -157,16 +157,16 @@ export function ConnectSlackForm({
                 <form.Subscribe selector={(state) => state.isSubmitting}>
                   {(isSubmitting) => (
                     <fieldset disabled={isSubmitting}>
-                      <ProjectIntegrationSetupGroup
+                      <IntegrationSetupGroup
                         title="Name in Omnara"
                         hint="A permanent name for this integration in your project."
                       >
-                        <ProjectIntegrationNameField
+                        <IntegrationNameField
                           name={name}
                           onChange={setName}
                           saved={integration}
                         />
-                      </ProjectIntegrationSetupGroup>
+                      </IntegrationSetupGroup>
                     </fieldset>
                   )}
                 </form.Subscribe>
@@ -224,7 +224,7 @@ const SlackSetupFields = withForm({
   render: function Render({ form, reconnect, existingApp, children }) {
     return (
       <>
-        <ProjectIntegrationSetupGroup
+        <IntegrationSetupGroup
           title="Slack app"
           hint={
             reconnect
@@ -279,8 +279,8 @@ const SlackSetupFields = withForm({
               </form.Field>
             </>
           )}
-        </ProjectIntegrationSetupGroup>
-        <ProjectIntegrationSetupGroup
+        </IntegrationSetupGroup>
+        <IntegrationSetupGroup
           title="Credentials"
           hint={
             existingApp
@@ -349,7 +349,7 @@ const SlackSetupFields = withForm({
               )}
             </form.Field>
           )}
-        </ProjectIntegrationSetupGroup>
+        </IntegrationSetupGroup>
         {existingApp && <SlackAppUrls />}
       </>
     )
@@ -367,7 +367,7 @@ function SlackAppUrls() {
   const client = useOmnaraClient()
   const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
   return (
-    <ProjectIntegrationSetupGroup
+    <IntegrationSetupGroup
       title="In Slack"
       hint="Configure these URLs in your Slack app before authorizing."
     >
@@ -382,7 +382,7 @@ function SlackAppUrls() {
           Interactivity: <code>{apiOrigin}/api/integrations/slack/actions</code>
         </p>
       </div>
-    </ProjectIntegrationSetupGroup>
+    </IntegrationSetupGroup>
   )
 }
 

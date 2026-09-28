@@ -1,18 +1,18 @@
-import type { IntegrationType } from '@omnara/sdk'
+import type { IntegrationKind } from '@omnara/sdk'
 
 import { cn } from '@/lib/utils'
 
 import { integrationCatalog } from './integrationDefinitions'
 
 export function IntegrationIcon({
-  integrationType,
+  integrationKind,
   className,
 }: {
-  integrationType: IntegrationType
+  integrationKind: IntegrationKind
   className?: string
 }) {
   const integration = integrationCatalog.find(
-    (integration) => integration.integrationType === integrationType,
+    (integration) => integration.integrationKind === integrationKind,
   )
   if (!integration) return null
   const darkLogo = 'darkLogo' in integration ? integration.darkLogo : undefined

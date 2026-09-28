@@ -49,7 +49,7 @@ func testRepository() Repository {
 
 const testRepositoryListing = `{"total_count":1,
 	"repositories":[{"id":789,"name":"repo.name_1-2","owner":{"login":"octo-org"}}]}`
-const testPullJSON = `{"id":7,"number":42,"head":{"sha":"commit"},"base":{"repo":{"id":789}}}`
+const testPullJSON = `{"id":7,"node_id":"PR_7","number":42,"head":{"sha":"commit"},"base":{"repo":{"id":789}}}`
 
 func preparationJSON(r *http.Request) string {
 	if r.Method != http.MethodGet {

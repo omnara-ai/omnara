@@ -67,7 +67,7 @@ func (p InteractionPresenter) DismissCanceled(
 }
 
 type interactionAccess struct {
-	integrationSetup integrationstore.ProjectIntegrationRecord
+	integrationSetup integrationstore.IntegrationRecord
 	credential       secretstore.SecretPayloadRecord
 	destination      executionstore.InteractionDestination
 }
@@ -75,12 +75,12 @@ type interactionAccess struct {
 func (p InteractionPresenter) access(
 	ctx context.Context, projectID uuid.UUID, destination executionstore.InteractionDestination,
 ) (interactionAccess, error) {
-	integrationSetup, err := p.Store.Integrations().GetProjectIntegration(ctx, projectID, destination.IntegrationID)
+	integrationSetup, err := p.Store.Integrations().GetIntegration(ctx, projectID, destination.IntegrationID)
 	if err != nil {
 		return interactionAccess{}, err
 	}
-	if integrationSetup.State != integrationstore.ProjectIntegrationStateActive ||
-		integrationSetup.IntegrationType != destination.IntegrationType {
+	if integrationSetup.State != integrationstore.IntegrationStateActive ||
+		integrationSetup.IntegrationKind != destination.IntegrationKind {
 		return interactionAccess{}, storeerr.ErrUnauthorized
 	}
 	switch integrationSetup.Provider {
@@ -89,7 +89,7 @@ func (p InteractionPresenter) access(
 	default:
 		return interactionAccess{}, storeerr.ErrUnauthorized
 	}
-	kind, err := integrationstore.ProjectIntegrationCredentialKind(integrationSetup.Provider)
+	kind, err := integrationstore.IntegrationCredentialKind(integrationSetup.Provider)
 	if err != nil {
 		return interactionAccess{}, err
 	}
@@ -117,11 +117,11 @@ func (p InteractionPresenter) recheck(
 		return err
 	}
 	current, err := p.Store.Integrations().
-		GetProjectIntegration(ctx, access.integrationSetup.ProjectID, access.integrationSetup.ID)
+		GetIntegration(ctx, access.integrationSetup.ProjectID, access.integrationSetup.ID)
 	if err != nil {
 		return err
 	}
-	if current.State != integrationstore.ProjectIntegrationStateActive ||
+	if current.State != integrationstore.IntegrationStateActive ||
 		current.SetupRevision != access.integrationSetup.SetupRevision {
 		return storeerr.ErrUnauthorized
 	}
@@ -158,7 +158,7 @@ func (a interactionAccess) slackTarget(ctx context.Context, client *http.Client)
 }
 
 func DiscordInteractionScope(destination executionstore.InteractionDestination) (discord.Scope, error) {
-	if integrationdefinition.ProviderForType(destination.IntegrationType) != integrationdefinition.ProviderDiscord {
+	if integrationdefinition.ProviderForKind(destination.IntegrationKind) != integrationdefinition.ProviderDiscord {
 		return discord.Scope{}, storeerr.ErrUnauthorized
 	}
 	scope, err := integrationdefinition.ParseConversation(

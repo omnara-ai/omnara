@@ -15,11 +15,12 @@ import (
 )
 
 type InboxLaunchSlot struct {
-	Files       []InboxPlannedFile                         `json:"files,omitempty"`
-	Selection   integrationstore.InboxIntegrationSelection `json:"selection"`
-	AgentID     uuid.UUID                                  `json:"agent_id"`
-	Launch      InboxLaunchPlan                            `json:"launch"`
-	ArtifactIDs []uuid.UUID                                `json:"artifact_ids,omitempty"`
+	InitialInput *LaunchInitialInput                        `json:"-"`
+	Files        []InboxPlannedFile                         `json:"-"`
+	Selection    integrationstore.InboxIntegrationSelection `json:"selection"`
+	AgentID      uuid.UUID                                  `json:"agent_id"`
+	Launch       InboxLaunchPlan                            `json:"launch"`
+	ArtifactIDs  []uuid.UUID                                `json:"artifact_ids,omitempty"`
 }
 
 type InboxLaunchPrincipal struct {
@@ -33,16 +34,15 @@ type InboxLaunchPlan struct {
 	DerivedBaseConfigID uuid.UUID                                            `json:"derived_base_config_id"`
 	LaunchedBy          InboxLaunchPrincipal                                 `json:"launched_by"`
 	IdempotencyKey      string                                               `json:"idempotency_key"`
-	InitialInput        *LaunchInitialInput                                  `json:"initial_input"`
 	Subscriptions       []integrationstore.IntegrationSubscriptionAttachment `json:"subscriptions"`
 }
 
-func (p InboxLaunchPlan) launchInput(projectID uuid.UUID) LaunchAgentInput {
+func (p InboxLaunchPlan) launchInput(projectID uuid.UUID, initial *LaunchInitialInput) LaunchAgentInput {
 	return LaunchAgentInput{
 		ProjectID: projectID, ProfileID: p.ProfileID, AgentConfigID: p.AgentConfigID,
 		DerivedBaseConfigID: p.DerivedBaseConfigID,
 		LaunchedBy:          identitystore.PrincipalRecord{Type: p.LaunchedBy.Type, ID: p.LaunchedBy.ID},
-		IdempotencyKey:      p.IdempotencyKey, InitialInput: p.InitialInput, Subscriptions: p.Subscriptions,
+		IdempotencyKey:      p.IdempotencyKey, InitialInput: initial, Subscriptions: p.Subscriptions,
 	}
 }
 
@@ -90,7 +90,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	resources, err := launchIntegrationIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID))
+	resources, err := launchIntegrationIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID, slot.InitialInput))
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -138,7 +138,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	scheduled := locked.Source == integrationstore.IntegrationInboxSourceScheduled
 	if scheduled {
-		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, locked.IntegrationID)
+		integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, locked.IntegrationID)
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
@@ -146,12 +146,12 @@ func (s *Store) admitInboxLaunchSlotOnce(
 			return LaunchAgentResult{}, err
 		}
 	}
-	launch := slot.Launch.launchInput(lease.ProjectID)
+	launch := slot.Launch.launchInput(lease.ProjectID, slot.InitialInput)
 	launch.admission = &launchAdmission{
 		Scheduled:     scheduled,
 		AgentID:       slot.AgentID,
 		IntegrationID: selection.IntegrationID,
-		SelectionSlot: selection.Slot,
+		LaunchKey:     selection.Slot,
 		Artifacts:     artifacts,
 	}
 	txNotifications := s.newTxNotifications()
@@ -193,7 +193,16 @@ func decodeInboxLaunchSlot(
 		slot.Launch.DerivedBaseConfigID == uuid.Nil || slot.Launch.IdempotencyKey == "" {
 		return fail("inbox launch requires profile, derived and base config identities and an idempotency key")
 	}
-	launch, err := validateLaunchAgentInput(slot.Launch.launchInput(receipt.ProjectID))
+	message, err := inboxMessage(receipt)
+	if err != nil {
+		return slot, err
+	}
+	content, files, err := message.RecipientContent(slot.ArtifactIDs)
+	if err != nil {
+		return slot, err
+	}
+	slot.Files, slot.InitialInput = files, message.initialInput(content)
+	launch, err := validateLaunchAgentInput(slot.Launch.launchInput(receipt.ProjectID, slot.InitialInput))
 	if err != nil {
 		return slot, err
 	}
@@ -201,7 +210,7 @@ func decodeInboxLaunchSlot(
 	if err != nil {
 		return slot, err
 	}
-	if slot.Launch.InitialInput == nil || initial.Origin == nil || initial.Actor == nil ||
+	if slot.InitialInput == nil || initial.Origin == nil || initial.Actor == nil ||
 		initial.Origin.IntegrationID != selection.IntegrationID || initial.Origin.Address != selection.Address {
 		return fail("inbox launch requires initial content, actor and origin matching its frozen selection")
 	}
@@ -212,7 +221,7 @@ func validateInboxLaunchArtifacts(
 	slot InboxLaunchSlot,
 	artifacts []artifactstore.PreparedArtifact,
 ) ([]artifactstore.PreparedArtifact, error) {
-	_, blocks, err := prepareLaunchInitialInput(LaunchAgentInput{InitialInput: slot.Launch.InitialInput})
+	_, blocks, err := prepareLaunchInitialInput(LaunchAgentInput{InitialInput: slot.InitialInput})
 	if err != nil {
 		return nil, err
 	}

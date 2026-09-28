@@ -71,7 +71,7 @@ func TestAgentIntegrationConversationStateIsolationAndLifecycle(t *testing.T) {
 	first := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
 	second := integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:3.4"}
 	require.NoError(t, f.assign(f.integrationID, first))
-	otherIntegration := f.addIntegration(t, "second-context", integrationstore.ProjectIntegrationSettings{})
+	otherIntegration := f.addIntegration(t, "second-context", integrationstore.IntegrationSettings(`{}`))
 	require.NoError(t, f.assign(otherIntegration.ID, second))
 	for _, test := range []struct {
 		project, agent, integration uuid.UUID
@@ -91,7 +91,7 @@ func TestAgentIntegrationConversationStateIsolationAndLifecycle(t *testing.T) {
 	execution := executionstore.New(f.pool, executionstore.Config{})
 	_, _, err := execution.ArchiveAgent(f.ctx, f.project, f.agentID, identitystore.NewUserPrincipal(f.user))
 	require.NoError(t, err)
-	f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+	f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
 	got, found, err := f.store.GetAgentIntegrationConversation(f.ctx, f.project, f.agentID, f.integrationID)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -99,7 +99,7 @@ func TestAgentIntegrationConversationStateIsolationAndLifecycle(t *testing.T) {
 	count, err := f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.Zero(t, count, "conversation state is retained without a chooser deadline")
-	require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integrationID))
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID))
 	count, err = f.store.CleanupIntegrationStates(f.ctx, integrationstore.IntegrationProfileChoiceMinRetention, 100)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
@@ -187,12 +187,12 @@ func TestAgentIntegrationConversationAssignmentRequiresLiveOwners(t *testing.T) 
 				_, _, err := execution.ArchiveAgent(f.ctx, f.project, f.agentID, identitystore.NewUserPrincipal(f.user))
 				require.NoError(t, err)
 			case "disconnected":
-				_, err := f.store.DisconnectProjectIntegration(f.ctx, integrationstore.DisconnectProjectIntegrationInput{
+				_, err := f.store.DisconnectIntegration(f.ctx, integrationstore.DisconnectIntegrationInput{
 					ProjectID: f.project, IntegrationID: f.integrationID,
 				})
 				require.NoError(t, err)
 			case "deleted":
-				require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integrationID))
+				require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integrationID))
 			}
 			tx := integrationdb.BeginTx(t, f.ctx, f.pool)
 			err := f.store.AssignAgentIntegrationConversationTx(f.ctx, tx, projectID, agentID, integrationID,

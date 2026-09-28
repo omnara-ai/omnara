@@ -78,9 +78,9 @@ func resolvedDefinition(
 	if !ok || integration.IntegrationID != integrationID {
 		return integrationdefinition.Definition{}, fmt.Errorf("integration %q is unavailable", integrationID)
 	}
-	definition, ok := integrationdefinition.Lookup(integration.IntegrationType)
+	definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
 	if !ok {
-		return integrationdefinition.Definition{}, fmt.Errorf("unknown integration type %q", integration.IntegrationType)
+		return integrationdefinition.Definition{}, fmt.Errorf("unknown integration type %q", integration.IntegrationKind)
 	}
 	return definition, nil
 }
@@ -103,7 +103,7 @@ func PrepareIntegrationTools(
 			continue
 		}
 		_, operation, _ := toolcatalog.SplitIntegrationToolName(key)
-		metadata, ok := toolcatalog.LookupIntegrationTool(definition.IntegrationType, operation)
+		metadata, ok := toolcatalog.LookupIntegrationTool(definition.IntegrationKind, operation)
 		if !ok {
 			continue
 		}

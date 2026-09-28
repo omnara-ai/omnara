@@ -4,6 +4,7 @@ package integrationstore_test
 
 import (
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
 
@@ -19,18 +20,20 @@ import (
 
 func (f profileChoiceFixture) selectionPlan(t *testing.T, integrationID uuid.UUID, slot string) json.RawMessage {
 	t.Helper()
-	plan, err := json.Marshal(map[string]any{"chosen": map[string]any{
-		"selection": integrationstore.InboxIntegrationSelection{
-			IntegrationID: integrationID, Address: f.input.Address, Slot: slot,
-		},
-	}})
+	plan, err := json.Marshal(map[string]any{
+		"message": map[string]any{}, "recipients": map[string]any{"chosen": map[string]any{
+			"selection": integrationstore.InboxIntegrationSelection{
+				IntegrationID: integrationID, Address: f.input.Address, Slot: slot,
+			},
+		}},
+	})
 	require.NoError(t, err)
 	return plan
 }
 
 func TestIntegrationProfileChoiceUnplannedHandoffReservesConversation(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"pending", "processing"} {
+	for _, state := range []string{"queued", "processing"} {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -49,26 +52,26 @@ func TestIntegrationProfileChoiceUnplannedHandoffReservesConversation(t *testing
 			require.NoError(t, err)
 			require.False(t, created)
 			require.Equal(t, choice.ID, reused.ID)
-			require.Equal(t, "support", reused.SelectedKey)
+			require.Equal(t, f.input.Options[0].Key, reused.SelectedKey)
 			var reservation *integrationstore.IntegrationSelectionReservationError
 			err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
 				func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					if err := work.CheckNoUnsettledIntegrationSelection(f.ctx, f.input.Address); err != nil {
 						return err
 					}
-					return work.FreezePlan(f.ctx, json.RawMessage(`{}`))
+					return work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`))
 				})
 			require.ErrorAs(t, err, &reservation)
 			require.Equal(t, decided.ID, reservation.ReceiptID)
 			require.Equal(t, integrationstore.IntegrationInboxState(state), reservation.State)
 			require.Nil(t, f.read(t, late.ID).Plan, "raw follow-up must retry instead of freezing an empty plan")
 
-			setup := integrationstore.SaveProjectIntegrationInput{
-				OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationType: f.integration.IntegrationType,
+			setup := integrationstore.SaveIntegrationInput{
+				OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind,
 				Settings: f.integration.Settings,
 			}
-			setup.Settings.Launcher.Slots = setup.Settings.Launcher.Slots[1:]
-			_, err = f.store.UpdateProjectIntegration(f.ctx, f.integration.ID, setup)
+			setup.Settings = integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
+			_, err = f.store.UpdateIntegration(f.ctx, f.integration.ID, setup)
 			require.NoError(t, err)
 			plan := f.selectionPlan(t, f.integration.ID, "review")
 			err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
@@ -125,7 +128,7 @@ func TestIntegrationProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, made, "a frozen pending plan also owns this integration's menu")
 	require.Equal(t, choice.ID, retained.ID)
-	f.exec(t, `UPDATE integration_inbox SET available_at=now() WHERE id=$1`, decided.ID)
+	f.exec(t, `UPDATE integration_inbox SET next_attempt_at=now() WHERE id=$1`, decided.ID)
 	decided = f.claim(t)
 	err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
@@ -196,7 +199,7 @@ func TestIntegrationProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, "support", retained.SelectedKey)
+	require.Equal(t, f.input.Options[0].Key, retained.SelectedKey)
 }
 
 func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing.T) {
@@ -245,9 +248,9 @@ func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t 
 			require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))
 			require.NoError(
 				t,
-				dbsqlc.New(tx).LockProjectIntegrationLifecycleShared(
+				dbsqlc.New(tx).LockIntegrationLifecycleShared(
 					f.ctx,
-					dbsqlc.LockProjectIntegrationLifecycleSharedParams{IntegrationID: f.integrationID},
+					dbsqlc.LockIntegrationLifecycleSharedParams{IntegrationID: f.integrationID},
 				),
 			)
 			require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, f.integrationID, f.input.Address))
@@ -255,7 +258,7 @@ func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t 
 				[]lifecyclelock.AgentRef{{ProjectID: f.project, AgentID: launch.Agent.ID}}))
 			target, err := f.store.EnsureConversationTargetTx(f.ctx, tx, integrationstore.EnsureConversationTargetInput{
 				ProjectID: f.project, AgentID: launch.Agent.ID, IntegrationID: f.integrationID,
-				Address: f.input.Address, SelectionSlot: "support",
+				Address: f.input.Address, LaunchKey: "support",
 			})
 			require.NoError(t, err)
 			if tc.retired {
@@ -293,12 +296,12 @@ func TestIntegrationProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	f := newProfileChoiceFixture(t)
 	choice := f.menu(t)
 	click := f.chooseInput(t, choice, "support")
-	setup := integrationstore.SaveProjectIntegrationInput{
-		OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationType: f.integration.IntegrationType,
+	setup := integrationstore.SaveIntegrationInput{
+		OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind,
 		Settings: f.integration.Settings,
 	}
-	setup.Settings.Launcher.Slots[0].AgentProfileID = &f.input.Options[1].ProfileID
-	_, err := f.store.UpdateProjectIntegration(f.ctx, f.integration.ID, setup)
+	setup.Settings = integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
+	_, err := f.store.UpdateIntegration(f.ctx, f.integration.ID, setup)
 	require.NoError(t, err)
 	wrongMenu := click
 	wrongMenu.MessageID = "forged"
@@ -329,8 +332,7 @@ func TestIntegrationProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 	require.Equal(t, expired, replay)
 	newInput := f.input
 	newInput.SourceKey = "new-after-edit"
-	newInput.Options = append([]integrationstore.IntegrationProfileChoiceOption(nil), f.input.Options...)
-	newInput.Options[0].ProfileID = f.input.Options[1].ProfileID
+	newInput.Options = []integrationstore.IntegrationProfileChoiceOption{f.input.Options[1]}
 	fresh, created, err := f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), newInput)
 	require.NoError(t, err)
 	require.True(t, created)
@@ -344,7 +346,7 @@ func TestIntegrationProfileChoiceStaleOfferedProfileExpiresMenu(t *testing.T) {
 
 func TestIntegrationProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"pending", "processing", "failed", "completed", "deleted"} {
+	for _, state := range []string{"queued", "processing", "failed", "completed", "deleted"} {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -354,7 +356,7 @@ func TestIntegrationProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.
 			require.Empty(t, choice.MessageID)
 			late := f.receipt(t, "later-message", f.input.Payload)
 			switch state {
-			case "pending":
+			case "queued":
 				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					return work.Retry(f.ctx, time.Hour, "retry menu publication")
 				})
@@ -364,7 +366,7 @@ func TestIntegrationProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.
 				})
 			case "completed", "deleted":
 				f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+					if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 						return err
 					}
 					return work.Complete(f.ctx)
@@ -377,7 +379,7 @@ func TestIntegrationProfileChoiceUnpublishedMenuFollowsOwnerRecovery(t *testing.
 			input.SourceKey = "later-message"
 			fresh, created, err := f.store.EnsureIntegrationProfileChoice(f.ctx, late.Lease(), input)
 			require.NoError(t, err)
-			canPublish := state == "pending" || state == "processing"
+			canPublish := state == "queued" || state == "processing"
 			require.Equal(t, !canPublish, created, "only recoverable unpublished menus hold new sources")
 			if canPublish {
 				require.Equal(t, choice, fresh)
@@ -398,7 +400,7 @@ func TestIntegrationProfileChoicePublishedMenuSurvivesOwnerCompletion(t *testing
 	f := newProfileChoiceFixture(t)
 	choice := f.menu(t)
 	f.mutate(t, f.source, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+		if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 			return err
 		}
 		return work.Complete(f.ctx)
@@ -449,7 +451,7 @@ func TestIntegrationProfileChoiceExplicitExpiryPreservesAcceptedWork(t *testing.
 
 func TestIntegrationProfileChoiceInboxRetentionProtectsOldSource(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"pending", "processing", "completed", "failed"} {
+	for _, state := range []string{"queued", "processing", "completed", "failed"} {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -460,7 +462,7 @@ func TestIntegrationProfileChoiceInboxRetentionProtectsOldSource(t *testing.T) {
 			_, err = f.store.ChooseIntegrationProfile(f.ctx, f.chooseInput(t, choice, "support"))
 			require.NoError(t, err)
 			receipt := f.decidedReceipt(t, choice.ID)
-			if state != "pending" {
+			if state != "queued" {
 				receipt = f.claim(t)
 			}
 			if state == "completed" || state == "failed" {
@@ -468,7 +470,7 @@ func TestIntegrationProfileChoiceInboxRetentionProtectsOldSource(t *testing.T) {
 					if state == "failed" {
 						return work.Fail(f.ctx, "failed before planning")
 					}
-					if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+					if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 						return err
 					}
 					return work.Complete(f.ctx)
@@ -493,7 +495,7 @@ func TestIntegrationProfileChoiceInboxRetentionProtectsOldSource(t *testing.T) {
 				require.NoError(t, err)
 				require.Zero(t, count)
 			}
-			if state == "pending" || state == "processing" {
+			if state == "queued" || state == "processing" {
 				return
 			}
 			f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '8 days' WHERE id=$1`, receipt.ID)

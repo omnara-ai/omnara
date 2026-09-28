@@ -206,15 +206,15 @@ func TestCommentRequests(t *testing.T) {
 	if err != nil || comment.ID != 99 || comment.HTMLURL == "" {
 		t.Fatalf("discussion receipt = %+v, err = %v", comment, err)
 	}
-	args := InlineCommentArgs{
+	args := ReviewCommentArgs{
 		Body: "inline", CommitID: strings.Repeat("a", 40), Path: "dir/a b#?%.go", Line: 10, Side: "RIGHT",
 	}
-	if _, err := client.CreateInlineComment(t.Context(), testScope(), args); err != nil {
+	if _, err := client.CreateReviewComment(t.Context(), testScope(), args); err != nil {
 		t.Fatal(err)
 	}
 	start := 8
 	args.StartLine, args.StartSide = &start, "RIGHT"
-	if _, err := client.CreateInlineComment(t.Context(), testScope(), args); err != nil {
+	if _, err := client.CreateReviewComment(t.Context(), testScope(), args); err != nil {
 		t.Fatal(err)
 	}
 	if len(received) != 3 || len(received[0]) != 1 || len(received[1]) != 5 || len(received[2]) != 7 ||
@@ -223,25 +223,25 @@ func TestCommentRequests(t *testing.T) {
 	}
 }
 
-func TestInlineValidationBeforeIO(t *testing.T) {
+func TestReviewCommentValidationBeforeIO(t *testing.T) {
 	var calls atomic.Int32
 	client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) { calls.Add(1) })
-	for _, change := range []func(*InlineCommentArgs){
-		func(a *InlineCommentArgs) { a.Body = " " },
-		func(a *InlineCommentArgs) { a.Body = strings.Repeat("x", CommentMaxBytes+1) },
-		func(a *InlineCommentArgs) { a.Body = string([]byte{0xff}) },
-		func(a *InlineCommentArgs) { a.CommitID = "" },
-		func(a *InlineCommentArgs) { a.Path = "" },
-		func(a *InlineCommentArgs) { a.Line = 0 },
-		func(a *InlineCommentArgs) { a.Side = "right" },
-		func(a *InlineCommentArgs) { n := 1; a.StartLine = &n },
-		func(a *InlineCommentArgs) { a.StartSide = "RIGHT" },
-		func(a *InlineCommentArgs) { n := -1; a.StartLine, a.StartSide = &n, "RIGHT" },
-		func(a *InlineCommentArgs) { n := 5; a.StartLine, a.StartSide = &n, "RIGHT" },
+	for _, change := range []func(*ReviewCommentArgs){
+		func(a *ReviewCommentArgs) { a.Body = " " },
+		func(a *ReviewCommentArgs) { a.Body = strings.Repeat("x", CommentMaxBytes+1) },
+		func(a *ReviewCommentArgs) { a.Body = string([]byte{0xff}) },
+		func(a *ReviewCommentArgs) { a.CommitID = "" },
+		func(a *ReviewCommentArgs) { a.Path = "" },
+		func(a *ReviewCommentArgs) { a.Line = 0 },
+		func(a *ReviewCommentArgs) { a.Side = "right" },
+		func(a *ReviewCommentArgs) { n := 1; a.StartLine = &n },
+		func(a *ReviewCommentArgs) { a.StartSide = "RIGHT" },
+		func(a *ReviewCommentArgs) { n := -1; a.StartLine, a.StartSide = &n, "RIGHT" },
+		func(a *ReviewCommentArgs) { n := 5; a.StartLine, a.StartSide = &n, "RIGHT" },
 	} {
-		args := InlineCommentArgs{Body: "body", CommitID: "sha", Path: "file", Line: 5, Side: "RIGHT"}
+		args := ReviewCommentArgs{Body: "body", CommitID: "sha", Path: "file", Line: 5, Side: "RIGHT"}
 		change(&args)
-		if _, err := client.CreateInlineComment(t.Context(), testScope(), args); err == nil {
+		if _, err := client.CreateReviewComment(t.Context(), testScope(), args); err == nil {
 			t.Fatal("accepted invalid inline args")
 		}
 	}
@@ -310,7 +310,7 @@ func TestReplyChecksScopeAndNormalizesRoot(t *testing.T) {
 	}
 }
 
-func TestInlineCommentValidationFailureGuidesCorrection(t *testing.T) {
+func TestReviewCommentValidationFailureGuidesCorrection(t *testing.T) {
 	var posts atomic.Int32
 	client, _ := testClient(t, withPreparedPull(func(w http.ResponseWriter, r *http.Request) {
 		posts.Add(1)
@@ -318,7 +318,7 @@ func TestInlineCommentValidationFailureGuidesCorrection(t *testing.T) {
 		fmt.Fprint(w, `{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment",`+
 			`"field":"line","code":"invalid","message":"private-comment installation-token"}]}`)
 	}))
-	_, err := client.CreateInlineComment(t.Context(), testScope(), InlineCommentArgs{
+	_, err := client.CreateReviewComment(t.Context(), testScope(), ReviewCommentArgs{
 		Body: "comment", CommitID: "commit", Path: "file.go", Line: 5, Side: "RIGHT",
 	})
 	apiErr := requireAPIError(t, err, PermanentFailure)

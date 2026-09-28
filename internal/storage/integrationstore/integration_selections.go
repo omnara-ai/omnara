@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -87,6 +88,15 @@ func (w *IntegrationInboxLeaseTx) reserveIntegrationSelections(ctx context.Conte
 	if err != nil {
 		return err
 	}
+	// Only a scheduler-accepted receipt can reserve the scheduled launch key;
+	// provider payloads and selected profile choices do not confer that authority.
+	if w.record.Source != IntegrationInboxSourceScheduled {
+		for _, slots := range identities {
+			if slots["scheduled"] {
+				return storeerr.ErrUnauthorized
+			}
+		}
+	}
 	if err := lockInboxSelectionConversations(
 		ctx,
 		w.tx,
@@ -99,24 +109,27 @@ func (w *IntegrationInboxLeaseTx) reserveIntegrationSelections(ctx context.Conte
 	if len(identities) == 0 && w.record.Source != IntegrationInboxSourceScheduled {
 		return nil
 	}
-	integration, err := getProjectIntegration(ctx, w.q, w.record.ProjectID, w.record.IntegrationID)
+	integration, err := getIntegration(ctx, w.q, w.record.ProjectID, w.record.IntegrationID)
 	if err != nil {
 		return fmt.Errorf("load selected integration: %w", err)
 	}
-	if integration.State != ProjectIntegrationStateActive {
+	if integration.State != IntegrationStateActive {
 		return storeerr.ErrUnauthorized
 	}
 	if w.record.Source == IntegrationInboxSourceScheduled {
 		if err := w.record.ValidateScheduledPlan(integration, plan); err != nil {
 			return err
 		}
-	} else if integration.Settings.Launcher == nil {
-		return storeerr.ErrUnauthorized
+	} else {
+		definition, ok := integrationdefinition.Lookup(integration.IntegrationKind)
+		if !ok || definition.Launcher == nil {
+			return storeerr.ErrUnauthorized
+		}
 	}
 	// Lookup in separate statements after acquiring the gate, so a waiter sees
 	// the previous planner's committed reservation at READ COMMITTED.
 	for identity := range identities {
-		if len(w.record.Events) == 0 {
+		if w.record.Source != IntegrationInboxSourceChoice {
 			if err := w.checkUnplannedIntegrationProfileChoice(ctx, identity.Address); err != nil {
 				return err
 			}

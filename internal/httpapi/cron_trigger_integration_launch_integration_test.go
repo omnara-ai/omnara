@@ -21,7 +21,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 	profile := createPublicHTTPAgent(t, handler, project, "scheduled-profile", project.AdminToken)
 	profileID := testutil.RequireType[string](t, profile["id"])
 	integration := createSlackHTTPIntegration(t, ctx, project, "A123", "T123", "Scheduled integration")
-	integrationID, err := publicid.Encode(publicid.KindProjectIntegration, integration.ID)
+	integrationID, err := publicid.Encode(publicid.KindIntegration, integration.ID)
 	require.NoError(t, err)
 	settings := map[string]any{
 		"agent_profile_id": profileID, "channel_id": "C123",
@@ -35,7 +35,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		"timezone": "America/Los_Angeles",
 	}
 	path, headers := project.ProjectPath+"/cron-triggers", authHeaders(project.AdminToken)
-	requestJSONWithHeaders(t, handler, http.MethodPost, path, projectIntegrationHTTPJSON(t, map[string]any{
+	requestJSONWithHeaders(t, handler, http.MethodPost, path, integrationHTTPJSON(t, map[string]any{
 		"name": "Missing task", "cron": "0 9 * * *", "target": map[string]any{"type": "profile", "agent_profile_id": profileID},
 	}), "", http.StatusBadRequest, headers)
 	unsafeSettings := map[string]any{}
@@ -43,7 +43,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		unsafeSettings[name] = value
 	}
 	unsafeSettings["message_template"] = "Run\x00"
-	requestJSONWithHeaders(t, handler, http.MethodPost, path, projectIntegrationHTTPJSON(t, map[string]any{
+	requestJSONWithHeaders(t, handler, http.MethodPost, path, integrationHTTPJSON(t, map[string]any{
 		"name": "Unsafe integration task", "cron": "0 9 * * *",
 		"target": map[string]any{"type": "integration", "integration_id": integrationID, "settings": unsafeSettings},
 	}), "", http.StatusBadRequest, headers)
@@ -52,7 +52,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"integration-cron",
 		http.StatusCreated,
 		headers,
@@ -66,7 +66,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"integration-cron",
 		http.StatusOK,
 		headers,
@@ -103,7 +103,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		path+"/"+id,
-		projectIntegrationHTTPJSON(t, map[string]any{"target": target}),
+		integrationHTTPJSON(t, map[string]any{"target": target}),
 		"",
 		http.StatusOK,
 		headers,
@@ -112,12 +112,12 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 	for _, channel := range []string{"", "D123", "bad"} {
 		settings["channel_id"] = channel
 		requestJSONWithHeaders(t, handler, http.MethodPatch, path+"/"+id,
-			projectIntegrationHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
+			integrationHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
 	}
 	settings["channel_id"] = "C123"
 	settings["guild_id"] = "123"
 	requestJSONWithHeaders(t, handler, http.MethodPatch, path+"/"+id,
-		projectIntegrationHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
+		integrationHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
 	delete(settings, "guild_id")
 	settings["opening_message_template"] = strings.Repeat("🚀", 2001)
 	requestJSONWithHeaders(
@@ -125,7 +125,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		path+"/"+id,
-		projectIntegrationHTTPJSON(t, map[string]any{"target": target}),
+		integrationHTTPJSON(t, map[string]any{"target": target}),
 		"",
 		http.StatusBadRequest,
 		headers,
@@ -135,15 +135,15 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 	} {
 		settings["opening_message_template"] = opening
 		requestJSONWithHeaders(t, handler, http.MethodPatch, path+"/"+id,
-			projectIntegrationHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
+			integrationHTTPJSON(t, map[string]any{"target": target}), "", http.StatusBadRequest, headers)
 	}
 	unchanged := requestJSONWithHeaders(t, handler, http.MethodGet, path+"/"+id, "", "", http.StatusOK, headers)
 	require.Equal(t, updated["target"], unchanged["target"])
 	settings["opening_message_template"] = "Daily"
-	other := projectIntegrationHTTPSecondProject(t, handler, project)
+	other := integrationHTTPSecondProject(t, handler, project)
 	foreignProfile := createPublicHTTPAgent(t, handler, other, "foreign-profile", other.AdminToken)
 	foreignIntegration := createSlackHTTPIntegration(t, ctx, other, "A999", "T999", "Foreign integration")
-	foreignIntegrationID, err := publicid.Encode(publicid.KindProjectIntegration, foreignIntegration.ID)
+	foreignIntegrationID, err := publicid.Encode(publicid.KindIntegration, foreignIntegration.ID)
 	require.NoError(t, err)
 	target["integration_id"] = foreignIntegrationID
 	body["name"] = "Foreign integration schedule"
@@ -152,7 +152,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusNotFound,
 		headers,
@@ -162,7 +162,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		path+"/"+id,
-		projectIntegrationHTTPJSON(t, map[string]any{"target": target}),
+		integrationHTTPJSON(t, map[string]any{"target": target}),
 		"",
 		http.StatusBadRequest,
 		headers,
@@ -175,7 +175,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, body),
+		integrationHTTPJSON(t, body),
 		"",
 		http.StatusCreated,
 		headers,
@@ -185,7 +185,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		path+"/"+id,
-		projectIntegrationHTTPJSON(t, map[string]any{"target": target}),
+		integrationHTTPJSON(t, map[string]any{"target": target}),
 		"",
 		http.StatusOK,
 		headers,
@@ -206,7 +206,7 @@ func TestCronTriggerIntegrationHTTP(t *testing.T) {
 	last := testutil.RequireType[map[string]any](t, got["last_run"])
 	require.Equal(t, "failed", last["state"])
 	require.Equal(t, "Scheduled integration action failed.", last["failure_message"])
-	require.NotContains(t, projectIntegrationHTTPJSON(t, last), "private provider error")
+	require.NotContains(t, integrationHTTPJSON(t, last), "private provider error")
 	require.Nil(t, got["failure_report"])
 	requestJSONWithHeaders(
 		t,

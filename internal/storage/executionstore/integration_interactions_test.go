@@ -17,7 +17,7 @@ import (
 func TestIntegrationInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	t.Parallel()
 	destination := InteractionDestination{
-		IntegrationType:     integrationdefinition.SlackThread,
+		IntegrationKind:     integrationdefinition.SlackThread,
 		HandlerKey:          "chat",
 		IntegrationID:       uuid.New(),
 		IntegrationTargetID: uuid.New(),
@@ -41,9 +41,9 @@ func TestIntegrationInteractionSnapshotAndReceiptBounds(t *testing.T) {
 	for _, change := range []func(*InteractionDestination){
 		func(d *InteractionDestination) { d.IntegrationID = uuid.Nil },
 		func(d *InteractionDestination) { d.HandlerKey = "chat__alias" },
-		func(d *InteractionDestination) { d.IntegrationType = integrationdefinition.GitHubPR },
-		func(d *InteractionDestination) { d.IntegrationType = "slack_unregistered" },
-		func(d *InteractionDestination) { d.IntegrationType = "" },
+		func(d *InteractionDestination) { d.IntegrationKind = integrationdefinition.GitHubPR },
+		func(d *InteractionDestination) { d.IntegrationKind = "slack_unregistered" },
+		func(d *InteractionDestination) { d.IntegrationKind = "" },
 		func(d *InteractionDestination) { d.Address.Ref = "not-a-thread" },
 		func(d *InteractionDestination) { d.Address.Kind = "unknown" },
 	} {

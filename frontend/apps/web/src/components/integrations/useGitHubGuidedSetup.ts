@@ -1,13 +1,13 @@
 import {
-  useConfigureProjectIntegration,
-  useCreateProjectIntegrationGitHubSetup,
-  useInspectProjectIntegrationGitHubInstallations,
+  useConfigureIntegration,
+  useCreateIntegrationGitHubSetup,
+  useInspectIntegrationGitHubInstallations,
 } from '@omnara/react'
-import type { CreateGitHubSetupRequest, GitHubInstallations, ProjectIntegration } from '@omnara/sdk'
+import type { CreateGitHubSetupRequest, GitHubInstallations, Integration } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
-import { projectIntegrationFormError } from './projectIntegrationFormState'
-import type { useProjectIntegrationSetupState } from './useProjectIntegrationSetupState'
+import { integrationFormError } from './integrationFormState'
+import type { useIntegrationSetupState } from './useIntegrationSetupState'
 
 export interface GitHubInspection {
   result: GitHubInstallations
@@ -24,10 +24,10 @@ export function useGitHubGuidedSetup({
 }: {
   orgId: string
   projectId: string
-  ensureIntegration: () => Promise<ProjectIntegration>
-  session: ReturnType<typeof useProjectIntegrationSetupState>
+  ensureIntegration: () => Promise<Integration>
+  session: ReturnType<typeof useIntegrationSetupState>
   installationHint: string
-  onConnected: (integration: ProjectIntegration) => void
+  onConnected: (integration: Integration) => void
 }) {
   const { run, setError } = session
   const secretId = session.savedSecret || session.selectedSecret
@@ -36,9 +36,9 @@ export function useGitHubGuidedSetup({
   const [organization, setOrganization] = useState('')
   const [inspection, setInspection] = useState<GitHubInspection>()
   const [installationId, setInstallationId] = useState(installationHint)
-  const start = useCreateProjectIntegrationGitHubSetup(orgId, projectId)
-  const inspect = useInspectProjectIntegrationGitHubInstallations(orgId, projectId)
-  const configure = useConfigureProjectIntegration(orgId, projectId)
+  const start = useCreateIntegrationGitHubSetup(orgId, projectId)
+  const inspect = useInspectIntegrationGitHubInstallations(orgId, projectId)
+  const configure = useConfigureIntegration(orgId, projectId)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -83,7 +83,7 @@ export function useGitHubGuidedSetup({
         form.submit()
         form.remove()
       },
-      (cause) => projectIntegrationFormError(cause, 'Could not start GitHub registration.'),
+      (cause) => integrationFormError(cause, 'Could not start GitHub registration.'),
     )
   }
 
@@ -105,7 +105,7 @@ export function useGitHubGuidedSetup({
       },
       (cause) => {
         clearInspection()
-        return projectIntegrationFormError(cause, 'Could not check GitHub installations.')
+        return integrationFormError(cause, 'Could not check GitHub installations.')
       },
     )
   }
@@ -125,7 +125,7 @@ export function useGitHubGuidedSetup({
         })
         if (isMounted()) onConnected(saved)
       },
-      (cause) => projectIntegrationFormError(cause, 'Could not connect this GitHub installation.'),
+      (cause) => integrationFormError(cause, 'Could not connect this GitHub installation.'),
     )
   }
 

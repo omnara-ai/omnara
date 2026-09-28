@@ -1,14 +1,16 @@
 -- name: UpsertActorIdentity :one
-INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, created_at, updated_at)
+INSERT INTO actors(project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at)
 VALUES (
   sqlc.arg(project_id), sqlc.arg(provider), sqlc.narg(provider_tenant_id),
   sqlc.arg(provider_user_id), NULLIF(sqlc.arg(display_name)::text, ''),
-  transaction_timestamp(), transaction_timestamp()
+  sqlc.arg(metadata)::jsonb, transaction_timestamp(), transaction_timestamp()
 )
 ON CONFLICT (project_id, provider, provider_tenant_id, provider_user_id) DO UPDATE
 SET display_name = coalesce(excluded.display_name, actors.display_name),
+    metadata = actors.metadata || excluded.metadata,
     updated_at = excluded.updated_at
 WHERE coalesce(excluded.display_name, actors.display_name) IS DISTINCT FROM actors.display_name
+   OR actors.metadata || excluded.metadata IS DISTINCT FROM actors.metadata
 RETURNING id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at;
 
 -- name: PutActor :one

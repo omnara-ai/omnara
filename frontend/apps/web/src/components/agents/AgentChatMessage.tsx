@@ -29,12 +29,16 @@ function ActorLabel({
   if (actor == null) return null
 
   const displayName = actor.display_name?.trim()
-  const provider = {
-    omnara: 'Omnara',
-    integration: 'Integration',
-    slack: 'Slack',
-    external: 'External',
-  }[actor.provider]
+  const sourceLabel =
+    actor.provider === 'integration' ? (actor.metadata.source_label?.trim() ?? '') : ''
+  const provider =
+    sourceLabel === ''
+      ? {
+          omnara: 'Omnara',
+          integration: 'Integration',
+          external: 'External',
+        }[actor.provider]
+      : sourceLabel
   return (
     <MessageHeader>
       {displayName == null || displayName === '' ? actor.provider_user_id : displayName}

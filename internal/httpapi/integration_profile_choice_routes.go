@@ -28,7 +28,7 @@ func profileChoiceText(choice integrationstore.IntegrationProfileChoiceRecord) s
 
 func (s *Server) slackProfileChoiceAction(
 	w http.ResponseWriter, r *http.Request,
-	integration integrationstore.ProjectIntegrationRecord, envelope slack.ActionsEnvelope,
+	integration integrationstore.IntegrationRecord, envelope slack.ActionsEnvelope,
 ) bool {
 	matched := false
 	for _, action := range envelope.Actions {
@@ -69,7 +69,7 @@ func (s *Server) slackProfileChoiceAction(
 }
 
 func (s *Server) discordProfileChoiceAction(
-	ctx context.Context, integration integrationstore.ProjectIntegrationRecord, input discord.Interaction,
+	ctx context.Context, integration integrationstore.IntegrationRecord, input discord.Interaction,
 ) (discord.InteractionResponse, error) {
 	selection, err := discord.ProfileChoiceFromInteraction(input)
 	if err != nil || input.Message == nil || input.Message.Author.ID != integration.ProviderAccountRef ||
@@ -105,7 +105,7 @@ func unavailableChoiceError(err error) bool {
 }
 
 func (s *Server) dismissSlackProfileChoice(
-	ctx context.Context, integration integrationstore.ProjectIntegrationRecord,
+	ctx context.Context, integration integrationstore.IntegrationRecord,
 	choice integrationstore.IntegrationProfileChoiceRecord, text string,
 ) {
 	go func() {

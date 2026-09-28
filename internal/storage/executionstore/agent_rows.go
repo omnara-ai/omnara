@@ -18,7 +18,7 @@ func agentRecordFromInsertSQLC(row dbsqlc.InsertAgentRow) AgentRecord {
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -43,7 +43,7 @@ func agentRecordFromIdempotencySQLC(row dbsqlc.GetAgentByIdempotencyKeyRow) Agen
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -68,7 +68,7 @@ func agentRecordFromGetSQLC(row dbsqlc.GetAgentRow) AgentRecord {
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -88,7 +88,7 @@ func agentRecordFromProjectSQLC(row dbsqlc.GetAgentInProjectRow) AgentRecord {
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -113,7 +113,7 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -123,8 +123,8 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
-		Provider: integrationdefinition.ProviderForType(
-			integrationdefinition.Type(row.IntegrationTargetIntegrationType),
+		Provider: integrationdefinition.ProviderForKind(
+			integrationdefinition.Kind(row.IntegrationTargetIntegrationKind),
 		),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
 		ProviderRef:      row.IntegrationTargetProviderRef,
@@ -147,7 +147,7 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -157,8 +157,8 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
-		Provider: integrationdefinition.ProviderForType(
-			integrationdefinition.Type(row.IntegrationTargetIntegrationType),
+		Provider: integrationdefinition.ProviderForKind(
+			integrationdefinition.Kind(row.IntegrationTargetIntegrationKind),
 		),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
 		ProviderRef:      row.IntegrationTargetProviderRef,
@@ -183,7 +183,7 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.Name,
 		row.AgentProfileID,
 		row.CurrentConfigID,
-		row.IntegrationTargetID,
+		row.InteractionTargetID,
 		row.IdempotencyKey,
 		row.NextEventSequence,
 		row.CreatedAt,
@@ -193,8 +193,8 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 		row.SubagentKey,
 	)
 	record.IntegrationTarget = IntegrationTargetDisplay{
-		Provider: integrationdefinition.ProviderForType(
-			integrationdefinition.Type(row.IntegrationTargetIntegrationType),
+		Provider: integrationdefinition.ProviderForKind(
+			integrationdefinition.Kind(row.IntegrationTargetIntegrationKind),
 		),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
 		ProviderRef:      row.IntegrationTargetProviderRef,
@@ -216,7 +216,7 @@ func agentRecordFromSQLC(
 	name string,
 	agentProfileID *uuid.UUID,
 	currentConfigID uuid.UUID,
-	integrationTargetID *uuid.UUID,
+	interactionTargetID *uuid.UUID,
 	idempotencyKey string,
 	nextEventSequence int64,
 	createdAt time.Time,
@@ -233,7 +233,7 @@ func agentRecordFromSQLC(
 		State:               AgentState(state),
 		Name:                name,
 		CurrentConfigID:     currentConfigID,
-		IntegrationTargetID: storeutil.IDFromPtr(integrationTargetID),
+		InteractionTargetID: storeutil.IDFromPtr(interactionTargetID),
 		IdempotencyKey:      idempotencyKey,
 		NextEventSequence:   nextEventSequence,
 		CreatedAt:           createdAt,

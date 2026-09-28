@@ -73,9 +73,9 @@ func newThreadScheduleDefinition(provider string) *ScheduleDefinition {
 }
 
 func PrepareThreadSchedule(
-	integrationType Type, raw json.RawMessage, occurrence cronschedule.Occurrence,
+	integrationKind Kind, raw json.RawMessage, occurrence cronschedule.Occurrence,
 ) (ScheduledThreadLaunch, error) {
-	if _, err := ValidateScheduleSettings(integrationType, raw); err != nil {
+	if _, err := ValidateScheduleSettings(integrationKind, raw); err != nil {
 		return ScheduledThreadLaunch{}, err
 	}
 	data, err := occurrence.MessageData()

@@ -247,7 +247,7 @@ tools:
 	require.EqualValues(t, 3, requestCount.Load())
 	var integrations, subscriptions, targets int
 	require.NoError(t, env.db.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM project_integrations WHERE project_id=$1),
+  (SELECT count(*) FROM integrations WHERE project_id=$1),
   (SELECT count(*) FROM integration_subscriptions WHERE agent_id=$2),
   (SELECT count(*) FROM integration_targets WHERE agent_id=$2)`, projectUUID, agentUUID).
 		Scan(&integrations, &subscriptions, &targets))

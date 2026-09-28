@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
-	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -29,7 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
+func TestIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -37,19 +36,19 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	store := newSecretIntegrationStore(pool)
 	admin := createIntegrationProjectAdmin(t, ctx, store, "install-admin@example.com")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "install")
-	input := slackProjectIntegrationSetupInput(admin.ID, credentialID, "A_PROFILE", "T_SHARED")
+	input := slackIntegrationSetupInput(admin.ID, credentialID, "A_PROFILE", "T_SHARED")
 	input.OAuthFlowID = integrationOAuthFlowID(1)
-	input = prepareProjectIntegrationSetup(t, ctx, store, input)
-	pending, err := store.Integrations().GetProjectIntegration(ctx, input.ProjectID, input.IntegrationID)
-	if err != nil || pending.State != integrationstore.ProjectIntegrationStateDisconnected ||
+	input = prepareIntegrationSetup(t, ctx, store, input)
+	pending, err := store.Integrations().GetIntegration(ctx, input.ProjectID, input.IntegrationID)
+	if err != nil || pending.State != integrationstore.IntegrationStateDisconnected ||
 		pending.CredentialSecretID != uuid.Nil {
 		t.Fatalf("metadata-only integration = %+v, err=%v", pending, err)
 	}
-	integration, err := store.Integrations().ConfigureProjectIntegration(ctx, input)
+	integration, err := store.Integrations().ConfigureIntegration(ctx, input)
 	if err != nil {
 		t.Fatalf("configure integration: %v", err)
 	}
-	if integration.ID != pending.ID || integration.State != integrationstore.ProjectIntegrationStateActive ||
+	if integration.ID != pending.ID || integration.State != integrationstore.IntegrationStateActive ||
 		integration.CredentialSecretID != credentialID || integration.LastOAuthFlowID != input.OAuthFlowID ||
 		integration.SetupRevision != pending.SetupRevision+1 {
 		t.Fatalf("unexpected configured integration: %+v", integration)
@@ -60,28 +59,28 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	}
 	assertJSONRawEqual(t, integration.ProviderConfig, `{}`)
 	assertJSONRawEqual(t, integration.ProviderIdentity, `{"bot_user_id":"B_A_PROFILE"}`)
-	fixedInput := slackProjectIntegrationSetupInput(admin.ID, credentialID, "A_FIXED", "T_SHARED")
-	fixed := mustCreateProjectIntegration(t, ctx, store, fixedInput)
+	fixedInput := slackIntegrationSetupInput(admin.ID, credentialID, "A_FIXED", "T_SHARED")
+	fixed := mustCreateIntegration(t, ctx, store, fixedInput)
 	if fixed.CredentialSecretID != credentialID || fixed.ID == integration.ID {
 		t.Fatalf("unexpected independent integration: %+v", fixed)
 	}
 	for _, tc := range []struct {
 		name   string
-		mutate func(*integrationstore.ConfigureProjectIntegrationInput)
+		mutate func(*integrationstore.ConfigureIntegrationInput)
 	}{
-		{"missing tenant", func(v *integrationstore.ConfigureProjectIntegrationInput) { v.ProviderTenantID = "" }},
+		{"missing tenant", func(v *integrationstore.ConfigureIntegrationInput) { v.ProviderTenantID = "" }},
 		{
 			"missing credential",
-			func(v *integrationstore.ConfigureProjectIntegrationInput) { v.CredentialSecretID = uuid.Nil },
+			func(v *integrationstore.ConfigureIntegrationInput) { v.CredentialSecretID = uuid.Nil },
 		},
-		{"non-object identity", func(v *integrationstore.ConfigureProjectIntegrationInput) { v.ProviderIdentity = json.RawMessage(`[]`) }},
-		{"missing OAuth flow", func(v *integrationstore.ConfigureProjectIntegrationInput) { v.OAuthFlowID = uuid.Nil }},
+		{"non-object identity", func(v *integrationstore.ConfigureIntegrationInput) { v.ProviderIdentity = json.RawMessage(`[]`) }},
+		{"missing OAuth flow", func(v *integrationstore.ConfigureIntegrationInput) { v.OAuthFlowID = uuid.Nil }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			invalid := prepareProjectIntegrationSetup(t, ctx, store, fixedInput)
+			invalid := prepareIntegrationSetup(t, ctx, store, fixedInput)
 			tc.mutate(&invalid)
-			if _, err := store.Integrations().ConfigureProjectIntegration(
+			if _, err := store.Integrations().ConfigureIntegration(
 				ctx,
 				invalid,
 			); !errors.Is(err, storeerr.ErrInvalidRequest) {
@@ -100,12 +99,12 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	rotated.ProviderAgentDisplayName = "Omnara Prime"
 	rotated.ProviderMetadata = json.RawMessage(`{"team_name":"Renamed"}`)
 	rotated.OAuthFlowID = integrationOAuthFlowID(2)
-	updated, err := store.Integrations().ConfigureProjectIntegration(ctx, rotated)
+	updated, err := store.Integrations().ConfigureIntegration(ctx, rotated)
 	if err != nil {
 		t.Fatalf("rotate integration credentials: %v", err)
 	}
 	if updated.ID != integration.ID || updated.CredentialSecretID != rotated.CredentialSecretID ||
-		updated.State != integrationstore.ProjectIntegrationStateActive ||
+		updated.State != integrationstore.IntegrationStateActive ||
 		updated.ProviderAccountRef != integration.ProviderAccountRef ||
 		updated.ProviderAgentDisplayName != rotated.ProviderAgentDisplayName ||
 		updated.LastOAuthFlowID != rotated.OAuthFlowID ||
@@ -113,8 +112,8 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 		t.Fatalf("unexpected rotated integration: %+v", updated)
 	}
 	assertJSONRawEqual(t, updated.ProviderMetadata, `{"team_name":"Renamed"}`)
-	for _, replay := range []integrationstore.ConfigureProjectIntegrationInput{rotated, input} {
-		if _, err := store.Integrations().ConfigureProjectIntegration(ctx, replay); !errors.Is(err, storeerr.ErrConflict) {
+	for _, replay := range []integrationstore.ConfigureIntegrationInput{rotated, input} {
+		if _, err := store.Integrations().ConfigureIntegration(ctx, replay); !errors.Is(err, storeerr.ErrConflict) {
 			t.Fatalf("stale OAuth setup error = %v, want conflict", err)
 		}
 	}
@@ -123,29 +122,29 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	changedIdentity.ProviderAccountRef = "A_DIFFERENT"
 	changedIdentity.OAuthFlowID = uuid.Must(uuid.NewV7())
 	if _, err := store.Integrations().
-		ConfigureProjectIntegration(ctx, changedIdentity); !errors.Is(
+		ConfigureIntegration(ctx, changedIdentity); !errors.Is(
 		err,
 		storeerr.ErrInvalidRequest,
 	) {
 		t.Fatalf("provider identity replacement error = %v, want invalid request", err)
 	}
-	if applied, err := store.Integrations().DisconnectProjectIntegration(
+	if applied, err := store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID: updated.ProjectID, IntegrationID: updated.ID, ExpectedSetupRevision: &updated.SetupRevision,
 		},
 	); err != nil || !applied {
 		t.Fatalf("disconnect integration applied=%t, err=%v", applied, err)
 	}
-	disconnected, err := store.Integrations().GetProjectIntegration(ctx, updated.ProjectID, updated.ID)
-	if err != nil || disconnected.State != integrationstore.ProjectIntegrationStateDisconnected ||
+	disconnected, err := store.Integrations().GetIntegration(ctx, updated.ProjectID, updated.ID)
+	if err != nil || disconnected.State != integrationstore.IntegrationStateDisconnected ||
 		disconnected.LastOAuthFlowID != rotated.OAuthFlowID || disconnected.SetupRevision != updated.SetupRevision+1 {
 		t.Fatalf("unexpected disconnected integration: %+v, err=%v", disconnected, err)
 	}
-	reused := prepareProjectIntegrationSetup(t, ctx, store, fixedInput)
+	reused := prepareIntegrationSetup(t, ctx, store, fixedInput)
 	reused.OAuthFlowID = rotated.OAuthFlowID
 	if _, err := store.Integrations().
-		ConfigureProjectIntegration(ctx, reused); !errors.Is(
+		ConfigureIntegration(ctx, reused); !errors.Is(
 		err,
 		storeerr.ErrIntegrationOAuthFlowConsumed,
 	) {
@@ -160,8 +159,8 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	}
 	badCredential := fixedInput
 	badCredential.CredentialSecretID = orgSecret.ID
-	badCredential = prepareProjectIntegrationSetup(t, ctx, store, badCredential)
-	if _, err := store.Integrations().ConfigureProjectIntegration(
+	badCredential = prepareIntegrationSetup(t, ctx, store, badCredential)
+	if _, err := store.Integrations().ConfigureIntegration(
 		ctx,
 		badCredential,
 	); !errors.Is(err, storeerr.ErrNotFound) {
@@ -176,9 +175,9 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	}
 	badCredential = fixedInput
 	badCredential.CredentialSecretID = wrongKind.ID
-	badCredential = prepareProjectIntegrationSetup(t, ctx, store, badCredential)
+	badCredential = prepareIntegrationSetup(t, ctx, store, badCredential)
 	if _, err := store.Integrations().
-		ConfigureProjectIntegration(ctx, badCredential); !errors.Is(
+		ConfigureIntegration(ctx, badCredential); !errors.Is(
 		err,
 		storeerr.ErrInvalidRequest,
 	) {
@@ -186,7 +185,7 @@ func TestProjectIntegrationIdentityRotationAndOAuthReplay(t *testing.T) {
 	}
 }
 
-func TestProjectIntegrationAuthorizationAndIndependentIdentityAcrossProjects(t *testing.T) {
+func TestIntegrationAuthorizationAndIndependentIdentityAcrossProjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -203,26 +202,26 @@ func TestProjectIntegrationAuthorizationAndIndependentIdentityAcrossProjects(t *
 	if err != nil {
 		t.Fatalf("create integration outsider: %v", err)
 	}
-	unauthorized := slackProjectIntegrationSetupInput(
+	unauthorized := slackIntegrationSetupInput(
 		outsider.ID,
 		credentialID,
 		"A_UNAUTHORIZED",
 		"T_SCOPE",
 	)
-	unauthorized = prepareProjectIntegrationSetup(t, ctx, store, unauthorized)
-	if _, err := store.Integrations().ConfigureProjectIntegration(
+	unauthorized = prepareIntegrationSetup(t, ctx, store, unauthorized)
+	if _, err := store.Integrations().ConfigureIntegration(
 		ctx, unauthorized,
 	); !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("unauthorized installer error = %v, want ErrUnauthorized", err)
 	}
 
-	identity := slackProjectIntegrationSetupInput(
+	identity := slackIntegrationSetupInput(
 		admin.ID,
 		credentialID,
 		"A_GLOBAL_IDENTITY",
 		"T_SCOPE",
 	)
-	first := mustCreateProjectIntegration(t, ctx, store, identity)
+	first := mustCreateIntegration(t, ctx, store, identity)
 	if err := store.Execution().DeleteAgentProfile(ctx, testProjectID, profile.ID); err != nil {
 		t.Fatalf("integration setup should not own a profile: %v", err)
 	}
@@ -235,32 +234,32 @@ func TestProjectIntegrationAuthorizationAndIndependentIdentityAcrossProjects(t *
 	if err != nil {
 		t.Fatalf("create other integration project: %v", err)
 	}
-	otherIdentity := slackProjectIntegrationSetupInput(
+	otherIdentity := slackIntegrationSetupInput(
 		admin.ID,
 		createIntegrationCredential(t, ctx, store, otherProject.ID, admin.ID, "other-project"),
 		identity.ProviderAccountRef,
 		identity.ProviderTenantID,
 	)
 	otherIdentity.ProjectID = otherProject.ID
-	other := mustCreateProjectIntegration(t, ctx, store, otherIdentity)
+	other := mustCreateIntegration(t, ctx, store, otherIdentity)
 	if first.ID == other.ID || first.ProjectID == other.ProjectID ||
 		first.ProviderTenantID != other.ProviderTenantID || first.ProviderAccountRef != other.ProviderAccountRef {
 		t.Fatalf("same-bot integration ownership collapsed: first=%+v other=%+v", first, other)
 	}
 	if _, err := store.Integrations().
-		GetProjectIntegration(ctx, first.ProjectID, other.ID); !errors.Is(
+		GetIntegration(ctx, first.ProjectID, other.ID); !errors.Is(
 		err,
 		storeerr.ErrNotFound,
 	) {
 		t.Fatalf("cross-project integration read error = %v, want not found", err)
 	}
-	if _, err := store.Integrations().DisconnectProjectIntegration(ctx, integrationstore.DisconnectProjectIntegrationInput{
+	if _, err := store.Integrations().DisconnectIntegration(ctx, integrationstore.DisconnectIntegrationInput{
 		ProjectID: first.ProjectID, IntegrationID: first.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	unaffected, err := store.Integrations().GetProjectIntegration(ctx, other.ProjectID, other.ID)
-	if err != nil || unaffected.State != integrationstore.ProjectIntegrationStateActive ||
+	unaffected, err := store.Integrations().GetIntegration(ctx, other.ProjectID, other.ID)
+	if err != nil || unaffected.State != integrationstore.IntegrationStateActive ||
 		unaffected.SetupRevision != other.SetupRevision {
 		t.Fatalf("disconnect affected another project's same-bot integration: %+v, err=%v", unaffected, err)
 	}
@@ -279,14 +278,14 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 		store,
 		"target-agent-archive",
 	)
-	installInput := slackProjectIntegrationSetupInput(
+	installInput := slackIntegrationSetupInput(
 		admin.ID,
 		credentialID,
 		"A_TARGET_AGENT_ARCHIVE",
 		"T_TARGET_AGENT_ARCHIVE",
 	)
 
-	install := mustCreateProjectIntegration(t, ctx, store, installInput)
+	install := mustCreateIntegration(t, ctx, store, installInput)
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C_ARCHIVE:target"}
 
 	blockingTx := integrationdb.BeginTx(t, ctx, pool)
@@ -354,7 +353,7 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM integration_targets
-		 WHERE project_id = $1 AND integration_id = $2 AND provider_ref = $3`,
+		 WHERE project_id = $1 AND integration_id = $2 AND scope_ref = $3`,
 		testProjectID,
 		install.ID,
 		address.Ref,
@@ -366,7 +365,7 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 	}
 }
 
-func TestProjectIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
+func TestIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
 	t.Parallel()
 	const label = "target-wins"
 	ctx := context.Background()
@@ -379,14 +378,14 @@ func TestProjectIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
 		store,
 		"install-delete-"+label,
 	)
-	installInput := slackProjectIntegrationSetupInput(
+	installInput := slackIntegrationSetupInput(
 		admin.ID,
 		credentialID,
 		"A_TARGET_INSTALL_DELETE_"+label,
 		"T_TARGET_INSTALL_DELETE_"+label,
 	)
 
-	install := mustCreateProjectIntegration(t, ctx, store, installInput)
+	install := mustCreateIntegration(t, ctx, store, installInput)
 	lease := prepareIntegrationOrigin(t, ctx, store, agent.ID, install.ID,
 		integrationstore.ConversationAddress{Kind: "thread", Ref: "C_DELETE:" + label})
 
@@ -405,9 +404,9 @@ func TestProjectIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	deleteDone := integrationdb.RunAsyncError(func() error {
-		return store.Integrations().DeleteProjectIntegrationOnceForIntegration(ctx, testProjectID, install.ID)
+		return store.Integrations().DeleteIntegrationOnceForIntegration(ctx, testProjectID, install.ID)
 	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleExclusive", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleExclusive", 1)
 	if err := blockingTx.Commit(ctx); err != nil {
 		t.Fatalf("release project integration blocker: %v", err)
 	}
@@ -436,7 +435,7 @@ func TestProjectIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
 	}
 }
 
-func TestProjectIntegrationDeletionFreezesTargetAgents(t *testing.T) {
+func TestIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -445,7 +444,7 @@ func TestProjectIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	admin := createIntegrationProjectAdmin(t, ctx, store, "install-growth@example.com")
 	profile := createIntegrationTestProfile(t, ctx, store, "install-growth")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "install-growth")
-	install := mustCreateProjectIntegration(t, ctx, store, slackProjectIntegrationSetupInput(
+	install := mustCreateIntegration(t, ctx, store, slackIntegrationSetupInput(
 		admin.ID, credentialID, "A_GROWTH", "T_GROWTH",
 	))
 	firstAgent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "first-target-agent")
@@ -473,17 +472,17 @@ func TestProjectIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 		t.Fatalf("block existing target agent: %v", err)
 	}
 	deleteDone := integrationdb.RunAsyncError(func() error {
-		return store.Integrations().DeleteProjectIntegrationOnceForIntegration(ctx, testProjectID, install.ID)
+		return store.Integrations().DeleteIntegrationOnceForIntegration(ctx, testProjectID, install.ID)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	targetDone := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
 		return store.Execution().AdmitInboxInputSlot(ctx, lateLease, "recipient", nil)
 	})
-	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleShared", 1)
 
 	// Deleting one install must not block a different install or lock the late
 	// target's agent while waiting. Exercise both through normal admission paths.
-	otherInstall := mustCreateProjectIntegration(t, ctx, store, slackProjectIntegrationSetupInput(
+	otherInstall := mustCreateIntegration(t, ctx, store, slackIntegrationSetupInput(
 		admin.ID, credentialID, "A_OTHER", "T_GROWTH",
 	))
 	otherCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -513,7 +512,7 @@ func TestProjectIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	var activeTargets, selectedTargets int
 	if err := pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM integration_targets WHERE integration_id = $1 AND deleted_at IS NULL),
-		(SELECT count(*) FROM agents WHERE integration_target_id = $2)`,
+		(SELECT count(*) FROM agents WHERE interaction_target_id = $2)`,
 		install.ID, first.ID,
 	).Scan(&activeTargets, &selectedTargets); err != nil {
 		t.Fatalf("read deleted install state: %v", err)
@@ -526,7 +525,7 @@ func TestProjectIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	}
 }
 
-func TestProjectIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
+func TestIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 	t.Parallel()
 	for _, scope := range []string{"project", "organization"} {
 		t.Run(scope, func(t *testing.T) {
@@ -541,14 +540,14 @@ func TestProjectIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 				store,
 				"install-scope-delete-"+scope,
 			)
-			installInput := slackProjectIntegrationSetupInput(
+			installInput := slackIntegrationSetupInput(
 				admin.ID,
 				credentialID,
 				"A_INSTALL_SCOPE_DELETE_"+scope,
 				"T_INSTALL_SCOPE_DELETE_"+scope,
 			)
 
-			install := mustCreateProjectIntegration(t, ctx, store, installInput)
+			install := mustCreateIntegration(t, ctx, store, installInput)
 			targetOrigin, err := admitIntegrationOrigin(
 				t,
 				ctx,
@@ -564,7 +563,7 @@ func TestProjectIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 			var boundTargetID *uuid.UUID
 			if err := pool.QueryRow(
 				ctx,
-				`SELECT integration_target_id FROM agents WHERE project_id = $1 AND id = $2`,
+				`SELECT interaction_target_id FROM agents WHERE project_id = $1 AND id = $2`,
 				testProjectID,
 				agent.ID,
 			).Scan(&boundTargetID); err != nil {
@@ -579,21 +578,21 @@ func TestProjectIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 				t.Fatalf("build scope deletion actor: %v", err)
 			}
 			controlTx := integrationdb.BeginTx(t, ctx, pool)
-			if err := dbsqlc.New(controlTx).LockProjectIntegrationLifecycleExclusive(
+			if err := dbsqlc.New(controlTx).LockIntegrationLifecycleExclusive(
 				ctx,
-				dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: install.ID},
+				dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: install.ID},
 			); err != nil {
 				t.Fatalf("lock project integration for scope contention: %v", err)
 			}
 
 			installDeleteDone := integrationdb.RunAsyncError(func() error {
-				return store.Integrations().DeleteProjectIntegrationOnceForIntegration(
+				return store.Integrations().DeleteIntegrationOnceForIntegration(
 					context.Background(),
 					testProjectID,
 					install.ID,
 				)
 			})
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleExclusive", 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleExclusive", 1)
 
 			scopeDeleteDone := integrationdb.RunAsyncError(func() error {
 				if scope == "project" {
@@ -632,7 +631,7 @@ func TestProjectIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 			if err := pool.QueryRow(
 				ctx,
 				`SELECT
-				   (SELECT count(*)::integer FROM project_integrations
+				   (SELECT count(*)::integer FROM integrations
 				    WHERE project_id = $1 AND id = $2 AND deleted_at IS NULL),
 				   (SELECT count(*)::integer FROM integration_targets
 				    WHERE project_id = $1 AND id = $3 AND deleted_at IS NULL)`,
@@ -654,7 +653,7 @@ func TestProjectIntegrationDeletionSerializesWithScopeDeletion(t *testing.T) {
 	}
 }
 
-func TestDisconnectProjectIntegrationRequiresCurrentSetupRevision(t *testing.T) {
+func TestDisconnectIntegrationRequiresCurrentSetupRevision(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -662,10 +661,10 @@ func TestDisconnectProjectIntegrationRequiresCurrentSetupRevision(t *testing.T) 
 	store := newSecretIntegrationStore(pool)
 	admin := createIntegrationProjectAdmin(t, ctx, store, "disconnect-revision@example.com")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "disconnect-revision")
-	input := prepareProjectIntegrationSetup(t, ctx, store, slackProjectIntegrationSetupInput(
+	input := prepareIntegrationSetup(t, ctx, store, slackIntegrationSetupInput(
 		admin.ID, credentialID, "A_DISCONNECT_REVISION", "T_DISCONNECT_REVISION",
 	))
-	integration, err := store.Integrations().ConfigureProjectIntegration(ctx, input)
+	integration, err := store.Integrations().ConfigureIntegration(ctx, input)
 	if err != nil {
 		t.Fatalf("configure integration: %v", err)
 	}
@@ -673,41 +672,41 @@ func TestDisconnectProjectIntegrationRequiresCurrentSetupRevision(t *testing.T) 
 
 	input.ExpectedSetupRevision = integration.SetupRevision
 	input.OAuthFlowID = uuid.Must(uuid.NewV7())
-	integration, err = store.Integrations().ConfigureProjectIntegration(ctx, input)
+	integration, err = store.Integrations().ConfigureIntegration(ctx, input)
 	if err != nil {
 		t.Fatalf("reauthorize integration: %v", err)
 	}
-	applied, err := store.Integrations().DisconnectProjectIntegration(
+	applied, err := store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID: integration.ProjectID, IntegrationID: integration.ID, ExpectedSetupRevision: &staleRevision,
 		},
 	)
 	if err != nil || applied {
 		t.Fatalf("stale disconnect applied=%t, err=%v", applied, err)
 	}
-	current, err := store.Integrations().GetProjectIntegration(ctx, integration.ProjectID, integration.ID)
-	if err != nil || current.State != integrationstore.ProjectIntegrationStateActive ||
+	current, err := store.Integrations().GetIntegration(ctx, integration.ProjectID, integration.ID)
+	if err != nil || current.State != integrationstore.IntegrationStateActive ||
 		current.SetupRevision != integration.SetupRevision {
 		t.Fatalf("stale revocation changed reauthorized integration: %+v, err=%v", current, err)
 	}
-	applied, err = store.Integrations().DisconnectProjectIntegration(
+	applied, err = store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID: integration.ProjectID, IntegrationID: integration.ID, ExpectedSetupRevision: &integration.SetupRevision,
 		},
 	)
 	if err != nil || !applied {
 		t.Fatalf("current disconnect applied=%t, err=%v", applied, err)
 	}
-	current, err = store.Integrations().GetProjectIntegration(ctx, integration.ProjectID, integration.ID)
-	if err != nil || current.State != integrationstore.ProjectIntegrationStateDisconnected ||
+	current, err = store.Integrations().GetIntegration(ctx, integration.ProjectID, integration.ID)
+	if err != nil || current.State != integrationstore.IntegrationStateDisconnected ||
 		current.SetupRevision != integration.SetupRevision+1 {
 		t.Fatalf("disconnect did not advance setup revision: %+v, err=%v", current, err)
 	}
 }
 
-func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T) {
+func TestIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T) {
 	t.Parallel()
 	for _, changeSetup := range []bool{false, true} {
 		name := "settings edit preserves verified setup"
@@ -723,10 +722,10 @@ func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T)
 			admin := createIntegrationProjectAdmin(t, ctx, store, "integration-update-lock@example.com")
 			profile := createIntegrationTestProfile(t, ctx, store, "integration-update-lock")
 			credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "integration-update-lock")
-			input := prepareProjectIntegrationSetup(t, ctx, store, slackProjectIntegrationSetupInput(
+			input := prepareIntegrationSetup(t, ctx, store, slackIntegrationSetupInput(
 				admin.ID, credentialID, "A_UPDATE_LOCK", "T_UPDATE_LOCK",
 			))
-			integration, err := store.Integrations().ConfigureProjectIntegration(ctx, input)
+			integration, err := store.Integrations().ConfigureIntegration(ctx, input)
 			if err != nil {
 				t.Fatalf("configure integration: %v", err)
 			}
@@ -736,22 +735,22 @@ func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T)
 
 			blockingTx := integrationdb.BeginTx(t, ctx, pool)
 			q := dbsqlc.New(blockingTx)
-			if err := q.LockProjectIntegrationLifecycleExclusive(
+			if err := q.LockIntegrationLifecycleExclusive(
 				ctx,
-				dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: integration.ID},
+				dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: integration.ID},
 			); err != nil {
 				t.Fatalf("lock integration lifecycle: %v", err)
 			}
-			done := integrationdb.RunAsync(func() (integrationstore.ProjectIntegrationRecord, error) {
-				return store.Integrations().ConfigureProjectIntegration(ctx, input)
+			done := integrationdb.RunAsync(func() (integrationstore.IntegrationRecord, error) {
+				return store.Integrations().ConfigureIntegration(ctx, input)
 			})
-			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleExclusive", 1)
+			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleExclusive", 1)
 
 			settings := json.RawMessage(fmt.Sprintf(
 				`{"launcher":{"trigger":"mention","scope_kind":"workspace","scope_ref":"T_UPDATE_LOCK","slots":[{"key":"default","agent_profile_id":%q}]}}`,
 				profile.ID.String(),
 			))
-			edited, err := q.UpdateProjectIntegrationSettings(ctx, dbsqlc.UpdateProjectIntegrationSettingsParams{
+			edited, err := q.UpdateIntegrationSettings(ctx, dbsqlc.UpdateIntegrationSettingsParams{
 				ProjectID: integration.ProjectID, ID: integration.ID, Settings: settings,
 			})
 			if err != nil {
@@ -761,7 +760,7 @@ func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T)
 				t.Fatalf("settings edit changed setup or failed to advance updated_at: %+v", edited)
 			}
 			if changeSetup {
-				rows, err := q.DisconnectProjectIntegration(ctx, dbsqlc.DisconnectProjectIntegrationParams{
+				rows, err := q.DisconnectIntegration(ctx, dbsqlc.DisconnectIntegrationParams{
 					ProjectID: integration.ProjectID, ID: integration.ID, ExpectedSetupRevision: &integration.SetupRevision,
 				})
 				if err != nil || rows != 1 {
@@ -781,8 +780,8 @@ func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T)
 				if !errors.Is(result.Err, storeerr.ErrConflict) {
 					t.Fatalf("stale setup error=%v, want conflict", result.Err)
 				}
-				current, err := store.Integrations().GetProjectIntegration(ctx, integration.ProjectID, integration.ID)
-				if err != nil || current.State != integrationstore.ProjectIntegrationStateDisconnected ||
+				current, err := store.Integrations().GetIntegration(ctx, integration.ProjectID, integration.ID)
+				if err != nil || current.State != integrationstore.IntegrationStateDisconnected ||
 					current.SetupRevision != integration.SetupRevision+1 || current.LastOAuthFlowID != integration.LastOAuthFlowID {
 					t.Fatalf("stale setup changed disconnected integration: %+v, err=%v", current, err)
 				}
@@ -792,7 +791,7 @@ func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T)
 				t.Fatalf("configure after settings edit: %v", result.Err)
 			}
 			if result.Value.SetupRevision != integration.SetupRevision+1 || result.Value.LastOAuthFlowID != input.OAuthFlowID ||
-				result.Value.State != integrationstore.ProjectIntegrationStateActive || result.Value.UpdatedAt.Before(
+				result.Value.State != integrationstore.IntegrationStateActive || result.Value.UpdatedAt.Before(
 				releaseFloor,
 			) {
 				t.Fatalf("unexpected setup after lifecycle wait: %+v", result.Value)
@@ -806,7 +805,7 @@ func TestProjectIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T)
 	}
 }
 
-func TestIntegrationTargetProviderRefReusableAfterTargetDeletion(t *testing.T) {
+func TestIntegrationTargetScopeRefReusableAfterTargetDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -816,14 +815,14 @@ func TestIntegrationTargetProviderRefReusableAfterTargetDeletion(t *testing.T) {
 	profile := createIntegrationTestProfile(t, ctx, store, "target-reuse-profile")
 	fixedAgent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "target-reuse-agent")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "target-reuse")
-	input := slackProjectIntegrationSetupInput(
+	input := slackIntegrationSetupInput(
 		admin.ID,
 		credentialID,
 		"A_TARGET_REUSE",
 		"T_TARGET_REUSE",
 	)
 
-	install := mustCreateProjectIntegration(t, ctx, store, input)
+	install := mustCreateIntegration(t, ctx, store, input)
 
 	firstOrigin, err := admitIntegrationOrigin(
 		t,
@@ -877,10 +876,10 @@ func TestIntegrationActorIdentityAcrossIntegrationsAndConcurrency(t *testing.T) 
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "identity")
 	if _, err := executionstore.IntegrationUpsertActorIdentityTx(ctx, store.q, executionstore.UpsertActorIdentityInput{
 		ProjectID:      testProjectID,
-		Provider:       integrationstore.IntegrationProviderSlack,
+		Provider:       executionstore.ActorProviderIntegration,
 		ProviderUserID: "U_MISSING_TENANT",
 	}); err == nil {
-		t.Fatal("slack actor without a provider tenant succeeded")
+		t.Fatal("integration actor without a platform namespace succeeded")
 	}
 
 	testCases := []struct {
@@ -895,7 +894,7 @@ func TestIntegrationActorIdentityAcrossIntegrationsAndConcurrency(t *testing.T) 
 	producerIDs := make([]uuid.UUID, 0, len(testCases))
 	integrationIDs := make([]uuid.UUID, 0, len(testCases))
 	for index, testCase := range testCases {
-		install := mustCreateProjectIntegration(t, ctx, store, slackProjectIntegrationSetupInput(
+		install := mustCreateIntegration(t, ctx, store, slackIntegrationSetupInput(
 			admin.ID,
 			credentialID,
 			testCase.providerAccountRef,
@@ -927,21 +926,17 @@ func TestIntegrationActorIdentityAcrossIntegrationsAndConcurrency(t *testing.T) 
 		integrationIDs = append(integrationIDs, install.ID)
 		actor, err := store.Execution().GetActor(ctx, testProjectID, input.ActorID)
 		require.NoError(t, err)
-		integrationRef, err := publicid.Encode(publicid.KindProjectIntegration, install.ID)
-		require.NoError(t, err)
 		require.Equal(t, executionstore.ActorProviderIntegration, actor.Provider)
-		require.Equal(t, integrationRef, actor.ProviderTenantID)
+		require.Equal(t, "slack:"+testCase.providerTenantID, actor.ProviderTenantID)
 		require.Equal(t, "U_SHARED", actor.ProviderUserID)
+		require.JSONEq(t, `{"source_label":"Slack"}`, string(actor.Metadata))
 	}
-	if producerIDs[0] == producerIDs[1] {
-		t.Fatal("same sender must have separate attribution in independent configured integrations")
-	}
+	require.Equal(t, producerIDs[0], producerIDs[1], "the same workspace/user shares attribution across configured bots")
 	if producerIDs[0] == producerIDs[2] {
 		t.Fatal("same textual Slack user id collided across workspaces")
 	}
 
-	concurrentTenant, err := publicid.Encode(publicid.KindProjectIntegration, integrationIDs[0])
-	require.NoError(t, err)
+	const concurrentTenant = "slack:T_SHARED"
 	const concurrentCalls = 8
 	ids := make(chan uuid.UUID, concurrentCalls)
 	errs := make(chan error, concurrentCalls)
@@ -1031,11 +1026,23 @@ func TestIntegrationActorIdentityAcrossIntegrationsAndConcurrency(t *testing.T) 
 		)
 	}
 
-	require.NoError(t, store.Integrations().DeleteProjectIntegration(ctx, testOrgID, testProjectID, integrationIDs[0]))
+	require.NoError(t, store.Integrations().DeleteIntegration(ctx, testOrgID, testProjectID, integrationIDs[0]))
 	actor, err := store.Execution().GetActor(ctx, testProjectID, producerIDs[0])
 	require.NoError(t, err)
 	require.Equal(t, "U_SHARED", actor.ProviderUserID)
 	require.Equal(t, concurrentTenant, actor.ProviderTenantID)
+	require.JSONEq(t, `{"source_label":"Slack"}`, string(actor.Metadata))
+
+	recreated := mustCreateIntegration(t, ctx, store, slackIntegrationSetupInput(
+		admin.ID, credentialID, testCases[0].providerAccountRef, testCases[0].providerTenantID,
+	))
+	require.NotEqual(t, integrationIDs[0], recreated.ID)
+	origin, err := admitIntegrationOrigin(t, ctx, store, agent.ID, recreated.ID,
+		integrationstore.ConversationAddress{Kind: "dm", Ref: "D_IDENTITY_RECREATED"})
+	require.NoError(t, err)
+	input := mustCreateIntegrationInput(t, ctx, store, recreated, origin.IntegrationTarget,
+		"U_SHARED", "Ev-identity-recreated", "hello again")
+	require.Equal(t, producerIDs[0], input.ActorID, "integration recreation retains the historical actor")
 }
 
 func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
@@ -1048,14 +1055,14 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	profile := createIntegrationTestProfile(t, ctx, store, "input-profile")
 	agent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "input-fixed-agent")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "input")
-	installInput := slackProjectIntegrationSetupInput(
+	installInput := slackIntegrationSetupInput(
 		admin.ID,
 		credentialID,
 		"A_INPUT",
 		"T_INPUT",
 	)
 
-	install := mustCreateProjectIntegration(t, ctx, store, installInput)
+	install := mustCreateIntegration(t, ctx, store, installInput)
 	slot := inboxInputPlan(t, agent.ID, install, "Ev-first")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "dm", Ref: "D_FIRST"}
 	slot.Input.Actor.ProviderUserID = "U_SHARED"
@@ -1120,8 +1127,8 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load second target agent: %v", err)
 	}
-	if secondAgent.IntegrationTargetID != uuid.Nil {
-		t.Fatalf("origin without an authorized handler selected target %s", secondAgent.IntegrationTargetID)
+	if secondAgent.InteractionTargetID != uuid.Nil {
+		t.Fatalf("origin without an authorized handler selected target %s", secondAgent.InteractionTargetID)
 	}
 	replayed, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || replayed.AgentInput.ID != firstInput.ID {
@@ -1131,16 +1138,16 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load agent after input replay: %v", err)
 	}
-	if afterReplay.IntegrationTargetID != secondAgent.IntegrationTargetID {
-		t.Fatalf("replay changed interaction destination to %s", afterReplay.IntegrationTargetID)
+	if afterReplay.InteractionTargetID != secondAgent.InteractionTargetID {
+		t.Fatalf("replay changed interaction destination to %s", afterReplay.InteractionTargetID)
 	}
 
 	lateSlot := inboxInputPlan(t, agent.ID, install, "Ev-disabled-new")
 	lateSlot.Input.Origin.Address = slot.Input.Origin.Address
 	lateReceipt := freezeInboxInput(t, fixture, lateSlot, "disabled-new", time.Minute)
-	if _, err := store.Integrations().DisconnectProjectIntegration(
+	if _, err := store.Integrations().DisconnectIntegration(
 		ctx,
-		integrationstore.DisconnectProjectIntegrationInput{
+		integrationstore.DisconnectIntegrationInput{
 			ProjectID:             install.ProjectID,
 			IntegrationID:         install.ID,
 			ExpectedSetupRevision: &install.SetupRevision,
@@ -1187,14 +1194,14 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 				admin.ID,
 				"input-disable-race",
 			)
-			installInput := slackProjectIntegrationSetupInput(
+			installInput := slackIntegrationSetupInput(
 				admin.ID,
 				credentialID,
 				"A_INPUT_DISABLE_RACE",
 				"T_INPUT_DISABLE_RACE",
 			)
 
-			install := mustCreateProjectIntegration(t, ctx, store, installInput)
+			install := mustCreateIntegration(t, ctx, store, installInput)
 			targetOrigin, err := admitIntegrationOrigin(
 				t,
 				ctx,
@@ -1229,8 +1236,8 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 			idempotencyKey := "Ev-input-install-race"
 			slot := inboxInputPlan(t, agent.ID, install, idempotencyKey)
 			slot.Input.Origin.Address = integrationstore.ConversationAddress{
-				Kind: target.ProviderRefKind,
-				Ref:  target.ProviderRef,
+				Kind: target.ScopeKind,
+				Ref:  target.ScopeRef,
 			}
 			slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 			receipt := freezeInboxInput(
@@ -1246,15 +1253,15 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 			}
 			changeInstall := func() error {
 				if tc.deleteInstall {
-					return store.Integrations().DeleteProjectIntegrationOnceForIntegration(
+					return store.Integrations().DeleteIntegrationOnceForIntegration(
 						ctx,
 						testProjectID,
 						install.ID,
 					)
 				}
-				applied, err := store.Integrations().DisconnectProjectIntegration(
+				applied, err := store.Integrations().DisconnectIntegration(
 					ctx,
-					integrationstore.DisconnectProjectIntegrationInput{
+					integrationstore.DisconnectIntegrationInput{
 						ProjectID:             install.ProjectID,
 						IntegrationID:         install.ID,
 						ExpectedSetupRevision: &install.SetupRevision,
@@ -1271,12 +1278,12 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 				inputDone = integrationdb.RunAsync(createInput)
 				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 				changeDone = integrationdb.RunAsyncError(changeInstall)
-				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleExclusive", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleExclusive", 1)
 			} else if tc.deleteInstall {
 				changeDone = integrationdb.RunAsyncError(changeInstall)
 				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 				inputDone = integrationdb.RunAsync(createInput)
-				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockProjectIntegrationLifecycleShared", 1)
+				integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleShared", 1)
 			} else {
 				if err := changeInstall(); err != nil {
 					t.Fatalf("disconnect integration: %v", err)
@@ -1303,10 +1310,10 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 			var targetCleared, installDeleted, targetDeleted bool
 			if err := pool.QueryRow(ctx, `
 SELECT (SELECT count(*) FROM agent_inputs WHERE agent_id = $1 AND input_idempotency_key = $2),
-       agent.integration_target_id IS NULL, install.deleted_at IS NOT NULL, target.deleted_at IS NOT NULL
+       agent.interaction_target_id IS NULL, install.deleted_at IS NOT NULL, target.deleted_at IS NOT NULL
 FROM agents agent
 JOIN integration_targets target ON target.agent_id = agent.id AND target.id = $3
-JOIN project_integrations install ON install.id = target.integration_id
+JOIN integrations install ON install.id = target.integration_id
 WHERE agent.id = $1`, agent.ID, idempotencyKey, target.ID).Scan(
 				&inputCount, &targetCleared, &installDeleted, &targetDeleted,
 			); err != nil {
@@ -1336,14 +1343,14 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 	profile := createIntegrationTestProfile(t, ctx, store, "producer-profile")
 	agent := createIntegrationBoundAgent(t, ctx, store, profile, admin.ID, "producer-agent")
 	credentialID := createIntegrationCredential(t, ctx, store, testProjectID, admin.ID, "producer")
-	installInput := slackProjectIntegrationSetupInput(
+	installInput := slackIntegrationSetupInput(
 		admin.ID,
 		credentialID,
 		"A_PRODUCER",
 		"T_PRODUCER",
 	)
 
-	install := mustCreateProjectIntegration(t, ctx, store, installInput)
+	install := mustCreateIntegration(t, ctx, store, installInput)
 	targetOrigin, err := admitIntegrationOrigin(
 		t,
 		ctx,
@@ -1357,8 +1364,8 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 		t.Fatalf("create producer target: %v", err)
 	}
 	for _, actor := range []*executionstore.ActorParams{
-		{Provider: "slack", ProviderTenantID: install.ProviderTenantID, ProviderUserID: "U_PRODUCER"},
-		{Provider: "slack", ProviderTenantID: "T_OTHER", ProviderUserID: "U_OTHER"},
+		mustIntegrationActorParams(t, install, "U_PRODUCER"),
+		{Provider: executionstore.ActorProviderIntegration, ProviderTenantID: "slack:T_OTHER", ProviderUserID: "U_OTHER"},
 		{Provider: executionstore.ActorProviderExternal, ProviderUserID: "external-producer"},
 		mustOmnaraActorParams(t, admin.ID),
 	} {
@@ -1378,8 +1385,8 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 	}
 	slot := inboxInputPlan(t, agent.ID, install, "Ev-verified")
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{
-		Kind: target.ProviderRefKind,
-		Ref:  target.ProviderRef,
+		Kind: target.ScopeKind,
+		Ref:  target.ScopeRef,
 	}
 	fixture := integrationActivationFixture{ctx: ctx, store: store}
 	receipt := freezeInboxInput(t, fixture, slot, "verified", time.Minute)
@@ -1407,7 +1414,7 @@ func prepareIntegrationOrigin(
 	address integrationstore.ConversationAddress,
 ) integrationstore.IntegrationInboxLease {
 	t.Helper()
-	integration, err := store.Integrations().GetProjectIntegration(ctx, testProjectID, integrationID)
+	integration, err := store.Integrations().GetIntegration(ctx, testProjectID, integrationID)
 	if err != nil {
 		t.Fatalf("load origin integration: %v", err)
 	}
@@ -1551,11 +1558,11 @@ func createIntegrationCredential(
 	return secret.ID
 }
 
-func slackProjectIntegrationSetupInput(
+func slackIntegrationSetupInput(
 	installedByUserID, credentialSecretID uuid.UUID,
 	providerAccountRef, providerTenantID string,
-) integrationstore.ConfigureProjectIntegrationInput {
-	return integrationstore.ConfigureProjectIntegrationInput{
+) integrationstore.ConfigureIntegrationInput {
+	return integrationstore.ConfigureIntegrationInput{
 		OrgID:                    testOrgID,
 		ProjectID:                testProjectID,
 		InstalledByUserID:        installedByUserID,
@@ -1576,13 +1583,13 @@ func integrationOAuthFlowID(sequence int) uuid.UUID {
 	return uuid.MustParse(fmt.Sprintf("018f0000-0000-7000-8000-%012x", sequence))
 }
 
-func prepareProjectIntegrationSetup(t *testing.T, ctx context.Context, store *Store,
-	input integrationstore.ConfigureProjectIntegrationInput,
-) integrationstore.ConfigureProjectIntegrationInput {
+func prepareIntegrationSetup(t *testing.T, ctx context.Context, store *Store,
+	input integrationstore.ConfigureIntegrationInput,
+) integrationstore.ConfigureIntegrationInput {
 	t.Helper()
 	nameID := uuid.New()
-	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
-		OrgID: input.OrgID, ProjectID: input.ProjectID, IntegrationType: integrationdefinition.SlackThread,
+	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+		OrgID: input.OrgID, ProjectID: input.ProjectID, IntegrationKind: integrationdefinition.SlackThread,
 		Name: "int-" + base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(nameID[:]),
 	})
 	if err != nil {
@@ -1602,12 +1609,12 @@ func prepareProjectIntegrationSetup(t *testing.T, ctx context.Context, store *St
 	return input
 }
 
-func mustCreateProjectIntegration(
-	t *testing.T, ctx context.Context, store *Store, input integrationstore.ConfigureProjectIntegrationInput,
-) integrationstore.ProjectIntegrationRecord {
+func mustCreateIntegration(
+	t *testing.T, ctx context.Context, store *Store, input integrationstore.ConfigureIntegrationInput,
+) integrationstore.IntegrationRecord {
 	t.Helper()
-	input = prepareProjectIntegrationSetup(t, ctx, store, input)
-	integration, err := store.Integrations().ConfigureProjectIntegration(ctx, input)
+	input = prepareIntegrationSetup(t, ctx, store, input)
+	integration, err := store.Integrations().ConfigureIntegration(ctx, input)
 	if err != nil {
 		t.Fatalf("configure project integration: %v", err)
 	}
@@ -1618,15 +1625,15 @@ func mustCreateIntegrationInput(
 	t *testing.T,
 	ctx context.Context,
 	store *Store,
-	install integrationstore.ProjectIntegrationRecord,
+	install integrationstore.IntegrationRecord,
 	target integrationstore.IntegrationTargetRecord,
 	providerUserID, idempotencyKey, text string,
 ) executionstore.AgentInputRecord {
 	t.Helper()
 	slot := inboxInputPlan(t, target.AgentID, install, idempotencyKey)
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{
-		Kind: target.ProviderRefKind,
-		Ref:  target.ProviderRef,
+		Kind: target.ScopeKind,
+		Ref:  target.ScopeRef,
 	}
 	slot.Input.Actor.ProviderUserID = providerUserID
 	slot.Input.ContentBlocks = json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, text))

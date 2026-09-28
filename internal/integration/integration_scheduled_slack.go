@@ -13,7 +13,7 @@ import (
 
 func (p *SlackIntegrationInboxProvider) PublishScheduledRoot(
 	ctx context.Context,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	launch integrationdefinition.ScheduledThreadLaunch,
 	_ uuid.UUID,
 	authority func(context.Context) error,
@@ -48,7 +48,7 @@ func (p *SlackIntegrationInboxProvider) PublishScheduledRoot(
 
 func (p *SlackIntegrationInboxProvider) EnsureScheduledThread(
 	ctx context.Context,
-	_ integrationstore.ProjectIntegrationRecord,
+	_ integrationstore.IntegrationRecord,
 	_ integrationdefinition.Scope,
 	authority func(context.Context) error,
 ) error {

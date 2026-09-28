@@ -83,7 +83,7 @@ func TestResolveAgentConfigTools(t *testing.T) {
 	request(empty, other.AdminToken, http.StatusNotFound)
 }
 
-func TestResolveAgentConfigToolsWithProjectIntegration(t *testing.T) {
+func TestResolveAgentConfigToolsWithIntegration(t *testing.T) {
 	t.Parallel()
 	handler := newIntegrationServer(openIntegrationDB(t, t.Context()))
 	project := bootstrapPublicHTTPProject(t, handler, "preview-integration")
@@ -94,9 +94,9 @@ func TestResolveAgentConfigToolsWithProjectIntegration(t *testing.T) {
 	preview := func(scope publicHTTPProject, status int) map[string]any {
 		t.Helper()
 		return requestJSONWithHeaders(t, handler, http.MethodPost, scope.ProjectPath+"/agent-configs/tools",
-			projectIntegrationHTTPJSON(
+			integrationHTTPJSON(
 				t,
-				map[string]any{"source_format": "json", "source": projectIntegrationHTTPJSON(t, source)},
+				map[string]any{"source_format": "json", "source": integrationHTTPJSON(t, source)},
 			),
 			"", status, authHeaders(scope.AdminToken))
 	}
@@ -117,7 +117,7 @@ func TestResolveAgentConfigToolsWithProjectIntegration(t *testing.T) {
 	tools = toolsByName(preview(project, http.StatusOK))
 	require.Equal(t, false, tools[name]["enabled"])
 	require.Equal(t, "always_deny", testutil.RequireType[map[string]any](t, tools[name]["permission"])["mode"])
-	other := projectIntegrationHTTPSecondProject(t, handler, project)
+	other := integrationHTTPSecondProject(t, handler, project)
 	rejected := preview(other, http.StatusBadRequest)
-	require.Contains(t, projectIntegrationHTTPJSON(t, rejected), "/tools/"+name)
+	require.Contains(t, integrationHTTPJSON(t, rejected), "/tools/"+name)
 }

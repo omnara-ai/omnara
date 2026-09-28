@@ -22,10 +22,10 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 	toolCount := 0
 	for _, definition := range catalog.Data {
 		toolCount += len(definition.Capabilities.Tools)
-		t.Run(string(definition.IntegrationType), func(t *testing.T) {
+		t.Run(string(definition.IntegrationKind), func(t *testing.T) {
 			var destination json.RawMessage
 			var destinationFields []string
-			switch integrationdefinition.Type(definition.IntegrationType) {
+			switch integrationdefinition.Kind(definition.IntegrationKind) {
 			case integrationdefinition.SlackThread:
 				destination = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
 				destinationFields = []string{"channel_id", "thread_ts"}
@@ -36,7 +36,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 				destination = json.RawMessage(`{"repository_id":9007199254740993,"pull_request":42}`)
 				destinationFields = []string{"repository_id", "pull_request"}
 			default:
-				t.Fatalf("unexpected integration %q", definition.IntegrationType)
+				t.Fatalf("unexpected integration %q", definition.IntegrationKind)
 			}
 			for operation, tool := range definition.Capabilities.Tools {
 				require.NotEmpty(t, tool.Description)
@@ -50,13 +50,18 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(read, json.RawMessage(`{}`)))
 			require.Error(t, jsonschema.Validate(read, destination), "tools use their assigned conversation")
+			require.NotNil(t, definition.Capabilities.Settings)
+			settingsSchema, err := json.Marshal(definition.Capabilities.Settings.InputSchema)
+			require.NoError(t, err)
+			require.NoError(t, jsonschema.Validate(settingsSchema, json.RawMessage(`{}`)))
+			require.Error(t, jsonschema.Validate(settingsSchema, json.RawMessage(`{"launcher":{"slots":[]}}`)))
 			require.NotNil(t, definition.Capabilities.Subscription)
 			conversationSchema, err := json.Marshal(definition.Capabilities.Subscription.ConversationSchema)
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(conversationSchema, destination))
-			if integrationdefinition.Type(definition.IntegrationType) != integrationdefinition.GitHubPR {
+			if integrationdefinition.Kind(definition.IntegrationKind) != integrationdefinition.GitHubPR {
 				channel := "C123"
-				if integrationdefinition.Type(definition.IntegrationType) == integrationdefinition.DiscordThread {
+				if integrationdefinition.Kind(definition.IntegrationKind) == integrationdefinition.DiscordThread {
 					channel = "123"
 				}
 				require.NoError(t, jsonschema.Validate(conversationSchema,
@@ -69,7 +74,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			require.NoError(t, json.Unmarshal(capabilities, &serialized))
 			require.Equal(t, map[string]any{"conversation_schema": definition.Capabilities.Subscription.ConversationSchema},
 				serialized["subscription"])
-			if integrationdefinition.Type(definition.IntegrationType) == integrationdefinition.GitHubPR {
+			if integrationdefinition.Kind(definition.IntegrationKind) == integrationdefinition.GitHubPR {
 				require.Nil(t, definition.Capabilities.InteractionHandler)
 				require.Nil(t, definition.Capabilities.Schedule)
 				return
@@ -78,7 +83,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			scheduleSchema, err := json.Marshal(definition.Capabilities.Schedule.InputSchema)
 			require.NoError(t, err)
 			channel := "C123"
-			if integrationdefinition.Type(definition.IntegrationType) == integrationdefinition.DiscordThread {
+			if integrationdefinition.Kind(definition.IntegrationKind) == integrationdefinition.DiscordThread {
 				channel = "123"
 			}
 			settings, err := json.Marshal(map[string]string{

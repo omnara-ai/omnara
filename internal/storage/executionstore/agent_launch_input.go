@@ -35,7 +35,7 @@ type launchAdmission struct {
 	Scheduled     bool
 	AgentID       uuid.UUID
 	IntegrationID uuid.UUID
-	SelectionSlot string
+	LaunchKey string
 	Artifacts     []artifactstore.PreparedArtifact
 }
 
@@ -122,7 +122,7 @@ func (s *Store) insertLaunchInitialContentInputTx(
 			Address: origin.Address, DisplayName: origin.DisplayName,
 		}
 		if admission != nil {
-			targetInput.IntegrationID, targetInput.SelectionSlot = admission.IntegrationID, admission.SelectionSlot
+			targetInput.IntegrationID, targetInput.LaunchKey = admission.IntegrationID, admission.LaunchKey
 		}
 		result.IntegrationTarget, err = s.integrations.EnsureConversationTargetTx(ctx, tx, targetInput)
 		if err != nil {
@@ -135,12 +135,12 @@ func (s *Store) insertLaunchInitialContentInputTx(
 				return err
 			}
 		}
-		integration, err := s.integrations.GetProjectIntegrationByIDTx(ctx, tx, origin.IntegrationID)
+		integration, err := s.integrations.GetIntegrationByIDTx(ctx, tx, origin.IntegrationID)
 		if err != nil {
 			return err
 		}
 		if admission == nil || !admission.Scheduled {
-			if err := validateIntegrationInputActor(integration.ID, actor); err != nil {
+			if err := validateIntegrationInputActor(integration, actor); err != nil {
 				return err
 			}
 		}
@@ -162,17 +162,6 @@ func (s *Store) insertLaunchInitialContentInputTx(
 	created, err := createAgentContentInputTx(ctx, txNotifications, tx, q, agent, content, blocks)
 	if err != nil {
 		return err
-	}
-	if created.created && content.IntegrationTargetID != uuid.Nil {
-		if _, err := s.SelectInteractionDestinationForOriginTx(
-			ctx,
-			tx,
-			agent.ProjectID,
-			agent.ID,
-			content.IntegrationTargetID,
-		); err != nil {
-			return err
-		}
 	}
 	result.AgentInput, result.InputContentBlocks = created.agentInput, created.contentBlocks
 	return nil

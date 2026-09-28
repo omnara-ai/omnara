@@ -74,7 +74,6 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 	r := w.record
 	r.Payload = bytes.Clone(r.Payload)
-	r.Events = bytes.Clone(r.Events)
 	r.Plan = bytes.Clone(r.Plan)
 	if r.ClaimExpiresAt != nil {
 		v := *r.ClaimExpiresAt
@@ -135,7 +134,8 @@ func (w *IntegrationInboxLeaseTx) Retry(ctx context.Context, delay time.Duration
 	}
 	reason = boundedInboxError(reason)
 	rows, err := w.q.RetryIntegrationInboxReceipt(ctx, dbsqlc.RetryIntegrationInboxReceiptParams{
-		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
+		MaxAttempts: IntegrationInboxMaxAttempts,
+		ProjectID:   w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
 		DelayMilliseconds: delay.Milliseconds(), LastError: &reason,
 	})
 	return inboxLeaseMutation("retry inbox", rows, err)
@@ -219,9 +219,18 @@ func inboxObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
 }
 
 func inboxSlots(raw json.RawMessage) (map[string]json.RawMessage, error) {
-	slots, err := inboxObject(raw)
+	plan, err := inboxObject(raw)
 	if err != nil {
 		return nil, err
+	}
+	slots, err := inboxObject(plan["recipients"])
+	if err != nil {
+		return nil, err
+	}
+	if len(slots) != 0 {
+		if _, err := inboxObject(plan["message"]); err != nil {
+			return nil, err
+		}
 	}
 	for slot, value := range slots {
 		if strings.TrimSpace(slot) == "" || len(slot) > IntegrationInboxMaxReceiptKeyBytes {

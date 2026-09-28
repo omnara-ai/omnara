@@ -10,20 +10,18 @@ export const zIntegrationProfilesBody = z.object({
   profile_ids: z
     .array(schemas.zAgentProfileId)
     .max(16)
-    .describe(
-      'repeat for each offered profile; keeps existing-agent slots and other integration settings',
-    ),
+    .describe('repeat for each offered profile; preserves other integration settings'),
 })
 
 export async function runIntegrationProfilesUpdate(
   context: FlowContext<
-    z.output<typeof schemas.zGetProjectIntegrationPath>,
+    z.output<typeof schemas.zGetIntegrationPath>,
     z.output<typeof zIntegrationProfilesBody>
   >,
 ) {
   const { client, path, body, report } = context
-  const { data: integration } = await sdk.getProjectIntegration({ client, path })
-  await sdk.updateProjectIntegration({
+  const { data: integration } = await sdk.getIntegration({ client, path })
+  await sdk.updateIntegration({
     client,
     path,
     body: profileIntegrationProfileUpdate(integration, body.profile_ids),
@@ -47,69 +45,69 @@ export const integrationCommandGroups: CommandGroup[] = [
       op({
         verb: 'list',
         summary: 'List project integrations',
-        fn: sdk.listProjectIntegrations,
-        path: schemas.zListProjectIntegrationsPath,
-        query: schemas.zListProjectIntegrationsQuery,
-        format: formatTable(['id', 'name', 'integration_type', 'state']),
+        fn: sdk.listIntegrations,
+        path: schemas.zListIntegrationsPath,
+        query: schemas.zListIntegrationsQuery,
+        format: formatTable(['id', 'name', 'integration_kind', 'state']),
       }),
       op({
         verb: 'get',
         summary: 'Read integration setup and exported capabilities',
-        fn: sdk.getProjectIntegration,
-        path: schemas.zGetProjectIntegrationPath,
+        fn: sdk.getIntegration,
+        path: schemas.zGetIntegrationPath,
         format: formatRecord(),
       }),
       op({
         verb: 'create',
         summary: 'Create a disconnected integration and optional launcher',
-        fn: sdk.createProjectIntegration,
-        path: schemas.zCreateProjectIntegrationPath,
-        body: schemas.zCreateProjectIntegrationBody,
+        fn: sdk.createIntegration,
+        path: schemas.zCreateIntegrationPath,
+        body: schemas.zCreateIntegrationBody,
         format: formatRecord(),
       }),
       op({
         verb: 'update',
-        summary: 'Update launcher settings; integration name and implementation remain fixed',
-        fn: sdk.updateProjectIntegration,
-        path: schemas.zUpdateProjectIntegrationPath,
-        body: schemas.zUpdateProjectIntegrationBody,
+        summary: 'Replace integration settings; name and kind are immutable',
+        fn: sdk.updateIntegration,
+        path: schemas.zUpdateIntegrationPath,
+        body: schemas.zUpdateIntegrationBody,
         format: formatRecord(),
       }),
       op({
         verb: 'configure',
         summary:
           'Verify GitHub or Discord credentials for an integration; use integrations slack for Slack',
-        fn: sdk.configureProjectIntegration,
-        path: schemas.zConfigureProjectIntegrationPath,
-        body: schemas.zConfigureProjectIntegrationBody,
+        fn: sdk.configureIntegration,
+        path: schemas.zConfigureIntegrationPath,
+        body: schemas.zConfigureIntegrationBody,
         format: formatRecord(),
       }),
       flowOp({
         verb: 'slack',
         summary: 'Connect this integration to Slack through browser authorization',
-        path: schemas.zGetProjectIntegrationPath,
+        path: schemas.zGetIntegrationPath,
         body: zSlackBody,
         run: runSlackIntegration,
       }),
       flowOp({
         verb: 'profiles',
         summary: 'Edit offered Slack or Discord profiles',
-        path: schemas.zGetProjectIntegrationPath,
+        path: schemas.zGetIntegrationPath,
         body: zIntegrationProfilesBody,
         run: runIntegrationProfilesUpdate,
       }),
       op({
         verb: 'disconnect',
         summary: 'Stop provider access while retaining integration setup and agents',
-        fn: sdk.disconnectProjectIntegration,
-        path: schemas.zDisconnectProjectIntegrationPath,
+        fn: sdk.disconnectIntegration,
+        path: schemas.zDisconnectIntegrationPath,
         format: formatRecord(),
       }),
       op({
         verb: 'delete',
         summary: 'Delete integration setup and revoke its capabilities; retain agents',
-        fn: sdk.deleteProjectIntegration,
-        path: schemas.zDeleteProjectIntegrationPath,
+        fn: sdk.deleteIntegration,
+        path: schemas.zDeleteIntegrationPath,
         format: formatVoid('deleted'),
       }),
     ],

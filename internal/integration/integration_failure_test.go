@@ -22,7 +22,7 @@ type failedInboxProvider struct {
 
 func (p *failedInboxProvider) NotifyInboxFailure(
 	_ context.Context,
-	_ integrationstore.ProjectIntegrationRecord,
+	_ integrationstore.IntegrationRecord,
 	_ integrationstore.IntegrationInboxRecord,
 	message string,
 ) error {
@@ -109,14 +109,14 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 				State: integrationstore.IntegrationInboxFailed,
 			}
 			if scenario.planned {
-				plan := IntegrationInboxPlan{}
+				plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{}}
 				if !scenario.empty {
-					plan["a"] = IntegrationInboxSlot{
-						AgentID: uuid.New(), Input: &executionstore.CreateAgentContentInputInput{},
+					plan.Recipients["a"] = IntegrationInboxSlot{
+						AgentID:     uuid.New(),
 						ArtifactIDs: []uuid.UUID{files[0]},
 					}
-					plan["b"] = IntegrationInboxSlot{
-						AgentID: uuid.New(), Input: &executionstore.CreateAgentContentInputInput{},
+					plan.Recipients["b"] = IntegrationInboxSlot{
+						AgentID:     uuid.New(),
 						ArtifactIDs: []uuid.UUID{files[1]},
 					}
 				}
@@ -124,7 +124,7 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 				receipt.Plan, err = json.Marshal(plan)
 				require.NoError(t, err)
 			}
-			store := &integrationPlanStore{receipt: receipt, integrationSetup: integrationstore.ProjectIntegrationRecord{
+			store := &integrationPlanStore{receipt: receipt, integrationSetup: integrationstore.IntegrationRecord{
 				ID: integration, ProjectID: project, Provider: "slack",
 			}}
 			provider := &failedInboxProvider{err: errors.New("provider unavailable")}
@@ -157,7 +157,7 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 			}
 			require.Equal(t, wantChecked, artifacts.checked, "notice outcome must not skip durable-reference checks")
 			require.Equal(t, receipt, store.receipt)
-			store.receipt.State = integrationstore.IntegrationInboxPending
+			store.receipt.State = integrationstore.IntegrationInboxQueued
 			require.ErrorIs(t, consumer.FinalizeFailure(t.Context(), project, receiptID), storeerr.ErrStateTransitionConflict)
 		})
 	}
@@ -167,18 +167,20 @@ func TestIntegrationFailureCleanupReadsOnlyForPlannedArtifacts(t *testing.T) {
 	for _, scenario := range []string{"text only", "file", "outcome unavailable"} {
 		t.Run(scenario, func(t *testing.T) {
 			projectID, receiptID, integrationID := uuid.New(), uuid.New(), uuid.New()
-			slot := IntegrationInboxSlot{AgentID: uuid.New(), Input: &executionstore.CreateAgentContentInputInput{}}
+			slot := IntegrationInboxSlot{AgentID: uuid.New()}
 			if scenario != "text only" {
 				slot.ArtifactIDs = []uuid.UUID{uuid.New()}
 			}
-			plan, err := json.Marshal(IntegrationInboxPlan{"slot": slot})
+			plan, err := json.Marshal(IntegrationInboxPlan{
+				Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{"slot": slot},
+			})
 			require.NoError(t, err)
 			inbox := &cleanupCountingInbox{integrationPlanStore: integrationPlanStore{
 				receipt: integrationstore.IntegrationInboxRecord{
 					ID: receiptID, ProjectID: projectID, IntegrationID: integrationID,
 					State: integrationstore.IntegrationInboxFailed, Plan: plan,
 				},
-				integrationSetup: integrationstore.ProjectIntegrationRecord{
+				integrationSetup: integrationstore.IntegrationRecord{
 					ID:        integrationID,
 					ProjectID: projectID,
 					Provider:  "slack",

@@ -84,7 +84,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
 		}
 		if tool.IntegrationID != uuid.Nil {
-			projected.IntegrationId, err = publicCompiledID(publicid.KindProjectIntegration, tool.IntegrationID)
+			projected.IntegrationId, err = publicCompiledID(publicid.KindIntegration, tool.IntegrationID)
 			if err != nil {
 				return openapi.CompiledAgentConfig{}, err
 			}
@@ -96,7 +96,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 		len(compiled.InteractionHandlers),
 	)
 	for name, capability := range compiled.InteractionHandlers {
-		integrationID, err := publicCompiledID(publicid.KindProjectIntegration, capability.IntegrationID)
+		integrationID, err := publicCompiledID(publicid.KindIntegration, capability.IntegrationID)
 		if err != nil {
 			return openapi.CompiledAgentConfig{}, err
 		}

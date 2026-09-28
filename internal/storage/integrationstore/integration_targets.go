@@ -38,7 +38,7 @@ type EnsureConversationTargetInput struct {
 	ProjectID, AgentID, IntegrationID uuid.UUID
 	Address                           ConversationAddress
 	DisplayName                       string
-	SelectionSlot                     string
+	LaunchKey                     string
 }
 
 func LockConversationTx(
@@ -72,11 +72,11 @@ func (s *Store) EnsureConversationTargetTx(
 		return IntegrationTargetRecord{}, err
 	}
 	q := dbsqlc.New(tx)
-	integration, err := getProjectIntegration(ctx, q, input.ProjectID, input.IntegrationID)
+	integration, err := getIntegration(ctx, q, input.ProjectID, input.IntegrationID)
 	if err != nil {
 		return IntegrationTargetRecord{}, err
 	}
-	if integration.State != ProjectIntegrationStateActive {
+	if integration.State != IntegrationStateActive {
 		return IntegrationTargetRecord{}, storeerr.ErrUnauthorized
 	}
 	agent, err := q.GetAgentInProject(
@@ -93,13 +93,13 @@ func (s *Store) EnsureConversationTargetTx(
 		return IntegrationTargetRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	var existing dbsqlc.GetAgentConversationTargetRow
-	if input.SelectionSlot != "" {
+	if input.LaunchKey != "" {
 		row, findErr := q.GetIntegrationSelectionTarget(ctx, dbsqlc.GetIntegrationSelectionTargetParams{
 			ProjectID:     input.ProjectID,
 			IntegrationID: input.IntegrationID,
 			Kind:          input.Address.Kind,
 			Ref:           input.Address.Ref,
-			Slot:          &input.SelectionSlot,
+			Slot:          &input.LaunchKey,
 		})
 		existing, err = dbsqlc.GetAgentConversationTargetRow(row), findErr
 	} else {
@@ -117,7 +117,7 @@ func (s *Store) EnsureConversationTargetTx(
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationTargetRecord{}, err
 	}
-	if input.SelectionSlot != "" {
+	if input.LaunchKey != "" {
 		_, err := q.GetAgentConversationTarget(ctx, dbsqlc.GetAgentConversationTargetParams{
 			ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
 			Kind: input.Address.Kind, Ref: input.Address.Ref,
@@ -136,7 +136,7 @@ func (s *Store) EnsureConversationTargetTx(
 		Kind:          input.Address.Kind,
 		Ref:           input.Address.Ref,
 		DisplayName:   strings.TrimSpace(input.DisplayName),
-		Slot:          storeutil.TextFromEmpty(input.SelectionSlot),
+		Slot:          storeutil.TextFromEmpty(input.LaunchKey),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IntegrationTargetRecord{}, storeerr.ErrConflict
@@ -152,12 +152,12 @@ func (s *Store) EnsureConversationTargetTx(
 func integrationTargetRecord(row dbsqlc.GetAgentConversationTargetRow, orgID uuid.UUID) IntegrationTargetRecord {
 	record := IntegrationTargetRecord{
 		ID: row.ID, OrgID: orgID, ProjectID: row.ProjectID, AgentID: row.AgentID, IntegrationID: row.IntegrationID,
-		ProviderRef: row.ProviderRef, ProviderRefKind: row.ProviderRefKind,
-		DisplayName: row.DisplayName, ProviderMetadata: row.ProviderMetadata,
+		ScopeRef: row.ScopeRef, ScopeKind: row.ScopeKind,
+		DisplayName: row.DisplayName,
 		DeletedAt: row.DeletedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
-	if row.SelectionSlot != nil {
-		record.SelectionSlot = *row.SelectionSlot
+	if row.LaunchKey != nil {
+		record.LaunchKey = *row.LaunchKey
 	}
 	return record
 }

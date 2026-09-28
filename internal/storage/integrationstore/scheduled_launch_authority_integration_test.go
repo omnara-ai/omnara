@@ -4,6 +4,7 @@ package integrationstore_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -59,46 +60,62 @@ func acceptScheduledInbox(t *testing.T, f inboxFixture, launch integrationstore.
 
 func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 	t.Parallel()
-	f := newInboxFixture(t)
-	launch := scheduledInboxSnapshot(t, f)
-	root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
-	payload, err := json.Marshal(struct {
-		integrationstore.ScheduledIntegrationEvent
-		Source string                      `json:"source"`
-		Root   integrationdefinition.Scope `json:"root"`
-	}{launch, "scheduled", root})
-	require.NoError(t, err)
-	_, _, err = f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
-		ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: "forged-scheduled-event", Payload: payload,
-	})
-	require.NoError(t, err)
-	provider := f.claim(t)
-	require.Equal(t, integrationstore.IntegrationInboxSourceProvider, provider.Source)
-	_, err = provider.ScheduledEvent()
-	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
-	plan, err := json.Marshal(map[string]any{"scheduled": map[string]any{
-		"scope": root, "launch": scheduledPlanLaunch(t, f, launch, root),
-		"selection": integrationstore.InboxIntegrationSelection{
-			IntegrationID: f.integrationID, Slot: "scheduled",
-			Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
-		},
-	}})
-	require.NoError(t, err)
-	err = f.store.WithIntegrationInboxLease(
-		f.ctx,
-		provider.Lease(),
-		func(w *integrationstore.IntegrationInboxLeaseTx) error {
-			return w.FreezePlan(f.ctx, plan)
-		},
-	)
-	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
-	require.Empty(t, f.read(t, provider.ID).Plan)
-	acceptScheduledInbox(t, f, launch)
-	scheduled := f.claim(t)
-	f.mutate(t, scheduled, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		return w.FreezePlan(f.ctx, plan)
-	})
-	require.JSONEq(t, string(plan), string(f.read(t, scheduled.ID).Plan))
+	for _, configured := range []bool{false, true} {
+		t.Run(fmt.Sprintf("launcher_configured=%t", configured), func(t *testing.T) {
+			t.Parallel()
+			f := newInboxFixture(t)
+			launch := scheduledInboxSnapshot(t, f)
+			if configured {
+				var settings struct {
+					Profile string `json:"agent_profile_id"`
+				}
+				require.NoError(t, json.Unmarshal(launch.Settings, &settings))
+				f.exec(t, `UPDATE integrations SET settings=$2::jsonb WHERE id=$1`, f.integrationID,
+					`{"launcher":{"profiles":["`+settings.Profile+`"]}}`)
+			}
+			root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
+			payload, err := json.Marshal(struct {
+				integrationstore.ScheduledIntegrationEvent
+				Source string                      `json:"source"`
+				Root   integrationdefinition.Scope `json:"root"`
+			}{launch, "scheduled", root})
+			require.NoError(t, err)
+			_, _, err = f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: "forged-scheduled-event", Payload: payload,
+			})
+			require.NoError(t, err)
+			provider := f.claim(t)
+			require.Equal(t, integrationstore.IntegrationInboxSourceProvider, provider.Source)
+			_, err = provider.ScheduledEvent()
+			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+			launchFacts, message := scheduledPlanFacts(t, f, launch, root)
+			plan, err := json.Marshal(map[string]any{
+				"message": message, "recipients": map[string]any{"scheduled": map[string]any{
+					"launch": launchFacts,
+					"selection": integrationstore.InboxIntegrationSelection{
+						IntegrationID: f.integrationID, Slot: "scheduled",
+						Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
+					},
+				}},
+			})
+			require.NoError(t, err)
+			err = f.store.WithIntegrationInboxLease(
+				f.ctx,
+				provider.Lease(),
+				func(w *integrationstore.IntegrationInboxLeaseTx) error {
+					return w.FreezePlan(f.ctx, plan)
+				},
+			)
+			require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+			require.Empty(t, f.read(t, provider.ID).Plan)
+			acceptScheduledInbox(t, f, launch)
+			scheduled := f.claim(t)
+			f.mutate(t, scheduled, func(w *integrationstore.IntegrationInboxLeaseTx) error {
+				return w.FreezePlan(f.ctx, plan)
+			})
+			require.JSONEq(t, string(plan), string(f.read(t, scheduled.ID).Plan))
+		})
+	}
 }
 
 func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
@@ -119,19 +136,22 @@ func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 			if scenario == "different thread" {
 				selection.Address.Ref = "C123:101.1"
 			}
+			launchFacts, message := scheduledPlanFacts(t, f, scheduledInboxSnapshot(t, f), root)
 			slots := map[string]any{"scheduled": map[string]any{
-				"selection": selection, "scope": root,
-				"launch": scheduledPlanLaunch(t, f, scheduledInboxSnapshot(t, f), root),
+				"selection": selection,
+				"launch":    launchFacts,
 			}}
 			if scenario == "no scope" {
 				slots["scheduled"] = map[string]any{"selection": selection}
+				message = nil
 			}
 			if scenario == "wrong parent" {
 				root.Slack.ChannelID = "C999"
+				launchFacts, message = scheduledPlanFacts(t, f, scheduledInboxSnapshot(t, f), root)
 				selection.Address.Ref = "C999:100.1"
 				slots["scheduled"] = map[string]any{
-					"selection": selection, "scope": root,
-					"launch": scheduledPlanLaunch(t, f, scheduledInboxSnapshot(t, f), root),
+					"selection": selection,
+					"launch":    launchFacts,
 				}
 			}
 			if scenario == "empty plan" {
@@ -141,7 +161,7 @@ func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 				selection.Address.Ref = "C123:101.1"
 				slots["another"] = map[string]any{"selection": selection}
 			}
-			plan, err := json.Marshal(slots)
+			plan, err := json.Marshal(map[string]any{"message": message, "recipients": slots})
 			require.NoError(t, err)
 			err = f.store.WithIntegrationInboxLease(
 				f.ctx,
@@ -190,9 +210,9 @@ func TestScheduledReceiptReplayRequiresIdenticalSnapshot(t *testing.T) {
 	require.JSONEq(t, string(original.Payload), string(f.read(t, original.ID).Payload))
 }
 
-func scheduledPlanLaunch(
+func scheduledPlanFacts(
 	t *testing.T, f inboxFixture, event integrationstore.ScheduledIntegrationEvent, root integrationdefinition.Scope,
-) map[string]any {
+) (map[string]any, map[string]any) {
 	t.Helper()
 	launch, err := integrationdefinition.PrepareThreadSchedule(
 		integrationdefinition.SlackThread,
@@ -200,11 +220,11 @@ func scheduledPlanLaunch(
 		event.Occurrence,
 	)
 	require.NoError(t, err)
-	integration, err := f.store.GetProjectIntegrationByID(f.ctx, f.integrationID)
+	integration, err := f.store.GetIntegrationByID(f.ctx, f.integrationID)
 	require.NoError(t, err)
 	raw, err := json.Marshal([]map[string]string{{"type": "text", "text": launch.Message}})
 	require.NoError(t, err)
 	content, err := integrationdefinition.AppendInputContext(integration.Name, root, raw)
 	require.NoError(t, err)
-	return map[string]any{"profile_id": launch.ProfileID, "initial_input": map[string]any{"content_blocks": content}}
+	return map[string]any{"profile_id": launch.ProfileID}, map[string]any{"scope": root, "content_blocks": content}
 }

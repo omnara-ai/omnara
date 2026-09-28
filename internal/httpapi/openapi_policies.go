@@ -61,10 +61,10 @@ func customScope(note string) operationScope {
 type operationID string
 
 const (
-	operationCreateProjectIntegrationOAuthSetup           operationID = "CreateProjectIntegrationOAuthSetup"
-	operationCreateProjectIntegrationSlackSetup           operationID = "CreateProjectIntegrationSlackSetup"
-	operationCreateProjectIntegrationGitHubSetup          operationID = "CreateProjectIntegrationGitHubSetup"
-	operationInspectProjectIntegrationGitHubInstallations operationID = "InspectProjectIntegrationGitHubInstallations"
+	operationCreateIntegrationOAuthSetup           operationID = "CreateIntegrationOAuthSetup"
+	operationCreateIntegrationSlackSetup           operationID = "CreateIntegrationSlackSetup"
+	operationCreateIntegrationGitHubSetup          operationID = "CreateIntegrationGitHubSetup"
+	operationInspectIntegrationGitHubInstallations operationID = "InspectIntegrationGitHubInstallations"
 )
 
 const (
@@ -109,15 +109,15 @@ const (
 	operationCreateProjectMachinePoolGrant operationID = "CreateProjectMachinePoolGrant"
 	operationCreateProjectModelGrant       operationID = "CreateProjectModelGrant"
 	operationCreateCronTrigger             operationID = "CreateCronTrigger"
-	operationConfigureProjectIntegration   operationID = "ConfigureProjectIntegration"
-	operationDisconnectProjectIntegration  operationID = "DisconnectProjectIntegration"
+	operationConfigureIntegration   operationID = "ConfigureIntegration"
+	operationDisconnectIntegration  operationID = "DisconnectIntegration"
 	operationListIntegrationDefinitions    operationID = "ListIntegrationDefinitions"
 
-	operationCreateProjectIntegration      operationID = "CreateProjectIntegration"
-	operationUpdateProjectIntegration      operationID = "UpdateProjectIntegration"
-	operationDeleteProjectIntegration      operationID = "DeleteProjectIntegration"
-	operationGetProjectIntegration         operationID = "GetProjectIntegration"
-	operationListProjectIntegrations       operationID = "ListProjectIntegrations"
+	operationCreateIntegration      operationID = "CreateIntegration"
+	operationUpdateIntegration      operationID = "UpdateIntegration"
+	operationDeleteIntegration      operationID = "DeleteIntegration"
+	operationGetIntegration         operationID = "GetIntegration"
+	operationListIntegrations       operationID = "ListIntegrations"
 	operationListIntegrationSubscriptions  operationID = "ListIntegrationSubscriptions"
 	operationCreateIntegrationSubscription operationID = "CreateIntegrationSubscription"
 	operationDeleteIntegrationSubscription operationID = "DeleteIntegrationSubscription"
@@ -254,10 +254,10 @@ func (a operationAuthorizer) policy(operation operationID) (operationPolicy, boo
 }
 
 var openAPIOperationPolicies = map[operationID]operationPolicy{
-	operationCreateProjectIntegrationOAuthSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateProjectIntegrationSlackSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationCreateProjectIntegrationGitHubSetup: browserSessionPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationInspectProjectIntegrationGitHubInstallations: browserSessionPolicy(
+	operationCreateIntegrationOAuthSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationSlackSetup:  userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationCreateIntegrationGitHubSetup: browserSessionPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationInspectIntegrationGitHubInstallations: browserSessionPolicy(
 		projectScope(identitystore.ProjectActionManage),
 	),
 	operationGetCurrentUser:    userPolicy(noScope()),
@@ -347,14 +347,14 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationRenameAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteAgentProfile:            accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationCreateCronTrigger:             accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationConfigureProjectIntegration:   userPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDisconnectProjectIntegration:  accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationConfigureIntegration:   userPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDisconnectIntegration:  accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationListIntegrationDefinitions:    accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationCreateProjectIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationUpdateProjectIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationDeleteProjectIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
-	operationGetProjectIntegration:         accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationListProjectIntegrations:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationCreateIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationUpdateIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationDeleteIntegration:      accountPolicy(projectScope(identitystore.ProjectActionManage)),
+	operationGetIntegration:         accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationListIntegrations:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationListIntegrationSubscriptions:  accountPolicy(projectScope(identitystore.ProjectActionRead)),
 	operationCreateIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),
 	operationDeleteIntegrationSubscription: accountPolicy(projectScope(identitystore.ProjectActionManage)),

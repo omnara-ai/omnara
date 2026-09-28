@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
 
@@ -55,8 +56,8 @@ func (b *failedIntegrationBlobs) DeleteBlob(_ context.Context, key string) error
 	return nil
 }
 
-func failedIntegrationFile(id uuid.UUID, content []byte) IntegrationPlannedFile {
-	return IntegrationPlannedFile{
+func failedIntegrationFile(id uuid.UUID, content []byte) executionstore.InboxPlannedFile {
+	return executionstore.InboxPlannedFile{
 		ArtifactID: id, ProviderFileID: "provider-file-" + id.String(),
 		Expected: &artifactstore.PreparedArtifact{
 			ID: id, ContentType: "text/plain", Digest: blobstore.ContentDigest(content), SizeBytes: int64(len(content)),
@@ -101,7 +102,7 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	require.NoError(t, err)
 	plannedAgent := uuid.New()
 	content := []byte("pinned upload")
-	files := []IntegrationPlannedFile{
+	files := []executionstore.InboxPlannedFile{
 		failedIntegrationFile(
 			uuid.New(),
 			content,
@@ -112,16 +113,14 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 	for _, file := range files[:2] {
 		require.NoError(t, artifacts.UploadPreparedArtifact(ctx, plannedAgent, *file.Expected, content))
 	}
-	plan := IntegrationInboxPlan{
+	plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{
 		"uncommitted": {
-			AgentID: plannedAgent, ArtifactIDs: integrationArtifactIDs(files), Files: files,
-			Input: &executionstore.CreateAgentContentInputInput{ProjectID: ids.ProjectID, AgentID: plannedAgent},
+			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{files[0].ArtifactID, files[1].ArtifactID, files[2].ArtifactID},
 		},
 		"referenced": {
 			AgentID: agentID, ArtifactIDs: []uuid.UUID{durable.ID},
-			Input: &executionstore.CreateAgentContentInputInput{ProjectID: ids.ProjectID, AgentID: agentID},
 		},
-	}
+	}}
 	raw, err := json.Marshal(plan)
 	require.NoError(t, err)
 	receipt, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
@@ -203,17 +202,12 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 		ProjectID: ids.ProjectID, Name: "failed launch", CurrentConfigID: base.ID,
 	})
 	require.NoError(t, err)
-	integration, err := inbox.UpdateProjectIntegration(ctx, integrationID, integrationstore.SaveProjectIntegrationInput{
+	integration, err := inbox.UpdateIntegration(ctx, integrationID, integrationstore.SaveIntegrationInput{
 		OrgID:           ids.OrgID,
 		ProjectID:       ids.ProjectID,
 		Name:            "chat",
-		IntegrationType: integrationdefinition.SlackThread,
-		Settings: integrationstore.ProjectIntegrationSettings{
-			Launcher: &integrationstore.IntegrationLauncher{
-				Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
-				Slots: []integrationstore.IntegrationLaunchSlot{{Key: "reviewer", AgentProfileID: &profile.ID}},
-			},
-		},
+		IntegrationKind: integrationdefinition.SlackThread,
+		Settings:        integrationtest.ChatSettings("", profile.ID),
 	})
 	require.NoError(t, err)
 	unused := failedIntegrationFile(uuid.New(), []byte("unused launch bytes"))
@@ -222,20 +216,19 @@ VALUES($1,$2,$3,'active',$4,now(),now())`,
 		t,
 		artifacts.UploadPreparedArtifact(ctx, plannedAgent, *unused.Expected, []byte("unused launch bytes")),
 	)
-	plan := IntegrationInboxPlan{
+	plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{
 		"partial": {
-			AgentID: agentID, ArtifactIDs: []uuid.UUID{file.ArtifactID}, Files: []IntegrationPlannedFile{file},
-			Input: &executionstore.CreateAgentContentInputInput{ProjectID: ids.ProjectID, AgentID: agentID},
+			AgentID: agentID, ArtifactIDs: []uuid.UUID{file.ArtifactID},
 		},
 		"failed-launch": {
-			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{unused.ArtifactID}, Files: []IntegrationPlannedFile{unused},
+			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{unused.ArtifactID},
 			Launch: &executionstore.InboxLaunchPlan{AgentConfigID: base.ID},
 			Selection: &integrationstore.InboxIntegrationSelection{
 				IntegrationID: integration.ID, Slot: "reviewer",
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			},
 		},
-	}
+	}}
 	raw, err := json.Marshal(plan)
 	require.NoError(t, err)
 	receipt, _, err := inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
@@ -308,23 +301,22 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 			base := storagefixture.SeedAgentConfig(t, ctx, store.Models(), store.Execution(), ids.OrgID, ids.ProjectID,
 				"instruction: review\nmodel:\n  provider_config: openai-prod\n  name: gpt-test\n")
 			agents := make([]uuid.UUID, 2)
-			var launchSlots []integrationstore.IntegrationLaunchSlot
-			for i, key := range []string{"archived", "active"} {
+			for i := range agents {
 				launched, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 					ProjectID: ids.ProjectID, AgentConfigID: base.ID, LaunchedBy: principal,
 				})
 				require.NoError(t, err)
 				agents[i] = launched.Agent.ID
-				launchSlots = append(launchSlots, integrationstore.IntegrationLaunchSlot{Key: key, AgentID: &agents[i]})
 			}
 			inbox := store.Integrations()
-			_, err = inbox.UpdateProjectIntegration(ctx, integrationID, integrationstore.SaveProjectIntegrationInput{
-				OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationType: integrationdefinition.SlackThread,
-				Settings: integrationstore.ProjectIntegrationSettings{Launcher: &integrationstore.IntegrationLauncher{
-					Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123", Slots: launchSlots,
-				}},
+			integration, err := inbox.UpdateIntegration(ctx, integrationID, integrationstore.SaveIntegrationInput{
+				OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "chat", IntegrationKind: integrationdefinition.SlackThread,
+				Settings: integrationstore.IntegrationSettings(`{}`),
 			})
 			require.NoError(t, err)
+			for _, agentID := range agents {
+				createTestIntegrationSubscription(t, store, integration, agentID, `{"channel_id":"C123","thread_ts":"1.2"}`)
+			}
 			_, _, err = inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 				ProjectID: ids.ProjectID, IntegrationID: integrationID, ReceiptKey: "skip-upload", Payload: []byte(`{}`),
 			})
@@ -341,14 +333,14 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 					Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.2"}},
 					Kind:  "message", Mentioned: true,
 				},
-				SemanticKey: "message:skip-upload", Actor: integrationTestActor(t, integrationID, "U123"),
+				SemanticKey: "message:skip-upload", Actor: integrationTestActor(t, integration, "U123"),
 				ContentBlocks: json.RawMessage(`[{"type":"media_ref","artifact_id":"` + file.ArtifactID.String() + `"}]`),
-				Files:         []IntegrationPlannedFile{file},
+				Files:         []executionstore.InboxPlannedFile{file},
 			}
 			router := NewIntegrationRouter(store.Execution(), inbox)
-			plan, err := freezeTestIntegrationEvents(ctx, router, receipt.Lease(), []IntegrationEvent{event})
+			plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &event)
 			require.NoError(t, err)
-			require.Len(t, plan, 2)
+			require.Len(t, plan.Recipients, 2)
 			blobs := &failedIntegrationBlobs{content: make(map[string][]byte)}
 			artifacts := &archivingInboxArtifacts{
 				Store: artifactstore.New(pool, blobs), archivedAgent: agents[0],
@@ -359,18 +351,20 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 				skippedError: errors.New("archived recipient upload response lost"),
 			}
 			var skippedKey, liveKey string
-			for key, slot := range plan {
+			for key, slot := range plan.Recipients {
 				if slot.AgentID == agents[0] {
 					skippedKey = key
 				} else {
 					liveKey = key
 				}
 				if scenario == "uploaded before retry" {
-					prepared := *slot.Files[0].Expected
+					_, files, err := plan.Message.RecipientContent(slot.ArtifactIDs)
+					require.NoError(t, err)
+					prepared := *files[0].Expected
 					require.NoError(t, artifacts.Store.UploadPreparedArtifact(ctx, slot.AgentID, prepared, content))
 				}
 			}
-			skippedArtifact, liveArtifact := plan[skippedKey].ArtifactIDs[0], plan[liveKey].ArtifactIDs[0]
+			skippedArtifact, liveArtifact := plan.Recipients[skippedKey].ArtifactIDs[0], plan.Recipients[liveKey].ArtifactIDs[0]
 			skippedBlob := "artifacts/" + agents[0].String() + "/" + skippedArtifact.String()
 			liveBlob := "artifacts/" + agents[1].String() + "/" + liveArtifact.String()
 			if scenario == "uploaded before retry" {

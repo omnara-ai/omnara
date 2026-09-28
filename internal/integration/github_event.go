@@ -28,8 +28,15 @@ type GitHubIntegrationInboxProvider struct {
 	integrations GitHubInboxIntegrations
 }
 
-func (GitHubIntegrationInboxProvider) Expand(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, payload []byte,
+func (p GitHubIntegrationInboxProvider) Expand(
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, payload []byte,
+) (IntegrationInboxExpansion, error) {
+	return p.ExpandRouted(ctx, integrationSetup, payload, nil)
+}
+
+func (p GitHubIntegrationInboxProvider) ExpandRouted(
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, payload []byte,
+	routeEvent func(IntegrationEvent) (bool, error),
 ) (IntegrationInboxExpansion, error) {
 	if err := ctx.Err(); err != nil {
 		return IntegrationInboxExpansion{}, err
@@ -38,11 +45,32 @@ func (GitHubIntegrationInboxProvider) Expand(
 	if err != nil || !ok {
 		return IntegrationInboxExpansion{}, err
 	}
-	return IntegrationInboxExpansion{Events: []IntegrationEvent{event}}, nil
+	if routeEvent != nil {
+		if routed, err := routeEvent(event); err != nil || !routed {
+			return IntegrationInboxExpansion{}, err
+		}
+	}
+	requiresPermission, err := githubEventRequiresSenderPermission(integrationSetup, event)
+	if err != nil {
+		return IntegrationInboxExpansion{}, err
+	}
+	if requiresPermission {
+		ctx, cancel := context.WithTimeout(ctx, github.OperationTimeout)
+		defer cancel()
+		client, err := p.requestAccess(ctx, integrationSetup)
+		if err != nil {
+			return IntegrationInboxExpansion{}, err
+		}
+		allowed, err := githubEventSenderAllowed(ctx, client, event)
+		if err != nil || !allowed {
+			return IntegrationInboxExpansion{}, err
+		}
+	}
+	return IntegrationInboxExpansion{Event: &event}, nil
 }
 
 func (GitHubIntegrationInboxProvider) DownloadFile(
-	_ context.Context, _ integrationstore.ProjectIntegrationRecord, _ []byte, _ string,
+	_ context.Context, _ integrationstore.IntegrationRecord, _ []byte, _ string,
 ) (IntegrationInboxFile, error) {
 	return IntegrationInboxFile{}, fmt.Errorf("GitHub webhook events do not plan file downloads")
 }
@@ -83,7 +111,7 @@ type GitHubEventMetadata struct {
 }
 
 func NormalizeGitHubIntegrationEvent(
-	integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte,
+	integrationSetup integrationstore.IntegrationRecord, raw []byte,
 ) (IntegrationEvent, bool, error) {
 	if integrationSetup.Provider != integrationstore.IntegrationProviderGitHub {
 		return IntegrationEvent{}, false, storeerr.ErrUnauthorized
@@ -190,7 +218,7 @@ func NormalizeGitHubIntegrationEvent(
 		return IntegrationEvent{}, false, nil
 	}
 	integrationActor, err := executionstore.IntegrationActorParams(
-		integrationSetup.ID,
+		integrationSetup,
 		strconv.FormatInt(actor.ID, 10),
 		&actor.Login,
 	)
@@ -246,7 +274,7 @@ func githubPayloadEventType(p githubEventPayload) string {
 	return ""
 }
 
-func GitHubWebhookInstallationMatches(c integrationstore.ProjectIntegrationRecord, event github.Webhook) bool {
+func GitHubWebhookInstallationMatches(c integrationstore.IntegrationRecord, event github.Webhook) bool {
 	// GitHub can omit app_id; intake HMAC verification with this integration's credentials establishes App identity.
 	appID, appErr := strconv.ParseInt(c.ProviderTenantID, 10, 64)
 	installationID, installationErr := strconv.ParseInt(c.ProviderAccountRef, 10, 64)
@@ -315,4 +343,27 @@ func validGitHubCommit(value string) bool {
 		}
 	}
 	return true
+}
+
+func githubEventRequiresSenderPermission(
+	integration integrationstore.IntegrationRecord, event IntegrationEvent,
+) (bool, error) {
+	if event.Event.Kind != "discussion_comment" && event.Event.Kind != "review_comment" {
+		return false, nil
+	}
+	settings, err := integrationdefinition.ReadGitHubSettings(integration.Settings)
+	if err != nil {
+		return false, err
+	}
+	return settings.SenderPolicy != "anyone", nil
+}
+
+func githubEventSenderAllowed(ctx context.Context, client *github.Client, event IntegrationEvent) (bool, error) {
+	userID, err := strconv.ParseInt(event.Actor.ProviderUserID, 10, 64)
+	if err != nil || event.Actor.DisplayName == nil {
+		return false, storeerr.ErrUnauthorized
+	}
+	scope := event.Event.Scope.GitHub
+	return client.CanDirectPullRequest(ctx, github.Scope{RepositoryID: scope.RepositoryID, PullRequest: scope.PullRequest},
+		github.User{ID: userID, Login: *event.Actor.DisplayName})
 }

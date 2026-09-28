@@ -26,7 +26,7 @@ func inboxInputIntegration(
 	t *testing.T,
 	f integrationActivationFixture,
 	provider string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	require.Equal(t, "github", provider)
 	secret, _, err := f.store.Secrets().CreateSecret(f.ctx, secretstore.CreateSecretInput{
@@ -39,16 +39,16 @@ func inboxInputIntegration(
 		},
 	})
 	require.NoError(t, err)
-	integration, err := f.store.Integrations().CreateProjectIntegration(
+	integration, err := f.store.Integrations().CreateIntegration(
 		f.ctx,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: testOrgID, ProjectID: testProjectID, Name: "github", IntegrationType: integrationdefinition.GitHubPR,
+		integrationstore.SaveIntegrationInput{
+			OrgID: testOrgID, ProjectID: testProjectID, Name: "github", IntegrationKind: integrationdefinition.GitHubPR,
 		},
 	)
 	require.NoError(t, err)
-	integration, err = f.store.Integrations().ConfigureProjectIntegration(
+	integration, err = f.store.Integrations().ConfigureIntegration(
 		f.ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 
 			OrgID:             testOrgID,
 			ProjectID:         testProjectID,
@@ -84,7 +84,7 @@ func (f integrationInteractionFixture) activation() integrationActivationFixture
 func inboxInputPlan(
 	t *testing.T,
 	agentID uuid.UUID,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	event string,
 ) executionstore.InboxInputSlot {
 	return executionstore.InboxInputSlot{AgentID: agentID, Input: executionstore.CreateAgentContentInputInput{
@@ -92,7 +92,7 @@ func inboxInputPlan(
 			IntegrationID: integration.ID,
 			Address:       integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"},
 		},
-		Actor:                  mustIntegrationActorParams(t, integration.ID, "participant"),
+		Actor:                  mustIntegrationActorParams(t, integration, "participant"),
 		ContentBlocks:          json.RawMessage(`[{"type":"text","text":"Please address this review"}]`),
 		Metadata:               json.RawMessage(`{"source":"review"}`),
 		IdempotencyKey:         event,
@@ -131,7 +131,7 @@ func freezeInboxInput(
 		)
 	require.NoError(t, err)
 	require.True(t, found)
-	integration, err := f.store.Integrations().GetProjectIntegration(f.ctx, testProjectID, slot.Input.Origin.IntegrationID)
+	integration, err := f.store.Integrations().GetIntegration(f.ctx, testProjectID, slot.Input.Origin.IntegrationID)
 	require.NoError(t, err)
 	switch integration.Provider {
 	case integrationdefinition.ProviderSlack:
@@ -141,7 +141,7 @@ func freezeInboxInput(
 	case integrationdefinition.ProviderDiscord:
 		slot.Scope.Discord = &integrationdefinition.DiscordScope{}
 	}
-	plan, err := json.Marshal(map[string]executionstore.InboxInputSlot{"recipient": slot})
+	plan, err := marshalInboxInputPlan(slot)
 	require.NoError(t, err)
 	require.NoError(
 		t,
@@ -216,7 +216,7 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 				require.Equal(t, result.AgentInput.ID, prompt.ResolvedByInputID)
 			}
 			require.Equal(t, executionstore.DeliveryModeSteering, result.AgentInput.DeliveryMode)
-			require.Empty(t, result.IntegrationTarget.SelectionSlot)
+			require.Empty(t, result.IntegrationTarget.LaunchKey)
 			require.Equal(t, integration.ID, result.IntegrationTarget.IntegrationID)
 			actor, err := f.store.Execution().GetActor(f.ctx, testProjectID, result.AgentInput.ActorID)
 			require.NoError(t, err)
@@ -230,9 +230,9 @@ func TestInboxInputGitHubCommentsSteerAndCancelAcrossProviders(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(
 				t,
-				executionstore.InteractionSelection{},
+				executionstore.InteractionSelection{AutoSelect: true, HandlerKey: "other", IntegrationTargetID: f.b.ID},
 				selection,
-				"unsupported GitHub handler chooses dashboard",
+				"receipt does not change the current turn destination before input admission",
 			)
 
 			selected := f.selectOrigin(t, f.a.ID)
@@ -319,7 +319,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
 	selected := f.selectOrigin(t, f.a.ID)
-	prompt := f.question(t)
+	prompt := f.questionForOrigin(t, f.a.ID)
 	slot := withInboxFile(t, inboxInputPlan(t, f.process.AgentID, f.integration, "expire-file"))
 	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C456:999.888"}
 	receipt := freezeInboxInput(t, f.activation(), slot, "expire", 2*time.Second)
@@ -354,7 +354,7 @@ func TestInboxInputExpiredLeaseRollsBackOriginMediaAndCancellation(t *testing.T)
 		t,
 		f.store.pool.QueryRow(
 			f.ctx,
-			`SELECT count(*) FROM integration_targets WHERE agent_id=$1 AND provider_ref=$2`,
+			`SELECT count(*) FROM integration_targets WHERE agent_id=$1 AND scope_ref=$2`,
 			f.process.AgentID,
 			slot.Input.Origin.Address.Ref,
 		).
@@ -395,15 +395,15 @@ func TestInboxInputIntegrationGateBeforeReceiptAndAgent(t *testing.T) {
 	q := dbsqlc.New(blocker)
 	require.NoError(
 		t,
-		q.LockProjectIntegrationLifecycleExclusive(
+		q.LockIntegrationLifecycleExclusive(
 			f.ctx,
-			dbsqlc.LockProjectIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
+			dbsqlc.LockIntegrationLifecycleExclusiveParams{IntegrationID: f.integration.ID},
 		),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
 		return f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", inboxInputArtifacts(slot))
 	})
-	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockProjectIntegrationLifecycleShared", 1)
+	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 	ctx, cancel := context.WithTimeout(f.ctx, time.Second)
 	defer cancel()
 	_, err = q.LockIntegrationInboxReceipt(
@@ -417,36 +417,73 @@ func TestInboxInputIntegrationGateBeforeReceiptAndAgent(t *testing.T) {
 	require.True(t, integrationdb.AwaitSuccess(t, done, "ordered input admission").Created)
 }
 
-func TestInboxInputSelectsAuthorizedHandlerAndOriginlessInputPreservesIt(t *testing.T) {
+func TestInboxInputSelectionChangesOnlyOnContentAdmission(t *testing.T) {
 	t.Parallel()
-	f := newIntegrationInteractionFixture(t)
-	slot := inboxInputPlan(t, f.process.AgentID, f.otherIntegration, "handler-origin")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: f.b.ProviderRef}
-	slot.Input.CancelOpenInteractions = false
-	receipt := freezeInboxInput(t, f.activation(), slot, "handler-origin", time.Minute)
-	result, err := f.store.Execution().AdmitInboxInputSlot(
-		f.ctx, receipt.Lease(), "recipient", inboxInputArtifacts(slot),
-	)
-	require.NoError(t, err)
-	require.True(t, result.Created)
-	selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
-	require.NoError(t, err)
-	require.Equal(t, "other", selected.HandlerKey)
-	require.Equal(t, f.b.ID, selected.IntegrationTargetID)
-	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
-		ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: mustOmnaraActorParams(t, f.user.ID),
-		ContentBlocks: json.RawMessage(`[{"type":"text","text":"Dashboard note"}]`), IdempotencyKey: "originless",
-	})
-	require.NoError(t, err)
-	after, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
-	require.NoError(t, err)
-	require.Equal(t, selected, after)
+	for _, mode := range []executionstore.AgentInputDeliveryMode{
+		executionstore.DeliveryModeQueued, executionstore.DeliveryModeSteering,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			f := newIntegrationInteractionFixture(t)
+			before := f.selectOrigin(t, f.a.ID)
+			slot := inboxInputPlan(t, f.process.AgentID, f.otherIntegration, "handler-origin")
+			slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: f.b.ScopeRef}
+			slot.Input.DeliveryMode = mode
+			slot.Input.CancelOpenInteractions = false
+			receipt := freezeInboxInput(t, f.activation(), slot, "handler-origin", time.Minute)
+			result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+			require.NoError(t, err)
+			require.True(t, result.Created)
+			selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			require.Equal(t, before, selected, "receiving an input must not change the current turn's destination")
+			admitted, found := admitNextAgentInputAndOpenTurnForTest(
+				t, f.ctx, f.store, testProjectID, f.process.AgentID, f.process.Lock.ID)
+			require.True(t, found)
+			require.Len(t, admitted.Inputs, 1)
+			require.Equal(t, result.AgentInput.ID, admitted.Inputs[0].ID)
+			selected, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			require.Equal(t, "other", selected.HandlerKey)
+			require.Equal(t, f.b.ID, selected.IntegrationTargetID)
+
+			dashboard, _, _, err := f.store.Execution().CreateAgentContentInput(
+				f.ctx, executionstore.CreateAgentContentInputInput{
+					ProjectID: testProjectID, AgentID: f.process.AgentID, Actor: mustOmnaraActorParams(t, f.user.ID),
+					ContentBlocks:  json.RawMessage(`[{"type":"text","text":"Dashboard note"}]`),
+					IdempotencyKey: "originless", DeliveryMode: mode,
+				})
+			require.NoError(t, err)
+			after, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			require.Equal(t, selected, after, "originless input also waits for admission")
+			admitted, found = admitNextAgentInputAndOpenTurnForTest(
+				t, f.ctx, f.store, testProjectID, f.process.AgentID, f.process.Lock.ID)
+			require.True(t, found)
+			require.Len(t, admitted.Inputs, 1)
+			require.Equal(t, dashboard.ID, admitted.Inputs[0].ID)
+			after, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, after)
+
+			current := f.selectOrigin(t, f.a.ID)
+			replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+			require.NoError(t, err)
+			require.False(t, replayed.Created)
+			_, found = admitNextAgentInputAndOpenTurnForTest(
+				t, f.ctx, f.store, testProjectID, f.process.AgentID, f.process.Lock.ID)
+			require.False(t, found, "receipt replay does not admit the old origin again")
+			after, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+			require.NoError(t, err)
+			require.Equal(t, current, after)
+		})
+	}
 }
 
 func TestInboxSubscriptionInputDoesNotGrantInteractionDestination(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
-	f.selectOrigin(t, f.a.ID)
+	before := f.selectOrigin(t, f.a.ID)
 	subscription, err := f.store.Integrations().CreateIntegrationSubscription(f.ctx,
 		integrationstore.CreateIntegrationSubscriptionInput{
 			OrgID: testOrgID, ProjectID: testProjectID, IntegrationID: f.integration.ID, AgentID: f.process.AgentID,
@@ -464,18 +501,26 @@ func TestInboxSubscriptionInputDoesNotGrantInteractionDestination(t *testing.T) 
 	require.True(t, result.Created)
 	selected, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selected)
+	require.Equal(t, before, selected, "subscription receipt must wait for content admission to change selection")
+	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+		t, f.ctx, f.store, testProjectID, f.process.AgentID, f.process.Lock.ID)
+	require.True(t, found)
+	require.Len(t, admitted.Inputs, 1)
+	require.Equal(t, result.AgentInput.ID, admitted.Inputs[0].ID)
+	selected, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selected)
 	assigned, found, err := f.store.Integrations().GetAgentIntegrationConversation(
 		f.ctx, testProjectID, f.process.AgentID, f.integration.ID)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, f.a.ProviderRef, assigned.Ref)
+	require.Equal(t, f.a.ScopeRef, assigned.Ref)
 	destination, err := f.store.Execution().GetSelectedInteractionDestination(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Nil(t, destination)
 }
 
-func TestOrdinaryContentInputExternalActorPreservesSelectionAndRejectsOrigin(t *testing.T) {
+func TestOrdinaryContentInputExternalActorClearsSelectionOnAdmissionAndRejectsOrigin(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationInteractionFixture(t)
 	f.selectOrigin(t, f.a.ID)
@@ -499,6 +544,15 @@ func TestOrdinaryContentInputExternalActorPreservesSelectionAndRejectsOrigin(t *
 	require.NoError(t, err)
 	require.Equal(t, "chat", selection.HandlerKey)
 	require.Equal(t, f.a.ID, selection.IntegrationTargetID)
+	admitted, found := admitNextAgentInputAndOpenTurnForTest(
+		t, f.ctx, f.store, testProjectID, f.process.AgentID, f.process.Lock.ID)
+	require.True(t, found)
+	require.Len(t, admitted.Inputs, 1)
+	require.Equal(t, first.ID, admitted.Inputs[0].ID)
+	selection, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
+		"an external actor does not turn originless content into an eligible interaction destination")
 	f.selectOrigin(t, f.b.ID)
 	replayed, _, created, err := f.store.Execution().CreateAgentContentInput(f.ctx, input)
 	require.NoError(t, err)
@@ -512,7 +566,7 @@ func TestOrdinaryContentInputExternalActorPreservesSelectionAndRejectsOrigin(t *
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	input.Origin = &executionstore.AgentInputOrigin{
 		IntegrationID: f.integration.ID,
-		Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ProviderRef},
+		Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: f.a.ScopeRef},
 	}
 	input.IdempotencyKey = "forged-native"
 	_, _, _, err = f.store.Execution().CreateAgentContentInput(f.ctx, input)
@@ -526,7 +580,7 @@ func TestInboxInputInvalidArtifactsOrActorLeavesNoAdmission(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
 		"missing-artifacts", "substituted-artifact", "wrong-tenant", "external-actor",
-		"queued-cancellation", "wrong-project",
+		"queued-cancellation",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
@@ -543,8 +597,6 @@ func TestInboxInputInvalidArtifactsOrActorLeavesNoAdmission(t *testing.T) {
 				slot.Input.Actor.ProviderTenantID = "another-account"
 			case "queued-cancellation":
 				slot.Input.DeliveryMode = executionstore.DeliveryModeQueued
-			case "wrong-project":
-				slot.Input.ProjectID = uuid.New()
 			}
 			receipt := freezeInboxInput(t, f, slot, scenario, time.Minute)
 			artifacts := inboxInputArtifacts(slot)
@@ -570,7 +622,7 @@ func TestInboxInputInvalidArtifactsOrActorLeavesNoAdmission(t *testing.T) {
 			}
 			record, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, receipt.ID)
 			require.NoError(t, err)
-			if scenario != "wrong-project" && scenario != "queued-cancellation" {
+			if scenario != "queued-cancellation" {
 				outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, record)
 				require.NoError(t, err)
 				require.Equal(t, executionstore.InboxSlotPending, outcomes["recipient"])

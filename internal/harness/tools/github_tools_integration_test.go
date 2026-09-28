@@ -31,7 +31,7 @@ import (
 
 func createGitHubToolIntegration(
 	t *testing.T, ctx context.Context, store *storage.Store, userID uuid.UUID,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -44,13 +44,13 @@ func createGitHubToolIntegration(
 		},
 	})
 	require.NoError(t, err)
-	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
-		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", IntegrationType: integrationdefinition.GitHubPR,
+	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Name: "chat", IntegrationKind: integrationdefinition.GitHubPR,
 	})
 	require.NoError(t, err)
-	integration, err = store.Integrations().ConfigureProjectIntegration(
+	integration, err = store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, IntegrationID: integration.ID,
 			ExpectedSetupRevision: integration.SetupRevision, InstalledByUserID: userID,
 			Provider: integrationdefinition.ProviderGitHub, ProviderTenantID: "11", ProviderAccountRef: "22",
@@ -96,7 +96,7 @@ func githubToolTestServer(t *testing.T, permission string, operation http.Handle
 			r.Header.Get("Accept") != "application/vnd.github.diff":
 			assert.Equal(t, http.MethodGet, r.Method)
 			writeToolTestJSON(w, map[string]any{
-				"id": 700, "number": 7, "title": "Review this change", "body": "PR context",
+				"id": 700, "node_id": "PR_700", "number": 7, "title": "Review this change", "body": "PR context",
 				"base": map[string]any{"repo": map[string]any{"id": 123}},
 			})
 		default:
@@ -124,6 +124,12 @@ func TestGitHubIntegrationReadSections(t *testing.T) {
 			"review_comments", `{"section":"review_comments","page":2,"limit":1}`,
 			"/repos/octo/renamed/pulls/7/comments", `[{"id":32,"body":"review","in_reply_to_id":30}]`, "comments",
 			map[string]any{"id": float64(32), "body": "review", "in_reply_to_id": float64(30)},
+		},
+		{
+			"reviews", `{"section":"reviews","page":2,"limit":1}`,
+			"/repos/octo/renamed/pulls/7/reviews",
+			`[{"id":33,"body":"Please fix this","state":"CHANGES_REQUESTED","submitted_at":"2026-09-27T10:00:00Z"}]`, "reviews",
+			map[string]any{"id": float64(33), "body": "Please fix this", "state": "CHANGES_REQUESTED"},
 		},
 		{
 			"files", `{"section":"files","page":2,"limit":1}`,
@@ -181,6 +187,120 @@ func TestGitHubIntegrationReadSections(t *testing.T) {
 	}
 }
 
+func TestGitHubIntegrationReviewThreadPages(t *testing.T) {
+	for _, cursor := range []string{"", "previous-page"} {
+		t.Run(cursor, func(t *testing.T) {
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-threads", toolFixtureOptions{
+				withGitHubIntegration: true, withToolContext: true,
+			})
+			var queries atomic.Int32
+			server := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
+				queries.Add(1)
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "/graphql", r.URL.Path)
+				var input struct {
+					Query     string `json:"query"`
+					Variables struct {
+						ID    string  `json:"id"`
+						First int     `json:"first"`
+						After *string `json:"after"`
+					} `json:"variables"`
+				}
+				if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&input)) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				assert.Equal(t, "PR_700", input.Variables.ID)
+				assert.Equal(t, 1, input.Variables.First)
+				if cursor == "" {
+					assert.Nil(t, input.Variables.After)
+				} else if assert.NotNil(t, input.Variables.After) {
+					assert.Equal(t, cursor, *input.Variables.After)
+				}
+				_, _ = w.Write([]byte(`{"data":{"node":{"__typename":"PullRequest","id":"PR_700","fullDatabaseId":"700","number":7,
+					"reviewThreads":{"nodes":[{"id":"PRRT_9","isResolved":true,"isOutdated":false,"path":"service.go","line":9,
+					"comments":{"nodes":[{"fullDatabaseId":"30"}]}}],"pageInfo":{"hasNextPage":true,"endCursor":"next-page"}}}}}`))
+			})
+			input, err := json.Marshal(map[string]any{"section": "review_threads", "cursor": cursor, "limit": 1})
+			require.NoError(t, err)
+			// Omit the optional cursor on the first page, as required by the tool schema.
+			if cursor == "" {
+				input = []byte(`{"section":"review_threads","limit":1}`)
+			}
+			call := f.recordToolCall(t, ctx, "threads", "int__chat__read", string(input), f.Now)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
+			require.NoError(t, err)
+			body := toolResultMapFromTestParts(t, result.ContentParts)
+			require.Equal(t, "next-page", body["next_cursor"])
+			require.NotContains(t, body, "next_page")
+			threads, ok := body["threads"].([]any)
+			require.True(t, ok)
+			require.Len(t, threads, 1)
+			require.Equal(t, map[string]any{
+				"id": "PRRT_9", "is_resolved": true, "is_outdated": false,
+				"path": "service.go", "line": float64(9), "comment_id": float64(30),
+			}, threads[0])
+			replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
+			require.NoError(t, err)
+			require.JSONEq(t, string(result.ContentParts), string(replay.ContentParts))
+			require.EqualValues(t, 1, queries.Load(), "completion replay and pagination must not make extra queries")
+		})
+	}
+}
+
+func TestGitHubIntegrationReviewThreadFailures(t *testing.T) {
+	for _, scenario := range []string{"partial", "server", "wrong-node", "page-for-threads", "cursor-for-reviews"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := t.Context()
+			f := newIntegrationToolFixtureWithOptions(t, ctx, "github-thread-failure", toolFixtureOptions{
+				withGitHubIntegration: true, withToolContext: true,
+			})
+			var queries atomic.Int32
+			server := githubToolTestServer(t, "read", func(w http.ResponseWriter, r *http.Request) {
+				queries.Add(1)
+				assert.Equal(t, "/graphql", r.URL.Path)
+				switch scenario {
+				case "partial":
+					_, _ = w.Write([]byte(`{"data":{"node":null},"errors":[{"message":"private-provider-details"}]}`))
+				case "server":
+					w.WriteHeader(http.StatusInternalServerError)
+				case "wrong-node":
+					_, _ = w.Write([]byte(
+						`{"data":{"node":{"__typename":"PullRequest","id":"PR_other","fullDatabaseId":"701","number":7}}}`,
+					))
+				default:
+					t.Error("invalid pagination reached provider")
+				}
+			})
+			input, code, attempts := `{"section":"review_threads"}`, "invalid_response", 1
+			switch scenario {
+			case "server":
+				code, attempts = "transient_failure", 3
+			case "wrong-node":
+				code = "scope_mismatch"
+			case "page-for-threads":
+				input, code, attempts = `{"section":"review_threads","page":2}`, "integration_tool_failed", 0
+			case "cursor-for-reviews":
+				input, code, attempts = `{"section":"reviews","cursor":"next-page"}`, "integration_tool_failed", 0
+			}
+			call := f.recordToolCall(t, ctx, "threads", "int__chat__read", input, f.Now)
+			executor := Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}
+			result, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)
+			require.NoError(t, err)
+			body := toolResultMapFromTestParts(t, result.ContentParts)
+			require.Equal(t, code, body["code"])
+			require.NotContains(t, body["message"], "may have accepted")
+			require.NotContains(t, string(result.ContentParts), "private-provider-details")
+			record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+			require.NoError(t, err)
+			require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+			require.EqualValues(t, attempts, queries.Load())
+		})
+	}
+}
+
 func TestGitHubIntegrationCommentsAndReplay(t *testing.T) {
 	for _, tt := range []struct {
 		operation, input, path, payload string
@@ -188,7 +308,7 @@ func TestGitHubIntegrationCommentsAndReplay(t *testing.T) {
 		{"discussion_comment", `{"body":"Review ready"}`,
 			"/repos/octo/renamed/issues/7/comments", `{"body":"Review ready"}`},
 		{
-			"inline_comment",
+			"review_comment",
 			`{"body":"Fix this range","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT","start_line":7,"start_side":"RIGHT"}`,
 			"/repos/octo/renamed/pulls/7/comments",
 			`{"body":"Fix this range","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT","start_line":7,"start_side":"RIGHT"}`,
@@ -281,14 +401,14 @@ func TestGitHubIntegrationProviderFailureDoesNotResend(t *testing.T) {
 	}{
 		{"rate-limit", "rate_limited", http.StatusTooManyRequests},
 		{"uncertain-publication", "delivery_unknown", http.StatusInternalServerError},
-		{"invalid-inline-comment", "permanent_failure", http.StatusUnprocessableEntity},
+		{"invalid-review-comment", "permanent_failure", http.StatusUnprocessableEntity},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
 			operation, input := "discussion_comment", `{"body":"Review"}`
 			path := "/repos/octo/renamed/issues/7/comments"
 			if tt.status == http.StatusUnprocessableEntity {
-				operation = "inline_comment"
+				operation = "review_comment"
 				input = `{"body":"Review","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`
 				path = "/repos/octo/renamed/pulls/7/comments"
 			}

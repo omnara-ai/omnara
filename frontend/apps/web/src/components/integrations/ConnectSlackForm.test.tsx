@@ -1,14 +1,14 @@
 /** @vitest-environment happy-dom */
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient } from '@omnara/sdk'
-import { getProjectIntegrationQueryKey } from '@omnara/sdk/tanstack'
+import { getIntegrationQueryKey } from '@omnara/sdk/tanstack'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { fakeId, projectIntegration } from '@/test/fixtures'
+import { fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
 import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
@@ -41,7 +41,7 @@ it.each(['changed', 'deleted'] as const)(
     vi.useFakeTimers()
     const orgId = fakeId('org'),
       projectId = fakeId('proj')
-    const integration = projectIntegration({
+    const integration = integrationFixture({
       provider_tenant_id: 'T123',
       provider_account_ref: 'A123',
     })
@@ -131,7 +131,7 @@ it.each(['complete', 'invalidate'] as const)(
     const orgId = fakeId('org'),
       projectId = fakeId('proj'),
       flowId = fakeId('ioaf')
-    const cached = projectIntegration({
+    const cached = integrationFixture({
       state: 'disconnected',
       setup_revision: 1,
       provider_tenant_id: 'T123',
@@ -172,7 +172,7 @@ it.each(['complete', 'invalidate'] as const)(
     ])
     const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
     cache.setQueryData(
-      getProjectIntegrationQueryKey({
+      getIntegrationQueryKey({
         path: { orgID: orgId, projectID: projectId, integrationID: cached.id },
         client,
       }),
@@ -287,7 +287,7 @@ it('keeps focus and each Slack setup draft, including the icon, when switching m
   )
   const orgId = fakeId('org'),
     projectId = fakeId('proj')
-  const integration = projectIntegration()
+  const integration = integrationFixture()
   const path = `/api/v1/orgs/${orgId}/projects/${projectId}/integrations/${integration.id}`
   const api = fakeApi([
     {

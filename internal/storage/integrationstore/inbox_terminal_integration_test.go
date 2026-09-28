@@ -5,6 +5,7 @@ package integrationstore_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"testing"
 	"time"
 
@@ -27,30 +28,27 @@ func freezeInboxSelection(
 		t,
 		f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1 LIMIT 1`, f.project).Scan(&profileID),
 	)
-	f.exec(t, `UPDATE project_integrations SET provider_tenant_id='T123' WHERE id=$1`, f.integrationID)
+	f.exec(t, `UPDATE integrations SET provider_tenant_id='T123' WHERE id=$1`, f.integrationID)
 	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
-	integration, err := store.UpdateProjectIntegration(
+	integration, err := store.UpdateIntegration(
 		f.ctx,
 		f.integrationID,
-		integrationstore.SaveProjectIntegrationInput{
-			OrgID: f.org, ProjectID: f.project, Name: "inbox-integration", IntegrationType: integrationdefinition.SlackThread,
-			Settings: integrationstore.ProjectIntegrationSettings{
-				Launcher: &integrationstore.IntegrationLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
-					Slots: []integrationstore.IntegrationLaunchSlot{{Key: "a", AgentProfileID: &profileID}}},
-			},
+		integrationstore.SaveIntegrationInput{
+			OrgID: f.org, ProjectID: f.project, Name: "inbox-integration", IntegrationKind: integrationdefinition.SlackThread,
+			Settings: integrationtest.ChatSettings("", profileID),
 		},
 	)
 	require.NoError(t, err)
 	selection := integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, Slot: "a"}
 	plan, err := json.Marshal(
-		map[string]any{"a": map[string]any{
+		map[string]any{"message": map[string]any{}, "recipients": map[string]any{"a": map[string]any{
 			"agent_id": uuid.Must(
 				uuid.NewV7(),
 			),
 			"selection": selection,
 			"launch":    map[string]any{"profile_id": profileID},
-		}},
+		}}},
 	)
 	require.NoError(t, err)
 	f.accept(t, name)
@@ -103,9 +101,12 @@ func TestInboxTerminalFailureRetainsDedupeAndReleasesSelection(t *testing.T) {
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 	f.accept(t, "fresh-event")
 	fresh := f.claim(t)
-	var plan map[string]map[string]any
+	var plan struct {
+		Message    json.RawMessage           `json:"message"`
+		Recipients map[string]map[string]any `json:"recipients"`
+	}
 	require.NoError(t, json.Unmarshal(receipt.Plan, &plan))
-	plan["a"]["agent_id"] = uuid.Must(uuid.NewV7()).String()
+	plan.Recipients["a"]["agent_id"] = uuid.Must(uuid.NewV7()).String()
 	newPlan, err := json.Marshal(plan)
 	require.NoError(t, err)
 	f.mutate(
@@ -157,8 +158,8 @@ func TestInboxTerminalFailurePreservesRetainedTargets(t *testing.T) {
 			)
 			require.NoError(t, err)
 			f.exec(t, `INSERT INTO integration_targets
- (project_id,agent_id,integration_id,provider_ref_kind,provider_ref,
-  selection_slot,deleted_at,created_at,updated_at)
+ (project_id,agent_id,integration_id,scope_kind,scope_ref,
+  launch_key,deleted_at,created_at,updated_at)
  VALUES($1,$2,$3,'thread','C123:1.2','a',
   CASE WHEN $4 THEN now() ELSE NULL END,now(),now())`,
 				f.project, launch.Agent.ID, selection.IntegrationID, retired)
@@ -216,7 +217,7 @@ func TestInboxReservationsExcludeFailedOwnersBeforeLimit(t *testing.T) {
 		if err := work.CheckNoUnsettledIntegrationSelection(f.ctx, selection.Address); err != nil {
 			return err
 		}
-		if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+		if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 			return err
 		}
 		return work.Complete(f.ctx)
@@ -249,7 +250,7 @@ func TestInboxTerminalRecoverySkipsLockedAndBoundsBatches(t *testing.T) {
 				receipts = append(receipts, f.read(t, receipt.ID))
 			}
 			if path != "expired-budget" {
-				f.exec(t, `UPDATE project_integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
+				f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, f.integrationID)
 			}
 			tx, err := f.pool.Begin(f.ctx)
 			require.NoError(t, err)

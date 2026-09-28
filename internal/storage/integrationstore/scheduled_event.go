@@ -47,15 +47,15 @@ func (s *Store) AcceptScheduledIntegrationEventTx(
 		return IntegrationInboxRecord{}, false, err
 	}
 	q := dbsqlc.New(tx)
-	integration, err := getProjectIntegration(ctx, q, input.ProjectID, input.IntegrationID)
+	integration, err := getIntegration(ctx, q, input.ProjectID, input.IntegrationID)
 	if err != nil {
 		return IntegrationInboxRecord{}, false, err
 	}
-	if integration.State != ProjectIntegrationStateActive {
+	if integration.State != IntegrationStateActive {
 		return IntegrationInboxRecord{}, false, storeerr.ErrUnauthorized
 	}
 	if _, err := integrationdefinition.ValidateScheduleSettings(
-		integration.IntegrationType, input.Event.Settings,
+		integration.IntegrationKind, input.Event.Settings,
 	); err != nil {
 		return IntegrationInboxRecord{}, false, storeerr.InvalidRequest(err)
 	}
@@ -101,7 +101,7 @@ func (r IntegrationInboxRecord) ScheduledEvent() (ScheduledIntegrationEvent, err
 }
 
 func (r IntegrationInboxRecord) ValidateScheduledPlan(
-	integration ProjectIntegrationRecord,
+	integration IntegrationRecord,
 	plan json.RawMessage,
 ) error {
 	event, err := r.ScheduledEvent()
@@ -112,35 +112,35 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(
 		return storeerr.ErrUnauthorized
 	}
 	// Admission validated the immutable receipt; avoid schema compilation under locks.
-	var slots map[string]struct {
-		Scope     integrationdefinition.Scope `json:"scope"`
-		Selection *InboxIntegrationSelection  `json:"selection"`
-		Launch    *struct {
-			ProfileID    uuid.UUID `json:"profile_id"`
-			InitialInput *struct {
-				ContentBlocks json.RawMessage `json:"content_blocks"`
-			} `json:"initial_input"`
-		} `json:"launch"`
+	var frozen struct {
+		Message struct {
+			Scope         integrationdefinition.Scope `json:"scope"`
+			ContentBlocks json.RawMessage             `json:"content_blocks"`
+		} `json:"message"`
+		Recipients map[string]struct {
+			Selection *InboxIntegrationSelection `json:"selection"`
+			Launch    *struct {
+				ProfileID uuid.UUID `json:"profile_id"`
+			} `json:"launch"`
+		} `json:"recipients"`
 	}
-	if err := json.Unmarshal(plan, &slots); err != nil || slots == nil {
+	if err := json.Unmarshal(plan, &frozen); err != nil || frozen.Recipients == nil {
 		return inboxInvalid("invalid scheduled plan")
 	}
 	facts := integrationdefinition.SchedulePlan{
 		IntegrationName: integration.Name, Occurrence: event.Occurrence, Settings: event.Settings,
 	}
-	for key, slot := range slots {
-		fact := integrationdefinition.ScheduleSlot{Key: key, Scope: slot.Scope}
+	for key, slot := range frozen.Recipients {
+		fact := integrationdefinition.ScheduleSlot{Key: key, Scope: frozen.Message.Scope}
 		if slot.Launch != nil {
 			if slot.Selection == nil {
 				return inboxInvalid("scheduled launch requires a selection")
 			}
 			fact.ProfileID = slot.Launch.ProfileID
-			if slot.Launch.InitialInput != nil {
-				fact.Content = slot.Launch.InitialInput.ContentBlocks
-			}
+			fact.Content = frozen.Message.ContentBlocks
 		}
 		if slot.Selection != nil {
-			kind, ref, err := slot.Scope.Conversation()
+			kind, ref, err := frozen.Message.Scope.Conversation()
 			if err != nil {
 				return storeerr.InvalidRequest(err)
 			}
@@ -151,7 +151,7 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(
 		}
 		facts.Slots = append(facts.Slots, fact)
 	}
-	if err := integrationdefinition.ValidateSchedulePlan(integration.IntegrationType, facts); err != nil {
+	if err := integrationdefinition.ValidateSchedulePlan(integration.IntegrationKind, facts); err != nil {
 		return storeerr.InvalidRequest(err)
 	}
 	return nil

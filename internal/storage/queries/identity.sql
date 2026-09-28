@@ -97,7 +97,7 @@ WHERE secret.org_id = version.org_id
     WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id
   )
   AND NOT EXISTS (
-    SELECT 1 FROM project_integrations integration
+    SELECT 1 FROM integrations integration
     WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id
   );
 
@@ -268,7 +268,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -379,7 +379,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 
@@ -848,7 +848,7 @@ SELECT EXISTS (
     AND (
       EXISTS (SELECT 1 FROM model_provider_configs config WHERE config.org_id = secret.org_id AND config.credential_secret_id = secret.id)
       OR EXISTS (SELECT 1 FROM machine_pools pool WHERE pool.org_id = secret.org_id AND pool.provider_auth_secret_id = secret.id)
-      OR EXISTS (SELECT 1 FROM project_integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
+      OR EXISTS (SELECT 1 FROM integrations integration WHERE integration.org_id = secret.org_id AND integration.credential_secret_id = secret.id)
     )
 ) AS is_referenced;
 

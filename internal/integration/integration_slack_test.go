@@ -23,15 +23,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func slackInboxTestIntegration() integrationstore.ProjectIntegrationRecord {
-	return integrationstore.ProjectIntegrationRecord{
+func slackInboxTestIntegration() integrationstore.IntegrationRecord {
+	return integrationstore.IntegrationRecord{
 		ID:                 uuid.New(),
 		OrgID:              uuid.New(),
 		ProjectID:          uuid.New(),
 		CredentialSecretID: uuid.New(),
-		State:              integrationstore.ProjectIntegrationStateActive,
+		State:              integrationstore.IntegrationStateActive,
 		UpdatedAt:          time.Now(),
 		Provider:           "slack",
+		IntegrationKind:    integrationdefinition.SlackThread,
 		ProviderTenantID:   "T123",
 		ProviderAccountRef: "A123",
 		ProviderIdentity:   json.RawMessage(`{"bot_user_id":"UBOT"}`),
@@ -51,7 +52,7 @@ func TestSlackInboxRoutesBeforeExpansion(t *testing.T) {
 			})
 		require.True(t, called)
 		require.ErrorIs(t, err, routeErr)
-		require.Empty(t, expansion.Events)
+		require.Empty(t, expansion.Event)
 	}
 }
 
@@ -64,7 +65,7 @@ func TestSlackInboxBroadcastUsesOriginalThreadAndMessageIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "1.0"}, broadcast.Event.Scope.Slack)
-	require.False(t, definition.MatchesLauncher(broadcast.Event, "mention"))
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), broadcast.Event))
 	event.Subtype = ""
 	ordinary, ok, err := NormalizeSlackIntegrationEvent(integration, slackInboxTestPayload(t, event))
 	require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestSlackInboxCanonicalMessageAndMentionRouting(t *testing.T) {
 	root, ok, err := NormalizeSlackIntegrationEvent(integrationSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.False(t, definition.MatchesLauncher(root.Event, "mention"))
+	require.False(t, definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), root.Event))
 	message.ThreadTS = "1.0"
 	reply, ok, err := NormalizeSlackIntegrationEvent(integrationSetup, slackInboxTestPayload(t, message))
 	require.NoError(t, err)
@@ -198,7 +199,8 @@ func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.kind, kind)
 			require.Equal(t, tc.ref, ref)
-			require.Equal(t, tc.mentioned, definition.MatchesLauncher(normalized.Event, "mention"))
+			require.Equal(t, tc.mentioned,
+				definition.MatchesLaunch(testLaunchSettings(definition.IntegrationKind, "mention"), normalized.Event))
 			require.Equal(t, executionstore.DeliveryModeSteering, normalized.DeliveryMode)
 			require.True(t, normalized.CancelOpenInteractions)
 		})
@@ -206,8 +208,9 @@ func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
 }
 
 type slackInboxTestAccess struct {
+	choice           integrationstore.IntegrationProfileChoiceRecord
 	mu               sync.Mutex
-	integrationSetup integrationstore.ProjectIntegrationRecord
+	integrationSetup integrationstore.IntegrationRecord
 	version          uuid.UUID
 	token            string
 	revoked          bool
@@ -265,11 +268,11 @@ func (s *slackInboxTestAccess) GetProjectAvailableSecret(
 	}, nil
 }
 
-func (s *slackInboxTestAccess) GetProjectIntegration(
+func (s *slackInboxTestAccess) GetIntegration(
 	context.Context,
 	uuid.UUID,
 	uuid.UUID,
-) (integrationstore.ProjectIntegrationRecord, error) {
+) (integrationstore.IntegrationRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.integrationSetup, nil
@@ -317,8 +320,8 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	event := slack.Event{Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", Text: "<@UBOT> review"}
 	expanded, err := provider.Expand(t.Context(), integrationSetup, slackInboxTestPayload(t, event))
 	require.NoError(t, err)
-	require.Len(t, expanded.Events, 1)
-	input := expanded.Events[0]
+	require.NotNil(t, expanded.Event)
+	input := expanded.Event
 	require.Equal(t, "reviews", input.DisplayName)
 	require.NotNil(t, input.Actor.DisplayName)
 	require.Equal(t, "Alex", *input.Actor.DisplayName)
@@ -336,7 +339,7 @@ func TestSlackInboxEnrichmentUsesTypedProviderContent(t *testing.T) {
 	})
 	expanded, err = provider.Expand(t.Context(), integrationSetup, slackInboxTestPayload(t, event))
 	require.NoError(t, err)
-	require.Equal(t, "Cached Alex", *expanded.Events[0].Actor.DisplayName)
+	require.Equal(t, "Cached Alex", *expanded.Event.Actor.DisplayName)
 }
 
 func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
@@ -366,7 +369,7 @@ func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 				Text     string            `json:"text"`
 				Metadata map[string]string `json:"metadata"`
 			}
-			require.NoError(t, json.Unmarshal(expanded.Events[0].ContentBlocks, &blocks))
+			require.NoError(t, json.Unmarshal(expanded.Event.ContentBlocks, &blocks))
 			require.Len(t, blocks, 2)
 			require.Contains(t, blocks[1].Text, "<@U123> (Alex)")
 			display, exists := blocks[1].Metadata["omnara_display_text"]
@@ -381,8 +384,8 @@ func TestSlackInboxDisplayMetadataUnicodeBoundary(t *testing.T) {
 }
 
 func TestIntegrationEventsDiscordGuildDiffersFromIntegrationApplication(t *testing.T) {
-	integrationSetup := integrationstore.ProjectIntegrationRecord{
-		IntegrationType:    integrationdefinition.DiscordThread,
+	integrationSetup := integrationstore.IntegrationRecord{
+		IntegrationKind:    integrationdefinition.DiscordThread,
 		ID:                 uuid.New(),
 		Provider:           "discord",
 		ProviderTenantID:   "999",
@@ -396,13 +399,13 @@ func TestIntegrationEventsDiscordGuildDiffersFromIntegrationApplication(t *testi
 			Kind: "message",
 		},
 		SemanticKey:   "discord:message:111",
-		Actor:         integrationTestActor(t, integrationSetup.ID, "777"),
+		Actor:         integrationTestActor(t, integrationSetup, "777"),
 		ContentBlocks: json.RawMessage(`[{"type":"text","text":"hello"}]`),
 	}
-	requests, err := prepareIntegrationEvents([]IntegrationEvent{event}, integrationSetup)
+	request, err := prepareIntegrationEvent(event, integrationSetup)
 	require.NoError(t, err)
-	require.Equal(t, "123", requests[0].event.Event.Scope.Discord.GuildID)
-	require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: "456:789"}, requests[0].address)
+	require.Equal(t, "123", request.event.Event.Scope.Discord.GuildID)
+	require.Equal(t, integrationstore.ConversationAddress{Kind: "thread", Ref: "789"}, request.address)
 }
 
 func TestSlackInboxRechecksIntegrationSetupAndGrantedCredentialAfterUnwrap(t *testing.T) {
@@ -413,7 +416,7 @@ func TestSlackInboxRechecksIntegrationSetupAndGrantedCredentialAfterUnwrap(t *te
 			access.afterRead = func() {
 				switch change {
 				case "disabled":
-					access.integrationSetup.State = integrationstore.ProjectIntegrationStateDisconnected
+					access.integrationSetup.State = integrationstore.IntegrationStateDisconnected
 				case "reconfigured":
 					access.integrationSetup.SetupRevision++
 				case "rotated":
@@ -460,7 +463,7 @@ func TestSlackInboxRevocationBetweenEnrichmentRequests(t *testing.T) {
 				}
 				switch change {
 				case "integration":
-					access.integrationSetup.State = integrationstore.ProjectIntegrationStateDisconnected
+					access.integrationSetup.State = integrationstore.IntegrationStateDisconnected
 				case "credential":
 					access.version = uuid.New()
 				case "grant":
@@ -547,9 +550,20 @@ func TestSlackInboxRotatedTokenMustRetainProviderIdentity(t *testing.T) {
 	}
 }
 
-func integrationTestActor(t *testing.T, integrationID uuid.UUID, userID string) executionstore.ActorParams {
+func integrationTestActor(
+	t *testing.T, integration integrationstore.IntegrationRecord, userID string,
+) executionstore.ActorParams {
 	t.Helper()
-	actor, err := executionstore.IntegrationActorParams(integrationID, userID, nil)
+	actor, err := executionstore.IntegrationActorParams(integration, userID, nil)
 	require.NoError(t, err)
 	return actor
+}
+
+func (s *slackInboxTestAccess) GetIntegrationProfileChoice(
+	_ context.Context, project, integration, id uuid.UUID,
+) (integrationstore.IntegrationProfileChoiceRecord, error) {
+	if s.choice.ID != id || s.choice.ProjectID != project || s.choice.IntegrationID != integration {
+		return integrationstore.IntegrationProfileChoiceRecord{}, storeerr.ErrNotFound
+	}
+	return s.choice, nil
 }

@@ -7,16 +7,15 @@ package dbsqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const clearDeletedIntegrationTargetsFromAgents = `-- name: ClearDeletedIntegrationTargetsFromAgents :exec
-UPDATE agents agent SET integration_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
+UPDATE agents agent SET interaction_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
 WHERE agent.project_id = $1
-  AND agent.integration_target_id IN (
+  AND agent.interaction_target_id IN (
     SELECT target.id FROM integration_targets target
     WHERE target.project_id = $1
       AND target.integration_id = $2
@@ -52,8 +51,8 @@ func (q *Queries) DeleteIntegrationTargets(ctx context.Context, arg DeleteIntegr
 }
 
 const getIntegrationTarget = `-- name: GetIntegrationTarget :one
-SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.provider_ref,
-  target.provider_ref_kind, target.display_name, target.provider_metadata, target.selection_slot, target.deleted_at, target.created_at, target.updated_at
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
+  target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
 FROM integration_targets target
 JOIN projects project ON project.id = target.project_id
 WHERE target.project_id = $1
@@ -67,19 +66,18 @@ type GetIntegrationTargetParams struct {
 }
 
 type GetIntegrationTargetRow struct {
-	ID               uuid.UUID
-	OrgID            uuid.UUID
-	ProjectID        uuid.UUID
-	AgentID          uuid.UUID
-	IntegrationID    uuid.UUID
-	ProviderRef      string
-	ProviderRefKind  string
-	DisplayName      string
-	ProviderMetadata json.RawMessage
-	SelectionSlot    *string
-	DeletedAt        *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTargetParams) (GetIntegrationTargetRow, error) {
@@ -91,11 +89,10 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 		&i.ProjectID,
 		&i.AgentID,
 		&i.IntegrationID,
-		&i.ProviderRef,
-		&i.ProviderRefKind,
+		&i.ScopeRef,
+		&i.ScopeKind,
 		&i.DisplayName,
-		&i.ProviderMetadata,
-		&i.SelectionSlot,
+		&i.LaunchKey,
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -103,7 +100,7 @@ func (q *Queries) GetIntegrationTarget(ctx context.Context, arg GetIntegrationTa
 	return i, err
 }
 
-const listProjectIntegrationAgentIDsForLifecycle = `-- name: ListProjectIntegrationAgentIDsForLifecycle :many
+const listIntegrationAgentIDsForLifecycle = `-- name: ListIntegrationAgentIDsForLifecycle :many
 SELECT target.agent_id FROM integration_targets target
 WHERE target.project_id = $1 AND target.integration_id = $2
 UNION
@@ -112,15 +109,15 @@ WHERE subscription.project_id = $1 AND subscription.integration_id = $2
 ORDER BY agent_id
 `
 
-type ListProjectIntegrationAgentIDsForLifecycleParams struct {
+type ListIntegrationAgentIDsForLifecycleParams struct {
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
 // Include historical targets whose agents may still hold references to clear.
-func (q *Queries) ListProjectIntegrationAgentIDsForLifecycle(ctx context.Context, arg ListProjectIntegrationAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, listProjectIntegrationAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationID)
+func (q *Queries) ListIntegrationAgentIDsForLifecycle(ctx context.Context, arg ListIntegrationAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listIntegrationAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,30 +136,30 @@ func (q *Queries) ListProjectIntegrationAgentIDsForLifecycle(ctx context.Context
 	return items, nil
 }
 
-const updateIntegrationTargetDisplayNamesByProviderRefPrefix = `-- name: UpdateIntegrationTargetDisplayNamesByProviderRefPrefix :execrows
+const updateIntegrationTargetDisplayNamesByScopeRefPrefix = `-- name: UpdateIntegrationTargetDisplayNamesByScopeRefPrefix :execrows
 UPDATE integration_targets
 SET display_name = $1,
     updated_at = transaction_timestamp()
 WHERE project_id = $2
   AND integration_id = $3
   AND deleted_at IS NULL
-  AND split_part(provider_ref, ':', 1) = $4
+  AND split_part(scope_ref, ':', 1) = $4
   AND display_name IS DISTINCT FROM $1
 `
 
-type UpdateIntegrationTargetDisplayNamesByProviderRefPrefixParams struct {
-	DisplayName       string
-	ProjectID         uuid.UUID
-	IntegrationID     uuid.UUID
-	ProviderRefPrefix string
+type UpdateIntegrationTargetDisplayNamesByScopeRefPrefixParams struct {
+	DisplayName    string
+	ProjectID      uuid.UUID
+	IntegrationID  uuid.UUID
+	ScopeRefPrefix string
 }
 
-func (q *Queries) UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(ctx context.Context, arg UpdateIntegrationTargetDisplayNamesByProviderRefPrefixParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateIntegrationTargetDisplayNamesByProviderRefPrefix,
+func (q *Queries) UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(ctx context.Context, arg UpdateIntegrationTargetDisplayNamesByScopeRefPrefixParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateIntegrationTargetDisplayNamesByScopeRefPrefix,
 		arg.DisplayName,
 		arg.ProjectID,
 		arg.IntegrationID,
-		arg.ProviderRefPrefix,
+		arg.ScopeRefPrefix,
 	)
 	if err != nil {
 		return 0, err

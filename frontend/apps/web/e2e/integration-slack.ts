@@ -66,7 +66,7 @@ export async function exerciseSlackIntegrationSetup(
   await page.getByRole('button', { name: 'Create and connect', exact: true }).click()
   const creation = await created
   expect(creation.status()).toBe(201)
-  const integration = schemas.zProjectIntegration.parse(await creation.json())
+  const integration = schemas.zIntegration.parse(await creation.json())
   const apiProjectPath = creation.url().replace(/\/integrations$/, '')
   const integrationPath = `/projects/${projectID}/integrations/${integration.id}`
   const response = await pending
@@ -93,7 +93,7 @@ export async function exerciseSlackIntegrationSetup(
       result.request().method() === 'GET' &&
       new URL(result.url()).pathname === `${projectPath}/integrations/${integration.id}`,
   )
-  const pendingIntegration = schemas.zProjectIntegration.parse(await waiting.json())
+  const pendingIntegration = schemas.zIntegration.parse(await waiting.json())
   expect(pendingIntegration.state).toBe('disconnected')
   expect(pendingIntegration.setup_revision).toBe(integration.setup_revision)
   expect(pendingIntegration.last_oauth_flow_id).not.toBe(setup.flow_id)
@@ -116,7 +116,8 @@ export async function exerciseSlackIntegrationSetup(
   await mentions.getByRole('button', { name: 'Save changes', exact: true }).click()
   const saved = await savedSettings
   expect(saved.status()).toBe(200)
-  const connected = schemas.zProjectIntegration.parse(await saved.json())
+  expect(saved.request().postDataJSON()).toEqual({ settings: {} })
+  const connected = schemas.zIntegration.parse(await saved.json())
   expect(connected).toMatchObject({
     id: integration.id,
     state: 'active',

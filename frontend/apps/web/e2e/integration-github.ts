@@ -1,15 +1,15 @@
-import { type GitHubInstallations, type ProjectIntegration, schemas, zJsonText } from '@omnara/sdk'
+import { type GitHubInstallations, type Integration, schemas, zJsonText } from '@omnara/sdk'
 import { expect, type Page, test } from '@playwright/test'
 import { z } from 'zod'
 
 export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   const origin = new URL(page.url()).origin
   const secretID = `sec_${'g'.repeat(26)}`
-  let integration: ProjectIntegration = {
+  let integration: Integration = {
     id: `itg_${'g'.repeat(26)}`,
     project_id: projectID,
     name: 'guided-reviewer',
-    integration_type: 'github_pr',
+    integration_kind: 'github_pr',
     state: 'disconnected',
     setup_revision: 1,
     settings: {},
@@ -53,9 +53,9 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
     connects = 0
   await page.route(`**/projects/${projectID}/integrations`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
-    const request = schemas.zSaveProjectIntegrationRequest.parse(route.request().postDataJSON())
-    expect(request.settings).toEqual({})
-    integration = { ...integration, name: request.name }
+    const request = schemas.zSaveIntegrationRequest.parse(route.request().postDataJSON())
+    expect(request.settings).toEqual({ sender_policy: 'writers' })
+    integration = { ...integration, name: request.name, settings: request.settings }
     await route.fulfill({ status: 201, json: integration })
   })
   await page.route(`**/integrations/${integration.id}`, (route) =>
@@ -98,9 +98,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   )
   await page.route(`**/integrations/${integration.id}/setup`, async (route) => {
     connects++
-    expect(
-      schemas.zConfigureProjectIntegrationRequest.parse(route.request().postDataJSON()),
-    ).toEqual({
+    expect(schemas.zConfigureIntegrationRequest.parse(route.request().postDataJSON())).toEqual({
       expected_setup_revision: 1,
       provider_tenant_id: '111',
       provider_account_ref: '222',

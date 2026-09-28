@@ -24,7 +24,7 @@ func (s *Store) GetIntegrationTargetInputByIdempotency(
 			"integration, integration target, and idempotency key are required",
 		)
 	}
-	integration, err := s.integrations.GetProjectIntegrationByID(ctx, input.IntegrationID)
+	integration, err := s.integrations.GetIntegrationByID(ctx, input.IntegrationID)
 	if err != nil {
 		return AgentInputRecord{}, false, err
 	}
@@ -41,7 +41,7 @@ func (s *Store) GetIntegrationTargetInputByIdempotency(
 func integrationTargetInputByIdempotency(
 	ctx context.Context,
 	q *dbsqlc.Queries,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	target integrationstore.IntegrationTargetRecord,
 	idempotencyKey string,
 ) (AgentInputRecord, bool, error) {

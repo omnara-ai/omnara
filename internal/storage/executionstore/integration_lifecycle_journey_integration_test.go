@@ -17,7 +17,7 @@ func newIntegrationLifecycleJourney(t *testing.T) integrationInteractionFixture 
 	t.Helper()
 	f := newIntegrationInteractionFixture(t)
 	for _, spec := range []struct {
-		integration integrationstore.ProjectIntegrationRecord
+		integration integrationstore.IntegrationRecord
 		channel     string
 	}{
 		{f.integration, "C123"}, {f.otherIntegration, "C456"},
@@ -41,20 +41,21 @@ func newIntegrationLifecycleJourney(t *testing.T) integrationInteractionFixture 
 func TestIntegrationDeletionClearsInteractionSelectionAndReleasesCredentials(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationLifecycleJourney(t)
-	question := f.question(t)
+	question := f.questionForOrigin(t, f.a.ID)
 	credential := secretstore.DeleteSecretInput{
 		OrgID: testOrgID, SecretID: f.integration.CredentialSecretID, Actor: userPrincipal(f.user.ID),
 	}
 	_, err := f.store.Secrets().DeleteSecret(f.ctx, credential)
 	require.ErrorIs(t, err, storeerr.ErrConflict, "the live integration protects its credential")
 
-	require.NoError(t, f.store.Integrations().DeleteProjectIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
+	require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
 	selection, err := f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection, "delete clears target and handler together")
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
+		"delete clears target and handler together")
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.a.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
-	_, err = f.store.Integrations().GetProjectIntegration(f.ctx, testProjectID, f.integration.ID)
+	_, err = f.store.Integrations().GetIntegration(f.ctx, testProjectID, f.integration.ID)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: testProjectID, IntegrationID: f.integration.ID, ReceiptKey: "after-delete", Payload: []byte(`{}`),
@@ -68,9 +69,9 @@ func TestIntegrationDeletionClearsInteractionSelectionAndReleasesCredentials(t *
 		`SELECT count(*) FROM secret_versions WHERE secret_id=$1`, credential.SecretID).Scan(&versions))
 	require.Zero(t, versions, "unreferenced credential ciphertext can be destroyed")
 
-	other, err := f.store.Integrations().GetProjectIntegration(f.ctx, testProjectID, f.otherIntegration.ID)
+	other, err := f.store.Integrations().GetIntegration(f.ctx, testProjectID, f.otherIntegration.ID)
 	require.NoError(t, err)
-	require.Equal(t, integrationstore.ProjectIntegrationStateActive, other.State)
+	require.Equal(t, integrationstore.IntegrationStateActive, other.State)
 	_, err = f.store.Integrations().GetIntegrationTarget(f.ctx, testProjectID, f.b.ID)
 	require.NoError(t, err)
 	credential.SecretID = f.otherIntegration.CredentialSecretID
@@ -114,7 +115,7 @@ func TestScopeTeardownSweepsLiveIntegrationsSubscriptionsTargetsAndCredentials(t
 			require.NoError(t, err, "teardown must release integration credentials before checking secret references")
 			var deletedIntegrations, liveTargets, activeSubscriptions, versions int
 			require.NoError(t, f.store.pool.QueryRow(f.ctx, `SELECT
-			 (SELECT count(*) FROM project_integrations WHERE project_id=$1 AND deleted_at IS NOT NULL
+			 (SELECT count(*) FROM integrations WHERE project_id=$1 AND deleted_at IS NOT NULL
 			    AND state='disconnected' AND credential_secret_id IS NULL),
 			 (SELECT count(*) FROM integration_targets WHERE project_id=$1 AND deleted_at IS NULL),
 			 (SELECT count(*) FROM integration_subscriptions WHERE project_id=$1),

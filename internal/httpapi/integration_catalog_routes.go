@@ -16,18 +16,18 @@ func (s strictOpenAPIServer) ListIntegrationDefinitions(
 ) (openapi.ListIntegrationDefinitionsResponseObject, error) {
 	data := make([]openapi.IntegrationDefinition, 0)
 	for _, definition := range integrationdefinition.All() {
-		capabilities, err := integrationCapabilitiesResponse(definition.IntegrationType)
+		capabilities, err := integrationCapabilitiesResponse(definition.IntegrationKind)
 		if err != nil {
 			return nil, err
 		}
 		data = append(data, openapi.IntegrationDefinition{
-			IntegrationType: openapi.IntegrationType(definition.IntegrationType), Capabilities: capabilities,
+			IntegrationKind: openapi.IntegrationKind(definition.IntegrationKind), Capabilities: capabilities,
 		})
 	}
 	return openapi.ListIntegrationDefinitions200JSONResponse{Data: data}, nil
 }
 
-func integrationCapabilitiesResponse(id integrationdefinition.Type) (openapi.IntegrationCapabilities, error) {
+func integrationCapabilitiesResponse(id integrationdefinition.Kind) (openapi.IntegrationCapabilities, error) {
 	result := openapi.IntegrationCapabilities{
 		Tools: make(map[string]openapi.IntegrationCapabilityDefinition),
 	}
@@ -71,6 +71,13 @@ func integrationCapabilitiesResponse(id integrationdefinition.Type) (openapi.Int
 			return result, err
 		}
 		result.InteractionHandler = &entry
+	}
+	if settings := definition.Settings; settings != nil {
+		entry, err := integrationCapabilityResponse(settings.InputSchema, settings.Description)
+		if err != nil {
+			return result, err
+		}
+		result.Settings = &entry
 	}
 	if schedule := definition.Schedule; schedule != nil {
 		entry, err := integrationCapabilityResponse(schedule.InputSchema, schedule.Description)

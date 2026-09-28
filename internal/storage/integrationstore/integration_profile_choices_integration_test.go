@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"sync"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ import (
 
 type profileChoiceFixture struct {
 	inboxFixture
-	integration integrationstore.ProjectIntegrationRecord
+	integration integrationstore.IntegrationRecord
 	input       integrationstore.EnsureIntegrationProfileChoiceInput
 	source      integrationstore.IntegrationInboxRecord
 }
@@ -44,22 +45,17 @@ func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 			OrgID: base.org, ProjectID: base.project, Name: "Reviewer", CurrentConfigID: configID,
 		})
 	require.NoError(t, err)
-	integration, err := base.store.UpdateProjectIntegration(
+	integration, err := base.store.UpdateIntegration(
 		base.ctx,
 		base.integrationID,
-		integrationstore.SaveProjectIntegrationInput{
+		integrationstore.SaveIntegrationInput{
 
 			OrgID:           base.org,
 			ProjectID:       base.project,
 			Name:            "inbox-integration",
-			IntegrationType: integrationdefinition.SlackThread,
+			IntegrationKind: integrationdefinition.SlackThread,
 
-			Settings: integrationstore.ProjectIntegrationSettings{
-				Launcher: &integrationstore.IntegrationLauncher{Trigger: "mention", ScopeKind: "workspace", ScopeRef: "T123",
-					Slots: []integrationstore.IntegrationLaunchSlot{
-						{Key: "support", AgentProfileID: &profileID}, {Key: "review", AgentProfileID: &second.ID},
-					}},
-			},
+			Settings: integrationtest.ChatSettings("", profileID, second.ID),
 		},
 	)
 	require.NoError(t, err)
@@ -69,8 +65,8 @@ func newProfileChoiceFixture(t *testing.T) profileChoiceFixture {
 		SourceKey: "message-1", Event: json.RawMessage(`{"semantic_key":"message-1","text":"original","actor":"U123"}`),
 		Payload: []byte("  {\"event\":{\"text\":\"original\"}}\n"),
 		Options: []integrationstore.IntegrationProfileChoiceOption{
-			{Key: "support", ProfileID: profileID, Name: "Support"},
-			{Key: "review", ProfileID: second.ID, Name: "Reviewer"},
+			{Key: integrationtest.ProfileID(profileID), ProfileID: profileID, Name: "Support"},
+			{Key: integrationtest.ProfileID(second.ID), ProfileID: second.ID, Name: "Reviewer"},
 		},
 	}
 	f.source = f.receipt(t, "source-1", f.input.Payload)
@@ -86,7 +82,7 @@ func (f profileChoiceFixture) receipt(
 	})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.Nil(t, accepted.Events, "ordinary ingress cannot populate trusted integration events")
+	require.Equal(t, uuid.Nil, accepted.StateID, "ordinary ingress cannot reference trusted choice state")
 	claimed, found, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.project, IntegrationID: f.integrationID, LeaseDuration: integrationstore.IntegrationInboxMaxLease,
 	})
@@ -119,28 +115,18 @@ func (f profileChoiceFixture) chooseInput(
 	t *testing.T, record integrationstore.IntegrationProfileChoiceRecord, key string,
 ) integrationstore.ChooseIntegrationProfileInput {
 	t.Helper()
-	integration, err := f.store.GetProjectIntegration(f.ctx, f.project, f.integrationID)
+	integration, err := f.store.GetIntegration(f.ctx, f.project, f.integrationID)
 	require.NoError(t, err)
-	var event map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(record.Event, &event))
-	var profileID uuid.UUID
-	for _, option := range record.Options {
-		if option.Key == key {
-			profileID = option.ProfileID
-		}
+	if key == "support" {
+		key = f.input.Options[0].Key
 	}
-	launches, err := json.Marshal(
-		[]map[string]any{{"integration_id": record.IntegrationID, "slot": key, "profile_id": profileID}},
-	)
-	require.NoError(t, err)
-	event["launches"] = launches
-	event["directed"] = json.RawMessage(`true`)
-	events, err := json.Marshal([]map[string]json.RawMessage{event})
-	require.NoError(t, err)
+	if key == "review" {
+		key = f.input.Options[1].Key
+	}
 	return integrationstore.ChooseIntegrationProfileInput{
 		ProjectID: f.project, IntegrationID: f.integrationID, ID: record.ID, Key: key, ActorID: "U456",
 		MessageChannelID: record.MessageChannelID, MessageID: record.MessageID,
-		SourceChoiceRevision: record.Revision, SourceSetupRevision: integration.SetupRevision, Events: events,
+		SourceChoiceRevision: record.Revision, SourceSetupRevision: integration.SetupRevision,
 	}
 }
 
@@ -239,12 +225,10 @@ func TestIntegrationProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 		require.Equal(t, selected.SelectedBy, record.SelectedBy)
 	}
 	receipt := f.decidedReceipt(t, id)
-	require.Equal(t, f.input.Payload, receipt.Payload)
-	winnerInput := first
-	if selected.SelectedKey == second.Key {
-		winnerInput = second
-	}
-	require.JSONEq(t, string(winnerInput.Events), string(receipt.Events), "receipt contains only the winner's intent")
+	require.Nil(t, receipt.Payload, "choice receipt must not duplicate saved provider bytes")
+	require.Equal(t, id, receipt.StateID)
+	require.Equal(t, integrationstore.IntegrationInboxSourceChoice, receipt.Source)
+	require.Equal(t, f.input.Payload, selected.Payload)
 	require.Nil(t, receipt.Plan)
 	var count int
 	require.NoError(t, f.pool.QueryRow(f.ctx,
@@ -252,18 +236,18 @@ func TestIntegrationProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 	require.Equal(t, 3, count, "two source receipts share one decided receipt")
 	claimed := f.claim(t)
 	require.Equal(t, receipt.ID, claimed.ID)
-	require.JSONEq(t, string(receipt.Events), string(claimed.Events))
+	require.Equal(t, receipt.StateID, claimed.StateID)
 	f.mutate(t, claimed, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		detached := work.Receipt()
-		detached.Events[0] = '{'
-		require.JSONEq(t, string(receipt.Events), string(work.Receipt().Events))
-		return work.FreezePlan(f.ctx, json.RawMessage(`{}`))
+		detached.StateID = uuid.New()
+		require.Equal(t, receipt.StateID, work.Receipt().StateID)
+		return work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`))
 	})
-	require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integration.ID))
+	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integration.ID))
 	_, err := f.store.ChooseIntegrationProfile(f.ctx, first)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.Equal(t, selected, f.readChoice(t, id))
-	require.Equal(t, receipt.Events, f.read(t, receipt.ID).Events)
+	require.Equal(t, receipt.StateID, f.read(t, receipt.ID).StateID)
 	bySource, found, err := f.store.GetIntegrationProfileChoiceBySource(
 		f.ctx, f.project, f.integration.ID, f.input.SourceKey)
 	require.NoError(t, err)
@@ -316,7 +300,8 @@ func TestIntegrationProfileChoiceSiblingSourceAndRevision(t *testing.T) {
 	chosen, err := f.store.ChooseIntegrationProfile(f.ctx, f.chooseInput(t, merged, "review"))
 	require.NoError(t, err)
 	receipt := f.decidedReceipt(t, chosen.ID)
-	require.Equal(t, sibling.Payload, receipt.Payload)
+	require.Nil(t, receipt.Payload)
+	require.Equal(t, sibling.Payload, f.readChoice(t, receipt.StateID).Payload)
 	later, _, err := f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.NoError(t, err)
 	require.Equal(t, chosen, later)
@@ -332,17 +317,16 @@ func TestIntegrationProfileChoiceSettingsEditPreservesAuthenticatedSetup(t *test
 	f := newProfileChoiceFixture(t)
 	choice := f.menu(t)
 	input := f.chooseInput(t, choice, "support")
-	settings := f.integration.Settings
-	settings.Launcher.Slots = settings.Launcher.Slots[:1]
-	updated, err := f.store.UpdateProjectIntegration(f.ctx, f.integration.ID, integrationstore.SaveProjectIntegrationInput{
-		OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationType: f.integration.IntegrationType,
+	settings := integrationtest.ChatSettings("", f.input.Options[0].ProfileID)
+	updated, err := f.store.UpdateIntegration(f.ctx, f.integration.ID, integrationstore.SaveIntegrationInput{
+		OrgID: f.org, ProjectID: f.project, Name: f.integration.Name, IntegrationKind: f.integration.IntegrationKind,
 		Settings: settings,
 	})
 	require.NoError(t, err)
 	require.Equal(t, input.SourceSetupRevision, updated.SetupRevision)
 	selected, err := f.store.ChooseIntegrationProfile(f.ctx, input)
 	require.NoError(t, err, "an unrelated slot edit must not invalidate callback setup authentication")
-	require.Equal(t, "support", selected.SelectedKey)
+	require.Equal(t, f.input.Options[0].Key, selected.SelectedKey)
 }
 
 func TestIntegrationProfileChoiceSourceChooseRace(t *testing.T) {
@@ -368,20 +352,21 @@ func TestIntegrationProfileChoiceSourceChooseRace(t *testing.T) {
 	}
 	require.NoError(t, chooseErr)
 	receipt := f.decidedReceipt(t, chosen.ID)
+	saved := f.readChoice(t, receipt.StateID)
+	require.Equal(t, chosen, saved, "receipt resolves the immutable winning state revision")
 	if bytes.Equal(chosen.Payload, files.Payload) {
-		mergedInput := f.chooseInput(t, chosen, "support")
-		require.JSONEq(t, string(mergedInput.Events), string(receipt.Events))
+		require.JSONEq(t, string(files.Event), string(saved.Event))
 	} else {
-		require.Equal(t, f.input.Payload, chosen.Payload)
-		require.JSONEq(t, string(click.Events), string(receipt.Events))
+		require.Equal(t, f.input.Payload, saved.Payload)
 	}
-	require.Equal(t, chosen.Payload, receipt.Payload, "payload and normalized events cannot come from different revisions")
+	require.Nil(t, receipt.Payload)
+
 }
 
 func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{"project", "wrong-integration", "message", "channel", "unoffered", "expired",
-		"disconnected-integration", "deleted-integration", "remapped-slot", "removed-profile", "disconnect", "rotated-setup"} {
+		"disconnected-integration", "deleted-integration", "removed-configured-profile", "removed-profile", "disconnect", "rotated-setup"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			f := newProfileChoiceFixture(t)
@@ -408,22 +393,21 @@ func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			case "disconnected-integration":
 				f.exec(
 					t,
-					`UPDATE project_integrations SET state='disconnected',setup_revision=setup_revision+1 WHERE id=$1`,
+					`UPDATE integrations SET state='disconnected',setup_revision=setup_revision+1 WHERE id=$1`,
 					f.integration.ID,
 				)
 				want = storeerr.ErrUnauthorized
 			case "deleted-integration":
-				require.NoError(t, f.store.DeleteProjectIntegration(f.ctx, f.org, f.project, f.integration.ID))
+				require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integration.ID))
 				want = storeerr.ErrNotFound
-			case "remapped-slot":
-				f.exec(t, `UPDATE project_integrations SET settings=jsonb_set(settings,
-                    '{launcher,slots,0,agent_profile_id}',to_jsonb($2::uuid::text)) WHERE id=$1`,
-					f.integration.ID, f.input.Options[1].ProfileID)
+			case "removed-configured-profile":
+				settings := integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
+				f.exec(t, `UPDATE integrations SET settings=$2 WHERE id=$1`, f.integration.ID, settings)
 			case "removed-profile":
 				f.exec(t, `UPDATE agent_profiles SET deleted_at=now() WHERE id=$1`, f.input.Options[0].ProfileID)
 			case "disconnect":
-				_, err := f.store.DisconnectProjectIntegration(f.ctx,
-					integrationstore.DisconnectProjectIntegrationInput{
+				_, err := f.store.DisconnectIntegration(f.ctx,
+					integrationstore.DisconnectIntegrationInput{
 						ProjectID: f.project, IntegrationID: f.integrationID,
 					})
 				require.NoError(t, err)
@@ -431,7 +415,7 @@ func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			case "rotated-setup":
 				f.exec(
 					t,
-					`UPDATE project_integrations SET setup_revision=setup_revision+1,updated_at=clock_timestamp() WHERE id=$1`,
+					`UPDATE integrations SET setup_revision=setup_revision+1,updated_at=clock_timestamp() WHERE id=$1`,
 					f.integrationID,
 				)
 				want = storeerr.ErrUnauthorized
@@ -441,7 +425,7 @@ func TestIntegrationProfileChoiceAuthorizationAndStaleness(t *testing.T) {
 			stored := f.readChoice(t, record.ID)
 			require.Empty(t, stored.SelectedKey)
 			switch scenario {
-			case "remapped-slot", "removed-profile":
+			case "removed-configured-profile", "removed-profile":
 				require.True(t, stored.ExpiresAt.Before(record.ExpiresAt), "stale setup retires the unusable menu")
 				require.Greater(t, stored.Revision, record.Revision)
 				require.Equal(t, stored, returned, "caller receives the committed expiry for safe dismissal")
@@ -560,7 +544,7 @@ func TestIntegrationProfileChoiceInboxFailureRollsBackSelection(t *testing.T) {
 	f := newProfileChoiceFixture(t)
 	record := f.menu(t)
 	f.exec(t, `CREATE FUNCTION reject_decided_receipt() RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN IF NEW.events IS NOT NULL THEN RAISE EXCEPTION 'reject decided receipt'; END IF; RETURN NEW; END $$;
+        BEGIN IF NEW.source = 'choice' THEN RAISE EXCEPTION 'reject decided receipt'; END IF; RETURN NEW; END $$;
         CREATE TRIGGER reject_decided_receipt BEFORE INSERT ON integration_inbox
         FOR EACH ROW EXECUTE FUNCTION reject_decided_receipt()`)
 	input := f.chooseInput(t, record, "support")
@@ -570,7 +554,7 @@ func TestIntegrationProfileChoiceInboxFailureRollsBackSelection(t *testing.T) {
 	f.exec(t, `DROP TRIGGER reject_decided_receipt ON integration_inbox; DROP FUNCTION reject_decided_receipt()`)
 	_, err = f.store.ChooseIntegrationProfile(f.ctx, input)
 	require.NoError(t, err)
-	require.JSONEq(t, string(input.Events), string(f.decidedReceipt(t, record.ID).Events))
+	require.Equal(t, record.ID, f.decidedReceipt(t, record.ID).StateID)
 }
 
 func TestIntegrationProfileChoiceBoundsAndInboxEventsConstraint(t *testing.T) {
@@ -584,21 +568,20 @@ func TestIntegrationProfileChoiceBoundsAndInboxEventsConstraint(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	}
 	record := f.menu(t)
-	for _, invalid := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`{}`),
-		json.RawMessage(`["` + string(bytes.Repeat([]byte{'x'}, 262144)) + `"]`)} {
-		input := f.chooseInput(t, record, "support")
-		input.Events = invalid
-		_, err := f.store.ChooseIntegrationProfile(f.ctx, input)
-		require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
-		_, err = dbsqlc.New(f.pool).InsertIntegrationProfileChoiceInboxReceipt(f.ctx,
+	for _, id := range []*uuid.UUID{nil, func() *uuid.UUID { id := uuid.New(); return &id }()} {
+		_, err := dbsqlc.New(f.pool).InsertIntegrationProfileChoiceInboxReceipt(f.ctx,
 			dbsqlc.InsertIntegrationProfileChoiceInboxReceiptParams{
-				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: uuid.NewString(),
-				Payload: []byte(`{}`), Events: &invalid,
+				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: uuid.NewString(), StateID: id,
 			})
-		if invalid != nil {
-			require.Error(t, err, "database enforces shape and size for all writers")
-		}
+		require.Error(t, err, "choice receipts require a real scoped saved-state reference")
 	}
+	chosen, err := f.store.ChooseIntegrationProfile(f.ctx, f.chooseInput(t, record, "support"))
+	require.NoError(t, err)
+	receipt := f.decidedReceipt(t, chosen.ID)
+	require.Nil(t, receipt.Payload)
+	_, err = f.pool.Exec(f.ctx, `DELETE FROM integration_states WHERE id=$1`, chosen.ID)
+	require.Error(t, err, "saved state is retained while referenced, including terminal receipts")
+
 }
 
 func TestIntegrationProfileChoiceDoesNotInvertProfileSetupLockOrder(t *testing.T) {
@@ -615,10 +598,10 @@ func TestIntegrationProfileChoiceDoesNotInvertProfileSetupLockOrder(t *testing.T
 	defer cancel()
 	selected, err := f.store.ChooseIntegrationProfile(ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, "support", selected.SelectedKey)
+	require.Equal(t, f.input.Options[0].Key, selected.SelectedKey)
 	_, err = tx.Exec(
 		ctx,
-		`UPDATE project_integrations SET settings='{}',updated_at=statement_timestamp() WHERE id=$1`,
+		`UPDATE integrations SET settings='{}',updated_at=statement_timestamp() WHERE id=$1`,
 		f.integration.ID,
 	)
 	require.NoError(t, err)
@@ -683,7 +666,7 @@ func TestIntegrationProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) 
 	require.Equal(t, pending.OwnerReceiptID, merged.OwnerReceiptID)
 	require.NotEqual(t, sibling.ID, merged.OwnerReceiptID, "sibling must not publish")
 	f.mutate(t, sibling, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+		if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 			return err
 		}
 		return work.Complete(f.ctx)
@@ -705,7 +688,7 @@ func TestIntegrationProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) 
 	require.NoError(t, restarted.RecordIntegrationProfileChoiceMessage(f.ctx, f.project, f.integrationID, pending.ID,
 		"C123", "recovered-menu"))
 	f.mutate(t, recovered, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.FreezePlan(f.ctx, json.RawMessage(`{}`)); err != nil {
+		if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
 			return err
 		}
 		return work.Complete(f.ctx)
@@ -723,7 +706,8 @@ func TestIntegrationProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) 
 	require.Equal(t, retained.OwnerReceiptID, chosen.OwnerReceiptID)
 	receipt := f.decidedReceipt(t, chosen.ID)
 	require.NotEqual(t, chosen.OwnerReceiptID, receipt.ID, "decided work never acquires publication ownership")
-	require.Equal(t, files.Payload, receipt.Payload)
+	require.Nil(t, receipt.Payload)
+	require.Equal(t, files.Payload, f.readChoice(t, receipt.StateID).Payload)
 }
 
 func TestIntegrationProfileChoiceExpiresWhileWaitingForConversation(t *testing.T) {
@@ -737,8 +721,8 @@ func TestIntegrationProfileChoiceExpiresWhileWaitingForConversation(t *testing.T
 	require.NoError(t, err)
 	defer func() { _ = blocker.Rollback(f.ctx) }()
 	require.NoError(t, lifecyclelock.EnterActiveProject(ctx, blocker, f.org, f.project))
-	require.NoError(t, dbsqlc.New(blocker).LockProjectIntegrationLifecycleShared(ctx,
-		dbsqlc.LockProjectIntegrationLifecycleSharedParams{IntegrationID: f.integrationID}))
+	require.NoError(t, dbsqlc.New(blocker).LockIntegrationLifecycleShared(ctx,
+		dbsqlc.LockIntegrationLifecycleSharedParams{IntegrationID: f.integrationID}))
 	require.NoError(t, integrationstore.LockConversationTx(ctx, blocker, f.project, f.integrationID, choice.Address))
 	var blockerPID int32
 	require.NoError(t, blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID))

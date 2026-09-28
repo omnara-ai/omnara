@@ -13,6 +13,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const maxIntegrationConversationAgents = 16
+
 func PrepareIntegrationSubscriptionTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -51,6 +53,8 @@ func RegisterIntegrationSubscriptionTx(
 	return rows[0], nil
 }
 
+// RegisterIntegrationSubscriptionsTx requires callers to acquire integration and sorted
+// conversation locks before locking or creating the agent, and hold them through registration.
 func RegisterIntegrationSubscriptionsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -144,6 +148,19 @@ func registerIntegrationSubscriptionTx(
 	})
 	created := errors.Is(err, pgx.ErrNoRows)
 	if created {
+		count, countErr := q.CountIntegrationConversationSubscriptions(ctx,
+			dbsqlc.CountIntegrationConversationSubscriptionsParams{
+				ProjectID: input.ProjectID, IntegrationID: input.IntegrationID,
+				ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref,
+			})
+		if countErr != nil {
+			return IntegrationSubscriptionRecord{}, false, countErr
+		}
+		if count >= maxIntegrationConversationAgents {
+			return IntegrationSubscriptionRecord{}, false, fmt.Errorf(
+				"integration conversation limit of %d subscribed agents reached: %w",
+				maxIntegrationConversationAgents, storeerr.ErrConflict)
+		}
 		row, err = q.InsertIntegrationSubscription(ctx, dbsqlc.InsertIntegrationSubscriptionParams{
 			ProjectID: input.ProjectID, AgentID: input.AgentID, IntegrationID: input.IntegrationID,
 			ScopeKind: input.Address.Kind, ScopeRef: input.Address.Ref,
@@ -161,15 +178,15 @@ func subscriptionDefinition(
 	ctx context.Context,
 	q *dbsqlc.Queries,
 	projectID, integrationID uuid.UUID,
-) (ProjectIntegrationRecord, integrationdefinition.SubscriptionDefinition, error) {
-	integration, err := getProjectIntegration(ctx, q, projectID, integrationID)
+) (IntegrationRecord, integrationdefinition.SubscriptionDefinition, error) {
+	integration, err := getIntegration(ctx, q, projectID, integrationID)
 	if err != nil {
-		return ProjectIntegrationRecord{}, integrationdefinition.SubscriptionDefinition{}, err
+		return IntegrationRecord{}, integrationdefinition.SubscriptionDefinition{}, err
 	}
-	if integration.State != ProjectIntegrationStateActive {
+	if integration.State != IntegrationStateActive {
 		return integration, integrationdefinition.SubscriptionDefinition{}, storeerr.ErrUnauthorized
 	}
-	definition, found := integrationdefinition.Lookup(integration.IntegrationType)
+	definition, found := integrationdefinition.Lookup(integration.IntegrationKind)
 	if !found || definition.Subscription == nil {
 		return integration, integrationdefinition.SubscriptionDefinition{}, storeerr.InvalidRequest(
 			errors.New("integration does not support subscriptions"),

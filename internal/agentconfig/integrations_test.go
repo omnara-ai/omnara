@@ -19,7 +19,7 @@ import (
 func integrationTestOptions(t *testing.T) (CompileOptions, map[uuid.UUID]IntegrationResolution) {
 	t.Helper()
 	id := publicidTestID(120)
-	integration := IntegrationResolution{IntegrationID: id, IntegrationType: integrationdefinition.SlackThread}
+	integration := IntegrationResolution{IntegrationID: id, IntegrationKind: integrationdefinition.SlackThread}
 	return CompileOptions{ResolveIntegrationName: func(name string) (IntegrationResolution, error) {
 		if name != "engineering-team" {
 			return IntegrationResolution{}, fmt.Errorf("integration %s is unavailable", name)
@@ -90,7 +90,7 @@ func TestIntegrationSourceValidation(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "ResolveIntegrationName")
 	opts.ResolveIntegrationName = func(string) (IntegrationResolution, error) {
-		return IntegrationResolution{IntegrationID: uuid.Nil, IntegrationType: integrationdefinition.SlackThread}, nil
+		return IntegrationResolution{IntegrationID: uuid.Nil, IntegrationKind: integrationdefinition.SlackThread}, nil
 	}
 	_, err = Compile(
 		SourceFormatYAML,
@@ -372,7 +372,7 @@ func TestReferencedIntegrationIDsExcludeDisabledToolsOnly(t *testing.T) {
 	integrations := map[string]IntegrationResolution{}
 	for index, name := range []string{"disabled", "shared", "enabled", "denied", "handler"} {
 		id := publicidTestID(130 + index)
-		integrations[name] = IntegrationResolution{IntegrationID: id, IntegrationType: integrationdefinition.SlackThread}
+		integrations[name] = IntegrationResolution{IntegrationID: id, IntegrationKind: integrationdefinition.SlackThread}
 	}
 	opts := CompileOptions{ResolveIntegrationName: func(name string) (IntegrationResolution, error) {
 		integration, ok := integrations[name]

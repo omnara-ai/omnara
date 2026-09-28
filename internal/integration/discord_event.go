@@ -35,7 +35,10 @@ type DiscordInboxSecrets interface {
 }
 
 type DiscordInboxIntegrations interface {
-	GetProjectIntegration(context.Context, uuid.UUID, uuid.UUID) (integrationstore.ProjectIntegrationRecord, error)
+	GetIntegrationProfileChoice(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (
+		integrationstore.IntegrationProfileChoiceRecord, error,
+	)
+	GetIntegration(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationRecord, error)
 }
 
 type DiscordIntegrationInboxProvider struct {
@@ -72,7 +75,7 @@ type DiscordEventFile struct {
 var errDiscordChannelUnroutable = fmt.Errorf("unsupported Discord message channel: %w", storeerr.ErrInvalidRequest)
 
 func NormalizeDiscordIntegrationEvent(
-	integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte, channel discord.Channel,
+	integrationSetup integrationstore.IntegrationRecord, raw []byte, channel discord.Channel,
 ) (IntegrationEvent, bool, error) {
 	message, ok, err := discordInboxMessage(integrationSetup, raw)
 	if err != nil || !ok {
@@ -94,6 +97,17 @@ func NormalizeDiscordIntegrationEvent(
 		// so the future scope can be frozen before creating the thread.
 		scope.ThreadID = message.Message.ID
 	}
+	displayName := channel.Name
+	if displayName == "" {
+		displayName = channel.ID
+	}
+	return discordIntegrationMessageEvent(integrationSetup, message, scope, displayName, starter)
+}
+
+func discordIntegrationMessageEvent(
+	integrationSetup integrationstore.IntegrationRecord, message discord.MessageEvent,
+	scope discord.Scope, displayName string, starter bool,
+) (IntegrationEvent, bool, error) {
 	name := message.Message.Author.GlobalName
 	if name == "" {
 		name = message.Message.Author.Username
@@ -101,7 +115,7 @@ func NormalizeDiscordIntegrationEvent(
 	if name == "" {
 		name = message.Message.Author.ID
 	}
-	integrationActor, err := executionstore.IntegrationActorParams(integrationSetup.ID, message.Message.Author.ID, &name)
+	integrationActor, err := executionstore.IntegrationActorParams(integrationSetup, message.Message.Author.ID, &name)
 	if err != nil {
 		return IntegrationEvent{}, false, err
 	}
@@ -111,12 +125,9 @@ func NormalizeDiscordIntegrationEvent(
 				GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID,
 			}}},
 		SemanticKey:  "discord:message:" + integrationSetup.ProviderTenantID + ":" + message.Message.ID,
-		DisplayName:  channel.Name,
+		DisplayName:  displayName,
 		Actor:        integrationActor,
 		DeliveryMode: executionstore.DeliveryModeSteering, CancelOpenInteractions: true,
-	}
-	if result.DisplayName == "" {
-		result.DisplayName = channel.ID
 	}
 	if err := result.Event.Validate(); err != nil {
 		return IntegrationEvent{}, false, err
@@ -134,10 +145,10 @@ func NormalizeDiscordIntegrationEvent(
 }
 
 func discordInboxMessage(
-	integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte,
+	integrationSetup integrationstore.IntegrationRecord, raw []byte,
 ) (discord.MessageEvent, bool, error) {
 	if integrationSetup.Provider != "discord" ||
-		integrationSetup.State != integrationstore.ProjectIntegrationStateActive ||
+		integrationSetup.State != integrationstore.IntegrationStateActive ||
 		!discordInboxID(integrationSetup.ProviderTenantID) || !discordInboxID(integrationSetup.ProviderAccountRef) {
 		return discord.MessageEvent{}, false, storeerr.ErrUnauthorized
 	}
@@ -184,7 +195,7 @@ func discordInboxMessageScope(message discord.Message, channel discord.Channel) 
 }
 
 func (p *DiscordIntegrationInboxProvider) requestAccess(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, authority func(context.Context) error,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, authority func(context.Context) error,
 ) (*discord.Client, func(context.Context) error, error) {
 	client, check, err := p.requestClient(ctx, integrationSetup, authority)
 	if err != nil {
@@ -197,17 +208,17 @@ func (p *DiscordIntegrationInboxProvider) requestAccess(
 }
 
 func (p *DiscordIntegrationInboxProvider) requestClient(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, authority func(context.Context) error,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, authority func(context.Context) error,
 ) (*discord.Client, func(context.Context) error, error) {
 	if p.secrets == nil || p.integrations == nil {
 		return nil, nil, fmt.Errorf("discord secret and integration resolvers are required")
 	}
 	checkIntegrationSetup := func(ctx context.Context) error {
-		latest, err := p.integrations.GetProjectIntegration(ctx, integrationSetup.ProjectID, integrationSetup.ID)
+		latest, err := p.integrations.GetIntegration(ctx, integrationSetup.ProjectID, integrationSetup.ID)
 		if err != nil {
 			return err
 		}
-		if latest.State != integrationstore.ProjectIntegrationStateActive || latest.Provider != "discord" ||
+		if latest.State != integrationstore.IntegrationStateActive || latest.Provider != "discord" ||
 			latest.ID != integrationSetup.ID || latest.OrgID != integrationSetup.OrgID ||
 			latest.ProjectID != integrationSetup.ProjectID ||
 			latest.ProviderTenantID != integrationSetup.ProviderTenantID ||
@@ -270,13 +281,13 @@ func (p *DiscordIntegrationInboxProvider) requestClient(
 }
 
 func (p *DiscordIntegrationInboxProvider) Expand(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, raw []byte,
 ) (IntegrationInboxExpansion, error) {
 	return p.ExpandRouted(ctx, integrationSetup, raw, nil)
 }
 
 func (p *DiscordIntegrationInboxProvider) ExpandRouted(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, raw []byte,
 	routeEvent func(IntegrationEvent) (bool, error),
 ) (IntegrationInboxExpansion, error) {
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
@@ -284,6 +295,20 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 	message, ok, err := discordInboxMessage(integrationSetup, raw)
 	if err != nil || !ok {
 		return IntegrationInboxExpansion{}, err
+	}
+	if routeEvent != nil && !message.MentionsBot {
+		// Ordinary thread messages match only the exact thread subscription or an
+		// unsettled launch/menu for that thread. MESSAGE_CREATE already carries
+		// that ID; parent-channel subscribers only receive mentioned starters.
+		event, _, err := discordIntegrationMessageEvent(integrationSetup, message,
+			discord.Scope{GuildID: message.Message.GuildID, ThreadID: message.Message.ChannelID},
+			message.Message.ChannelID, false)
+		if err != nil {
+			return IntegrationInboxExpansion{}, err
+		}
+		if routed, err := routeEvent(event); err != nil || !routed {
+			return IntegrationInboxExpansion{}, err
+		}
 	}
 	client, check, err := p.requestClient(ctx, integrationSetup, nil)
 	if err != nil {
@@ -311,9 +336,8 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 	if err != nil || !ok {
 		return IntegrationInboxExpansion{}, err
 	}
-	// MESSAGE_CREATE carries the channel ID, not a thread's parent. Resolve only
-	// that transport fact before the indexed routing check and expensive expansion.
-	if routeEvent != nil {
+	// Mentions need channel facts to distinguish a starter from an existing thread.
+	if routeEvent != nil && message.MentionsBot {
 		if routed, err := routeEvent(event); err != nil || !routed {
 			return IntegrationInboxExpansion{}, err
 		}
@@ -365,7 +389,7 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 			}
 			event.Files = append(
 				event.Files,
-				IntegrationPlannedFile{ArtifactID: id, ProviderFileID: attachment.ID, Expected: &expected},
+				executionstore.InboxPlannedFile{ArtifactID: id, ProviderFileID: attachment.ID, Expected: &expected},
 			)
 			files[attachment.ID] = file
 			blocks = append(blocks, map[string]string{"type": "media_ref", "artifact_id": id.String()})
@@ -403,7 +427,7 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 	if err := check(ctx); err != nil {
 		return IntegrationInboxExpansion{}, err
 	}
-	return IntegrationInboxExpansion{Events: []IntegrationEvent{event}, Files: files}, nil
+	return IntegrationInboxExpansion{Event: &event, Files: files}, nil
 }
 
 func discordInboxDownload(
@@ -432,7 +456,7 @@ func discordInboxDownload(
 }
 
 func (p *DiscordIntegrationInboxProvider) DownloadFile(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte, fileID string,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, raw []byte, fileID string,
 ) (IntegrationInboxFile, error) {
 	ctx, cancel := context.WithTimeout(ctx, discord.OperationTimeout)
 	defer cancel()
@@ -481,7 +505,7 @@ func (p *DiscordIntegrationInboxProvider) DownloadFile(
 }
 
 func (p *DiscordIntegrationInboxProvider) acknowledge(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, raw []byte,
 ) error {
 	message, ok, err := discordInboxMessage(integrationSetup, raw)
 	if err != nil || !ok {
@@ -497,7 +521,7 @@ func (p *DiscordIntegrationInboxProvider) acknowledge(
 }
 
 func (p *DiscordIntegrationInboxProvider) PrepareConversation(
-	ctx context.Context, integrationSetup integrationstore.ProjectIntegrationRecord, raw []byte,
+	ctx context.Context, integrationSetup integrationstore.IntegrationRecord, raw []byte,
 	frozen integrationdefinition.Scope, authority func(context.Context) error,
 ) error {
 	if err := frozen.Validate(integrationdefinition.ProviderDiscord); err != nil {
@@ -538,7 +562,7 @@ func (p *DiscordIntegrationInboxProvider) PrepareConversation(
 	return check(ctx)
 }
 
-func discordConversationName(integrationSetup integrationstore.ProjectIntegrationRecord) string {
+func discordConversationName(integrationSetup integrationstore.IntegrationRecord) string {
 	name := strings.TrimSpace(integrationSetup.ProviderAgentDisplayName)
 	if name == "" {
 		name = "Omnara"

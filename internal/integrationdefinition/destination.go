@@ -31,9 +31,7 @@ func DestinationProperties(provider string) (map[string]any, []string, error) {
 			"guild_id":   text(discordID.String()),
 			"channel_id": text(discordID.String()),
 			"thread_id":  text(discordID.String()),
-		}, []string{
-			"channel_id",
-		}, nil
+		}, nil, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown integration provider %q", provider)
 	}
@@ -47,12 +45,25 @@ func objectSchema(properties map[string]any, required []string) (json.RawMessage
 	return json.Marshal(schema)
 }
 
-func ResolveDestination(provider string, args json.RawMessage) (Scope, error) {
+func destinationSchema(provider string) (json.RawMessage, error) {
 	properties, required, err := DestinationProperties(provider)
 	if err != nil {
-		return Scope{}, err
+		return nil, err
 	}
-	schema, err := objectSchema(properties, required)
+	if provider == ProviderDiscord {
+		return json.Marshal(map[string]any{
+			"type": "object", "properties": properties, "additionalProperties": false,
+			"anyOf": []any{
+				map[string]any{"required": []string{"channel_id"}},
+				map[string]any{"required": []string{"thread_id"}},
+			},
+		})
+	}
+	return objectSchema(properties, required)
+}
+
+func ResolveDestination(provider string, args json.RawMessage) (Scope, error) {
+	schema, err := destinationSchema(provider)
 	if err != nil {
 		return Scope{}, err
 	}

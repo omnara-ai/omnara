@@ -32,7 +32,7 @@ operators must follow the [cutover playbook](/self-hosting/composable-integratio
 
 The public setup API creates an integration before verifying its credentials.
 Project management uses `/integrations` and `/integration-definitions`, with
-`integration_type` identifying behavior and `integration_id` identifying a saved
+`integration_kind` identifying behavior and `integration_id` identifying a saved
 integration. Integration IDs use `itg_`, subscriptions use `isub_`, and profile
 choices use `ipc_`; agent interaction IDs remain `int_`. Agent responses expose
 `integration_target`, and captured interaction destinations use

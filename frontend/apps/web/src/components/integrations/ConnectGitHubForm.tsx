@@ -1,14 +1,14 @@
-import type { ProjectIntegration } from '@omnara/sdk'
+import type { Integration } from '@omnara/sdk'
 import { type ReactNode, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 
 import { GitHubGuidedSetup } from './GitHubGuidedSetup'
-import { ProjectIntegrationSetupForm } from './ProjectIntegrationSetup'
+import { IntegrationSetupForm } from './IntegrationSetup'
 import { useGitHubGuidedSetup } from './useGitHubGuidedSetup'
 import { useGitHubSetupReturn } from './useGitHubSetupReturn'
-import { useProjectIntegrationDraft } from './useProjectIntegrationDraft'
-import { useProjectIntegrationSetupState } from './useProjectIntegrationSetupState'
+import { useIntegrationDraft } from './useIntegrationDraft'
+import { useIntegrationSetupState } from './useIntegrationSetupState'
 
 export function ConnectGitHubForm({
   orgId,
@@ -20,14 +20,14 @@ export function ConnectGitHubForm({
 }: {
   orgId: string
   projectId: string
-  integration?: ProjectIntegration
-  onConnected: (integration: ProjectIntegration) => void
+  integration?: Integration
+  onConnected: (integration: Integration) => void
   onCancel?: () => void
   footerAction?: ReactNode
 }) {
-  const draft = useProjectIntegrationDraft(orgId, projectId, 'github_pr', existing)
+  const draft = useIntegrationDraft(orgId, projectId, 'github_pr', existing)
   const returned = useGitHubSetupReturn()
-  const session = useProjectIntegrationSetupState(existing, {
+  const session = useIntegrationSetupState(existing, {
     credentialSecretId: returned.secretId !== '' ? returned.secretId : undefined,
     error: returned.error,
   })
@@ -44,9 +44,10 @@ export function ConnectGitHubForm({
   )
   const trustNotice = (
     <p className="text-muted-foreground text-sm">
-      Anyone who can comment on a connected repository can trigger configured mention launches and
-      steer subscribed PR agents. Public and fork PRs can trigger configured PR-open launches.
-      Choose a profile whose tools and secrets are appropriate for untrusted input.
+      By default, people with repository write access can trigger mention launches and steer PR
+      agents through comments. Choose Anyone in Who can direct agents to allow all human commenters.
+      Public and fork PRs can trigger configured PR-open launches. Choose a profile whose tools and
+      secrets are appropriate for untrusted input.
     </p>
   )
 
@@ -68,13 +69,13 @@ export function ConnectGitHubForm({
             Back to guided setup
           </Button>
         )}
-        <ProjectIntegrationSetupForm
+        <IntegrationSetupForm
           orgId={orgId}
           projectId={projectId}
           integration={existing}
           draft={draft}
           state={session}
-          integrationType="github_pr"
+          integrationKind="github_pr"
           onSaved={onConnected}
           onCancel={onCancel}
           footerAction={footerAction}

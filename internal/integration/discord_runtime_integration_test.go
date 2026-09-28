@@ -39,7 +39,7 @@ import (
 type discordRuntimeFixture struct {
 	pool             *pgxpool.Pool
 	store            *storage.Store
-	integrationSetup integrationstore.ProjectIntegrationRecord
+	integrationSetup integrationstore.IntegrationRecord
 	version          uuid.UUID
 }
 
@@ -83,13 +83,13 @@ func newDiscordRuntimeFixture(t *testing.T) discordRuntimeFixture {
 			},
 		)
 	require.NoError(t, err)
-	integration, err := store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
-		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "discord", IntegrationType: integrationdefinition.DiscordThread,
+	integration, err := store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+		OrgID: ids.OrgID, ProjectID: ids.ProjectID, Name: "discord", IntegrationKind: integrationdefinition.DiscordThread,
 	})
 	require.NoError(t, err)
-	integrationSetup, err := store.Integrations().ConfigureProjectIntegration(
+	integrationSetup, err := store.Integrations().ConfigureIntegration(
 		ctx,
-		integrationstore.ConfigureProjectIntegrationInput{
+		integrationstore.ConfigureIntegrationInput{
 			OrgID: ids.OrgID, ProjectID: ids.ProjectID, IntegrationID: integration.ID,
 			InstalledByUserID: ids.ProviderAdminUserID, Provider: integrationstore.IntegrationProviderDiscord,
 			ProviderTenantID: "123", ProviderAccountRef: "456", CredentialSecretID: secret.ID,
@@ -107,19 +107,18 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	revision := integrationstore.IntegrationRuntimeRevision{
 		ProjectID:           integrationSetup.ProjectID,
 		IntegrationID:       integrationSetup.ID,
-		Key:                 "discord/shard/0",
 		SetupRevision:       integrationSetup.SetupRevision,
 		CredentialVersionID: f.version,
 	}
 	claim, found, err := store.Integrations().ClaimIntegrationRuntime(ctx, revision, discordRuntimeLease)
 	require.NoError(t, err)
 	require.True(t, found)
-	updated, err := store.Integrations().UpdateProjectIntegration(
+	updated, err := store.Integrations().UpdateIntegration(
 		ctx,
 		integrationSetup.ID,
-		integrationstore.SaveProjectIntegrationInput{
+		integrationstore.SaveIntegrationInput{
 			OrgID: integrationSetup.OrgID, ProjectID: integrationSetup.ProjectID, Name: integrationSetup.Name,
-			IntegrationType: integrationSetup.IntegrationType, Settings: integrationSetup.Settings,
+			IntegrationKind: integrationSetup.IntegrationKind, Settings: integrationSetup.Settings,
 		},
 	)
 	require.NoError(t, err)
@@ -218,7 +217,7 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	require.False(t, found, "released shard respects retry delay")
 	_, err = pool.Exec(
 		ctx,
-		`UPDATE integration_runtime SET available_at=now() WHERE integration_id=$1`,
+		`UPDATE integration_runtime SET next_attempt_at=now() WHERE integration_id=$1`,
 		integrationSetup.ID,
 	)
 	require.NoError(t, err)
@@ -282,7 +281,7 @@ func TestDiscordRuntimePersistsOnlySafeFailureMessage(t *testing.T) {
 		ctx := t.Context()
 		claim, found, err := f.store.Integrations().ClaimIntegrationRuntime(ctx, integrationstore.IntegrationRuntimeRevision{
 			ProjectID: f.integrationSetup.ProjectID, IntegrationID: f.integrationSetup.ID,
-			Key: "discord/shard/0", SetupRevision: f.integrationSetup.SetupRevision, CredentialVersionID: f.version,
+			SetupRevision: f.integrationSetup.SetupRevision, CredentialVersionID: f.version,
 		}, discordRuntimeLease)
 		require.NoError(t, err)
 		require.True(t, found)
@@ -365,16 +364,16 @@ func TestDiscordRuntimeScanClaimsAvailableIntegrationsWithinCapacity(t *testing.
 	f := newDiscordRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	integrations := []integrationstore.ProjectIntegrationRecord{f.integrationSetup}
+	integrations := []integrationstore.IntegrationRecord{f.integrationSetup}
 	for i := range 3 {
-		integration, err := f.store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		integration, err := f.store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 			OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID,
-			Name: fmt.Sprintf("discord-%d", i), IntegrationType: integrationdefinition.DiscordThread,
+			Name: fmt.Sprintf("discord-%d", i), IntegrationKind: integrationdefinition.DiscordThread,
 		})
 		require.NoError(t, err)
-		integrationSetup, err := f.store.Integrations().ConfigureProjectIntegration(
+		integrationSetup, err := f.store.Integrations().ConfigureIntegration(
 			ctx,
-			integrationstore.ConfigureProjectIntegrationInput{
+			integrationstore.ConfigureIntegrationInput{
 				OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID, IntegrationID: integration.ID,
 				InstalledByUserID: f.integrationSetup.InstalledByUserID, Provider: integrationstore.IntegrationProviderDiscord,
 				ProviderTenantID: fmt.Sprintf("%d", 124+i), ProviderAccountRef: f.integrationSetup.ProviderAccountRef,
@@ -387,7 +386,7 @@ func TestDiscordRuntimeScanClaimsAvailableIntegrationsWithinCapacity(t *testing.
 	}
 	revision := integrationstore.IntegrationRuntimeRevision{
 		ProjectID: f.integrationSetup.ProjectID, IntegrationID: f.integrationSetup.ID,
-		Key: "discord/shard/0", SetupRevision: f.integrationSetup.SetupRevision,
+		SetupRevision:       f.integrationSetup.SetupRevision,
 		CredentialVersionID: f.version,
 	}
 	owner, found, err := f.store.Integrations().ClaimIntegrationRuntime(ctx, revision, discordRuntimeLease)
@@ -455,7 +454,7 @@ func TestDiscordRuntimeCheckpointDoesNotPreventCredentialOrProjectDeletion(t *te
 			ctx := t.Context()
 			claim, found, err := f.store.Integrations().ClaimIntegrationRuntime(ctx, integrationstore.IntegrationRuntimeRevision{
 				ProjectID: f.integrationSetup.ProjectID, IntegrationID: f.integrationSetup.ID,
-				Key: "discord/shard/0", SetupRevision: f.integrationSetup.SetupRevision,
+				SetupRevision:       f.integrationSetup.SetupRevision,
 				CredentialVersionID: f.version,
 			}, discordRuntimeLease)
 			require.NoError(t, err)
@@ -465,7 +464,7 @@ func TestDiscordRuntimeCheckpointDoesNotPreventCredentialOrProjectDeletion(t *te
 			require.NoError(t, f.store.Integrations().ReleaseIntegrationRuntime(ctx, claim.Lease, 0, ""))
 			actor := identitystore.NewUserPrincipal(f.integrationSetup.InstalledByUserID)
 			if remove == "credential" {
-				require.NoError(t, f.store.Integrations().DeleteProjectIntegration(ctx,
+				require.NoError(t, f.store.Integrations().DeleteIntegration(ctx,
 					f.integrationSetup.OrgID, f.integrationSetup.ProjectID, f.integrationSetup.ID))
 				_, err = f.store.Secrets().DeleteSecret(ctx, secretstore.DeleteSecretInput{
 					OrgID: f.integrationSetup.OrgID, SecretID: f.integrationSetup.CredentialSecretID, Actor: actor,
@@ -486,16 +485,16 @@ func TestDiscordRuntimeScanPassesOwnedPageAndWraps(t *testing.T) {
 	f := newDiscordRuntimeFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	integrations := []integrationstore.ProjectIntegrationRecord{f.integrationSetup}
+	integrations := []integrationstore.IntegrationRecord{f.integrationSetup}
 	for i := range 100 {
-		integration, err := f.store.Integrations().CreateProjectIntegration(ctx, integrationstore.SaveProjectIntegrationInput{
+		integration, err := f.store.Integrations().CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
 			OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID,
-			Name: fmt.Sprintf("discord-%d", i), IntegrationType: integrationdefinition.DiscordThread,
+			Name: fmt.Sprintf("discord-%d", i), IntegrationKind: integrationdefinition.DiscordThread,
 		})
 		require.NoError(t, err)
-		integrationSetup, err := f.store.Integrations().ConfigureProjectIntegration(
+		integrationSetup, err := f.store.Integrations().ConfigureIntegration(
 			ctx,
-			integrationstore.ConfigureProjectIntegrationInput{
+			integrationstore.ConfigureIntegrationInput{
 				OrgID: f.integrationSetup.OrgID, ProjectID: f.integrationSetup.ProjectID, IntegrationID: integration.ID,
 				InstalledByUserID: f.integrationSetup.InstalledByUserID, Provider: "discord",
 				ProviderTenantID: f.integrationSetup.ProviderTenantID, ProviderAccountRef: f.integrationSetup.ProviderAccountRef,
@@ -509,7 +508,7 @@ func TestDiscordRuntimeScanPassesOwnedPageAndWraps(t *testing.T) {
 	var firstOwner integrationstore.IntegrationRuntimeClaim
 	for i, integrationSetup := range integrations[:100] {
 		claim, found, err := f.store.Integrations().ClaimIntegrationRuntime(ctx, integrationstore.IntegrationRuntimeRevision{
-			ProjectID: integrationSetup.ProjectID, IntegrationID: integrationSetup.ID, Key: "discord/shard/0",
+			ProjectID: integrationSetup.ProjectID, IntegrationID: integrationSetup.ID,
 			SetupRevision: integrationSetup.SetupRevision, CredentialVersionID: f.version,
 		}, time.Minute)
 		require.NoError(t, err)

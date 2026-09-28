@@ -24,7 +24,7 @@ import (
 type integrationSetupIdentityFixture struct {
 	handler     http.Handler
 	project     publicHTTPProject
-	integration integrationstore.ProjectIntegrationRecord
+	integration integrationstore.IntegrationRecord
 	material    secrets.Material
 	body        map[string]any
 	steps       int
@@ -86,7 +86,7 @@ func (f integrationSetupIdentityFixture) update(t *testing.T, status int) {
 		f.handler,
 		http.MethodPost,
 		path,
-		projectIntegrationHTTPJSON(t, f.body),
+		integrationHTTPJSON(t, f.body),
 		"",
 		status,
 		authHeaders(f.project.AdminToken),
@@ -97,9 +97,9 @@ func (f integrationSetupIdentityFixture) update(t *testing.T, status int) {
 
 }
 
-func (f integrationSetupIdentityFixture) current(t *testing.T) integrationstore.ProjectIntegrationRecord {
+func (f integrationSetupIdentityFixture) current(t *testing.T) integrationstore.IntegrationRecord {
 	t.Helper()
-	current, err := f.project.Store.Integrations().GetProjectIntegration(
+	current, err := f.project.Store.Integrations().GetIntegration(
 		t.Context(), f.project.ProjectUUID, f.integration.ID)
 	require.NoError(t, err)
 	return current
@@ -120,7 +120,7 @@ func (f integrationSetupIdentityFixture) rotate(t *testing.T) uuid.UUID {
 
 func verifiedIntegrationCredentialVersion(
 	t *testing.T,
-	record integrationstore.ProjectIntegrationRecord,
+	record integrationstore.IntegrationRecord,
 ) uuid.UUID {
 	t.Helper()
 	var metadata struct {
@@ -168,7 +168,7 @@ func TestIntegrationSetupHTTPIdentityRepairAndCredentialRotation(t *testing.T) {
 			)
 			offline = false
 			_, err := integrationPoolForHandler(t, f.handler).Exec(t.Context(),
-				`UPDATE project_integrations SET provider_identity='{}' WHERE id=$1`, f.integration.ID)
+				`UPDATE integrations SET provider_identity='{}' WHERE id=$1`, f.integration.ID)
 			require.NoError(t, err)
 			f.update(t, http.StatusOK)
 			require.Equal(t, 2*f.steps, calls)
@@ -221,7 +221,7 @@ func TestIntegrationSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 					case "credential rotation":
 						f.rotate(t)
 					case "integration setup":
-						input := integrationstore.ConfigureProjectIntegrationInput{
+						input := integrationstore.ConfigureIntegrationInput{
 							OrgID:                    f.project.OrgUUID,
 							ProjectID:                f.project.ProjectUUID,
 							InstalledByUserID:        f.project.AdminUserUUID,
@@ -238,10 +238,10 @@ func TestIntegrationSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 							ProviderAgentDisplayName: "Concurrent edit",
 						}
 						_, err := f.project.Store.Integrations().
-							ConfigureProjectIntegration(t.Context(), input)
+							ConfigureIntegration(t.Context(), input)
 						require.NoError(t, err)
 					case "integration deletion":
-						require.NoError(t, f.project.Store.Integrations().DeleteProjectIntegration(
+						require.NoError(t, f.project.Store.Integrations().DeleteIntegration(
 							t.Context(), f.project.OrgUUID, f.project.ProjectUUID, f.integration.ID))
 					}
 				}
@@ -252,7 +252,7 @@ func TestIntegrationSetupHTTPIdentitySaveFencesConcurrentChanges(t *testing.T) {
 				f.update(t, status)
 				require.Nil(t, before)
 				if change == "integration deletion" {
-					_, err := f.project.Store.Integrations().GetProjectIntegration(
+					_, err := f.project.Store.Integrations().GetIntegration(
 						t.Context(), f.project.ProjectUUID, f.integration.ID)
 					require.ErrorIs(
 						t,
@@ -297,7 +297,7 @@ func TestIntegrationSetupHTTPIdentitySaveRechecksCredentialGrant(t *testing.T) {
 				}
 				return nil
 			})
-			other := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
+			other := integrationHTTPSecondProject(t, f.handler, f.project)
 			actor := identitystore.NewUserPrincipal(f.project.AdminUserUUID)
 			secret, _, err := f.project.Store.Secrets().
 				CreateSecret(t.Context(), secretstore.CreateSecretInput{
@@ -346,7 +346,7 @@ func TestGitHubHTTPRepairCannotChangeKnownBotIdentity(t *testing.T) {
 	t.Parallel()
 	f := newIntegrationSetupIdentityFixture(t, "github", nil)
 	_, err := integrationPoolForHandler(t, f.handler).Exec(t.Context(),
-		`UPDATE project_integrations SET provider_identity='{"bot_user_id":888}' WHERE id=$1`, f.integration.ID)
+		`UPDATE integrations SET provider_identity='{"bot_user_id":888}' WHERE id=$1`, f.integration.ID)
 	require.NoError(t, err)
 	f.update(t, http.StatusBadRequest)
 	current := f.current(t)
@@ -374,10 +374,10 @@ func TestGitHubHTTPActiveSaveRequiresProviderButDisconnectAndDeleteDoNot(t *test
 	require.Equal(t, f.integration.SetupRevision, f.current(t).SetupRevision)
 	f.disconnect(t)
 	require.Equal(t, f.steps+1, calls, "disconnect must not call the provider")
-	require.Equal(t, integrationstore.ProjectIntegrationStateDisconnected, f.current(t).State)
+	require.Equal(t, integrationstore.IntegrationStateDisconnected, f.current(t).State)
 	f.update(t, http.StatusServiceUnavailable)
 	require.Equal(t, f.steps+2, calls, "reconnect must refresh identity")
-	require.Equal(t, integrationstore.ProjectIntegrationStateDisconnected, f.current(t).State)
+	require.Equal(t, integrationstore.IntegrationStateDisconnected, f.current(t).State)
 	path := strings.TrimSuffix(integrationSetupPath(t, f.project, f.integration), "/setup")
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete, path, "", "", http.StatusNoContent,
 		authHeaders(f.project.AdminToken))

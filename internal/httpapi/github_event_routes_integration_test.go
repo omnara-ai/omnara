@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -27,16 +28,18 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const githubJourneyWebhookSecret = "local-test-webhook-secret"
 
 type githubHTTPJourney struct {
-	handler     http.Handler
-	project     publicHTTPProject
-	integration integrationstore.ProjectIntegrationRecord
-	secretID    string
+	handler          http.Handler
+	project          publicHTTPProject
+	integration      integrationstore.IntegrationRecord
+	secretID         string
+	senderPermission string
 }
 
 func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHTTPJourney {
@@ -53,12 +56,12 @@ func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHT
 		})),
 	})
 	integration := githubHTTPJourneyIntegration(t, handler, project, secretID, "456")
-	return githubHTTPJourney{handler, project, integration, secretID}
+	return githubHTTPJourney{handler, project, integration, secretID, "write"}
 }
 
 func githubHTTPJourneyIntegration(
 	t *testing.T, handler http.Handler, project publicHTTPProject, secretID, installationID string,
-) integrationstore.ProjectIntegrationRecord {
+) integrationstore.IntegrationRecord {
 	t.Helper()
 	integration := createSetupHTTPIntegration(t, handler, project, "github-"+
 		installationID, integrationdefinition.GitHubPR)
@@ -66,9 +69,9 @@ func githubHTTPJourneyIntegration(
 	body["credential_secret_id"] = secretID
 	body["expected_setup_revision"] = integration.SetupRevision
 	created := requestJSONWithHeaders(t, handler, http.MethodPost, integrationSetupPath(t, project, integration),
-		projectIntegrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
-	id := mustPublicHTTPID(t, publicid.KindProjectIntegration, testutil.RequireType[string](t, created["id"]))
-	integration, err := project.Store.Integrations().GetProjectIntegration(t.Context(), project.ProjectUUID, id)
+		integrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(project.AdminToken))
+	id := mustPublicHTTPID(t, publicid.KindIntegration, testutil.RequireType[string](t, created["id"]))
+	integration, err := project.Store.Integrations().GetIntegration(t.Context(), project.ProjectUUID, id)
 	require.NoError(t, err)
 	var identity github.AppIdentity
 	require.NoError(t, json.Unmarshal(integration.ProviderIdentity, &identity))
@@ -106,15 +109,19 @@ func (f githubHTTPJourney) consume(t *testing.T, raw string) []integrationruntim
 	require.True(t, found)
 	require.Equal(t, raw, string(receipt.Payload), "acknowledged receipt retains exact signed bytes")
 	router := integrationruntime.NewIntegrationRouter(f.project.Store.Execution(), inbox)
+	providers := map[string]integrationruntime.IntegrationInboxProvider{
+		"github": integrationruntime.NewGitHubIntegrationInboxProvider(f.providerConfig(t), f.project.Store.Secrets(), inbox),
+	}
 	consumer := integrationruntime.NewIntegrationInboxConsumer(
 		router, inbox, nil,
-		map[string]integrationruntime.IntegrationInboxProvider{"github": integrationruntime.GitHubIntegrationInboxProvider{}},
+		providers,
 		nil,
 		integrationruntime.NewIntegrationLaunchWorkflow(
 			router,
-			map[integrationdefinition.Type]integrationruntime.IntegrationLauncher{
-				integrationdefinition.GitHubPR: integrationruntime.EverySlotIntegrationLauncher,
+			map[integrationdefinition.Kind]integrationruntime.IntegrationLauncher{
+				integrationdefinition.GitHubPR: integrationruntime.GitHubIntegrationLauncher,
 			},
+			providers,
 		),
 	)
 	results, err := consumer.Consume(t.Context(), receipt.Lease())
@@ -125,9 +132,54 @@ func (f githubHTTPJourney) consume(t *testing.T, raw string) []integrationruntim
 	return results
 }
 
+func (f githubHTTPJourney) providerConfig(t *testing.T) github.Config {
+	t.Helper()
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/app/installations/456/access_tokens" {
+			assert.Equal(t, http.MethodPost, r.Method)
+			var grant struct {
+				Repositories []int64           `json:"repository_ids"`
+				Permissions  map[string]string `json:"permissions"`
+			}
+			if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&grant)) || !assert.Len(t, grant.Repositories, 1) {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			assert.Equal(t, map[string]string{"pull_requests": "read"}, grant.Permissions)
+			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+				"token": fmt.Sprint(grant.Repositories[0]), "expires_at": time.Now().Add(time.Hour),
+			}))
+			return
+		}
+		assert.Equal(t, http.MethodGet, r.Method)
+		repositoryID, err := strconv.ParseInt(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), 10, 64)
+		assert.NoError(t, err)
+		repository := github.Repository{ID: repositoryID, Name: "repository", Owner: github.User{Login: "owner"}}
+		var result any
+		switch {
+		case r.URL.Path == "/installation/repositories":
+			result = map[string]any{"total_count": 1, "repositories": []github.Repository{repository}}
+		case r.URL.Path == "/repos/owner/repository/collaborators/human/permission":
+			result = map[string]any{"permission": f.senderPermission, "user": github.User{ID: 71, Login: "human"}}
+		case strings.HasPrefix(r.URL.Path, "/repos/owner/repository/pulls/"):
+			number, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/repos/owner/repository/pulls/"))
+			assert.NoError(t, err)
+			result = github.PullRequest{ID: int64(2000 + number), Number: number, Base: github.Branch{Repo: &repository}}
+		default:
+			t.Errorf("unexpected GitHub request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(result))
+	}))
+	t.Cleanup(provider.Close)
+	return github.Config{APIURL: provider.URL, HTTPClient: provider.Client()}
+}
+
 func githubHTTPComment(t *testing.T, number int, commentID int64, text string) string {
 	t.Helper()
-	return projectIntegrationHTTPJSON(t, map[string]any{
+	return integrationHTTPJSON(t, map[string]any{
 		"action": "created", "installation": map[string]any{"id": 456},
 		"repository": map[string]any{"id": 1001, "full_name": "owner/repository"},
 		"issue": map[string]any{"id": 2001, "number": number, "pull_request": map[string]any{
@@ -153,7 +205,7 @@ func githubHTTPPullRequest(t *testing.T, action string) string {
 	if action == "synchronize" {
 		payload["before"], payload["after"] = strings.Repeat("a", 40), strings.Repeat("b", 40)
 	}
-	return projectIntegrationHTTPJSON(t, payload)
+	return integrationHTTPJSON(t, payload)
 }
 
 func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
@@ -162,24 +214,22 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 		t.Run(trigger, func(t *testing.T) {
 			t.Parallel()
 			f := newGitHubHTTPJourney(t, "github-"+strings.ReplaceAll(trigger, "_", "-"))
-			integrationRef := testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)
+			integrationRef := testPublicID(t, publicid.KindIntegration, f.integration.ID)
 			base := map[string]any{
 				"instruction": "Review this pull request.",
 				"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
 			}
 			config := createPublicHTTPAgentConfig(t, f.handler, f.project, "review-base", "json",
-				projectIntegrationHTTPJSON(t, base), f.project.AdminToken, http.StatusCreated)
+				integrationHTTPJSON(t, base), f.project.AdminToken, http.StatusCreated)
 			profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "review-profile", "Review",
 				testutil.RequireType[string](t, config["id"]), f.project.AdminToken, http.StatusCreated)
 			integration := map[string]any{
-				"name": f.integration.Name, "integration_type": integrationdefinition.GitHubPR,
 				"settings": map[string]any{"launcher": map[string]any{
-					"trigger": trigger, "scope_kind": "repository", "scope_ref": "1001",
-					"slots": []any{map[string]any{"key": "reviewer", "agent_profile_id": profile["id"]}},
+					"trigger": trigger, "repository_id": "1001", "profile": profile["id"],
 				}},
 			}
 			requestJSONWithHeaders(t, f.handler, http.MethodPut, f.project.ProjectPath+"/integrations/"+integrationRef,
-				projectIntegrationHTTPJSON(t, integration), "", http.StatusOK, authHeaders(f.project.AdminToken))
+				integrationHTTPJSON(t, integration), "", http.StatusOK, authHeaders(f.project.AdminToken))
 			raw, eventType := githubHTTPComment(t, 42, 3001, "@helper please review"), "issue_comment"
 			if trigger == "pull_request_opened" {
 				raw, eventType = githubHTTPPullRequest(t, "opened"), "pull_request"
@@ -213,7 +263,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.True(t, results[0].Launch.Created)
 			agentID := results[0].Launch.Agent.ID
 			firstInput := results[0].Launch.AgentInput.ID
-			require.Equal(t, "1001#42", results[0].Launch.IntegrationTarget.ProviderRef)
+			require.Equal(t, "1001#42", results[0].Launch.IntegrationTarget.ScopeRef)
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "relabeled", githubJourneyWebhookSecret,
 				raw, http.StatusNoContent)
 			f.consume(t, raw)
@@ -239,7 +289,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				"id": 5001, "state": "changes_requested", "body": "Please handle the edge case",
 				"user": map[string]any{"id": 71, "login": "human", "type": "User"},
 			}
-			reviewRaw := projectIntegrationHTTPJSON(t, review)
+			reviewRaw := integrationHTTPJSON(t, review)
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "review", githubJourneyWebhookSecret,
 				reviewRaw, http.StatusNoContent)
 			results = f.consume(t, reviewRaw)
@@ -267,6 +317,18 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			githubHTTPWebhook(t, f.handler, "issue_comment", "self", githubJourneyWebhookSecret,
 				self, http.StatusNoContent)
 			require.Empty(t, f.consume(t, self))
+			require.NoError(t, pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&inputs))
+			f.senderPermission = "read"
+			reader := githubHTTPComment(t, 42, 3006, "@helper please change direction")
+			githubHTTPWebhook(t, f.handler, "issue_comment", "reader-mention", githubJourneyWebhookSecret,
+				reader, http.StatusNoContent)
+			require.Empty(t, f.consume(t, reader), "default writer policy also protects existing agents")
+			var afterReader int
+			require.NoError(t, pool.QueryRow(t.Context(),
+				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&afterReader))
+			require.Equal(t, inputs, afterReader)
+			f.senderPermission = "write"
 		})
 	}
 }
@@ -279,18 +341,18 @@ func TestGitHubHTTPExistingAgentSubscriptionJourney(t *testing.T) {
 		"model":       map[string]any{"provider_config": "openai-prod", "name": "gpt-test"},
 	}
 	config := createPublicHTTPAgentConfig(t, f.handler, f.project, "existing-config", "json",
-		projectIntegrationHTTPJSON(t, source), f.project.AdminToken, http.StatusCreated)
+		integrationHTTPJSON(t, source), f.project.AdminToken, http.StatusCreated)
 	profile := createPublicHTTPAgentProfile(t, f.handler, f.project, "existing-profile", "Existing reviewer",
 		testutil.RequireType[string](t, config["id"]), f.project.AdminToken, http.StatusCreated)
 	launched := requestJSONWithHeaders(t, f.handler, http.MethodPost, f.project.ProjectPath+"/agents",
-		projectIntegrationHTTPJSON(t, map[string]any{"profile": profile["id"], "config": config["id"]}),
+		integrationHTTPJSON(t, map[string]any{"profile": profile["id"], "config": config["id"]}),
 		"existing-reviewer", http.StatusCreated, authHeaders(f.project.AdminToken))
 	publicAgentID := testutil.RequireType[string](t,
 		testutil.RequireType[map[string]any](t, launched["agent"])["id"])
 	requestJSONWithHeaders(t, f.handler, http.MethodPost,
 		f.project.ProjectPath+
-			"/integrations/"+testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)+"/subscriptions",
-		projectIntegrationHTTPJSON(t, map[string]any{
+			"/integrations/"+testPublicID(t, publicid.KindIntegration, f.integration.ID)+"/subscriptions",
+		integrationHTTPJSON(t, map[string]any{
 			"agent_id":     publicAgentID,
 			"conversation": map[string]any{"repository_id": 1001, "pull_request": 42},
 		}), "", http.StatusCreated, authHeaders(f.project.AdminToken))
@@ -307,10 +369,10 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "github-shared-app")
 	ctx := t.Context()
-	second := projectIntegrationHTTPSecondProject(t, f.handler, f.project)
+	second := integrationHTTPSecondProject(t, f.handler, f.project)
 	secretPath := "/api/v1/orgs/" + f.project.OrgID + "/secrets/" + f.secretID
 	grant := requestJSONWithHeaders(t, f.handler, http.MethodPost, secretPath+"/grants",
-		projectIntegrationHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
+		integrationHTTPJSON(t, map[string]any{"target_project_id": second.ProjectID}),
 		"", http.StatusCreated, authHeaders(f.project.AdminToken))
 	secondIntegration := githubHTTPJourneyIntegration(t, f.handler, second, f.secretID, "457")
 	inbox := f.project.Store.Integrations()
@@ -344,7 +406,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	otherIntegration := createSetupHTTPIntegration(t, f.handler, f.project, "other-github", integrationdefinition.GitHubPR)
 	otherBody["expected_setup_revision"] = otherIntegration.SetupRevision
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, otherIntegration),
-		projectIntegrationHTTPJSON(t, otherBody), "", http.StatusOK, authHeaders(f.project.AdminToken))
+		integrationHTTPJSON(t, otherBody), "", http.StatusOK, authHeaders(f.project.AdminToken))
 	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
 	require.Len(t, candidates, 2, "a different App cannot become a credential candidate")
@@ -362,7 +424,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM integration_inbox`).Scan(&count))
 	require.Zero(t, count, "App health/unmanaged installation callbacks do not choose a project")
 	integrationPath := f.project.ProjectPath +
-		"/integrations/" + testPublicID(t, publicid.KindProjectIntegration, f.integration.ID)
+		"/integrations/" + testPublicID(t, publicid.KindIntegration, f.integration.ID)
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationPath+"/disconnect",
 		"", "", http.StatusOK, authHeaders(f.project.AdminToken))
 	githubHTTPWebhook(t, f.handler, "issue_comment", "disabled", githubJourneyWebhookSecret,
@@ -377,7 +439,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	require.Zero(t, count)
 	requestJSONWithHeaders(t, f.handler, http.MethodDelete,
 		f.project.ProjectPath+"/integrations/"+
-			testPublicID(t, publicid.KindProjectIntegration, separate.ID),
+			testPublicID(t, publicid.KindIntegration, separate.ID),
 		"", "", http.StatusNoContent, authHeaders(f.project.AdminToken))
 	candidates, err = inbox.ListGitHubWebhookCredentialIntegrations(ctx, "123", 16)
 	require.NoError(t, err)
@@ -389,7 +451,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, candidates, 1)
 	require.Equal(t, f.integration.ID, candidates[0].ID)
-	require.Equal(t, integrationstore.ProjectIntegrationStateDisconnected, candidates[0].State)
+	require.Equal(t, integrationstore.IntegrationStateDisconnected, candidates[0].State)
 	githubHTTPWebhook(t, f.handler, "ping", "disabled-ping", githubJourneyWebhookSecret, ping, http.StatusNoContent)
 	githubHTTPWebhook(t, f.handler, "installation", "revoked", githubJourneyWebhookSecret,
 		installed, http.StatusUnauthorized)
@@ -409,7 +471,7 @@ func TestGitHubSharedAndLegacyRoutesDeduplicateSameIntegrationFanout(t *testing.
 	body["credential_secret_id"] = f.secretID
 	body["expected_setup_revision"] = second.SetupRevision
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, second),
-		projectIntegrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
+		integrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
 	raw := githubHTTPComment(t, 42, 3001, "@helper please review")
 	for _, path := range []string{GitHubSharedEventsPath, "/api/integrations/github/123/events", GitHubSharedEventsPath} {
 		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(raw))

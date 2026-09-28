@@ -48,7 +48,8 @@ func (c *Client) prepare(ctx context.Context, scope Scope) (Channel, error) {
 		return Channel{}, &APIError{Code: ScopeMismatch}
 	}
 	if scope.ThreadID != "" {
-		if !channel.IsThread() || channel.ParentID != scope.ChannelID || !validID(channel.GuildID) {
+		if !channel.IsThread() || !validID(channel.GuildID) ||
+			(scope.ChannelID != "" && channel.ParentID != scope.ChannelID) {
 			return Channel{}, &APIError{Code: ScopeMismatch}
 		}
 	} else if channel.IsThread() || (channel.Type != 0 && channel.Type != 1 && channel.Type != 5) {

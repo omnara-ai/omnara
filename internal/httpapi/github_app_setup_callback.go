@@ -81,7 +81,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	integration, err := s.store.Integrations().GetProjectIntegration(r.Context(), state.ProjectID, state.IntegrationID)
+	integration, err := s.store.Integrations().GetIntegration(r.Context(), state.ProjectID, state.IntegrationID)
 	if err != nil {
 		apierror.WriteError(w, apierror.ProjectScoped(err))
 		return
@@ -90,7 +90,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		apierror.Write(w, openapi.ErrorCodeForbidden)
 		return
 	}
-	if integration.IntegrationType != integrationdefinition.GitHubPR {
+	if integration.IntegrationKind != integrationdefinition.GitHubPR {
 		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "this integration does not support GitHub setup")
 		return
 	}
@@ -149,7 +149,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	params := url.Values{
 		"github_setup": {"credentials_saved"}, "credentials_secret_ref": {ref},
 	}
-	current, err := s.store.Integrations().GetProjectIntegration(ctx, state.ProjectID, state.IntegrationID)
+	current, err := s.store.Integrations().GetIntegration(ctx, state.ProjectID, state.IntegrationID)
 	if err != nil || current.SetupRevision != state.SetupRevision {
 		params.Set("github_setup_error", "integration_setup_changed")
 	}

@@ -65,11 +65,7 @@ func ParseConversation(provider, kind, ref string) (Scope, error) {
 		case "channel":
 			scope.Discord = &DiscordScope{ChannelID: ref}
 		case "thread":
-			channel, thread, ok := strings.Cut(ref, ":")
-			if !ok || thread == "" {
-				return invalid()
-			}
-			scope.Discord = &DiscordScope{ChannelID: channel, ThreadID: thread}
+			scope.Discord = &DiscordScope{ThreadID: ref}
 		default:
 			return invalid()
 		}

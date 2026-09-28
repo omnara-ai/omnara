@@ -497,7 +497,7 @@ func seedListAgentsSlackTarget(
 		"ULISTAGENTSBOT",
 		"signing-secret-list-agents",
 	)
-	require.Equal(t, integrationdefinition.SlackThread, install.IntegrationType)
+	require.Equal(t, integrationdefinition.SlackThread, install.IntegrationKind)
 	base, found, err := store.Execution().GetAgentConfig(ctx, project.ProjectUUID, agent.CurrentConfigID)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -514,6 +514,18 @@ func seedListAgentsSlackTarget(
 		IdempotencyKey: "list-agents-handler",
 	})
 	require.NoError(t, err)
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: "C0BAK8REEGY:1783382417.000100"}
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, project.ProjectUUID, nil, install.ID))
+	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, project.ProjectUUID, install.ID, address))
+	_, err = tx.Exec(ctx, "SELECT id FROM agents WHERE id=$1 FOR UPDATE", agent.ID)
+	require.NoError(t, err)
+	require.NoError(t, store.Integrations().AssignAgentIntegrationConversationTx(
+		ctx, tx, project.ProjectUUID, agent.ID, install.ID, address,
+	))
+	require.NoError(t, tx.Commit(ctx))
 	_, _, err = store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
 		ProjectID: project.ProjectUUID, IntegrationID: install.ID,
 		ReceiptKey: "list-origin", Payload: []byte(`{"verified":true}`),
@@ -524,30 +536,33 @@ func seedListAgentsSlackTarget(
 	})
 	require.NoError(t, err)
 	require.True(t, found)
-	actor, err := executionstore.IntegrationActorParams(install.ID, "ULISTINPUT", nil)
+	actor, err := executionstore.IntegrationActorParams(install, "ULISTINPUT", nil)
 	require.NoError(t, err)
-	plan, err := json.Marshal(map[string]executionstore.InboxInputSlot{"recipient": {
-		Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{
-			ChannelID: "C0BAK8REEGY", ThreadTS: "1783382417.000100",
-		}},
-		AgentID: agent.ID, Input: executionstore.CreateAgentContentInputInput{
+	plan, err := json.Marshal(map[string]any{
+		"message": executionstore.InboxMessage{
+			Scope: integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{
+				ChannelID: "C0BAK8REEGY", ThreadTS: "1783382417.000100",
+			}},
 			Origin: &executionstore.AgentInputOrigin{
-				IntegrationID: install.ID,
-				Address: integrationstore.ConversationAddress{
-					Kind: "thread",
-					Ref:  "C0BAK8REEGY:1783382417.000100",
-				},
+				IntegrationID: install.ID, Address: address,
 			},
-			Actor:         &actor,
-			ContentBlocks: json.RawMessage(`[{"type":"text","text":"list origin"}]`), IdempotencyKey: "list-origin",
+			Actor: &actor, SemanticKey: "list-origin",
+			ContentBlocks: json.RawMessage(`[{"type":"text","text":"list origin"}]`),
 		},
-	}})
+		"recipients": map[string]executionstore.InboxInputSlot{"recipient": {AgentID: agent.ID}},
+	})
 	require.NoError(t, err)
 	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
 		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
 	_, err = store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
-	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByProviderRefPrefix(
+	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Len(t, claim.Model.AdmittedInputTurn.Inputs, 1)
+	require.Equal(t, agent.ID, claim.Model.AdmittedInputTurn.Inputs[0].AgentID)
+	if err := store.Integrations().UpdateIntegrationTargetDisplayNamesByScopeRefPrefix(
 		ctx,
 		project.ProjectUUID,
 		install.ID,

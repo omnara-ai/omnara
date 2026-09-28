@@ -50,10 +50,10 @@ including in different projects, but duplicated sessions consume provider capaci
 Overlapping launch behavior can create duplicate responses. Omnara does not merge
 these independently configured integrations.
 
-Omnara looks up the channel for each eligible incoming message before deciding
-whether an agent needs it. Unrelated traffic visible to the bot therefore uses
-inbox capacity and shares the bot's [REST quota](https://docs.discord.com/developers/topics/rate-limits)
-with replies. Limit the bot's channel visibility in Discord to where it is needed.
+Unrelated messages that do not mention the bot use inbox capacity but make no
+Discord REST requests. Omnara checks exact thread subscriptions and pending launches
+before looking up the channel. Mentions still require a channel lookup and share
+the bot's [REST quota](https://docs.discord.com/developers/topics/rate-limits) with replies.
 Identity checks and attachment downloads happen only after routing finds a recipient.
 
 ## Launch from mentions
@@ -61,8 +61,9 @@ Identity checks and attachment downloads happen only after routing finds a recip
 Choose **Profiles for mentions** in the integration's settings. Mentions work in every
 server where this bot is installed and permitted; manage server and channel
 access in Discord. All of those servers use this Omnara project's profile choices.
-The API launcher contains `trigger: "mention"` and `slots`; omit `scope_kind`
-and `scope_ref`. Discord launchers do not accept server or channel filters.
+The API launcher is `{"profiles":["aprf_…"]}` with ordered, distinct public profile
+IDs. Discord launchers do not accept server or channel filters. Updates contain
+only `settings`; one profile starts immediately and several offer a menu.
 
 A mention in a parent channel creates or reuses the public thread attached to that message. A
 mention already inside a thread uses that thread. One offered profile starts
@@ -101,6 +102,9 @@ to 10 `artifact_ids`. The model supplies neither channel nor thread IDs. Adding
 these tools to an agent without an assigned conversation is insufficient; calls
 fail before contacting Discord.
 
+`post_message` returns the message's actual `channel_id` (the thread ID when
+posting in a thread), along with `message_id` and `thread_id`.
+
 The launcher subscribes the agent to replies. Posting does not change that
 subscription. To independently forward messages to an existing agent, send this
 body to the [integration subscriptions API](/integrations/overview#subscribe-a-conversation).
@@ -110,15 +114,18 @@ This does not assign or change the conversation used by the integration's tools.
 {
   "agent_id": "YOUR_AGENT_ID",
   "conversation": {
-    "guild_id": "333333333333333333",
-    "channel_id": "444444444444444444",
     "thread_id": "555555555555555555"
   }
 }
 ```
 
-Discord forwards messages from the subscribed conversation. Omit `thread_id`
-for a channel subscription; channel-root intake requires a bot mention. Removing the sending tool or changing
+Thread subscriptions need only `thread_id`; `guild_id` and the parent `channel_id`
+are optional. Supplied IDs are checked for valid format, but subscription creation
+does not verify them against Discord or retain them as routing restrictions.
+Create/list responses return only `thread_id` for a thread. For a channel
+subscription, supply `channel_id` and omit `thread_id`.
+Channel subscriptions receive mentioned thread starters, not ordinary replies in
+their threads. Removing the sending tool or changing
 config does not remove subscriptions. Use **Stop forwarding** on the integration page or
 DELETE the subscription to remove it, including while the integration is disconnected.
 
@@ -144,8 +151,7 @@ The Discord launcher adds the handler and both tools automatically, preserving e
 The handler uses the thread assigned when the integration launches the agent.
 Select it with `{"handler":"support","args":{}}`; the model does not supply
 channel, thread or server IDs. The list tool shows the assigned destination. Adding
-a handler to a manual config does not create an assignment. Incoming messages from
-the assigned thread select the handler automatically, including on launch. Questions remain answerable in the dashboard if Discord
+a handler to a manual config does not create an assignment. With automatic selection enabled, the last content input admitted into a new turn selects its eligible handler. Inputs without a handler select dashboard-only delivery. Waiting inputs do not change the current turn. Set `auto_select: false` with `set_interaction_handler` to pin a choice, or `true` to follow future inputs; omission preserves the mode. The list tool reports the mode. Questions remain answerable in the dashboard if Discord
 presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration. A bot used only for messages with one
 profile can omit the public key.

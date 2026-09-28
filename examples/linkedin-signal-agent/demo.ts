@@ -53,7 +53,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type ProjectIntegration, type SaveProjectIntegrationRequest } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type Integration, type SaveIntegrationRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -397,8 +397,7 @@ console.log('\nDone. The agent stays available — message it from the console o
 // One-time setup:
 //
 // 1. Set `SLACK_APP_CONFIGURATION_TOKEN` in `.env` — create the token at
-//    [api.slack.com/apps](https://api.slack.com/apps). Also set
-//    `SLACK_WORKSPACE_ID` to the workspace you will install into (T…).
+//    [api.slack.com/apps](https://api.slack.com/apps).
 // 2. Rerun this file (or just this section) and open the printed OAuth URL
 //    to install the Slack app.
 // 3. Invite the bot to a channel (`/invite @your-bot`) and mention it.
@@ -412,45 +411,42 @@ console.log('\nDone. The agent stays available — message it from the console o
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
 
 if (slackAppConfigurationToken) {
-  const workspaceID = env.SLACK_WORKSPACE_ID?.trim()
-  if (!workspaceID) throw new Error('set SLACK_WORKSPACE_ID in .env to connect Slack')
-
   const integrationName = 'linkedin-signal-agent'
-  let existingIntegration: ProjectIntegration | undefined
+  let existingIntegration: Integration | undefined
   let cursor: string | undefined
   do {
-    const { data: integrations } = await sdk.listProjectIntegrations({ client, path, query: { cursor } })
+    const { data: integrations } = await sdk.listIntegrations({ client, path, query: { cursor } })
     existingIntegration = integrations.data.find((integration) => integration.name === integrationName)
     cursor = integrations.next_cursor ?? undefined
   } while (!existingIntegration && cursor)
 
-  if (existingIntegration && existingIntegration.integration_type !== 'slack_thread') {
+  if (existingIntegration && existingIntegration.integration_kind !== 'slack_thread') {
     throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
   }
   // The integration owns its launcher profile. Launching from Slack supplies the
   // namespaced tools, integration-owned thread subscription, and interaction handler to the agent.
-  const body: SaveProjectIntegrationRequest = {
+  const body: SaveIntegrationRequest = {
     name: integrationName,
-    integration_type: 'slack_thread',
+    integration_kind: 'slack_thread',
     settings: {
-      launcher: {
-        trigger: 'mention',
-        scope_kind: 'workspace',
-        scope_ref: workspaceID,
-        slots: [{ key: 'default', agent_profile_id: profile.id }],
-      },
+      ...existingIntegration?.settings,
+      launcher: { profiles: [profile.id] },
     },
   }
   const { data: integration } = existingIntegration
-    ? await sdk.updateProjectIntegration({ client, path: { ...path, integrationID: existingIntegration.id }, body })
-    : await sdk.createProjectIntegration({ client, path, body })
+    ? await sdk.updateIntegration({
+        client,
+        path: { ...path, integrationID: existingIntegration.id },
+        body: { settings: body.settings },
+      })
+    : await sdk.createIntegration({ client, path, body })
 
   if (integration.state === 'active') {
     console.log('Slack integration already connected:', integration.name, integration.id)
   } else if (integration.provider_account_ref) {
     console.log('Reconnect this Slack integration in the project Integrations page:', integration.name, integration.id)
   } else {
-    const { data: slack } = await sdk.createProjectIntegrationSlackSetup({
+    const { data: slack } = await sdk.createIntegrationSlackSetup({
       client,
       path: { ...path, integrationID: integration.id },
       body: { app_name: 'LinkedIn Signal Agent', app_configuration_token: slackAppConfigurationToken },

@@ -46,7 +46,7 @@ func TestIntegrationProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(
 	choice := providerProfileChoice(t)
 	choice.Event, err = json.Marshal(event)
 	require.NoError(t, err)
-	choice.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "300:500"}
+	choice.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "500"}
 	choiceID, err := publicid.Encode(publicid.KindIntegrationProfileChoice, choice.ID)
 	require.NoError(t, err)
 	requests := make(chan map[string]any, 4)

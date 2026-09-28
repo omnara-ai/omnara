@@ -13,14 +13,14 @@ const (
 	IntegrationProviderDiscord = "discord"
 )
 
-type ProjectIntegrationState string
+type IntegrationState string
 
 const (
-	ProjectIntegrationStateActive       ProjectIntegrationState = "active"
-	ProjectIntegrationStateDisconnected ProjectIntegrationState = "disconnected"
+	IntegrationStateActive       IntegrationState = "active"
+	IntegrationStateDisconnected IntegrationState = "disconnected"
 )
 
-type ConfigureProjectIntegrationInput struct {
+type ConfigureIntegrationInput struct {
 	OrgID                    uuid.UUID
 	ProjectID                uuid.UUID
 	IntegrationID            uuid.UUID
@@ -41,16 +41,15 @@ type ConfigureProjectIntegrationInput struct {
 
 type IntegrationTargetRecord struct {
 	IntegrationID    uuid.UUID       `json:"integration_id,omitempty"`
-	SelectionSlot    string          `json:"selection_slot,omitempty"`
+	LaunchKey    string          `json:"launch_key,omitempty"`
 	DeletedAt        *time.Time      `json:"deleted_at,omitempty"`
 	ID               uuid.UUID       `json:"id"`
 	OrgID            uuid.UUID       `json:"org_id"`
 	ProjectID        uuid.UUID       `json:"project_id"`
 	AgentID          uuid.UUID       `json:"agent_id"`
-	ProviderRef      string          `json:"provider_ref"`
-	ProviderRefKind  string          `json:"provider_ref_kind"`
+	ScopeRef      string          `json:"scope_ref"`
+	ScopeKind  string          `json:"scope_kind"`
 	DisplayName      string          `json:"display_name"`
-	ProviderMetadata json.RawMessage `json:"provider_metadata"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 	Created          bool            `json:"-"`

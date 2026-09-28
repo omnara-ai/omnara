@@ -116,19 +116,19 @@ func TestInboxSubscriptionAuthorityUsesLiveAddressAndIntegration(t *testing.T) {
 				case "address":
 					attachment.Conversation = json.RawMessage(`{"repository_id":123,"pull_request":43}`)
 				case "other integration":
-					other, err := f.store.Integrations().CreateProjectIntegration(f.ctx, integrationstore.SaveProjectIntegrationInput{
+					other, err := f.store.Integrations().CreateIntegration(f.ctx, integrationstore.SaveIntegrationInput{
 
 						OrgID:           testOrgID,
 						ProjectID:       testProjectID,
 						Name:            "another-integration",
-						IntegrationType: f.integration.IntegrationType,
+						IntegrationKind: f.integration.IntegrationKind,
 					})
 					require.NoError(t, err)
 					secret, err := f.store.Secrets().GetSecret(f.ctx, testOrgID, f.integration.CredentialSecretID)
 					require.NoError(t, err)
-					_, err = f.store.Integrations().ConfigureProjectIntegration(
+					_, err = f.store.Integrations().ConfigureIntegration(
 						f.ctx,
-						integrationstore.ConfigureProjectIntegrationInput{
+						integrationstore.ConfigureIntegrationInput{
 							OrgID: testOrgID, ProjectID: testProjectID, IntegrationID: other.ID, InstalledByUserID: f.user.ID,
 							Provider: f.integration.Provider, ProviderTenantID: f.integration.ProviderTenantID,
 							ProviderAccountRef: f.integration.ProviderAccountRef, CredentialAppID: 123,

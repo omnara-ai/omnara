@@ -19,14 +19,14 @@ var ErrScheduledActionFailed = errors.New("scheduled integration action failed")
 type ScheduledThreadProvider interface {
 	PublishScheduledRoot(
 		context.Context,
-		integrationstore.ProjectIntegrationRecord,
+		integrationstore.IntegrationRecord,
 		integrationdefinition.ScheduledThreadLaunch,
 		uuid.UUID,
 		func(context.Context) error,
 	) (integrationdefinition.Scope, error)
 	EnsureScheduledThread(
 		context.Context,
-		integrationstore.ProjectIntegrationRecord,
+		integrationstore.IntegrationRecord,
 		integrationdefinition.Scope,
 		func(context.Context) error,
 	) error
@@ -50,14 +50,14 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	receipt integrationstore.IntegrationInboxRecord,
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 ) ([]IntegrationSlotAdmission, error) {
 	event, err := receipt.ScheduledEvent()
 	if err != nil {
 		return nil, err
 	}
 	launch, err := integrationdefinition.PrepareThreadSchedule(
-		integration.IntegrationType,
+		integration.IntegrationKind,
 		event.Settings,
 		event.Occurrence,
 	)
@@ -110,18 +110,18 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 	if err != nil {
 		return nil, err
 	}
-	if len(plan) != 1 {
+	if len(plan.Recipients) != 1 {
 		return nil, fmt.Errorf("%w: invalid scheduled launch plan", ErrScheduledActionFailed)
 	}
 	outcomes, err := h.router.execution.GetIntegrationInboxOutcomes(ctx, receipt)
 	if err != nil {
 		return nil, err
 	}
-	for key, slot := range plan {
+	for key := range plan.Recipients {
 		if outcomes[key] != executionstore.InboxSlotPending {
 			continue
 		}
-		kind, ref, err := slot.Scope.Conversation()
+		kind, ref, err := plan.Message.Scope.Conversation()
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +130,7 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 				ctx, lease, key, integrationstore.ConversationAddress{Kind: kind, Ref: ref},
 			)
 		}
-		if err := h.provider.EnsureScheduledThread(ctx, integration, slot.Scope, check); err != nil {
+		if err := h.provider.EnsureScheduledThread(ctx, integration, plan.Message.Scope, check); err != nil {
 			return nil, err
 		}
 	}
@@ -154,15 +154,15 @@ func (r *IntegrationRouter) FreezeScheduledLaunch(
 	if err != nil {
 		return err
 	}
-	integration, err := r.integrations.GetProjectIntegrationByID(ctx, receipt.IntegrationID)
+	integration, err := r.integrations.GetIntegrationByID(ctx, receipt.IntegrationID)
 	if err != nil {
 		return err
 	}
-	if integration.ProjectID != receipt.ProjectID || integration.State != integrationstore.ProjectIntegrationStateActive {
+	if integration.ProjectID != receipt.ProjectID || integration.State != integrationstore.IntegrationStateActive {
 		return storeerr.ErrUnauthorized
 	}
 	launch, err := integrationdefinition.PrepareThreadSchedule(
-		integration.IntegrationType,
+		integration.IntegrationKind,
 		event.Settings,
 		event.Occurrence,
 	)
@@ -175,7 +175,7 @@ func (r *IntegrationRouter) FreezeScheduledLaunch(
 	if profileID != launch.ProfileID {
 		return storeerr.ErrUnauthorized
 	}
-	definition, _ := integrationdefinition.Lookup(integration.IntegrationType)
+	definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
 	subscriptions, err := integrationLaunchSubscriptions(integration.ID, definition, root)
 	if err != nil {
 		return err
@@ -210,19 +210,19 @@ func (r *IntegrationRouter) FreezeScheduledLaunch(
 		Type: identitystore.PrincipalTypeSystem, ID: event.TriggerID,
 	}
 	frozenLaunch.IdempotencyKey = "integration:" + receipt.ID.String() + ":" + key
-	frozenLaunch.InitialInput = &executionstore.LaunchInitialInput{
-		ContentBlocks: content, Actor: actor, SemanticEventKey: receipt.ReceiptKey,
-		Origin: &executionstore.LaunchInputOrigin{
-			IntegrationID: integration.ID,
-			Address:       address,
-			DisplayName:   event.Occurrence.Name,
+	plan := IntegrationInboxPlan{
+		Message: &executionstore.InboxMessage{
+			Scope: root, ContentBlocks: content, Actor: actor, SemanticKey: receipt.ReceiptKey,
+			Origin: &executionstore.AgentInputOrigin{
+				IntegrationID: integration.ID, Address: address, DisplayName: event.Occurrence.Name,
+			},
 		},
+		Recipients: map[string]IntegrationInboxSlot{key: {
+			AgentID:   agentID,
+			Selection: &integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID, Address: address, Slot: key},
+			Launch:    &frozenLaunch,
+		}},
 	}
-	plan := IntegrationInboxPlan{key: {
-		Scope: root, AgentID: agentID,
-		Selection: &integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID, Address: address, Slot: key},
-		Launch:    &frozenLaunch,
-	}}
 	raw, err := json.Marshal(plan)
 	if err != nil {
 		return err

@@ -18,19 +18,19 @@ func (s *Store) ResolveIntegrationDefinitions(
 	if len(ids) == 0 {
 		return result, nil
 	}
-	rows, err := s.q.ListProjectIntegrationMetadataByIDs(
+	rows, err := s.q.ListIntegrationMetadataByIDs(
 		ctx,
-		dbsqlc.ListProjectIntegrationMetadataByIDsParams{ProjectID: projectID, Ids: ids},
+		dbsqlc.ListIntegrationMetadataByIDsParams{ProjectID: projectID, Ids: ids},
 	)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
-		if row.DeletedAt != nil || row.State != string(ProjectIntegrationStateActive) {
+		if row.DeletedAt != nil || row.State != string(IntegrationStateActive) {
 			continue
 		}
 		result[row.ID] = agentconfig.IntegrationResolution{
-			IntegrationID: row.ID, IntegrationType: integrationdefinition.Type(row.IntegrationType),
+			IntegrationID: row.ID, IntegrationKind: integrationdefinition.Kind(row.IntegrationKind),
 		}
 	}
 	return result, nil

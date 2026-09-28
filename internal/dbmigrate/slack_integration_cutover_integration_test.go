@@ -33,7 +33,7 @@ func TestSlackIntegrationCutoverPreflight(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	preflight, err := os.ReadFile("../../docs/self-hosting/assets/composable-integrations-preflight.sql")
 	require.NoError(t, err)
-	for _, version := range []int64{44, 45} {
+	for _, version := range []int64{44, 45, 46} {
 		t.Run(fmt.Sprintf("schema_%d", version), func(t *testing.T) {
 			require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, version))
 			_, err := db.ExecContext(ctx, string(preflight))
@@ -41,12 +41,12 @@ func TestSlackIntegrationCutoverPreflight(t *testing.T) {
 			require.Equal(t, version, currentPostgresMigrationVersion(t, ctx, db))
 		})
 	}
-	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 46))
+	require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 47))
 	conn, err := db.Conn(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	_, err = conn.ExecContext(ctx, string(preflight))
-	require.ErrorContains(t, err, "preflight requires a schema-44 or schema-45 writer")
+	require.ErrorContains(t, err, "preflight requires a schema-44, schema-45 or schema-46 writer")
 	_, err = conn.ExecContext(ctx, "ROLLBACK")
 	require.NoError(t, err)
 }
@@ -64,7 +64,7 @@ func TestSlackIntegrationCutoverPreservesScopedSendingAndHistory(t *testing.T) {
 			pool := integrationdb.OpenUnmigratedPool(t, ctx)
 			db := stdlib.OpenDBFromPool(pool)
 			t.Cleanup(func() { _ = db.Close() })
-			baseline := int64(45)
+			baseline := int64(46)
 			if scenario == "pre_internal_ids" {
 				baseline = 41
 			}
@@ -388,12 +388,15 @@ tools:
 				var value string
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object(
 				 'agents',(SELECT jsonb_agg(to_jsonb(a)-'current_config_id'-'next_event_sequence'
-                 -'integration_target_id'-'updated_at'
+                 -'integration_target_id'-'interaction_target_id'-'interaction_auto_select'-'updated_at'
                  -'interaction_handler_key' ORDER BY a.id) FROM agents a),
 				 'targets',(SELECT jsonb_agg((to_jsonb(t)-'integration_install_id'-'integration_id'
-                  -'selection_slot'-'target_ref')
+                  -'launch_key'-'target_ref'-'provider_metadata'
+                  -'provider_ref_kind'-'provider_ref'-'scope_kind'-'scope_ref')
                   || jsonb_build_object('integration_id',
-                      coalesce(to_jsonb(t)->'integration_id',to_jsonb(t)->'integration_install_id'))
+                      coalesce(to_jsonb(t)->'integration_id',to_jsonb(t)->'integration_install_id'),
+                      'scope_kind',coalesce(to_jsonb(t)->'scope_kind',to_jsonb(t)->'provider_ref_kind'),
+                      'scope_ref',coalesce(to_jsonb(t)->'scope_ref',to_jsonb(t)->'provider_ref'))
                   ORDER BY t.id) FROM integration_targets t),
 				 'inputs',(SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM agent_inputs i
                   WHERE i.input_idempotency_key IS DISTINCT FROM 'slack_integration_cutover'),
@@ -473,14 +476,14 @@ tools:
 					want = "needs additional config quota"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
 				var oldConnections int
 				require.NoError(t, db.QueryRowContext(ctx,
 					`SELECT count(*) FROM integration_installs WHERE id=$1`, integrationID).Scan(&oldConnections))
 				require.Equal(t, 1, oldConnections)
 				var newTableExists bool
 				require.NoError(t, db.QueryRowContext(ctx,
-					`SELECT to_regclass('project_integrations') IS NOT NULL`).Scan(&newTableExists))
+					`SELECT to_regclass('integrations') IS NOT NULL`).Scan(&newTableExists))
 				require.False(t, newTableExists)
 				exec(
 					`UPDATE integration_installs SET updated_at=now() WHERE id=$1 AND agent_profile_id IS NOT DISTINCT FROM agent_profile_id`,
@@ -548,12 +551,12 @@ tools:
 			}
 			if scenario == "invalid_policy" || scenario == "unmapped_policy" || scenario == "invalid_address" ||
 				scenario == "bad_hash" || scenario == "bad_source_hash" || scenario == "config_limit" {
-				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 46))
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 47))
 				if scenario == "config_limit" {
 					exec(`INSERT INTO org_resource_limit_overrides(org_id,max_agent_configs_per_project) VALUES($1,1)`, ids.OrgID)
 				}
 				if scenario == "invalid_address" {
-					exec(`UPDATE integration_targets SET provider_ref='C1:invalid' WHERE agent_id=$1`, agents[0])
+					exec(`UPDATE integration_targets SET scope_ref='C1:invalid' WHERE agent_id=$1`, agents[0])
 				}
 				expectedConfigs := 1
 				if scenario == "invalid_policy" {
@@ -608,7 +611,7 @@ tools:
 					want = "exceeds project config limit"
 				}
 				require.ErrorContains(t, err, want)
-				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
 				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var count int
@@ -618,7 +621,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND integration_target_id IS NULL`,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND interaction_target_id IS NULL`,
 						configID,
 					).Scan(
 						&count,
@@ -635,7 +638,7 @@ tools:
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected rewrite failure")
-				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
 				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var active, configs int
@@ -643,7 +646,7 @@ tools:
 					t,
 					db.QueryRowContext(
 						ctx,
-						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND integration_target_id IS NULL`,
+						`SELECT count(*) FROM agents WHERE current_config_id=$1 AND interaction_target_id IS NULL`,
 						configID,
 					).Scan(
 						&active,
@@ -679,7 +682,7 @@ tools:
                  FOR EACH ROW EXECUTE FUNCTION reject_cutover_config_event()`)
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "injected cutover failure")
-				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
 				assertConversationRollback()
 				var count int
 				require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM agent_configs`).Scan(&count))
@@ -691,7 +694,7 @@ tools:
 			if scenario == "continuable_retry" {
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "still has continuable work")
-				require.Equal(t, int64(45), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
 				var turnID uuid.UUID
 				require.NoError(
 					t,
@@ -707,12 +710,12 @@ tools:
 				require.NoError(t, tx.Commit())
 			}
 			if scenario == "pre_internal_ids" {
-				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 46))
+				require.NoError(t, applyProductionPostgresMigrationsThrough(t, ctx, db, 47))
 				exec(`ALTER TABLE event_webhook_deliveries ADD CONSTRAINT reject_cutover_webhook CHECK (false) NOT VALID`)
 				before := history()
 				err := applyProductionPostgresMigrations(ctx, db)
 				require.ErrorContains(t, err, "reject_cutover_webhook")
-				require.Equal(t, int64(46), currentPostgresMigrationVersion(t, ctx, db))
+				require.Equal(t, int64(47), currentPostgresMigrationVersion(t, ctx, db))
 				assertConversationRollback()
 				require.JSONEq(t, before, history())
 				var configs, deliveries int
@@ -731,12 +734,10 @@ tools:
 				require.Zero(t, deliveries, "cutover must not enqueue deliveries without an event webhook")
 			}
 			var retiredSlot sql.NullString
-			var retiredMetadata []byte
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT selection_slot,provider_metadata FROM integration_targets WHERE id=$1`, retiredTargetID).
-				Scan(&retiredSlot, &retiredMetadata))
+				`SELECT launch_key FROM integration_targets WHERE id=$1`, retiredTargetID).
+				Scan(&retiredSlot))
 			require.False(t, retiredSlot.Valid)
-			require.JSONEq(t, `{"legacy":"retained"}`, string(retiredMetadata))
 			execution := executionstore.New(pool, executionstore.Config{})
 			conversations := integrationstore.New(pool, executionstore.IntegrationAccess{})
 			for i, agentID := range agents {
@@ -866,7 +867,7 @@ tools:
 			}
 			require.Equal(t, wantAssignments, assignments, "only eligible live targets assign conversations")
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT count(*) FROM integration_targets WHERE selection_slot IS NOT NULL`).Scan(&selections))
+				`SELECT count(*) FROM integration_targets WHERE launch_key IS NOT NULL`).Scan(&selections))
 			require.Zero(t, selections, "migrated conversations must not suppress new mention launches")
 			var subscriptions, pointers int
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM integration_subscriptions`).Scan(&subscriptions))
@@ -875,7 +876,7 @@ tools:
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT count(*) FROM agents WHERE integration_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL`,
+					`SELECT count(*) FROM agents WHERE interaction_target_id IS NOT NULL OR interaction_handler_key IS NOT NULL`,
 				).
 					Scan(
 						&pointers,
@@ -887,36 +888,38 @@ tools:
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT settings FROM project_integrations WHERE id=$1`,
+					`SELECT settings FROM integrations WHERE id=$1`,
 					integrationID,
 				).
 					Scan(
 						&setup,
 					),
 			)
-			require.Contains(t, string(setup), profileID.String())
-			var name, integrationType, secondName, secondType, secondState string
+			encodedProfileID, err := publicid.Encode(publicid.KindAgentProfile, profileID)
+			require.NoError(t, err)
+			require.JSONEq(t, fmt.Sprintf(`{"launcher":{"profiles":[%q]}}`, encodedProfileID), string(setup))
+			var name, integrationKind, secondName, secondType, secondState string
 			var preservedCredential uuid.UUID
 			require.NoError(
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT name,integration_type,credential_secret_id FROM project_integrations WHERE id=$1`,
+					`SELECT name,integration_kind,credential_secret_id FROM integrations WHERE id=$1`,
 					integrationID,
 				).Scan(
 					&name,
-					&integrationType,
+					&integrationKind,
 					&preservedCredential,
 				),
 			)
 			require.Equal(t, "slack", name)
-			require.Equal(t, "slack_thread", integrationType)
+			require.Equal(t, "slack_thread", integrationKind)
 			require.Equal(t, credentialID, preservedCredential)
 			require.NoError(
 				t,
 				db.QueryRowContext(
 					ctx,
-					`SELECT name,integration_type,state FROM project_integrations WHERE id=$1`,
+					`SELECT name,integration_kind,state FROM integrations WHERE id=$1`,
 					secondIntegrationID,
 				).Scan(
 					&secondName,
@@ -954,7 +957,7 @@ tools:
 				require.Equal(t, "slack", name)
 				return agentconfig.IntegrationResolution{
 					IntegrationID:   integrationID,
-					IntegrationType: integrationdefinition.SlackThread,
+					IntegrationKind: integrationdefinition.SlackThread,
 				}, nil
 			}})
 			require.NoError(t, err)
@@ -1089,12 +1092,12 @@ func assertSlackCutoverInputGuards(
         VALUES($1,$2,'received','content','queued',$3,now())`, projectID, otherAgentID, targetID)
 	require.ErrorContains(t, err, "agent_inputs_project_id_agent_id_integration_target_id_fkey")
 	_, err = db.ExecContext(ctx,
-		`UPDATE agents SET integration_target_id=$2,interaction_handler_key='int__slack__default'
+		`UPDATE agents SET interaction_target_id=$2,interaction_handler_key='int__slack__default'
         WHERE id=$1`, otherAgentID, targetID)
-	require.ErrorContains(t, err, "agents_project_id_id_integration_target_id_fkey")
+	require.ErrorContains(t, err, "agents_project_id_id_interaction_target_id_fkey")
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO integration_targets(project_id,agent_id,integration_id,provider_ref_kind,provider_ref,created_at,updated_at)
-        SELECT project_id,agent_id,integration_id,provider_ref_kind,provider_ref,now(),now()
+		`INSERT INTO integration_targets(project_id,agent_id,integration_id,scope_kind,scope_ref,created_at,updated_at)
+        SELECT project_id,agent_id,integration_id,scope_kind,scope_ref,now(),now()
         FROM integration_targets WHERE id=$1`,
 		targetID)
 	require.ErrorContains(t, err, "integration_targets_active_agent_address_idx")

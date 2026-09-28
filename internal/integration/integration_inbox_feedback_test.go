@@ -20,7 +20,7 @@ import (
 )
 
 func feedbackReceipt(
-	integration integrationstore.ProjectIntegrationRecord,
+	integration integrationstore.IntegrationRecord,
 	payload []byte,
 ) integrationstore.IntegrationInboxRecord {
 	return integrationstore.IntegrationInboxRecord{
@@ -36,10 +36,13 @@ func feedbackReceipt(
 
 func feedbackPlan(t *testing.T, scope integrationdefinition.Scope) json.RawMessage {
 	t.Helper()
-	return githubEventJSON(t, IntegrationInboxPlan{"scheduled": {
-		Scope: scope, AgentID: uuid.New(), Selection: &integrationstore.InboxIntegrationSelection{},
-		Launch: &executionstore.InboxLaunchPlan{},
-	}})
+	return githubEventJSON(t, IntegrationInboxPlan{
+		Message: &executionstore.InboxMessage{Scope: scope},
+		Recipients: map[string]IntegrationInboxSlot{"scheduled": {
+			AgentID: uuid.New(), Selection: &integrationstore.InboxIntegrationSelection{},
+			Launch: &executionstore.InboxLaunchPlan{},
+		}},
+	})
 }
 
 func TestSlackNotifyInboxFailureDestination(t *testing.T) {
@@ -69,7 +72,8 @@ func TestSlackNotifyInboxFailureDestination(t *testing.T) {
 				normalized, ok, err := NormalizeSlackIntegrationEvent(integration, receipt.Payload)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.Events = githubEventJSON(t, []IntegrationEvent{normalized})
+				receipt.Source, receipt.StateID = integrationstore.IntegrationInboxSourceChoice, uuid.New()
+				access.choice = feedbackChoice(t, receipt, normalized)
 				receipt.Payload = []byte(`{"menu_callback":"not the source"}`)
 				wantText = selectedInboxFailureMessage
 			} else if tc.thread != "" && !tc.scheduled {
@@ -222,7 +226,8 @@ func TestDiscordNotifyInboxFailureDestination(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.Events = githubEventJSON(t, []IntegrationEvent{event})
+				receipt.Source, receipt.StateID = integrationstore.IntegrationInboxSourceChoice, uuid.New()
+				f.choice = feedbackChoice(t, receipt, event)
 				receipt.Payload = []byte(`{"interaction":"not the source"}`)
 				wantText = selectedInboxFailureMessage
 			} else if tc.reply {
@@ -326,7 +331,7 @@ func TestInboxFailureSkipsUnplannedOrdinaryHumanMessages(t *testing.T) {
 func TestInboxFailureSkipsUnknownScheduledOpeningsAndAutomatedMessages(t *testing.T) {
 	slackIntegration, discordIntegration := slackInboxTestIntegration(), discordInboxIntegration()
 	slackProvider, discordProvider := &SlackIntegrationInboxProvider{}, &DiscordIntegrationInboxProvider{}
-	for _, plan := range []json.RawMessage{nil, json.RawMessage(`{}`)} {
+	for _, plan := range []json.RawMessage{nil, json.RawMessage(`{"recipients":{}}`)} {
 		slackReceipt, discordReceipt := feedbackReceipt(slackIntegration, nil), feedbackReceipt(discordIntegration, nil)
 		slackReceipt.Source, discordReceipt.Source = integrationstore.IntegrationInboxSourceScheduled,
 			integrationstore.IntegrationInboxSourceScheduled
@@ -366,4 +371,14 @@ func TestInboxFailureSkipsUnknownScheduledOpeningsAndAutomatedMessages(t *testin
 		slackProvider.NotifyInboxFailure(t.Context(), slackIntegration, slackReceipt, inboxFailureMessage),
 		storeerr.ErrUnauthorized,
 	)
+}
+
+func feedbackChoice(
+	t *testing.T, receipt integrationstore.IntegrationInboxRecord, event IntegrationEvent,
+) integrationstore.IntegrationProfileChoiceRecord {
+	return integrationstore.IntegrationProfileChoiceRecord{
+		ID: receipt.StateID, ProjectID: receipt.ProjectID, IntegrationID: receipt.IntegrationID,
+		Event: githubEventJSON(t, event), SelectedKey: "selected",
+		Options: []integrationstore.IntegrationProfileChoiceOption{{Key: "selected", ProfileID: uuid.New()}},
+	}
 }

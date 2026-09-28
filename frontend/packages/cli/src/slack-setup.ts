@@ -1,8 +1,8 @@
 import {
   type CreateIntegrationOAuthSetupRequest,
   type CreateSlackSetupRequest,
+  type Integration,
   type IntegrationOAuthSetup,
-  type ProjectIntegration,
   sdk,
   type SlackSetup,
 } from '@omnara/sdk'
@@ -104,7 +104,7 @@ export async function runSlackIntegration(
   let start: IntegrationOAuthSetup | SlackSetup
   let slackAppId: string | undefined
   if (request.kind === 'create-app') {
-    const { data } = await sdk.createProjectIntegrationSlackSetup({
+    const { data } = await sdk.createIntegrationSlackSetup({
       client,
       path: setupPath,
       body: request.body,
@@ -112,7 +112,7 @@ export async function runSlackIntegration(
     start = data
     slackAppId = data.slack_app_id
   } else {
-    const { data } = await sdk.createProjectIntegrationOAuthSetup({
+    const { data } = await sdk.createIntegrationOAuthSetup({
       client,
       path: setupPath,
       body: request.body,
@@ -126,13 +126,13 @@ export async function runSlackIntegration(
     body.browser,
   )
   report.start('Waiting for the Slack integration to connect')
-  let integration: ProjectIntegration
+  let integration: Integration
   try {
     integration = await pollUntilDeadline({
       expiresAt: start.expires_at,
       expiredMessage: 'Slack authorization expired before the integration connected',
       async fetchOnce() {
-        const { data } = await sdk.getProjectIntegration({ client, path: setupPath })
+        const { data } = await sdk.getIntegration({ client, path: setupPath })
         return data.state === 'active' && data.last_oauth_flow_id === start.flow_id
           ? data
           : undefined

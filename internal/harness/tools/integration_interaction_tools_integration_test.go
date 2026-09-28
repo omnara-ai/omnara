@@ -98,7 +98,7 @@ func newInteractionToolFixture(
 	f.ModelCallContextID, f.ModelOutputEventID = modelCall.Context.ID, uuid.Nil
 	f.Target = launch.IntegrationTarget
 	for _, key := range keys {
-		integration, err := f.Store.Integrations().GetProjectIntegrationByName(ctx, toolsTestProjectID, key)
+		integration, err := f.Store.Integrations().GetIntegrationByName(ctx, toolsTestProjectID, key)
 		require.NoError(t, err)
 		target := seedToolContext(
 			t,
@@ -149,7 +149,7 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-selection", "chat", "overlap")
-	overlap, err := f.Store.Integrations().GetProjectIntegrationByName(ctx, toolsTestProjectID, "overlap")
+	overlap, err := f.Store.Integrations().GetIntegrationByName(ctx, toolsTestProjectID, "overlap")
 	require.NoError(t, err)
 	var targets int
 	require.NoError(t, f.Pool.QueryRow(ctx,
@@ -189,7 +189,7 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 		require.NotNil(t, choice["input_schema"])
 		require.Equal(
 			t,
-			map[string]any{"slack": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}},
+			map[string]any{"channel_id": "C123", "thread_ts": "111.222"},
 			choice["destination"],
 		)
 	}
@@ -216,10 +216,10 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	require.Equal(t, selected["args"], listed["args"])
 	require.Equal(
 		t,
-		map[string]any{"slack": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}},
+		map[string]any{"channel_id": "C123", "thread_ts": "111.222"},
 		listed["destination"],
 	)
-	publicIntegrationID, err := publicid.Encode(publicid.KindProjectIntegration, overlap.ID)
+	publicIntegrationID, err := publicid.Encode(publicid.KindIntegration, overlap.ID)
 	require.NoError(t, err)
 	require.Equal(t, publicIntegrationID, listed["integration_id"])
 	dispatchInteractionHandler(t, ctx, f, turn, calls[3])
@@ -230,14 +230,14 @@ func TestInteractionToolListSetClearAndReplay(t *testing.T) {
 	selection, err = f.Store.Execution().
 		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 }
 
 func TestInteractionToolListsOnlyAssignedHandlers(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newInteractionToolFixture(t, ctx, "interaction-list-assigned", "chat", "overlap")
-	overlap, err := f.Store.Integrations().GetProjectIntegrationByName(ctx, toolsTestProjectID, "overlap")
+	overlap, err := f.Store.Integrations().GetIntegrationByName(ctx, toolsTestProjectID, "overlap")
 	require.NoError(t, err)
 	deleted, err := f.Pool.Exec(ctx, `DELETE FROM integration_states
 		WHERE project_id=$1 AND integration_id=$2 AND kind='agent_conversation' AND key=$3`,
@@ -258,7 +258,7 @@ func TestInteractionToolListsOnlyAssignedHandlers(t *testing.T) {
 	require.Equal(t, "chat", handler["handler"])
 	require.Equal(
 		t,
-		map[string]any{"slack": map[string]any{"channel_id": "C123", "thread_ts": "111.222"}},
+		map[string]any{"channel_id": "C123", "thread_ts": "111.222"},
 		handler["destination"],
 	)
 	require.Empty(t, page["next_cursor"])
@@ -286,7 +286,7 @@ func TestInteractionToolRejectsUnavailableChoiceWithoutMutation(t *testing.T) {
 	selection, err := f.Store.Execution().
 		GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{}, selection)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection)
 	record, err := f.Store.Execution().
 		GetToolCall(ctx, toolsTestProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
 	require.NoError(t, err)
@@ -381,6 +381,9 @@ func prepareInteractionPromptFixture(t *testing.T, ctx context.Context, f integr
 	tx, err := f.Pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
+	address := integrationstore.ConversationAddress{Kind: f.Target.ScopeKind, Ref: f.Target.ScopeRef}
+	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, toolsTestProjectID, nil, f.Install.ID))
+	require.NoError(t, integrationstore.LockConversationTx(ctx, tx, toolsTestProjectID, f.Install.ID, address))
 	_, err = tx.Exec(
 		ctx,
 		"SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE",
@@ -388,9 +391,51 @@ func prepareInteractionPromptFixture(t *testing.T, ctx context.Context, f integr
 		f.Agent.ID,
 	)
 	require.NoError(t, err)
-	selected, err := f.Store.Execution().
-		SelectInteractionDestinationForOriginTx(ctx, tx, toolsTestProjectID, f.Agent.ID, f.Target.ID)
+	// The launch input is already admitted. Give this prompt fixture authority
+	// over that conversation before selecting its origin for the tool batch.
+	assigned, found, err := integrationstore.GetAgentIntegrationConversationTargetTx(
+		ctx, tx, toolsTestProjectID, f.Agent.ID, f.Install.ID,
+	)
 	require.NoError(t, err)
-	require.Equal(t, "chat", selected.HandlerKey)
+	if found {
+		require.Equal(t, f.Target.ID, assigned.ID)
+	} else {
+		require.NoError(t, f.Store.Integrations().AssignAgentIntegrationConversationTx(
+			ctx, tx, toolsTestProjectID, f.Agent.ID, f.Install.ID, address,
+		))
+	}
+	selected, err := executionstore.SelectInteractionDestinationForOriginTx(
+		ctx, tx, toolsTestProjectID, f.Agent.ID, f.Target.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{
+		AutoSelect: true, HandlerKey: "chat", IntegrationTargetID: f.Target.ID,
+	}, selected)
 	require.NoError(t, tx.Commit(ctx))
+}
+
+func TestInteractionToolReportsAndReplaysAutomaticMode(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newInteractionToolFixture(t, ctx, "interaction-auto-mode", "chat")
+	calls := []model.ToolCall{
+		{ID: "pin", Name: toolcatalog.ToolNameSetInteractionHandler, Input: json.RawMessage(`{"handler":"chat","args":{},"auto_select":false}`)},
+		{ID: "preserve", Name: toolcatalog.ToolNameSetInteractionHandler, Input: json.RawMessage(`{"handler":"chat","args":{}}`)},
+		{ID: "resume", Name: toolcatalog.ToolNameSetInteractionHandler, Input: json.RawMessage(`{"handler":null,"args":{},"auto_select":true}`)},
+	}
+	f.recordToolCalls(t, ctx, calls, f.Now)
+	turn := interactionToolTurn(f, toolpermission.ModeAlwaysAllow)
+	for i, call := range calls {
+		dispatchInteractionHandler(t, ctx, f, turn, call)
+		result := interactionToolResult(t, ctx, f, call)
+		require.Equal(t, i == 2, result["auto_select"])
+		stored, err := f.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
+		require.NoError(t, err)
+		require.Equal(t, i == 2, stored.AutoSelect)
+	}
+	replayed := dispatchInteractionHandler(t, ctx, f, turn, calls[0])
+	require.Equal(t, false, toolResultMapFromTestParts(t, replayed.ContentParts)["auto_select"])
+	stored, err := f.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, f.Agent.ID)
+	require.NoError(t, err)
+	require.True(t, stored.AutoSelect, "replay preserves the later selection")
 }
