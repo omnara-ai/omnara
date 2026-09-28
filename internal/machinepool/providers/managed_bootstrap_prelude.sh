@@ -3,7 +3,8 @@ r(){ (
 g=$1;shift
 d=$(mktemp -d);trap 'rm -rf "$d"' 0
 mkfifo "$d/p"
-(tee /proc/self/fd/2 <"$d/p"|tail -c 4097 >"$d/t")&c=$!
+e=/dev/fd/2;[ -e "$e" ]||e=/proc/self/fd/2
+(tee "$e" <"$d/p"|tail -c 4097 >"$d/t")&c=$!
 x=0;"$@" >"$d/p" 2>&1||x=$?
 [ "$x" -eq 0 ]&&exit
 (sleep 1;kill "$c" 2>/dev/null)&w=$!
