@@ -45,13 +45,12 @@ func TestCreateOSProviderConfigRejectsUnsafeBaseURLs(t *testing.T) {
 	}
 }
 
-func TestCreateOSProviderOptionsRequireShapeAndRegion(t *testing.T) {
+func TestCreateOSProviderOptionsRequireAShape(t *testing.T) {
 	if _, err := parseProviderOptions(nil); err == nil {
 		t.Fatal("parse provider options accepted a machine config with no provider options")
 	}
 	for name, options := range map[string]map[string]json.RawMessage{
 		"no shape":        testOptions(t, "", "devbox:1", "us", ""),
-		"no region":       testOptions(t, "s-1vcpu-1gb", "devbox:1", "", ""),
 		"invalid shape":   testOptions(t, "Not A Shape", "devbox:1", "us", ""),
 		"wildcard rootfs": testOptions(t, "s-1vcpu-1gb", "*", "us", ""),
 		"invalid region":  testOptions(t, "s-1vcpu-1gb", "devbox:1", "Not A Region", ""),
@@ -74,6 +73,12 @@ func TestCreateOSProviderOptionsTrimValues(t *testing.T) {
 
 func TestCreateOSProviderOptionsAllowAnEmptyRootFS(t *testing.T) {
 	if _, err := parseProviderOptions(testOptions(t, "s-1vcpu-1gb", "", "us", "")); err != nil {
+		t.Fatalf("parse provider options: %v", err)
+	}
+}
+
+func TestCreateOSProviderOptionsAllowAnEmptyRegion(t *testing.T) {
+	if _, err := parseProviderOptions(testOptions(t, "s-1vcpu-1gb", "devbox:1", "", "")); err != nil {
 		t.Fatalf("parse provider options: %v", err)
 	}
 }

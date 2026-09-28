@@ -28,9 +28,6 @@ func TestCreateOSProviderLiveSmoke(t *testing.T) {
 		rootfs = "devbox:1"
 	}
 	region := strings.TrimSpace(os.Getenv("OMNARA_CREATEOS_TEST_REGION"))
-	if region == "" {
-		region = "us"
-	}
 	config := mustRawJSON(t, map[string]any{
 		"allowed_shapes":   []string{"*"},
 		"allowed_rootfses": []string{"*"},

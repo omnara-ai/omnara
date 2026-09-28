@@ -70,7 +70,7 @@ type createSandboxRequest struct {
 	Shape  string            `json:"shape"`
 	RootFS string            `json:"rootfs,omitempty"`
 	Name   string            `json:"name"`
-	Region string            `json:"region"`
+	Region string            `json:"region,omitempty"`
 	Envs   map[string]string `json:"envs"`
 }
 

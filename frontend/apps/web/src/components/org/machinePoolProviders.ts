@@ -161,8 +161,8 @@ const createos: MachinePoolProviderDefinition = {
   location: {
     key: 'region',
     label: 'Region',
-    placeholder: 'us',
-    defaultValue: 'us',
+    placeholder: 'Leave empty to let CreateOS choose',
+    defaultValue: '',
     required: false,
   },
   credential: {
