@@ -220,3 +220,121 @@ func liveEnvOr(name, fallback string) string {
 	}
 	return fallback
 }
+
+// The id-recovery path against a real deployment. The unit test drives a fake,
+// so it proves the branch is taken; this proves Arker actually resolves an
+// allocation name through `GET /v1/vms/{id}` and hands back the id the
+// reconciler needs to terminate a VM nothing is pointing at any more.
+func TestArkerProviderLiveRecoversALostVMID(t *testing.T) {
+	apiKey := strings.TrimSpace(os.Getenv("ARKER_API_KEY"))
+	if apiKey == "" {
+		t.Skip("ARKER_API_KEY is required; this test creates real VMs")
+	}
+	daemonSettleWindow = defaultDaemonSettleWindow
+	daemonStartTimeout = defaultDaemonStartTimeout
+	t.Cleanup(func() {
+		daemonSettleWindow = liveTestSettleWindow
+		daemonStartTimeout = liveTestStartTimeout
+	})
+
+	source := liveEnvOr("OMNARA_ARKER_TEST_SOURCE", "ubuntu-base")
+	placementProvider := liveEnvOr("OMNARA_ARKER_TEST_PROVIDER", "aws")
+	placementRegion := liveEnvOr("OMNARA_ARKER_TEST_REGION", "us-west-2")
+	omnaraAPIURL := liveEnvOr("OMNARA_PUBLIC_API_URL", "https://api.omnara.com/v1")
+
+	config, err := json.Marshal(map[string]any{
+		"allowed_sources":   []string{source},
+		"allowed_providers": []string{placementProvider},
+		"allowed_regions":   []string{placementRegion},
+	})
+	if err != nil {
+		t.Fatalf("marshal provider config: %v", err)
+	}
+	machineProvider, err := (Definition{}).NewProvider(config, providers.RuntimeConfig{
+		OmnaraAPIURL:      omnaraAPIURL,
+		ProviderAuthToken: apiKey,
+	})
+	if err != nil {
+		t.Fatalf("new live arker provider: %v", err)
+	}
+	observer, ok := machineProvider.(providers.RuntimeProvider)
+	if !ok {
+		t.Fatal("arker provider does not implement RuntimeProvider")
+	}
+
+	provisioning := executionstore.MachineProvisioningConfig{
+		CPU:      ptr(2),
+		MemoryMB: ptr(2048),
+		ProviderOptions: map[string]json.RawMessage{
+			"source":         json.RawMessage(`"` + source + `"`),
+			"provider":       json.RawMessage(`"` + placementProvider + `"`),
+			"region":         json.RawMessage(`"` + placementRegion + `"`),
+			"startup_script": json.RawMessage(`""`),
+		},
+	}
+	installationID := uuid.New()
+	machineID := uuid.New()
+
+	var resourceID string
+	t.Cleanup(func() {
+		if resourceID == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := machineProvider.DeleteMachine(
+			ctx, installationID, machineID, provisioning, resourceID,
+		); err != nil {
+			t.Errorf("cleanup delete: %v", err)
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), machineProvider.ProvisioningTimeout())
+	result, err := machineProvider.ProvisionMachine(
+		ctx, installationID, machineID, provisioning, "live-recovery", nil,
+	)
+	cancel()
+	resourceID = result.ProviderResourceID
+	if resourceID == "" {
+		t.Fatalf("provision returned no resource id: %v", err)
+	}
+	t.Logf("provisioned %s", resourceID)
+
+	// The machine whose id was never persisted: everything the reconciler has,
+	// minus the id itself.
+	observation, err := observer.ObserveRuntimeState(context.Background(), providers.RuntimeTarget{
+		InstallationID:      installationID,
+		MachineID:           machineID,
+		ProviderResourceID:  "",
+		MachineProvisioning: provisioning,
+	})
+	if err != nil {
+		t.Fatalf("observe with no resource id: %v", err)
+	}
+	if observation.ProviderResourceID != resourceID {
+		t.Fatalf(
+			"recovered id = %q, want %q -- without it cleanup has nothing to delete",
+			observation.ProviderResourceID,
+			resourceID,
+		)
+	}
+	if observation.State != providers.RuntimeStateRunning {
+		t.Fatalf("state = %q, want running", observation.State)
+	}
+	t.Logf("arker resolved the allocation name and returned %s", observation.ProviderResourceID)
+
+	// And the negative: a machine that never existed must not look alive.
+	ghost, err := observer.ObserveRuntimeState(context.Background(), providers.RuntimeTarget{
+		InstallationID:      uuid.New(),
+		MachineID:           uuid.New(),
+		ProviderResourceID:  "",
+		MachineProvisioning: provisioning,
+	})
+	if err != nil {
+		t.Fatalf("observe an unknown machine: %v", err)
+	}
+	if ghost.State != providers.RuntimeStateTerminated {
+		t.Fatalf("unknown machine state = %q, want terminated", ghost.State)
+	}
+	t.Log("a machine that never existed reports terminated, not running")
+}
