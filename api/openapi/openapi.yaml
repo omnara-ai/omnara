@@ -6047,7 +6047,7 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machine-providers/createos/shapes:
+  /orgs/{orgID}/machine-providers/createos/machine-sizes:
     parameters:
       - name: orgID
         in: path
@@ -6056,7 +6056,7 @@ paths:
           type: string
           pattern: '^org_[a-z2-7]{26}$'
     get:
-      operationId: listCreateOSShapes
+      operationId: listCreateOSMachineSizes
       tags: [Machine Pools]
       summary: List CreateOS sandbox shapes
       description: Uses an organization-owned credential secret to fetch the live CreateOS shape catalog.
@@ -6075,7 +6075,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListCreateOSShapesResponse'
+                $ref: '#/components/schemas/ListCreateOSMachineSizesResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -11921,7 +11921,7 @@ components:
                   - required: [max_total_cpu]
                   - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
-    CreateOSShape:
+    CreateOSMachineSize:
       type: object
       additionalProperties: false
       required: [id, vcpu, memory_mb]
@@ -11937,7 +11937,7 @@ components:
           type: integer
           format: int32
           minimum: 1
-    ListCreateOSShapesResponse:
+    ListCreateOSMachineSizesResponse:
       type: object
       additionalProperties: false
       required: [data]
@@ -11945,7 +11945,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/CreateOSShape'
+            $ref: '#/components/schemas/CreateOSMachineSize'
     CreateOSRootFS:
       type: object
       additionalProperties: false

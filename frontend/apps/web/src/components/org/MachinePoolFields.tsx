@@ -2,14 +2,14 @@ import { StartupScriptField } from '@/components/machines/StartupScriptField'
 import { CredentialSecretField } from '@/components/secrets/CredentialSecretField'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 
+import { CreateOSMachineSizeField } from './CreateOSMachineSizeField'
+import { CreateOSRootFSField } from './CreateOSRootFSField'
 import {
   machinePoolFormAfterProviderChange,
   type MachinePoolFormMode,
   type MachinePoolFormValues,
   machinePoolProviderLabel,
 } from './MachinePoolDialogState'
-import { CreateOSRootFSField } from './CreateOSRootFSField'
-import { CreateOSShapeField } from './CreateOSShapeField'
 import { MachinePoolInputField } from './MachinePoolInputField'
 import { isMachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 import { MachinePoolProviderSelect } from './MachinePoolProviderSelect'
@@ -88,15 +88,15 @@ export function MachinePoolFields({
           />
           {values.provider === 'createos' ? (
             <>
-              <CreateOSShapeField
+              <CreateOSMachineSizeField
                 orgId={orgId}
                 enabled={enabled}
                 secretId={values.secretId}
                 value={values.image}
-                onSelect={(shape) => {
-                  setValue('image', shape.id)
-                  setValue('cpu', String(shape.vcpu))
-                  setValue('memoryGb', String(shape.memory_mb / 1024))
+                onSelect={(machineSize) => {
+                  setValue('image', machineSize.id)
+                  setValue('cpu', String(machineSize.vcpu))
+                  setValue('memoryGb', String(machineSize.memory_mb / 1024))
                 }}
               />
               <CreateOSRootFSField

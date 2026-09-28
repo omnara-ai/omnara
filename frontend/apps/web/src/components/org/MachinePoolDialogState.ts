@@ -28,8 +28,10 @@ import {
 import { providerOptionStrings } from '@/lib/provider-options'
 import { resourceNameValid } from '@/lib/resource-name'
 
+import { createosRootFS, machineProviderOptions, rootfsOption } from './machinePoolProviderOptions'
 import {
   isMachinePoolProvider,
+  machinePoolFormResourceMode,
   type MachinePoolProvider,
   machinePoolProviderDefinitions,
 } from './machinePoolProviders'
@@ -79,7 +81,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   provider: 'blaxel',
   providerScope: '',
   image: '',
-  rootfs: 'devbox:1',
+  rootfs: createosRootFS,
   location: machinePoolProviderDefinitions.blaxel.location.defaultValue,
   startupScript: '',
   cwd: '',
@@ -148,7 +150,7 @@ export function machinePoolFormAfterProviderChange(
     provider,
     providerScope: '',
     image: '',
-    rootfs: 'devbox:1',
+    rootfs: createosRootFS,
     location: nextDefinition.location.defaultValue,
     cpu:
       currentDefinition.resources.cpu === nextDefinition.resources.cpu
@@ -176,16 +178,14 @@ export function machinePoolFormValid(
   const clusterEdit = mode === 'cluster-edit'
   const maxMachinesValid = clusterEdit || nonNegativeInt32(values.maxMachines)
   const cpuValid =
-    !(provider.resources.showSizeControls ?? true) ||
-    provider.resources.cpu === 'unsupported' ||
+    machinePoolFormResourceMode(values.provider, 'cpu') === 'unsupported' ||
     (positiveInt32(values.cpu) &&
       (clusterEdit ||
         (maxMachinesValid &&
           (values.maxTotalCpu.trim() !== '' ||
             aggregateFitsInt32(values.cpu, values.maxMachines)))))
   const memoryValid =
-    !(provider.resources.showSizeControls ?? true) ||
-    provider.resources.memoryMb === 'unsupported' ||
+    machinePoolFormResourceMode(values.provider, 'memoryMb') === 'unsupported' ||
     (memoryGbDraftValid(values.memoryGb) &&
       (clusterEdit ||
         (maxMachinesValid &&
@@ -273,29 +273,12 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
         max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
       }
     case 'daytona':
-      return {
-        ...common,
-        provider: 'daytona',
-        default_machine_provider_options: {
-          snapshot: values.image.trim(),
-          target: values.location.trim(),
-          ...startupScript,
-        },
-        max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
-        max_total_memory_mb: optionalMemoryMb(values.maxTotalMemoryGb) ?? memoryMb * maxMachines,
-        min_machine_cpu: optionalInt(values.minMachineCpu),
-        min_machine_memory_mb: optionalMemoryMb(values.minMachineMemoryGb),
-        max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
-        max_machine_memory_mb: optionalMemoryMb(values.maxMachineMemoryGb) ?? memoryMb,
-      }
     case 'createos':
       return {
         ...common,
-        provider: 'createos',
+        provider: values.provider,
         default_machine_provider_options: {
-          shape: values.image.trim(),
-          rootfs: values.rootfs.trim(),
-          region: values.location.trim(),
+          ...machineProviderOptions(values),
           ...startupScript,
         },
         max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
@@ -330,7 +313,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
         ? providerOptionStrings(pool.provider_config)[definition.scope.key]
         : undefined) ?? '',
     image: options[definition.resource.key] ?? '',
-    rootfs: options.rootfs ?? 'devbox:1',
+    rootfs: options.rootfs ?? createosRootFS,
     location: options[definition.location.key] ?? '',
     startupScript: options.startup_script ?? '',
     cwd: pool.default_cwd,
@@ -378,9 +361,7 @@ export function machinePoolUpdateRequest(
   if (values.location.trim() !== '') {
     defaultMachineProviderOptions[definition.location.key] = values.location.trim()
   }
-  if (values.provider === 'createos' && values.rootfs.trim() !== '') {
-    defaultMachineProviderOptions.rootfs = values.rootfs.trim()
-  }
+  Object.assign(defaultMachineProviderOptions, rootfsOption(values))
   if (values.startupScript.trim() !== '') {
     defaultMachineProviderOptions.startup_script = values.startupScript
   }
@@ -449,24 +430,6 @@ export function machinePoolUpdateRequest(
           ) ?? memoryMb,
       }
     case 'daytona':
-      return {
-        ...common,
-        max_total_cpu: optionalInt(values.maxTotalCpu) ?? cpu * maxMachines,
-        max_total_memory_mb:
-          optionalMemoryMbPreservingOriginal(values.maxTotalMemoryGb, pool.max_total_memory_mb) ??
-          memoryMb * maxMachines,
-        min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
-        min_machine_memory_mb: optionalMemoryMbOrNull(
-          values.minMachineMemoryGb,
-          pool.min_machine_memory_mb,
-        ),
-        max_machine_cpu: optionalInt(values.maxMachineCpu) ?? cpu,
-        max_machine_memory_mb:
-          optionalMemoryMbPreservingOriginal(
-            values.maxMachineMemoryGb,
-            pool.max_machine_memory_mb,
-          ) ?? memoryMb,
-      }
     case 'createos':
       return {
         ...common,
@@ -535,20 +498,10 @@ function clusterMachinePoolUpdateRequest(
           ) ?? memoryMb,
       }
     case 'daytona':
-      return {
-        ...common,
-        min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
-        max_machine_cpu: cpu,
-        max_machine_memory_mb: memoryMb,
-      }
     case 'createos':
       return {
         ...common,
         min_machine_cpu: optionalIntOrNull(values.minMachineCpu),
-        min_machine_memory_mb: optionalMemoryMbOrNull(
-          values.minMachineMemoryGb,
-          pool.min_machine_memory_mb,
-        ),
         max_machine_cpu: cpu,
         max_machine_memory_mb: memoryMb,
       }

@@ -1,8 +1,8 @@
 import { type ListMachinePoolsData, sdk, type UpdateMachinePoolRequest } from '@omnara/sdk'
 import {
   getMachinePoolOptions,
+  listCreateOsMachineSizesOptions,
   listCreateOsRootFsOptions,
-  listCreateOsShapesOptions,
   listMachinePoolsInfiniteOptions,
   listMachinePoolsQueryKey,
 } from '@omnara/sdk/tanstack'
@@ -22,14 +22,14 @@ export type MachinePoolListFilters = ListFilters<ListMachinePoolsData>
 export type MachinePoolListSort = ListSort<ListMachinePoolsData>
 export type MachinePoolListOptions = PaginatedListOptions<ListMachinePoolsData>
 
-export function useCreateOSShapes(
+export function useCreateOSMachineSizes(
   orgID: string,
   providerAuthSecretID: string,
   options?: { enabled?: boolean },
 ) {
   const client = useOmnaraClient()
   return useQuery({
-    ...listCreateOsShapesOptions({
+    ...listCreateOsMachineSizesOptions({
       path: { orgID },
       query: { provider_auth_secret_id: providerAuthSecretID },
       client,

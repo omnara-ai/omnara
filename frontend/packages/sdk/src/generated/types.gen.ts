@@ -2776,14 +2776,14 @@ export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
     max_machine_memory_mb: number;
 });
 
-export type CreateOsShape = {
+export type CreateOsMachineSize = {
     id: string;
     vcpu: number;
     memory_mb: number;
 };
 
-export type ListCreateOsShapesResponse = {
-    data: Array<CreateOsShape>;
+export type ListCreateOsMachineSizesResponse = {
+    data: Array<CreateOsMachineSize>;
 };
 
 export type CreateOsRootFs = {
@@ -13197,7 +13197,7 @@ export type CreateMachinePoolResponses = {
 
 export type CreateMachinePoolResponse = CreateMachinePoolResponses[keyof CreateMachinePoolResponses];
 
-export type ListCreateOsShapesData = {
+export type ListCreateOsMachineSizesData = {
     body?: never;
     path: {
         orgID: string;
@@ -13205,10 +13205,10 @@ export type ListCreateOsShapesData = {
     query: {
         provider_auth_secret_id: SecretId;
     };
-    url: '/orgs/{orgID}/machine-providers/createos/shapes';
+    url: '/orgs/{orgID}/machine-providers/createos/machine-sizes';
 };
 
-export type ListCreateOsShapesErrors = {
+export type ListCreateOsMachineSizesErrors = {
     /**
      * The request was invalid.
      */
@@ -13251,16 +13251,16 @@ export type ListCreateOsShapesErrors = {
     };
 };
 
-export type ListCreateOsShapesError = ListCreateOsShapesErrors[keyof ListCreateOsShapesErrors];
+export type ListCreateOsMachineSizesError = ListCreateOsMachineSizesErrors[keyof ListCreateOsMachineSizesErrors];
 
-export type ListCreateOsShapesResponses = {
+export type ListCreateOsMachineSizesResponses = {
     /**
      * Available CreateOS shapes.
      */
-    200: ListCreateOsShapesResponse;
+    200: ListCreateOsMachineSizesResponse;
 };
 
-export type ListCreateOsShapesResponse2 = ListCreateOsShapesResponses[keyof ListCreateOsShapesResponses];
+export type ListCreateOsMachineSizesResponse2 = ListCreateOsMachineSizesResponses[keyof ListCreateOsMachineSizesResponses];
 
 export type ListCreateOsRootFsData = {
     body?: never;

@@ -179,10 +179,23 @@ const createos: MachinePoolProviderDefinition = {
   },
 }
 
-export const machinePoolProviderDefinitions = { unikraft, blaxel, daytona, modal, createos } satisfies Record<
-  MachinePoolProvider,
-  MachinePoolProviderDefinition
->
+export const machinePoolProviderDefinitions = {
+  unikraft,
+  blaxel,
+  daytona,
+  modal,
+  createos,
+} satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
+
+/** The resource mode the form honours; a provider that hides its size controls resolves them itself. */
+export function machinePoolFormResourceMode(
+  provider: MachinePoolProvider,
+  resource: 'cpu' | 'memoryMb',
+): MachinePoolResourceMode {
+  const definition = machinePoolProviderDefinitions[provider]
+  if (definition.resources.showSizeControls === false) return 'unsupported'
+  return definition.resources[resource]
+}
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)
