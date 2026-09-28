@@ -19,7 +19,6 @@ type apiClient interface {
 	ListSandboxes(context.Context, int, int) ([]sandbox, int, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	DeleteSandbox(context.Context, string) error
-	ResumeSandbox(context.Context, string) error
 	ListProcesses(context.Context, string) ([]process, error)
 	CreateProcess(context.Context, string, createProcessRequest) (process, error)
 }
@@ -156,10 +155,6 @@ func (c *restClient) DeleteSandbox(ctx context.Context, id string) error {
 	return err
 }
 
-func (c *restClient) ResumeSandbox(ctx context.Context, id string) error {
-	return c.do(ctx, http.MethodPost, "/v1/sandboxes/"+url.PathEscape(id)+"/resume", nil, nil)
-}
-
 func (c *restClient) ListProcesses(ctx context.Context, id string) ([]process, error) {
 	var out struct {
 		Processes []process `json:"processes"`
@@ -175,7 +170,15 @@ func (c *restClient) CreateProcess(ctx context.Context, id string, input createP
 }
 
 func (c *restClient) do(ctx context.Context, method, path string, body, out any) error {
-	response, err := providers.DoHTTPResponse(ctx, c.httpClient, providers.CreateOS, method, c.baseURL+path, map[string]string{"X-Api-Key": c.token}, body)
+	response, err := providers.DoHTTPResponse(
+		ctx,
+		c.httpClient,
+		providers.CreateOS,
+		method,
+		c.baseURL+path,
+		map[string]string{"X-Api-Key": c.token},
+		body,
+	)
 	if err != nil {
 		return err
 	}

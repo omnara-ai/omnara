@@ -17,10 +17,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/management"
 )
 
-func (s strictOpenAPIServer) ListCreateOSShapes(
+func (s strictOpenAPIServer) ListCreateOSMachineSizes(
 	ctx context.Context,
-	request openapi.ListCreateOSShapesRequestObject,
-) (openapi.ListCreateOSShapesResponseObject, error) {
+	request openapi.ListCreateOSMachineSizesRequestObject,
+) (openapi.ListCreateOSMachineSizesResponseObject, error) {
 	org, err := orgScopeFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -33,19 +33,19 @@ func (s strictOpenAPIServer) ListCreateOSShapes(
 	if err != nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "could not load CreateOS shapes")
 	}
-	data := make([]openapi.CreateOSShape, 0, len(shapes))
+	data := make([]openapi.CreateOSMachineSize, 0, len(shapes))
 	for _, shape := range shapes {
 		if shape.ID == "" || shape.VCPU <= 0 || shape.VCPU > math.MaxInt32 ||
 			shape.MemMiB <= 0 || shape.MemMiB > math.MaxInt32 {
 			return nil, apierror.FromCode(openapi.ErrorCodeUpstreamError, "CreateOS returned an invalid shape")
 		}
-		data = append(data, openapi.CreateOSShape{
+		data = append(data, openapi.CreateOSMachineSize{
 			Id:       shape.ID,
 			Vcpu:     int32(shape.VCPU),
 			MemoryMb: int32(shape.MemMiB),
 		})
 	}
-	return openapi.ListCreateOSShapes200JSONResponse{
+	return openapi.ListCreateOSMachineSizes200JSONResponse{
 		Data: data,
 	}, nil
 }
@@ -93,7 +93,7 @@ func (s strictOpenAPIServer) ListCreateOSRootFS(
 
 func (s strictOpenAPIServer) createOSCatalogCredential(
 	ctx context.Context,
-	orgID storage.ID,
+	orgID uuid.UUID,
 	rawSecretID string,
 ) (string, error) {
 	principal, ok := principalFromContext(ctx)
