@@ -260,7 +260,7 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	botToken := attachKernelSlackHandler(
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
@@ -294,11 +294,10 @@ model:
 	); err != nil {
 		t.Fatalf("revoke model grant: %v", err)
 	}
-	turn := fixture.admitContentInputTurn(
+	turn := fixture.admitSlackContentInputTurn(
 		t,
 		ctx,
-		launch.Agent.ID,
-		kernelTestUserID,
+		handler,
 		"hello",
 		now.Add(3*time.Millisecond),
 	)
@@ -365,7 +364,7 @@ model:
 	if postedPath != "/api/chat.postMessage" {
 		t.Fatalf("Slack runtime message path = %q", postedPath)
 	}
-	if postedAuthorization != "Bearer "+botToken {
+	if postedAuthorization != "Bearer "+handler.botToken {
 		t.Fatalf("Slack runtime message authorization = %q", postedAuthorization)
 	}
 	if postedMessage.Channel != "CUNAVAILABLEGRANT" ||
@@ -435,13 +434,19 @@ func kernelSlackRuntimeHTTPClient(
 	})}
 }
 
+type kernelSlackHandler struct {
+	botToken    string
+	integration integrationstore.IntegrationRecord
+	target      integrationstore.IntegrationTargetRecord
+}
+
 func attachKernelSlackHandler(
 	t *testing.T,
 	ctx context.Context,
 	fixture kernelFixture,
 	agentID uuid.UUID,
 	identifier, providerRef string,
-) string {
+) kernelSlackHandler {
 	t.Helper()
 	botToken := "xoxb-" + identifier
 	secret, _, err := fixture.Store.Secrets().CreateSecret(
@@ -560,15 +565,79 @@ func attachKernelSlackHandler(
 		fixture.Store.Integrations().
 			AssignAgentIntegrationConversationTx(ctx, tx, kernelTestProjectID, agentID, install.ID, address),
 	)
-	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
-		ctx, tx, kernelTestProjectID, agentID, target.ID,
+	require.NoError(t, tx.Commit(ctx))
+	return kernelSlackHandler{botToken: botToken, integration: install, target: target}
+}
+
+func (f kernelFixture) admitSlackContentInputTurn(
+	t *testing.T,
+	ctx context.Context,
+	handler kernelSlackHandler,
+	text string,
+	now time.Time,
+) ModelWorkExecution {
+	t.Helper()
+	agentID := handler.target.AgentID
+	inbox := f.Store.Integrations()
+	scope, err := integrationdefinition.ParseConversation(
+		handler.integration.Provider, handler.target.ScopeKind, handler.target.ScopeRef,
 	)
 	require.NoError(t, err)
-	require.Equal(t, target.ID, selection.IntegrationTargetID)
-	require.Equal(t, handlerKey, selection.HandlerKey)
-
-	require.NoError(t, tx.Commit(ctx))
-	return botToken
+	conversation, err := scope.ConversationJSON()
+	require.NoError(t, err)
+	_, err = inbox.CreateIntegrationSubscription(ctx, integrationstore.CreateIntegrationSubscriptionInput{
+		OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID, AgentID: agentID,
+		IntegrationID: handler.integration.ID, Conversation: conversation,
+	})
+	require.NoError(t, err)
+	actor, err := executionstore.IntegrationActorParams(handler.integration, "U_KERNEL_TEST", nil)
+	require.NoError(t, err)
+	event := integrationruntime.IntegrationEvent{
+		Event:         integrationdefinition.Event{Kind: "message", Scope: scope},
+		SemanticKey:   "kernel-slack-input-" + agentID.String(),
+		ContentBlocks: mustKernelJSON([]map[string]string{{"type": "text", "text": text}}),
+		Actor:         actor,
+	}
+	_, _, err = inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: kernelTestProjectID, IntegrationID: handler.integration.ID,
+		ReceiptKey: event.SemanticKey, Payload: event.ContentBlocks,
+	})
+	require.NoError(t, err)
+	receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: kernelTestProjectID, IntegrationID: handler.integration.ID, LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	router := integrationruntime.NewIntegrationRouter(f.Store.Execution(), inbox)
+	plan, err := router.Freeze(ctx, receipt.Lease(), &event)
+	require.NoError(t, err)
+	require.Len(t, plan.Recipients, 1)
+	results, err := router.Admit(ctx, receipt.Lease(), nil)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Input)
+	require.True(t, results[0].Input.Created)
+	require.Equal(t, handler.target.ID, results[0].Input.AgentInput.IntegrationTargetID)
+	selection, err := f.Store.Execution().GetInteractionSelection(ctx, kernelTestProjectID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
+		"queued Slack content must not select a destination before turn admission")
+	claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(now.Add(2*time.Millisecond)))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Equal(t, agentID, claim.AgentID)
+	require.Equal(t, []uuid.UUID{results[0].Input.AgentInput.ID}, claim.Model.InputIDs)
+	selection, err = f.Store.Execution().GetInteractionSelection(ctx, kernelTestProjectID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{
+		AutoSelect: true, IntegrationTargetID: handler.target.ID, HandlerKey: handler.integration.Name,
+	}, selection, "admitted Slack origin selects the configured handler")
+	destination, err := f.Store.Execution().GetSelectedInteractionDestination(ctx, kernelTestProjectID, agentID)
+	require.NoError(t, err)
+	require.NotNil(t, destination)
+	require.Equal(t, handler.target.ID, destination.IntegrationTargetID)
+	return modelWorkExecutionFromClaimForKernelTest(claim, now.Add(3*time.Millisecond))
 }
 
 func TestAgentExecutorSettlesTurnWhenConfiguredModelWasDeleted(t *testing.T) {

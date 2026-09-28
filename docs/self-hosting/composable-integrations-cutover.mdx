@@ -88,7 +88,8 @@ for the package in their Node runtime.
 New configs select `int__<name>__<operation>` under `tools`, retaining enabled state,
 deferred loading and permissions. `interaction_handlers` maps integration names to `{}`.
 Catalog tools and handlers expose static `input_schema`. Captured interaction
-destinations contain the captured integration identity, target and canonical address. See the
+destinations contain the captured integration identity, target and provider fields
+in `conversation`, using the same format as subscriptions. See the
 [OpenAPI contract](/api-reference/openapi.yaml).
 
 Hosted and scheduled launches establish one immutable sending conversation per

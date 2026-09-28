@@ -195,7 +195,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	fixture.provisionClusterModel(t, ctx, "managed-retry-prod", "managed-retry-model")
-	agentID, userID := fixture.createNamedAgentWithModelOptions(
+	agentID, _ := fixture.createNamedAgentWithModelOptions(
 		t,
 		ctx,
 		"Managed Retry Admission",
@@ -203,7 +203,7 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
-	attachKernelSlackHandler(
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
@@ -211,11 +211,10 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 		"managed-retry",
 		"CMANAGEDRETRY:1.0",
 	)
-	work := fixture.admitContentInputTurn(
+	work := fixture.admitSlackContentInputTurn(
 		t,
 		ctx,
-		agentID,
-		userID,
+		handler,
 		"continue an admitted model call",
 		now.Add(time.Millisecond),
 	)

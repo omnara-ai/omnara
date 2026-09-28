@@ -305,7 +305,8 @@ created, so changing the selection does not move an existing prompt.
 
 The dashboard remains available if provider presentation fails. Removing a handler,
 disconnecting its integration, or losing its assigned conversation invalidates external
-callbacks. Captured interaction responses identify the integration, target and address.
+callbacks. Captured interaction responses identify the integration and target, with
+the provider fields in `conversation`, using the same format as subscriptions.
 See [interactions](/events/interactions) for answering through the API.
 
 For an existing Slack deployment, use the coordinated

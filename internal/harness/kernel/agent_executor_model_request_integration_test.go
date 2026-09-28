@@ -29,7 +29,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 	fixture.provisionClusterModel(t, ctx, "managed-prod", "managed-model")
 	fixture.setManagedWorkAdmission(t, ctx, false)
 
-	agentID, userID := fixture.createNamedAgentWithModelOptions(
+	agentID, _ := fixture.createNamedAgentWithModelOptions(
 		t,
 		ctx,
 		"Managed Admission Denied",
@@ -37,7 +37,7 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		now,
 		kernelConfiguredModelOptions{},
 	)
-	attachKernelSlackHandler(
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
@@ -45,11 +45,10 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 		"managed-admission",
 		"CMANAGEDADMISSION:1.0",
 	)
-	turn := fixture.admitContentInputTurn(
+	turn := fixture.admitSlackContentInputTurn(
 		t,
 		ctx,
-		agentID,
-		userID,
+		handler,
 		"exercise managed model admission",
 		now.Add(time.Millisecond),
 	)
@@ -751,8 +750,8 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
-	agentID, userID := fixture.createAgent(t, ctx, "openai/serialized-overflow-model", now)
-	attachKernelSlackHandler(
+	agentID, _ := fixture.createAgent(t, ctx, "openai/serialized-overflow-model", now)
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
@@ -760,7 +759,7 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 		"irreducible-overflow",
 		"CIRREDUCIBLEOVERFLOW:1.0",
 	)
-	turn := fixture.admitContentInputTurn(t, ctx, agentID, userID, "hello", now.Add(time.Millisecond))
+	turn := fixture.admitSlackContentInputTurn(t, ctx, handler, "hello", now.Add(time.Millisecond))
 	modelClient := &sequenceKernelModel{
 		providerModelSlug:          "serialized-overflow-model",
 		preparedInputTokenEstimate: 200_000,
