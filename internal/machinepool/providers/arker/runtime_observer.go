@@ -54,17 +54,20 @@ func (p *provider) ObserveRuntimeState(
 	target providers.RuntimeTarget,
 ) (providers.RuntimeObservation, error) {
 	observation := target.UnknownObservation()
-	// An empty id is not "not provisioned yet" here: both candidate queries
-	// inner-join `daemon_runtime_connection_facts` on the machine's
-	// `current_daemon_runtime_id`, so a machine only becomes a target once its
-	// omnarad has connected -- which it cannot do without a VM. An id missing at
-	// this point was LOST (a fork response that never came back, a failed
-	// resource write), and the VM is live and billable.
+	// Bail on an empty id, matching every other provider. InspectMachine can
+	// resolve the allocation name when the id is missing -- and so can blaxel's,
+	// modal's and unikraft's -- but no observer uses that, because the manager
+	// discards it: `runtimeObservationMatches` requires the observation's id to
+	// equal the candidate's, and the candidate's is exactly what is missing here.
+	// A recovered id therefore cannot survive, so looking it up buys an API call
+	// and nothing else.
 	//
-	// So fall through to InspectMachine, which resolves the allocation name when
-	// the id is empty. Recovering the id here is what lets reconciliation
-	// terminate that VM instead of leaving it running forever with nothing
-	// pointing at it.
+	// The gap is real: a VM whose id was never persisted stays live and billable
+	// with nothing pointing at it. Closing it belongs in the manager, where it
+	// would fix this for all five providers at once rather than one.
+	if target.ProviderResourceID == "" {
+		return observation, nil
+	}
 	resourceID, found, err := p.InspectMachine(
 		ctx,
 		target.InstallationID,

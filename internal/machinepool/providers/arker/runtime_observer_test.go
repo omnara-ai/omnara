@@ -117,12 +117,12 @@ func TestArkerRuntimeObserverObservesEveryTarget(t *testing.T) {
 	}
 }
 
-// A target only reaches the observer once its daemon has connected -- both
-// candidate queries inner-join `daemon_runtime_connection_facts` on the
-// machine's `current_daemon_runtime_id` -- so an id missing HERE was lost, not
-// never-assigned. Recovering it by allocation name is what lets reconciliation
-// terminate a VM that is live and billable with nothing pointing at it.
-func TestArkerRuntimeObserverRecoversATargetWithNoResourceID(t *testing.T) {
+// Matches every other provider: an empty id yields `unknown` rather than a name
+// lookup. The lookup exists in InspectMachine and works -- see the live test --
+// but the manager discards an observation whose id differs from the candidate's,
+// and the candidate's is exactly what is missing, so recovering here cannot
+// change the outcome.
+func TestArkerRuntimeObserverIgnoresATargetWithNoResourceID(t *testing.T) {
 	fake := &fakeArker{}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
@@ -132,10 +132,7 @@ func TestArkerRuntimeObserverRecoversATargetWithNoResourceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observe: %v", err)
 	}
-	if observation.State != providers.RuntimeStateRunning {
-		t.Fatalf("state = %q, want running", observation.State)
-	}
-	if observation.ProviderResourceID == "" {
-		t.Fatal("observation did not recover the vm id, so cleanup still has nothing to delete")
+	if observation.State != providers.RuntimeStateUnknown {
+		t.Fatalf("state = %q, want unknown", observation.State)
 	}
 }
