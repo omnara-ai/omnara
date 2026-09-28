@@ -44,7 +44,7 @@ func TestDaemonSocketExitAppearsInRequestLog(t *testing.T) {
 				ctx, cancel := context.WithCancelCause(r.Context())
 				defer cancel(nil)
 				traceCtx := recorder.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "-- name: InFlightQuery :one"})
-				cancel(socket.cancellationCause(socket.readLoop(ctx)))
+				socket.readLoop(ctx, cancel, nil)
 				recorder.TraceQueryEnd(traceCtx, nil, pgx.TraceQueryEndData{Err: ctx.Err()})
 			}))
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

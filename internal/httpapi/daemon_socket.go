@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"net"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -179,11 +180,11 @@ func (s *daemonSocket) run(ctx context.Context) {
 	go func() {
 		defer close(writerDone)
 		err := s.writeLoop(runCtx)
-		if errors.Is(err, net.ErrClosed) {
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
 			select {
-			case <-runCtx.Done():
-				return
 			case <-s.done:
+			default:
+				return
 			}
 		}
 		cancel(s.cancellationCause(err))
@@ -204,7 +205,7 @@ func (s *daemonSocket) run(ctx context.Context) {
 			}
 		}
 	}()
-	cancel(s.cancellationCause(s.readLoop(runCtx)))
+	s.readLoop(runCtx, cancel, writerDone)
 	s.close(websocket.StatusNormalClosure, "closing")
 	s.workMu.Lock()
 	drainDone := s.drainDone
@@ -257,13 +258,32 @@ func (s *daemonSocket) writeLoop(ctx context.Context) error {
 	}
 }
 
-func (s *daemonSocket) readLoop(ctx context.Context) error {
-	for {
-		readCtx, cancel := context.WithTimeout(ctx, 70*time.Second)
-		msg, err := s.wire.Read(readCtx)
-		cancel()
-		if err != nil {
-			return err
+func (s *daemonSocket) readLoop(ctx context.Context, cancel context.CancelCauseFunc, writerDone <-chan struct{}) {
+	messages := make(chan daemonprotocol.Message)
+	go func() {
+		defer close(messages)
+		for {
+			readCtx, readCancel := context.WithTimeout(ctx, 70*time.Second)
+			msg, err := s.wire.Read(readCtx)
+			readCancel()
+			if err != nil {
+				cancel(s.cancellationCause(err))
+				return
+			}
+			select {
+			case messages <- msg:
+			case <-writerDone:
+			case <-s.done:
+				cancel(s.cancellationCause(nil))
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	for msg := range messages {
+		if ctx.Err() != nil {
+			continue
 		}
 		if err := s.handleMessage(ctx, msg); err != nil {
 			s.enqueueOrClose(errorResponseForMessage(msg, err))

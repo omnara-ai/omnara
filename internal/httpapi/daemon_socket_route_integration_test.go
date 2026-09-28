@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1662,6 +1664,44 @@ func (c *socketCloseBarrierConn) Close() error {
 	return err
 }
 
+type socketWriteErrorListener struct {
+	net.Listener
+	err              error
+	armed            atomic.Bool
+	blockRead        bool
+	started, release chan struct{}
+	once             sync.Once
+}
+
+func (l *socketWriteErrorListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &socketWriteErrorConn{Conn: conn, listener: l}, nil
+}
+
+type socketWriteErrorConn struct {
+	net.Conn
+	listener *socketWriteErrorListener
+}
+
+func (c *socketWriteErrorConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 && c.listener.armed.Load() && c.listener.blockRead {
+		c.listener.once.Do(func() { close(c.listener.started) })
+		<-c.listener.release
+	}
+	return n, err
+}
+
+func (c *socketWriteErrorConn) Write(p []byte) (int, error) {
+	if c.listener.armed.Load() {
+		return 0, &net.OpError{Op: "write", Net: "tcp", Err: c.listener.err}
+	}
+	return c.Conn.Write(p)
+}
+
 type socketBlockingReplyPublisher struct {
 	started chan context.Context
 	release chan struct{}
@@ -1678,9 +1718,11 @@ func (p socketBlockingReplyPublisher) PublishChannel(ctx context.Context, _ stri
 
 func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 	for _, tt := range []struct {
-		name, source string
-		localClose   websocket.StatusCode
-		peerClose    websocket.StatusCode
+		name, source  string
+		localClose    websocket.StatusCode
+		peerClose     websocket.StatusCode
+		writeErr      error
+		queuedMessage bool
 	}{
 		{name: "transport failure", source: "socket_failure"},
 		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
@@ -1688,6 +1730,22 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 		{name: "normal peer close", peerClose: websocket.StatusNormalClosure, source: "socket_closed"},
 		{name: "peer going away", peerClose: websocket.StatusGoingAway, source: "socket_closed"},
 		{name: "peer policy failure", peerClose: websocket.StatusPolicyViolation, source: "socket_failure"},
+		{
+			name: "broken pipe before peer close", source: "socket_closed",
+			peerClose: websocket.StatusNormalClosure, writeErr: syscall.EPIPE,
+		},
+		{
+			name: "reset before peer close", source: "socket_closed",
+			peerClose: websocket.StatusNormalClosure, writeErr: syscall.ECONNRESET,
+		},
+		{
+			name: "peer close behind queued message", source: "socket_closed",
+			peerClose: websocket.StatusNormalClosure, writeErr: syscall.EPIPE, queuedMessage: true,
+		},
+		{
+			name: "transport failure behind queued message", source: "socket_failure",
+			writeErr: syscall.EPIPE, queuedMessage: true,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tracer := &socketDrainQueryTracer{
@@ -1719,7 +1777,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				defer func() { _ = conn.CloseNow() }()
 				socket := newDaemonSocket(backend, daemonprotocol.NewBackendSocket(conn, ""),
 					uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), false)
-				if tt.peerClose != 0 || tt.localClose != 0 {
+				if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
 					socket.send = make(chan daemonSocketOutbound)
 				}
 				ready <- socket
@@ -1730,7 +1788,14 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				handler.ServeHTTP(w, r)
 			}))
 			closeStarted, closeRelease := make(chan struct{}), make(chan struct{})
-			if tt.peerClose != 0 || tt.localClose != 0 {
+			var writeErrors *socketWriteErrorListener
+			if tt.writeErr != nil {
+				writeErrors = &socketWriteErrorListener{
+					Listener: server.Listener, err: tt.writeErr, blockRead: !tt.queuedMessage,
+					started: closeStarted, release: closeRelease,
+				}
+				server.Listener = writeErrors
+			} else if tt.peerClose != 0 || tt.localClose != 0 {
 				server.Listener = socketCloseBarrierListener{server.Listener, closeStarted, closeRelease}
 			}
 			server.Start()
@@ -1765,7 +1830,7 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			})
 			wait(tracer.started)
 			var messageCtx context.Context
-			if tt.localClose != 0 {
+			if tt.localClose != 0 || tt.queuedMessage {
 				hub.recordPendingSkillReply(socket.machineID, "test", "reply")
 				require.NoError(t, wsjson.Write(ctx, conn, daemonprotocol.Message{
 					Type:        daemonprotocol.MessageSkillReport,
@@ -1776,6 +1841,17 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 				case <-ctx.Done():
 					t.Fatal("socket reader did not start handling message")
 				}
+				if tt.queuedMessage {
+					require.NoError(t, wsjson.Write(ctx, conn, daemonprotocol.Message{
+						Type:        daemonprotocol.MessageSkillReport,
+						SkillReport: &daemonprotocol.SkillReport{RequestID: "queued"},
+					}))
+				}
+			}
+			if writeErrors != nil {
+				writeErrors.armed.Store(true)
+			}
+			if tt.localClose != 0 {
 				go func() { _, _, _ = conn.Read(ctx) }()
 				go socket.close(tt.localClose, "test close")
 			} else if tt.peerClose != 0 {
@@ -1783,14 +1859,21 @@ func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
 			} else {
 				require.NoError(t, conn.CloseNow())
 			}
-			if tt.peerClose != 0 || tt.localClose != 0 {
-				wait(closeStarted)
+			if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
+				if !tt.queuedMessage {
+					wait(closeStarted)
+				}
+				var handlerCanceled <-chan struct{}
+				if messageCtx != nil {
+					handlerCanceled = messageCtx.Done()
+				}
 				select {
 				case socket.send <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}}:
+				case <-handlerCanceled:
 				case <-ctx.Done():
 					t.Fatal("socket writer did not receive message")
 				}
-				if tt.peerClose != 0 {
+				if tt.peerClose != 0 && !tt.queuedMessage {
 					select {
 					case <-tracer.canceled:
 						t.Fatal("writer canceled drain before reader reported the close reason")
