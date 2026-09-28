@@ -154,9 +154,9 @@ export function MachinePoolAdvancedSection({
                 {resources.memoryMb === 'configured' && (
                   <MachinePoolInputField
                     id="mpool-max-machine-memory"
-                  label="Max machine memory (GB)"
-                  type="number"
-                  min="1"
+                    label="Max machine memory (GB)"
+                    type="number"
+                    min="1"
                     step="any"
                     value={values.maxMachineMemoryGb}
                     placeholder={values.memoryGb || undefined}

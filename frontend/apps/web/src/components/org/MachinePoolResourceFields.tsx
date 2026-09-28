@@ -1,5 +1,9 @@
 import { MachinePoolInputField } from './MachinePoolInputField'
-import { type MachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
+import {
+  machinePoolFormResourceMode,
+  type MachinePoolProvider,
+  machinePoolProviderDefinitions,
+} from './machinePoolProviders'
 
 export function MachinePoolResourceFields({
   provider,
@@ -26,8 +30,8 @@ export function MachinePoolResourceFields({
 }) {
   const definition = machinePoolProviderDefinitions[provider]
   const hasSizeControls =
-    (definition.resources.showSizeControls ?? true) &&
-    (definition.resources.cpu !== 'unsupported' || definition.resources.memoryMb !== 'unsupported')
+    machinePoolFormResourceMode(provider, 'cpu') !== 'unsupported' ||
+    machinePoolFormResourceMode(provider, 'memoryMb') !== 'unsupported'
   return (
     <>
       <div className={hasSizeControls ? 'grid gap-4 sm:grid-cols-2' : 'grid gap-4'}>
@@ -42,8 +46,7 @@ export function MachinePoolResourceFields({
             onValueChange={onLocationChange}
           />
         )}
-        {(definition.resources.showSizeControls ?? true) &&
-          definition.resources.cpu !== 'unsupported' && (
+        {machinePoolFormResourceMode(provider, 'cpu') !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-cpu"
             label={
@@ -59,23 +62,22 @@ export function MachinePoolResourceFields({
             onValueChange={onCpuChange}
           />
         )}
-        {(definition.resources.showSizeControls ?? true) &&
-          definition.resources.memoryMb !== 'unsupported' && (
-            <MachinePoolInputField
-              id="mpool-memory"
-              label={
-                definition.resources.memoryMb === 'provider-resolved'
-                  ? 'Max memory (GB) per machine'
-                  : 'Memory (GB) per machine'
-              }
-              type="number"
-              min="0"
-              step="any"
-              required
-              value={memoryGb}
-              onValueChange={onMemoryGbChange}
-            />
-          )}
+        {machinePoolFormResourceMode(provider, 'memoryMb') !== 'unsupported' && (
+          <MachinePoolInputField
+            id="mpool-memory"
+            label={
+              definition.resources.memoryMb === 'provider-resolved'
+                ? 'Max memory (GB) per machine'
+                : 'Memory (GB) per machine'
+            }
+            type="number"
+            min="0"
+            step="any"
+            required
+            value={memoryGb}
+            onValueChange={onMemoryGbChange}
+          />
+        )}
       </div>
       {!clusterManaged && (
         <MachinePoolInputField

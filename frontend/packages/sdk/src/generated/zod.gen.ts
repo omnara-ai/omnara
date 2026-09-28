@@ -2310,14 +2310,14 @@ export const zArtifact = z.object({
     created_at: zTimestamp
 });
 
-export const zCreateOsShape = z.object({
+export const zCreateOsMachineSize = z.object({
     id: z.string().min(1),
     vcpu: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' }),
     memory_mb: z.int().gte(1).max(2147483647, { error: 'Invalid value: Expected int32 to be <= 2147483647' })
 });
 
-export const zListCreateOsShapesResponse = z.object({
-    data: z.array(zCreateOsShape)
+export const zListCreateOsMachineSizesResponse = z.object({
+    data: z.array(zCreateOsMachineSize)
 });
 
 export const zCreateOsRootFs = z.object({
@@ -5009,18 +5009,18 @@ export const zCreateMachinePoolPath = z.object({
  */
 export const zCreateMachinePoolResponse = zMachinePool;
 
-export const zListCreateOsShapesPath = z.object({
+export const zListCreateOsMachineSizesPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
 });
 
-export const zListCreateOsShapesQuery = z.object({
+export const zListCreateOsMachineSizesQuery = z.object({
     provider_auth_secret_id: zSecretId
 });
 
 /**
  * Available CreateOS shapes.
  */
-export const zListCreateOsShapesResponse2 = zListCreateOsShapesResponse;
+export const zListCreateOsMachineSizesResponse2 = zListCreateOsMachineSizesResponse;
 
 export const zListCreateOsRootFsPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/)
