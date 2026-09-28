@@ -18,8 +18,8 @@ import (
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 4 {
-		t.Fatalf("default catalog providers = %d, want 4", len(catalog.definitions))
+	if len(catalog.definitions) != 5 {
+		t.Fatalf("default catalog providers = %d, want 5", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string

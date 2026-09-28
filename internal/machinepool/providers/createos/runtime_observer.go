@@ -3,10 +3,10 @@ package createos
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 )
 
 func (p *provider) ObserveRuntimeStates(
@@ -45,7 +45,10 @@ func (p *provider) ObserveRuntimeState(
 		return observation, nil
 	}
 	expectedName, err := allocationName(target.InstallationID, target.MachineID)
-	if err != nil || targetSandbox.ID != target.ProviderResourceID || targetSandbox.Name != expectedName {
+	if err != nil {
+		return observation, fmt.Errorf("build createos allocation name: %w", err)
+	}
+	if targetSandbox.ID != target.ProviderResourceID || targetSandbox.Name != expectedName {
 		return observation, nil
 	}
 	observation.State = createOSRuntimeState(targetSandbox.Status)
@@ -71,7 +74,7 @@ func createOSRuntimeState(status sandboxStatus) providers.RuntimeState {
 }
 
 func validRuntimeTarget(target providers.RuntimeTarget) bool {
-	return target.InstallationID != storage.NilID && target.MachineID != storage.NilID &&
+	return target.InstallationID != uuid.Nil && target.MachineID != uuid.Nil &&
 		target.ProviderResourceID != "" &&
 		target.ProviderResourceID == strings.TrimSpace(target.ProviderResourceID)
 }

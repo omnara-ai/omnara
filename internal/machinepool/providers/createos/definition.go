@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
@@ -46,11 +47,21 @@ func resourcePolicy() providers.MachineResourcePolicy {
 	}
 }
 
-func (Definition) NewProvider(raw json.RawMessage, runtime providers.RuntimeConfig) (providers.Provider, error) {
+func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
+	return resourcePolicy()
+}
+
+func (Definition) NewProvider(
+	raw json.RawMessage,
+	runtime providers.RuntimeConfig,
+) (providers.Provider, error) {
 	return newProvider(raw, runtime)
 }
 
-func (Definition) NewRuntimeProvider(raw json.RawMessage, runtime providers.RuntimeConfig) (providers.RuntimeProvider, error) {
+func (Definition) NewRuntimeProvider(
+	raw json.RawMessage,
+	runtime providers.RuntimeConfig,
+) (providers.RuntimeProvider, error) {
 	return newProvider(raw, runtime)
 }
 
@@ -68,8 +79,10 @@ func newProvider(raw json.RawMessage, runtime providers.RuntimeConfig) (*provide
 	}, nil
 }
 
-func (Definition) ResolveMachineProviderOptions(defaults, project, agent map[string]json.RawMessage) map[string]json.RawMessage {
-	return providers.MergeOptions(defaults, project, agent)
+func (Definition) ResolveMachineProviderOptions(
+	defaults, project, agent map[string]json.RawMessage,
+) map[string]json.RawMessage {
+	return provideroptions.Merge(defaults, project, agent)
 }
 
 func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
@@ -87,11 +100,18 @@ func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) 
 	return validateAllowedOptions(options, options, config)
 }
 
-func (definition Definition) ValidateMachineProvisioning(policy executionstore.MachinePoolProviderPolicy, provisioning executionstore.MachineProvisioningConfig) error {
+func (definition Definition) ValidateMachineProvisioning(
+	policy executionstore.MachinePoolProviderPolicy,
+	provisioning executionstore.MachineProvisioningConfig,
+) error {
 	if err := definition.ValidatePool(policy); err != nil {
 		return err
 	}
-	if err := providers.ValidateMachineProvisioningResourcePolicy(providers.CreateOS, provisioning, resourcePolicy()); err != nil {
+	if err := providers.ValidateMachineProvisioningResourcePolicy(
+		providers.CreateOS,
+		provisioning,
+		resourcePolicy(),
+	); err != nil {
 		return err
 	}
 	defaults, err := parseProviderOptions(policy.DefaultProvisioning.ProviderOptions)
@@ -109,7 +129,10 @@ func (definition Definition) ValidateMachineProvisioning(policy executionstore.M
 	return validateAllowedOptions(options, defaults, config)
 }
 
-func (definition Definition) BuildMachineProvisioningIntent(policy executionstore.MachinePoolProviderPolicy, provisioning executionstore.MachineProvisioningConfig) (executionstore.MachineProvisioningConfig, error) {
+func (definition Definition) BuildMachineProvisioningIntent(
+	policy executionstore.MachinePoolProviderPolicy,
+	provisioning executionstore.MachineProvisioningConfig,
+) (executionstore.MachineProvisioningConfig, error) {
 	if err := definition.ValidateMachineProvisioning(policy, provisioning); err != nil {
 		return executionstore.MachineProvisioningConfig{}, err
 	}
@@ -128,7 +151,13 @@ func validateAllowedOptions(options, defaults providerOptions, config providerCo
 		{"createos region", "allowed_regions", options.Region, defaults.Region, config.AllowedRegions},
 	}
 	for _, check := range checks {
-		if err := providers.ValidateAllowedValue(check.what, check.field, check.value, check.allowed, check.fallback); err != nil {
+		if err := providers.ValidateAllowedValue(
+			check.what,
+			check.field,
+			check.value,
+			check.allowed,
+			check.fallback,
+		); err != nil {
 			return err
 		}
 	}
@@ -152,15 +181,27 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 		return providerConfig{}, err
 	}
 	config.APIBaseURL = normalized
-	config.AllowedShapes, err = providers.NormalizeAllowlist("createos provider config allowed_shapes", config.AllowedShapes, providers.ValidateDNSLabel)
+	config.AllowedShapes, err = providers.NormalizeAllowlist(
+		"createos provider config allowed_shapes",
+		config.AllowedShapes,
+		providers.ValidateDNSLabel,
+	)
 	if err != nil {
 		return providerConfig{}, err
 	}
-	config.AllowedRootFSes, err = providers.NormalizeAllowlist("createos provider config allowed_rootfses", config.AllowedRootFSes, providers.ValidateImageRef)
+	config.AllowedRootFSes, err = providers.NormalizeAllowlist(
+		"createos provider config allowed_rootfses",
+		config.AllowedRootFSes,
+		providers.ValidateImageRef,
+	)
 	if err != nil {
 		return providerConfig{}, err
 	}
-	config.AllowedRegions, err = providers.NormalizeAllowlist("createos provider config allowed_regions", config.AllowedRegions, providers.ValidateDNSLabel)
+	config.AllowedRegions, err = providers.NormalizeAllowlist(
+		"createos provider config allowed_regions",
+		config.AllowedRegions,
+		providers.ValidateDNSLabel,
+	)
 	return config, err
 }
 

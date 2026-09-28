@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -24,7 +24,10 @@ type provider struct {
 
 func (*provider) ProvisioningTimeout() time.Duration { return provisioningTimeout }
 
-func (p *provider) PrepareProvisioning(ctx context.Context, provisioning executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error) {
+func (p *provider) PrepareProvisioning(
+	ctx context.Context,
+	provisioning executionstore.MachineProvisioningConfig,
+) (executionstore.MachineResourceFacts, error) {
 	options, err := parseProviderOptions(provisioning.ProviderOptions)
 	if err != nil {
 		return executionstore.MachineResourceFacts{}, err
@@ -47,7 +50,13 @@ func (p *provider) PrepareProvisioning(ctx context.Context, provisioning executi
 	return executionstore.MachineResourceFacts{}, fmt.Errorf("createos shape %q was not found", options.Shape)
 }
 
-func (p *provider) ProvisionMachine(ctx context.Context, installationID, machineID storage.ID, provisioning executionstore.MachineProvisioningConfig, machineToken string, machineEnv map[string]string) (providers.ProvisionMachineResult, error) {
+func (p *provider) ProvisionMachine(
+	ctx context.Context,
+	installationID, machineID uuid.UUID,
+	provisioning executionstore.MachineProvisioningConfig,
+	machineToken string,
+	machineEnv map[string]string,
+) (providers.ProvisionMachineResult, error) {
 	options, err := parseProviderOptions(provisioning.ProviderOptions)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
@@ -66,7 +75,13 @@ func (p *provider) ProvisionMachine(ctx context.Context, installationID, machine
 			return providers.ProvisionMachineResult{}, err
 		}
 		env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
-		target, err = p.api.CreateSandbox(ctx, createSandboxRequest{Shape: options.Shape, RootFS: options.RootFS, Name: name, Region: options.Region, Envs: env})
+		target, err = p.api.CreateSandbox(ctx, createSandboxRequest{
+			Shape:  options.Shape,
+			RootFS: options.RootFS,
+			Name:   name,
+			Region: options.Region,
+			Envs:   env,
+		})
 		if err != nil {
 			target, found, _ = p.findByName(ctx, name)
 			if !found {
@@ -138,7 +153,12 @@ func (p *provider) findByName(ctx context.Context, name string) (sandbox, bool, 
 	}
 }
 
-func (p *provider) InspectMachine(ctx context.Context, installationID, machineID storage.ID, _ executionstore.MachineProvisioningConfig, resourceID string) (string, bool, error) {
+func (p *provider) InspectMachine(
+	ctx context.Context,
+	installationID, machineID uuid.UUID,
+	_ executionstore.MachineProvisioningConfig,
+	resourceID string,
+) (string, bool, error) {
 	name, err := allocationName(installationID, machineID)
 	if err != nil {
 		return "", false, err
@@ -157,7 +177,12 @@ func (p *provider) InspectMachine(ctx context.Context, installationID, machineID
 	return target.ID, true, nil
 }
 
-func (p *provider) DeleteMachine(ctx context.Context, installationID, machineID storage.ID, provisioning executionstore.MachineProvisioningConfig, resourceID string) error {
+func (p *provider) DeleteMachine(
+	ctx context.Context,
+	installationID, machineID uuid.UUID,
+	provisioning executionstore.MachineProvisioningConfig,
+	resourceID string,
+) error {
 	if strings.TrimSpace(resourceID) == "" {
 		return errors.New("provider resource id is required")
 	}
@@ -168,14 +193,7 @@ func (p *provider) DeleteMachine(ctx context.Context, installationID, machineID 
 	return p.api.DeleteSandbox(ctx, id)
 }
 
-func (p *provider) WakeMachine(ctx context.Context, input providers.WakeMachineInput) error {
-	if input.ProviderResourceID == "" {
-		return errors.New("createos provider resource id is required")
-	}
-	return p.api.ResumeSandbox(ctx, input.ProviderResourceID)
-}
-
-func allocationName(installationID, machineID storage.ID) (string, error) {
+func allocationName(installationID, machineID uuid.UUID) (string, error) {
 	canonical, err := providers.MachineAllocationName(installationID, machineID)
 	if err != nil {
 		return "", err
