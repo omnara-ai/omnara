@@ -25,7 +25,9 @@ import (
 const (
 	provisioningTimeout = time.Minute
 	daemonPollInterval  = 500 * time.Millisecond
-	wakeTimeout         = 15 * time.Second
+	// How long to wait for a canceled daemon to actually leave the session.
+	cancelConfirmTimeout = 10 * time.Second
+	wakeTimeout          = 15 * time.Second
 
 	bootPath = "/tmp/omnara-boot.sh"
 
@@ -252,8 +254,55 @@ func cancelStaleDaemons(ctx context.Context, vm *arkersdk.VM) error {
 				classifyError(err),
 			)
 		}
+		if err := awaitRunTerminal(ctx, vm, run.RunID); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// A cancel that returned is not the same as a session that is free, and the
+// session takes one run at a time. Starting the replacement while the old run
+// still holds it leaves the new daemon `pending` behind a run we already gave
+// up on, and waitForDaemon then fails a VM that is otherwise fine.
+//
+// Not merely belt and braces: a CancelRun answering 404 is treated as success
+// above -- the usual meaning is that the run is already gone -- but a 404 can
+// also come back while the run is still going, and then nothing has been
+// canceled at all. Confirming the state is what tells those apart.
+func awaitRunTerminal(ctx context.Context, vm *arkersdk.VM, runID string) error {
+	deadline := time.Now().Add(cancelConfirmTimeout)
+	for {
+		record, err := vm.GetRun(ctx, runID)
+		if err != nil {
+			if arkersdk.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf(
+				"confirm stale omnara daemon %s on arker vm %s: %w",
+				runID,
+				vm.ID,
+				classifyError(err),
+			)
+		}
+		if terminalRunStates[record.State] {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf(
+				"stale omnara daemon %s on arker vm %s is still %s after cancel; "+
+					"a new daemon would queue behind it",
+				runID,
+				vm.ID,
+				record.State,
+			)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(daemonPollInterval):
+		}
+	}
 }
 
 func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) error {

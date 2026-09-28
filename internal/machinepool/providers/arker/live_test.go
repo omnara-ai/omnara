@@ -331,10 +331,16 @@ func TestArkerProviderLiveCancelsAnInFlightDaemon(t *testing.T) {
 
 	// The retry. This is what has to cancel the run above rather than queue.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), machineProvider.ProvisioningTimeout())
-	_, _ = machineProvider.ProvisionMachine(
+	_, retryErr := machineProvider.ProvisionMachine(
 		ctx2, installationID, machineID, provisioning, "live-cancel-retry", nil,
 	)
 	cancel2()
+	t.Logf("retry result: %v", retryErr)
+	// The point of canceling rather than queueing: the retry must not fail
+	// because it is stuck behind the daemon it just canceled.
+	if retryErr != nil && strings.Contains(retryErr.Error(), "still pending") {
+		t.Fatalf("the retry queued behind the canceled daemon: %v", retryErr)
+	}
 
 	after, err := vm.GetRun(bg, stale.RunID)
 	if err != nil {
