@@ -335,7 +335,8 @@ func newSearchCommand(
 		return command, nil
 	}
 	args = append(args, "--hidden", "--no-ignore",
-		"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes), "--glob", memorySearchGlob(input.Path))
+		"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
+	args = append(args, memorySearchArgs(input.Path)...)
 	var operands []string
 	roots := []*os.File{view}
 	for _, store := range source.stores {
@@ -427,7 +428,7 @@ func (s *searchStream) resolvePath(name string) (string, bool, error) {
 	return path, s.output.input.matcher.MatchString(path), nil
 }
 
-func memorySearchGlob(pattern string) string {
+func memorySearchArgs(pattern string) []string {
 	parts := strings.Split(pattern, "/")
 	for i, part := range parts {
 		if part != "**" {
@@ -438,7 +439,24 @@ func memorySearchGlob(pattern string) string {
 		}
 		parts[i] = searchGlobEscaper.Replace(part)
 	}
-	return strings.Join(parts, "/")
+	args := []string{"--glob", strings.Join(parts, "/")}
+	if !strings.ContainsAny(pattern, "*?") {
+		return args
+	}
+	for i := 2; i < len(parts); i++ {
+		if parts[i] == "**" {
+			break
+		}
+		if i == 2 || parts[i] == "*" && i < len(parts)-1 {
+			continue
+		}
+		parent := strings.Join(parts[:i], "/")
+		args = append(args, "--glob", "!"+parent+"/*/")
+		if i < len(parts)-1 {
+			args = append(args, "--glob", strings.Join(parts[:i+1], "/")+"/")
+		}
+	}
+	return args
 }
 
 func (s *searchStream) consume(data []byte) error {
