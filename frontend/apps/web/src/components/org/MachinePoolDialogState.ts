@@ -79,7 +79,7 @@ export const machinePoolFormDefaults: MachinePoolFormValues = {
   provider: 'blaxel',
   providerScope: '',
   image: '',
-  location: machinePoolProviderDefinitions.blaxel.location.defaultValue,
+  location: machinePoolProviderDefinitions.blaxel.location?.defaultValue ?? '',
   startupScript: '',
   cwd: '',
   envRows: [],
@@ -147,15 +147,17 @@ export function machinePoolFormAfterProviderChange(
     provider,
     providerScope: '',
     image: '',
-    location: nextDefinition.location.defaultValue,
+    location: nextDefinition.location?.defaultValue ?? '',
     cpu:
       nextDefinition.resources.defaultCpu ??
-      (currentDefinition.resources.cpu === nextDefinition.resources.cpu
+      (currentDefinition.resources.cpu === nextDefinition.resources.cpu &&
+      currentDefinition.resources.defaultCpu === undefined
         ? values.cpu
         : machinePoolFormDefaults.cpu),
     memoryGb:
       nextDefinition.resources.defaultMemoryGb ??
-      (currentDefinition.resources.memoryMb === nextDefinition.resources.memoryMb
+      (currentDefinition.resources.memoryMb === nextDefinition.resources.memoryMb &&
+      currentDefinition.resources.defaultMemoryGb === undefined
         ? values.memoryGb
         : machinePoolFormDefaults.memoryGb),
     maxTotalCpu: '',
@@ -193,7 +195,7 @@ export function machinePoolFormValid(
     (clusterEdit ||
       (resourceNameValid(values.name) &&
         values.image.trim() !== '' &&
-        (!provider.location.required || values.location.trim() !== '') &&
+        (!provider.location?.required || values.location.trim() !== '') &&
         (!provider.scope?.required || values.providerScope.trim() !== '') &&
         values.secretId !== '')) &&
     maxMachinesValid &&
@@ -305,8 +307,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
         ? providerOptionStrings(pool.provider_config)[definition.scope.key]
         : undefined) ?? '',
     image: options[definition.resource.key] ?? '',
-    location:
-      definition.location.supported === false ? '' : (options[definition.location.key] ?? ''),
+    location: definition.location ? (options[definition.location.key] ?? '') : '',
     startupScript: options.startup_script ?? '',
     cwd: pool.default_cwd,
     envRows: textRowsFromRecord(pool.default_machine_env),
@@ -339,14 +340,14 @@ export function machinePoolUpdateRequest(
   if (pool.management_kind === 'cluster') return clusterMachinePoolUpdateRequest(pool, values)
   const definition = machinePoolProviderDefinitions[values.provider]
   const editableOptionKeys = new Set([definition.resource.key, 'startup_script'])
-  if (definition.location.supported !== false) editableOptionKeys.add(definition.location.key)
+  if (definition.location) editableOptionKeys.add(definition.location.key)
   const defaultMachineProviderOptions = Object.fromEntries(
     Object.entries(pool.default_machine_provider_options).filter(
       ([key]) => !editableOptionKeys.has(key),
     ),
   )
   defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
-  if (definition.location.supported !== false && values.location.trim() !== '') {
+  if (definition.location && values.location.trim() !== '') {
     defaultMachineProviderOptions[definition.location.key] = values.location.trim()
   }
   if (values.startupScript.trim() !== '') {

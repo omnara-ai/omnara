@@ -3,9 +3,11 @@ package freestyle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
@@ -14,7 +16,8 @@ import (
 type apiClient interface {
 	CreateVM(context.Context, createVMRequest) (vm, error)
 	GetVM(context.Context, string) (vm, bool, error)
-	ResizeVM(context.Context, string, resizeVMRequest) (vm, error)
+	ListVMs(context.Context, string, int, int) (vmList, error)
+	ResizeVM(context.Context, string, resizeVMRequest) error
 	StartVM(context.Context, string) (vm, error)
 	DeleteVM(context.Context, string) error
 	ExecVM(context.Context, string, execVMRequest) (execVMResponse, error)
@@ -24,11 +27,12 @@ type createVMRequest struct {
 	SnapshotID         string            `json:"snapshotId"`
 	Slug               string            `json:"slug"`
 	DisplayName        string            `json:"displayName"`
-	IdleTimeoutSeconds *int              `json:"idleTimeoutSeconds,omitempty"`
+	IdleTimeoutSeconds int               `json:"idleTimeoutSeconds,omitempty"`
 	AutoDeleteSeconds  int               `json:"autoDeleteSeconds"`
 	AutomaticRestart   bool              `json:"automaticRestart"`
 	Metadata           map[string]string `json:"metadata"`
 	Firewall           firewallSpec      `json:"firewall"`
+	TLS                *tlsSpec          `json:"tls,omitempty"`
 }
 
 type firewallSpec struct {
@@ -45,6 +49,23 @@ type firewallEndpoint struct {
 	Public bool `json:"public,omitempty"`
 }
 
+type tlsSpec struct {
+	Rules []tlsRule `json:"rules"`
+}
+
+type tlsRule struct {
+	Action      string      `json:"action"`
+	Domain      string      `json:"domain"`
+	Protocol    string      `json:"protocol"`
+	Source      tlsEndpoint `json:"source"`
+	Destination tlsEndpoint `json:"destination"`
+}
+
+type tlsEndpoint struct {
+	Public bool `json:"public,omitempty"`
+	Port   int  `json:"port,omitempty"`
+}
+
 type resizeVMRequest struct {
 	CPU      int `json:"cpu,omitempty"`
 	MemoryMB int `json:"memory,omitempty"`
@@ -52,30 +73,31 @@ type resizeVMRequest struct {
 
 type execVMRequest struct {
 	Command   string `json:"command"`
+	Stdin     string `json:"stdin,omitempty"`
 	LinuxUser string `json:"linuxUser"`
 	TimeoutMS int    `json:"timeoutMs"`
 }
 
 type execVMResponse struct {
-	Stdout     string `json:"stdout"`
-	Stderr     string `json:"stderr"`
-	StatusCode *int   `json:"statusCode"`
+	StatusCode *int `json:"statusCode"`
 }
 
 type vm struct {
-	ID                         string            `json:"id"`
-	State                      string            `json:"state"`
-	Slug                       string            `json:"slug"`
-	SnapshotID                 string            `json:"snapshotId"`
-	SourceSnapshotSlugAtCreate string            `json:"sourceSnapshotSlugAtCreate"`
-	Resources                  vmResources       `json:"resources"`
-	Metadata                   map[string]string `json:"metadata"`
+	ID        string            `json:"id"`
+	State     string            `json:"state"`
+	Slug      string            `json:"slug"`
+	Resources vmResources       `json:"resources"`
+	Metadata  map[string]string `json:"metadata"`
+}
+
+type vmList struct {
+	VMs        []vm `json:"vms"`
+	TotalCount int  `json:"totalCount"`
 }
 
 type vmResources struct {
 	CPU      int `json:"cpu"`
 	MemoryMB int `json:"memory"`
-	Storage  int `json:"storage"`
 }
 
 type apiError struct {
@@ -91,13 +113,8 @@ func (e apiError) Error() string {
 }
 
 func isNotFound(err error) bool {
-	apiErr, ok := err.(apiError)
-	return ok && apiErr.StatusCode == http.StatusNotFound
-}
-
-func isConflict(err error) bool {
-	apiErr, ok := err.(apiError)
-	return ok && apiErr.StatusCode == http.StatusConflict
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
 
 type restClient struct {
@@ -119,7 +136,7 @@ func newRESTClient(baseURL, token string, httpClient *http.Client) *restClient {
 
 func (c *restClient) CreateVM(ctx context.Context, request createVMRequest) (vm, error) {
 	var response vm
-	err := c.doRequest(ctx, http.MethodPost, c.apiBaseURL+"/v5/vms", request, &response)
+	err := c.doRequest(ctx, http.MethodPost, c.apiBaseURL+"/vms", request, &response)
 	return response, err
 }
 
@@ -128,7 +145,7 @@ func (c *restClient) GetVM(ctx context.Context, idOrSlug string) (vm, bool, erro
 	err := c.doRequest(
 		ctx,
 		http.MethodGet,
-		c.apiBaseURL+"/v5/vms/"+url.PathEscape(idOrSlug),
+		c.apiBaseURL+"/vms/"+url.PathEscape(idOrSlug),
 		nil,
 		&response,
 	)
@@ -138,20 +155,28 @@ func (c *restClient) GetVM(ctx context.Context, idOrSlug string) (vm, bool, erro
 	return response, err == nil, err
 }
 
-func (c *restClient) ResizeVM(
+func (c *restClient) ListVMs(
 	ctx context.Context,
-	id string,
-	request resizeVMRequest,
-) (vm, error) {
-	var response vm
-	err := c.doRequest(
+	metadata string,
+	limit, offset int,
+) (vmList, error) {
+	query := url.Values{}
+	query.Set("metadata", metadata)
+	query.Set("limit", strconv.Itoa(limit))
+	query.Set("offset", strconv.Itoa(offset))
+	var response vmList
+	err := c.doRequest(ctx, http.MethodGet, c.apiBaseURL+"/vms?"+query.Encode(), nil, &response)
+	return response, err
+}
+
+func (c *restClient) ResizeVM(ctx context.Context, id string, request resizeVMRequest) error {
+	return c.doRequest(
 		ctx,
 		http.MethodPost,
-		c.apiBaseURL+"/v5/vms/"+url.PathEscape(id)+"/resize",
+		c.apiBaseURL+"/vms/"+url.PathEscape(id)+"/resize",
 		request,
-		&response,
+		nil,
 	)
-	return response, err
 }
 
 func (c *restClient) StartVM(ctx context.Context, id string) (vm, error) {
@@ -159,7 +184,7 @@ func (c *restClient) StartVM(ctx context.Context, id string) (vm, error) {
 	err := c.doRequest(
 		ctx,
 		http.MethodPost,
-		c.apiBaseURL+"/v5/vms/"+url.PathEscape(id)+"/start",
+		c.apiBaseURL+"/vms/"+url.PathEscape(id)+"/start",
 		nil,
 		&response,
 	)
@@ -170,7 +195,7 @@ func (c *restClient) DeleteVM(ctx context.Context, id string) error {
 	err := c.doRequest(
 		ctx,
 		http.MethodDelete,
-		c.apiBaseURL+"/v5/vms/"+url.PathEscape(id),
+		c.apiBaseURL+"/vms/"+url.PathEscape(id),
 		nil,
 		nil,
 	)
@@ -189,7 +214,7 @@ func (c *restClient) ExecVM(
 	err := c.doRequest(
 		ctx,
 		http.MethodPost,
-		c.apiBaseURL+"/v5/vms/"+url.PathEscape(id)+"/exec-await",
+		c.apiBaseURL+"/vms/"+url.PathEscape(id)+"/exec-await",
 		request,
 		&response,
 	)
@@ -205,7 +230,7 @@ func (c *restClient) doRequest(
 	response, err := providers.DoHTTPResponse(
 		ctx,
 		c.httpClient,
-		"freestyle",
+		providers.Freestyle,
 		method,
 		requestURL,
 		map[string]string{"Authorization": "Bearer " + c.apiToken},

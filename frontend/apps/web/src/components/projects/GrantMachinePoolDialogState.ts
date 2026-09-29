@@ -106,7 +106,7 @@ function editableProviderOptionKeys(provider: MachinePoolProvider, clusterManage
   const keys = new Set(['startup_script'])
   if (!clusterManaged) {
     keys.add(definition.resource.key)
-    if (definition.location.supported !== false) keys.add(definition.location.key)
+    if (definition.location) keys.add(definition.location.key)
   }
   return keys
 }
@@ -121,9 +121,7 @@ function providerOptionsDraftFromOverlay(
   return {
     resource: clusterManaged ? '' : (options[definition.resource.key] ?? ''),
     location:
-      clusterManaged || definition.location.supported === false
-        ? ''
-        : (options[definition.location.key] ?? ''),
+      clusterManaged || !definition.location ? '' : (options[definition.location.key] ?? ''),
     startupScript: options.startup_script ?? '',
   }
 }

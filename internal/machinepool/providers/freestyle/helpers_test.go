@@ -43,18 +43,22 @@ func testMachineID() uuid.UUID {
 
 func ownedVM(t *testing.T, state string, cpu, memoryMB int) vm {
 	t.Helper()
-	name, err := machineName()
+	owned := ownedVMFor(t, testMachineID(), "vm-123", state)
+	owned.Resources = vmResources{CPU: cpu, MemoryMB: memoryMB}
+	return owned
+}
+
+func ownedVMFor(t *testing.T, machineID uuid.UUID, id, state string) vm {
+	t.Helper()
+	name, err := providers.MachineAllocationName(testInstallationID(), machineID)
 	if err != nil {
 		t.Fatalf("machine allocation name: %v", err)
 	}
-	return vm{
-		ID:                         "vm-123",
-		State:                      state,
-		Slug:                       name,
-		SourceSnapshotSlugAtCreate: "ubuntu-24.04",
-		Resources:                  vmResources{CPU: cpu, MemoryMB: memoryMB},
-		Metadata:                   ownershipMetadata(testInstallationID(), testMachineID()),
+	metadata, err := ownershipMetadata(testInstallationID(), machineID)
+	if err != nil {
+		t.Fatalf("ownership metadata: %v", err)
 	}
+	return vm{ID: id, State: state, Slug: name, Metadata: metadata}
 }
 
 func machineName() (string, error) {
@@ -64,23 +68,21 @@ func machineName() (string, error) {
 type fakeAPI struct {
 	getFunc        func(string) (vm, bool, error)
 	getLookups     []string
+	listPages      []vmList
+	listErr        error
+	listFilters    []string
+	listOffsets    []int
 	createRequest  createVMRequest
 	createResult   vm
 	createErr      error
 	resizeRequest  resizeVMRequest
-	resizeResult   vm
-	resizeErr      error
 	startCalls     int
 	startResult    vm
-	startErr       error
 	deleteCalls    int
-	deletedID      string
-	deleteErr      error
 	execCalls      int
 	execResourceID string
 	execRequest    execVMRequest
 	execResponse   execVMResponse
-	execErr        error
 }
 
 func (a *fakeAPI) CreateVM(_ context.Context, request createVMRequest) (vm, error) {
@@ -96,20 +98,32 @@ func (a *fakeAPI) GetVM(_ context.Context, lookup string) (vm, bool, error) {
 	return a.getFunc(lookup)
 }
 
-func (a *fakeAPI) ResizeVM(_ context.Context, _ string, request resizeVMRequest) (vm, error) {
+func (a *fakeAPI) ListVMs(_ context.Context, metadata string, _, offset int) (vmList, error) {
+	a.listFilters = append(a.listFilters, metadata)
+	a.listOffsets = append(a.listOffsets, offset)
+	if a.listErr != nil {
+		return vmList{}, a.listErr
+	}
+	page := len(a.listOffsets) - 1
+	if page >= len(a.listPages) {
+		return vmList{}, nil
+	}
+	return a.listPages[page], nil
+}
+
+func (a *fakeAPI) ResizeVM(_ context.Context, _ string, request resizeVMRequest) error {
 	a.resizeRequest = request
-	return a.resizeResult, a.resizeErr
+	return nil
 }
 
 func (a *fakeAPI) StartVM(context.Context, string) (vm, error) {
 	a.startCalls++
-	return a.startResult, a.startErr
+	return a.startResult, nil
 }
 
-func (a *fakeAPI) DeleteVM(_ context.Context, id string) error {
+func (a *fakeAPI) DeleteVM(context.Context, string) error {
 	a.deleteCalls++
-	a.deletedID = id
-	return a.deleteErr
+	return nil
 }
 
 func (a *fakeAPI) ExecVM(
@@ -120,7 +134,7 @@ func (a *fakeAPI) ExecVM(
 	a.execCalls++
 	a.execResourceID = resourceID
 	a.execRequest = request
-	return a.execResponse, a.execErr
+	return a.execResponse, nil
 }
 
 func newTestProvider(api apiClient) *provider {

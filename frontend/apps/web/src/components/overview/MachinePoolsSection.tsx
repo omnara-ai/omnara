@@ -297,7 +297,7 @@ function providerDetails(pool: MachinePool): DetailItem[] {
       mono: true,
     },
   ]
-  if (definition.location.supported !== false) {
+  if (definition.location) {
     const location = options[definition.location.key]
     const defaultLocation = definition.location.required ? undefined : 'Automatic'
     details.push({

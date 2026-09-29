@@ -36,6 +36,8 @@ type ProvisionMachineResult struct {
 // a different id for the same machine.
 var ErrResourceReplaced = errors.New("provider resource was replaced")
 
+var ErrPermanent = errors.New("permanent provider error")
+
 type WakeMachineInput struct {
 	ProviderResourceID string
 	SandboxURL         string

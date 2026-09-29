@@ -28,7 +28,7 @@ export function MachinePoolResourceFields({
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2">
-        {!clusterManaged && definition.location.supported !== false && (
+        {!clusterManaged && definition.location && (
           <MachinePoolInputField
             id="mpool-location"
             label={definition.location.label}

@@ -67,16 +67,12 @@ export function ProviderOptionsOverrideFields({
   const placeholders = defaultStrings
     ? {
         resource: stringDefault(defaultStrings, definition.resource.key),
-        location:
-          definition.location.supported === false
-            ? undefined
-            : stringDefault(defaultStrings, definition.location.key),
+        location: definition.location && stringDefault(defaultStrings, definition.location.key),
         startupScript: stringDefault(defaultStrings, 'startup_script'),
       }
     : {
         resource: definition.resource.placeholder,
-        location:
-          definition.location.supported === false ? undefined : definition.location.placeholder,
+        location: definition.location?.placeholder,
         startupScript: 'apt-get update\napt-get install -y ripgrep',
       }
   return (
@@ -95,7 +91,7 @@ export function ProviderOptionsOverrideFields({
               }}
             />
           </Field>
-          {definition.location.supported !== false && (
+          {definition.location && (
             <Field>
               <FieldLabel htmlFor={`${idPrefix}-location`}>{definition.location.label}</FieldLabel>
               <Input

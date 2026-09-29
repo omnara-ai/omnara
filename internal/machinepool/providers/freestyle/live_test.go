@@ -25,7 +25,11 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 	if omnaraAPIURL == "" {
 		omnaraAPIURL = "https://app.omnara.com/api/v1"
 	}
+	cpu := 4
+	memoryMB := 8192
 	provisioning := testProvisioning(t)
+	provisioning.CPU = &cpu
+	provisioning.MemoryMB = &memoryMB
 	provisioning.ProviderOptions["snapshot"] = rawJSON(t, snapshot)
 	provisioning.ProviderOptions["startup_script"] = rawJSON(t, "")
 	machineProvider, err := (Definition{}).NewProvider(
@@ -87,8 +91,32 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("get live freestyle VM = %+v, found %v, error %v", current, found, err)
 	}
-	if current.Metadata[providercontract.LiveResourceEnv] != providercontract.LiveResourceValue {
+	if current.Metadata[providercontract.LiveResourceLabel] != providercontract.LiveResourceValue {
 		t.Fatalf("live freestyle VM is missing the test resource marker")
+	}
+	if current.Resources.CPU != cpu || current.Resources.MemoryMB != memoryMB {
+		t.Fatalf("live freestyle VM resources = %+v, want cpu=%d memory_mb=%d", current.Resources, cpu, memoryMB)
+	}
+	reprovisioned, err := machineProvider.ProvisionMachine(
+		ctx,
+		testInstallationID(),
+		machineID,
+		provisioning,
+		"live-smoke-token",
+		nil,
+	)
+	if err != nil || reprovisioned.ProviderResourceID != result.ProviderResourceID {
+		t.Fatalf("reprovision live freestyle VM = %+v, error %v", reprovisioned, err)
+	}
+	inspectedResourceID, found, err := machineProvider.InspectMachine(
+		ctx,
+		testInstallationID(),
+		machineID,
+		provisioning,
+		result.ProviderResourceID,
+	)
+	if err != nil || !found || inspectedResourceID != result.ProviderResourceID {
+		t.Fatalf("inspect live freestyle VM = %q, found %v, error %v", inspectedResourceID, found, err)
 	}
 	observer, ok := machineProvider.(providers.RuntimeStateObserver)
 	if !ok {
@@ -106,6 +134,29 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 	) {
 		return observer.ObserveRuntimeState(ctx, target)
 	})
+	providercontract.WaitForPresentRuntimeObservation(t, ctx, target, func() (
+		providers.RuntimeObservation,
+		error,
+	) {
+		observations, err := observer.ObserveRuntimeStates(ctx, []providers.RuntimeTarget{target})
+		if err != nil {
+			return providers.RuntimeObservation{}, err
+		}
+		return observations[0], nil
+	})
+	missingTarget := target
+	missingTarget.MachineID = uuid.New()
+	missingTarget.ProviderResourceID = "vm-" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	missingObservation, err := observer.ObserveRuntimeState(ctx, missingTarget)
+	if err != nil {
+		t.Fatalf("observe missing live freestyle VM: %v", err)
+	}
+	providercontract.AssertRuntimeObservation(
+		t,
+		missingTarget,
+		missingObservation,
+		providers.RuntimeStateTerminated,
+	)
 }
 
 type liveTestAPI struct {
@@ -113,6 +164,6 @@ type liveTestAPI struct {
 }
 
 func (a liveTestAPI) CreateVM(ctx context.Context, request createVMRequest) (vm, error) {
-	request.Metadata[providercontract.LiveResourceEnv] = providercontract.LiveResourceValue
+	request.Metadata[providercontract.LiveResourceLabel] = providercontract.LiveResourceValue
 	return a.apiClient.CreateVM(ctx, request)
 }

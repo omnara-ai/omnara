@@ -11769,7 +11769,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [freestyle, unikraft, modal]
+                  enum: [unikraft, modal, freestyle]
                 default_machine_cpu:
                   type: integer
                   format: int32

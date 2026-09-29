@@ -2,35 +2,45 @@ package freestyle
 
 import (
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const (
-	provisioningTimeout       = 2 * time.Minute
-	providerMarkerKey         = "omnara-provider"
-	providerMarkerValue       = "freestyle"
-	installationMarkerKey     = "omnara-installation"
-	machineMarkerKey          = "omnara-machine"
-	daemonServiceName         = "omnara-daemon.service"
-	daemonStartScriptPath     = "/etc/omnara/managed-daemon.sh"
-	daemonServiceUnitPath     = "/etc/systemd/system/" + daemonServiceName
-	daemonInstallTimeoutMS    = 30_000
-	autoDeleteNever           = -1
-	freestyleRuntimePollDelay = 250 * time.Millisecond
+	provisioningTimeout     = 2 * time.Minute
+	sleepIdleTimeoutSeconds = 60
+	wakeDomainSuffix        = ".style.dev"
+	installationMarkerKey   = "omnara-installation"
+	machineMarkerKey        = "omnara-machine"
+	daemonInstallTimeoutMS  = int((providers.HTTPClientTimeout - 2*time.Second) / time.Millisecond)
+	autoDeleteNever         = -1
+	startPollDelay          = 250 * time.Millisecond
 )
 
+const bootstrapKeepAwakeScript = `(while read -r c </proc/$$/comm && [ "$c" != omnarad ]; do ` +
+	`curl -fsSI -m 10 -o /dev/null "$OMNARA_INSTALLER_URL" || :; sleep 20; done) >/dev/null 2>&1 &` + "\n"
+
+//go:embed daemon_install.sh
+var daemonInstallScript string
+
 type provider struct {
-	api          apiClient
-	omnaraAPIURL string
+	api           apiClient
+	omnaraAPIURL  string
+	wakeTransport http.RoundTripper
 }
 
 func (*provider) ProvisioningTimeout() time.Duration {
@@ -71,20 +81,34 @@ func (p *provider) ProvisionMachine(
 		return providers.ProvisionMachineResult{}, err
 	}
 	if !found {
-		target, err = p.api.CreateVM(ctx, createVMRequest{
-			SnapshotID:         options.Snapshot,
-			Slug:               name,
-			DisplayName:        name,
-			IdleTimeoutSeconds: options.IdleTimeoutSeconds,
-			AutoDeleteSeconds:  autoDeleteNever,
-			AutomaticRestart:   true,
-			Metadata:           ownershipMetadata(installationID, machineID),
+		metadata, metadataErr := ownershipMetadata(installationID, machineID)
+		if metadataErr != nil {
+			return providers.ProvisionMachineResult{}, metadataErr
+		}
+		create := createVMRequest{
+			SnapshotID:        options.Snapshot,
+			Slug:              name,
+			DisplayName:       name,
+			AutoDeleteSeconds: autoDeleteNever,
+			AutomaticRestart:  true,
+			Metadata:          metadata,
 			Firewall: firewallSpec{Rules: []firewallRule{{
 				Action:      "allow",
 				Source:      firewallEndpoint{},
 				Destination: firewallEndpoint{Public: true},
 			}}},
-		})
+		}
+		if options.SleepAfterMS > 0 {
+			create.IdleTimeoutSeconds = sleepIdleTimeoutSeconds
+			create.TLS = &tlsSpec{Rules: []tlsRule{{
+				Action:      "allow",
+				Domain:      name + wakeDomainSuffix,
+				Protocol:    "http",
+				Source:      tlsEndpoint{Public: true},
+				Destination: tlsEndpoint{Port: daemonprotocol.WakeListenerPort},
+			}}}
+		}
+		target, err = p.api.CreateVM(ctx, create)
 		if err != nil {
 			existing, existingFound, inspectErr := p.api.GetVM(ctx, name)
 			if inspectErr == nil && existingFound {
@@ -97,43 +121,30 @@ func (p *provider) ProvisionMachine(
 		}
 	}
 
-	result := providers.ProvisionMachineResult{ProviderResourceID: target.ID}
 	if err := validateOwnedVM(target, installationID, machineID, name); err != nil {
-		return result, err
+		return providers.ProvisionMachineResult{}, err
 	}
-	if !vmUsesSnapshot(target, options.Snapshot) {
-		return result, fmt.Errorf(
-			"freestyle VM %q was not created from configured snapshot %q",
-			target.ID,
-			options.Snapshot,
-		)
+	result := providers.ProvisionMachineResult{ProviderResourceID: target.ID}
+	if options.SleepAfterMS > 0 {
+		result.SandboxURL = "https://" + name + wakeDomainSuffix + "/"
 	}
 
-	target, err = p.ensureRunning(ctx, target, installationID, machineID, name)
+	target, err = p.ensureRunning(ctx, target)
 	if err != nil {
 		return result, err
 	}
-	target, err = p.ensureResources(ctx, target, machineProvisioning, installationID, machineID, name)
-	if err != nil {
+	if err := p.ensureResources(ctx, target, machineProvisioning); err != nil {
 		return result, err
 	}
-	if err := p.ensureDaemon(ctx, target.ID, options.StartupScript, machineToken, machineEnv); err != nil {
+	if err := p.ensureDaemon(ctx, target.ID, options, machineToken, machineEnv); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func (p *provider) ensureRunning(
-	ctx context.Context,
-	target vm,
-	installationID, machineID uuid.UUID,
-	expectedName string,
-) (vm, error) {
+func (p *provider) ensureRunning(ctx context.Context, target vm) (vm, error) {
 	startRequested := false
 	for {
-		if err := validateOwnedVM(target, installationID, machineID, expectedName); err != nil {
-			return vm{}, err
-		}
 		switch normalizeVMState(target.State) {
 		case vmStateRunning:
 			return target, nil
@@ -156,7 +167,7 @@ func (p *provider) ensureRunning(
 		select {
 		case <-ctx.Done():
 			return vm{}, fmt.Errorf("wait for freestyle VM %q to run: %w", target.ID, ctx.Err())
-		case <-time.After(freestyleRuntimePollDelay):
+		case <-time.After(startPollDelay):
 		}
 		refreshed, found, err := p.api.GetVM(ctx, target.ID)
 		if err != nil {
@@ -173,22 +184,21 @@ func (p *provider) ensureResources(
 	ctx context.Context,
 	target vm,
 	machineProvisioning executionstore.MachineProvisioningConfig,
-	installationID, machineID uuid.UUID,
-	expectedName string,
-) (vm, error) {
+) error {
 	wantCPU := *machineProvisioning.CPU
 	wantMemoryMB := *machineProvisioning.MemoryMB
 	if target.Resources.CPU > wantCPU || target.Resources.MemoryMB > wantMemoryMB {
-		return vm{}, fmt.Errorf(
-			"freestyle snapshot resources cpu=%d memory_mb=%d exceed configured cpu=%d memory_mb=%d",
+		return fmt.Errorf(
+			"freestyle snapshot resources cpu=%d memory_mb=%d exceed configured cpu=%d memory_mb=%d: %w",
 			target.Resources.CPU,
 			target.Resources.MemoryMB,
 			wantCPU,
 			wantMemoryMB,
+			providers.ErrPermanent,
 		)
 	}
 	if target.Resources.CPU == wantCPU && target.Resources.MemoryMB == wantMemoryMB {
-		return target, nil
+		return nil
 	}
 	resize := resizeVMRequest{}
 	if target.Resources.CPU < wantCPU {
@@ -197,43 +207,35 @@ func (p *provider) ensureResources(
 	if target.Resources.MemoryMB < wantMemoryMB {
 		resize.MemoryMB = wantMemoryMB
 	}
-	resized, err := p.api.ResizeVM(ctx, target.ID, resize)
-	if err != nil {
-		return vm{}, err
-	}
-	if err := validateOwnedVM(resized, installationID, machineID, expectedName); err != nil {
-		return vm{}, err
-	}
-	if resized.Resources.CPU != wantCPU || resized.Resources.MemoryMB != wantMemoryMB {
-		return vm{}, fmt.Errorf(
-			"freestyle VM %q resize returned cpu=%d memory_mb=%d, want cpu=%d memory_mb=%d",
-			resized.ID,
-			resized.Resources.CPU,
-			resized.Resources.MemoryMB,
-			wantCPU,
-			wantMemoryMB,
-		)
-	}
-	return resized, nil
+	return p.api.ResizeVM(ctx, target.ID, resize)
 }
 
 func (p *provider) ensureDaemon(
 	ctx context.Context,
-	resourceID, startupScript, machineToken string,
+	resourceID string,
+	options providerOptions,
+	machineToken string,
 	machineEnv map[string]string,
 ) error {
 	env, err := providers.BuildManagedMachineEnv(
 		p.omnaraAPIURL,
 		machineToken,
-		startupScript,
+		options.StartupScript,
 		machineEnv,
 	)
 	if err != nil {
 		return err
 	}
+	launcher := providers.ManagedDaemonLauncherArgs()[2]
+	if options.SleepAfterMS > 0 {
+		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
+		env[daemonprotocol.WakeListenAddrEnvVar] = ":" + strconv.Itoa(daemonprotocol.WakeListenerPort)
+		launcher = bootstrapKeepAwakeScript + launcher
+	}
 	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
 	response, err := p.api.ExecVM(ctx, resourceID, execVMRequest{
-		Command:   managedDaemonInstallCommand(env),
+		Command:   daemonInstallScript,
+		Stdin:     base64.StdEncoding.EncodeToString([]byte(managedDaemonStartScript(env, launcher))),
 		LinuxUser: "root",
 		TimeoutMS: daemonInstallTimeoutMS,
 	})
@@ -307,37 +309,41 @@ func (p *provider) DeleteMachine(
 }
 
 func (p *provider) WakeMachine(ctx context.Context, input providers.WakeMachineInput) error {
-	if input.ProviderResourceID == "" {
-		return errors.New("provider resource id is required")
+	if input.SandboxURL == "" {
+		return errors.New("freestyle sandbox url is required")
 	}
-	target, found, err := p.api.GetVM(ctx, input.ProviderResourceID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, input.SandboxURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("build freestyle wake request: %w", err)
 	}
-	if !found {
-		return fmt.Errorf("freestyle VM %q was not found", input.ProviderResourceID)
+	client := providers.NewHTTPClient()
+	if p.wakeTransport != nil {
+		client.Transport = p.wakeTransport
 	}
-	if target.Metadata[providerMarkerKey] != providerMarkerValue ||
-		!strings.HasPrefix(target.Slug, "omnara-mch-") {
-		return fmt.Errorf("freestyle VM %q does not have Omnara ownership metadata", target.ID)
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("wake freestyle machine: %w", err)
 	}
-	switch normalizeVMState(target.State) {
-	case vmStateRunning, vmStateStarting:
-		return nil
-	case vmStatePaused, vmStateStopped:
-		_, err := p.api.StartVM(ctx, target.ID)
-		return err
-	default:
-		return fmt.Errorf("freestyle VM %q cannot be woken from state %q", target.ID, target.State)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("wake freestyle machine: unexpected HTTP status %d", response.StatusCode)
 	}
+	return nil
 }
 
-func ownershipMetadata(installationID, machineID uuid.UUID) map[string]string {
-	return map[string]string{
-		providerMarkerKey:     providerMarkerValue,
-		installationMarkerKey: installationID.String(),
-		machineMarkerKey:      machineID.String(),
+func ownershipMetadata(installationID, machineID uuid.UUID) (map[string]string, error) {
+	installationOwner, err := publicid.Encode(publicid.KindInstallation, installationID)
+	if err != nil {
+		return nil, err
 	}
+	machineOwner, err := publicid.Encode(publicid.KindMachine, machineID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		installationMarkerKey: installationOwner,
+		machineMarkerKey:      machineOwner,
+	}, nil
 }
 
 func validateOwnedVM(
@@ -348,65 +354,32 @@ func validateOwnedVM(
 	if target.ID == "" {
 		return errors.New("freestyle VM is missing its id")
 	}
-	if target.Slug != expectedName ||
-		target.Metadata[providerMarkerKey] != providerMarkerValue ||
-		target.Metadata[installationMarkerKey] != installationID.String() ||
-		target.Metadata[machineMarkerKey] != machineID.String() {
+	expected, err := ownershipMetadata(installationID, machineID)
+	if err != nil {
+		return err
+	}
+	if target.Slug != expectedName {
 		return fmt.Errorf("freestyle VM %q does not have the expected ownership metadata", target.ID)
+	}
+	for key, value := range expected {
+		if target.Metadata[key] != value {
+			return fmt.Errorf("freestyle VM %q does not have the expected ownership metadata", target.ID)
+		}
 	}
 	return nil
 }
 
-func vmUsesSnapshot(target vm, snapshot string) bool {
-	return target.SnapshotID == snapshot || target.SourceSnapshotSlugAtCreate == snapshot
-}
-
-func managedDaemonInstallCommand(env map[string]string) string {
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+func managedDaemonStartScript(env map[string]string, launcher string) string {
 	var startScript strings.Builder
 	startScript.WriteString("#!/bin/sh\nexec env")
-	for _, key := range keys {
+	for _, key := range slices.Sorted(maps.Keys(env)) {
 		startScript.WriteByte(' ')
 		startScript.WriteString(shellQuote(key + "=" + env[key]))
 	}
-	launcher := providers.ManagedDaemonLauncherArgs()
 	startScript.WriteString(" /bin/sh -c ")
-	startScript.WriteString(shellQuote(launcher[2]))
+	startScript.WriteString(shellQuote(launcher))
 	startScript.WriteByte('\n')
-
-	unit := `[Unit]
-Description=Omnara machine daemon
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=` + daemonStartScriptPath + `
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-`
-	startPayload := base64.StdEncoding.EncodeToString([]byte(startScript.String()))
-	unitPayload := base64.StdEncoding.EncodeToString([]byte(unit))
-	return "set -eu;" +
-		"if systemctl is-active --quiet " + daemonServiceName + ";then exit 0;fi;" +
-		"d=$(mktemp -d);trap 'rm -rf \"$d\"' EXIT HUP INT TERM;" +
-		"printf '%s' '" + startPayload + "'|base64 -d >\"$d/start\";" +
-		"printf '%s' '" + unitPayload + "'|base64 -d >\"$d/unit\";" +
-		"install -d -m 700 /etc/omnara;" +
-		"install -m 700 \"$d/start\" " + daemonStartScriptPath + ";" +
-		"install -m 644 \"$d/unit\" " + daemonServiceUnitPath + ";" +
-		"systemctl daemon-reload;" +
-		"systemctl enable " + daemonServiceName + ";" +
-		"systemctl reset-failed " + daemonServiceName + " 2>/dev/null||:;" +
-		"systemctl start " + daemonServiceName + ";" +
-		"systemctl is-active --quiet " + daemonServiceName
+	return startScript.String()
 }
 
 func shellQuote(value string) string {

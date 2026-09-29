@@ -182,7 +182,7 @@ describe('Freestyle machine pools', () => {
     )
   })
 
-  it('uses the smallest systemd snapshot size when switching providers', () => {
+  it('defaults to the base snapshot size when switching to Freestyle', () => {
     const values = machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'freestyle')
 
     expect(values).toMatchObject({
@@ -193,6 +193,16 @@ describe('Freestyle machine pools', () => {
     })
   })
 
+  it('resets the Freestyle size default when switching to another provider', () => {
+    const freestyle = machinePoolFormAfterProviderChange(machinePoolFormDefaults, 'freestyle')
+
+    expect(machinePoolFormAfterProviderChange(freestyle, 'unikraft')).toMatchObject({
+      provider: 'unikraft',
+      cpu: machinePoolFormDefaults.cpu,
+      memoryGb: machinePoolFormDefaults.memoryGb,
+    })
+  })
+
   it('preserves API-only provider options when editing a pool', () => {
     const pool = machinePool({
       provider: 'freestyle',
@@ -200,7 +210,7 @@ describe('Freestyle machine pools', () => {
       default_machine_memory_mb: 4096,
       default_machine_provider_options: {
         snapshot: 'freestyle/ubuntu-sm',
-        idle_timeout_seconds: 600,
+        sleep_after_ms: 60_000,
       },
       max_total_cpu: 6,
       max_total_memory_mb: 12288,
@@ -220,7 +230,7 @@ describe('Freestyle machine pools', () => {
     expect(
       machinePoolUpdateRequest(pool, { ...values, image: 'team/configured-worker' })
         .default_machine_provider_options,
-    ).toEqual({ snapshot: 'team/configured-worker', idle_timeout_seconds: 600 })
+    ).toEqual({ snapshot: 'team/configured-worker', sleep_after_ms: 60_000 })
   })
 })
 

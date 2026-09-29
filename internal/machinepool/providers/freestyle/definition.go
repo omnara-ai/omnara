@@ -4,32 +4,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const apiBaseURL = "https://api.freestyle.sh"
+const apiBaseURL = "https://api.freestyle.sh/v5"
 
 type providerConfig struct {
-	APIBaseURL       string   `json:"api_base_url,omitempty"`
 	AllowedSnapshots []string `json:"allowed_snapshots,omitempty"`
 }
 
 type providerOptions struct {
-	Snapshot           string `json:"snapshot"`
-	StartupScript      string `json:"startup_script,omitempty"`
-	IdleTimeoutSeconds *int   `json:"idle_timeout_seconds,omitempty"`
+	Snapshot      string `json:"snapshot"`
+	StartupScript string `json:"startup_script,omitempty"`
+	SleepAfterMS  int    `json:"sleep_after_ms,omitempty"`
 }
 
 type Definition struct{}
 
+var _ providers.Definition = Definition{}
 var _ providers.RuntimeProviderDefinition = Definition{}
 
-func resourcePolicy() providers.MachineResourcePolicy {
+func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{
 			PoolDefault:  providers.MachineResourceRequired,
@@ -62,8 +62,7 @@ func newProvider(
 	raw json.RawMessage,
 	runtimeConfig providers.RuntimeConfig,
 ) (*provider, error) {
-	config, err := parseProviderConfig(raw)
-	if err != nil {
+	if _, err := parseProviderConfig(raw); err != nil {
 		return nil, err
 	}
 	token := strings.TrimSpace(runtimeConfig.ProviderAuthToken)
@@ -71,7 +70,7 @@ func newProvider(
 		return nil, errors.New("freestyle provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(config.APIBaseURL, token, nil),
+		api:          newRESTClient(apiBaseURL, token, nil),
 		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }
@@ -84,11 +83,11 @@ func (Definition) ResolveMachineProviderOptions(
 	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
-func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
+func (definition Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
 	if err := providers.ValidateMachinePoolResourcePolicy(
 		providers.Freestyle,
 		policy,
-		resourcePolicy(),
+		definition.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
@@ -119,7 +118,7 @@ func (definition Definition) ValidateMachineProvisioning(
 	if err := providers.ValidateMachineProvisioningResourcePolicy(
 		providers.Freestyle,
 		machineProvisioning,
-		resourcePolicy(),
+		definition.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
@@ -162,15 +161,7 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	if err := providers.DecodeStrictJSON(raw, &config); err != nil {
 		return providerConfig{}, fmt.Errorf("decode freestyle provider config: %w", err)
 	}
-	config.APIBaseURL = strings.TrimSpace(config.APIBaseURL)
-	if config.APIBaseURL == "" {
-		config.APIBaseURL = apiBaseURL
-	}
-	normalizedBaseURL, err := normalizeAPIBaseURL(config.APIBaseURL)
-	if err != nil {
-		return providerConfig{}, err
-	}
-	config.APIBaseURL = normalizedBaseURL
+	var err error
 	config.AllowedSnapshots, err = providers.NormalizeAllowlist(
 		"freestyle provider config allowed_snapshots",
 		config.AllowedSnapshots,
@@ -216,11 +207,10 @@ func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOption
 	); err != nil {
 		return providerOptions{}, err
 	}
-	if options.IdleTimeoutSeconds != nil &&
-		(*options.IdleTimeoutSeconds <= 0 || *options.IdleTimeoutSeconds > 365*24*60*60) {
-		return providerOptions{}, errors.New(
-			"freestyle machine config idle_timeout_seconds must be between 1 and 31536000",
-		)
+	if options.SleepAfterMS != 0 {
+		if _, err := daemonprotocol.SleepAfterDuration(options.SleepAfterMS); err != nil {
+			return providerOptions{}, fmt.Errorf("freestyle machine config sleep_after_ms %w", err)
+		}
 	}
 	return options, nil
 }
@@ -236,18 +226,4 @@ func validateSnapshot(value string) error {
 		return errors.New("value is invalid")
 	}
 	return nil
-}
-
-func normalizeAPIBaseURL(baseURL string) (string, error) {
-	parsed, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", errors.New("freestyle api base url must be an absolute URL")
-	}
-	if !providers.IsHTTPS(parsed) {
-		return "", errors.New("freestyle api base url must use https")
-	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("freestyle api base url must not include query or fragment")
-	}
-	return parsed.String(), nil
 }

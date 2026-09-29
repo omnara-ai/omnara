@@ -217,6 +217,9 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 		machine.ProviderResourceID = observation.ProviderResourceID
 		machine.UpdatedAt = observation.UpdatedAt
 	}
+	if errors.Is(provisionErr, providers.ErrPermanent) {
+		return m.cleanupFailedProvision(ctx, machine, "provider_error", provisionErr.Error(), provisionErr)
+	}
 	if provisionErr != nil {
 		return m.handleProvisionFailure(
 			ctx,
@@ -288,7 +291,7 @@ func provisionMachineWithRetry(
 		if err == nil {
 			return observed, nil
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, providers.ErrPermanent) {
 			return observed, err
 		}
 		if attempt == providerProvisionRetryAttempts-1 {

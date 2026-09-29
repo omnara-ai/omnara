@@ -66,6 +66,7 @@ type Client struct {
 	wakeSignals   chan struct{}
 	sleepPlatform sleepPlatform
 	sleepDisabled atomic.Bool
+	asleep        atomic.Bool
 }
 
 type registerResponse struct {

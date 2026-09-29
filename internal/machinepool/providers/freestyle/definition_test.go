@@ -11,7 +11,7 @@ import (
 
 func TestDefinitionCreatesProvider(t *testing.T) {
 	runtime, err := (Definition{}).NewProvider(
-		json.RawMessage(`{"api_base_url":"https://freestyle.example/api/"}`),
+		nil,
 		providers.RuntimeConfig{
 			OmnaraAPIURL:      "https://api.omnara.test/v1",
 			ProviderAuthToken: "token",
@@ -25,7 +25,7 @@ func TestDefinitionCreatesProvider(t *testing.T) {
 		t.Fatalf("provider type = %T, want *provider", runtime)
 	}
 	client, ok := provider.api.(*restClient)
-	if !ok || client.apiBaseURL != "https://freestyle.example/api" || client.apiToken != "token" {
+	if !ok || client.apiBaseURL != apiBaseURL || client.apiToken != "token" {
 		t.Fatalf("REST client = %#v", provider.api)
 	}
 	if provider.omnaraAPIURL != "https://api.omnara.test/v1" {
@@ -33,21 +33,14 @@ func TestDefinitionCreatesProvider(t *testing.T) {
 	}
 }
 
-func TestDefinitionRequiresTokenAndHTTPSBaseURL(t *testing.T) {
+func TestDefinitionRequiresToken(t *testing.T) {
 	_, err := (Definition{}).NewProvider(nil, providers.RuntimeConfig{})
 	if err == nil || !strings.Contains(err.Error(), "auth token is required") {
 		t.Fatalf("missing token error = %v", err)
 	}
-	_, err = (Definition{}).NewProvider(
-		json.RawMessage(`{"api_base_url":"http://freestyle.example"}`),
-		providers.RuntimeConfig{ProviderAuthToken: "token"},
-	)
-	if err == nil || !strings.Contains(err.Error(), "must use https") {
-		t.Fatalf("insecure base URL error = %v", err)
-	}
 }
 
-func TestDefinitionValidatesSnapshotAllowlistAndIdleTimeout(t *testing.T) {
+func TestDefinitionValidatesSnapshotAllowlistAndSleepAfter(t *testing.T) {
 	policy := validPolicy(t)
 	policy.ProviderConfig = json.RawMessage(`{"allowed_snapshots":["ubuntu-24.04"]}`)
 	if err := (Definition{}).ValidateMachineProvisioning(policy, testProvisioning(t)); err != nil {
@@ -62,15 +55,14 @@ func TestDefinitionValidatesSnapshotAllowlistAndIdleTimeout(t *testing.T) {
 	}
 
 	provisioning = testProvisioning(t)
-	provisioning.ProviderOptions["idle_timeout_seconds"] = rawJSON(t, 31536001)
+	provisioning.ProviderOptions["sleep_after_ms"] = rawJSON(t, 29999)
 	if err := (Definition{}).ValidateMachineProvisioning(policy, provisioning); err == nil ||
-		!strings.Contains(err.Error(), "between 1 and 31536000") {
-		t.Fatalf("idle timeout error = %v", err)
+		!strings.Contains(err.Error(), "sleep_after_ms must be at least 30000") {
+		t.Fatalf("short sleep_after_ms error = %v", err)
 	}
-	provisioning.ProviderOptions["idle_timeout_seconds"] = rawJSON(t, 0)
-	if err := (Definition{}).ValidateMachineProvisioning(policy, provisioning); err == nil ||
-		!strings.Contains(err.Error(), "between 1 and 31536000") {
-		t.Fatalf("zero idle timeout error = %v", err)
+	provisioning.ProviderOptions["sleep_after_ms"] = rawJSON(t, 30000)
+	if err := (Definition{}).ValidateMachineProvisioning(policy, provisioning); err != nil {
+		t.Fatalf("validate sleep_after_ms: %v", err)
 	}
 }
 
