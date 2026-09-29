@@ -17,7 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/publicid"
-	"github.com/omnara-ai/omnara/internal/skills"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -29,10 +28,7 @@ type StoreRef struct {
 	staging string
 }
 
-func NewStoreRef(orgID, projectID uuid.UUID, name string) (StoreRef, error) {
-	if err := skills.ValidateName(name); err != nil {
-		return StoreRef{}, err
-	}
+func NewStoreRef(orgID, projectID, storeID uuid.UUID, name string) (StoreRef, error) {
 	org, err := publicid.Encode(publicid.KindOrganization, orgID)
 	if err != nil {
 		return StoreRef{}, err
@@ -41,7 +37,11 @@ func NewStoreRef(orgID, projectID uuid.UUID, name string) (StoreRef, error) {
 	if err != nil {
 		return StoreRef{}, err
 	}
-	storePath := org + "/" + project + "/" + name
+	store, err := publicid.Encode(publicid.KindMemoryStore, storeID)
+	if err != nil {
+		return StoreRef{}, err
+	}
+	storePath := org + "/" + project + "/" + store
 	return StoreRef{Name: name, path: storePath, staging: ".staging/" + storePath}, nil
 }
 

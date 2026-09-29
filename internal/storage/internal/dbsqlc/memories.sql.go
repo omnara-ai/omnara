@@ -189,9 +189,8 @@ WHERE s.project_id = $1
   AND ($3::text = '' OR s.name = $3)
   AND s.name >= $4::text COLLATE "C"
   AND s.name < ($4::text || '{') COLLATE "C"
-  AND ($5::text = '' OR ('/memory/' || s.name) COLLATE "C" ~ $5::text)
 ORDER BY s.name COLLATE "C"
-LIMIT $6::integer
+LIMIT $5::integer
 `
 
 type ListAttachedMemoryStoresParams struct {
@@ -199,7 +198,6 @@ type ListAttachedMemoryStoresParams struct {
 	StoreIds    []uuid.UUID
 	StoreName   string
 	StorePrefix string
-	RootPattern string
 	RowLimit    *int32
 }
 
@@ -217,7 +215,6 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 		arg.StoreIds,
 		arg.StoreName,
 		arg.StorePrefix,
-		arg.RootPattern,
 		arg.RowLimit,
 	)
 	if err != nil {

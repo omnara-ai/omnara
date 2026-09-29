@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -13,6 +14,14 @@ func CheckFileToolSupport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if _, err := exec.LookPath("rg"); err != nil {
+		return err
+	}
+	view, err := newSearchView(nil)
+	if err != nil {
+		return err
+	}
+	_ = view.Close()
+	if err := os.RemoveAll(view.Name()); err != nil {
 		return err
 	}
 	output, err := editFileText(ctx, []byte("é"), "s/./x/g")

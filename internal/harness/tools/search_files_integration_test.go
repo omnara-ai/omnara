@@ -82,6 +82,8 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("memory search confinement requires Linux")
 	}
+	temporary := t.TempDir()
+	t.Setenv("TMPDIR", temporary)
 	setupFileExec(t)
 	ctx := t.Context()
 	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-search", toolFixtureOptions{withMemory: true})
@@ -161,6 +163,10 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 		}
 		call.Call = model.ToolCall{Name: toolcatalog.ToolNameSearchFiles, Input: input}
 		result, err := runSearchFilesAsync(ctx, call)
+		views, cleanupErr := os.ReadDir(temporary)
+		if cleanupErr != nil || len(views) != 0 {
+			t.Fatalf("search left temporary views: %v %v", views, cleanupErr)
+		}
 		if err != nil {
 			return searchResult{}, err
 		}
@@ -219,6 +225,16 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 			t.Fatalf("cross-batch %s search: %+v, %v", mode, result, err)
 		}
 	}
+	for _, pattern := range []string{"/memory/**/notes.md", "/memory/**/**/notes.md"} {
+		result, err := search(pattern, []string{"-e", "TARGET"}, 100, 0)
+		if err != nil || result.Truncated || result.MatchCount != 2 {
+			t.Fatalf("recursive store selection %s: %+v, %v", pattern, result, err)
+		}
+	}
+	result, err = search("/memory/**", []string{"-e", "TARGET"}, 1, 0)
+	if err != nil || result.MatchCount != 1 || !result.Truncated {
+		t.Fatalf("recursive root search: %+v, %v", result, err)
+	}
 	var lastStorePath string
 	if err := fixture.Store.Memories().VisitSearchStores(ctx, scope.ProjectID, agent.ID,
 		fmt.Sprintf("/memory/batch-%02d/n.txt", searchStoreBatchSize), func(store memorystore.SearchStore) error {
@@ -239,6 +255,20 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	}
 	if _, err := search("/memory/batch-*/*.txt", []string{"-e", "TARGET"}, 100, 0); err == nil {
 		t.Fatal("searched a store replaced by a symlink")
+	}
+	for _, test := range []struct {
+		pattern string
+		matches int
+	}{
+		{"/memory/*ary/**", 2},
+		{"/memory/batch-?0/n.txt", 4},
+		{"/memory/*", 0},
+		{"/memory/batch-*", 0},
+	} {
+		result, err := search(test.pattern, []string{"-e", "TARGET"}, 100, 0)
+		if err != nil || result.Truncated || result.MatchCount != test.matches {
+			t.Fatalf("opened an excluded store for %s: %+v, %v", test.pattern, result, err)
+		}
 	}
 	if _, err := fixture.Pool.Exec(
 		ctx, "UPDATE agents SET current_config_id = $1 WHERE id = $2", fixture.AgentConfig.ID, agent.ID,
@@ -262,8 +292,12 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	privateID, err := publicid.Encode(publicid.KindMemoryStore, private.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(filepath.Dir(physicalPath), "link.md")
-	if err := os.Symlink(filepath.Join("..", "private", "secret.md"), link); err != nil {
+	if err := os.Symlink(filepath.Join("..", privateID, "secret.md"), link); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := search("/memory/engineering/link.md", []string{"-e", "SECRET"}, 1, 0); err == nil {

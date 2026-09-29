@@ -326,13 +326,13 @@ func TestSearchFilesCancellation(t *testing.T) {
 	}
 }
 
-func TestMemorySearchGlobs(t *testing.T) {
+func TestMemorySearchGlob(t *testing.T) {
 	root := t.TempDir()
 	names := []string{
 		"a.md", "é.md", "nested/a.md", "team/a.md", "[x]{y}.md", ".hidden.md", "a:b.md", "trailing ", "two words.md",
 	}
 	for _, name := range names {
-		path := filepath.Join(root, name)
+		path := filepath.Join(root, "memory", "team", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -356,11 +356,8 @@ func TestMemorySearchGlobs(t *testing.T) {
 					want = append(want, name)
 				}
 			}
-			args := []string{"--files", "--hidden", "--no-ignore"}
-			for _, glob := range memorySearchGlobs(pattern, "team") {
-				args = append(args, "--glob", glob)
-			}
-			command := exec.CommandContext(t.Context(), "rg", append(args, "--", ".")...)
+			args := []string{"--files", "--hidden", "--no-ignore", "--glob", memorySearchGlob(pattern)}
+			command := exec.CommandContext(t.Context(), "rg", append(args, "--", "memory/team")...)
 			command.Dir = root
 			output, err := command.Output()
 			if err != nil {
@@ -369,8 +366,8 @@ func TestMemorySearchGlobs(t *testing.T) {
 			var got []string
 			for _, name := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
 				name = strings.TrimPrefix(name, "./")
-				if matcher.MatchString("/memory/team/" + name) {
-					got = append(got, name)
+				if matcher.MatchString("/" + name) {
+					got = append(got, strings.TrimPrefix(name, "memory/team/"))
 				}
 			}
 			slices.Sort(want)
@@ -379,5 +376,16 @@ func TestMemorySearchGlobs(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestSearchViewRequiresWritableTempDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TMP", dir)
+	t.Setenv("TEMP", dir)
+	view, err := newSearchView(nil)
+	if view != nil || !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "create search view") {
+		t.Fatalf("missing temporary directory: view=%v err=%v", view, err)
 	}
 }

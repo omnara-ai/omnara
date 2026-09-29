@@ -10,7 +10,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -248,7 +250,19 @@ type searchOutput struct {
 func (output *searchOutput) search(ctx context.Context, source searchSource) error {
 	commandCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	command, err := newSearchCommand(commandCtx, output.input, source)
+	var view *os.File
+	if len(source.stores) > 0 {
+		var err error
+		view, err = newSearchView(source.stores)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = view.Close()
+			_ = os.RemoveAll(view.Name())
+		}()
+	}
+	command, err := newSearchCommand(commandCtx, output.input, source, view)
 	if err != nil {
 		return err
 	}
@@ -283,7 +297,30 @@ func (output *searchOutput) search(ctx context.Context, source searchSource) err
 	return nil
 }
 
-func newSearchCommand(ctx context.Context, input searchFilesRequest, source searchSource) (*exec.Cmd, error) {
+func newSearchView(stores []searchStore) (_ *os.File, err error) {
+	dir, err := os.MkdirTemp("", "omnara-search-")
+	if err != nil {
+		return nil, fmt.Errorf("create search view: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(dir)
+		}
+	}()
+	if err := os.Mkdir(filepath.Join(dir, "memory"), 0700); err != nil {
+		return nil, err
+	}
+	for i, store := range stores {
+		if err := os.Symlink("/proc/self/fd/"+strconv.Itoa(i+4), filepath.Join(dir, "memory", store.name)); err != nil {
+			return nil, err
+		}
+	}
+	return os.Open(dir)
+}
+
+func newSearchCommand(
+	ctx context.Context, input searchFilesRequest, source searchSource, view *os.File,
+) (*exec.Cmd, error) {
 	args := []string{"--no-config", "--no-mmap", "--threads", "1", "--color", "never",
 		"--engine", "default", "--regex-size-limit", "10M", "--dfa-size-limit", "10M", "--encoding", "none"}
 	args = append(args, input.Args...)
@@ -298,19 +335,13 @@ func newSearchCommand(ctx context.Context, input searchFilesRequest, source sear
 		return command, nil
 	}
 	args = append(args, "--hidden", "--no-ignore",
-		"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
+		"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes), "--glob", memorySearchGlob(input.Path))
 	var operands []string
-	var roots []*os.File
-	for i, store := range source.stores {
-		fd := strconv.Itoa(i + 3)
-		operand := fd + "/"
+	roots := []*os.File{view}
+	for _, store := range source.stores {
+		operand := "memory/" + store.name
 		if !strings.ContainsAny(input.Path, "*?") {
-			_, name, _ := memorystore.ParsePath(input.Path)
-			operand += name
-		} else {
-			for _, glob := range memorySearchGlobs(input.Path, store.name) {
-				args = append(args, "--glob", "/"+fd+glob)
-			}
+			operand = strings.TrimPrefix(input.Path, "/")
 		}
 		operands = append(operands, operand)
 		roots = append(roots, store.root)
@@ -321,7 +352,7 @@ func newSearchCommand(ctx context.Context, input searchFilesRequest, source sear
 		return nil, err
 	}
 	command := exec.CommandContext(ctx, "omnara-file-exec",
-		append([]string{strconv.Itoa(len(roots)), binary}, args...)...)
+		append([]string{strconv.Itoa(len(source.stores)), binary}, args...)...)
 	command.ExtraFiles = roots
 	return command, nil
 }
@@ -385,48 +416,29 @@ func (s *searchStream) resolvePath(name string) (string, bool, error) {
 		}
 		return s.source.path, true, nil
 	}
-	name = strings.TrimPrefix(name, "./")
-	fd, name, _ := strings.Cut(name, "/")
-	n, err := strconv.Atoi(fd)
-	if err != nil || n < 3 || n-3 >= len(s.source.stores) {
-		return "", false, errors.New("unexpected ripgrep store")
-	}
-	if err := memorystore.ValidatePath(name); err != nil {
+	path := "/" + strings.TrimPrefix(name, "./")
+	storeName, _, err := memorystore.ParsePath(path)
+	if err != nil {
 		return "", false, err
 	}
-	path := memorystore.Root + "/" + s.source.stores[n-3].name + "/" + name
+	if !slices.ContainsFunc(s.source.stores, func(store searchStore) bool { return store.name == storeName }) {
+		return "", false, errors.New("unexpected ripgrep store")
+	}
 	return path, s.output.input.matcher.MatchString(path), nil
 }
 
-func memorySearchGlobs(pattern, store string) []string {
-	parts := strings.Split(strings.TrimPrefix(pattern, memorystore.Root+"/"), "/")
-	var patterns []string
-	if len(parts) > 0 && parts[0] == "**" {
-		patterns = append(patterns, strings.Join(parts, "/"))
-		for len(parts) > 0 && parts[0] == "**" {
-			parts = parts[1:]
-		}
-	}
-	if len(parts) > 0 {
-		matcher, _ := storage.CompileFilePattern("/" + parts[0])
-		if matcher.MatchString("/"+store) && len(parts) > 1 {
-			patterns = append(patterns, strings.Join(parts[1:], "/"))
-		}
-	}
-	for i, pattern := range patterns {
-		parts := strings.Split(pattern, "/")
-		for j, part := range parts {
-			if part != "**" {
-				part = strings.ReplaceAll(part, "?", "*")
-				for strings.Contains(part, "**") {
-					part = strings.ReplaceAll(part, "**", "*")
-				}
+func memorySearchGlob(pattern string) string {
+	parts := strings.Split(pattern, "/")
+	for i, part := range parts {
+		if part != "**" {
+			part = strings.ReplaceAll(part, "?", "*")
+			for strings.Contains(part, "**") {
+				part = strings.ReplaceAll(part, "**", "*")
 			}
-			parts[j] = searchGlobEscaper.Replace(part)
 		}
-		patterns[i] = "/" + strings.Join(parts, "/")
+		parts[i] = searchGlobEscaper.Replace(part)
 	}
-	return patterns
+	return strings.Join(parts, "/")
 }
 
 func (s *searchStream) consume(data []byte) error {

@@ -69,21 +69,35 @@ func TestFileExecConfinement(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = second.Close() }()
+	viewPath := t.TempDir()
+	if err := os.Mkdir(filepath.Join(viewPath, "memory"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{"allowed", "second"} {
+		if err := os.Symlink(fmt.Sprintf("/proc/self/fd/%d", i+4), filepath.Join(viewPath, "memory", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	view, err := os.Open(viewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = view.Close() }()
 	for _, test := range []struct {
 		name string
 		args []string
 		deny bool
 	}{
-		{"multiple stores", []string{"--json", "-e", "TARGET", "3/", "4/"}, false},
-		{"parent traversal", []string{"--json", "-e", "TARGET", "3/../private"}, true},
+		{"multiple stores", []string{"--json", "-e", "TARGET", "memory/allowed", "memory/second"}, false},
+		{"parent traversal", []string{"--json", "-e", "TARGET", "memory/allowed/../private"}, true},
 		{"absolute path", []string{"--json", "-e", "TARGET", filepath.Join(base, "private/secret.md")}, true},
-		{"outward symlink", []string{"--json", "--follow", "-e", "TARGET", "3/escape"}, true},
+		{"outward symlink", []string{"--json", "--follow", "-e", "TARGET", "memory/allowed/escape"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			args := []string{"2", rg,
 				"--no-config", "--no-mmap", "--threads", "1", "--hidden", "--no-ignore"}
 			command := exec.CommandContext(t.Context(), launcher, append(args, test.args...)...)
-			command.ExtraFiles = []*os.File{root, second}
+			command.ExtraFiles = []*os.File{view, root, second}
 			command.Env = []string{"LANG=C.UTF-8"}
 			output, err := command.CombinedOutput()
 			if test.deny {
@@ -110,8 +124,8 @@ func TestFileExecConfinement(t *testing.T) {
 			t.Fatal(err)
 		}
 		command := exec.CommandContext(t.Context(), launcher, "2", rg,
-			"--json", "--no-config", "--no-mmap", "--threads", "1", "-e", "TARGET", "3/", "4/")
-		command.ExtraFiles = []*os.File{root, second}
+			"--json", "--no-config", "--no-mmap", "--threads", "1", "-e", "TARGET", "memory/allowed", "memory/second")
+		command.ExtraFiles = []*os.File{view, root, second}
 		command.Env = []string{"LANG=C.UTF-8"}
 		output, err := command.CombinedOutput()
 		if err != nil || strings.Contains(string(output), "REPLACEMENT") ||
@@ -121,8 +135,8 @@ func TestFileExecConfinement(t *testing.T) {
 	})
 	t.Run("confinement required", func(t *testing.T) {
 		command := exec.CommandContext(t.Context(), os.Args[0],
-			"-test.run=^TestFileExecWithoutLandlock$", "--", launcher, "1", rg, "-e", "TARGET", "3/")
-		command.ExtraFiles = []*os.File{root}
+			"-test.run=^TestFileExecWithoutLandlock$", "--", launcher, "1", rg, "-e", "TARGET", "memory/allowed")
+		command.ExtraFiles = []*os.File{view, root}
 		command.Env = []string{"LANG=C.UTF-8"}
 		output, err := command.CombinedOutput()
 		if err == nil || !strings.Contains(string(output), "missing kernel Landlock support") ||
@@ -134,8 +148,8 @@ func TestFileExecConfinement(t *testing.T) {
 		for i := range 20 {
 			command := exec.CommandContext(t.Context(), launcher, "2", rg,
 				"--json", "--no-config", "--no-mmap", "--threads", "1", "-e", "TARGET",
-				"-e", strings.Repeat("x", 50*i+1), "--", "3/", "4/")
-			command.ExtraFiles = []*os.File{root, second}
+				"-e", strings.Repeat("x", 50*i+1), "--", "memory/allowed", "memory/second")
+			command.ExtraFiles = []*os.File{view, root, second}
 			command.Env = []string{"LANG=C.UTF-8", "GOGC=1"}
 			output, err := command.CombinedOutput()
 			if err != nil ||

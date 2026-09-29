@@ -37,11 +37,11 @@ func Run(args []string) error {
 	args = args[1:]
 	roots := make([]string, rootCount)
 	for i := range roots {
-		roots[i] = procFDDir + "/" + strconv.Itoa(i+3)
+		roots[i] = procFDDir + "/" + strconv.Itoa(i+4)
 	}
 	workingDir := "/"
 	if rootCount > 0 {
-		workingDir = procFDDir
+		workingDir = procFDDir + "/3"
 	}
 	if err := os.Chdir(workingDir); err != nil {
 		return err
@@ -100,6 +100,8 @@ func Run(args []string) error {
 	}
 	if rootCount == 0 {
 		rules = append(rules, landlock.PathAccess(ll.AccessFSReadFile|ll.AccessFSReadDir, "/usr/lib/locale/C.utf8"))
+	} else {
+		rules = append(rules, landlock.PathAccess(ll.AccessFSReadDir, workingDir))
 	}
 	for _, dir := range []string{"/lib/" + triplet, "/usr/lib/" + triplet, "/usr/lib"} {
 		for _, name := range allowedLibraries {

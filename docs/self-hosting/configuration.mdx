@@ -132,6 +132,8 @@ The directory must be writable by the service user and support case-sensitive pa
 
 Native workers need `rg`, `omnara-file-exec`, and `omnara-file-edit` on `PATH`. For Debian/Ubuntu, install `sed` and `libcap2-bin`, then run `make install-file-edit` to install the editor and its fixed filesystem jail. Rerun it after upgrading Omnara or the host's sed, libraries, or locale files. The worker image includes this setup.
 
+Workers also need a writable temporary directory (`TMPDIR`, normally `/tmp`) for memory search. If the container root filesystem is read-only, mount a writable volume there.
+
 Scripted edits require a non-root worker with `SYS_CHROOT` available in its capability bounding set and `no_new_privs` disabled. Only the editor helper acquires the capability; it drops it before running sed.
 
 ## Machine daemon and pools
