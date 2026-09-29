@@ -25,13 +25,14 @@ import (
 )
 
 type Store struct {
-	pool  *pgxpool.Pool
+	pool  *storeutil.Pool
 	q     *dbsqlc.Queries
 	files *Filesystem
 }
 
 func New(pool *pgxpool.Pool, files *Filesystem) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), files: files}
+	db := storeutil.WrapPool(pool)
+	return &Store{pool: db, q: dbsqlc.New(db), files: files}
 }
 
 type Scope struct {
@@ -107,7 +108,7 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 	if err != nil {
 		return Record{}, fmt.Errorf("generate memory store id: %w", err)
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", err)
 	}
@@ -216,7 +217,7 @@ func (s *Store) Update(
 	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return Record{}, fmt.Errorf("update memory store: %w", err)
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Record{}, fmt.Errorf("update memory store: %w", err)
 	}
@@ -315,7 +316,7 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("delete memory store: %w", err)
 	}
