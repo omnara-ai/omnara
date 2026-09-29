@@ -21,9 +21,13 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 	if snapshot == "" {
 		snapshot = "freestyle/ubuntu-sm"
 	}
-	omnaraAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
-	if omnaraAPIURL == "" {
-		omnaraAPIURL = "https://app.omnara.com/api/v1"
+	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
+	if omnaraPublicURL == "" {
+		omnaraPublicURL = "https://app.omnara.com"
+	}
+	omnaraPublicAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
+	if omnaraPublicAPIURL == "" {
+		omnaraPublicAPIURL = omnaraPublicURL + "/api/v1"
 	}
 	cpu := 4
 	memoryMB := 8192
@@ -35,7 +39,7 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 	machineProvider, err := (Definition{}).NewProvider(
 		rawJSON(t, map[string]any{"allowed_snapshots": []string{snapshot}}),
 		providers.RuntimeConfig{
-			OmnaraAPIURL:      omnaraAPIURL,
+			OmnaraAPIURL:      omnaraPublicAPIURL,
 			ProviderAuthToken: apiKey,
 		},
 	)
