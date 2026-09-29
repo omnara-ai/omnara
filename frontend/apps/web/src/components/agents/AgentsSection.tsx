@@ -1,65 +1,50 @@
 import {
   type AgentListFilters,
   type AgentListSort,
+  useAgentProfileQuery,
   useAgents,
+  useAgentUsage,
   useArchiveAgent,
 } from '@omnara/react'
 import { type Agent, ApiError } from '@omnara/sdk'
-import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
-import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
-import { SectionTitle } from '@/components/layout/SectionTitle'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
-import { Badge } from '@/components/ui/badge'
-import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
-  resourceSortOptions,
-  useListToolbarVisibility,
-  useResourceList,
-} from '@/hooks/use-resource-list'
-import { type Guide, guides } from '@/lib/docs'
+  AgentCard,
+  agentCardLinkClass,
+  AgentCardList,
+  AgentCardTime,
+} from '@/components/agents/AgentCardList'
+import { AgentIcon } from '@/components/agents/AgentIcon'
+import { AgentStatus } from '@/components/agents/AgentStatus'
+import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
+import { Ellipsis, SettingsIcon } from '@/components/icons'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { usePagedQuery } from '@/hooks/use-paged-query'
+import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
+import { agentIcon, profileIcon } from '@/lib/agent-icon'
+import { formatUsd } from '@/lib/format'
 
 export function AgentsSection({
   orgId,
   projectId,
   canManage,
-}: {
-  orgId: string
-  projectId: string
-  canManage: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <AgentsTable
-        orgId={orgId}
-        projectId={projectId}
-        canManage={canManage}
-        title="Agents"
-        guide={guides.agents}
-        emptyMessage="No agents yet. Launch one from a profile above, or create one with New agent."
-      />
-    </div>
-  )
-}
-
-/** One page of a project's agents, optionally narrowed to one profile's launches. */
-export function AgentsTable({
-  orgId,
-  projectId,
-  canManage,
   profileId,
-  title,
-  guide,
   emptyMessage,
 }: {
   orgId: string
   projectId: string
   canManage: boolean
   profileId?: string
-  title?: string
-  guide?: Guide
   emptyMessage: string
 }) {
   const list = useResourceList<AgentListSort>('-updated_at')
@@ -74,110 +59,52 @@ export function AgentsTable({
     query,
     `${list.queryKey}:${includeSubagents ? 'all' : 'top'}:${includeArchived ? 'archived' : 'active'}`,
   )
-  const showSearch = useListToolbarVisibility(
-    list,
-    paged.pagination,
-    query.isSuccess && !query.isPlaceholderData,
-  )
   const archiveAgent = useArchiveAgent(orgId, projectId)
-  const navigate = useNavigate()
+
+  function archive(agent: Agent) {
+    if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
+    archiveAgent.mutate(agent.id, {
+      onError: (error) => {
+        window.alert(error instanceof ApiError ? error.message : 'Could not archive agent')
+      },
+    })
+  }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {title && (
-          <div className="shrink-0 sm:mr-80">
-            <SectionTitle title={title} guide={guide} />
-          </div>
-        )}
-        <div className="flex min-w-0 flex-1 justify-end">
-          <ResourceListToolbar
-            search={list.search}
-            onSearchChange={list.setSearch}
-            placeholder="Search agents by name…"
-            showSearch={showSearch}
-            sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
-            filters={{
-              subagents: { checked: includeSubagents, onChange: setIncludeSubagents },
-              archived: { checked: includeArchived, onChange: setIncludeArchived },
-            }}
-          />
-        </div>
+      <div className="flex">
+        <ResourceListToolbar
+          search={list.search}
+          onSearchChange={list.setSearch}
+          placeholder="Search agents by name…"
+          showSearch
+          sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
+          filters={{
+            subagents: { checked: includeSubagents, onChange: setIncludeSubagents },
+            archived: { checked: includeArchived, onChange: setIncludeArchived },
+          }}
+        />
       </div>
-      <DataTable
-        columns={[
-          {
-            id: 'name',
-            header: 'Name',
-            cell: (agent) => (
-              <span className="flex items-baseline gap-2.5 overflow-hidden">
-                <span className="font-medium">{agent.name || 'Agent'}</span>
-                {agent.parent_agent_id && (
-                  <Badge variant="outline" title={`Subagent of ${agent.parent_agent_id}`}>
-                    subagent
-                  </Badge>
-                )}
-                <span className="text-muted-foreground/70 truncate font-mono text-xs">
-                  {agent.id}
-                </span>
-              </span>
-            ),
-          },
-          {
-            id: 'model',
-            header: 'Model',
-            cell: (agent) =>
-              agent.model ? (
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-mono text-xs">{agent.model.name}</span>
-                  <span className="text-muted-foreground truncate text-xs">
-                    {agent.model.provider_config}
-                  </span>
-                </span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              ),
-          },
-          { id: 'target', header: 'Target', cell: (agent) => <TargetCell agent={agent} /> },
-          {
-            id: 'state',
-            header: 'State',
-            className: 'w-28',
-            cell: (agent) => <span className="capitalize">{agent.state}</span>,
-          },
-          {
-            id: 'actions',
-            header: '',
-            className: 'w-14',
-            isActions: true,
-            cell: (agent) =>
-              canManage ? (
-                <ResourceRowActions
-                  deleteLabel="Archive"
-                  onDelete={() => {
-                    if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
-                    archiveAgent.mutate(agent.id, {
-                      onError: (error) => {
-                        window.alert(
-                          error instanceof ApiError ? error.message : 'Could not archive agent',
-                        )
-                      },
-                    })
-                  }}
-                />
-              ) : null,
-          },
-        ]}
-        data={paged.rows}
+      <AgentCardList
+        items={paged.rows}
+        getId={(agent) => agent.id}
+        renderCard={(agent) => (
+          <AgentInstanceCard
+            orgId={orgId}
+            projectId={projectId}
+            agent={agent}
+            showProfile={profileId === undefined}
+            onArchive={
+              canManage
+                ? () => {
+                    archive(agent)
+                  }
+                : undefined
+            }
+          />
+        )}
         isFiltered={list.isFiltering}
         pagination={paged.pagination}
-        getRowId={(agent) => agent.id}
-        onRowClick={(agent) => {
-          void navigate({
-            to: '/projects/$projectId/agents/$agentId',
-            params: { projectId, agentId: agent.id },
-          })
-        }}
         isPending={query.isPending}
         isError={query.isError}
         onRetry={() => {
@@ -186,6 +113,158 @@ export function AgentsTable({
         emptyMessage={emptyMessage}
       />
     </div>
+  )
+}
+
+function AgentInstanceCard({
+  orgId,
+  projectId,
+  agent,
+  showProfile,
+  onArchive,
+}: {
+  orgId: string
+  projectId: string
+  agent: Agent
+  showProfile: boolean
+  onArchive?: () => void
+}) {
+  const usage = useAgentUsage(orgId, projectId, agent.id, true)
+  const details = [
+    agent.model && (
+      <span key="model" className="truncate font-mono">
+        {agent.model.name}
+      </span>
+    ),
+    agent.model && (
+      <span key="provider" className="truncate">
+        {agent.model.provider_config}
+      </span>
+    ),
+    usage.data && (
+      <span key="cost" className="shrink-0 tabular-nums">
+        {formatUsd(usage.data.totals.cost.provider_reported_usd)}
+      </span>
+    ),
+    agent.integration_target && <TargetCell key="target" agent={agent} />,
+  ].filter(Boolean)
+  return (
+    <AgentCard
+      icon={agentIcon(agent.agent_profile_id, agent.id)}
+      title={
+        <>
+          <Link
+            to="/projects/$projectId/agents/$agentId"
+            params={{ projectId, agentId: agent.id }}
+            className={agentCardLinkClass}
+          >
+            {agent.name || 'Agent'}
+          </Link>
+          {agent.parent_agent_id && (
+            <Badge variant="outline" title={`Subagent of ${agent.parent_agent_id}`}>
+              subagent
+            </Badge>
+          )}
+        </>
+      }
+      subtitle={details.flatMap((detail, index) =>
+        index === 0
+          ? [detail]
+          : [
+              <span key={`separator-${index}`} aria-hidden="true">
+                ·
+              </span>,
+              detail,
+            ],
+      )}
+      meta={
+        <>
+          <AgentStatus agent={agent} withSeparator />
+          <AgentCardTime
+            label="Last active"
+            value={agent.activity?.last_activity_at ?? agent.updated_at}
+          />
+          <AgentActionsMenu
+            orgId={orgId}
+            projectId={projectId}
+            agent={agent}
+            showProfile={showProfile}
+            onArchive={onArchive}
+          />
+        </>
+      }
+    />
+  )
+}
+
+function AgentActionsMenu({
+  orgId,
+  projectId,
+  agent,
+  showProfile,
+  onArchive,
+}: {
+  orgId: string
+  projectId: string
+  agent: Agent
+  showProfile: boolean
+  onArchive?: () => void
+}) {
+  const profileId = showProfile ? agent.agent_profile_id : undefined
+  const canEditConfig = agent.current_config_id !== undefined
+  const hasLinks = profileId !== undefined || canEditConfig
+  if (!hasLinks && !onArchive) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Agent actions">
+          <Ellipsis />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {profileId && <ProfileMenuItem orgId={orgId} projectId={projectId} profileId={profileId} />}
+        {canEditConfig && (
+          <DropdownMenuItem asChild>
+            <Link
+              to="/projects/$projectId/agents/$agentId/events"
+              params={{ projectId, agentId: agent.id }}
+              search={{ config: true }}
+            >
+              <SettingsIcon />
+              Edit config
+            </Link>
+          </DropdownMenuItem>
+        )}
+        {onArchive && (
+          <>
+            {hasLinks && <DropdownMenuSeparator />}
+            <DropdownMenuItem variant="destructive" onSelect={onArchive}>
+              Archive
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ProfileMenuItem({
+  orgId,
+  projectId,
+  profileId,
+}: {
+  orgId: string
+  projectId: string
+  profileId: string
+}) {
+  const { data: profile } = useAgentProfileQuery(orgId, projectId, profileId)
+  return (
+    <DropdownMenuItem asChild>
+      <Link to="/projects/$projectId/agent-profiles/$profileId" params={{ projectId, profileId }}>
+        <AgentIcon icon={profileIcon(profileId)} className="size-4 rounded-[2px]" />
+        <span className="truncate">{profile?.name ?? 'Agent profile'}</span>
+      </Link>
+    </DropdownMenuItem>
   )
 }
 
@@ -199,7 +278,7 @@ function TargetCell({ agent }: { agent: Agent }) {
       href={target.provider_uri}
       target="_blank"
       rel="noreferrer"
-      className="text-muted-foreground hover:text-foreground hover:underline"
+      className="text-muted-foreground hover:text-foreground relative truncate hover:underline"
       onClick={(event) => {
         event.stopPropagation()
       }}

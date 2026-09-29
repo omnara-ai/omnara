@@ -9,6 +9,7 @@ import {
   usageMeasureValue,
   usageTicks,
 } from '@/components/overview/usage-overview-data'
+import { profileIcon, tintColor } from '@/lib/agent-icon'
 
 function totals(input: number, output: number, cost: string, calls: number): UsageTotals {
   return {
@@ -96,6 +97,9 @@ describe('usageChartData', () => {
       [reviewer, 'Reviewer', 660],
       [noProfileSeriesKey, 'No profile', 230],
     ])
+    expect(data.series[0]?.color).toBe(tintColor(profileIcon(reviewer).tint))
+    expect(data.series[0]?.icon).toEqual(profileIcon(reviewer))
+    expect(data.series[1]?.icon).toBeUndefined()
     expect(data.columns.map((column) => column.total)).toEqual([550, 0, 340])
     expect(Object.fromEntries(data.columns[2]?.values ?? [])).toEqual({
       [reviewer]: 110,

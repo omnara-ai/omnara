@@ -2,10 +2,12 @@ import type { OrgOverviewResponse } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
+import { AgentIcon } from '@/components/agents/AgentIcon'
 import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHeader'
 import { usageMeasureValue } from '@/components/overview/usage-overview-data'
 import { Card } from '@/components/ui/card'
-import { formatCompactCount, formatCount } from '@/lib/format'
+import { agentIcon, profileIcon } from '@/lib/agent-icon'
+import { formatCompactCount, formatCount, formatTimeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const recentLimit = 5
@@ -67,6 +69,7 @@ function EditedProfilesColumn({ overview }: { overview: OrgOverviewResponse }) {
                 params={{ projectId: profile.project_id, profileId: profile.id }}
                 className={rowLinkClass}
               >
+                <AgentIcon icon={profileIcon(profile.id)} className="size-8" />
                 <OverviewRowLabel
                   name={profile.name}
                   subtitle={formatAgentCount(agentCounts.get(profile.id) ?? 0)}
@@ -99,6 +102,7 @@ function LatestAgentsColumn({ overview }: { overview: OrgOverviewResponse }) {
                 params={{ projectId: agent.project_id, agentId: agent.id }}
                 className={rowLinkClass}
               >
+                <AgentIcon icon={agentIcon(agent.agent_profile_id, agent.id)} className="size-8" />
                 <OverviewRowLabel
                   name={agent.name === '' ? 'Agent' : agent.name}
                   subtitle={agent.agent_profile_id && profileNames.get(agent.agent_profile_id)}
@@ -142,23 +146,4 @@ function formatAgentCount(count: number) {
 
 function OverviewRowTime({ value }: { value: string }) {
   return <span className={cn(rowMetaClass, 'w-16 text-right')}>{formatTimeAgo(value)}</span>
-}
-
-const timeAgoFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-})
-
-function formatTimeAgo(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  const seconds = Math.round((Date.now() - date.getTime()) / 1000)
-  if (seconds < 60) return 'Just now'
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.round(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return timeAgoFormatter.format(date)
 }

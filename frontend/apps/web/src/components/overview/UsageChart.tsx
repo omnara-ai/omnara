@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useState } from 'react'
 
+import { AgentIcon } from '@/components/agents/AgentIcon'
 import {
   formatDayLabel,
   formatDayTitle,
@@ -229,10 +230,13 @@ function UsageTooltip({
         <ul className="mb-2 flex flex-col gap-1.5 border-b pb-2">
           {rows.map((row) => (
             <li key={row.key} className="flex items-center gap-2 text-xs">
-              <span
-                className="h-3.5 w-1 shrink-0 rounded-full"
-                style={{ backgroundColor: row.color }}
-              />
+              {row.icon ? (
+                <AgentIcon icon={row.icon} className="size-3.5 rounded-[2px]" />
+              ) : (
+                <span className="flex size-3.5 shrink-0 justify-center">
+                  <span className="h-3.5 w-1 rounded-full" style={{ backgroundColor: row.color }} />
+                </span>
+              )}
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
               <span className="tabular-nums">{formatUsageValue('tokens', row.value)}</span>
             </li>

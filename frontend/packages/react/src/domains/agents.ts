@@ -61,6 +61,14 @@ export function useAgent(
   })
 }
 
+export function useAgentQuery(orgID: string, projectID: string, agentID?: string) {
+  const client = useOmnaraClient()
+  return useQuery({
+    ...getAgentOptions({ path: { orgID, projectID, agentID: agentID ?? '' }, client }),
+    enabled: agentID !== undefined,
+  })
+}
+
 export function useCreateAgentConfig(orgID: string, projectID: string) {
   return useScopedMutation(sdk.createAgentConfig, { orgID, projectID })
 }

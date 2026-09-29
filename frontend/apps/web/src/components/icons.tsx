@@ -54,6 +54,7 @@ export {
   EnvelopeIcon as Mail,
   EnvelopeOpenIcon as MailCheck,
   ChatBubbleOvalLeftEllipsisIcon as MessageCircleQuestion,
+  ChatBubbleLeftRightIcon as MessagesSquare,
   ComputerDesktopIcon as Monitor,
   MoonIcon as Moon,
   EllipsisHorizontalIcon as MoreHorizontal,

@@ -1,5 +1,6 @@
 import type { OrgOverviewUsage, UsageTotals } from '@omnara/sdk'
 
+import { type AgentIconSpec, profileIcon, tintColor } from '@/lib/agent-icon'
 import { formatCompactCount, formatCount, formatUsd } from '@/lib/format'
 
 export const otherSeriesKey = 'other'
@@ -7,6 +8,7 @@ export const noProfileSeriesKey = 'no-profile'
 
 const seriesColors = Array.from({ length: 8 }, (_, index) => `var(--chart-${index + 1})`)
 const otherSeriesColor = 'var(--muted-foreground)'
+const noProfileSeriesColor = 'color-mix(in oklab, var(--muted-foreground) 45%, transparent)'
 const residualTolerance = 1e-9
 const maxTickSteps = 5
 
@@ -18,6 +20,25 @@ export interface UsageSeries {
   name: string
   color: string
   total: number
+  icon?: AgentIconSpec
+}
+
+interface UsageGroup {
+  key: string
+  name: string
+  totals: UsageTotals
+  icon?: AgentIconSpec
+  color?: string
+}
+
+interface UsageGroupDay {
+  key: string
+  tokens: number
+}
+
+interface UsageGroups {
+  groups: UsageGroup[]
+  days: UsageGroupDay[][]
 }
 
 export interface UsageColumn {
@@ -41,7 +62,7 @@ function tokens(totals: UsageTotals) {
   return usageMeasureValue(totals, 'tokens')
 }
 
-function breakdownGroups(usage: OrgOverviewUsage, breakdown: UsageBreakdown) {
+function breakdownGroups(usage: OrgOverviewUsage, breakdown: UsageBreakdown): UsageGroups {
   if (breakdown === 'model') {
     return {
       groups: usage.models.map((model) => ({
@@ -55,11 +76,16 @@ function breakdownGroups(usage: OrgOverviewUsage, breakdown: UsageBreakdown) {
     }
   }
   return {
-    groups: usage.profiles.map((profile) => ({
-      key: profile.id ?? noProfileSeriesKey,
-      name: profile.name ?? 'No profile',
-      totals: profile.totals,
-    })),
+    groups: usage.profiles.map((profile) => {
+      const icon = profile.id ? profileIcon(profile.id) : undefined
+      return {
+        key: profile.id ?? noProfileSeriesKey,
+        name: profile.name ?? 'No profile',
+        totals: profile.totals,
+        icon,
+        color: icon ? tintColor(icon.tint) : noProfileSeriesColor,
+      }
+    }),
     days: usage.days.map((day) =>
       day.profiles.map((profile) => ({
         key: profile.id ?? noProfileSeriesKey,
@@ -74,8 +100,9 @@ export function usageChartData(usage: OrgOverviewUsage, breakdown: UsageBreakdow
   const named = groups.map((group, index) => ({
     key: group.key,
     name: group.name,
-    color: seriesColors[index] ?? otherSeriesColor,
+    color: group.color ?? seriesColors[index] ?? otherSeriesColor,
     total: tokens(group.totals),
+    icon: group.icon,
   }))
   const otherTotal = tokens(usage.totals) - named.reduce((sum, series) => sum + series.total, 0)
   const series =

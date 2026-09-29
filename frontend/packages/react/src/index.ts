@@ -55,6 +55,7 @@ export {
   type AgentListSort,
   useAgent,
   useAgentConfig,
+  useAgentQuery,
   useAgents,
   useArchiveAgent,
   useCreateAgent,
