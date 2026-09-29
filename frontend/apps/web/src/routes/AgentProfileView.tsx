@@ -5,14 +5,15 @@ import {
   useDeleteAgentProfile,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
+import { AgentIcon } from '@/components/agents/AgentIcon'
 import { AgentProfileConfigEditor } from '@/components/agents/AgentProfileConfigEditor'
 import { AgentProfileIntegrations } from '@/components/agents/AgentProfileIntegrations'
 import { AgentProfileNameHeading } from '@/components/agents/AgentProfileNameHeading'
-import { AgentsTable } from '@/components/agents/AgentsSection'
+import { AgentsSection } from '@/components/agents/AgentsSection'
 import { CreateCronTriggerDialog } from '@/components/agents/CronTriggerDialog'
 import { CronTriggersList } from '@/components/agents/CronTriggersSection'
 import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfileDialog'
@@ -26,6 +27,7 @@ import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { allTimeUsageRange, usageWindowIsActive } from '@/components/usage/usage-date-range'
 import { UsageReportView } from '@/components/usage/UsageReport'
+import { profileIcon } from '@/lib/agent-icon'
 import { formatDateTime } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
@@ -33,6 +35,26 @@ import { useProjectPage } from '@/lib/use-project-page'
 import { useWebConfig } from '@/lib/web-config'
 
 type ProfileTab = 'configuration' | 'integrations' | 'schedules' | 'agents' | 'usage'
+
+const profileTabs = [
+  {
+    value: 'configuration',
+    label: 'Configuration',
+    to: '/projects/$projectId/agent-profiles/$profileId/configuration',
+  },
+  {
+    value: 'integrations',
+    label: 'Integrations',
+    to: '/projects/$projectId/agent-profiles/$profileId/integrations',
+  },
+  {
+    value: 'schedules',
+    label: 'Schedules',
+    to: '/projects/$projectId/agent-profiles/$profileId/schedules',
+  },
+  { value: 'agents', label: 'Agents', to: '/projects/$projectId/agent-profiles/$profileId/agents' },
+  { value: 'usage', label: 'Usage', to: '/projects/$projectId/agent-profiles/$profileId/usage' },
+] as const satisfies readonly { value: ProfileTab; label: string; to: string }[]
 
 export function AgentProfileView() {
   const { activeOrg } = useActiveOrg()
@@ -50,7 +72,10 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
   const canOperate = project?.access.can_operate ?? false
   const canManage = project?.access.can_manage ?? false
 
-  const [tab, setTab] = useState<ProfileTab>('configuration')
+  const navigate = useNavigate()
+  const pathname = useLocation({ select: (location) => location.pathname })
+  const tab: ProfileTab =
+    profileTabs.find((option) => pathname.endsWith(`/${option.value}`))?.value ?? 'configuration'
   const [deployOpen, setDeployOpen] = useState(false)
   const [addCronOpen, setAddCronOpen] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
@@ -80,13 +105,16 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
         <LaunchAlert error={launchError} />
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-col gap-1">
-            <AgentProfileNameHeading
-              orgId={activeOrg.id}
-              projectId={projectId}
-              profile={profile}
-              canManage={canManage}
-            />
+          <div className="flex min-w-0 items-center gap-3">
+            <AgentIcon icon={profileIcon(profile.id)} />
+            <div className="flex min-w-0 flex-col gap-1">
+              <AgentProfileNameHeading
+                orgId={activeOrg.id}
+                projectId={projectId}
+                profile={profile}
+                canManage={canManage}
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {canOperate && (
@@ -103,14 +131,12 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         </div>
         <PillTabs
           value={tab}
-          onValueChange={setTab}
-          tabs={[
-            { value: 'configuration', label: 'Configuration' },
-            { value: 'integrations', label: 'Integrations' },
-            { value: 'schedules', label: 'Schedules' },
-            { value: 'agents', label: 'Agents' },
-            { value: 'usage', label: 'Usage' },
-          ]}
+          onValueChange={(value) => {
+            const next = profileTabs.find((option) => option.value === value)
+            if (!next) return
+            void navigate({ to: next.to, params: { projectId, profileId: profile.id } })
+          }}
+          tabs={[...profileTabs]}
         />
       </header>
 
@@ -147,7 +173,7 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
         />
       )}
       {tab === 'agents' && (
-        <AgentsTable
+        <AgentsSection
           orgId={activeOrg.id}
           projectId={projectId}
           canManage={canManage}

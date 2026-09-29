@@ -199,7 +199,7 @@ function DataTableStateRows({
   )
 }
 
-function DataTablePagination({ pagination }: { pagination: PaginationControls }) {
+export function DataTablePagination({ pagination }: { pagination: PaginationControls }) {
   if (!pagination.canPrev && !pagination.canNext && pagination.page === 0) return null
   return (
     <div className="bg-muted/50 flex items-center justify-end gap-3 rounded-xl px-4 py-1.5">
