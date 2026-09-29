@@ -1,8 +1,10 @@
+import * as z from 'zod'
+
 import type { AuthStrategy } from './auth'
 import { ApiError } from './errors'
 import { createClient, createConfig, formDataBodySerializer } from './generated/client'
 import { client as specDefaultClient } from './generated/client.gen'
-import { serializeMultipartBody } from './multipart-body'
+import type { BodySerializer } from './generated/core/bodySerializer.gen'
 
 export type OmnaraClient = ReturnType<typeof createClient>
 
@@ -36,6 +38,28 @@ const httpMethods = [
   'put',
   'trace',
 ] satisfies HttpMethod[]
+
+const zMultipartPart = z.union([
+  z.string(),
+  z.instanceof(Blob),
+  z.date().transform((date) => date.toISOString()),
+  z.union([z.number(), z.boolean(), z.bigint()]).transform(String),
+  z.json().transform((value) => new Blob([JSON.stringify(value)], { type: 'application/json' })),
+])
+
+const zMultipartBody = z.record(
+  z.string(),
+  z.union([z.array(zMultipartPart), zMultipartPart]).nullish(),
+)
+
+const serializeMultipartBody = ((body) => {
+  const form = new FormData()
+  for (const [key, value] of Object.entries(zMultipartBody.parse(body))) {
+    if (value === null || value === undefined) continue
+    for (const part of Array.isArray(value) ? value : [value]) form.append(key, part)
+  }
+  return form
+}) satisfies BodySerializer
 
 function normalizeRequestOptions<O extends object>(options: O): O {
   const normalized: O & { bodySerializer?: unknown } = { ...options }
