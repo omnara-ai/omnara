@@ -1,10 +1,11 @@
-import { gunzipSync, strToU8, unzipSync, zipSync } from 'fflate'
+import { BlobReader, BlobWriter, ZipReader, ZipWriter } from '@zip.js/zip.js'
+import { unpackTar } from 'modern-tar'
 import { parseDocument, Scalar, visit, YAMLParseError } from 'yaml'
 import * as z from 'zod'
 
 export interface SkillSourceFile {
   path: string
-  data: Uint8Array
+  data: Blob
 }
 
 export interface SkillBundle {
@@ -18,8 +19,12 @@ export class SkillArchiveError extends Error {}
 
 const MISSING_NAME = 'SKILL.md frontmatter is missing `name`.'
 const MISSING_DESCRIPTION = 'SKILL.md frontmatter is missing `description`.'
+const MAX_SKILL_MD_BYTES = 256 * 1024
+const MAX_DESCRIPTION_CHARS = 1024
 
 const YAML_NULLS = new Set(['', '~', 'null', 'Null', 'NULL'])
+
+const ZIP_OPTIONS = { useWebWorkers: false }
 
 const zSkillFrontmatter = z.object(
   {
@@ -35,8 +40,8 @@ const zSkillFrontmatter = z.object(
       .string({ error: MISSING_DESCRIPTION })
       .trim()
       .min(1, { error: MISSING_DESCRIPTION })
-      .refine((value) => new TextEncoder().encode(value).length <= 1024, {
-        error: 'SKILL.md frontmatter `description` exceeds 1,024 bytes.',
+      .refine((value) => Array.from(value).length <= MAX_DESCRIPTION_CHARS, {
+        error: 'SKILL.md frontmatter `description` exceeds 1,024 characters.',
       }),
   },
   { error: 'SKILL.md frontmatter must be a YAML mapping.' },
@@ -57,6 +62,15 @@ function baseName(path: string) {
   return path.slice(path.lastIndexOf('/') + 1)
 }
 
+function joinPath(dir: string, path: string) {
+  if (dir === '') return path
+  return path === '' ? dir : `${dir}/${path}`
+}
+
+function relativePath(path: string, dir: string) {
+  return dir === '' ? path : path.slice(dir.length + 1)
+}
+
 function isSkillMdPath(path: string) {
   return baseName(path).toLowerCase() === 'skill.md'
 }
@@ -65,11 +79,12 @@ function isWithin(path: string, dir: string) {
   return dir === '' || path.startsWith(`${dir}/`)
 }
 
+function isIgnoredDir(name: string) {
+  return name.startsWith('.') || name === 'node_modules'
+}
+
 function isIgnoredPath(path: string) {
-  return path
-    .split('/')
-    .slice(0, -1)
-    .some((segment) => segment.startsWith('.') || segment === 'node_modules')
+  return path.split('/').slice(0, -1).some(isIgnoredDir)
 }
 
 function archiveStem(filename: string) {
@@ -86,11 +101,11 @@ export type SkillMdCheck = { ok: true; name: string } | { ok: false; problem: Sk
 
 const FRONTMATTER_KEYS = ['name', 'description']
 
-function quoteColonDescription(frontmatter: string) {
-  return frontmatter.replace(
-    /^(\s*description:[ \t]*)([^'"|>\s].*:.*)$/m,
-    (_, key, value) => `${key}${JSON.stringify(value)}`,
-  )
+function quoteColonDescriptions(frontmatter: string) {
+  return frontmatter.replace(/^([ \t]*description:)(.*)$/gm, (line, key: string, rest: string) => {
+    const value = rest.trim()
+    return value.includes(':') && !/^['"|>]/.test(value) ? `${key} ${JSON.stringify(value)}` : line
+  })
 }
 
 function parseFrontmatterBlock(frontmatter: string) {
@@ -116,12 +131,18 @@ function parseFrontmatter(frontmatter: string) {
   try {
     return parseFrontmatterBlock(frontmatter)
   } catch {
-    return parseFrontmatterBlock(quoteColonDescription(frontmatter))
+    return parseFrontmatterBlock(quoteColonDescriptions(frontmatter))
   }
 }
 
 export function checkSkillMd(skillMd: string, expectedName?: string): SkillMdCheck {
-  const lines = skillMd.replace(/^\uFEFF/, '').split(/\r?\n/)
+  if (new TextEncoder().encode(skillMd).length > MAX_SKILL_MD_BYTES) {
+    return {
+      ok: false,
+      problem: { message: 'SKILL.md exceeds 256 KB.', startLine: 1, endLine: 1 },
+    }
+  }
+  const lines = skillMd.replace(/^﻿/, '').split(/\r?\n/)
   const close = lines.findIndex((line, index) => index > 0 && /^---\r*$/.test(line))
   if (!lines[0]?.startsWith('---') || close < 0) {
     return {
@@ -169,89 +190,98 @@ export function checkSkillMd(skillMd: string, expectedName?: string): SkillMdChe
   return { ok: false, problem: { ...keyLocation(key), message: issue?.message ?? MISSING_NAME } }
 }
 
-function zipSkill(
+async function zipSkill(
   name: string,
   sourcePath: string,
   files: SkillSourceFile[],
   problem?: string,
-): SkillBundle {
-  const entries = Object.fromEntries(files.map((file) => [`${name}/${file.path}`, file.data]))
-  const archive = new File([zipSync(entries)], `${name}.zip`, { type: 'application/zip' })
+): Promise<SkillBundle> {
+  const writer = new ZipWriter(new BlobWriter('application/zip'), ZIP_OPTIONS)
+  await Promise.all(
+    files.map((file) => writer.add(`${name}/${file.path}`, new BlobReader(file.data))),
+  )
+  const archive = new File([await writer.close()], `${name}.zip`, { type: 'application/zip' })
   return { label: name, sourcePath, archive, problem }
 }
 
-export function bundleSkillMd(skillMd: string): SkillBundle {
-  const check = checkSkillMd(skillMd)
-  return zipSkill(
-    check.ok ? check.name : 'skill',
-    'SKILL.md',
-    [{ path: 'SKILL.md', data: strToU8(skillMd) }],
-    check.ok ? undefined : check.problem.message,
-  )
+interface SkillRoot {
+  dir: string
+  files: SkillSourceFile[]
 }
 
-function skillRoots<T extends { path: string }>(files: T[]) {
+function containerDir(paths: string[]) {
+  const top = paths[0]?.split('/')[0] ?? ''
+  return paths.every((path) => path.startsWith(`${top}/`)) ? top : ''
+}
+
+function skillRoots(files: SkillSourceFile[], skipIgnored: boolean): SkillRoot[] {
   const sources = files.filter((file) => !isMacOSMetadata(file.path))
-  const skillDirs = [
-    ...new Set(sources.flatMap((file) => (isSkillMdPath(file.path) ? [parentDir(file.path)] : []))),
-  ]
-  return skillDirs
-    .filter((dir) => !skillDirs.some((other) => other !== dir && isWithin(dir, other)))
-    .sort()
-    .map((root) => {
-      const prefix = root === '' ? 0 : root.length + 1
-      return {
-        root,
-        files: sources.flatMap((file) => {
-          const path = file.path.slice(prefix)
-          return isWithin(file.path, root) && !isIgnoredPath(path) ? [{ ...file, path }] : []
-        }),
-      }
-    })
+  const container = containerDir(sources.map((file) => file.path))
+  const skillMdDirs = new Set(
+    sources.flatMap((file) => {
+      const path = relativePath(file.path, container)
+      return isSkillMdPath(path) ? [parentDir(path)] : []
+    }),
+  )
+  const dirs = skillMdDirs.has('')
+    ? ['']
+    : [...skillMdDirs]
+        .filter((dir) => !dir.includes('/') && !(skipIgnored && isIgnoredDir(dir)))
+        .sort()
+  return dirs.map((dir) => {
+    const root = joinPath(container, dir)
+    return {
+      dir: root,
+      files: sources.flatMap((file) => {
+        if (!isWithin(file.path, root)) return []
+        const path = relativePath(file.path, root)
+        return skipIgnored && isIgnoredPath(path) ? [] : [{ path, data: file.data }]
+      }),
+    }
+  })
 }
 
-function bundleRoot(root: string, files: SkillSourceFile[], fallbackName: string): SkillBundle {
-  const skillMd = files.find((file) => parentDir(file.path) === '' && isSkillMdPath(file.path))
-  const check = checkSkillMd(skillMd ? new TextDecoder().decode(skillMd.data) : '')
-  const fallback = root === '' ? fallbackName : baseName(root)
+async function bundleRoot({ dir, files }: SkillRoot, fallbackName: string): Promise<SkillBundle> {
+  const fallback = dir === '' ? fallbackName : baseName(dir)
+  const skillMds = files.filter((file) => !file.path.includes('/') && isSkillMdPath(file.path))
+  const [skillMd, ...extra] = skillMds
+  if (extra.length > 0) {
+    return zipSkill(fallback, dir, files, 'Skill contains more than one SKILL.md file.')
+  }
+  const check = checkSkillMd(skillMd ? await skillMd.data.text() : '')
   return check.ok
-    ? zipSkill(check.name, root, files)
-    : zipSkill(fallback, root, files, check.problem.message)
+    ? zipSkill(check.name, dir, files)
+    : zipSkill(fallback, dir, files, check.problem.message)
 }
 
-export function bundleSkills(files: SkillSourceFile[], fallbackName: string): SkillBundle[] {
-  return skillRoots(files).map(({ root, files: rootFiles }) =>
-    bundleRoot(root, rootFiles, fallbackName),
-  )
+function bundleRoots(roots: SkillRoot[], fallbackName: string) {
+  return Promise.all(roots.map((root) => bundleRoot(root, fallbackName)))
 }
 
-interface PickedFile {
-  path: string
-  file: File
+export function bundleSkills(
+  files: SkillSourceFile[],
+  fallbackName: string,
+  { skipIgnored }: { skipIgnored: boolean },
+): Promise<SkillBundle[]> {
+  return bundleRoots(skillRoots(files, skipIgnored), fallbackName)
 }
 
-async function readPickedFile({ path, file }: PickedFile): Promise<SkillSourceFile> {
-  return { path, data: new Uint8Array(await file.arrayBuffer()) }
-}
-
-function bundlePickedFiles(files: PickedFile[], fallbackName: string): Promise<SkillBundle[]> {
-  return Promise.all(
-    skillRoots(files).map(async ({ root, files: rootFiles }) =>
-      bundleRoot(root, await Promise.all(rootFiles.map(readPickedFile)), fallbackName),
-    ),
-  )
+function bundleSkillMd(skillMd: string): Promise<SkillBundle> {
+  return bundleRoot({ dir: '', files: [{ path: 'SKILL.md', data: new Blob([skillMd]) }] }, 'skill')
 }
 
 export type SkillSource =
   | { kind: 'folder'; files: File[] }
   | { kind: 'files'; files: File[] }
   | { kind: 'drop'; entries: FileSystemEntry[] }
+  | { kind: 'skill-md'; text: string }
 
 function isArchiveName(filename: string) {
   return /\.(zip|tar\.gz|tgz)$/i.test(filename)
 }
 
 export function skillSourceName(source: SkillSource) {
+  if (source.kind === 'skill-md') return 'SKILL.md'
   if (source.kind === 'files') {
     const [only, ...rest] = source.files
     return only && rest.length === 0 ? only.name : `${source.files.length} files`
@@ -275,9 +305,7 @@ function readEntryFile(entry: FileSystemFileEntry) {
   })
 }
 
-async function entryFiles(entry: FileSystemEntry, path: string): Promise<PickedFile[]> {
-  if (entry instanceof FileSystemFileEntry) return [{ path, file: await readEntryFile(entry) }]
-  if (!(entry instanceof FileSystemDirectoryEntry)) return []
+async function directoryChildren(entry: FileSystemDirectoryEntry) {
   const reader = entry.createReader()
   const children: FileSystemEntry[] = []
   let batch = await readEntryBatch(reader)
@@ -285,161 +313,145 @@ async function entryFiles(entry: FileSystemEntry, path: string): Promise<PickedF
     children.push(...batch)
     batch = await readEntryBatch(reader)
   }
+  return children
+}
+
+function isSkillMdEntry(entry: FileSystemEntry) {
+  return entry instanceof FileSystemFileEntry && isSkillMdPath(entry.name)
+}
+
+async function childFiles(children: FileSystemEntry[], path: string): Promise<SkillSourceFile[]> {
   const nested = await Promise.all(
-    children.map((child) => entryFiles(child, `${path}/${child.name}`)),
+    children.map(async (child): Promise<SkillSourceFile[]> => {
+      const childPath = `${path}/${child.name}`
+      if (child instanceof FileSystemFileEntry) {
+        return [{ path: childPath, data: await readEntryFile(child) }]
+      }
+      if (!(child instanceof FileSystemDirectoryEntry) || isIgnoredDir(child.name)) return []
+      return childFiles(await directoryChildren(child), childPath)
+    }),
   )
   return nested.flat()
 }
 
-function bundleLooseFiles(files: SkillSourceFile[]): SkillBundle[] {
+async function droppedFolderFiles(folder: FileSystemDirectoryEntry) {
+  const children = await directoryChildren(folder)
+  if (children.some(isSkillMdEntry)) return childFiles(children, folder.name)
+  const skills = await Promise.all(
+    children.map(async (child) => {
+      if (!(child instanceof FileSystemDirectoryEntry) || isIgnoredDir(child.name)) return []
+      const grandchildren = await directoryChildren(child)
+      return grandchildren.some(isSkillMdEntry)
+        ? childFiles(grandchildren, `${folder.name}/${child.name}`)
+        : []
+    }),
+  )
+  return skills.flat()
+}
+
+function bundleLooseFiles(files: SkillSourceFile[]): Promise<SkillBundle[]> {
   const skillMds = files.filter((file) => isSkillMdPath(file.path))
-  if (skillMds.length <= 1) return bundleSkills(files, 'skill')
-  return skillMds.flatMap((file, index) =>
-    bundleSkills([{ path: 'SKILL.md', data: file.data }], 'skill').map((bundle) => ({
-      ...bundle,
+  if (skillMds.length <= 1) return bundleSkills(files, 'skill', { skipIgnored: false })
+  return Promise.all(
+    skillMds.map(async (file, index) => ({
+      ...(await bundleRoot({ dir: '', files: [{ path: 'SKILL.md', data: file.data }] }, 'skill')),
       sourcePath: `${file.path} #${index + 1}`,
     })),
   )
 }
 
-async function bundleMixed(looseFiles: PickedFile[], folderFiles: PickedFile[], archives: File[]) {
-  const [loose, folders, archiveBundles] = await Promise.all([
-    Promise.all(looseFiles.map(readPickedFile)),
-    bundlePickedFiles(folderFiles, 'skill'),
-    Promise.all(archives.map(bundleArchive)),
+async function bundleMixed(
+  looseFiles: SkillSourceFile[],
+  folders: SkillSourceFile[][],
+  archives: File[],
+) {
+  const bundled = await Promise.all([
+    bundleLooseFiles(looseFiles),
+    ...folders.map((files) => bundleSkills(files, 'skill', { skipIgnored: true })),
+    ...archives.map(bundleArchive),
   ])
-  return [...bundleLooseFiles(loose), ...folders, ...archiveBundles.flat()]
+  return bundled.flat()
 }
 
 async function bundleDrop(entries: FileSystemEntry[]): Promise<SkillBundle[]> {
-  const archiveEntries = entries.flatMap((entry) =>
-    entry instanceof FileSystemFileEntry && isArchiveName(entry.name) ? [entry] : [],
-  )
-  const looseEntries = entries.flatMap((entry) =>
-    entry instanceof FileSystemFileEntry && !isArchiveName(entry.name) ? [entry] : [],
-  )
-  const folderEntries = entries.filter((entry) => !(entry instanceof FileSystemFileEntry))
-  const [archives, loose, folders] = await Promise.all([
-    Promise.all(archiveEntries.map(readEntryFile)),
-    Promise.all(looseEntries.map((entry) => entryFiles(entry, entry.name))),
-    Promise.all(folderEntries.map((entry) => entryFiles(entry, entry.name))),
+  const fileEntries = entries.filter((entry) => entry instanceof FileSystemFileEntry)
+  const folderEntries = entries.filter((entry) => entry instanceof FileSystemDirectoryEntry)
+  const [files, folders] = await Promise.all([
+    Promise.all(fileEntries.map(readEntryFile)),
+    Promise.all(folderEntries.map(droppedFolderFiles)),
   ])
-  return bundleMixed(loose.flat(), folders.flat(), archives)
+  return bundleMixed(
+    files.flatMap((file) => (isArchiveName(file.name) ? [] : [{ path: file.name, data: file }])),
+    folders,
+    files.filter((file) => isArchiveName(file.name)),
+  )
 }
 
 function bundleFiles(files: File[]): Promise<SkillBundle[]> {
-  const archives = files.filter((file) => isArchiveName(file.name))
-  const loose = files.flatMap((file) =>
-    isArchiveName(file.name) ? [] : [{ path: file.name, file }],
+  return bundleMixed(
+    files.flatMap((file) => (isArchiveName(file.name) ? [] : [{ path: file.name, data: file }])),
+    [],
+    files.filter((file) => isArchiveName(file.name)),
   )
-  return bundleMixed(loose, [], archives)
 }
 
 function bundleFolder(files: File[]): Promise<SkillBundle[]> {
-  return bundlePickedFiles(
-    files.map((file) => ({ path: file.webkitRelativePath || file.name, file })),
-    'skill',
+  return bundleMixed(
+    [],
+    [files.map((file) => ({ path: file.webkitRelativePath || file.name, data: file }))],
+    [],
   )
-}
-
-const TAR_BLOCK = 512
-
-function tarString(bytes: Uint8Array, start: number, length: number) {
-  const field = bytes.subarray(start, start + length)
-  const end = field.indexOf(0)
-  return new TextDecoder().decode(end < 0 ? field : field.subarray(0, end))
-}
-
-function paxPath(records: string) {
-  for (const record of records.split('\n')) {
-    const match = /^\d+ path=(.*)$/.exec(record)
-    if (match?.[1] !== undefined) return match[1]
-  }
-  return undefined
 }
 
 function symlinkError(path: string) {
   return new SkillArchiveError(`Skill archive contains a symlink at ${path}.`)
 }
 
-const ZIP_END_SIGNATURE = 0x06054b50
-const ZIP_CENTRAL_SIGNATURE = 0x02014b50
-const ZIP_UNIX_HOSTS = new Set([3, 19])
-const UNIX_FILE_TYPE = 0o170000
-const UNIX_SYMLINK = 0o120000
-
-function zipSymlinkPath(bytes: Uint8Array) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  let end = bytes.length - 22
-  while (end >= 0 && view.getUint32(end, true) !== ZIP_END_SIGNATURE) end -= 1
-  if (end < 0) return undefined
-  let offset = view.getUint32(end + 16, true)
-  for (let index = view.getUint16(end + 10, true); index > 0; index -= 1) {
-    if (offset + 46 > bytes.length || view.getUint32(offset, true) !== ZIP_CENTRAL_SIGNATURE) {
-      return undefined
-    }
-    const nameLength = view.getUint16(offset + 28, true)
-    const mode = view.getUint32(offset + 38, true) >>> 16
-    if (ZIP_UNIX_HOSTS.has(view.getUint8(offset + 5)) && (mode & UNIX_FILE_TYPE) === UNIX_SYMLINK) {
-      return new TextDecoder().decode(bytes.subarray(offset + 46, offset + 46 + nameLength))
-    }
-    offset +=
-      46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true)
+async function readZip(file: File): Promise<SkillSourceFile[]> {
+  const reader = new ZipReader(new BlobReader(file), ZIP_OPTIONS)
+  try {
+    const entries = await reader.getEntries()
+    const symlink = entries.find((entry) => entry.symlink)
+    if (symlink) throw symlinkError(symlink.filename)
+    return await Promise.all(
+      entries.flatMap((entry) =>
+        entry.directory
+          ? []
+          : [entry.getData(new BlobWriter()).then((data) => ({ path: entry.filename, data }))],
+      ),
+    )
+  } finally {
+    await reader.close()
   }
-  return undefined
 }
 
-function readTar(bytes: Uint8Array): SkillSourceFile[] {
-  const files: SkillSourceFile[] = []
-  let longName: string | undefined
-  for (let offset = 0; offset + TAR_BLOCK <= bytes.length; ) {
-    const header = bytes.subarray(offset, offset + TAR_BLOCK)
-    if (header.every((byte) => byte === 0)) break
-    const size = Number.parseInt(tarString(header, 124, 12).trim() || '0', 8)
-    const type = tarString(header, 156, 1) || '0'
-    const prefix = tarString(header, 345, 155)
-    const name = tarString(header, 0, 100)
-    const data = bytes.subarray(offset + TAR_BLOCK, offset + TAR_BLOCK + size)
-    offset += TAR_BLOCK + Math.ceil(size / TAR_BLOCK) * TAR_BLOCK
-    if (type === 'x') {
-      longName = paxPath(new TextDecoder().decode(data))
-      continue
+async function readTarGz(file: File): Promise<SkillSourceFile[]> {
+  const entries = await unpackTar(file.stream().pipeThrough(new DecompressionStream('gzip')))
+  return entries.flatMap(({ header, data }) => {
+    if (header.type === 'symlink' || header.type === 'link') throw symlinkError(header.name)
+    if (header.type === 'directory') return []
+    if (header.type !== 'file') {
+      throw new SkillArchiveError(`Skill archive has an unsupported entry at ${header.name}.`)
     }
-    if (type === 'L') {
-      longName = tarString(data, 0, data.length)
-      continue
-    }
-    const path = longName ?? (prefix ? `${prefix}/${name}` : name)
-    longName = undefined
-    if (type === '1' || type === '2') throw symlinkError(path)
-    if (type === '0' || type === '7') files.push({ path, data })
-  }
-  return files
-}
-
-function archiveSources(file: File, bytes: Uint8Array): SkillSourceFile[] {
-  if (/\.zip$/i.test(file.name)) {
-    const symlink = zipSymlinkPath(bytes)
-    if (symlink !== undefined) throw symlinkError(symlink)
-    return Object.entries(unzipSync(bytes))
-      .filter(([path]) => !path.endsWith('/'))
-      .map(([path, data]) => ({ path, data }))
-  }
-  return readTar(gunzipSync(bytes))
+    return [{ path: header.name, data: new Blob(data ? [data] : []) }]
+  })
 }
 
 export async function bundleArchive(file: File): Promise<SkillBundle[]> {
-  const sources = archiveSources(file, new Uint8Array(await file.arrayBuffer())).map((source) => ({
-    ...source,
-    path: source.path.replace(/^\.\//, ''),
-  }))
-  return bundleSkills(sources, archiveStem(file.name)).map((bundle) => ({
+  const sources = await (/\.zip$/i.test(file.name) ? readZip(file) : readTarGz(file))
+  const bundles = await bundleSkills(
+    sources.map((source) => ({ ...source, path: source.path.replace(/^\.\//, '') })),
+    archiveStem(file.name),
+    { skipIgnored: false },
+  )
+  return bundles.map((bundle) => ({
     ...bundle,
     sourcePath: bundle.sourcePath === '' ? file.name : `${file.name}/${bundle.sourcePath}`,
   }))
 }
 
 export async function bundleSource(source: SkillSource): Promise<SkillBundle[]> {
+  if (source.kind === 'skill-md') return [await bundleSkillMd(source.text)]
   if (source.kind === 'files') return bundleFiles(source.files)
   if (source.kind === 'folder') return bundleFolder(source.files)
   return bundleDrop(source.entries)

@@ -86,6 +86,7 @@ export {
 export {
   CREATED_RESOURCE_LIST_SORTS,
   DEFAULT_LIST_PAGE_SIZE,
+  exactNameGlob,
   type ListFilters,
   type ListSort,
   type PaginatedListOptions,
@@ -238,7 +239,8 @@ export {
   type SkillListOptions,
   type SkillListSort,
   type SkillOwnerScope,
-  useCreateSkill,
+  type SkillUpload,
+  useCreateSkills,
   useDeleteSkill,
   useDeleteSkillGrant,
   useGrantSkillToProject,

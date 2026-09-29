@@ -3,12 +3,13 @@
 import { OmnaraClientProvider } from '@omnara/react'
 import { createOmnaraClient, type Skill } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { strToU8, zipSync } from 'fflate'
+import { BlobWriter, TextReader, ZipWriter } from '@zip.js/zip.js'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
+import { bundleSource, type SkillSource } from '@/lib/skill-bundles'
 import { jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
@@ -67,6 +68,13 @@ function arrivals<T>() {
 
 let root: Root
 let container: HTMLDivElement
+const bundling: Promise<unknown>[] = []
+
+function readSource(source: SkillSource) {
+  const bundles = bundleSource(source)
+  bundling.push(bundles.catch(() => undefined))
+  return bundles
+}
 let restore: () => void
 beforeEach(() => {
   restore = enableReactActEnvironment()
@@ -91,11 +99,12 @@ async function render(existing: Skill[] = []) {
     fetch: async (input, init) => {
       const request = new Request(input, init)
       if (request.method === 'GET') {
-        const cursor = new URL(request.url).searchParams.get('cursor') ?? ''
-        lookups.push(cursor)
-        const [page, next] =
-          cursor === '' ? [existing.slice(0, 1), 'page-2'] : [existing.slice(1), null]
-        return jsonResponse({ data: page, next_cursor: next })
+        const name = new URL(request.url).searchParams.get('name') ?? ''
+        lookups.push(name)
+        return jsonResponse({
+          data: existing.filter((item) => item.name === name),
+          next_cursor: null,
+        })
       }
       const archive = (await request.formData()).get('archive')
       return new Promise<Response>((respond) => {
@@ -114,6 +123,7 @@ async function render(existing: Skill[] = []) {
             onOpenChange={onOpenChange}
             orgId={orgId}
             owner={{ kind: 'org' }}
+            readSource={readSource}
             onCreated={(skills) => {
               created.push(skills.map((item) => item.name))
             }}
@@ -123,12 +133,13 @@ async function render(existing: Skill[] = []) {
     )
     await Promise.resolve()
   })
-  return { uploads, created, lookups, onOpenChange }
+  return { uploads, created, lookups, existing, onOpenChange }
 }
 
 async function settle(action: () => void) {
   await act(async () => {
     action()
+    await Promise.all(bundling.splice(0))
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
@@ -155,17 +166,25 @@ function reviewRows() {
   )
 }
 
-function skillZip(files: Record<string, string>, name: string) {
-  const entries = Object.fromEntries(
-    Object.entries(files).map(([path, content]) => [path, strToU8(content)]),
-  )
-  return new File([zipSync(entries)], name)
+async function skillZip(
+  files: Record<string, string>,
+  name: string,
+  symlinks: Record<string, string> = {},
+) {
+  const writer = new ZipWriter(new BlobWriter('application/zip'), { useWebWorkers: false })
+  for (const [path, content] of Object.entries(files)) {
+    await writer.add(path, new TextReader(content))
+  }
+  for (const [path, target] of Object.entries(symlinks)) {
+    await writer.add(path, new TextReader(target), { unixMode: 0o120777 })
+  }
+  return new File([await writer.close()], name)
 }
 
 it('reviews a bulk upload, then uploads one at a time and retries only the failures', async () => {
   const ctx = await render([skill('gamma', 2)])
   await chooseArchive(
-    skillZip(
+    await skillZip(
       {
         'collection/alpha/SKILL.md': skillMd('alpha'),
         'collection/alpha-copy/SKILL.md': skillMd('alpha'),
@@ -175,7 +194,7 @@ it('reviews a bulk upload, then uploads one at a time and retries only the failu
       'collection.zip',
     ),
   )
-  expect(ctx.lookups).toEqual(['', 'page-2'])
+  expect(ctx.lookups.sort()).toEqual(['alpha', 'beta', 'gamma'])
   expect(reviewRows()).toEqual([])
   expect(document.body.textContent).toContain('collection.zip4 skills')
 
@@ -220,12 +239,12 @@ it('reviews a bulk upload, then uploads one at a time and retries only the failu
 it('skips skills with broken frontmatter and returns to the picker on Back', async () => {
   const ctx = await render()
   await chooseArchive(
-    skillZip(
+    await skillZip(
       { 'set/good/SKILL.md': skillMd('good'), 'set/broken/SKILL.md': '# Broken\n' },
       'set.zip',
     ),
   )
-  expect(ctx.lookups).toEqual(['', 'page-2'])
+  expect(ctx.lookups).toEqual(['good'])
   submit()
   expect(reviewRows()).toEqual([
     "brokenSKILL.md is missing YAML frontmatter delimited by '---'.Skipped",
@@ -242,7 +261,7 @@ it('skips skills with broken frontmatter and returns to the picker on Back', asy
 
 it('uploads a single new skill straight from the picker', async () => {
   const ctx = await render()
-  await chooseArchive(skillZip({ 'solo/SKILL.md': skillMd('solo') }, 'solo.zip'))
+  await chooseArchive(await skillZip({ 'solo/SKILL.md': skillMd('solo') }, 'solo.zip'))
   expect(document.body.textContent).toContain('solo.zipsolo')
 
   submit()
@@ -256,7 +275,7 @@ it('uploads a single new skill straight from the picker', async () => {
 
 it('reports a picked archive without any SKILL.md', async () => {
   const ctx = await render()
-  await chooseArchive(skillZip({ 'notes/README.md': 'hi' }, 'notes.zip'))
+  await chooseArchive(await skillZip({ 'notes/README.md': 'hi' }, 'notes.zip'))
   expect(document.querySelector('[role="alert"]')?.textContent).toBe(
     'No SKILL.md found in notes.zip.',
   )
@@ -267,15 +286,9 @@ it('reports a picked archive without any SKILL.md', async () => {
 it('names the symlink when a picked zip contains one', async () => {
   const ctx = await render()
   await chooseArchive(
-    new File(
-      [
-        zipSync({
-          'linked/SKILL.md': strToU8(skillMd('linked')),
-          'linked/data': [strToU8('/etc/passwd'), { os: 3, attrs: 0o120777 * 0x10000 }],
-        }),
-      ],
-      'linked.zip',
-    ),
+    await skillZip({ 'linked/SKILL.md': skillMd('linked') }, 'linked.zip', {
+      'linked/data': '/etc/passwd',
+    }),
   )
   expect(document.querySelector('[role="alert"]')?.textContent).toBe(
     'Skill archive contains a symlink at linked/data.',
@@ -297,7 +310,7 @@ it('confirms before a pasted SKILL.md creates a new revision of an existing skil
     const form = document.querySelector('form')
     form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
-  expect(ctx.lookups).toEqual([''])
+  expect(ctx.lookups).toEqual(['my-skill'])
   expect(reviewRows()).toEqual(['my-skillv4 → v5'])
   expect(ctx.uploads.count).toBe(0)
 
@@ -312,7 +325,7 @@ it('confirms before a pasted SKILL.md creates a new revision of an existing skil
 it('drops already uploaded skills from the selection on Back', async () => {
   const ctx = await render()
   await chooseArchive(
-    skillZip(
+    await skillZip(
       { 'pair/one/SKILL.md': skillMd('one'), 'pair/two/SKILL.md': skillMd('two') },
       'pair.zip',
     ),
@@ -325,7 +338,7 @@ it('drops already uploaded skills from the selection on Back', async () => {
   two.respond(jsonResponse({ code: 'invalid_request', error: 'rejected' }, 422))
   expect(await ctx.created.at(0)).toEqual(['one'])
 
-  act(() => {
+  await settle(() => {
     button('Back').click()
   })
   expect(document.body.textContent).toContain('pair.ziptwo')
@@ -336,4 +349,38 @@ it('drops already uploaded skills from the selection on Back', async () => {
   retry.respond(jsonResponse(skill('two'), 201))
   expect(await ctx.created.at(1)).toEqual(['two'])
   expect(ctx.uploads.count).toBe(3)
+})
+
+it('rechecks the remaining skills against the server after Back', async () => {
+  const ctx = await render()
+  await chooseArchive(
+    await skillZip(
+      {
+        'set/foo/SKILL.md': skillMd('foo'),
+        'set/foo-copy/SKILL.md': skillMd('foo'),
+        'set/bar/SKILL.md': skillMd('bar'),
+      },
+      'set.zip',
+    ),
+  )
+  submit()
+  expect(reviewRows()).toEqual(['barNew', 'fooNew', 'fooDuplicate of set.zip/set/fooSkipped'])
+
+  submit()
+  const bar = await ctx.uploads.at(0)
+  bar.respond(jsonResponse({ code: 'invalid_request', error: 'rejected' }, 422))
+  const foo = await ctx.uploads.at(1)
+  ctx.existing.push(skill('foo'))
+  foo.respond(jsonResponse(skill('foo'), 201))
+  expect(await ctx.created.at(0)).toEqual(['foo'])
+
+  ctx.lookups.length = 0
+  await settle(() => {
+    button('Back').click()
+  })
+  expect(ctx.lookups.sort()).toEqual(['bar', 'foo'])
+  expect(document.body.textContent).toContain('set.zip2 skills')
+
+  submit()
+  expect(reviewRows()).toEqual(['barNew', 'foov1 → v2'])
 })

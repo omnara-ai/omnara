@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -219,6 +220,31 @@ func TestExtractMetadataRejectsOversizedDescription(t *testing.T) {
 	_, err := ExtractMetadata(FormatZip, raw)
 	if err == nil || !strings.Contains(err.Error(), "description") {
 		t.Fatalf("expected description length error, got %v", err)
+	}
+}
+
+func TestParseSkillMdFrontmatterSharedCases(t *testing.T) {
+	body, err := os.ReadFile("../../testdata/skill-frontmatter-v1.json")
+	if err != nil {
+		t.Fatalf("read cases: %v", err)
+	}
+	var cases []struct {
+		SkillMd string  `json:"skill_md"`
+		Name    *string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &cases); err != nil {
+		t.Fatalf("decode cases: %v", err)
+	}
+	for _, tc := range cases {
+		name, _, err := parseSkillMdFrontmatter(tc.SkillMd)
+		switch {
+		case tc.Name == nil && err == nil:
+			t.Errorf("accepted %q as %q", tc.SkillMd, name)
+		case tc.Name != nil && err != nil:
+			t.Errorf("rejected %q: %v", tc.SkillMd, err)
+		case tc.Name != nil && name != *tc.Name:
+			t.Errorf("name for %q: got %q want %q", tc.SkillMd, name, *tc.Name)
+		}
 	}
 }
 

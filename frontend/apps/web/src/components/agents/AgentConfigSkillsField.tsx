@@ -1,4 +1,4 @@
-import { useProjectAvailableSkills } from '@omnara/react'
+import { exactNameGlob, useProjectAvailableSkills } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
@@ -9,7 +9,6 @@ import { CreateSkillDialog } from '@/components/org/CreateSkillDialog'
 import { Button } from '@/components/ui/button'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
-import { exactNameGlob } from '@/hooks/use-resource-list'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 

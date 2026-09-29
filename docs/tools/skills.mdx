@@ -62,7 +62,7 @@ Write the description as a trigger—“Use when…”—because it helps the mo
   2. Click **Create skill**.
   3. Drop files or a folder onto the dialog, or use **Choose files** / **Choose a folder**. You can also switch to the **SKILL.md** tab and write the skill in the editor.
 
-  The dashboard accepts a `.zip`, a `.tar.gz`, a loose `SKILL.md`, or a folder, and zips folders in the browser before uploading. A folder or `.zip` can hold several skills: every directory with a `SKILL.md` becomes its own skill. The dashboard names each skill's top-level directory after its frontmatter `name`, so the folder name does not have to match.
+  The dashboard accepts a `.zip`, a `.tar.gz`, a loose `SKILL.md`, or a folder, and zips folders in the browser before uploading. A folder or archive holds one skill when `SKILL.md` sits at its top, or several skills when each subfolder has its own `SKILL.md`; deeper `SKILL.md` files are not picked up. Folders skip `node_modules` and dot-directories such as `.git`; archives upload every file. The dashboard names each skill's top-level directory after its frontmatter `name`, so the folder name does not have to match.
 
   Frontmatter problems are flagged before anything uploads. When you upload several skills, reuse an existing name, or include two skills with the same name, a review step lists each skill as new, a new revision (for example `v2 → v3`), or skipped, and uploads only after you confirm. Skills upload one at a time; if some fail, **Retry** re-sends only those.
 </Tab>

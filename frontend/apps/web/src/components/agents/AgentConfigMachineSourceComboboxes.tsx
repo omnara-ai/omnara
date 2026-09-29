@@ -1,4 +1,9 @@
-import { useMachinePool, useProjectMachinePoolGrants, useProjectMachines } from '@omnara/react'
+import {
+  exactNameGlob,
+  useMachinePool,
+  useProjectMachinePoolGrants,
+  useProjectMachines,
+} from '@omnara/react'
 import type { MachinePoolSummary, ProjectMachinePoolGrant } from '@omnara/sdk'
 import { type ReactNode, useEffect, useState } from 'react'
 
@@ -8,7 +13,7 @@ import { GrantProjectMachineDialog } from '@/components/projects/GrantProjectMac
 import { createResourceCombobox } from '@/components/ui/resource-combobox'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
-import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { formatMemoryGb } from '@/lib/machine-memory'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'

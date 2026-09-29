@@ -1,9 +1,18 @@
-import { gzipSync, strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
+import {
+  BlobReader,
+  BlobWriter,
+  TextReader,
+  TextWriter,
+  ZipReader,
+  ZipWriter,
+} from '@zip.js/zip.js'
+import { packTar, type TarEntry } from 'modern-tar'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as z from 'zod'
 
+import sharedCases from '../../../../../testdata/skill-frontmatter-v1.json?raw'
 import {
   bundleArchive,
-  bundleSkillMd,
   bundleSkills,
   bundleSource,
   checkSkillMd,
@@ -11,38 +20,54 @@ import {
   skillSourceName,
 } from './skill-bundles'
 
+const ZIP_OPTIONS = { useWebWorkers: false }
+
 function skillMd(name: string) {
   return `---\nname: ${name}\ndescription: Does ${name} things.\n---\n\n# ${name}\n`
 }
 
 function source(path: string, content: string) {
-  return { path, data: strToU8(content) }
+  return { path, data: new Blob([content]) }
 }
 
-async function archiveContents(bundle: SkillBundle) {
-  const entries = unzipSync(new Uint8Array(await bundle.archive.arrayBuffer()))
-  return Object.fromEntries(Object.entries(entries).map(([path, data]) => [path, strFromU8(data)]))
+async function archiveContents(bundle: SkillBundle | undefined) {
+  if (!bundle) throw new Error('Missing bundle')
+  const reader = new ZipReader(new BlobReader(bundle.archive), ZIP_OPTIONS)
+  const entries = await reader.getEntries()
+  const contents = await Promise.all(
+    entries.flatMap((entry) =>
+      entry.directory
+        ? []
+        : [entry.getData(new TextWriter()).then((text) => [entry.filename, text] as const)],
+    ),
+  )
+  await reader.close()
+  return Object.fromEntries(contents)
 }
 
-function tarGz(entries: { path: string; content?: string; type?: string }[]) {
-  const blocks: Uint8Array[] = []
-  for (const entry of entries) {
-    const data = strToU8(entry.content ?? '')
-    const header = new Uint8Array(512)
-    header.set(strToU8(entry.path), 0)
-    header.set(strToU8(data.length.toString(8).padStart(11, '0')), 124)
-    header.set(strToU8(entry.type ?? '0'), 156)
-    header.set(strToU8('ustar'), 257)
-    blocks.push(header, data, new Uint8Array((512 - (data.length % 512)) % 512))
+async function zipFile(
+  name: string,
+  entries: Record<string, string>,
+  symlinks: Record<string, string> = {},
+) {
+  const writer = new ZipWriter(new BlobWriter('application/zip'), ZIP_OPTIONS)
+  for (const [path, content] of Object.entries(entries)) {
+    await writer.add(path, new TextReader(content))
   }
-  blocks.push(new Uint8Array(1024))
-  const tar = new Uint8Array(blocks.reduce((total, block) => total + block.length, 0))
-  let offset = 0
-  for (const block of blocks) {
-    tar.set(block, offset)
-    offset += block.length
+  for (const [path, target] of Object.entries(symlinks)) {
+    await writer.add(path, new TextReader(target), { unixMode: 0o120777 })
   }
-  return gzipSync(tar)
+  return new File([await writer.close()], name)
+}
+
+async function tarGzFile(name: string, entries: TarEntry[]) {
+  const tar = new Blob([await packTar(entries)])
+  const gzip = await new Response(tar.stream().pipeThrough(new CompressionStream('gzip'))).blob()
+  return new File([gzip], name)
+}
+
+function tarFile(path: string, content: string): TarEntry {
+  return { header: { name: path, size: new TextEncoder().encode(content).length }, body: content }
 }
 
 function folderFile(path: string, content: string) {
@@ -51,7 +76,16 @@ function folderFile(path: string, content: string) {
   return file
 }
 
+const zSharedCases = z.array(z.object({ skill_md: z.string(), name: z.string().nullable() }))
+
 describe('checkSkillMd', () => {
+  it('agrees with the server on every shared frontmatter case', () => {
+    for (const { skill_md: text, name } of zSharedCases.parse(JSON.parse(sharedCases))) {
+      const check = checkSkillMd(text)
+      expect(check.ok ? check.name : null, text).toBe(name)
+    }
+  })
+
   it('reads the frontmatter name', () => {
     expect(checkSkillMd(skillMd('pdf-tools'))).toEqual({ ok: true, name: 'pdf-tools' })
     expect(checkSkillMd(`\uFEFF---\r\nname: bom\r\ndescription: d\r\n---\r\n`)).toEqual({
@@ -111,18 +145,18 @@ describe('checkSkillMd', () => {
     expect(checkSkillMd(`---\nname: long\ndescription: ${'d'.repeat(1025)}\n---\n`)).toEqual({
       ok: false,
       problem: {
-        message: 'SKILL.md frontmatter `description` exceeds 1,024 bytes.',
+        message: 'SKILL.md frontmatter `description` exceeds 1,024 characters.',
         startLine: 3,
         endLine: 3,
       },
     })
-    expect(checkSkillMd(`---\nname: cjk\ndescription: ${'説'.repeat(342)}\n---\n`)).toEqual({
+    expect(checkSkillMd(`---\nname: cjk\ndescription: ${'説'.repeat(1024)}\n---\n`)).toEqual({
+      ok: true,
+      name: 'cjk',
+    })
+    expect(checkSkillMd(`---\nname: big\ndescription: d\n---\n${'x'.repeat(256 * 1024)}`)).toEqual({
       ok: false,
-      problem: {
-        message: 'SKILL.md frontmatter `description` exceeds 1,024 bytes.',
-        startLine: 3,
-        endLine: 3,
-      },
+      problem: { message: 'SKILL.md exceeds 256 KB.', startLine: 1, endLine: 1 },
     })
   })
 
@@ -198,65 +232,101 @@ describe('checkSkillMd', () => {
 })
 
 describe('bundleSkills', () => {
+  const keepAll = { skipIgnored: false }
+
   it('zips one skill under a directory named after its frontmatter', async () => {
-    const [bundle, ...rest] = bundleSkills(
+    const [bundle, ...rest] = await bundleSkills(
       [
         source('My Skill/SKILL.md', skillMd('my-skill')),
         source('My Skill/scripts/run.py', 'print(1)'),
       ],
       'fallback',
+      keepAll,
     )
     expect(rest).toEqual([])
     expect(bundle?.label).toBe('my-skill')
     expect(bundle?.archive.name).toBe('my-skill.zip')
-    expect(bundle && (await archiveContents(bundle))).toEqual({
+    expect(await archiveContents(bundle)).toEqual({
       'my-skill/SKILL.md': skillMd('my-skill'),
       'my-skill/scripts/run.py': 'print(1)',
     })
   })
 
-  it('splits a collection into one bundle per outermost SKILL.md directory', async () => {
-    const bundles = bundleSkills(
+  it('splits a collection into one bundle per child directory with a SKILL.md', async () => {
+    const bundles = await bundleSkills(
       [
         source('skills/beta/SKILL.md', skillMd('beta')),
         source('skills/alpha/SKILL.md', skillMd('alpha')),
         source('skills/alpha/templates/SKILL.md', 'nested template'),
         source('skills/README.md', 'collection readme'),
         source('skills/alpha/.DS_Store', ''),
-        source('__MACOSX/skills/alpha/._SKILL.md', ''),
+        source('skills/group/nested/SKILL.md', skillMd('nested')),
       ],
       'fallback',
+      keepAll,
     )
     expect(bundles.map((bundle) => [bundle.label, bundle.sourcePath])).toEqual([
       ['alpha', 'skills/alpha'],
       ['beta', 'skills/beta'],
     ])
-    const [alpha] = bundles
-    expect(alpha && Object.keys(await archiveContents(alpha)).sort()).toEqual([
+    expect(Object.keys(await archiveContents(bundles[0])).sort()).toEqual([
       'alpha/SKILL.md',
       'alpha/templates/SKILL.md',
     ])
   })
 
+  it('treats a SKILL.md at the top of the container as a single skill', async () => {
+    const bundles = await bundleSkills(
+      [source('solo/SKILL.md', skillMd('solo')), source('solo/child/SKILL.md', skillMd('child'))],
+      'fallback',
+      keepAll,
+    )
+    expect(bundles.map((bundle) => bundle.label)).toEqual(['solo'])
+    expect(Object.keys(await archiveContents(bundles[0])).sort()).toEqual([
+      'solo/SKILL.md',
+      'solo/child/SKILL.md',
+    ])
+  })
+
   it('names a top-level SKILL.md skill from frontmatter, then flags the fallback', async () => {
-    const [named] = bundleSkills([source('SKILL.md', skillMd('root-skill'))], 'fallback')
-    expect(named && Object.keys(await archiveContents(named))).toEqual(['root-skill/SKILL.md'])
-    const [unnamed] = bundleSkills([source('skill.md', '# no frontmatter')], 'fallback')
-    expect(unnamed && Object.keys(await archiveContents(unnamed))).toEqual(['fallback/skill.md'])
+    const [named] = await bundleSkills(
+      [source('SKILL.md', skillMd('root-skill'))],
+      'fallback',
+      keepAll,
+    )
+    expect(Object.keys(await archiveContents(named))).toEqual(['root-skill/SKILL.md'])
+    const [unnamed] = await bundleSkills(
+      [source('skill.md', '# no frontmatter')],
+      'fallback',
+      keepAll,
+    )
+    expect(Object.keys(await archiveContents(unnamed))).toEqual(['fallback/skill.md'])
     expect(unnamed?.problem).toBe("SKILL.md is missing YAML frontmatter delimited by '---'.")
   })
 
-  it('returns nothing when no SKILL.md is present', () => {
-    expect(bundleSkills([source('notes/README.md', 'hi')], 'fallback')).toEqual([])
+  it('flags a skill with more than one SKILL.md', async () => {
+    const [bundle] = await bundleSkills(
+      [source('twin/SKILL.md', skillMd('twin')), source('twin/skill.md', skillMd('twin'))],
+      'fallback',
+      keepAll,
+    )
+    expect(bundle?.problem).toBe('Skill contains more than one SKILL.md file.')
+  })
+
+  it('returns nothing when no SKILL.md is present', async () => {
+    expect(await bundleSkills([source('notes/README.md', 'hi')], 'fallback', keepAll)).toEqual([])
   })
 })
 
-describe('bundleSkillMd', () => {
+describe('SKILL.md sources', () => {
   it('zips pasted SKILL.md content under its frontmatter name', async () => {
-    const bundle = bundleSkillMd(skillMd('pasted'))
-    expect(bundle.label).toBe('pasted')
+    const source = { kind: 'skill-md', text: skillMd('pasted') } as const
+    expect(skillSourceName(source)).toBe('SKILL.md')
+    const [bundle, ...rest] = await bundleSource(source)
+    expect(rest).toEqual([])
+    expect(bundle?.label).toBe('pasted')
+    expect(bundle?.problem).toBeUndefined()
     expect(await archiveContents(bundle)).toEqual({ 'pasted/SKILL.md': skillMd('pasted') })
-    expect(bundle.problem).toBeUndefined()
   })
 })
 
@@ -270,31 +340,25 @@ describe('folder sources', () => {
     expect(skillSourceName({ kind: 'folder', files })).toBe('picked')
     const bundles = await bundleSource({ kind: 'folder', files })
     expect(bundles.map((bundle) => bundle.label)).toEqual(['one', 'two'])
-    const [, two] = bundles
-    expect(two && (await archiveContents(two))).toEqual({
+    expect(await archiveContents(bundles[1])).toEqual({
       'two/SKILL.md': skillMd('two'),
       'two/ref.md': 'reference',
     })
   })
 
-  it('reads only skill files and skips dot directories and node_modules inside a skill', async () => {
-    function unreadable(path: string) {
-      const file = folderFile(path, '')
-      Object.defineProperty(file, 'arrayBuffer', {
-        value: () => Promise.reject(new Error(`read ${path}`)),
-      })
-      return file
-    }
+  it('skips dot directories and node_modules, and finds no skills below the second level', async () => {
     const files = [
-      folderFile('repo/.claude/skills/one/SKILL.md', skillMd('one')),
-      folderFile('repo/.claude/skills/one/.env.example', 'KEY='),
-      unreadable('repo/.claude/skills/one/.git/HEAD'),
-      unreadable('repo/.claude/skills/one/node_modules/pkg/index.js'),
-      unreadable('repo/big.bin'),
+      folderFile('repo/one/SKILL.md', skillMd('one')),
+      folderFile('repo/one/.env.example', 'KEY='),
+      folderFile('repo/one/.git/HEAD', 'ref'),
+      folderFile('repo/one/node_modules/pkg/index.js', 'x'),
+      folderFile('repo/.hidden/SKILL.md', skillMd('hidden')),
+      folderFile('repo/node_modules/vendor/SKILL.md', skillMd('vendor')),
+      folderFile('repo/.claude/skills/deep/SKILL.md', skillMd('deep')),
     ]
     const [one, ...rest] = await bundleSource({ kind: 'folder', files })
     expect(rest).toEqual([])
-    expect(one && (await archiveContents(one))).toEqual({
+    expect(await archiveContents(one)).toEqual({
       'one/SKILL.md': skillMd('one'),
       'one/.env.example': 'KEY=',
     })
@@ -312,16 +376,13 @@ describe('file sources', () => {
       ['first', 'SKILL.md #1'],
       ['second', 'SKILL.md #2'],
     ])
-    const [, second] = bundles
-    expect(second && (await archiveContents(second))).toEqual({
-      'second/SKILL.md': skillMd('second'),
-    })
+    expect(await archiveContents(bundles[1])).toEqual({ 'second/SKILL.md': skillMd('second') })
   })
 
   it('bundles chosen SKILL.md files and archives together', async () => {
     const files = [
       new File([skillMd('loose')], 'SKILL.md'),
-      new File([zipSync({ 'packed/SKILL.md': strToU8(skillMd('packed')) })], 'packed.zip'),
+      await zipFile('packed.zip', { 'packed/SKILL.md': skillMd('packed') }),
     ]
     expect(skillSourceName({ kind: 'files', files })).toBe('2 files')
     const bundles = await bundleSource({ kind: 'files', files })
@@ -334,77 +395,74 @@ describe('file sources', () => {
 
 describe('bundleArchive', () => {
   it('rebundles every skill found in a zip', async () => {
-    const zip = zipSync({
-      'bundle/a/SKILL.md': strToU8(skillMd('a')),
-      'bundle/b/SKILL.md': strToU8(skillMd('b')),
-      'bundle/b/': new Uint8Array(),
+    const zip = await zipFile('bundle.zip', {
+      'bundle/a/SKILL.md': skillMd('a'),
+      'bundle/b/SKILL.md': skillMd('b'),
     })
-    const bundles = await bundleArchive(new File([zip], 'bundle.zip'))
+    const bundles = await bundleArchive(zip)
     expect(bundles.map((bundle) => bundle.label)).toEqual(['a', 'b'])
   })
 
+  it('keeps dot directories and node_modules inside an archive', async () => {
+    const zip = await zipFile('release-notes.zip', {
+      'release-notes/SKILL.md': skillMd('release-notes'),
+      'release-notes/.templates/example.md': 'example',
+      'release-notes/node_modules/pkg/index.js': 'x',
+    })
+    const [bundle] = await bundleArchive(zip)
+    expect(await archiveContents(bundle)).toEqual({
+      'release-notes/SKILL.md': skillMd('release-notes'),
+      'release-notes/.templates/example.md': 'example',
+      'release-notes/node_modules/pkg/index.js': 'x',
+    })
+  })
+
   it('reads every skill in a tar.gz and rebundles it under the frontmatter name', async () => {
-    const file = new File(
-      [
-        tarGz([
-          { path: './set/', type: '5' },
-          { path: './set/Release Notes/SKILL.md', content: skillMd('release-notes') },
-          { path: './set/Release Notes/template.md', content: 'template' },
-          { path: './set/slides/SKILL.md', content: skillMd('slides') },
-        ]),
-      ],
-      'set.tar.gz',
-    )
+    const file = await tarGzFile('set.tar.gz', [
+      { header: { name: './set/', type: 'directory', size: 0 } },
+      tarFile('./set/Release Notes/SKILL.md', skillMd('release-notes')),
+      tarFile('./set/Release Notes/template.md', 'template'),
+      tarFile('./set/slides/SKILL.md', skillMd('slides')),
+    ])
     const bundles = await bundleArchive(file)
     expect(bundles.map((bundle) => [bundle.label, bundle.sourcePath])).toEqual([
       ['release-notes', 'set.tar.gz/set/Release Notes'],
       ['slides', 'set.tar.gz/set/slides'],
     ])
-    const [notes] = bundles
-    expect(notes && (await archiveContents(notes))).toEqual({
+    expect(await archiveContents(bundles[0])).toEqual({
       'release-notes/SKILL.md': skillMd('release-notes'),
       'release-notes/template.md': 'template',
     })
   })
 
+  it('reads long tar paths', async () => {
+    const dir = `set/${'d'.repeat(120)}`
+    const file = await tarGzFile('long.tgz', [tarFile(`${dir}/SKILL.md`, skillMd('long'))])
+    const bundles = await bundleArchive(file)
+    expect(bundles.map((bundle) => [bundle.label, bundle.sourcePath])).toEqual([
+      ['long', `long.tgz/${dir}`],
+    ])
+  })
+
   it('rejects a tar.gz containing a symlink', async () => {
-    const file = new File(
-      [
-        tarGz([
-          { path: 'linked/SKILL.md', content: skillMd('linked') },
-          { path: 'linked/escape', type: '2' },
-        ]),
-      ],
-      'linked.tgz',
+    const file = await tarGzFile('linked.tgz', [
+      tarFile('linked/SKILL.md', skillMd('linked')),
+      { header: { name: 'linked/escape', type: 'symlink', linkname: '/etc/passwd', size: 0 } },
+    ])
+    await expect(bundleArchive(file)).rejects.toThrow(
+      'Skill archive contains a symlink at linked/escape.',
     )
-    await expect(bundleArchive(file)).rejects.toThrow('symlink')
   })
 
   it('rejects a zip containing a symlink', async () => {
-    const file = new File(
-      [
-        zipSync({
-          'linked/SKILL.md': strToU8(skillMd('linked')),
-          'linked/data': [strToU8('/etc/passwd'), { os: 3, attrs: 0o120777 * 0x10000 }],
-        }),
-      ],
+    const file = await zipFile(
       'linked.zip',
+      { 'linked/SKILL.md': skillMd('linked') },
+      { 'linked/data': '/etc/passwd' },
     )
     await expect(bundleArchive(file)).rejects.toThrow(
       'Skill archive contains a symlink at linked/data.',
     )
-  })
-
-  it('keeps regular zip entries with unix modes', async () => {
-    const file = new File(
-      [
-        zipSync({
-          'plain/SKILL.md': [strToU8(skillMd('plain')), { os: 3, attrs: 0o100644 * 0x10000 }],
-        }),
-      ],
-      'plain.zip',
-    )
-    expect((await bundleArchive(file)).map((bundle) => bundle.label)).toEqual(['plain'])
   })
 
   it('rejects a file that is not a zip', async () => {
@@ -477,6 +535,12 @@ class FakeDirectoryEntry extends FakeEntry implements FileSystemDirectoryEntry {
   }
 }
 
+class UnreadableDirectoryEntry extends FakeDirectoryEntry {
+  override createReader(): FileSystemDirectoryReader {
+    throw new Error(`read ${this.name}`)
+  }
+}
+
 describe('dropped sources', () => {
   beforeEach(() => {
     vi.stubGlobal('FileSystemFileEntry', FakeFileEntry)
@@ -500,7 +564,10 @@ describe('dropped sources', () => {
         ]),
         new FakeDirectoryEntry('two', [new FakeFileEntry('SKILL.md', skillMd('two'))]),
       ]),
-      new FakeFileEntry('packed.zip', zipSync({ 'three/SKILL.md': strToU8(skillMd('three')) })),
+      new FakeFileEntry(
+        'packed.zip',
+        await zipFile('packed.zip', { 'three/SKILL.md': skillMd('three') }),
+      ),
     ]
     expect(skillSourceName({ kind: 'drop', entries })).toBe('2 items')
     const bundles = await bundleSource({ kind: 'drop', entries })
@@ -509,8 +576,7 @@ describe('dropped sources', () => {
       ['two', 'skills/two'],
       ['three', 'packed.zip/three'],
     ])
-    const [one] = bundles
-    expect(one && Object.keys(await archiveContents(one)).sort()).toEqual([
+    expect(Object.keys(await archiveContents(bundles[0])).sort()).toEqual([
       'one/SKILL.md',
       'one/scripts/a.py',
       'one/scripts/b.py',
@@ -535,5 +601,39 @@ describe('dropped sources', () => {
     expect(skillSourceName({ kind: 'drop', entries })).toBe('SKILL.md')
     const bundles = await bundleSource({ kind: 'drop', entries })
     expect(bundles.map((bundle) => bundle.label)).toEqual(['loose'])
+  })
+
+  it('finds skills in each dropped collection folder separately', async () => {
+    const entries = [
+      new FakeDirectoryEntry('first', [
+        new FakeDirectoryEntry('one', [new FakeFileEntry('SKILL.md', skillMd('one'))]),
+      ]),
+      new FakeDirectoryEntry('second', [
+        new FakeDirectoryEntry('two', [new FakeFileEntry('SKILL.md', skillMd('two'))]),
+      ]),
+    ]
+    const bundles = await bundleSource({ kind: 'drop', entries })
+    expect(bundles.map((bundle) => [bundle.label, bundle.sourcePath])).toEqual([
+      ['one', 'first/one'],
+      ['two', 'second/two'],
+    ])
+  })
+
+  it('never reads ignored directories or directories without a SKILL.md', async () => {
+    const entries = [
+      new FakeDirectoryEntry('repo', [
+        new FakeDirectoryEntry('one', [
+          new FakeFileEntry('SKILL.md', skillMd('one')),
+          new UnreadableDirectoryEntry('node_modules', []),
+          new UnreadableDirectoryEntry('.git', []),
+        ]),
+        new UnreadableDirectoryEntry('node_modules', []),
+        new UnreadableDirectoryEntry('.venv', []),
+        new FakeDirectoryEntry('src', [new UnreadableDirectoryEntry('deep', [])]),
+      ]),
+    ]
+    const bundles = await bundleSource({ kind: 'drop', entries })
+    expect(bundles.map((bundle) => bundle.label)).toEqual(['one'])
+    expect(Object.keys(await archiveContents(bundles[0]))).toEqual(['one/SKILL.md'])
   })
 })

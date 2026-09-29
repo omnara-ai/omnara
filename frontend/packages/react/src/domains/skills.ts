@@ -1,5 +1,4 @@
 import {
-  type CreateSkillRequest,
   type ListProjectAvailableSkillsData,
   type ListSkillGrantsData,
   type ListSkillsData,
@@ -24,6 +23,7 @@ import {
 
 import { useOmnaraClient } from '../omnara-client'
 import {
+  exactNameGlob,
   type ListFilters,
   type ListSort,
   type PaginatedListOptions,
@@ -77,27 +77,20 @@ export function useSkill(orgID: string, skillID: string, enabled = true) {
   })
 }
 
-const SKILL_LOOKUP_PAGE_SIZE = 100
-
 export function useSkillNameLookup(orgID: string, owner: SkillOwnerScope) {
   const client = useOmnaraClient()
   return async (names: string[]): Promise<ReadonlyMap<string, Skill>> => {
-    const wanted = new Set(names)
-    const found = new Map<string, Skill>()
-    let cursor: string | undefined
-    while (wanted.size > found.size) {
-      const { data: page } = await sdk.listSkills({
-        path: { orgID },
-        query: { ...ownerFilterQuery(owner), limit: SKILL_LOOKUP_PAGE_SIZE, cursor },
-        client,
-      })
-      for (const skill of page.data) {
-        if (wanted.has(skill.name)) found.set(skill.name, skill)
-      }
-      if (page.next_cursor === null) break
-      cursor = page.next_cursor
-    }
-    return found
+    const matches = await Promise.all(
+      [...new Set(names)].map(async (name) => {
+        const { data: page } = await sdk.listSkills({
+          path: { orgID },
+          query: { ...ownerFilterQuery(owner), name: exactNameGlob(name) },
+          client,
+        })
+        return page.data.filter((skill) => skill.name === name)
+      }),
+    )
+    return new Map(matches.flat().map((skill) => [skill.name, skill]))
   }
 }
 
@@ -152,15 +145,40 @@ function invalidateSkillLists(queryClient: QueryClient, orgID: string) {
   })
 }
 
-export function useCreateSkill(orgID: string) {
+export type SkillUpload =
+  | { phase: 'uploading' }
+  | { phase: 'created'; skill: Skill }
+  | { phase: 'failed'; error: unknown }
+
+export interface CreateSkillsRequest {
+  owner: SkillOwnerInput
+  archives: readonly File[]
+  onProgress?: (index: number, upload: SkillUpload) => void
+}
+
+export function useCreateSkills(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
+  async function createSkill(owner: SkillOwnerInput, archive: File): Promise<SkillUpload> {
+    try {
+      const { data } = await sdk.createSkill({ path: { orgID }, body: { owner, archive }, client })
+      return { phase: 'created', skill: data }
+    } catch (error) {
+      return { phase: 'failed', error }
+    }
+  }
   return useMutation({
-    mutationFn: async (body: CreateSkillRequest) => {
-      const { data } = await sdk.createSkill({ path: { orgID }, body, client })
-      return data
+    mutationFn: async ({ owner, archives, onProgress }: CreateSkillsRequest) => {
+      const uploads: SkillUpload[] = []
+      for (const [index, archive] of archives.entries()) {
+        onProgress?.(index, { phase: 'uploading' })
+        const upload = await createSkill(owner, archive)
+        onProgress?.(index, upload)
+        uploads.push(upload)
+      }
+      return uploads
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await invalidateSkillLists(queryClient, orgID)
     },
   })

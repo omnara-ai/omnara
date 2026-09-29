@@ -1,4 +1,4 @@
-import { useCreateSkill, useSkillNameLookup } from '@omnara/react'
+import { type SkillUpload, useCreateSkills, useSkillNameLookup } from '@omnara/react'
 import type { Skill, SkillOwnerInput } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
@@ -17,7 +17,6 @@ import { Field, FieldGroup } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  bundleSkillMd,
   bundleSource,
   checkSkillMd,
   SkillArchiveError,
@@ -35,10 +34,7 @@ description: What this skill does and when to use it.
 
 `
 
-type UploadOutcome =
-  | { phase: 'uploading' }
-  | { phase: 'created'; skill: Skill }
-  | { phase: 'failed'; message: string }
+const UPLOAD_FAILED = 'Could not upload skill'
 
 type ReviewStatus =
   | { kind: 'new' }
@@ -84,7 +80,7 @@ function isUploadable(item: ReviewItem) {
 
 function reviewSubmitLabel(
   pendingItems: ReviewItem[],
-  outcomes: ReadonlyMap<SkillBundle, UploadOutcome>,
+  outcomes: ReadonlyMap<SkillBundle, SkillUpload>,
 ) {
   const count = pendingItems.length
   if (pendingItems.some((item) => outcomes.has(item.bundle))) {
@@ -93,29 +89,22 @@ function reviewSubmitLabel(
   return count === 1 ? 'Upload skill' : `Upload ${count} skills`
 }
 
-type Selected = { ok: true; review: Review } | { ok: false; message: string }
-
-async function whileFlagged<T>(setFlag: (value: boolean) => void, work: () => Promise<T>) {
-  setFlag(true)
-  try {
-    return await work()
-  } finally {
-    setFlag(false)
-  }
+function createdSkills(uploads: SkillUpload[]) {
+  return uploads.flatMap((upload) => (upload.phase === 'created' ? [upload.skill] : []))
 }
 
-async function uploadSequentially(
-  items: ReviewItem[],
-  upload: (bundle: SkillBundle) => Promise<UploadOutcome>,
-  record: (bundle: SkillBundle, outcome: UploadOutcome) => void,
-): Promise<Skill[]> {
-  const [first, ...rest] = items
-  if (!first) return []
-  record(first.bundle, { phase: 'uploading' })
-  const outcome = await upload(first.bundle)
-  record(first.bundle, outcome)
-  const created = await uploadSequentially(rest, upload, record)
-  return outcome.phase === 'created' ? [outcome.skill, ...created] : created
+type Prepared = { ok: true; review: Review } | { ok: false; message: string }
+
+async function prepareWhile(
+  setPreparing: (preparing: boolean) => void,
+  load: () => Promise<Prepared>,
+) {
+  setPreparing(true)
+  try {
+    return await load()
+  } finally {
+    setPreparing(false)
+  }
 }
 
 export function CreateSkillDialog({
@@ -124,26 +113,27 @@ export function CreateSkillDialog({
   orgId,
   owner,
   onCreated,
+  readSource = bundleSource,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   owner: SkillOwnerInput
   onCreated?: (skills: Skill[]) => void
+  readSource?: (source: SkillSource) => Promise<SkillBundle[]>
 }) {
-  const createSkill = useCreateSkill(orgId)
+  const createSkills = useCreateSkills(orgId)
   const lookupSkills = useSkillNameLookup(orgId, owner)
   const [tab, setTab] = useState('upload')
   const [pickedName, setPickedName] = useState<string>()
   const [selection, setSelection] = useState<Review>()
   const [sourceError, setSourceError] = useState<string>()
   const [review, setReview] = useState<Review>()
-  const [outcomes, setOutcomes] = useState<ReadonlyMap<SkillBundle, UploadOutcome>>(new Map())
+  const [outcomes, setOutcomes] = useState<ReadonlyMap<SkillBundle, SkillUpload>>(new Map())
   const [draftMd, setDraftMd] = useState(SKILL_MD_TEMPLATE)
   const [draftError, setDraftError] = useState<string>()
   const [preparing, setPreparing] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const busy = preparing || uploading
+  const busy = preparing || createSkills.isPending
   const pendingItems = (review?.items ?? []).filter(
     (item) => isUploadable(item) && outcomes.get(item.bundle)?.phase !== 'created',
   )
@@ -167,23 +157,21 @@ export function CreateSkillDialog({
     else close()
   }
 
-  function back() {
-    const remaining = (selection?.items ?? []).filter(
-      (item) => outcomes.get(item.bundle)?.phase !== 'created',
-    )
-    setSelection(selection && remaining.length > 0 ? { ...selection, items: remaining } : undefined)
-    if (remaining.length === 0) setPickedName(undefined)
-    setReview(undefined)
-    setOutcomes(new Map())
-  }
-
-  async function lookupExisting(bundles: SkillBundle[]) {
+  async function reviewBundles(title: string, bundles: SkillBundle[]): Promise<Prepared> {
     const names = bundles.flatMap((bundle) => (bundle.problem === undefined ? [bundle.label] : []))
-    return settleSubmission(() => lookupSkills(names))
+    const existing = await settleSubmission(() => lookupSkills(names))
+    if (!existing.ok) {
+      return {
+        ok: false,
+        message: errorMessage(existing.error, 'Could not check for existing skills.'),
+      }
+    }
+    return { ok: true, review: { title, items: reviewItems(bundles, existing.value) } }
   }
 
-  async function prepareSelection(picked: SkillSource, name: string): Promise<Selected> {
-    const bundled = await settleSubmission(() => bundleSource(picked))
+  async function reviewSource(picked: SkillSource): Promise<Prepared> {
+    const name = skillSourceName(picked)
+    const bundled = await settleSubmission(() => readSource(picked))
     if (!bundled.ok) {
       return {
         ok: false,
@@ -194,40 +182,42 @@ export function CreateSkillDialog({
       }
     }
     if (bundled.value.length === 0) return { ok: false, message: `No SKILL.md found in ${name}.` }
-    const existing = await lookupExisting(bundled.value)
-    if (!existing.ok) {
-      return {
-        ok: false,
-        message: errorMessage(existing.error, 'Could not check for existing skills.'),
-      }
+    return reviewBundles(name, bundled.value)
+  }
+
+  function showSelection(prepared: Prepared) {
+    if (prepared.ok) {
+      setSelection(prepared.review)
+      return
     }
-    return { ok: true, review: { title: name, items: reviewItems(bundled.value, existing.value) } }
+    setSelection(undefined)
+    setPickedName(undefined)
+    setSourceError(prepared.message)
+  }
+
+  async function back() {
+    const remaining = (selection?.items ?? []).flatMap((item) =>
+      outcomes.get(item.bundle)?.phase === 'created' ? [] : [item.bundle],
+    )
+    setReview(undefined)
+    setOutcomes(new Map())
+    if (!selection || remaining.length === selection.items.length) return
+    if (remaining.length === 0) {
+      setSelection(undefined)
+      setPickedName(undefined)
+      return
+    }
+    showSelection(await prepareWhile(setPreparing, () => reviewBundles(selection.title, remaining)))
   }
 
   async function selectSource(picked: SkillSource) {
-    const name = skillSourceName(picked)
-    setPickedName(name)
+    setPickedName(skillSourceName(picked))
     setSelection(undefined)
     setSourceError(undefined)
-    const selected = await whileFlagged(setPreparing, () => prepareSelection(picked, name))
-    if (selected.ok) {
-      setSelection(selected.review)
-      return
-    }
-    setPickedName(undefined)
-    setSourceError(selected.message)
+    showSelection(await prepareWhile(setPreparing, () => reviewSource(picked)))
   }
 
-  async function uploadBundle(bundle: SkillBundle): Promise<UploadOutcome> {
-    const result = await settleSubmission(() =>
-      createSkill.mutateAsync({ owner, archive: bundle.archive }),
-    )
-    return result.ok
-      ? { phase: 'created', skill: result.value }
-      : { phase: 'failed', message: errorMessage(result.error, 'Could not upload skill') }
-  }
-
-  function recordOutcome(bundle: SkillBundle, outcome: UploadOutcome) {
+  function recordOutcome(bundle: SkillBundle, outcome: SkillUpload) {
     setOutcomes((prev) => new Map([...prev, [bundle, outcome]]))
   }
 
@@ -237,34 +227,37 @@ export function CreateSkillDialog({
       setReview(picked)
       return
     }
-    const outcome = await whileFlagged(setUploading, () => uploadBundle(only.bundle))
-    if (outcome.phase === 'failed') {
-      reportError(outcome.message)
+    const [upload] = await createSkills.mutateAsync({ owner, archives: [only.bundle.archive] })
+    if (upload?.phase === 'failed') {
+      reportError(errorMessage(upload.error, UPLOAD_FAILED))
       return
     }
-    if (outcome.phase === 'created') onCreated?.([outcome.skill])
+    if (upload?.phase === 'created') onCreated?.([upload.skill])
     close()
   }
+
   async function submitDraft() {
     setDraftError(undefined)
-    const bundle = bundleSkillMd(draftMd)
-    const existing = await whileFlagged(setPreparing, () => lookupExisting([bundle]))
-    if (!existing.ok) {
-      setDraftError(errorMessage(existing.error, 'Could not check for existing skills.'))
-      return
-    }
-    await createOrReview(
-      { title: 'SKILL.md', items: reviewItems([bundle], existing.value) },
-      setDraftError,
+    const prepared = await prepareWhile(setPreparing, () =>
+      reviewSource({ kind: 'skill-md', text: draftMd }),
     )
+    if (prepared.ok) await createOrReview(prepared.review, setDraftError)
+    else setDraftError(prepared.message)
   }
 
   async function submitReview() {
-    const created = await whileFlagged(setUploading, () =>
-      uploadSequentially(pendingItems, uploadBundle, recordOutcome),
-    )
+    const items = pendingItems
+    const uploads = await createSkills.mutateAsync({
+      owner,
+      archives: items.map((item) => item.bundle.archive),
+      onProgress: (index, upload) => {
+        const item = items[index]
+        if (item) recordOutcome(item.bundle, upload)
+      },
+    })
+    const created = createdSkills(uploads)
     if (created.length > 0) onCreated?.(created)
-    if (created.length === pendingItems.length) close()
+    if (created.length === items.length) close()
   }
 
   function submit(event: SyntheticEvent<HTMLFormElement>) {
@@ -317,7 +310,14 @@ export function CreateSkillDialog({
             )}
             <DialogFooter>
               {review && (
-                <Button type="button" variant="outline" disabled={busy} onClick={back}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => {
+                    void back()
+                  }}
+                >
                   Back
                 </Button>
               )}
@@ -405,7 +405,7 @@ function CreateSkillSourceTabs({
   )
 }
 
-function ReviewIcon({ item, outcome }: { item: ReviewItem; outcome: UploadOutcome | undefined }) {
+function ReviewIcon({ item, outcome }: { item: ReviewItem; outcome: SkillUpload | undefined }) {
   if (outcome?.phase === 'uploading') return <Spinner className="text-muted-foreground size-4" />
   if (outcome?.phase === 'created') {
     return <CircleCheck className="text-success size-4" aria-label="Uploaded" />
@@ -436,7 +436,7 @@ function SkillReviewList({
   outcomes,
 }: {
   items: ReviewItem[]
-  outcomes: ReadonlyMap<SkillBundle, UploadOutcome>
+  outcomes: ReadonlyMap<SkillBundle, SkillUpload>
 }) {
   return (
     <ul
@@ -447,7 +447,7 @@ function SkillReviewList({
         const outcome = outcomes.get(item.bundle)
         const detail =
           outcome?.phase === 'failed'
-            ? outcome.message
+            ? errorMessage(outcome.error, UPLOAD_FAILED)
             : item.status.kind === 'invalid'
               ? item.status.problem
               : item.status.kind === 'duplicate'
