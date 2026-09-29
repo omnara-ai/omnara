@@ -90,7 +90,7 @@ afterEach(() => {
   restore()
 })
 
-async function render(existing: Skill[] = []) {
+async function render(existing: Skill[] = [], attachedSkills: Skill[] = []) {
   const uploads = arrivals<Upload>()
   const created = arrivals<string[]>()
   const lookups: string[] = []
@@ -124,6 +124,7 @@ async function render(existing: Skill[] = []) {
             orgId={orgId}
             owner={{ kind: 'org' }}
             readSource={readSource}
+            attachedSkills={attachedSkills}
             onCreated={(skills) => {
               created.push(skills.map((item) => item.name))
             }}
@@ -203,7 +204,7 @@ it('reviews a bulk upload, then uploads one at a time and retries only the failu
     'alphaNew',
     'alphaDuplicate of collection.zip/collection/alphaSkipped',
     'betaNew',
-    'gammav2 → v3',
+    'gammav2 → v3 · replaces all files',
   ])
   expect(ctx.uploads.count).toBe(0)
 
@@ -273,11 +274,53 @@ it('uploads a single new skill straight from the picker', async () => {
   expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
 })
 
+it('warns before a new skill replaces an attached skill with the same name', async () => {
+  const ctx = await render([], [skill('solo')])
+  await chooseArchive(await skillZip({ 'solo/SKILL.md': skillMd('solo') }, 'solo.zip'))
+
+  submit()
+  expect(reviewRows()).toEqual(['soloReplaces the attached organization skill.New'])
+  expect(ctx.uploads.count).toBe(0)
+
+  submit()
+  const solo = await ctx.uploads.at(0)
+  solo.respond(jsonResponse(skill('solo'), 201))
+  expect(await ctx.created.at(0)).toEqual(['solo'])
+})
+
 it('reports a picked archive without any SKILL.md', async () => {
   const ctx = await render()
   await chooseArchive(await skillZip({ 'notes/README.md': 'hi' }, 'notes.zip'))
   expect(document.querySelector('[role="alert"]')?.textContent).toBe(
     'No SKILL.md found in notes.zip.',
+  )
+  expect(ctx.lookups).toEqual([])
+  expect(button('Create skill').disabled).toBe(true)
+})
+
+it('reports broken frontmatter in a single picked skill without opening the review', async () => {
+  const ctx = await render()
+  await chooseArchive(await skillZip({ 'broken/SKILL.md': '# Broken\n' }, 'broken.zip'))
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+    "SKILL.md is missing YAML frontmatter delimited by '---'.",
+  )
+  expect(ctx.lookups).toEqual([])
+  expect(button('Create skill').disabled).toBe(true)
+})
+
+it('reports every broken skill up front when none in the selection are valid', async () => {
+  const ctx = await render()
+  await chooseArchive(
+    await skillZip(
+      { 'set/first/SKILL.md': '# First\n', 'set/second/SKILL.md': '# Second\n' },
+      'set.zip',
+    ),
+  )
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+    [
+      "first: SKILL.md is missing YAML frontmatter delimited by '---'.",
+      "second: SKILL.md is missing YAML frontmatter delimited by '---'.",
+    ].join('\n'),
   )
   expect(ctx.lookups).toEqual([])
   expect(button('Create skill').disabled).toBe(true)
@@ -311,7 +354,7 @@ it('confirms before a pasted SKILL.md creates a new revision of an existing skil
     form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
   expect(ctx.lookups).toEqual(['my-skill'])
-  expect(reviewRows()).toEqual(['my-skillv4 → v5'])
+  expect(reviewRows()).toEqual(['my-skillv4 → v5 · replaces all files'])
   expect(ctx.uploads.count).toBe(0)
 
   submit()
@@ -382,5 +425,5 @@ it('rechecks the remaining skills against the server after Back', async () => {
   expect(document.body.textContent).toContain('set.zip2 skills')
 
   submit()
-  expect(reviewRows()).toEqual(['barNew', 'foov1 → v2'])
+  expect(reviewRows()).toEqual(['barNew', 'foov1 → v2 · replaces all files'])
 })

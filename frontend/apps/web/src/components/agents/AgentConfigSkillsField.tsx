@@ -83,12 +83,11 @@ export function AgentConfigSkillsField({
     : []
   const danglingIdSet = new Set(danglingIds)
 
-  const selectedNames = new Set(
-    selectedIds.flatMap((id) => {
-      const skill = skillById(id)
-      return skill ? [skill.name] : []
-    }),
-  )
+  const selectedSkills = selectedIds.flatMap((id) => {
+    const skill = skillById(id)
+    return skill ? [skill] : []
+  })
+  const selectedNames = new Set(selectedSkills.map((skill) => skill.name))
 
   const [unavailableIds, setUnavailableIds] = useState<ReadonlySet<string>>(new Set())
   const reportAvailability = (id: string, availableNow: boolean) => {
@@ -207,6 +206,7 @@ export function AgentConfigSkillsField({
           onOpenChange={setCreateOpen}
           orgId={orgId}
           owner={{ kind: 'project', project_id: projectId }}
+          attachedSkills={selectedSkills}
           onCreated={(skills) => {
             selectSkills(skills)
           }}

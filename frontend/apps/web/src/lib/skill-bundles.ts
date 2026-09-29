@@ -1,5 +1,3 @@
-import { BlobReader, BlobWriter, ZipReader, ZipWriter } from '@zip.js/zip.js'
-import { unpackTar } from 'modern-tar'
 import { parseDocument, Scalar, visit, YAMLParseError } from 'yaml'
 import * as z from 'zod'
 
@@ -196,6 +194,7 @@ async function zipSkill(
   files: SkillSourceFile[],
   problem?: string,
 ): Promise<SkillBundle> {
+  const { BlobReader, BlobWriter, ZipWriter } = await import('@zip.js/zip.js')
   const writer = new ZipWriter(new BlobWriter('application/zip'), ZIP_OPTIONS)
   await Promise.all(
     files.map((file) => writer.add(`${name}/${file.path}`, new BlobReader(file.data))),
@@ -291,6 +290,25 @@ export function skillSourceName(source: SkillSource) {
   }
   const [only, ...rest] = source.entries
   return only && rest.length === 0 ? only.name : `${source.entries.length} items`
+}
+
+export type SkillSourceRead = { ok: true; bundles: SkillBundle[] } | { ok: false; message: string }
+
+export async function readSkillSource(
+  source: SkillSource,
+  read: (source: SkillSource) => Promise<SkillBundle[]>,
+): Promise<SkillSourceRead> {
+  try {
+    return { ok: true, bundles: await read(source) }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof SkillArchiveError
+          ? error.message
+          : `Could not read ${skillSourceName(source)}. Choose a folder, .zip, or .tar.gz archive.`,
+    }
+  }
 }
 
 function readEntryBatch(reader: FileSystemDirectoryReader) {
@@ -408,6 +426,7 @@ function symlinkError(path: string) {
 }
 
 async function readZip(file: File): Promise<SkillSourceFile[]> {
+  const { BlobReader, BlobWriter, ZipReader } = await import('@zip.js/zip.js')
   const reader = new ZipReader(new BlobReader(file), ZIP_OPTIONS)
   try {
     const entries = await reader.getEntries()
@@ -426,6 +445,7 @@ async function readZip(file: File): Promise<SkillSourceFile[]> {
 }
 
 async function readTarGz(file: File): Promise<SkillSourceFile[]> {
+  const { unpackTar } = await import('modern-tar')
   const entries = await unpackTar(file.stream().pipeThrough(new DecompressionStream('gzip')))
   return entries.flatMap(({ header, data }) => {
     if (header.type === 'symlink' || header.type === 'link') throw symlinkError(header.name)

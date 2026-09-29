@@ -19,12 +19,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   bundleSource,
   checkSkillMd,
-  SkillArchiveError,
+  readSkillSource,
   type SkillBundle,
   type SkillMdCheck,
   type SkillSource,
   skillSourceName,
 } from '@/lib/skill-bundles'
+import { skillOwnerLabel } from '@/lib/skills'
 import { errorMessage, settleSubmission } from '@/lib/submit-status'
 
 const SKILL_MD_TEMPLATE = `---
@@ -45,6 +46,7 @@ type ReviewStatus =
 interface ReviewItem {
   bundle: SkillBundle
   status: ReviewStatus
+  replacesAttached?: Skill
 }
 
 interface Review {
@@ -52,7 +54,11 @@ interface Review {
   items: ReviewItem[]
 }
 
-function reviewItems(bundles: SkillBundle[], existing: ReadonlyMap<string, Skill>): ReviewItem[] {
+function reviewItems(
+  bundles: SkillBundle[],
+  existing: ReadonlyMap<string, Skill>,
+  attachedByName: ReadonlyMap<string, Skill>,
+): ReviewItem[] {
   const firstByName = new Map<string, SkillBundle>()
   return bundles.map((bundle) => {
     if (bundle.problem !== undefined) {
@@ -64,7 +70,12 @@ function reviewItems(bundles: SkillBundle[], existing: ReadonlyMap<string, Skill
     }
     firstByName.set(bundle.label, bundle)
     const skill = existing.get(bundle.label)
-    return { bundle, status: skill ? { kind: 'revision', existing: skill } : { kind: 'new' } }
+    const attached = attachedByName.get(bundle.label)
+    return {
+      bundle,
+      status: skill ? { kind: 'revision', existing: skill } : { kind: 'new' },
+      replacesAttached: attached && attached.id !== skill?.id ? attached : undefined,
+    }
   })
 }
 
@@ -72,6 +83,16 @@ function selectionSummary(selection: Review | undefined) {
   if (!selection) return undefined
   const [only, ...rest] = selection.items
   return only && rest.length === 0 ? only.bundle.label : `${selection.items.length} skills`
+}
+
+function invalidSelectionMessage(bundles: SkillBundle[]) {
+  const problems = bundles.flatMap((bundle) =>
+    bundle.problem === undefined ? [] : [{ label: bundle.label, problem: bundle.problem }],
+  )
+  if (problems.length === 0 || problems.length < bundles.length) return undefined
+  const [only, ...rest] = problems
+  if (only && rest.length === 0) return only.problem
+  return problems.map(({ label, problem }) => `${label}: ${problem}`).join('\n')
 }
 
 function isUploadable(item: ReviewItem) {
@@ -113,6 +134,7 @@ export function CreateSkillDialog({
   orgId,
   owner,
   onCreated,
+  attachedSkills = [],
   readSource = bundleSource,
 }: {
   open: boolean
@@ -120,6 +142,7 @@ export function CreateSkillDialog({
   orgId: string
   owner: SkillOwnerInput
   onCreated?: (skills: Skill[]) => void
+  attachedSkills?: readonly Skill[]
   readSource?: (source: SkillSource) => Promise<SkillBundle[]>
 }) {
   const createSkills = useCreateSkills(orgId)
@@ -166,23 +189,21 @@ export function CreateSkillDialog({
         message: errorMessage(existing.error, 'Could not check for existing skills.'),
       }
     }
-    return { ok: true, review: { title, items: reviewItems(bundles, existing.value) } }
+    const attachedByName = new Map(attachedSkills.map((skill) => [skill.name, skill]))
+    return {
+      ok: true,
+      review: { title, items: reviewItems(bundles, existing.value, attachedByName) },
+    }
   }
 
   async function reviewSource(picked: SkillSource): Promise<Prepared> {
     const name = skillSourceName(picked)
-    const bundled = await settleSubmission(() => readSource(picked))
-    if (!bundled.ok) {
-      return {
-        ok: false,
-        message:
-          bundled.error instanceof SkillArchiveError
-            ? bundled.error.message
-            : `Could not read ${name}. Choose a folder, .zip, or .tar.gz archive.`,
-      }
-    }
-    if (bundled.value.length === 0) return { ok: false, message: `No SKILL.md found in ${name}.` }
-    return reviewBundles(name, bundled.value)
+    const bundled = await readSkillSource(picked, readSource)
+    if (!bundled.ok) return bundled
+    if (bundled.bundles.length === 0) return { ok: false, message: `No SKILL.md found in ${name}.` }
+    const problem = invalidSelectionMessage(bundled.bundles)
+    if (problem !== undefined) return { ok: false, message: problem }
+    return reviewBundles(name, bundled.bundles)
   }
 
   function showSelection(prepared: Prepared) {
@@ -223,7 +244,12 @@ export function CreateSkillDialog({
 
   async function createOrReview(picked: Review, reportError: (message: string) => void) {
     const [only, ...rest] = picked.items
-    if (!only || rest.length > 0 || only.status.kind !== 'new') {
+    if (
+      !only ||
+      rest.length > 0 ||
+      only.status.kind !== 'new' ||
+      only.replacesAttached !== undefined
+    ) {
       setReview(picked)
       return
     }
@@ -379,7 +405,7 @@ function CreateSkillSourceTabs({
           onSelect={onSelect}
         />
         {sourceError && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
             {sourceError}
           </p>
         )}
@@ -424,11 +450,33 @@ function ReviewStatusLabel({ status }: { status: ReviewStatus }) {
   if (status.kind === 'revision') {
     return (
       <span className="text-warning">
-        v{status.existing.revision} → v{status.existing.revision + 1}
+        v{status.existing.revision} → v{status.existing.revision + 1} · replaces all files
       </span>
     )
   }
   return <span className="text-muted-foreground">Skipped</span>
+}
+
+function reviewDetail(item: ReviewItem, outcome: SkillUpload | undefined) {
+  if (outcome?.phase === 'failed') {
+    return {
+      text: errorMessage(outcome.error, UPLOAD_FAILED),
+      className: 'text-destructive whitespace-pre-wrap',
+    }
+  }
+  if (item.status.kind === 'invalid') {
+    return { text: item.status.problem, className: 'text-destructive whitespace-pre-wrap' }
+  }
+  if (item.status.kind === 'duplicate') {
+    return { text: `Duplicate of ${item.status.of}`, className: 'text-muted-foreground' }
+  }
+  if (item.replacesAttached) {
+    return {
+      text: `Replaces the attached ${skillOwnerLabel(item.replacesAttached).toLowerCase()} skill.`,
+      className: 'text-warning',
+    }
+  }
+  return undefined
 }
 
 function SkillReviewList({
@@ -445,14 +493,7 @@ function SkillReviewList({
     >
       {items.map((item) => {
         const outcome = outcomes.get(item.bundle)
-        const detail =
-          outcome?.phase === 'failed'
-            ? errorMessage(outcome.error, UPLOAD_FAILED)
-            : item.status.kind === 'invalid'
-              ? item.status.problem
-              : item.status.kind === 'duplicate'
-                ? `Duplicate of ${item.status.of}`
-                : undefined
+        const detail = reviewDetail(item, outcome)
         return (
           <li key={item.bundle.sourcePath} className="flex items-start gap-3 px-3 py-2 text-sm">
             <span className="flex h-5 shrink-0 items-center">
@@ -460,17 +501,7 @@ function SkillReviewList({
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="truncate font-mono">{item.bundle.label}</span>
-              {detail !== undefined && (
-                <span
-                  className={
-                    item.status.kind === 'duplicate' && outcome?.phase !== 'failed'
-                      ? 'text-muted-foreground'
-                      : 'text-destructive whitespace-pre-wrap'
-                  }
-                >
-                  {detail}
-                </span>
-              )}
+              {detail && <span className={detail.className}>{detail.text}</span>}
             </span>
             <span className="shrink-0 text-xs leading-5">
               <ReviewStatusLabel status={item.status} />

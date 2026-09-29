@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/resource-combobox-core'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { skillOwnerLabel } from '@/lib/skills'
 
 type SkillOption = { kind: 'create' } | { kind: 'skill'; skill: Skill }
 
@@ -49,7 +50,12 @@ const skillOptionConfig: ResourceComboboxConfig<SkillOption> = {
       </span>
     ) : (
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="font-medium">{option.skill.name}</span>
+        <span className="flex items-center justify-between gap-3">
+          <span className="font-medium">{option.skill.name}</span>
+          <span className="text-muted-foreground shrink-0 text-xs">
+            {skillOwnerLabel(option.skill)}
+          </span>
+        </span>
         <span className="text-muted-foreground line-clamp-2 text-xs">
           {option.skill.description}
         </span>
