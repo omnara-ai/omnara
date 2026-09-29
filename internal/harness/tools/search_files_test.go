@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -330,6 +331,7 @@ func TestMemorySearchGlob(t *testing.T) {
 	root := t.TempDir()
 	names := []string{
 		"a.md", "é.md", "nested/a.md", "team/a.md", "[x]{y}.md", ".hidden.md", "a:b.md", "trailing ", "two words.md",
+		"reports/a.md", "reports/other.txt", "reports/nested/a.md", "reporté/a.md", "[dir]/a.md", "two words/a.md",
 	}
 	for _, name := range names {
 		path := filepath.Join(root, "memory", "team", name)
@@ -344,6 +346,9 @@ func TestMemorySearchGlob(t *testing.T) {
 		"/memory/team/*.md", "/memory/team/?.md", "/memory/*/**/*.md", "/memory/**/team/*.md",
 		"/memory/**/**/team/*.md", "/memory/team/[x]{y}.md", "/memory/team/trailing ",
 		"/memory/team/two words.md", "/memory/team/a**.md",
+		"/memory/team/reports/*.md", "/memory/*/reports/**/*.md", "/memory/team/*/*.md",
+		"/memory/team/report?/*.md", "/memory/team/[dir]/*.md", "/memory/team/two words/*.md",
+		"/memory/team/reports/*/*.md", "/memory/team/**/**/a.md",
 	} {
 		t.Run(pattern, func(t *testing.T) {
 			matcher, err := storage.CompileFilePattern(pattern)
@@ -356,7 +361,7 @@ func TestMemorySearchGlob(t *testing.T) {
 					want = append(want, name)
 				}
 			}
-			args := []string{"--files", "--hidden", "--no-ignore", "--glob", memorySearchGlob(pattern)}
+			args := append([]string{"--files", "--hidden", "--no-ignore"}, memorySearchArgs(pattern)...)
 			command := exec.CommandContext(t.Context(), "rg", append(args, "--", "memory/team")...)
 			command.Dir = root
 			output, err := command.Output()
@@ -376,6 +381,42 @@ func TestMemorySearchGlob(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestMemorySearchPrunesDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires filesystem permissions to deny directory access")
+	}
+	root := t.TempDir()
+	store := filepath.Join(root, "memory", "team")
+	for _, name := range []string{"unrelated", "reports/deeper"} {
+		dir := filepath.Join(store, name)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Error(err)
+			}
+		})
+		if err := os.Chmod(dir, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(store, "reports/a.md"), []byte("TARGET\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "reports/other.txt"), []byte("TARGET\n"), 0); err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{"--no-config", "--hidden", "--no-ignore", "--with-filename", "-e", "TARGET"},
+		memorySearchArgs("/memory/team/reports/*.md")...)
+	command := exec.CommandContext(t.Context(), "rg", append(args, "--", "memory/team")...)
+	command.Dir = root
+	output, err := command.CombinedOutput()
+	if err != nil || string(output) != "memory/team/reports/a.md:TARGET\n" {
+		t.Fatalf("search visited an excluded path: %s, %v", output, err)
 	}
 }
 
