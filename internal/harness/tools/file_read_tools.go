@@ -6,15 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	_ "golang.org/x/image/webp"
 )
 
 const searchLineBytes = 256
@@ -134,9 +140,17 @@ func runReadFileAsync(
 	if err != nil {
 		return nil, err
 	}
-	content, record, err := loadReadableArtifact(ctx, call, artifactID)
+	content, record, err := loadArtifactContent(ctx, call, artifactID)
 	if err != nil {
 		return nil, err
+	}
+	if isViewableImage(record.ContentType, content) {
+		return completeImageRead(input.Path, record.ContentType, len(content), artifactID)
+	}
+	if !isReadableText(content) {
+		return nil, errors.New(
+			"artifact must contain UTF-8 text without NUL bytes, or be a PNG, JPEG, GIF, or WebP image",
+		)
 	}
 	var result map[string]any
 	if input.OffsetChar != nil {
@@ -177,6 +191,21 @@ func loadReadableArtifact(
 	call asyncToolContext,
 	artifactID uuid.UUID,
 ) ([]byte, artifactstore.ArtifactRecord, error) {
+	content, record, err := loadArtifactContent(ctx, call, artifactID)
+	if err != nil {
+		return nil, artifactstore.ArtifactRecord{}, err
+	}
+	if !isReadableText(content) {
+		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact must contain UTF-8 text without NUL bytes")
+	}
+	return content, record, nil
+}
+
+func loadArtifactContent(
+	ctx context.Context,
+	call asyncToolContext,
+	artifactID uuid.UUID,
+) ([]byte, artifactstore.ArtifactRecord, error) {
 	if call.Executor.Store == nil || call.Executor.Store.Artifacts() == nil {
 		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact storage is not configured")
 	}
@@ -207,10 +236,40 @@ func loadReadableArtifact(
 	if len(content) > toolcatalog.MaxReadableArtifactBytes {
 		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact exceeds readable limit")
 	}
-	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-		return nil, artifactstore.ArtifactRecord{}, errors.New("artifact must contain UTF-8 text without NUL bytes")
-	}
 	return content, record, nil
+}
+
+func isReadableText(content []byte) bool {
+	return utf8.Valid(content) && bytes.IndexByte(content, 0) < 0
+}
+
+func isViewableImage(contentType string, content []byte) bool {
+	if kind, _ := modelcontext.AttachmentKindForMediaType(contentType); kind != modelcontext.AttachmentKindImage {
+		return false
+	}
+	_, format, err := image.DecodeConfig(bytes.NewReader(content))
+	return err == nil && "image/"+format == contentType
+}
+
+func completeImageRead(
+	path string,
+	contentType string,
+	sizeBytes int,
+	artifactID uuid.UUID,
+) (asyncPhaseResult, error) {
+	metadata, err := structuredToolResultPart(map[string]any{
+		"path":         path,
+		"content_type": contentType,
+		"size_bytes":   sizeBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	media, err := mediaToolResultPart(artifactID)
+	if err != nil {
+		return nil, err
+	}
+	return completeAsynchronously(newToolResultContent(metadata, media)), nil
 }
 
 func readFileChars(
