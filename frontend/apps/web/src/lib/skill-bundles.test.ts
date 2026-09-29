@@ -111,10 +111,52 @@ describe('checkSkillMd', () => {
     expect(checkSkillMd(`---\nname: long\ndescription: ${'d'.repeat(1025)}\n---\n`)).toEqual({
       ok: false,
       problem: {
-        message: 'SKILL.md frontmatter `description` exceeds 1,024 characters.',
+        message: 'SKILL.md frontmatter `description` exceeds 1,024 bytes.',
         startLine: 3,
         endLine: 3,
       },
+    })
+    expect(checkSkillMd(`---\nname: cjk\ndescription: ${'説'.repeat(342)}\n---\n`)).toEqual({
+      ok: false,
+      problem: {
+        message: 'SKILL.md frontmatter `description` exceeds 1,024 bytes.',
+        startLine: 3,
+        endLine: 3,
+      },
+    })
+  })
+
+  it('treats only plain YAML nulls as missing', () => {
+    expect(checkSkillMd('---\nname: quoted\ndescription: "null"\n---\n')).toEqual({
+      ok: true,
+      name: 'quoted',
+    })
+    expect(checkSkillMd("---\nname: quoted\ndescription: '~'\n---\n")).toEqual({
+      ok: true,
+      name: 'quoted',
+    })
+    expect(checkSkillMd('---\nname: plain\ndescription: null\n---\n')).toEqual({
+      ok: false,
+      problem: {
+        message: 'SKILL.md frontmatter is missing `description`.',
+        startLine: 3,
+        endLine: 3,
+      },
+    })
+  })
+
+  it('matches the server frontmatter delimiters', () => {
+    expect(checkSkillMd('---\nname: spaced\ndescription: d\n---  \n')).toEqual({
+      ok: false,
+      problem: {
+        message: "SKILL.md is missing YAML frontmatter delimited by '---'.",
+        startLine: 1,
+        endLine: 1,
+      },
+    })
+    expect(checkSkillMd('--- \nname: open\ndescription: d\n---\r\r\n')).toEqual({
+      ok: true,
+      name: 'open',
     })
   })
 
@@ -234,6 +276,29 @@ describe('folder sources', () => {
       'two/ref.md': 'reference',
     })
   })
+
+  it('reads only skill files and skips dot directories and node_modules inside a skill', async () => {
+    function unreadable(path: string) {
+      const file = folderFile(path, '')
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: () => Promise.reject(new Error(`read ${path}`)),
+      })
+      return file
+    }
+    const files = [
+      folderFile('repo/.claude/skills/one/SKILL.md', skillMd('one')),
+      folderFile('repo/.claude/skills/one/.env.example', 'KEY='),
+      unreadable('repo/.claude/skills/one/.git/HEAD'),
+      unreadable('repo/.claude/skills/one/node_modules/pkg/index.js'),
+      unreadable('repo/big.bin'),
+    ]
+    const [one, ...rest] = await bundleSource({ kind: 'folder', files })
+    expect(rest).toEqual([])
+    expect(one && (await archiveContents(one))).toEqual({
+      'one/SKILL.md': skillMd('one'),
+      'one/.env.example': 'KEY=',
+    })
+  })
 })
 
 describe('file sources', () => {
@@ -313,6 +378,33 @@ describe('bundleArchive', () => {
       'linked.tgz',
     )
     await expect(bundleArchive(file)).rejects.toThrow('symlink')
+  })
+
+  it('rejects a zip containing a symlink', async () => {
+    const file = new File(
+      [
+        zipSync({
+          'linked/SKILL.md': strToU8(skillMd('linked')),
+          'linked/data': [strToU8('/etc/passwd'), { os: 3, attrs: 0o120777 * 0x10000 }],
+        }),
+      ],
+      'linked.zip',
+    )
+    await expect(bundleArchive(file)).rejects.toThrow(
+      'Skill archive contains a symlink at linked/data.',
+    )
+  })
+
+  it('keeps regular zip entries with unix modes', async () => {
+    const file = new File(
+      [
+        zipSync({
+          'plain/SKILL.md': [strToU8(skillMd('plain')), { os: 3, attrs: 0o100644 * 0x10000 }],
+        }),
+      ],
+      'plain.zip',
+    )
+    expect((await bundleArchive(file)).map((bundle) => bundle.label)).toEqual(['plain'])
   })
 
   it('rejects a file that is not a zip', async () => {

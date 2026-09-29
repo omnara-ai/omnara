@@ -20,6 +20,7 @@ import {
   bundleSkillMd,
   bundleSource,
   checkSkillMd,
+  SkillArchiveError,
   type SkillBundle,
   type SkillMdCheck,
   type SkillSource,
@@ -186,7 +187,10 @@ export function CreateSkillDialog({
     if (!bundled.ok) {
       return {
         ok: false,
-        message: `Could not read ${name}. Choose a folder, .zip, or .tar.gz archive.`,
+        message:
+          bundled.error instanceof SkillArchiveError
+            ? bundled.error.message
+            : `Could not read ${name}. Choose a folder, .zip, or .tar.gz archive.`,
       }
     }
     if (bundled.value.length === 0) return { ok: false, message: `No SKILL.md found in ${name}.` }

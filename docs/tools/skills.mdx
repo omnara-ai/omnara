@@ -132,7 +132,7 @@ skills:
   - skl_ik7mv4qtrwz3jehcyd5n6a2bfg
 ```
 
-In the dashboard's agent builder, click **+** in the **Skills** section and search for a skill to attach it. The search list starts with **Create skill**, which opens the same upload dialog, creates the skills in the project, and attaches them.
+In the dashboard's agent builder, click **+** in the **Skills** section and search for a skill to attach it. The search list includes **Create skill**, first when nothing matches the search and after the matching skills otherwise. It opens the same upload dialog, creates the skills in the project, and attaches them. A created skill replaces an attached skill with the same name.
 
 Attaching a skill automatically enables the built-in `skill` tool. The model sees each skill's name and description; when it calls the tool, Omnara returns the `SKILL.md` instructions and attempts to install the supporting files on each attached machine. The instructions still work when no machine is attached or an installation fails.
 

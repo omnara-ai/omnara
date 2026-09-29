@@ -91,10 +91,11 @@ async function render(existing: Skill[] = []) {
     fetch: async (input, init) => {
       const request = new Request(input, init)
       if (request.method === 'GET') {
-        const name = new URL(request.url).searchParams.get('name') ?? ''
-        lookups.push(name)
-        const data = existing.filter((item) => item.name === name)
-        return jsonResponse({ data, next_cursor: null })
+        const cursor = new URL(request.url).searchParams.get('cursor') ?? ''
+        lookups.push(cursor)
+        const [page, next] =
+          cursor === '' ? [existing.slice(0, 1), 'page-2'] : [existing.slice(1), null]
+        return jsonResponse({ data: page, next_cursor: next })
       }
       const archive = (await request.formData()).get('archive')
       return new Promise<Response>((respond) => {
@@ -174,7 +175,7 @@ it('reviews a bulk upload, then uploads one at a time and retries only the failu
       'collection.zip',
     ),
   )
-  expect(ctx.lookups.sort()).toEqual(['alpha', 'beta', 'gamma'])
+  expect(ctx.lookups).toEqual(['', 'page-2'])
   expect(reviewRows()).toEqual([])
   expect(document.body.textContent).toContain('collection.zip4 skills')
 
@@ -224,7 +225,7 @@ it('skips skills with broken frontmatter and returns to the picker on Back', asy
       'set.zip',
     ),
   )
-  expect(ctx.lookups).toEqual(['good'])
+  expect(ctx.lookups).toEqual(['', 'page-2'])
   submit()
   expect(reviewRows()).toEqual([
     "brokenSKILL.md is missing YAML frontmatter delimited by '---'.Skipped",
@@ -263,6 +264,25 @@ it('reports a picked archive without any SKILL.md', async () => {
   expect(button('Create skill').disabled).toBe(true)
 })
 
+it('names the symlink when a picked zip contains one', async () => {
+  const ctx = await render()
+  await chooseArchive(
+    new File(
+      [
+        zipSync({
+          'linked/SKILL.md': strToU8(skillMd('linked')),
+          'linked/data': [strToU8('/etc/passwd'), { os: 3, attrs: 0o120777 * 0x10000 }],
+        }),
+      ],
+      'linked.zip',
+    ),
+  )
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+    'Skill archive contains a symlink at linked/data.',
+  )
+  expect(ctx.lookups).toEqual([])
+})
+
 it('confirms before a pasted SKILL.md creates a new revision of an existing skill', async () => {
   const ctx = await render([skill('my-skill', 4)])
   const trigger = [...document.querySelectorAll('[role="tab"]')].find(
@@ -277,7 +297,7 @@ it('confirms before a pasted SKILL.md creates a new revision of an existing skil
     const form = document.querySelector('form')
     form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
-  expect(ctx.lookups).toEqual(['my-skill'])
+  expect(ctx.lookups).toEqual([''])
   expect(reviewRows()).toEqual(['my-skillv4 → v5'])
   expect(ctx.uploads.count).toBe(0)
 

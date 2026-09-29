@@ -1,6 +1,6 @@
 import { useProjectAvailableSkills } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { AgentConfigSectionCard } from '@/components/agents/AgentConfigSectionCard'
 import { AgentConfigSkillSearchbox } from '@/components/agents/AgentConfigSkillSearchbox'
@@ -31,11 +31,26 @@ export function AgentConfigSkillsField({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchKey, setSearchKey] = useState(0)
   const [searchExpanded, setSearchExpanded] = useState(false)
+  const searchWrapperRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const wrapper = searchWrapperRef.current
+    if (!searchOpen || !wrapper) return
+    let current = true
+    void Promise.allSettled(wrapper.getAnimations().map((animation) => animation.finished)).then(
+      () => {
+        if (current) setSearchExpanded(true)
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [searchOpen, searchKey])
 
   function openSearch() {
     setSearchKey((key) => key + 1)
     setSearchOpen(true)
-    setSearchExpanded(window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    setSearchExpanded(false)
   }
 
   function closeSearch() {
@@ -100,10 +115,16 @@ export function AgentConfigSkillsField({
       for (const skill of skills) next.set(skill.id, skill)
       return next
     })
-    const addedIds = [...new Set(skills.map((skill) => skill.id))].filter(
-      (id) => !selectedSet.has(id),
-    )
-    if (addedIds.length > 0) onSelectedIdsChange([...selectedIds, ...addedIds])
+    const addedIdByName = new Map(skills.map((skill) => [skill.name, skill.id]))
+    const keptIds = selectedIds.filter((id) => {
+      const name = skillById(id)?.name
+      return name === undefined || (addedIdByName.get(name) ?? id) === id
+    })
+    const keptIdSet = new Set(keptIds)
+    const addedIds = [...addedIdByName.values()].filter((id) => !keptIdSet.has(id))
+    if (addedIds.length > 0 || keptIds.length < selectedIds.length) {
+      onSelectedIdsChange([...keptIds, ...addedIds])
+    }
     closeSearch()
   }
 
@@ -113,15 +134,8 @@ export function AgentConfigSkillsField({
       action={
         <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <div
+            ref={searchWrapperRef}
             inert={!searchOpen}
-            onTransitionEnd={(event) => {
-              if (
-                searchOpen &&
-                event.target === event.currentTarget &&
-                event.propertyName === 'max-width'
-              )
-                setSearchExpanded(true)
-            }}
             className={cn(
               'min-w-0 transition-[max-width,opacity] duration-200 ease-out motion-reduce:transition-none',
               searchOpen ? 'max-w-sm flex-1 opacity-100' : 'max-w-0 overflow-hidden opacity-0',

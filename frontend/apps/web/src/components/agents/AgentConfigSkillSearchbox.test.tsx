@@ -160,6 +160,18 @@ it('selects a skill from the list', async () => {
   expect(ctx.onSelect).toHaveBeenCalledWith(skills[2])
 })
 
+it('keeps Enter inside the search box when nothing is highlighted', async () => {
+  const ctx = await render(false)
+  await type('zzz')
+  expect(options()).toEqual([])
+  const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  act(() => {
+    document.querySelector('input')?.dispatchEvent(enter)
+  })
+  expect(enter.defaultPrevented).toBe(true)
+  expect(ctx.onSelect).not.toHaveBeenCalled()
+})
+
 it('omits Create skill without create permission', async () => {
   await render(false)
   expect(optionNames()).toEqual(['pdf-tools', 'slides'])

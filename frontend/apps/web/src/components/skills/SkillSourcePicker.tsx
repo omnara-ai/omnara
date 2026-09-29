@@ -53,7 +53,9 @@ export function SkillSourcePicker({
           const entry = item.webkitGetAsEntry()
           return entry ? [entry] : []
         })
+        const files = Array.from(event.dataTransfer.files)
         if (entries.length > 0) onSelect({ kind: 'drop', entries })
+        else if (files.length > 0) onSelect({ kind: 'files', files })
       }}
     >
       <p className="flex items-center gap-2 text-base font-medium">

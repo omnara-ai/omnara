@@ -2,11 +2,13 @@ import { useProjectAvailableSkills } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
-import { skillComboboxConfig } from '@/components/agents/skillComboboxConfig'
 import { PlusIcon } from '@/components/icons'
 import { Combobox, ComboboxInput } from '@/components/ui/combobox'
 import { ResourceComboboxContent } from '@/components/ui/resource-combobox-content'
-import type { ResourceComboboxConfig } from '@/components/ui/resource-combobox-core'
+import {
+  type ResourceComboboxConfig,
+  useResourceComboboxRootProps,
+} from '@/components/ui/resource-combobox-core'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 
@@ -46,9 +48,14 @@ const skillOptionConfig: ResourceComboboxConfig<SkillOption> = {
         Create skill
       </span>
     ) : (
-      skillComboboxConfig.renderItem?.(option.skill)
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-medium">{option.skill.name}</span>
+        <span className="text-muted-foreground line-clamp-2 text-xs">
+          {option.skill.description}
+        </span>
+      </span>
     ),
-  placeholder: skillComboboxConfig.placeholder,
+  placeholder: 'Search skills…',
 }
 
 export function AgentConfigSkillSearchbox({
@@ -84,6 +91,7 @@ export function AgentConfigSkillSearchbox({
     excludedIds.has(skill.id) || excludedNames.has(skill.name) ? [] : [{ kind: 'skill', skill }],
   )
   const options = orderOptions(skills, search.search, onCreateSkill !== undefined)
+  const rootProps = useResourceComboboxRootProps(skillOptionConfig, search, options, undefined)
 
   useEffect(() => {
     if (initiallyActive.current) inputRef.current?.focus()
@@ -91,14 +99,8 @@ export function AgentConfigSkillSearchbox({
 
   return (
     <Combobox
-      items={options}
-      inputValue={search.search}
-      onInputValueChange={search.setSearch}
-      itemToStringLabel={optionLabel}
-      itemToStringValue={optionKey}
-      isItemEqualToValue={(option, other) => optionKey(option) === optionKey(other)}
+      {...rootProps}
       filter={matchesSearch}
-      autoHighlight
       open={active && expanded && popupOpen}
       onOpenChange={setPopupOpen}
       value={null}
@@ -113,12 +115,15 @@ export function AgentConfigSkillSearchbox({
         showTrigger={false}
         className="h-9"
         aria-label={skillOptionConfig.placeholder}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) event.preventDefault()
+        }}
         placeholder={active && query.isPending ? 'Loading skills…' : skillOptionConfig.placeholder}
       />
       <ResourceComboboxContent
         config={skillOptionConfig}
         pending={query.isPending}
-        emptyMessage={skillComboboxConfig.emptyMessage ?? ''}
+        emptyMessage="No available skills found."
         query={query}
       />
     </Combobox>

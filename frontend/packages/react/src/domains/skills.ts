@@ -13,7 +13,6 @@ import {
   listProjectAvailableSkillsInfiniteOptions,
   listSkillGrantsInfiniteOptions,
   listSkillsInfiniteOptions,
-  listSkillsOptions,
 } from '@omnara/sdk/tanstack'
 import {
   type QueryClient,
@@ -78,23 +77,27 @@ export function useSkill(orgID: string, skillID: string, enabled = true) {
   })
 }
 
+const SKILL_LOOKUP_PAGE_SIZE = 100
+
 export function useSkillNameLookup(orgID: string, owner: SkillOwnerScope) {
   const client = useOmnaraClient()
-  const queryClient = useQueryClient()
   return async (names: string[]): Promise<ReadonlyMap<string, Skill>> => {
-    const found = await Promise.all(
-      [...new Set(names)].map(async (name) => {
-        const page = await queryClient.fetchQuery(
-          listSkillsOptions({
-            path: { orgID },
-            query: { ...ownerFilterQuery(owner), name: name.replace(/[\\*?]/g, '\\$&') },
-            client,
-          }),
-        )
-        return page.data.find((skill) => skill.name === name)
-      }),
-    )
-    return new Map(found.flatMap((skill) => (skill ? [[skill.name, skill]] : [])))
+    const wanted = new Set(names)
+    const found = new Map<string, Skill>()
+    let cursor: string | undefined
+    while (wanted.size > found.size) {
+      const { data: page } = await sdk.listSkills({
+        path: { orgID },
+        query: { ...ownerFilterQuery(owner), limit: SKILL_LOOKUP_PAGE_SIZE, cursor },
+        client,
+      })
+      for (const skill of page.data) {
+        if (wanted.has(skill.name)) found.set(skill.name, skill)
+      }
+      if (page.next_cursor === null) break
+      cursor = page.next_cursor
+    }
+    return found
   }
 }
 

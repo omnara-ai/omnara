@@ -1,5 +1,5 @@
 import { gunzipSync, strToU8, unzipSync, zipSync } from 'fflate'
-import { parse, YAMLParseError } from 'yaml'
+import { parseDocument, Scalar, visit, YAMLParseError } from 'yaml'
 import * as z from 'zod'
 
 export interface SkillSourceFile {
@@ -14,34 +14,30 @@ export interface SkillBundle {
   problem?: string
 }
 
+export class SkillArchiveError extends Error {}
+
 const MISSING_NAME = 'SKILL.md frontmatter is missing `name`.'
 const MISSING_DESCRIPTION = 'SKILL.md frontmatter is missing `description`.'
 
-const YAML_NULLS = new Set(['~', 'null', 'Null', 'NULL'])
-
-function yamlText(missing: string) {
-  return z.string({ error: missing }).transform((value) => (YAML_NULLS.has(value) ? '' : value))
-}
+const YAML_NULLS = new Set(['', '~', 'null', 'Null', 'NULL'])
 
 const zSkillFrontmatter = z.object(
   {
-    name: yamlText(MISSING_NAME).pipe(
-      z
-        .string()
-        .min(1, { error: MISSING_NAME })
-        .max(64, { error: 'SKILL.md frontmatter `name` cannot exceed 64 characters.' })
-        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
-          error:
-            'SKILL.md frontmatter `name` must use lowercase letters and digits separated by single hyphens.',
-        }),
-    ),
-    description: yamlText(MISSING_DESCRIPTION).pipe(
-      z
-        .string()
-        .trim()
-        .min(1, { error: MISSING_DESCRIPTION })
-        .max(1024, { error: 'SKILL.md frontmatter `description` exceeds 1,024 characters.' }),
-    ),
+    name: z
+      .string({ error: MISSING_NAME })
+      .min(1, { error: MISSING_NAME })
+      .max(64, { error: 'SKILL.md frontmatter `name` cannot exceed 64 characters.' })
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
+        error:
+          'SKILL.md frontmatter `name` must use lowercase letters and digits separated by single hyphens.',
+      }),
+    description: z
+      .string({ error: MISSING_DESCRIPTION })
+      .trim()
+      .min(1, { error: MISSING_DESCRIPTION })
+      .refine((value) => new TextEncoder().encode(value).length <= 1024, {
+        error: 'SKILL.md frontmatter `description` exceeds 1,024 bytes.',
+      }),
   },
   { error: 'SKILL.md frontmatter must be a YAML mapping.' },
 )
@@ -69,6 +65,13 @@ function isWithin(path: string, dir: string) {
   return dir === '' || path.startsWith(`${dir}/`)
 }
 
+function isIgnoredPath(path: string) {
+  return path
+    .split('/')
+    .slice(0, -1)
+    .some((segment) => segment.startsWith('.') || segment === 'node_modules')
+}
+
 function archiveStem(filename: string) {
   return filename.replace(/\.(zip|tar\.gz|tgz)$/i, '')
 }
@@ -90,20 +93,37 @@ function quoteColonDescription(frontmatter: string) {
   )
 }
 
+function parseFrontmatterBlock(frontmatter: string) {
+  const document = parseDocument(frontmatter, { schema: 'failsafe' })
+  const [error] = document.errors
+  if (error) throw error
+  visit(document, {
+    Scalar(key, node) {
+      if (
+        key === 'value' &&
+        node.type === Scalar.PLAIN &&
+        node.source !== undefined &&
+        YAML_NULLS.has(node.source)
+      ) {
+        node.value = ''
+      }
+    },
+  })
+  return zSkillFrontmatter.safeParse(document.toJS())
+}
+
 function parseFrontmatter(frontmatter: string) {
   try {
-    return zSkillFrontmatter.safeParse(parse(frontmatter, { schema: 'failsafe' }))
+    return parseFrontmatterBlock(frontmatter)
   } catch {
-    return zSkillFrontmatter.safeParse(
-      parse(quoteColonDescription(frontmatter), { schema: 'failsafe' }),
-    )
+    return parseFrontmatterBlock(quoteColonDescription(frontmatter))
   }
 }
 
 export function checkSkillMd(skillMd: string, expectedName?: string): SkillMdCheck {
   const lines = skillMd.replace(/^\uFEFF/, '').split(/\r?\n/)
-  const close = lines.findIndex((line, index) => index > 0 && line.trimEnd() === '---')
-  if (lines[0]?.trimEnd() !== '---' || close < 0) {
+  const close = lines.findIndex((line, index) => index > 0 && /^---\r*$/.test(line))
+  if (!lines[0]?.startsWith('---') || close < 0) {
     return {
       ok: false,
       problem: {
@@ -170,25 +190,56 @@ export function bundleSkillMd(skillMd: string): SkillBundle {
   )
 }
 
-export function bundleSkills(files: SkillSourceFile[], fallbackName: string): SkillBundle[] {
+function skillRoots<T extends { path: string }>(files: T[]) {
   const sources = files.filter((file) => !isMacOSMetadata(file.path))
-  const skillMds = sources.filter((file) => isSkillMdPath(file.path))
-  const skillDirs = [...new Set(skillMds.map((file) => parentDir(file.path)))]
-  const roots = skillDirs
+  const skillDirs = [
+    ...new Set(sources.flatMap((file) => (isSkillMdPath(file.path) ? [parentDir(file.path)] : []))),
+  ]
+  return skillDirs
     .filter((dir) => !skillDirs.some((other) => other !== dir && isWithin(dir, other)))
     .sort()
-  return roots.map((root) => {
-    const skillMd = skillMds.find((file) => parentDir(file.path) === root)
-    const check = checkSkillMd(skillMd ? new TextDecoder().decode(skillMd.data) : '')
-    const fallback = root === '' ? fallbackName : baseName(root)
-    const prefix = root === '' ? 0 : root.length + 1
-    const rootFiles = sources
-      .filter((file) => isWithin(file.path, root))
-      .map((file) => ({ path: file.path.slice(prefix), data: file.data }))
-    return check.ok
-      ? zipSkill(check.name, root, rootFiles)
-      : zipSkill(fallback, root, rootFiles, check.problem.message)
-  })
+    .map((root) => {
+      const prefix = root === '' ? 0 : root.length + 1
+      return {
+        root,
+        files: sources.flatMap((file) => {
+          const path = file.path.slice(prefix)
+          return isWithin(file.path, root) && !isIgnoredPath(path) ? [{ ...file, path }] : []
+        }),
+      }
+    })
+}
+
+function bundleRoot(root: string, files: SkillSourceFile[], fallbackName: string): SkillBundle {
+  const skillMd = files.find((file) => parentDir(file.path) === '' && isSkillMdPath(file.path))
+  const check = checkSkillMd(skillMd ? new TextDecoder().decode(skillMd.data) : '')
+  const fallback = root === '' ? fallbackName : baseName(root)
+  return check.ok
+    ? zipSkill(check.name, root, files)
+    : zipSkill(fallback, root, files, check.problem.message)
+}
+
+export function bundleSkills(files: SkillSourceFile[], fallbackName: string): SkillBundle[] {
+  return skillRoots(files).map(({ root, files: rootFiles }) =>
+    bundleRoot(root, rootFiles, fallbackName),
+  )
+}
+
+interface PickedFile {
+  path: string
+  file: File
+}
+
+async function readPickedFile({ path, file }: PickedFile): Promise<SkillSourceFile> {
+  return { path, data: new Uint8Array(await file.arrayBuffer()) }
+}
+
+function bundlePickedFiles(files: PickedFile[], fallbackName: string): Promise<SkillBundle[]> {
+  return Promise.all(
+    skillRoots(files).map(async ({ root, files: rootFiles }) =>
+      bundleRoot(root, await Promise.all(rootFiles.map(readPickedFile)), fallbackName),
+    ),
+  )
 }
 
 export type SkillSource =
@@ -224,11 +275,8 @@ function readEntryFile(entry: FileSystemFileEntry) {
   })
 }
 
-async function entryFiles(entry: FileSystemEntry, path: string): Promise<SkillSourceFile[]> {
-  if (entry instanceof FileSystemFileEntry) {
-    const file = await readEntryFile(entry)
-    return [{ path, data: new Uint8Array(await file.arrayBuffer()) }]
-  }
+async function entryFiles(entry: FileSystemEntry, path: string): Promise<PickedFile[]> {
+  if (entry instanceof FileSystemFileEntry) return [{ path, file: await readEntryFile(entry) }]
   if (!(entry instanceof FileSystemDirectoryEntry)) return []
   const reader = entry.createReader()
   const children: FileSystemEntry[] = []
@@ -254,17 +302,13 @@ function bundleLooseFiles(files: SkillSourceFile[]): SkillBundle[] {
   )
 }
 
-async function bundleMixed(
-  looseFiles: SkillSourceFile[],
-  folderFiles: SkillSourceFile[],
-  archives: File[],
-) {
-  const archiveBundles = await Promise.all(archives.map(bundleArchive))
-  return [
-    ...bundleLooseFiles(looseFiles),
-    ...bundleSkills(folderFiles, 'skill'),
-    ...archiveBundles.flat(),
-  ]
+async function bundleMixed(looseFiles: PickedFile[], folderFiles: PickedFile[], archives: File[]) {
+  const [loose, folders, archiveBundles] = await Promise.all([
+    Promise.all(looseFiles.map(readPickedFile)),
+    bundlePickedFiles(folderFiles, 'skill'),
+    Promise.all(archives.map(bundleArchive)),
+  ])
+  return [...bundleLooseFiles(loose), ...folders, ...archiveBundles.flat()]
 }
 
 async function bundleDrop(entries: FileSystemEntry[]): Promise<SkillBundle[]> {
@@ -283,24 +327,19 @@ async function bundleDrop(entries: FileSystemEntry[]): Promise<SkillBundle[]> {
   return bundleMixed(loose.flat(), folders.flat(), archives)
 }
 
-async function bundleFiles(files: File[]): Promise<SkillBundle[]> {
+function bundleFiles(files: File[]): Promise<SkillBundle[]> {
   const archives = files.filter((file) => isArchiveName(file.name))
-  const loose = await Promise.all(
-    files
-      .filter((file) => !isArchiveName(file.name))
-      .map(async (file) => ({ path: file.name, data: new Uint8Array(await file.arrayBuffer()) })),
+  const loose = files.flatMap((file) =>
+    isArchiveName(file.name) ? [] : [{ path: file.name, file }],
   )
   return bundleMixed(loose, [], archives)
 }
 
-async function bundleFolder(files: File[]): Promise<SkillBundle[]> {
-  const sources = await Promise.all(
-    files.map(async (file) => ({
-      path: file.webkitRelativePath || file.name,
-      data: new Uint8Array(await file.arrayBuffer()),
-    })),
+function bundleFolder(files: File[]): Promise<SkillBundle[]> {
+  return bundlePickedFiles(
+    files.map((file) => ({ path: file.webkitRelativePath || file.name, file })),
+    'skill',
   )
-  return bundleSkills(sources, 'skill')
 }
 
 const TAR_BLOCK = 512
@@ -315,6 +354,37 @@ function paxPath(records: string) {
   for (const record of records.split('\n')) {
     const match = /^\d+ path=(.*)$/.exec(record)
     if (match?.[1] !== undefined) return match[1]
+  }
+  return undefined
+}
+
+function symlinkError(path: string) {
+  return new SkillArchiveError(`Skill archive contains a symlink at ${path}.`)
+}
+
+const ZIP_END_SIGNATURE = 0x06054b50
+const ZIP_CENTRAL_SIGNATURE = 0x02014b50
+const ZIP_UNIX_HOSTS = new Set([3, 19])
+const UNIX_FILE_TYPE = 0o170000
+const UNIX_SYMLINK = 0o120000
+
+function zipSymlinkPath(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let end = bytes.length - 22
+  while (end >= 0 && view.getUint32(end, true) !== ZIP_END_SIGNATURE) end -= 1
+  if (end < 0) return undefined
+  let offset = view.getUint32(end + 16, true)
+  for (let index = view.getUint16(end + 10, true); index > 0; index -= 1) {
+    if (offset + 46 > bytes.length || view.getUint32(offset, true) !== ZIP_CENTRAL_SIGNATURE) {
+      return undefined
+    }
+    const nameLength = view.getUint16(offset + 28, true)
+    const mode = view.getUint32(offset + 38, true) >>> 16
+    if (ZIP_UNIX_HOSTS.has(view.getUint8(offset + 5)) && (mode & UNIX_FILE_TYPE) === UNIX_SYMLINK) {
+      return new TextDecoder().decode(bytes.subarray(offset + 46, offset + 46 + nameLength))
+    }
+    offset +=
+      46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true)
   }
   return undefined
 }
@@ -341,9 +411,7 @@ function readTar(bytes: Uint8Array): SkillSourceFile[] {
     }
     const path = longName ?? (prefix ? `${prefix}/${name}` : name)
     longName = undefined
-    if (type === '1' || type === '2') {
-      throw new Error(`skill archive contains a symlink at ${path}`)
-    }
+    if (type === '1' || type === '2') throw symlinkError(path)
     if (type === '0' || type === '7') files.push({ path, data })
   }
   return files
@@ -351,6 +419,8 @@ function readTar(bytes: Uint8Array): SkillSourceFile[] {
 
 function archiveSources(file: File, bytes: Uint8Array): SkillSourceFile[] {
   if (/\.zip$/i.test(file.name)) {
+    const symlink = zipSymlinkPath(bytes)
+    if (symlink !== undefined) throw symlinkError(symlink)
     return Object.entries(unzipSync(bytes))
       .filter(([path]) => !path.endsWith('/'))
       .map(([path, data]) => ({ path, data }))
