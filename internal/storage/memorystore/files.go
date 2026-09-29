@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -126,7 +127,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 		return WriteResult{}, err
 	}
 	defer func() { _ = lock.Close() }()
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return WriteResult{}, err
 	}
@@ -232,7 +233,7 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
