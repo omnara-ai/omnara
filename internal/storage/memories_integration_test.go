@@ -602,7 +602,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 	rowLimit := int32(1)
 	rows, err := dbsqlc.New(pool).ListAttachedMemoryStores(ctx, dbsqlc.ListAttachedMemoryStoresParams{
 		ProjectID: testProjectID, StoreIds: []uuid.UUID{stores["a"].ID, stores["a-b"].ID, stores["z"].ID},
-		RootPattern: "^/memory/[az]$", RowLimit: &rowLimit,
+		StorePrefix: "a", RowLimit: &rowLimit,
 	})
 	if err != nil || len(rows) != 1 || rows[0].Name != "a" {
 		t.Fatalf("store query limit: %+v %v", rows, err)
@@ -950,8 +950,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			}()
 			org := mustPublicID(t, publicid.KindOrganization, scope.OrgID)
 			project := mustPublicID(t, publicid.KindProject, scope.ProjectID)
-			contentPath := filepath.Join(dir, org, project, resource.Name)
-			staging := filepath.Join(dir, ".staging", org, project, resource.Name)
+			contentPath := filepath.Join(dir, org, project, mustPublicID(t, publicid.KindMemoryStore, resource.ID))
+			staging := filepath.Join(dir, ".staging", org, project, mustPublicID(t, publicid.KindMemoryStore, resource.ID))
 			for {
 				entries, err := os.ReadDir(staging)
 				if err != nil {

@@ -123,10 +123,15 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 				dir,
 				mustPublicID(t, publicid.KindOrganization, scope.OrgID),
 				mustPublicID(t, publicid.KindProject, scope.ProjectID),
-				original.Name, oldInput.Path,
+				mustPublicID(t, publicid.KindMemoryStore, original.ID), oldInput.Path,
 			)
-			if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("replacement inherited old file: %v", err)
+			if _, err := os.Stat(oldPath); unfinishedCleanup && err != nil ||
+				!unfinishedCleanup && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unexpected old directory state: %v", err)
+			}
+			_, _, readErr := store.Memories().Read(ctx, scope, replacement.ID, oldInput.Path)
+			if !errors.Is(readErr, storeerr.ErrNotFound) {
+				t.Fatalf("replacement inherited old file: %v", readErr)
 			}
 			if _, err := store.Memories().Write(ctx, oldInput); !errors.Is(err, storeerr.ErrNotFound) {
 				t.Fatalf("deleted identity could write: %v", err)
@@ -149,7 +154,7 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 }
 func memoryFilesystemRef(t *testing.T, scope memorystore.Scope, record memorystore.Record) memoryops.StoreRef {
 	t.Helper()
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, record.Name)
+	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, record.ID, record.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +194,7 @@ func TestMemoryFilesystemContentsAndQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := filepath.Join(dir, mustPublicID(t, publicid.KindOrganization, scope.OrgID),
-		mustPublicID(t, publicid.KindProject, scope.ProjectID), resource.Name)
+		mustPublicID(t, publicid.KindProject, scope.ProjectID), mustPublicID(t, publicid.KindMemoryStore, resource.ID))
 	if err := os.MkdirAll(filepath.Join(base, "nested"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +373,7 @@ func TestMemoryDeletionLogsCleanupFailure(t *testing.T) {
 			})
 			require.NoError(t, err)
 			root := filepath.Join(dir, mustPublicID(t, publicid.KindOrganization, scope.OrgID),
-				mustPublicID(t, publicid.KindProject, scope.ProjectID), resource.Name)
+				mustPublicID(t, publicid.KindProject, scope.ProjectID), mustPublicID(t, publicid.KindMemoryStore, resource.ID))
 			require.NoError(t, os.Chmod(root, 0500))
 			t.Cleanup(func() { _ = os.Chmod(root, 0700) })
 			switch kind {

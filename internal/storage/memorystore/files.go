@@ -67,15 +67,7 @@ func (s *Store) openStoreForRead(ctx context.Context, scope Scope, storeID uuid.
 	if err != nil {
 		return nil, err
 	}
-	root, err := s.files.OpenStore(ref)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := s.authorizeFile(ctx, s.q, scope, storeID, false); err != nil {
-		_ = root.Close()
-		return nil, err
-	}
-	return root, nil
+	return s.files.OpenStore(ref)
 }
 
 func (s *Store) authorizeFile(
@@ -95,7 +87,7 @@ func (s *Store) authorizeFile(
 	if write && scope.AgentID != uuid.Nil && store.ReadOnly {
 		return memoryops.StoreRef{}, fmt.Errorf("memory store is read-only: %w", storeerr.ErrConflict)
 	}
-	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, store.Name)
+	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, store.ID, store.Name)
 }
 
 func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error) {

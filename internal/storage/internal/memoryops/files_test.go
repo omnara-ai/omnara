@@ -310,7 +310,7 @@ func TestPublicationUsesOpenedStore(t *testing.T) {
 	if err := files.root.Rename(ref.path, ref.path+"-moved"); err != nil {
 		t.Fatal(err)
 	}
-	if err := files.root.Symlink(other.Name, ref.path); err != nil {
+	if err := files.root.Symlink(filepath.Base(other.path), ref.path); err != nil {
 		t.Fatal(err)
 	}
 	staged, err := files.Stage(ref, []byte("replacement"))
@@ -344,7 +344,7 @@ func testStoreRef(t *testing.T, name string) StoreRef {
 	ref, err := NewStoreRef(
 		uuid.MustParse("00000000-0000-0000-0000-000000000001"),
 		uuid.MustParse("00000000-0000-0000-0000-000000000002"),
-		name,
+		uuid.NewSHA1(uuid.NameSpaceOID, []byte(name)), name,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -363,15 +363,15 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 	var first StoreRef
 	paths := make(map[string][]byte)
 	for _, scope := range []struct {
-		org, project uuid.UUID
-		name         string
+		org, project, store uuid.UUID
+		name                string
 	}{
-		{orgID, projectID, "engineering"},
-		{orgID, projectID, "operations"},
-		{orgID, uuid.New(), "engineering"},
-		{uuid.New(), projectID, "engineering"},
+		{orgID, projectID, uuid.New(), "engineering"},
+		{orgID, projectID, uuid.New(), "engineering"},
+		{orgID, uuid.New(), uuid.New(), "engineering"},
+		{uuid.New(), projectID, uuid.New(), "engineering"},
 	} {
-		ref, err := NewStoreRef(scope.org, scope.project, scope.name)
+		ref, err := NewStoreRef(scope.org, scope.project, scope.store, scope.name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -394,9 +394,13 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		physical := filepath.Join(dir, org, project, scope.name, "nested", "note.md")
+		store, err := publicid.Encode(publicid.KindMemoryStore, scope.store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		physical := filepath.Join(dir, org, project, store, "nested", "note.md")
 		paths[physical] = body
-		entries, err := os.ReadDir(filepath.Join(dir, ".staging", org, project, scope.name))
+		entries, err := os.ReadDir(filepath.Join(dir, ".staging", org, project, store))
 		if err != nil || len(entries) != 0 {
 			t.Fatalf("published upload still staged: %v %v", entries, err)
 		}
@@ -415,9 +419,11 @@ func TestStoreLayoutAndIsolation(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"../other", "a/b", ".invalid", ""} {
-		if _, err := NewStoreRef(orgID, projectID, name); err == nil {
-			t.Fatalf("accepted store name %q", name)
+	for _, ids := range [][3]uuid.UUID{
+		{uuid.Nil, projectID, uuid.New()}, {orgID, uuid.Nil, uuid.New()}, {orgID, projectID, uuid.Nil},
+	} {
+		if _, err := NewStoreRef(ids[0], ids[1], ids[2], "notes"); !errors.Is(err, publicid.ErrNilUUID) {
+			t.Fatalf("accepted nil identity: %v", err)
 		}
 	}
 }
@@ -431,7 +437,7 @@ func TestRemoveScopeIsolation(t *testing.T) {
 	org, otherOrg, project, otherProject := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	var refs []StoreRef
 	for _, scope := range []struct{ org, project uuid.UUID }{{org, project}, {org, otherProject}, {otherOrg, project}} {
-		ref, err := NewStoreRef(scope.org, scope.project, "notes")
+		ref, err := NewStoreRef(scope.org, scope.project, uuid.New(), "notes")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -486,7 +492,7 @@ func TestNFSMissingPaths(t *testing.T) {
 	if clientA == "" || clientB == "" || server == "" {
 		t.Fatal("set OMNARA_TEST_MEMORY_NFS_A, OMNARA_TEST_MEMORY_NFS_B, and OMNARA_TEST_MEMORY_NFS_SERVER")
 	}
-	for _, operation := range []string{"open", "replacement-cleanup", "project-cleanup", "org-cleanup"} {
+	for _, operation := range []string{"open", "store-cleanup", "project-cleanup", "org-cleanup"} {
 		t.Run(operation, func(t *testing.T) {
 			a, err := OpenFilesystem(clientA)
 			if err != nil {
@@ -499,7 +505,7 @@ func TestNFSMissingPaths(t *testing.T) {
 			}
 			defer func() { _ = b.Close() }()
 			orgID, projectID := uuid.New(), uuid.New()
-			ref, err := NewStoreRef(orgID, projectID, "notes")
+			ref, err := NewStoreRef(orgID, projectID, uuid.New(), "notes")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -543,17 +549,13 @@ func TestNFSMissingPaths(t *testing.T) {
 					t.Fatalf("read %q: %v", body, readErr)
 				}
 				return
-			case "replacement-cleanup":
-				replacement, refErr := NewStoreRef(orgID, projectID, "notes")
-				if refErr != nil {
-					t.Fatal(refErr)
-				}
-				lockB, lockErr := b.Lock(t.Context(), replacement)
+			case "store-cleanup":
+				lockB, lockErr := b.Lock(t.Context(), ref)
 				if lockErr != nil {
 					t.Fatal(lockErr)
 				}
 				defer func() { _ = lockB.Close() }()
-				err = b.RemoveStore(replacement)
+				err = b.RemoveStore(ref)
 			case "project-cleanup":
 				err = b.RemoveScope(orgID, &projectID)
 			case "org-cleanup":

@@ -7,11 +7,10 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
-	"slices"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
@@ -31,111 +30,59 @@ func (s *Store) ListFiles(
 	matcher *regexp.Regexp,
 	limit int,
 ) (listing.FileListResult, error) {
-	entries := make([]listing.FileEntry, 0, limit+1)
-	truncated := false
-	parts := strings.Split(pattern[1:], "/")
-	recursive := slices.Contains(parts, "**")
-	var rowLimit *int32
-	if len(parts) == 2 && !recursive {
-		value := int32(limit + 1)
-		rowLimit = &value
-	}
-	rows, access, queryErr := s.listAttachedStores(ctx, projectID, attachments, pattern, matcher.String(), rowLimit)
-	if queryErr != nil {
-		return listing.FileListResult{}, queryErr
+	rows, access, err := s.listAttachedStores(ctx, projectID, attachments, pattern, limit+1)
+	if err != nil {
+		return listing.FileListResult{}, err
 	}
 	remaining := memoryListingTraversalLimit
-	for _, row := range rows {
-		root := Root + "/" + row.Name
-		if matcher.MatchString(root) {
-			mode := access[row.ID]
-			if row.ReadOnly {
-				mode = agentconfig.MemoryStoreAccessReadOnly
-			}
-			entries = append(entries, listing.FileEntry{
-				Path: root, Type: listing.FileTypeDirectory, Description: row.Description, Access: string(mode),
-			})
+	view := storeFS{
+		globFS: globFS{checkCanceled: ctx.Err, remaining: &remaining},
+		files:  s.files, projectID: projectID, stores: rows,
+	}
+	defer func() { _ = view.Close() }()
+	entries := make([]listing.FileEntry, 0, limit+1)
+	err = globFiles(ctx, &view, memoryGlobPattern(pattern), &remaining, func(name string, item fs.DirEntry) error {
+		full := "/" + name
+		if name == "memory" || !matcher.MatchString(full) {
+			return nil
 		}
-		if len(entries) > limit {
-			break
-		}
-		filePattern := memoryFilePattern(pattern, row.Name)
-		if filePattern == "" {
-			continue
-		}
-		visit := func(name string, item fs.DirEntry) error {
-			full := root + "/" + name
-			if !matcher.MatchString(full) {
+		entry := listing.FileEntry{Path: full, Type: listing.FileTypeDirectory}
+		if !item.IsDir() {
+			info, err := item.Info()
+			if errors.Is(err, fs.ErrNotExist) {
 				return nil
 			}
-			entry := listing.FileEntry{Path: full, Type: listing.FileTypeDirectory}
-			if !item.IsDir() {
-				info, err := item.Info()
-				if errors.Is(err, fs.ErrNotExist) {
-					return nil
-				}
-				if err != nil {
-					return err
-				}
-				size := info.Size()
-				entry.Type, entry.SizeBytes = listing.FileTypeFile, &size
+			if err != nil {
+				return err
 			}
-			entries = append(entries, entry)
-			if len(entries) > limit {
-				return errFileListFull
+			size := info.Size()
+			entry.Type, entry.SizeBytes = listing.FileTypeFile, &size
+		} else if store, ok := view.store(strings.TrimPrefix(name, "memory/")); ok {
+			mode := access[store.ID]
+			if store.ReadOnly {
+				mode = agentconfig.MemoryStoreAccessReadOnly
 			}
-			return nil
+			entry.Description, entry.Access = store.Description, string(mode)
 		}
-		err := s.withStoreRoot(ctx, projectID, row, func(root *os.Root) error {
-			return globFiles(ctx, root, filePattern, &remaining, visit)
-		})
-		if errors.Is(err, errFileListFull) || errors.Is(err, errFileTraversalLimit) {
-			truncated = true
-			break
+		entries = append(entries, entry)
+		if len(entries) > limit {
+			return errFileListFull
 		}
-		if err != nil {
-			return listing.FileListResult{}, fmt.Errorf("list memory files: %w", err)
-		}
-	}
-	if len(entries) > limit {
-		truncated = true
-		entries = entries[:limit]
-	}
-	return listing.FileListResult{Entries: entries, Truncated: truncated}, nil
-}
-
-func (s *Store) withStoreRoot(
-	ctx context.Context, projectID uuid.UUID, store dbsqlc.ListAttachedMemoryStoresRow, visit func(*os.Root) error,
-) error {
-	ref, err := memoryops.NewStoreRef(store.OrgID, projectID, store.Name)
-	if err != nil {
-		return err
-	}
-	root, err := s.files.OpenStore(ref)
-	if errors.Is(err, fs.ErrNotExist) {
 		return nil
+	})
+	truncated := errors.Is(err, errFileListFull) || errors.Is(err, errFileTraversalLimit)
+	if err != nil && !truncated {
+		return listing.FileListResult{}, fmt.Errorf("list memory files: %w", err)
 	}
-	if err != nil {
-		return err
-	}
-	defer func() { _ = root.Close() }()
-	if _, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{
-		ProjectID: projectID, ID: store.ID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	return visit(root)
+	return listing.FileListResult{Entries: entries[:min(len(entries), limit)], Truncated: truncated}, nil
 }
 
 func (s *Store) listAttachedStores(
 	ctx context.Context,
 	projectID uuid.UUID,
 	attachments []agentconfig.MemoryStoreCompiled,
-	pattern, rootPattern string,
-	limit *int32,
+	pattern string,
+	limit int,
 ) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]agentconfig.MemoryStoreAccess, error) {
 	ids := make([]uuid.UUID, 0, len(attachments))
 	access := make(map[uuid.UUID]agentconfig.MemoryStoreAccess, len(attachments))
@@ -155,8 +102,9 @@ func (s *Store) listAttachedStores(
 			params.StoreName = name
 		}
 	}
-	if limit != nil {
-		params.RootPattern, params.RowLimit = rootPattern, limit
+	if limit > 0 && pattern == Root+"/"+params.StorePrefix+"*" {
+		rowLimit := int32(limit)
+		params.RowLimit = &rowLimit
 	}
 	rows, err := s.q.ListAttachedMemoryStores(ctx, params)
 	return rows, access, err
@@ -175,37 +123,49 @@ func (s *Store) VisitSearchStores(
 	if err != nil {
 		return err
 	}
-	stores, _, err := s.listAttachedStores(ctx, projectID, attachments, pattern, "", nil)
+	storePattern, _, descends := strings.Cut(strings.TrimPrefix(pattern, Root+"/"), "/")
+	if !descends && storePattern != "**" {
+		return nil
+	}
+	storePattern = memoryGlobEscaper.Replace(storePattern)
+	stores, _, err := s.listAttachedStores(ctx, projectID, attachments, pattern, 0)
 	if err != nil {
 		return err
 	}
+	view := storeFS{globFS: globFS{checkCanceled: ctx.Err}, files: s.files, projectID: projectID, stores: stores}
+	defer func() { _ = view.Close() }()
 	for _, store := range stores {
-		if memoryFilePattern(pattern, store.Name) == "" {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
+		matches, err := doublestar.Match(storePattern, store.Name)
+		if err != nil {
 			return err
 		}
-		err = s.withStoreRoot(ctx, projectID, store, func(root *os.Root) error {
-			if !strings.ContainsAny(pattern, "*?") {
-				_, name, err := ParsePath(pattern)
-				if err != nil {
-					return err
-				}
-				if err := memoryops.CheckPath(root, name); err != nil {
-					return fileReadError(err)
-				}
-				info, err := root.Stat(name)
-				if err != nil {
-					return fileReadError(err)
-				}
-				if !info.Mode().IsRegular() {
-					return storeerr.InvalidRequest(errors.New("memory path is not a regular file"))
-				}
-			}
-			return visit(SearchStore{Name: store.Name, Root: root})
-		})
+		if !matches {
+			continue
+		}
+		root, err := view.openStore(store)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil {
+			return err
+		}
+		if !strings.ContainsAny(pattern, "*?") {
+			_, name, err := ParsePath(pattern)
+			if err != nil {
+				return err
+			}
+			if err := memoryops.CheckPath(root, name); err != nil {
+				return fileReadError(err)
+			}
+			info, err := root.Stat(name)
+			if err != nil {
+				return fileReadError(err)
+			}
+			if !info.Mode().IsRegular() {
+				return storeerr.InvalidRequest(errors.New("memory path is not a regular file"))
+			}
+		}
+		if err := visit(SearchStore{Name: store.Name, Root: root}); err != nil {
 			return err
 		}
 	}

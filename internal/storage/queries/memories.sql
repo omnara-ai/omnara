@@ -101,6 +101,5 @@ WHERE s.project_id = sqlc.arg(project_id)
   AND (sqlc.arg(store_name)::text = '' OR s.name = sqlc.arg(store_name))
   AND s.name >= sqlc.arg(store_prefix)::text COLLATE "C"
   AND s.name < (sqlc.arg(store_prefix)::text || '{') COLLATE "C"
-  AND (sqlc.arg(root_pattern)::text = '' OR ('/memory/' || s.name) COLLATE "C" ~ sqlc.arg(root_pattern)::text)
 ORDER BY s.name COLLATE "C"
 LIMIT sqlc.narg(row_limit)::integer;

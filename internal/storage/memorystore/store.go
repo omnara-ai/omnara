@@ -107,15 +107,6 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 	if err != nil {
 		return Record{}, fmt.Errorf("generate memory store id: %w", err)
 	}
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, name)
-	if err != nil {
-		return Record{}, err
-	}
-	lock, err := s.files.Lock(ctx, ref)
-	if err != nil {
-		return Record{}, err
-	}
-	defer func() { _ = lock.Close() }()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", err)
@@ -148,9 +139,6 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 	})
 	if err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", mapped(err))
-	}
-	if err := s.files.RemoveStore(ref); err != nil {
-		return Record{}, fmt.Errorf("prepare memory store: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", err)
@@ -318,7 +306,7 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 	if err != nil {
 		return mapped(err)
 	}
-	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, row.Name)
+	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, row.ID, row.Name)
 	if err != nil {
 		return err
 	}

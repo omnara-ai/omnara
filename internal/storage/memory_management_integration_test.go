@@ -54,7 +54,7 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 	)
 
 	root := filepath.Join(dir, mustPublicID(t, publicid.KindOrganization, scope.OrgID),
-		mustPublicID(t, publicid.KindProject, scope.ProjectID), memory.Name)
+		mustPublicID(t, publicid.KindProject, scope.ProjectID), mustPublicID(t, publicid.KindMemoryStore, memory.ID))
 	outside := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret"), []byte("secret"), 0600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "escape")))
