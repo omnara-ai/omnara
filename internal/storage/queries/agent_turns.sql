@@ -236,8 +236,7 @@ SELECT event.id,
        context.input_tokens_total, context.uncached_input_tokens,
        context.cache_read_input_tokens, context.cache_write_input_tokens,
        context.output_tokens_total, context.reasoning_output_tokens,
-       context.request_input_version, context.request_input_route_fingerprint,
-       context.request_input_static_fingerprint, context.request_input_prefix_fingerprint,
+       context.request_input_fingerprint,
        context.request_input_item_count,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
@@ -301,7 +300,6 @@ GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   output.provider_replay, output.stop_reason, output.served_provider_model_slug, input.input_kind,
   context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
   context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
-  context.request_input_version, context.request_input_route_fingerprint,
-  context.request_input_static_fingerprint, context.request_input_prefix_fingerprint, context.request_input_item_count
+  context.request_input_fingerprint, context.request_input_item_count
 ORDER BY event.sequence ASC
 LIMIT sqlc.arg(page_limit);

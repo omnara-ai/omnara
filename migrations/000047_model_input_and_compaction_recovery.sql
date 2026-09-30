@@ -5,14 +5,10 @@ ALTER TABLE model_call_contexts
     ADD COLUMN replaces_checkpoint_id uuid,
     ADD COLUMN source_excerpt_bytes integer,
     ADD COLUMN recovery_max_output_tokens integer,
-    ADD COLUMN recovery_checkpoint_id uuid,
     ADD COLUMN recovery_checkpoint_retained_bytes integer,
     ADD COLUMN optional_input_target_tokens integer,
     ADD COLUMN optional_compaction_outcome text,
-    ADD COLUMN request_input_version integer,
-    ADD COLUMN request_input_route_fingerprint text,
-    ADD COLUMN request_input_static_fingerprint text,
-    ADD COLUMN request_input_prefix_fingerprint text,
+    ADD COLUMN request_input_fingerprint text,
     ADD COLUMN request_input_item_count integer;
 
 -- Existing compactions have exactly one blocked normal operation at their frontier.
@@ -62,7 +58,7 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_restore_output CHECK (
         recovery_kind IS DISTINCT FROM 'restore_output' OR (
             operation_kind = 'normal' AND error_kind = 'transient' AND api_format <> '' AND api_variant <> ''
-            AND recovery_max_output_tokens IS NULL AND recovery_checkpoint_id IS NULL
+            AND recovery_max_output_tokens IS NULL
             AND recovery_checkpoint_retained_bytes IS NULL
         )
     ),
@@ -85,12 +81,9 @@ ALTER TABLE model_call_contexts
             AND recovery_max_output_tokens > 0
         )
     ),
-    ADD CONSTRAINT model_call_contexts_recovery_checkpoint FOREIGN KEY (agent_id, recovery_checkpoint_id)
-        REFERENCES context_checkpoints(agent_id, id),
     ADD CONSTRAINT model_call_contexts_recovery_checkpoint_projection CHECK (
-        (recovery_checkpoint_id IS NULL AND recovery_checkpoint_retained_bytes IS NULL)
-        OR (recovery_checkpoint_id IS NOT NULL AND recovery_checkpoint_retained_bytes IS NOT NULL
-            AND operation_kind = 'normal' AND state = 'failed' AND recovery_kind IS NOT DISTINCT FROM 'retry'
+        recovery_checkpoint_retained_bytes IS NULL OR (
+            operation_kind = 'normal' AND state = 'failed' AND recovery_kind IS NOT DISTINCT FROM 'retry'
             AND error_kind IN ('context_window', 'payload_too_large')
             AND api_format <> '' AND api_variant <> '' AND recovery_checkpoint_retained_bytes >= 0)
     ),
@@ -103,16 +96,12 @@ ALTER TABLE model_call_contexts
             AND optional_compaction_outcome IN ('interrupted', 'ineffective'))
     ),
     ADD CONSTRAINT model_call_contexts_request_input_identity CHECK (
-        num_nonnulls(request_input_version, request_input_route_fingerprint,
-            request_input_static_fingerprint, request_input_prefix_fingerprint, request_input_item_count) = 0
+        num_nonnulls(request_input_fingerprint, request_input_item_count) = 0
         OR (
-            num_nonnulls(request_input_version, request_input_route_fingerprint,
-                request_input_static_fingerprint, request_input_prefix_fingerprint, request_input_item_count) = 5
+            num_nonnulls(request_input_fingerprint, request_input_item_count) = 2
             AND operation_kind = 'normal' AND state = 'succeeded'
-            AND request_input_version = 1 AND request_input_item_count > 0
-            AND request_input_route_fingerprint ~ '^[0-9a-fA-F]{64}$'
-            AND request_input_static_fingerprint ~ '^[0-9a-fA-F]{64}$'
-            AND request_input_prefix_fingerprint ~ '^[0-9a-fA-F]{64}$'
+            AND request_input_item_count > 0
+            AND request_input_fingerprint ~ '^[0-9a-fA-F]{64}$'
         )
     );
 
@@ -250,6 +239,8 @@ CREATE OR REPLACE FUNCTION enforce_model_call_context_transition()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    projection_checkpoint_sequence bigint;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'model_call_contexts are immutable'
@@ -333,10 +324,16 @@ BEGIN
         RAISE EXCEPTION 'optional compaction outcomes require an optional parent'
             USING ERRCODE = '23514', CONSTRAINT = 'model_call_contexts_optional_outcome';
     END IF;
-    IF NEW.recovery_checkpoint_id IS NOT NULL THEN
+    IF NEW.recovery_checkpoint_retained_bytes IS NOT NULL THEN
+        SELECT max(event.sequence) INTO projection_checkpoint_sequence
+        FROM agent_events event
+        WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
+          AND event.sequence <= NEW.input_event_sequence;
         IF NOT EXISTS (
             SELECT 1 FROM context_checkpoints checkpoint
-            WHERE checkpoint.agent_id = NEW.agent_id AND checkpoint.id = NEW.recovery_checkpoint_id
+            JOIN agent_events event ON event.agent_id = checkpoint.agent_id
+              AND event.context_checkpoint_id = checkpoint.id AND event.event_kind = 'context_checkpoint'
+            WHERE checkpoint.agent_id = NEW.agent_id AND event.sequence = projection_checkpoint_sequence
               AND NEW.recovery_checkpoint_retained_bytes < octet_length(checkpoint.summary)
               AND checkpoint.summarized_through_event_sequence < (
                   SELECT min(opening.event_sequence) FROM agent_model_call_opening_content_inputs(
@@ -344,12 +341,6 @@ BEGIN
                       agent_turn_id_at_event_sequence(NEW.agent_id, NEW.input_event_sequence),
                       NEW.input_event_sequence
                   ) opening
-              )
-              AND checkpoint.id = (
-                  SELECT event.context_checkpoint_id FROM agent_events event
-                  WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
-                    AND event.sequence <= NEW.input_event_sequence
-                  ORDER BY event.sequence DESC LIMIT 1
               )
         ) THEN
             RAISE EXCEPTION 'recovery projection must reduce the latest applicable checkpoint'
@@ -360,7 +351,13 @@ BEGIN
             WHERE prior.agent_id = NEW.agent_id AND prior.id <> NEW.id
               AND prior.configured_model_revision_id = NEW.configured_model_revision_id
               AND prior.agent_config_id = NEW.agent_config_id
-              AND prior.recovery_checkpoint_id = NEW.recovery_checkpoint_id
+              AND prior.input_event_sequence >= projection_checkpoint_sequence
+              AND NOT EXISTS (
+                  SELECT 1 FROM agent_events event
+                  WHERE event.agent_id = NEW.agent_id AND event.event_kind = 'context_checkpoint'
+                    AND event.sequence > projection_checkpoint_sequence
+                    AND event.sequence <= prior.input_event_sequence
+              )
               AND prior.recovery_checkpoint_retained_bytes <= NEW.recovery_checkpoint_retained_bytes
         ) THEN
             RAISE EXCEPTION 'recovery checkpoint retained bytes must decrease' USING ERRCODE = '23514';
@@ -400,7 +397,7 @@ JOIN model_call_contexts failure ON failure.agent_id = current.agent_id
 WHERE current.id = p_context_id
   AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
   AND failure.recovery_max_output_tokens IS NULL
-  AND failure.recovery_checkpoint_id IS NULL
+  AND failure.recovery_checkpoint_retained_bytes IS NULL
   AND failure.created_at <= current.created_at
   AND ((current.operation_kind = 'normal' AND failure.input_event_sequence = current.input_event_sequence)
     OR (current.operation_kind = 'compaction'

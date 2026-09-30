@@ -16,12 +16,12 @@ func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCall
 		ReplacesCheckpointID:            storeutil.IDFromPtr(row.ReplacesCheckpointID),
 		SourceExcerptBytes:              intFromInt32Ptr(row.SourceExcerptBytes),
 		RecoveryMaxOutputTokens:         intFromInt32Ptr(row.RecoveryMaxOutputTokens),
-		RecoveryCheckpointID:            storeutil.IDFromPtr(row.RecoveryCheckpointID),
 		RecoveryCheckpointRetainedBytes: intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
 		OptionalInputTargetTokens:       intFromInt32Ptr(row.OptionalInputTargetTokens),
 		OptionalCompactionOutcome:       OptionalCompactionOutcome(stringFromSQLCText(row.OptionalCompactionOutcome)),
-		RequestInputIdentity: requestInputIdentityFromColumns(row.RequestInputVersion, row.RequestInputRouteFingerprint,
-			row.RequestInputStaticFingerprint, row.RequestInputPrefixFingerprint, row.RequestInputItemCount),
+		RequestInputIdentity: requestInputIdentityFromColumns(
+			row.RequestInputFingerprint, row.RequestInputItemCount,
+		),
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ProjectID:                 row.ProjectID,
@@ -84,13 +84,11 @@ func int32FromIntPtr(value *int) *int32 {
 }
 
 func requestInputIdentityFromColumns(
-	version *int32,
-	route, static, prefix *string,
+	fingerprint *string,
 	count *int32,
 ) *modelenvelope.RequestInputIdentity {
-	if version == nil {
+	if fingerprint == nil {
 		return nil
 	}
-	return &modelenvelope.RequestInputIdentity{Version: int(*version), RouteFingerprint: *route,
-		StaticFingerprint: *static, PrefixFingerprint: *prefix, ItemCount: int(*count)}
+	return &modelenvelope.RequestInputIdentity{Fingerprint: *fingerprint, ItemCount: int(*count)}
 }

@@ -243,8 +243,8 @@ func (e AgentExecutor) retryWithCheckpointExcerpt(
 			ErrorKind: trigger.Kind, ErrorCode: trigger.Code,
 			ErrorMessage: trigger.Message, ErrorDetails: trigger.Details,
 			Usage: evidence.Usage, ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
-			ProviderMetadata:     evidence.ProviderMetadata,
-			RecoveryCheckpointID: checkpointID, RecoveryCheckpointRetainedBytes: &next,
+			ProviderMetadata:                evidence.ProviderMetadata,
+			RecoveryCheckpointRetainedBytes: &next,
 		},
 	)
 	if err != nil {
@@ -305,13 +305,12 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
 	if !handoff.BoundaryPreempted {
-		_, err = e.compactionRunner(e.ModelResolver, e.contextBuilder()).RunClaimed(ctx, compaction.RunInput{
-			Plan:                     plan,
-			TurnID:                   input.TurnID,
-			OpeningInputIDs:          input.InputIDs,
-			OpeningEventSequence:     input.OpeningEventSequence,
-			RuntimeLockID:            input.RuntimeLockID,
-			ParentModelCallContextID: claim.Context.ID,
+		_, err = e.compactionRunner(e.ModelResolver).RunClaimed(ctx, compaction.RunInput{
+			Plan:                 plan,
+			TurnID:               input.TurnID,
+			OpeningInputIDs:      input.InputIDs,
+			OpeningEventSequence: input.OpeningEventSequence,
+			RuntimeLockID:        input.RuntimeLockID,
 		}, handoff.CompactionCall)
 		if err != nil {
 			return modelStep{}, err
@@ -324,34 +323,27 @@ func (e AgentExecutor) enterPlannedContextMaintenance(
 	}, nil
 }
 
-func (e AgentExecutor) shouldAttemptOptionalCompaction(
-	ctx context.Context,
-	call executionstore.ModelCallContextRecord,
+func shouldAttemptOptionalCompaction(
 	prepared model.PreparedRequest,
 	workingInputTarget int,
 	recovery executionstore.ModelCallRecoveryState,
-) (bool, error) {
+) bool {
 	if !prepared.InputBudget.OverBudget() || workingInputTarget <= 0 ||
 		recovery.OptionalCompactionAttemptedAtFrontier ||
-		recovery.CheckpointNeedsNormalAttempt || recovery.ProviderAttemptCount > 0 {
-		return false, nil
+		recovery.CheckpointNeedsNormalAttempt || recovery.HasPriorNormalAttempt {
+		return false
 	}
 	if recovery.LastOptionalContextID == uuid.Nil ||
 		recovery.LastOptionalInputTargetTokens != workingInputTarget {
-		return true, nil
+		return true
 	}
 	hasMeasuredPressure := prepared.HasMeasuredInputPrefix && prepared.RequestInputIdentity != nil
 	if !hasMeasuredPressure && recovery.LatestObservedNormalInputTokens < workingInputTarget {
-		return false, nil
+		return false
 	}
-	if !recovery.LastOptionalCompactionNeedsHeadroom {
-		return true, nil
-	}
-	return e.Store.Execution().HasObservedInputHeadroomSince(
-		ctx, call.ProjectID, call.AgentID, recovery.LastOptionalContextID,
-		call.ConfiguredModelRevisionID,
-		workingInputTarget*optionalCompactionRearmHeadroomPercent/100,
-	)
+	return !recovery.LastOptionalCompactionNeedsHeadroom ||
+		(recovery.MinimumObservedNormalInputTokens > 0 &&
+			recovery.MinimumObservedNormalInputTokens <= workingInputTarget*optionalCompactionRearmHeadroomPercent/100)
 }
 
 func (e AgentExecutor) retryWithSmallerOutputAllowance(

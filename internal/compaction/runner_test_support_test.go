@@ -96,18 +96,9 @@ func (s *fakeStore) GetModelCallRecoveryState(
 	_ uuid.UUID,
 ) (executionstore.ModelCallRecoveryState, error) {
 	return executionstore.ModelCallRecoveryState{
-		CompactionRetryCount: max(s.compactionRetryCount, len(s.retryFailures)),
-		ParentRecoveryKind:   s.parentRecoveryKind,
+		RetryCount:         max(s.compactionRetryCount, len(s.retryFailures)),
+		ParentRecoveryKind: s.parentRecoveryKind,
 	}, nil
-}
-
-func (s *fakeStore) GetProviderReplaySuppressionCutoff(
-	context.Context,
-	uuid.UUID,
-	uuid.UUID,
-	uuid.UUID,
-) (int64, error) {
-	return 0, nil
 }
 
 func (s *fakeStore) addStartedClaim(input RunInput) executionstore.ModelCallClaim {
@@ -131,7 +122,7 @@ func newCompactionClaim(
 			ProjectID:                      input.Plan.ProjectID,
 			AgentID:                        input.Plan.AgentID,
 			OperationKind:                  executionstore.ModelCallOperationCompaction,
-			ParentNormalModelCallContextID: input.ParentModelCallContextID,
+			ParentNormalModelCallContextID: testIDN(799),
 			ReplacesCheckpointID:           input.Plan.ReplacesCheckpointID,
 			AttemptNumber:                  1,
 			AgentConfigID:                  testIDN(501),
@@ -224,24 +215,12 @@ func (s *fakeStore) ReplaceCompactionSource(
 	return executionstore.ReplaceCompactionSourceResult{CompactionCall: claim}, nil
 }
 
-type fakeContextBuilder struct {
-	inputs []modelcontext.BuildInput
-}
-
 type errorResolver struct {
 	err error
 }
 
 func (r errorResolver) Resolve(context.Context, model.Selection) (model.ResolvedClient, error) {
 	return model.ResolvedClient{}, r.err
-}
-
-func (b *fakeContextBuilder) Build(
-	_ context.Context,
-	input modelcontext.BuildInput,
-) (modelcontext.Bundle, error) {
-	b.inputs = append(b.inputs, input)
-	return modelcontext.Bundle{ContextCheckpoint: input.CheckpointOverride}, nil
 }
 
 func (s *fakeStore) PublishContextCheckpoint(
@@ -298,17 +277,16 @@ type summaryResult struct {
 }
 
 type summaryModel struct {
-	providerModelSlug           string
-	caps                        model.Capabilities
-	preparedBundles             []modelcontext.Bundle
-	preparedPolicies            []model.RequestPolicy
-	preparedEstimate            func(model.PrepareInput, []byte) int
-	sourceInputTokens           int
-	checkpointPreparedEstimates []int
-	prepareErrs                 []error
-	requests                    []model.Request
-	results                     []summaryResult
-	respond                     func(model.Request) (model.Response, error)
+	providerModelSlug string
+	caps              model.Capabilities
+	preparedBundles   []modelcontext.Bundle
+	preparedPolicies  []model.RequestPolicy
+	preparedEstimate  func(model.PrepareInput, []byte) int
+	sourceInputTokens int
+	prepareErrs       []error
+	requests          []model.Request
+	results           []summaryResult
+	respond           func(model.Request) (model.Response, error)
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
@@ -363,10 +341,7 @@ func (m *summaryModel) Prepare(
 	estimate := modelcontext.EstimatePreparedRequest(body, nil)
 	if m.preparedEstimate != nil {
 		estimate = m.preparedEstimate(input, body)
-	} else if input.Context.ContextCheckpoint != nil && len(m.checkpointPreparedEstimates) > 0 {
-		estimate = m.checkpointPreparedEstimates[0]
-		m.checkpointPreparedEstimates = m.checkpointPreparedEstimates[1:]
-	} else if input.Context.ContextCheckpoint == nil && m.sourceInputTokens > 0 {
+	} else if m.sourceInputTokens > 0 {
 		estimate = m.sourceInputTokens
 	}
 	return model.PreparedRequest{Body: body, InputTokenEstimate: estimate}, nil
@@ -432,9 +407,8 @@ func compactionResolver(client model.Client) model.Resolver {
 
 func testRunner(store *fakeStore, client model.Client, now ...func() time.Time) Runner {
 	runner := Runner{
-		Store:          store,
-		Resolver:       compactionResolver(client),
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: compactionResolver(client),
 	}
 	if len(now) > 0 {
 		runner.Now = now[0]
@@ -445,12 +419,11 @@ func testRunner(store *fakeStore, client model.Client, now ...func() time.Time) 
 
 func runInput(plan Plan) RunInput {
 	return RunInput{
-		Plan:                     plan,
-		TurnID:                   testTurnID,
-		OpeningInputIDs:          []uuid.UUID{testOpeningInputID},
-		OpeningEventSequence:     plan.InputEventSequence,
-		RuntimeLockID:            testRuntimeLockID,
-		ParentModelCallContextID: testIDN(799),
+		Plan:                 plan,
+		TurnID:               testTurnID,
+		OpeningInputIDs:      []uuid.UUID{testOpeningInputID},
+		OpeningEventSequence: plan.InputEventSequence,
+		RuntimeLockID:        testRuntimeLockID,
 	}
 }
 

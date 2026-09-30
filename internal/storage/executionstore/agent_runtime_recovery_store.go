@@ -61,13 +61,9 @@ func recoverRuntimeModelCallContextTx(
 	if err != nil {
 		return err
 	}
-	retryCount := recovery.NormalRetryCount
-	if contextRecord.OperationKind == ModelCallOperationCompaction {
-		retryCount = recovery.CompactionRetryCount
-	}
 	if contextRecord.OperationKind == ModelCallOperationCompaction &&
 		(recovery.ParentRecoveryKind == ModelCallRecoveryCompactOptional ||
-			(contextRecord.ReplacesCheckpointID != uuid.Nil && retryCount >= MaxModelCallRetriesPerOperation)) {
+			(contextRecord.ReplacesCheckpointID != uuid.Nil && recovery.RetryCount >= MaxModelCallRetriesPerOperation)) {
 		var outcome OptionalCompactionOutcome
 		if recovery.ParentRecoveryKind == ModelCallRecoveryCompactOptional {
 			outcome = OptionalCompactionInterrupted
@@ -85,7 +81,7 @@ func recoverRuntimeModelCallContextTx(
 		}, modelCallContextRuntimeTeardown)
 		return err
 	}
-	if retryCount >= MaxModelCallRetriesPerOperation {
+	if recovery.RetryCount >= MaxModelCallRetriesPerOperation {
 		return terminalizeExhaustedRuntimeModelCallContextTx(
 			ctx,
 			txNotifications,
@@ -111,7 +107,7 @@ func recoverRuntimeModelCallContextTx(
 			ErrorMessage:  evidence.Message,
 			ErrorDetails:  details,
 			RetryDelayMicroseconds: retryBackoff(
-				retryCount+1,
+				recovery.RetryCount+1,
 				contextRecord.ID.String(),
 			).Microseconds(),
 		},

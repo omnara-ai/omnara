@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -37,10 +36,6 @@ type ExecutionStore interface {
 		ctx context.Context,
 		projectID, agentID, modelCallContextID uuid.UUID,
 	) (executionstore.ModelCallRecoveryState, error)
-	GetProviderReplaySuppressionCutoff(
-		ctx context.Context,
-		projectID, agentID, modelCallContextID uuid.UUID,
-	) (int64, error)
 	RecordRetryableModelCallFailure(
 		ctx context.Context,
 		input executionstore.RecordRecoverableModelCallFailureInput,
@@ -63,33 +58,19 @@ type ExecutionStore interface {
 	) (executionstore.ContextCheckpointRecord, error)
 }
 
-type Store interface {
-	ExecutionStore
-}
-
-func NewStore(execution ExecutionStore) Store {
-	return execution
-}
-
-type ContextBuilder interface {
-	Build(context.Context, modelcontext.BuildInput) (modelcontext.Bundle, error)
-}
-
 type Runner struct {
-	Store           Store
+	Store           ExecutionStore
 	Resolver        model.Resolver
-	ContextBuilder  ContextBuilder
 	Now             func() time.Time
 	ModelRetryDelay func(time.Duration) time.Duration
 }
 
 type RunInput struct {
-	Plan                     Plan
-	TurnID                   uuid.UUID
-	OpeningInputIDs          []uuid.UUID
-	OpeningEventSequence     int64
-	RuntimeLockID            uuid.UUID
-	ParentModelCallContextID uuid.UUID
+	Plan                 Plan
+	TurnID               uuid.UUID
+	OpeningInputIDs      []uuid.UUID
+	OpeningEventSequence int64
+	RuntimeLockID        uuid.UUID
 }
 
 type RunState string

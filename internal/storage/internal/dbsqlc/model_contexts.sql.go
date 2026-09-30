@@ -103,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $31
-    AND agent.id = $32
+  WHERE agent.project_id = $27
+    AND agent.id = $28
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $33
+  WHERE runtime_lock.id = $29
     AND (
-      $34::boolean
+      $30::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -144,20 +144,16 @@ SET state = $1,
     provider_reported_cost_usd = $18::text::numeric,
     provider_metadata = $19,
     recovery_max_output_tokens = $20::integer,
-    recovery_checkpoint_id = $21::uuid,
-    recovery_checkpoint_retained_bytes = $22::integer,
-    optional_input_target_tokens = $23::integer,
-    optional_compaction_outcome = $24::text,
-    request_input_version = $25::integer,
-    request_input_route_fingerprint = $26::text,
-    request_input_static_fingerprint = $27::text,
-    request_input_prefix_fingerprint = $28::text,
-    request_input_item_count = $29::integer,
+    recovery_checkpoint_retained_bytes = $21::integer,
+    optional_input_target_tokens = $22::integer,
+    optional_compaction_outcome = $23::text,
+    request_input_fingerprint = $24::text,
+    request_input_item_count = $25::integer,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $30
+  AND context.id = $26
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -184,14 +180,10 @@ type FinishModelCallContextParams struct {
 	ProviderReportedCostUsd             *string
 	ProviderMetadata                    json.RawMessage
 	RecoveryMaxOutputTokens             *int32
-	RecoveryCheckpointID                *uuid.UUID
 	RecoveryCheckpointRetainedBytes     *int32
 	OptionalInputTargetTokens           *int32
 	OptionalCompactionOutcome           *string
-	RequestInputVersion                 *int32
-	RequestInputRouteFingerprint        *string
-	RequestInputStaticFingerprint       *string
-	RequestInputPrefixFingerprint       *string
+	RequestInputFingerprint             *string
 	RequestInputItemCount               *int32
 	ID                                  uuid.UUID
 	ProjectID                           uuid.UUID
@@ -222,14 +214,10 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.ProviderReportedCostUsd,
 		arg.ProviderMetadata,
 		arg.RecoveryMaxOutputTokens,
-		arg.RecoveryCheckpointID,
 		arg.RecoveryCheckpointRetainedBytes,
 		arg.OptionalInputTargetTokens,
 		arg.OptionalCompactionOutcome,
-		arg.RequestInputVersion,
-		arg.RequestInputRouteFingerprint,
-		arg.RequestInputStaticFingerprint,
-		arg.RequestInputPrefixFingerprint,
+		arg.RequestInputFingerprint,
 		arg.RequestInputItemCount,
 		arg.ID,
 		arg.ProjectID,
@@ -310,11 +298,10 @@ SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.configured_model_revision_id, context.input_event_sequence,
   context.source_event_sequence_end, context.parent_normal_model_call_context_id,
   context.source_excerpt_bytes, context.recovery_max_output_tokens, context.replaces_checkpoint_id,
-  context.recovery_checkpoint_id, context.recovery_checkpoint_retained_bytes,
+  context.recovery_checkpoint_retained_bytes,
   context.optional_input_target_tokens,
   context.optional_compaction_outcome,
-  context.request_input_version, context.request_input_route_fingerprint,
-  context.request_input_static_fingerprint, context.request_input_prefix_fingerprint,
+  context.request_input_fingerprint,
   context.request_input_item_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
@@ -353,14 +340,10 @@ type GetModelCallContextRow struct {
 	SourceExcerptBytes              *int32
 	RecoveryMaxOutputTokens         *int32
 	ReplacesCheckpointID            *uuid.UUID
-	RecoveryCheckpointID            *uuid.UUID
 	RecoveryCheckpointRetainedBytes *int32
 	OptionalInputTargetTokens       *int32
 	OptionalCompactionOutcome       *string
-	RequestInputVersion             *int32
-	RequestInputRouteFingerprint    *string
-	RequestInputStaticFingerprint   *string
-	RequestInputPrefixFingerprint   *string
+	RequestInputFingerprint         *string
 	RequestInputItemCount           *int32
 	RuntimeLockID                   uuid.UUID
 	State                           string
@@ -404,14 +387,10 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.SourceExcerptBytes,
 		&i.RecoveryMaxOutputTokens,
 		&i.ReplacesCheckpointID,
-		&i.RecoveryCheckpointID,
 		&i.RecoveryCheckpointRetainedBytes,
 		&i.OptionalInputTargetTokens,
 		&i.OptionalCompactionOutcome,
-		&i.RequestInputVersion,
-		&i.RequestInputRouteFingerprint,
-		&i.RequestInputStaticFingerprint,
-		&i.RequestInputPrefixFingerprint,
+		&i.RequestInputFingerprint,
 		&i.RequestInputItemCount,
 		&i.RuntimeLockID,
 		&i.State,
@@ -504,7 +483,8 @@ WITH current AS MATERIALIZED (
   FROM model_call_contexts child JOIN latest_optional ON child.parent_normal_model_call_context_id = latest_optional.id
   ORDER BY child.created_at DESC, child.id DESC LIMIT 1
 ), latest_observed_normal AS MATERIALIZED (
-  SELECT measured.input_tokens_total
+  SELECT measured.input_tokens_total,
+         min(nullif(measured.input_tokens_total, 0)) OVER () AS minimum_input_tokens
   FROM model_call_contexts measured
   JOIN current ON measured.agent_id = current.agent_id
     AND measured.configured_model_revision_id = current.configured_model_revision_id
@@ -520,11 +500,13 @@ WITH current AS MATERIALIZED (
   WHERE event.event_kind = 'context_checkpoint' AND event.sequence <= current.input_event_sequence
   ORDER BY event.sequence DESC LIMIT 1
 ), checkpoint_projection AS MATERIALIZED (
-  SELECT prior.recovery_checkpoint_id, prior.recovery_checkpoint_retained_bytes
+  SELECT latest_checkpoint.id AS recovery_checkpoint_id, prior.recovery_checkpoint_retained_bytes
   FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
-  JOIN latest_checkpoint ON latest_checkpoint.id = prior.recovery_checkpoint_id
+  JOIN latest_checkpoint ON prior.input_event_sequence >= latest_checkpoint.sequence
+    AND prior.input_event_sequence <= current.input_event_sequence
   WHERE prior.configured_model_revision_id = current.configured_model_revision_id
     AND prior.agent_config_id = current.agent_config_id
+    AND prior.recovery_checkpoint_retained_bytes IS NOT NULL
     AND prior.created_at < current.created_at
   ORDER BY prior.recovery_checkpoint_retained_bytes LIMIT 1
 ), restore_episode AS MATERIALIZED (
@@ -543,8 +525,7 @@ WITH current AS MATERIALIZED (
       OR (event.event_kind = 'model_output' AND (output.stop_reason <> 'max_tokens'
         OR EXISTS (SELECT 1 FROM tool_calls call WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id))))
 )
-SELECT CASE WHEN current.operation_kind = 'normal' THEN model_call_transient_retry_count(current.id) ELSE 0 END::bigint AS normal_retry_count,
-       CASE WHEN current.operation_kind = 'compaction' THEN model_call_transient_retry_count(current.id) ELSE 0 END::bigint AS compaction_retry_count,
+SELECT model_call_transient_retry_count(current.id)::bigint AS retry_count,
        coalesce(parent.recovery_kind, '')::text AS parent_recovery_kind,
        EXISTS (
          SELECT 1 FROM model_call_contexts restored CROSS JOIN restore_episode
@@ -576,9 +557,10 @@ SELECT CASE WHEN current.operation_kind = 'normal' THEN model_call_transient_ret
            AND prior.input_event_sequence = current.input_event_sequence AND prior.created_at < current.created_at
        )::boolean AS optional_compaction_attempted_at_frontier,
        coalesce(latest_observed_normal.input_tokens_total, 0)::integer AS latest_observed_normal_input_tokens,
-       (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+       coalesce(latest_observed_normal.minimum_input_tokens, 0)::integer AS minimum_observed_normal_input_tokens,
+       EXISTS (SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
           AND prior.operation_kind = 'normal' AND prior.input_event_sequence = current.input_event_sequence
-          AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional')::bigint AS provider_attempt_count,
+          AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional')::boolean AS has_prior_normal_attempt,
        (SELECT coalesce(min(prior.recovery_max_output_tokens), 0)::integer FROM model_call_contexts prior CROSS JOIN output_episode
         WHERE prior.agent_id = current.agent_id AND prior.operation_kind = 'normal'
           AND prior.configured_model_revision_id = current.configured_model_revision_id
@@ -604,8 +586,7 @@ type GetModelCallRecoveryStateParams struct {
 }
 
 type GetModelCallRecoveryStateRow struct {
-	NormalRetryCount                      int64
-	CompactionRetryCount                  int64
+	RetryCount                            int64
 	ParentRecoveryKind                    string
 	OutputAllowanceRestored               bool
 	RecoveryCheckpointID                  *uuid.UUID
@@ -616,7 +597,8 @@ type GetModelCallRecoveryStateRow struct {
 	LastOptionalCompactionNeedsHeadroom   bool
 	OptionalCompactionAttemptedAtFrontier bool
 	LatestObservedNormalInputTokens       int32
-	ProviderAttemptCount                  int64
+	MinimumObservedNormalInputTokens      int32
+	HasPriorNormalAttempt                 bool
 	RecoveryMaxOutputTokens               int32
 	CheckpointNeedsNormalAttempt          bool
 }
@@ -625,8 +607,7 @@ func (q *Queries) GetModelCallRecoveryState(ctx context.Context, arg GetModelCal
 	row := q.db.QueryRow(ctx, getModelCallRecoveryState, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
 	var i GetModelCallRecoveryStateRow
 	err := row.Scan(
-		&i.NormalRetryCount,
-		&i.CompactionRetryCount,
+		&i.RetryCount,
 		&i.ParentRecoveryKind,
 		&i.OutputAllowanceRestored,
 		&i.RecoveryCheckpointID,
@@ -637,7 +618,8 @@ func (q *Queries) GetModelCallRecoveryState(ctx context.Context, arg GetModelCal
 		&i.LastOptionalCompactionNeedsHeadroom,
 		&i.OptionalCompactionAttemptedAtFrontier,
 		&i.LatestObservedNormalInputTokens,
-		&i.ProviderAttemptCount,
+		&i.MinimumObservedNormalInputTokens,
+		&i.HasPriorNormalAttempt,
 		&i.RecoveryMaxOutputTokens,
 		&i.CheckpointNeedsNormalAttempt,
 	)
@@ -752,42 +734,6 @@ func (q *Queries) GetProviderReplaySuppressionCutoff(ctx context.Context, arg Ge
 	var cutoff_event_sequence int64
 	err := row.Scan(&cutoff_event_sequence)
 	return cutoff_event_sequence, err
-}
-
-const hasObservedInputHeadroomSince = `-- name: HasObservedInputHeadroomSince :one
-SELECT EXISTS (
-  SELECT 1 FROM model_call_contexts optional
-  JOIN model_call_contexts measured ON measured.agent_id = optional.agent_id AND measured.project_id = optional.project_id
-    AND measured.agent_config_id = optional.agent_config_id
-  WHERE optional.project_id = $1 AND optional.agent_id = $2
-    AND optional.id = $3 AND optional.recovery_kind = 'compact_optional'
-    AND optional.configured_model_revision_id = $4
-    AND measured.operation_kind = 'normal' AND measured.state = 'succeeded'
-    AND measured.created_at > optional.completed_at
-    AND measured.configured_model_revision_id = $4
-    AND measured.input_tokens_total > 0 AND measured.input_tokens_total <= $5::integer
-)::boolean
-`
-
-type HasObservedInputHeadroomSinceParams struct {
-	ProjectID                 uuid.UUID
-	AgentID                   uuid.UUID
-	AfterOptionalContextID    uuid.UUID
-	ConfiguredModelRevisionID uuid.UUID
-	MaxInputTokens            int32
-}
-
-func (q *Queries) HasObservedInputHeadroomSince(ctx context.Context, arg HasObservedInputHeadroomSinceParams) (bool, error) {
-	row := q.db.QueryRow(ctx, hasObservedInputHeadroomSince,
-		arg.ProjectID,
-		arg.AgentID,
-		arg.AfterOptionalContextID,
-		arg.ConfiguredModelRevisionID,
-		arg.MaxInputTokens,
-	)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
 }
 
 const insertNextModelCallContext = `-- name: InsertNextModelCallContext :one

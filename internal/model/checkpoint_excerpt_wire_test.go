@@ -58,7 +58,7 @@ func TestCheckpointExcerptChangesWireInputAndInvalidatesPriorMeasurement(t *test
 				require.NoError(t, err)
 				prepared := prepare(projected)
 				require.False(t, prepared.HasMeasuredInputPrefix)
-				require.NotEqual(t, full.RequestInputIdentity.PrefixFingerprint, prepared.RequestInputIdentity.PrefixFingerprint)
+				require.NotEqual(t, full.RequestInputIdentity.Fingerprint, prepared.RequestInputIdentity.Fingerprint)
 				require.Less(t, len(prepared.Body), previousBytes)
 				require.Contains(t, string(prepared.Body), "CURRENT_REQUEST_UNCHANGED")
 				require.Contains(t, string(prepared.Body), "remains stored")

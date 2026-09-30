@@ -3,14 +3,12 @@ package model
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 
 	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -71,8 +69,7 @@ func applyRequestInputMeasurement(prepared *PreparedRequest, client Client, bund
 	if err != nil {
 		return
 	}
-	media := inputSuffixMedia(raw, prepared.RenderedMedia)
-	newTokens := modelcontext.EstimatePreparedRequest(raw, media)
+	newTokens := modelcontext.EstimatePreparedRequest(raw, prepared.RenderedMedia)
 	if len(suffix) == 0 {
 		newTokens = 0
 	}
@@ -221,125 +218,46 @@ func sameInputJSON(a, b json.RawMessage) bool {
 	return err == nil && left == right
 }
 
-func inputSuffixMedia(raw json.RawMessage, media []modelcontext.RenderedMedia) []modelcontext.RenderedMedia {
-	var items []struct {
-		Type    string          `json:"type"`
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
-		Output  json.RawMessage `json:"output"`
-	}
-	if json.Unmarshal(raw, &items) != nil {
-		return nil
-	}
-	counts := map[string]int{}
-	for _, item := range items {
-		if item.Role != "" {
-			countInputMediaBlocks(item.Content, counts)
-		} else if item.Type == "function_call_output" {
-			countInputMediaBlocks(item.Output, counts)
-		}
-	}
-	var selected []modelcontext.RenderedMedia
-	for _, occurrence := range media {
-		if occurrence.Representation != modelcontext.MediaRepresentationInline || len(occurrence.Media.Data) == 0 {
-			continue
-		}
-		encoded := base64.StdEncoding.EncodeToString(occurrence.Media.Data)
-		if counts[encoded] > 0 {
-			selected = append(selected, occurrence)
-			counts[encoded]--
-		}
-	}
-	return selected
-}
-
-func countInputMediaBlocks(raw json.RawMessage, counts map[string]int) {
-	var blocks []struct {
-		Type     string          `json:"type"`
-		Content  json.RawMessage `json:"content"`
-		ImageURL json.RawMessage `json:"image_url"`
-		FileData string          `json:"file_data"`
-		File     struct {
-			Data string `json:"file_data"`
-		} `json:"file"`
-		Source struct {
-			Type string `json:"type"`
-			Data string `json:"data"`
-		} `json:"source"`
-	}
-	if json.Unmarshal(raw, &blocks) != nil {
-		return
-	}
-	for _, block := range blocks {
-		var dataURL string
-		switch block.Type {
-		case "tool_result":
-			countInputMediaBlocks(block.Content, counts)
-		case "image", "document":
-			if block.Source.Type == "base64" && block.Source.Data != "" {
-				counts[block.Source.Data]++
-			}
-		case "input_image":
-			_ = json.Unmarshal(block.ImageURL, &dataURL)
-		case "image_url":
-			var image struct {
-				URL string `json:"url"`
-			}
-			if json.Unmarshal(block.ImageURL, &image) == nil {
-				dataURL = image.URL
-			}
-		case "input_file":
-			dataURL = block.FileData
-		case "file":
-			dataURL = block.File.Data
-		}
-		if i := strings.Index(dataURL, ";base64,"); strings.HasPrefix(dataURL, "data:") && i >= 0 {
-			counts[dataURL[i+8:]]++
-		}
-	}
-}
-
 type requestInputProjection struct {
 	static json.RawMessage
 	items  []json.RawMessage
 }
 
+const requestInputFingerprintVersion = 1
+
 func (p requestInputProjection) identity(routeFingerprint string) (modelenvelope.RequestInputIdentity, error) {
-	static, err := fingerprintRequestInput(p.static)
-	if err != nil {
-		return modelenvelope.RequestInputIdentity{}, err
-	}
-	prefix, err := p.prefixFingerprint(len(p.items))
+	fingerprint, err := p.fingerprint(routeFingerprint, len(p.items))
 	if err != nil {
 		return modelenvelope.RequestInputIdentity{}, err
 	}
 	identity := modelenvelope.RequestInputIdentity{
-		Version:           modelenvelope.RequestInputIdentityVersion,
-		RouteFingerprint:  routeFingerprint,
-		StaticFingerprint: static,
-		PrefixFingerprint: prefix,
-		ItemCount:         len(p.items),
+		Fingerprint: fingerprint,
+		ItemCount:   len(p.items),
 	}
 	return identity, identity.Validate()
 }
 
 func (p requestInputProjection) matches(identity modelenvelope.RequestInputIdentity, routeFingerprint string) bool {
-	if identity.Validate() != nil || identity.RouteFingerprint != routeFingerprint || identity.ItemCount > len(p.items) {
+	if identity.Validate() != nil || identity.ItemCount > len(p.items) {
 		return false
 	}
-	static, err := fingerprintRequestInput(p.static)
-	if err != nil || static != identity.StaticFingerprint {
-		return false
-	}
-	prefix, err := p.prefixFingerprint(identity.ItemCount)
-	return err == nil && prefix == identity.PrefixFingerprint
+	fingerprint, err := p.fingerprint(routeFingerprint, identity.ItemCount)
+	return err == nil && fingerprint == identity.Fingerprint
 }
 
-func (p requestInputProjection) prefixFingerprint(count int) (string, error) {
+func (p requestInputProjection) fingerprint(routeFingerprint string, count int) (string, error) {
 	if count <= 0 || count > len(p.items) {
 		return "", errors.New("request input prefix is out of range")
 	}
-	body, err := json.Marshal(p.items[:count])
+	if _, err := hex.DecodeString(routeFingerprint); err != nil || len(routeFingerprint) != 64 {
+		return "", errors.New("request input identity requires a SHA-256 route fingerprint")
+	}
+	body, err := json.Marshal(struct {
+		Version int               `json:"version"`
+		Route   string            `json:"route"`
+		Static  json.RawMessage   `json:"static"`
+		Items   []json.RawMessage `json:"items"`
+	}{requestInputFingerprintVersion, routeFingerprint, p.static, p.items[:count]})
 	if err != nil {
 		return "", err
 	}

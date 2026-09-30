@@ -94,21 +94,6 @@ func TestOptionalCompactionOutcomeUsesTypedFailureInsteadOfProviderCode(t *testi
 	require.Equal(t, executionstore.OptionalCompactionIneffective, optionalCompactionOutcome(cause, false))
 }
 
-func TestRunnerPublishesReducingCheckpointDespiteContinuationEstimate(t *testing.T) {
-	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("old completed work ", 100)),
-	}}
-	client := &summaryModel{checkpointPreparedEstimates: []int{300_000}}
-	compactionInput := runInput(testPlan(1, 1, 2))
-	result, err := testRunner(store, client).
-		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
-	require.NoError(t, err)
-	require.Equal(t, RunCompleted, result.State)
-	require.Equal(t, int64(1), result.Checkpoint.SummarizedThroughEventSequence)
-	require.Len(t, client.requests, 1)
-	require.Empty(t, store.terminalFailures)
-}
-
 func TestRunnerExcerptsOldClosedAtomicGroupOnlyAfterActualOverflow(t *testing.T) {
 	old := textCompactionEvent(1, "OLD_HEAD "+strings.Repeat("历史记录🙂 ", 12_000)+" OLD_TAIL")
 	old.Kind = string(events.KindAgentInput)

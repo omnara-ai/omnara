@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
-	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelretry"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -138,25 +137,6 @@ func (r Runner) RunClaimed(
 			providerAttempt,
 		)
 	}
-	continuationPolicy, err := modelretry.RequestPolicyForModelCall(
-		ctx,
-		r.Store,
-		input.Plan.ProjectID,
-		input.Plan.AgentID,
-		claim.Context.ID,
-		model.RequestPolicyFromCapabilities(model.CapabilitiesForClient(client)),
-	)
-	if err != nil {
-		return r.recordPreSendFailure(
-			ctx, input, claim, err,
-			modelretry.PreSendFailure{
-				Code: compactionErrorCodeLoadReplayPolicyFailed,
-				Message: "Omnara could not determine whether provider replay is safe " +
-					"for the projected continuation.",
-			},
-			providerAttempt,
-		)
-	}
 	boundaryWindow, err := r.loadCompactionBoundaryWindow(ctx, input.Plan)
 	if err != nil {
 		return r.recordPreSendFailure(
@@ -253,45 +233,6 @@ func (r Runner) RunClaimed(
 	if err := validateCheckpointSummaryReduction(input.Plan, priorSummary, sourceText, summary); err != nil {
 		return r.recordFailure(ctx, input, claim, err, providerAttempt)
 	}
-	candidateBundle, candidateErr := r.ContextBuilder.Build(ctx, modelcontext.BuildInput{
-		ProjectID:           input.Plan.ProjectID,
-		AgentID:             input.Plan.AgentID,
-		TurnID:              input.TurnID,
-		OpeningInputIDs:     input.OpeningInputIDs,
-		Now:                 r.now(),
-		AgentConfigSnapshot: &snapshot,
-		MediaProjector:      model.MediaProjectorForClient(client),
-		CheckpointOverride: &modelcontext.CheckpointRef{
-			SummarizedThroughEventSequence: input.Plan.EventSequenceEnd,
-			Summary:                        summary,
-		},
-	})
-	if candidateErr == nil {
-		_, candidateErr = model.PrepareForSend(
-			ctx,
-			client,
-			model.PrepareForSendInput{
-				Context:     candidateBundle,
-				Policy:      continuationPolicy,
-				ErrorSource: errorSource,
-			},
-		)
-	}
-	if candidateErr != nil {
-		if _, classified := model.ClassifyError(candidateErr); classified {
-			return r.recordFailure(
-				ctx,
-				input,
-				claim,
-				candidateErr,
-				providerAttempt,
-			)
-		}
-		return RunResult{}, fmt.Errorf(
-			"validate projected context with candidate checkpoint: %w",
-			candidateErr,
-		)
-	}
 	checkpoint, err := r.Store.PublishContextCheckpoint(
 		ctx,
 		executionstore.PublishContextCheckpointInput{
@@ -356,7 +297,7 @@ func validateInitialCompactionClaim(input RunInput, claim executionstore.ModelCa
 		contextRow.AgentID == input.Plan.AgentID &&
 		contextRow.OperationKind == executionstore.ModelCallOperationCompaction &&
 		contextRow.InputEventSequence == input.Plan.InputEventSequence &&
-		contextRow.ParentNormalModelCallContextID == input.ParentModelCallContextID &&
+		contextRow.ParentNormalModelCallContextID != uuid.Nil &&
 		contextRow.ReplacesCheckpointID == input.Plan.ReplacesCheckpointID &&
 		contextRow.SourceEventSequenceEnd != nil &&
 		*contextRow.SourceEventSequenceEnd == input.Plan.EventSequenceEnd &&
@@ -385,7 +326,7 @@ func (r Runner) recordPreSendFailure(
 	if errors.Is(cause, storeerr.ErrStateTransitionConflict) {
 		return RunResult{}, cause
 	}
-	if failure.Code == compactionErrorCodeLoadSourceFailed || failure.Code == compactionErrorCodeLoadReplayPolicyFailed {
+	if failure.Code == compactionErrorCodeLoadSourceFailed {
 		recovery, err := r.Store.GetModelCallRecoveryState(ctx, input.Plan.ProjectID, input.Plan.AgentID, claim.Context.ID)
 		if err != nil {
 			return RunResult{}, errors.Join(cause, err)
@@ -410,9 +351,6 @@ func (r Runner) validate(input RunInput) error {
 	if r.Resolver == nil {
 		return errors.New("compaction model resolver is required")
 	}
-	if r.ContextBuilder == nil {
-		return errors.New("normal model context builder is required")
-	}
 	minimumEnd := input.Plan.EventSequenceStart
 	if input.Plan.ReplacesCheckpointID != uuid.Nil {
 		minimumEnd--
@@ -423,12 +361,8 @@ func (r Runner) validate(input RunInput) error {
 		input.Plan.EventSequenceEnd > input.Plan.InputEventSequence {
 		return errors.New("valid cumulative compaction plan is required")
 	}
-	if input.TurnID == uuid.Nil || len(input.OpeningInputIDs) == 0 ||
-		input.RuntimeLockID == uuid.Nil ||
-		input.ParentModelCallContextID == uuid.Nil {
-		return errors.New(
-			"turn, opening input ids, runtime lock, and parent model context are required",
-		)
+	if input.TurnID == uuid.Nil || len(input.OpeningInputIDs) == 0 || input.RuntimeLockID == uuid.Nil {
+		return errors.New("turn, opening input ids, and runtime lock are required")
 	}
 	if input.OpeningEventSequence <= 0 || input.OpeningEventSequence > input.Plan.InputEventSequence {
 		return errors.New("compaction opening events exceed its model context frontier")

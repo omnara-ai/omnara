@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/events"
-	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -19,7 +18,6 @@ func TestRunnerCheckpointControlEventDoesNotMakeOpeningCompactable(t *testing.T)
 		checkpointEvent,
 	}}
 	input := runInput(testPlan(1, 2, 3))
-	input.ParentModelCallContextID = testIDN(779)
 	input.OpeningEventSequence = 2
 
 	_, err := testRunner(store, &summaryModel{}).RunClaimed(context.Background(), input, store.addStartedClaim(input))
@@ -27,46 +25,6 @@ func TestRunnerCheckpointControlEventDoesNotMakeOpeningCompactable(t *testing.T)
 		t.Fatalf("checkpoint control opening protection error = %v", err)
 	}
 
-}
-
-func TestRunnerValidatesCandidateWithSerializedNormalProviderRequest(t *testing.T) {
-	store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-		textCompactionEvent(1, strings.Repeat("old state one ", 60)),
-		textCompactionEvent(2, strings.Repeat("old state two ", 60)),
-		textCompactionEvent(3, "remaining closed state"),
-		textCompactionEvent(4, "current opening input"),
-	}}
-	client := &summaryModel{
-		caps: model.Capabilities{
-			ContextWindowTokens:    10_000,
-			MaxOutputTokens:        new(1_024),
-			DefaultMaxOutputTokens: 1_024,
-		},
-		sourceInputTokens:           500,
-		checkpointPreparedEstimates: []int{9_000},
-	}
-	compactionInput := runInput(testPlan(1, 2, 4))
-	result, err := testRunner(store, client).
-		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
-	if err != nil {
-		t.Fatalf("run serialized candidate validation: %v", err)
-	}
-	if result.State != RunCompleted || result.Checkpoint == nil || len(store.publishInputs) != 1 {
-		t.Fatalf("serialized candidate result=%+v publishes=%+v", result, store.publishInputs)
-	}
-	checkpointPrepares := 0
-	for _, bundle := range client.preparedBundles {
-		if bundle.ContextCheckpoint != nil {
-			checkpointPrepares++
-		}
-	}
-	if checkpointPrepares != 1 || len(client.requests) != 1 {
-		t.Fatalf(
-			"serialized checkpoint prepares/provider calls = %d/%d, want 1/1",
-			checkpointPrepares,
-			len(client.requests),
-		)
-	}
 }
 
 func TestRunnerUsesPriorCumulativeCheckpointAndNextClosedRange(t *testing.T) {

@@ -5,27 +5,20 @@ import (
 	"errors"
 )
 
-const RequestInputIdentityVersion = 1
-
 type RequestInputIdentity struct {
-	Version           int
-	RouteFingerprint  string
-	StaticFingerprint string
-	PrefixFingerprint string
-	ItemCount         int
+	Fingerprint string
+	ItemCount   int
 }
 
 func (i RequestInputIdentity) Validate() error {
-	if i.Version != RequestInputIdentityVersion || i.ItemCount <= 0 {
-		return errors.New("request input identity has an unsupported version or empty input")
+	if i.ItemCount <= 0 {
+		return errors.New("request input identity requires nonempty input")
 	}
-	for _, fingerprint := range []string{i.RouteFingerprint, i.StaticFingerprint, i.PrefixFingerprint} {
-		if len(fingerprint) != 64 {
-			return errors.New("request input identity requires SHA-256 fingerprints")
-		}
-		if _, err := hex.DecodeString(fingerprint); err != nil {
-			return errors.New("request input identity has an invalid fingerprint")
-		}
+	if len(i.Fingerprint) != 64 {
+		return errors.New("request input identity requires a SHA-256 fingerprint")
+	}
+	if _, err := hex.DecodeString(i.Fingerprint); err != nil {
+		return errors.New("request input identity has an invalid fingerprint")
 	}
 	return nil
 }

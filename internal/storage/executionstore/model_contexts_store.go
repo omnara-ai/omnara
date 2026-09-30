@@ -48,8 +48,7 @@ type ModelCallContextRecord struct {
 	ParentNormalModelCallContextID uuid.UUID `json:"parent_normal_model_call_context_id,omitempty"`
 	ReplacesCheckpointID           uuid.UUID `json:"replaces_checkpoint_id,omitempty"`
 
-	SourceExcerptBytes   *int      `json:"source_excerpt_bytes,omitempty"`
-	RecoveryCheckpointID uuid.UUID `json:"recovery_checkpoint_id,omitempty"`
+	SourceExcerptBytes *int `json:"source_excerpt_bytes,omitempty"`
 
 	RecoveryCheckpointRetainedBytes *int `json:"recovery_checkpoint_retained_bytes,omitempty"`
 
@@ -166,7 +165,6 @@ type ReplaceCompactionSourceInput struct {
 }
 
 type RecordRecoverableModelCallFailureInput struct {
-	RecoveryCheckpointID            uuid.UUID
 	RecoveryCheckpointRetainedBytes *int
 	RecoveryMaxOutputTokens         *int
 	OptionalInputTargetTokens       *int

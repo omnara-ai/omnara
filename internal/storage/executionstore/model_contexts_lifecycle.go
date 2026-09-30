@@ -78,10 +78,6 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	retryCount := recovery.NormalRetryCount
-	if currentContext.OperationKind == ModelCallOperationCompaction {
-		retryCount = recovery.CompactionRetryCount
-	}
 	if input.RecoveryKind == ModelCallRecoveryRestoreOutput &&
 		(currentContext.OperationKind != ModelCallOperationNormal || recovery.OutputAllowanceRestored) {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
@@ -89,7 +85,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if currentContext.State != ModelCallContextStarted ||
 		(input.RecoveryKind != ModelCallRecoveryRestoreOutput &&
 			input.RecoveryMaxOutputTokens == nil && input.RecoveryCheckpointRetainedBytes == nil &&
-			retryCount >= MaxModelCallRetriesPerOperation) {
+			recovery.RetryCount >= MaxModelCallRetriesPerOperation) {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -100,7 +96,6 @@ func (s *Store) RecordRetryableModelCallFailure(
 		ToState:                         ModelCallContextFailed,
 		RecoveryKind:                    input.RecoveryKind,
 		RecoveryMaxOutputTokens:         input.RecoveryMaxOutputTokens,
-		RecoveryCheckpointID:            input.RecoveryCheckpointID,
 		RecoveryCheckpointRetainedBytes: input.RecoveryCheckpointRetainedBytes,
 		APIFormat:                       input.APIFormat,
 		APIVariant:                      input.APIVariant,
@@ -147,8 +142,7 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 	}
 	if input.RecoveryKind == ModelCallRecoveryRestoreOutput &&
 		(input.APIFormat == "" || input.APIVariant == "" || input.ErrorKind != modelprotocol.ErrorKindTransient ||
-			input.RecoveryMaxOutputTokens != nil || input.RecoveryCheckpointRetainedBytes != nil ||
-			input.RecoveryCheckpointID != uuid.Nil) {
+			input.RecoveryMaxOutputTokens != nil || input.RecoveryCheckpointRetainedBytes != nil) {
 		return errors.New("output restoration requires provider no-progress evidence without other recovery actions")
 	}
 	if (input.RecoveryKind == ModelCallRecoveryCompactOptional) != (input.OptionalInputTargetTokens != nil) {
@@ -157,9 +151,6 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 	if input.OptionalInputTargetTokens != nil &&
 		(*input.OptionalInputTargetTokens <= 0 || int64(*input.OptionalInputTargetTokens) > 2147483647) {
 		return errors.New("optional compaction input target must be a positive integer")
-	}
-	if (input.RecoveryCheckpointID != uuid.Nil) != (input.RecoveryCheckpointRetainedBytes != nil) {
-		return errors.New("recovery checkpoint and retained bytes must be recorded together")
 	}
 	if input.RecoveryCheckpointRetainedBytes != nil {
 		if *input.RecoveryCheckpointRetainedBytes < 0 || int64(*input.RecoveryCheckpointRetainedBytes) > 2147483647 {
@@ -197,7 +188,6 @@ func validateModelCallFailureEvidence(
 }
 
 type finishModelCallContextInput struct {
-	RecoveryCheckpointID            uuid.UUID
 	RecoveryCheckpointRetainedBytes *int
 	RequestInputIdentity            *modelenvelope.RequestInputIdentity
 	RecoveryMaxOutputTokens         *int
@@ -281,7 +271,6 @@ func finishModelCallContextWithAuthorityTx(
 	}
 	params := dbsqlc.FinishModelCallContextParams{
 		RecoveryMaxOutputTokens:             int32FromIntPtr(input.RecoveryMaxOutputTokens),
-		RecoveryCheckpointID:                storeutil.IDFromNil(input.RecoveryCheckpointID),
 		RecoveryCheckpointRetainedBytes:     int32FromIntPtr(input.RecoveryCheckpointRetainedBytes),
 		OptionalInputTargetTokens:           int32FromIntPtr(input.OptionalInputTargetTokens),
 		OptionalCompactionOutcome:           storeutil.TextFromEmpty(string(input.OptionalCompactionOutcome)),
@@ -311,11 +300,8 @@ func finishModelCallContextWithAuthorityTx(
 		AllowInactiveRuntimeLockForTeardown: allowInactiveRuntimeLockForTeardown,
 	}
 	if identity := input.RequestInputIdentity; identity != nil {
-		version, count := int32(identity.Version), int32(identity.ItemCount)
-		params.RequestInputVersion, params.RequestInputItemCount = &version, &count
-		params.RequestInputRouteFingerprint = &identity.RouteFingerprint
-		params.RequestInputStaticFingerprint = &identity.StaticFingerprint
-		params.RequestInputPrefixFingerprint = &identity.PrefixFingerprint
+		count := int32(identity.ItemCount)
+		params.RequestInputFingerprint, params.RequestInputItemCount = &identity.Fingerprint, &count
 	}
 	id, err := q.FinishModelCallContext(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {

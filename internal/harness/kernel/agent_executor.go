@@ -76,7 +76,6 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 			return e.resumeCompactionContext(
 				ctx,
 				input,
-				builder,
 				e.ModelResolver,
 				contextRow,
 			)

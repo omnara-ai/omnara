@@ -14,14 +14,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (e AgentExecutor) compactionRunner(
-	resolver model.Resolver,
-	builder modelcontext.Builder,
-) compaction.Runner {
+func (e AgentExecutor) compactionRunner(resolver model.Resolver) compaction.Runner {
 	return compaction.Runner{
-		Store:           compaction.NewStore(e.Store.Execution()),
+		Store:           e.Store.Execution(),
 		Resolver:        resolver,
-		ContextBuilder:  builder,
 		Now:             e.Now,
 		ModelRetryDelay: e.ModelRetryDelay,
 	}
@@ -30,7 +26,6 @@ func (e AgentExecutor) compactionRunner(
 func (e AgentExecutor) resumeCompactionContext(
 	ctx context.Context,
 	input ModelWorkExecution,
-	builder modelcontext.Builder,
 	resolver model.Resolver,
 	contextRow executionstore.ModelCallContextRecord,
 ) error {
@@ -58,19 +53,7 @@ func (e AgentExecutor) resumeCompactionContext(
 	if found {
 		sourceStart = checkpoint.SummarizedThroughEventSequence + 1
 	}
-	parent, found, err := e.Store.Execution().GetModelCallContext(
-		ctx,
-		contextRow.ProjectID,
-		contextRow.AgentID,
-		contextRow.ParentNormalModelCallContextID,
-	)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("active compaction context has no parent normal call: %w", storeerr.ErrStateTransitionConflict)
-	}
-	_, err = e.compactionRunner(resolver, builder).RunClaimed(
+	_, err = e.compactionRunner(resolver).RunClaimed(
 		ctx,
 		compaction.RunInput{
 			Plan: compaction.Plan{
@@ -81,11 +64,10 @@ func (e AgentExecutor) resumeCompactionContext(
 				EventSequenceEnd:     *contextRow.SourceEventSequenceEnd,
 				ReplacesCheckpointID: contextRow.ReplacesCheckpointID,
 			},
-			TurnID:                   input.TurnID,
-			OpeningInputIDs:          input.InputIDs,
-			OpeningEventSequence:     input.OpeningEventSequence,
-			RuntimeLockID:            input.RuntimeLockID,
-			ParentModelCallContextID: parent.ID,
+			TurnID:               input.TurnID,
+			OpeningInputIDs:      input.InputIDs,
+			OpeningEventSequence: input.OpeningEventSequence,
+			RuntimeLockID:        input.RuntimeLockID,
 		},
 		claim,
 	)

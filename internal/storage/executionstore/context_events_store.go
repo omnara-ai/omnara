@@ -71,8 +71,7 @@ func (s *Store) ListContextEvents(
 	out := make([]ContextEventRecord, 0, len(rows))
 	for _, row := range rows {
 		record := ContextEventRecord{
-			RequestInputIdentity: requestInputIdentityFromColumns(row.RequestInputVersion, row.RequestInputRouteFingerprint,
-				row.RequestInputStaticFingerprint, row.RequestInputPrefixFingerprint, row.RequestInputItemCount),
+			RequestInputIdentity: requestInputIdentityFromColumns(row.RequestInputFingerprint, row.RequestInputItemCount),
 			Usage: modelUsageFromSQLC(row.InputTokensTotal, row.UncachedInputTokens, row.CacheReadInputTokens,
 				row.CacheWriteInputTokens, row.OutputTokensTotal, row.ReasoningOutputTokens),
 			ServedProviderModelSlug: row.ServedProviderModelSlug,

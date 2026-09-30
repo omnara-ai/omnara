@@ -82,7 +82,7 @@ func TestAgentExecutorRearmsOptionalCompactionFromObservedUsageWithoutReusableId
 			var optionalAttempts, successfulFingerprints int
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT
 				count(*) FILTER (WHERE recovery_kind='compact_optional'),
-				count(*) FILTER (WHERE request_input_version IS NOT NULL)
+				count(*) FILTER (WHERE request_input_fingerprint IS NOT NULL)
 				FROM model_call_contexts WHERE agent_id=$1`, agentID).Scan(&optionalAttempts, &successfulFingerprints))
 			require.Equal(t, 2, optionalAttempts)
 			require.Zero(t, successfulFingerprints)

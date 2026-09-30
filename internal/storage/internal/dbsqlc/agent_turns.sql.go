@@ -454,8 +454,7 @@ SELECT event.id,
        context.input_tokens_total, context.uncached_input_tokens,
        context.cache_read_input_tokens, context.cache_write_input_tokens,
        context.output_tokens_total, context.reasoning_output_tokens,
-       context.request_input_version, context.request_input_route_fingerprint,
-       context.request_input_static_fingerprint, context.request_input_prefix_fingerprint,
+       context.request_input_fingerprint,
        context.request_input_item_count,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
@@ -519,8 +518,7 @@ GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   output.provider_replay, output.stop_reason, output.served_provider_model_slug, input.input_kind,
   context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
   context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
-  context.request_input_version, context.request_input_route_fingerprint,
-  context.request_input_static_fingerprint, context.request_input_prefix_fingerprint, context.request_input_item_count
+  context.request_input_fingerprint, context.request_input_item_count
 ORDER BY event.sequence ASC
 LIMIT $5
 `
@@ -534,32 +532,29 @@ type ListContextEventsParams struct {
 }
 
 type ListContextEventsRow struct {
-	ID                            uuid.UUID
-	AgentInputID                  *uuid.UUID
-	Sequence                      int64
-	CreatedAt                     time.Time
-	EventKind                     string
-	ModelOutputID                 *uuid.UUID
-	ModelCallContextID            *uuid.UUID
-	ModelProviderConfigID         *uuid.UUID
-	RequestedProviderModelSlug    string
-	ApiFormat                     string
-	ApiVariant                    string
-	ServedProviderModelSlug       string
-	InputTokensTotal              *int32
-	UncachedInputTokens           *int32
-	CacheReadInputTokens          *int32
-	CacheWriteInputTokens         *int32
-	OutputTokensTotal             *int32
-	ReasoningOutputTokens         *int32
-	RequestInputVersion           *int32
-	RequestInputRouteFingerprint  *string
-	RequestInputStaticFingerprint *string
-	RequestInputPrefixFingerprint *string
-	RequestInputItemCount         *int32
-	ProviderReplay                *json.RawMessage
-	StopReason                    string
-	ContentParts                  json.RawMessage
+	ID                         uuid.UUID
+	AgentInputID               *uuid.UUID
+	Sequence                   int64
+	CreatedAt                  time.Time
+	EventKind                  string
+	ModelOutputID              *uuid.UUID
+	ModelCallContextID         *uuid.UUID
+	ModelProviderConfigID      *uuid.UUID
+	RequestedProviderModelSlug string
+	ApiFormat                  string
+	ApiVariant                 string
+	ServedProviderModelSlug    string
+	InputTokensTotal           *int32
+	UncachedInputTokens        *int32
+	CacheReadInputTokens       *int32
+	CacheWriteInputTokens      *int32
+	OutputTokensTotal          *int32
+	ReasoningOutputTokens      *int32
+	RequestInputFingerprint    *string
+	RequestInputItemCount      *int32
+	ProviderReplay             *json.RawMessage
+	StopReason                 string
+	ContentParts               json.RawMessage
 }
 
 func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsParams) ([]ListContextEventsRow, error) {
@@ -596,10 +591,7 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.CacheWriteInputTokens,
 			&i.OutputTokensTotal,
 			&i.ReasoningOutputTokens,
-			&i.RequestInputVersion,
-			&i.RequestInputRouteFingerprint,
-			&i.RequestInputStaticFingerprint,
-			&i.RequestInputPrefixFingerprint,
+			&i.RequestInputFingerprint,
 			&i.RequestInputItemCount,
 			&i.ProviderReplay,
 			&i.StopReason,

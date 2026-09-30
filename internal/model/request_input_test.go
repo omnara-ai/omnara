@@ -44,6 +44,9 @@ func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) 
 			if err != nil || !projection.matches(identity, route) {
 				t.Fatalf("unchanged input plus suffix must match across output clamping: %v", err)
 			}
+			if projection.matches(identity, strings.Repeat("b", 64)) {
+				t.Fatal("changed route reused old measurement")
+			}
 			for _, changed := range []string{
 				strings.Replace(next, "instructions", "new instructions", 1),
 				strings.Replace(next, "integration targets", "different targets", 1),
@@ -56,9 +59,6 @@ func TestRequestInputIdentityMatchesPreparedPrefixAndStaticFooter(t *testing.T) 
 				if projection.matches(identity, route) {
 					t.Fatal("changed measured input reused old measurement")
 				}
-			}
-			if projection.matches(identity, strings.Repeat("b", 64)) {
-				t.Fatal("changed route reused old measurement")
 			}
 		})
 	}
@@ -122,18 +122,6 @@ func TestOpaqueReasoningUsesMeasuredCompleteReplayOnlyWithinToolContinuation(t *
 			}
 		})
 	}
-}
-
-func TestNewMediaIsCountedWithoutChargingMeasuredHistoricalImagesAgain(t *testing.T) {
-	image := modelcontext.RenderedMedia{Representation: modelcontext.MediaRepresentationInline, TokenEstimate: 900,
-		Media: modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage, Data: []byte("image")}}
-	raw := json.RawMessage(`[{"role":"user","content":[{"type":"image_url",` +
-		`"image_url":{"url":"data:image/png;base64,aW1hZ2U="}}]}]`)
-	selected := inputSuffixMedia(raw, []modelcontext.RenderedMedia{image, image})
-	require.Len(t, selected, 1)
-	estimate := modelcontext.EstimatePreparedRequest(raw, selected)
-	require.GreaterOrEqual(t, estimate, 900)
-	require.Less(t, estimate, 1000)
 }
 
 func TestRequestInputIdentityPreservesMediaAndExactNumbers(t *testing.T) {
@@ -232,33 +220,5 @@ func TestRequestInputIdentityInvalidatesActivatedDeferredTools(t *testing.T) {
 	}
 	if projection.matches(identity, route) {
 		t.Fatal("newly activated static tool schema reused the prior input measurement")
-	}
-}
-
-func TestInputMediaAccountingDoesNotTreatTextOrToolArgumentsAsMedia(t *testing.T) {
-	media := []modelcontext.RenderedMedia{{
-		Representation: modelcontext.MediaRepresentationInline, TokenEstimate: 900,
-		Media: modelcontext.ResolvedMedia{Kind: modelcontext.AttachmentKindImage, Data: []byte("image")},
-	}}
-	for _, raw := range []string{
-		`[{"role":"user","content":"aW1hZ2U="}]`,
-		`[{"role":"user","content":[{"type":"text","text":"data:image/png;base64,aW1hZ2U="}]}]`,
-		`[{"role":"assistant","tool_calls":[{"function":{"arguments":{"type":"image_url",` +
-			`"image_url":{"url":"data:image/png;base64,aW1hZ2U="}}}}]}]`,
-		`[{"role":"assistant","content":[{"type":"tool_use","input":{"type":"image",` +
-			`"source":{"type":"base64","data":"aW1hZ2U="}}}]}]`,
-	} {
-		require.Empty(t, inputSuffixMedia(json.RawMessage(raw), media))
-	}
-	for _, raw := range []string{
-		`[{"role":"user","content":[{"type":"image","source":{"type":"base64","data":"aW1hZ2U="}}]}]`,
-		`[{"role":"user","content":[{"type":"tool_result","content":[{"type":"document",` +
-			`"source":{"type":"base64","data":"aW1hZ2U="}}]}]}]`,
-		`[{"type":"function_call_output","output":[{"type":"input_image",` +
-			`"image_url":"data:image/png;base64,aW1hZ2U="}]}]`,
-		`[{"role":"user","content":[{"type":"input_file","file_data":"data:application/pdf;base64,aW1hZ2U="}]}]`,
-		`[{"role":"user","content":[{"type":"file","file":{"file_data":"data:application/pdf;base64,aW1hZ2U="}}]}]`,
-	} {
-		require.Len(t, inputSuffixMedia(json.RawMessage(raw), media), 1)
 	}
 }

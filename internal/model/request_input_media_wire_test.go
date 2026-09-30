@@ -2,9 +2,7 @@ package model_test
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"image"
 	"image/png"
@@ -12,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/omnara-ai/omnara/internal/jsoncanonical"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -178,12 +175,6 @@ func TestAnthropicBodyLimitInvalidatesMeasuredPrefixAndIdentifiesFinalProjection
 	}
 	require.NoError(t, json.Unmarshal(changed.Body, &body))
 	require.Equal(t, len(body.Messages), changed.RequestInputIdentity.ItemCount)
-	serializedInput, err := json.Marshal(body.Messages)
-	require.NoError(t, err)
-	canonicalInput, err := jsoncanonical.Normalize(serializedInput)
-	require.NoError(t, err)
-	digest := sha256.Sum256(canonicalInput)
-	require.Equal(t, hex.EncodeToString(digest[:]), changed.RequestInputIdentity.PrefixFingerprint)
 
 	nextInputID := uuid.New()
 	input.Context.OpeningInputIDs = []uuid.UUID{nextInputID}

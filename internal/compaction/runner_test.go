@@ -88,10 +88,9 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 	resolver := &reasoningSelectionResolver{client: client}
 	now := time.Unix(123, 0).UTC()
 	runner := Runner{
-		Store:          store,
-		Resolver:       resolver,
-		ContextBuilder: &fakeContextBuilder{},
-		Now:            func() time.Time { return now },
+		Store:    store,
+		Resolver: resolver,
+		Now:      func() time.Time { return now },
 	}
 	store.clock = runner.now
 	compactionInput := runInput(testPlan(1, 2, 2))
@@ -110,43 +109,20 @@ func TestRunnerCarriesAgentReasoningSelectionThroughCompaction(t *testing.T) {
 		selection.Overrides.ReasoningEffort != reasoningEffort {
 		t.Fatalf("compaction model selection = %+v", selection)
 	}
-	if len(client.preparedPolicies) != len(client.preparedBundles) ||
-		len(client.preparedPolicies) < 2 {
-		t.Fatalf(
-			"prepared policies=%d bundles=%d, want summary and candidate requests",
-			len(client.preparedPolicies),
-			len(client.preparedBundles),
-		)
+	if len(client.preparedPolicies) == 0 || len(client.requests) != 1 {
+		t.Fatalf("prepared policies=%d provider requests=%d", len(client.preparedPolicies), len(client.requests))
 	}
-	sawSummaryRequest := false
-	sawCandidateRequest := false
 	for index, policy := range client.preparedPolicies {
 		if policy.ReasoningEffort != reasoningEffort {
 			t.Fatalf("prepared policy %d = %+v, want inherited reasoning", index, policy)
 		}
-		if client.preparedBundles[index].ContextCheckpoint == nil {
-			sawSummaryRequest = true
-			if policy.MaxOutputTokens != client.Capabilities().DefaultMaxOutputTokens {
-				t.Fatalf(
-					"summary policy %d output = %d, want %d",
-					index,
-					policy.MaxOutputTokens,
-					client.Capabilities().DefaultMaxOutputTokens,
-				)
-			}
-			continue
+		if policy.MaxOutputTokens != client.Capabilities().DefaultMaxOutputTokens {
+			t.Fatalf(
+				"summary policy %d output = %d, want %d",
+				index,
+				policy.MaxOutputTokens,
+				client.Capabilities().DefaultMaxOutputTokens,
+			)
 		}
-		sawCandidateRequest = true
-		if policy.MaxOutputTokens != 2_048 {
-			t.Fatalf("candidate policy %d output = %d, want normal 2048", index, policy.MaxOutputTokens)
-		}
-	}
-	if !sawSummaryRequest || !sawCandidateRequest || len(client.requests) != 1 {
-		t.Fatalf(
-			"summary=%v candidate=%v provider requests=%d",
-			sawSummaryRequest,
-			sawCandidateRequest,
-			len(client.requests),
-		)
 	}
 }

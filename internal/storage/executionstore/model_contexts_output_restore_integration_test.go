@@ -62,7 +62,7 @@ func TestOutputRestorationSchedulesOnceWithoutResettingTransientBudget(t *testin
 	state, err := fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 	require.NoError(t, err)
 	require.True(t, state.OutputAllowanceRestored)
-	require.Zero(t, state.NormalRetryCount)
+	require.Zero(t, state.RetryCount)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, outputRestorationFailure(fixture, current.ID))
 	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
 	_, err = fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
@@ -83,7 +83,7 @@ completed_at=statement_timestamp() WHERE id=$1`, current.ID)
 		state, err = fixture.Store.Execution().GetModelCallRecoveryState(ctx, testProjectID, fixture.AgentID, current.ID)
 		require.NoError(t, err)
 		require.True(t, state.OutputAllowanceRestored)
-		require.Equal(t, used, state.NormalRetryCount)
+		require.Equal(t, used, state.RetryCount)
 		retry := outputRestorationFailure(fixture, current.ID)
 		retry.RecoveryKind = executionstore.ModelCallRecoveryRetry
 		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, retry)

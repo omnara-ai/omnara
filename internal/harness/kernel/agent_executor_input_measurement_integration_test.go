@@ -62,11 +62,12 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 		SELECT id FROM model_call_contexts
 		WHERE agent_id=$1 AND state='succeeded' AND operation_kind='normal'
 	`, agentID).Scan(&firstID))
-	var identityVersion, measuredTokens int
+	var identityFingerprint string
+	var measuredTokens int
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
-		SELECT request_input_version,input_tokens_total FROM model_call_contexts WHERE id=$1
-	`, firstID).Scan(&identityVersion, &measuredTokens))
-	require.Equal(t, 1, identityVersion)
+		SELECT request_input_fingerprint,input_tokens_total FROM model_call_contexts WHERE id=$1
+	`, firstID).Scan(&identityFingerprint, &measuredTokens))
+	require.Len(t, identityFingerprint, 64)
 	require.Equal(t, 1000, measuredTokens)
 	require.NoError(t, fixture.Store.Execution().ReleaseAgentRuntimeLock(
 		ctx, kernelTestProjectID, agentID, first.RuntimeLockID,
@@ -83,7 +84,7 @@ func TestAgentExecutorReusesPersistedMeasuredInputForActualAdapterRequest(t *tes
 	var compactions, successfulNormal int
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE operation_kind='compaction'),
-			count(*) FILTER (WHERE operation_kind='normal' AND state='succeeded' AND request_input_version=1)
+			count(*) FILTER (WHERE operation_kind='normal' AND state='succeeded' AND request_input_fingerprint IS NOT NULL)
 		FROM model_call_contexts WHERE agent_id=$1
 	`, agentID).Scan(&compactions, &successfulNormal))
 	require.Zero(t, compactions, "large local estimate and billed hidden output must not override valid measured input")
@@ -123,18 +124,19 @@ func TestAgentExecutorPersistsPreparedIdentityForToolCallResponse(t *testing.T) 
 				Now: func() time.Time { return fixture.Now.Add(2 * time.Second) },
 			}
 			require.NoError(t, executor.ExecuteModelWork(ctx, turn))
-			var version *int
+			var fingerprint *string
 			var tokens int
 			var state, reason string
 			require.NoError(t, fixture.Pool.QueryRow(ctx, `
-		SELECT context.request_input_version,context.input_tokens_total,context.state,output.stop_reason
+		SELECT context.request_input_fingerprint,context.input_tokens_total,context.state,output.stop_reason
 		FROM model_call_contexts context JOIN model_outputs output ON output.model_call_context_id=context.id
 		WHERE context.agent_id=$1
-	`, agentID).Scan(&version, &tokens, &state, &reason))
+	`, agentID).Scan(&fingerprint, &tokens, &state, &reason))
 			if malformed {
-				require.Nil(t, version, "sanitized output cannot anchor complete measured reasoning replay")
+				require.Nil(t, fingerprint, "sanitized output cannot anchor complete measured reasoning replay")
 			} else {
-				require.Equal(t, new(1), version)
+				require.NotNil(t, fingerprint)
+				require.Len(t, *fingerprint, 64)
 			}
 			require.Equal(t, 1200, tokens)
 			require.Equal(t, string(executionstore.ModelCallContextSucceeded), state)

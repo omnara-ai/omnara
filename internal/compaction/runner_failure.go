@@ -28,7 +28,6 @@ const (
 const (
 	compactionErrorCodeBuildModelSelectionFailed = "build_compaction_model_selection_failed"
 	compactionErrorCodeResolveModelFailed        = "resolve_compaction_model_failed"
-	compactionErrorCodeLoadReplayPolicyFailed    = "load_compaction_replay_policy_failed"
 	compactionErrorCodeLoadSourceFailed          = "load_compaction_source_failed"
 	compactionErrorCodePrepareRequestFailed      = "prepare_compaction_request_failed"
 	compactionErrorCodeSummaryTruncated          = "summary_truncated"
@@ -130,7 +129,7 @@ func (r Runner) recordFailure(
 	now := r.now()
 	evidence, decision := modelretry.Decide(
 		cause,
-		modelretry.Attempt{Number: recovery.CompactionRetryCount + 1},
+		modelretry.Attempt{Number: recovery.RetryCount + 1},
 		claim.Context.ID.String(),
 		now,
 	)

@@ -1326,16 +1326,10 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		},
 		responses: malformedResponses,
 	}
-	executor := AgentExecutor{
-		Store:           fixture.Store,
-		ModelResolver:   liveTestModelResolver(fixture.Store, compactionModel),
-		ModelRetryDelay: immediateKernelModelRetryDelay,
-	}
 	currentNow := runNow
 	runner := compaction.Runner{
-		Store:           compaction.NewStore(fixture.Store.Execution()),
-		Resolver:        executor.ModelResolver,
-		ContextBuilder:  executor.contextBuilder(),
+		Store:           fixture.Store.Execution(),
+		Resolver:        liveTestModelResolver(fixture.Store, compactionModel),
 		Now:             func() time.Time { return currentNow },
 		ModelRetryDelay: immediateKernelModelRetryDelay,
 	}
@@ -1347,11 +1341,10 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 			EventSequenceStart: 1,
 			EventSequenceEnd:   turn.OpeningEventSequence - 1,
 		},
-		TurnID:                   turn.TurnID,
-		OpeningInputIDs:          turn.InputIDs,
-		OpeningEventSequence:     turn.OpeningEventSequence,
-		RuntimeLockID:            turn.RuntimeLockID,
-		ParentModelCallContextID: parent.Context.ID,
+		TurnID:               turn.TurnID,
+		OpeningInputIDs:      turn.InputIDs,
+		OpeningEventSequence: turn.OpeningEventSequence,
+		RuntimeLockID:        turn.RuntimeLockID,
 	}
 	var result compaction.RunResult
 	for attemptNumber := 1; attemptNumber <= maxAttempts; attemptNumber++ {

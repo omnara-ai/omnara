@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -190,6 +191,19 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestRunnerRejectsClaimWithoutParent(t *testing.T) {
+	input := runInput(testPlan(1, 1, 2))
+	claim := newCompactionClaim(input, 1, time.Time{})
+	claim.Context.ParentNormalModelCallContextID = uuid.Nil
+	store := &fakeStore{}
+	client := &summaryModel{}
+
+	_, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.Empty(t, client.requests)
+	require.Empty(t, store.publishInputs)
 }
 
 func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
@@ -374,9 +388,8 @@ func TestRunnerDurablyRetriesUnclassifiedResolverFailureBeforeProviderSend(t *te
 	}}
 	wantErr := errors.New("database connection unavailable")
 	runner := Runner{
-		Store:          store,
-		Resolver:       errorResolver{err: wantErr},
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: errorResolver{err: wantErr},
 	}
 	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := runner.RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
@@ -407,9 +420,8 @@ func TestRunnerStopsAfterEighthRetryableResolverFailure(t *testing.T) {
 		Message: "the model resolver is temporarily unavailable",
 	}
 	runner := Runner{
-		Store:          store,
-		Resolver:       errorResolver{err: providerErr},
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: errorResolver{err: providerErr},
 	}
 	input := runInput(testPlan(1, 1, 1))
 	store.compactionRetryCount = executionstore.MaxModelCallRetriesPerOperation
@@ -571,9 +583,8 @@ func TestRunnerClassifiesMissingLiveGrantAsAuthFailure(t *testing.T) {
 		textCompactionEvent(1, "closed source"),
 	}}
 	runner := Runner{
-		Store:          store,
-		Resolver:       errorResolver{err: storeerr.ErrModelGrantUnavailable},
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: errorResolver{err: storeerr.ErrModelGrantUnavailable},
 	}
 	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := runner.RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))

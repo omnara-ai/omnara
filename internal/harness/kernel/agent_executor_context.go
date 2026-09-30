@@ -294,13 +294,7 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
-	optionalMaintenance, err := e.shouldAttemptOptionalCompaction(
-		ctx, claim.Context, prepared, workingInputTarget, recovery,
-	)
-	if err != nil {
-		return modelStep{}, err
-	}
-	if optionalMaintenance {
+	if shouldAttemptOptionalCompaction(prepared, workingInputTarget, recovery) {
 		trigger, triggerErr := localInputBudgetTrigger(
 			prepared.InputBudget,
 			workingInputTarget,
@@ -322,7 +316,7 @@ func (e AgentExecutor) executeModelStep(
 		ProviderRequest: prepared.Body,
 	}
 	var streamSink *harnessStreamSink
-	if recovery.ProviderAttemptCount == 0 {
+	if !recovery.HasPriorNormalAttempt {
 		if streamSink = e.streamSinkForCall(
 			context.WithoutCancel(ctx),
 			input.AgentID,
@@ -541,7 +535,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 	if err != nil {
 		return modelStep{}, err
 	}
-	attempt.Number = recovery.NormalRetryCount + 1
+	attempt.Number = recovery.RetryCount + 1
 	now := e.now()
 	evidence, decision := modelretry.Decide(
 		cause,

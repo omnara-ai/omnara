@@ -133,9 +133,15 @@ func TestAgentExecutorRecoversWithDurableCheckpointExcerptsAfterOneRewrite(t *te
 				require.NoError(t, err)
 				require.True(t, found)
 				require.Equal(t, original, stored.Summary)
-				rows, err := fixture.Pool.Query(ctx, `SELECT recovery_checkpoint_id,recovery_checkpoint_retained_bytes
-					FROM model_call_contexts WHERE agent_id=$1 AND recovery_checkpoint_retained_bytes IS NOT NULL
-					ORDER BY created_at`, work.AgentID)
+				rows, err := fixture.Pool.Query(ctx, `SELECT checkpoint.context_checkpoint_id,
+					context.recovery_checkpoint_retained_bytes
+					FROM model_call_contexts context JOIN LATERAL (
+						SELECT event.context_checkpoint_id FROM agent_events event
+						WHERE event.agent_id=context.agent_id AND event.event_kind='context_checkpoint'
+						AND event.sequence<=context.input_event_sequence ORDER BY event.sequence DESC LIMIT 1
+					) checkpoint ON true
+					WHERE context.agent_id=$1 AND context.recovery_checkpoint_retained_bytes IS NOT NULL
+					ORDER BY context.created_at`, work.AgentID)
 				require.NoError(t, err)
 				var savedID uuid.UUID
 				previousBytes, savedCount := len(original), 0
