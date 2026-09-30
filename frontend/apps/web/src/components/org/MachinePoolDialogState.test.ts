@@ -11,6 +11,8 @@ import {
   machinePoolUpdateRequest,
 } from './MachinePoolDialogState'
 
+const createOSMachineTypeOption = 'shape'
+
 describe('machine pool memory inputs', () => {
   it('converts GB values to integer MB and derives the total from converted machine memory', () => {
     const values = {
@@ -346,6 +348,77 @@ describe('Arker machine pools', () => {
       source: 'tools-template',
       region: 'aws-us-west-2',
     })
+  })
+})
+
+describe('CreateOS machine pools', () => {
+  it('creates a pool from a catalog shape and an optional root filesystem', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'createos' as const,
+      name: 'createos-pool',
+      image: 's-2vcpu-4gb',
+      rootfs: 'devbox:1',
+      location: 'us',
+      cpu: '2',
+      memoryGb: '4',
+      maxMachines: '3',
+      secretId: 'sec_createos',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolCreateRequest(values)).toMatchObject({
+      provider: 'createos',
+      provider_auth_secret_id: 'sec_createos',
+      default_machine_provider_options: {
+        [createOSMachineTypeOption]: 's-2vcpu-4gb',
+        rootfs: 'devbox:1',
+      },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12_288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+  })
+
+  it('hydrates provider-resolved resources and preserves hidden options on edit', () => {
+    const pool = machinePool({
+      provider: 'createos',
+      default_machine_cpu: null,
+      default_machine_memory_mb: null,
+      default_machine_provider_options: {
+        [createOSMachineTypeOption]: 's-2vcpu-4gb',
+        rootfs: 'devbox:1',
+        region: 'us',
+        internal_option: 'preserve-me',
+      },
+      max_total_cpu: 6,
+      max_total_memory_mb: 12_288,
+      max_machine_cpu: 2,
+      max_machine_memory_mb: 4096,
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected CreateOS form values')
+
+    expect(values).toMatchObject({
+      provider: 'createos',
+      image: 's-2vcpu-4gb',
+      rootfs: 'devbox:1',
+      location: 'us',
+      cpu: '2',
+      memoryGb: '4',
+    })
+    expect(machinePoolUpdateRequest(pool, { ...values, rootfs: '', location: 'eu' })).toMatchObject(
+      {
+        default_machine_provider_options: {
+          [createOSMachineTypeOption]: 's-2vcpu-4gb',
+          region: 'eu',
+          internal_option: 'preserve-me',
+        },
+        max_machine_cpu: 2,
+        max_machine_memory_mb: 4096,
+      },
+    )
   })
 })
 

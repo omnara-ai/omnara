@@ -131,6 +131,7 @@ func TestCatalogConfigurableMachineResources(t *testing.T) {
 	}{
 		{"unikraft", true, true}, {"modal", true, true}, {"freestyle", true, true}, {"tenki", true, true},
 		{"arker", true, true}, {"blaxel", false, true}, {"daytona", false, false}, {"boxd", false, false},
+		{"createos", false, false},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)

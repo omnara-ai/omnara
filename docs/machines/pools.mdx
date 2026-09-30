@@ -1,6 +1,6 @@
 ---
 title: Machine pools
-description: On-demand machine capacity from Blaxel, Unikraft Cloud, Daytona, Modal, Freestyle, Tenki, Arker, or boxd
+description: On-demand machine capacity from Blaxel, Unikraft Cloud, Daytona, Modal, Freestyle, Tenki, Arker, boxd, or CreateOS
 icon: "layer-group"
 ---
 
@@ -12,7 +12,7 @@ A machine pool lets Omnara create machines from a sandbox provider when an agent
 Omnara gives you two ways to run pool machines:
 
 - **Omnara-managed pools** — ready-to-use sandboxes. Omnara manages the sandbox provider account, credentials, and [default machine environment](#default-machine-environment).
-- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, Modal, Freestyle, Tenki, Arker, or boxd account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies. See [Sandbox providers](/machines/providers/overview) for each provider.
+- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, Modal, Freestyle, Tenki, Arker, boxd, or CreateOS account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies. See [Sandbox providers](/machines/providers/overview) for each provider.
 
 ## Default machine environment
 
@@ -58,7 +58,7 @@ The agent's conversation, event history, and uploaded artifacts remain in Omnara
 
 Runtime protection is an optional pool setting that defaults to disabled. When enabled, Omnara may delete a provider sandbox that remains running after its daemon becomes inactive. Out-of-band work that keeps a sandbox running without its daemon is therefore not supported on a protected pool.
 
-Blaxel, Daytona, Modal, Unikraft, Freestyle, Tenki, Arker, and boxd pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
+Blaxel, Daytona, Modal, Unikraft, Freestyle, Tenki, Arker, boxd, and CreateOS pools support runtime protection. It does not apply to directly connected machines, and provider errors delay enforcement. The setting belongs to the pool and cannot be overridden by a project grant or agent config.
 
 ## Create a pool
 
@@ -77,7 +77,7 @@ For a custom pool, store the provider's API key as an org-owned [secret](/organi
   <PoolsCreate />
 </Tab>
 <Tab title="Dashboard">
-  1. On the **Machines** page, click **New pool** and choose Blaxel, Unikraft, Daytona, Modal, Freestyle, Tenki, Arker, or boxd.
+  1. On the **Machines** page, click **New pool** and choose Blaxel, Unikraft, Daytona, Modal, Freestyle, Tenki, Arker, boxd, or CreateOS.
   2. Name the pool and select its provider credential secret. Use **New secret** to create one without leaving the dialog.
   3. Enter the image or snapshot, provider settings, machine size, and capacity limits. You can also set a startup script, working directory, and environment variables.
   4. Optionally grant the pool to projects, then create it.
