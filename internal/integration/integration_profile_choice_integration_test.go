@@ -574,7 +574,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			router := NewIntegrationRouter(f.store.Execution(), f.store.Integrations())
 			if scenario.frozen {
 				choice, err := f.store.Integrations().GetIntegrationProfileChoice(
-					ctx, selected.ProjectID, selected.IntegrationID, selected.SourceStateID)
+					ctx, selected.ProjectID, selected.IntegrationID, selected.IntegrationStateID)
 				require.NoError(t, err)
 				event, err := selectedIntegrationEvent(choice)
 				require.NoError(t, err)
@@ -714,7 +714,7 @@ func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
 			selected := f.claim()
 			if frozen {
 				choice, err := f.store.Integrations().GetIntegrationProfileChoice(
-					ctx, selected.ProjectID, selected.IntegrationID, selected.SourceStateID)
+					ctx, selected.ProjectID, selected.IntegrationID, selected.IntegrationStateID)
 				require.NoError(t, err)
 				event, err := selectedIntegrationEvent(choice)
 				require.NoError(t, err)
@@ -771,7 +771,7 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 	f.choose(f.provider.menus[0], "heavy")
 	selected := f.claim()
 	choice, err := inbox.GetIntegrationProfileChoice(
-		ctx, selected.ProjectID, selected.IntegrationID, selected.SourceStateID)
+		ctx, selected.ProjectID, selected.IntegrationID, selected.IntegrationStateID)
 	require.NoError(t, err)
 	event, err := selectedIntegrationEvent(choice)
 	require.NoError(t, err)

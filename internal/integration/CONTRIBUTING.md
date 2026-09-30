@@ -190,7 +190,7 @@ subscription routing and transport leases in their existing structures.
 Replacements use revisions, and decisions with a deadline check database time at
 the write. Decision deadlines are not retention TTLs. The profile chooser is the
 existing example. A state transition can atomically enqueue work referencing that record through
-`source_state_id`. Register its `IntegrationStateHandler` by integration kind. The handler
+`integration_state_id`. Register its `IntegrationStateHandler` by integration kind. The handler
 interprets the state and chooses its retry policy; it completes through the supplied
 `process(event, payload)` callback, using `process(nil, nil)` when no delivery is needed.
 The inbox does not decode workflow-specific JSON.

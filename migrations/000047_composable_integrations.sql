@@ -272,12 +272,12 @@ CREATE TABLE integration_inbox (
     receipt_key text NOT NULL CHECK (octet_length(receipt_key) BETWEEN 1 AND 512),
     payload bytea CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
     source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled', 'state')),
-    source_state_id uuid,
+    integration_state_id uuid,
     reserved_scope_kind text CHECK (octet_length(reserved_scope_kind) BETWEEN 1 AND 128),
     reserved_scope_ref text CHECK (octet_length(reserved_scope_ref) BETWEEN 1 AND 2048),
     CHECK ((reserved_scope_kind IS NULL) = (reserved_scope_ref IS NULL)),
-    CHECK ((source = 'state' AND source_state_id IS NOT NULL AND payload IS NULL)
-        OR (source IN ('provider', 'scheduled') AND source_state_id IS NULL
+    CHECK ((source = 'state' AND integration_state_id IS NOT NULL AND payload IS NULL)
+        OR (source IN ('provider', 'scheduled') AND integration_state_id IS NULL
             AND (payload IS NOT NULL OR (source = 'provider' AND state = 'completed'
                 AND plan IS NOT NULL AND plan = '{"recipients":{}}'::jsonb)))),
     plan jsonb CHECK (jsonb_typeof(plan) = 'object' AND octet_length(plan::text) <= 12615680),
@@ -331,9 +331,9 @@ CREATE TABLE integration_states (
     UNIQUE (project_id, integration_id, kind, key),
     UNIQUE (project_id, integration_id, id)
 );
-ALTER TABLE integration_inbox ADD FOREIGN KEY (project_id, integration_id, source_state_id)
+ALTER TABLE integration_inbox ADD FOREIGN KEY (project_id, integration_id, integration_state_id)
     REFERENCES integration_states(project_id, integration_id, id);
-CREATE INDEX integration_inbox_source_state_id_idx ON integration_inbox(source_state_id) WHERE source_state_id IS NOT NULL;
+CREATE INDEX integration_inbox_integration_state_id_idx ON integration_inbox(integration_state_id) WHERE integration_state_id IS NOT NULL;
 
 CREATE INDEX integration_states_scope_idx
     ON integration_states(project_id, integration_id, kind, scope_kind, scope_ref, expires_at, id)

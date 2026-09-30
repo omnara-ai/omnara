@@ -72,7 +72,7 @@ func TestSlackNotifyInboxFailureDestination(t *testing.T) {
 				normalized, ok, err := NormalizeSlackIntegrationEvent(integration, receipt.Payload)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.Source, receipt.SourceStateID = integrationstore.IntegrationInboxSourceState, uuid.New()
+				receipt.Source, receipt.IntegrationStateID = integrationstore.IntegrationInboxSourceState, uuid.New()
 				access.choice = feedbackChoice(t, receipt, normalized)
 				receipt.Payload = []byte(`{"menu_callback":"not the source"}`)
 				wantText = selectedInboxFailureMessage
@@ -226,7 +226,7 @@ func TestDiscordNotifyInboxFailureDestination(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.Source, receipt.SourceStateID = integrationstore.IntegrationInboxSourceState, uuid.New()
+				receipt.Source, receipt.IntegrationStateID = integrationstore.IntegrationInboxSourceState, uuid.New()
 				f.choice = feedbackChoice(t, receipt, event)
 				receipt.Payload = []byte(`{"interaction":"not the source"}`)
 				wantText = selectedInboxFailureMessage
@@ -377,7 +377,7 @@ func feedbackChoice(
 	t *testing.T, receipt integrationstore.IntegrationInboxRecord, event IntegrationEvent,
 ) integrationstore.IntegrationProfileChoiceRecord {
 	return integrationstore.IntegrationProfileChoiceRecord{
-		ID: receipt.SourceStateID, ProjectID: receipt.ProjectID, IntegrationID: receipt.IntegrationID,
+		ID: receipt.IntegrationStateID, ProjectID: receipt.ProjectID, IntegrationID: receipt.IntegrationID,
 		Event: githubEventJSON(t, event), SelectedKey: "selected",
 		Options: []integrationstore.IntegrationProfileChoiceOption{{Key: "selected", ProfileID: uuid.New()}},
 	}

@@ -65,5 +65,5 @@ func TestIntegrationProfileChoiceHoldsCredentialUntilCommit(t *testing.T) {
 	_, err = f.store.ChooseIntegrationProfile(f.ctx, input)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized, "selected-menu replay still requires credential access")
 	require.Equal(t, chosen, f.readChoice(t, menu.ID))
-	require.Equal(t, menu.ID, f.decidedReceipt(t, menu.ID).SourceStateID)
+	require.Equal(t, menu.ID, f.decidedReceipt(t, menu.ID).IntegrationStateID)
 }

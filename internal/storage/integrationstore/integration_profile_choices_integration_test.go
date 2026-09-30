@@ -82,7 +82,7 @@ func (f profileChoiceFixture) receipt(
 	})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.Equal(t, uuid.Nil, accepted.SourceStateID, "ordinary ingress cannot reference trusted choice state")
+	require.Equal(t, uuid.Nil, accepted.IntegrationStateID, "ordinary ingress cannot reference trusted choice state")
 	claimed, found, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.project, IntegrationID: f.integrationID, LeaseDuration: integrationstore.IntegrationInboxMaxLease,
 	})
@@ -226,7 +226,7 @@ func TestIntegrationProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 	}
 	receipt := f.decidedReceipt(t, id)
 	require.Nil(t, receipt.Payload, "choice receipt must not duplicate saved provider bytes")
-	require.Equal(t, id, receipt.SourceStateID)
+	require.Equal(t, id, receipt.IntegrationStateID)
 	require.Equal(t, integrationstore.IntegrationInboxSourceState, receipt.Source)
 	require.Equal(t, f.input.Payload, selected.Payload)
 	require.Nil(t, receipt.Plan)
@@ -236,18 +236,18 @@ func TestIntegrationProfileChoiceConcurrentEnsureAndChoose(t *testing.T) {
 	require.Equal(t, 3, count, "two source receipts share one decided receipt")
 	claimed := f.claim(t)
 	require.Equal(t, receipt.ID, claimed.ID)
-	require.Equal(t, receipt.SourceStateID, claimed.SourceStateID)
+	require.Equal(t, receipt.IntegrationStateID, claimed.IntegrationStateID)
 	f.mutate(t, claimed, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		detached := work.Receipt()
-		detached.SourceStateID = uuid.New()
-		require.Equal(t, receipt.SourceStateID, work.Receipt().SourceStateID)
+		detached.IntegrationStateID = uuid.New()
+		require.Equal(t, receipt.IntegrationStateID, work.Receipt().IntegrationStateID)
 		return work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`))
 	})
 	require.NoError(t, f.store.DeleteIntegration(f.ctx, f.org, f.project, f.integration.ID))
 	_, err := f.store.ChooseIntegrationProfile(f.ctx, first)
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 	require.Equal(t, selected, f.readChoice(t, id))
-	require.Equal(t, receipt.SourceStateID, f.read(t, receipt.ID).SourceStateID)
+	require.Equal(t, receipt.IntegrationStateID, f.read(t, receipt.ID).IntegrationStateID)
 	bySource, found, err := f.store.GetIntegrationProfileChoiceBySource(
 		f.ctx, f.project, f.integration.ID, f.input.SourceKey)
 	require.NoError(t, err)
@@ -301,7 +301,7 @@ func TestIntegrationProfileChoiceSiblingSourceAndRevision(t *testing.T) {
 	require.NoError(t, err)
 	receipt := f.decidedReceipt(t, chosen.ID)
 	require.Nil(t, receipt.Payload)
-	require.Equal(t, sibling.Payload, f.readChoice(t, receipt.SourceStateID).Payload)
+	require.Equal(t, sibling.Payload, f.readChoice(t, receipt.IntegrationStateID).Payload)
 	later, _, err := f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), f.input)
 	require.NoError(t, err)
 	require.Equal(t, chosen, later)
@@ -352,7 +352,7 @@ func TestIntegrationProfileChoiceSourceChooseRace(t *testing.T) {
 	}
 	require.NoError(t, chooseErr)
 	receipt := f.decidedReceipt(t, chosen.ID)
-	saved := f.readChoice(t, receipt.SourceStateID)
+	saved := f.readChoice(t, receipt.IntegrationStateID)
 	require.Equal(t, chosen, saved, "receipt resolves the immutable winning state revision")
 	if bytes.Equal(chosen.Payload, files.Payload) {
 		require.JSONEq(t, string(files.Event), string(saved.Event))
@@ -556,7 +556,7 @@ func TestIntegrationProfileChoiceInboxFailureRollsBackSelection(t *testing.T) {
 	f.exec(t, `DROP TRIGGER reject_decided_receipt ON integration_inbox; DROP FUNCTION reject_decided_receipt()`)
 	_, err = f.store.ChooseIntegrationProfile(f.ctx, input)
 	require.NoError(t, err)
-	require.Equal(t, record.ID, f.decidedReceipt(t, record.ID).SourceStateID)
+	require.Equal(t, record.ID, f.decidedReceipt(t, record.ID).IntegrationStateID)
 }
 
 func TestIntegrationProfileChoiceBoundsAndInboxSavedStateReference(t *testing.T) {
@@ -573,7 +573,7 @@ func TestIntegrationProfileChoiceBoundsAndInboxSavedStateReference(t *testing.T)
 	for _, id := range []*uuid.UUID{nil, func() *uuid.UUID { id := uuid.New(); return &id }()} {
 		_, err := dbsqlc.New(f.pool).InsertIntegrationStateWork(f.ctx,
 			dbsqlc.InsertIntegrationStateWorkParams{
-				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: uuid.NewString(), SourceStateID: id,
+				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: uuid.NewString(), IntegrationStateID: id,
 			})
 		require.Error(t, err, "choice receipts require a real scoped saved-state reference")
 	}
@@ -709,7 +709,7 @@ func TestIntegrationProfileChoiceOwnerRecoveryAndReceiptRetention(t *testing.T) 
 	receipt := f.decidedReceipt(t, chosen.ID)
 	require.NotEqual(t, chosen.OwnerReceiptID, receipt.ID, "decided work never acquires publication ownership")
 	require.Nil(t, receipt.Payload)
-	require.Equal(t, files.Payload, f.readChoice(t, receipt.SourceStateID).Payload)
+	require.Equal(t, files.Payload, f.readChoice(t, receipt.IntegrationStateID).Payload)
 }
 
 func TestIntegrationProfileChoiceExpiresWhileWaitingForConversation(t *testing.T) {

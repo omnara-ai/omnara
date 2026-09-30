@@ -23,7 +23,7 @@ func TestStateWorkIsInterpretedByItsIntegration(t *testing.T) {
  VALUES($1,$2,$3,'counter','daily','{"count":1}')`, stateID, f.ids.ProjectID, f.integrationSetup.ID)
 			require.NoError(t, err)
 			_, err = f.pool.Exec(ctx, `INSERT INTO integration_inbox
- (project_id,integration_id,receipt_key,source,source_state_id)
+ (project_id,integration_id,receipt_key,source,integration_state_id)
  VALUES($1,$2,'counter:daily','state',$3)`, f.ids.ProjectID, f.integrationSetup.ID, stateID)
 			require.NoError(t, err)
 			receipt := f.claim()
@@ -33,7 +33,7 @@ func TestStateWorkIsInterpretedByItsIntegration(t *testing.T) {
 					integration integrationstore.IntegrationRecord, process IntegrationStateProcess,
 				) ([]IntegrationRecipientAdmission, error) {
 					calls++
-					require.Equal(t, stateID, got.SourceStateID)
+					require.Equal(t, stateID, got.IntegrationStateID)
 					require.Equal(t, f.integrationSetup.ID, integration.ID)
 					return process(nil, nil)
 				},

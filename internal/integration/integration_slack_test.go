@@ -301,7 +301,7 @@ func TestSlackFailurePreservesExplicitMessageForScheduledAndChoiceInputs(t *test
 				event, ok, err := NormalizeSlackIntegrationEvent(setup, receipt.Payload)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.SourceStateID = uuid.New()
+				receipt.IntegrationStateID = uuid.New()
 				access.choice = feedbackChoice(t, receipt, event)
 			}
 			const message = "This agent is unavailable. Contact its owner."

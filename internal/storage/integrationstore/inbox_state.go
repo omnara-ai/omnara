@@ -28,7 +28,7 @@ func enqueueIntegrationStateWork(ctx context.Context, q *dbsqlc.Queries, project
 		kind, ref = &reserve.Kind, &reserve.Ref
 	}
 	row, err := q.InsertIntegrationStateWork(ctx, dbsqlc.InsertIntegrationStateWorkParams{
-		ProjectID: projectID, IntegrationID: integrationID, ReceiptKey: receiptKey, SourceStateID: &stateID,
+		ProjectID: projectID, IntegrationID: integrationID, ReceiptKey: receiptKey, IntegrationStateID: &stateID,
 		ReservedScopeKind: kind, ReservedScopeRef: ref,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -36,7 +36,7 @@ func enqueueIntegrationStateWork(ctx context.Context, q *dbsqlc.Queries, project
 			ProjectID: projectID, IntegrationID: integrationID, ReceiptKey: receiptKey,
 		})
 		if err == nil && (row.Source != string(IntegrationInboxSourceState) ||
-			row.SourceStateID == nil || *row.SourceStateID != stateID ||
+			row.IntegrationStateID == nil || *row.IntegrationStateID != stateID ||
 			storeutil.TextOrEmpty(row.ReservedScopeKind) != storeutil.TextOrEmpty(kind) ||
 			storeutil.TextOrEmpty(row.ReservedScopeRef) != storeutil.TextOrEmpty(ref)) {
 			err = storeerr.ErrIdempotencyConflict

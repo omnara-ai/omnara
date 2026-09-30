@@ -48,23 +48,23 @@ type VerifiedIntegrationReceipt struct {
 }
 
 type IntegrationInboxRecord struct {
-	ID             uuid.UUID
-	ProjectID      uuid.UUID
-	IntegrationID  uuid.UUID
-	ReceiptKey     string
-	State          IntegrationInboxState
-	AttemptCount   int
-	NextAttemptAt  time.Time
-	ClaimExpiresAt *time.Time
-	LastError      string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
-	Source         IntegrationInboxSource
-	Payload        []byte
-	SourceStateID  uuid.UUID
-	Plan           json.RawMessage
-	ClaimToken     uuid.UUID
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	IntegrationID      uuid.UUID
+	ReceiptKey         string
+	State              IntegrationInboxState
+	AttemptCount       int
+	NextAttemptAt      time.Time
+	ClaimExpiresAt     *time.Time
+	LastError          string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	CompletedAt        *time.Time
+	Source             IntegrationInboxSource
+	Payload            []byte
+	IntegrationStateID uuid.UUID
+	Plan               json.RawMessage
+	ClaimToken         uuid.UUID
 }
 
 type IntegrationInboxLease struct {

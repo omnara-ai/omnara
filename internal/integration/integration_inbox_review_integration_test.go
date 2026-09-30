@@ -67,7 +67,7 @@ func TestIntegrationInboxObserverFollowupWaitsForLaunch(t *testing.T) {
 					f.choose(f.provider.menus[0], "heavy")
 					owner = f.claim()
 					if scenario.freezeChoice {
-						choice, err := inbox.GetIntegrationProfileChoice(ctx, owner.ProjectID, owner.IntegrationID, owner.SourceStateID)
+						choice, err := inbox.GetIntegrationProfileChoice(ctx, owner.ProjectID, owner.IntegrationID, owner.IntegrationStateID)
 						require.NoError(t, err)
 						event, err := selectedIntegrationEvent(choice)
 						require.NoError(t, err)

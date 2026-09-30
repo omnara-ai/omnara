@@ -18,7 +18,7 @@ WITH candidates AS (
       AND NOT EXISTS (
           SELECT 1 FROM integration_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-            AND inbox.source_state_id = choice.id AND inbox.source = 'state'
+            AND inbox.integration_state_id = choice.id AND inbox.source = 'state'
       )
     ORDER BY choice.expires_at, choice.id
     LIMIT $2
@@ -46,7 +46,7 @@ WITH candidates AS (
     (SELECT choice.id, 0 AS priority
      FROM integration_states choice
      JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-       AND inbox.source_state_id = choice.id AND inbox.source = 'state'
+       AND inbox.integration_state_id = choice.id AND inbox.source = 'state'
      WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.integration_id = $2
        AND choice.scope_kind = $3::text
        AND choice.scope_ref = $4::text AND COALESCE(choice.data->>'selected_key', '') <> ''

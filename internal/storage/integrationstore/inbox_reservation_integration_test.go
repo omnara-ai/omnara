@@ -14,8 +14,8 @@ func TestInboxStateSourceAndReservationConstraints(t *testing.T) {
 	f := newProfileChoiceFixture(t)
 	choice := f.menu(t)
 	for _, columns := range []string{
-		`source='provider',source_state_id=$2`,
-		`source='state',source_state_id=$2`,
+		`source='provider',integration_state_id=$2`,
+		`source='state',integration_state_id=$2`,
 		`reserved_scope_kind='thread'`,
 		`reserved_scope_ref='C123:1.2'`,
 	} {

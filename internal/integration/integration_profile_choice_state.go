@@ -11,7 +11,7 @@ import (
 func (l *ChatIntegrationLauncher) HandleState(ctx context.Context, receipt integrationstore.IntegrationInboxRecord,
 	integration integrationstore.IntegrationRecord, process IntegrationStateProcess,
 ) ([]IntegrationRecipientAdmission, error) {
-	choice, err := l.store.GetIntegrationProfileChoice(ctx, receipt.ProjectID, integration.ID, receipt.SourceStateID)
+	choice, err := l.store.GetIntegrationProfileChoice(ctx, receipt.ProjectID, integration.ID, receipt.IntegrationStateID)
 	if err != nil {
 		return nil, err
 	}

@@ -28,7 +28,7 @@ WITH deleted_integrations AS MATERIALIZED (
           AND NOT EXISTS (
               SELECT 1 FROM integration_inbox inbox
               WHERE inbox.project_id = state.project_id AND inbox.integration_id = state.integration_id
-                AND inbox.source_state_id = state.id
+                AND inbox.integration_state_id = state.id
           )
         ORDER BY state.kind, state.key
         LIMIT $1
