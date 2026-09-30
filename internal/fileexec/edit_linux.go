@@ -35,5 +35,5 @@ func RunEdit(args []string) error {
 		uintptr(unsafe.Pointer(&header)), uintptr(unsafe.Pointer(&data[0])), 0); err != 0 {
 		return fmt.Errorf("drop file-edit capabilities: %w", err)
 	}
-	return Run([]string{"0", "/usr/bin/sed", "--sandbox", "-E", "-e", args[0], "--", "-"})
+	return run([]string{"0", "/usr/bin/sed", "--sandbox", "-E", "-e", args[0], "--", "-"}, true)
 }

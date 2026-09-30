@@ -664,12 +664,15 @@ func validateMemoryStoresTx(
 	sort.Slice(config.Stores, func(i, j int) bool {
 		return bytes.Compare(config.Stores[i].ID[:], config.Stores[j].ID[:]) < 0
 	})
-	for _, store := range config.Stores {
+	for i, store := range config.Stores {
 		if store.Access != agentconfig.MemoryStoreAccessReadOnly && store.Access != agentconfig.MemoryStoreAccessReadWrite {
 			return storeerr.InvalidRequest(errors.New("invalid memory store access"))
 		}
 		if store.ID == uuid.Nil {
 			return storeerr.InvalidRequest(errors.New("invalid memory store id"))
+		}
+		if i > 0 && store.ID == config.Stores[i-1].ID {
+			return storeerr.InvalidRequest(errors.New("duplicate memory store id"))
 		}
 		_, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
 			ProjectID: projectID,

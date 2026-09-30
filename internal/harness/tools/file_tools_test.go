@@ -222,7 +222,7 @@ func TestDownloadFileArtifactProcessInput(t *testing.T) {
 		input.IOMode != processcmd.IOModePipe ||
 		input.Cwd != "" ||
 		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
-		input.TimeoutSeconds != 0 {
+		input.TimeoutSeconds != 120 {
 		t.Fatalf("download process input = %+v, want command %q", input, wantCommand)
 	}
 }
@@ -234,14 +234,20 @@ func TestMemoryTransferProcessInput(t *testing.T) {
 	}
 	localPath := "notes/a file.md"
 	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(localPath))
-	for _, direction := range []string{"upload", "download"} {
+	for _, tt := range []struct {
+		direction      string
+		timeoutSeconds int
+	}{
+		{direction: "upload", timeoutSeconds: 30},
+		{direction: "download", timeoutSeconds: 120},
+	} {
 		input := fileTransferProcessInput(
-			direction, toolCallID, localPath, "/memory/team/file.md",
+			tt.direction, toolCallID, localPath, "/memory/team/file.md",
 		)
-		want := `"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer ` + direction +
+		want := `"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer ` + tt.direction +
 			" " + toolCallID + " " + encodedPath
-		if input.Command != want || input.TimeoutSeconds != fileTransferProcessTimeoutSeconds {
-			t.Fatalf("%s process input = %+v, want command %q", direction, input, want)
+		if input.Command != want || input.TimeoutSeconds != tt.timeoutSeconds {
+			t.Fatalf("%s process input = %+v, want command %q", tt.direction, input, want)
 		}
 	}
 }

@@ -67,17 +67,20 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 	if content := asyncCompletionContent(t, result); !strings.Contains(string(content), "😀") {
 		t.Fatalf("character read result = %s", content)
 	}
-	call.Call = model.ToolCall{
-		Name:  toolcatalog.ToolNameSearchFiles,
-		Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
-	}
-	result, err = runSearchFilesAsync(ctx, call)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if content := asyncCompletionContent(t, result); !strings.Contains(string(content), "TARGET") {
-		t.Fatalf("search result = %s", content)
-	}
+	t.Run("search", func(t *testing.T) {
+		setupFileExec(t)
+		call.Call = model.ToolCall{
+			Name:  toolcatalog.ToolNameSearchFiles,
+			Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
+		}
+		result, err := runSearchFilesAsync(ctx, call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if content := asyncCompletionContent(t, result); !strings.Contains(string(content), "TARGET") {
+			t.Fatalf("search result = %s", content)
+		}
+	})
 	for _, contentType := range []string{
 		"application/sql", "application/x-ruby", "application/octet-stream", "image/png",
 	} {
@@ -171,25 +174,28 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 			!strings.Contains(err.Error(), "UTF-8 text without NUL bytes") {
 			t.Fatalf("non-text read: %v", err)
 		}
-		call.Call = model.ToolCall{
-			Name:  toolcatalog.ToolNameSearchFiles,
-			Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
-		}
-		result, err := runSearchFilesAsync(ctx, call)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var parts []struct {
-			Value searchResult `json:"value"`
-		}
-		if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
-			t.Fatal(err)
-		}
-		if len(parts) != 1 || parts[0].Value.MatchCount != 1 || len(parts[0].Value.Lines) != 1 ||
-			parts[0].Value.Lines[0].Path != path || parts[0].Value.Lines[0].Text != test.snippet ||
-			parts[0].Value.Truncated != test.binary {
-			t.Fatalf("incorrect native artifact search: %+v", parts)
-		}
+		t.Run(fmt.Sprintf("search binary=%t", test.binary), func(t *testing.T) {
+			setupFileExec(t)
+			call.Call = model.ToolCall{
+				Name:  toolcatalog.ToolNameSearchFiles,
+				Input: json.RawMessage(`{"path":"` + path + `","args":["-e","TARGET"]}`),
+			}
+			result, err := runSearchFilesAsync(ctx, call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parts []struct {
+				Value searchResult `json:"value"`
+			}
+			if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
+				t.Fatal(err)
+			}
+			if len(parts) != 1 || parts[0].Value.MatchCount != 1 || len(parts[0].Value.Lines) != 1 ||
+				parts[0].Value.Lines[0].Path != path || parts[0].Value.Lines[0].Text != test.snippet ||
+				parts[0].Value.Truncated != test.binary {
+				t.Fatalf("incorrect native artifact search: %+v", parts)
+			}
+		})
 	}
 }
 

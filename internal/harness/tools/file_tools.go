@@ -21,7 +21,10 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 )
 
-const fileTransferProcessTimeoutSeconds = 30
+const (
+	fileUploadProcessTimeoutSeconds   = 30
+	fileDownloadProcessTimeoutSeconds = 120
+)
 
 type uploadFileRequest struct {
 	ExpectedDigest *string         `json:"expected_digest,omitempty"`
@@ -233,8 +236,11 @@ func fileTransferAuthorizationInput(bindingID uuid.UUID, input json.RawMessage) 
 func fileTransferProcessInput(
 	direction, toolCallID, localPath, remotePath string,
 ) executionstore.CreateProcessInput {
+	timeoutSeconds := fileUploadProcessTimeoutSeconds
+	if direction == "download" {
+		timeoutSeconds = fileDownloadProcessTimeoutSeconds
+	}
 	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(localPath))
-	timeoutSeconds := fileTransferProcessTimeoutSeconds
 	var command string
 	switch {
 	case strings.HasPrefix(remotePath, memorystore.Root+"/"):
@@ -245,7 +251,6 @@ func fileTransferProcessInput(
 	case direction == "upload":
 		command = fmt.Sprintf(`"$OMNARA_HOME/bin/omnarad" __omnara_upload_artifact %s %s`, toolCallID, encodedPath)
 	default:
-		timeoutSeconds = 0
 		command = fmt.Sprintf(
 			`"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact %s %s %s`,
 			toolCallID, strings.TrimPrefix(remotePath, toolcatalog.ArtifactVFSRoot+"/"), encodedPath,

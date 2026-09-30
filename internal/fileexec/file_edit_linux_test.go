@@ -137,6 +137,19 @@ func TestFileEditConfinement(t *testing.T) {
 		if !strings.Contains(string(status), "NoNewPrivs:\t1\n") {
 			t.Fatalf("no_new_privs missing: %s", status)
 		}
+		limits, err := os.ReadFile(filepath.Join(proc, "limits"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(limits), "\n")
+		index := slices.IndexFunc(lines, func(line string) bool { return strings.HasPrefix(line, "Max data size") })
+		if index < 0 {
+			t.Fatalf("data limit missing: %s", limits)
+		}
+		limit := strconv.Itoa(scriptMemoryLimitBytes)
+		if fields := strings.Fields(lines[index]); len(fields) != 6 || fields[3] != limit || fields[4] != limit {
+			t.Fatalf("script memory limit changed: %s", lines[index])
+		}
 		root, err := os.Readlink(filepath.Join(proc, "root"))
 		if err != nil || root != editRoot {
 			t.Fatalf("root = %q, error = %v", root, err)

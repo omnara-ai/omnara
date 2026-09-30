@@ -29,3 +29,12 @@ func TestPathComponentByteLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestPathDepthLimit(t *testing.T) {
+	if err := ValidatePath(strings.Repeat("dir/", 4) + "note.md"); err != nil {
+		t.Fatalf("rejected path at depth limit: %v", err)
+	}
+	if err := ValidatePath(strings.Repeat("dir/", 5) + "note.md"); err == nil {
+		t.Fatal("accepted path beyond depth limit")
+	}
+}

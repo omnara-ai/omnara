@@ -11,12 +11,17 @@ import (
 
 const Root = "/memory"
 const MaxPathBytes = 1024
+const maxDirectoryDepth = 4
 
 func ValidatePath(value string) error {
 	if len(value) == 0 || len(value) > MaxPathBytes || !utf8.ValidString(value) {
 		return errors.New("memory path must contain 1–1024 UTF-8 bytes")
 	}
-	for _, part := range strings.Split(value, "/") {
+	parts := strings.Split(value, "/")
+	if len(parts) > maxDirectoryDepth+1 {
+		return errors.New("memory file must be within at most 4 nested directories in a store")
+	}
+	for _, part := range parts {
 		if len(part) > 255 || part == "" || part == "." || part == ".." {
 			return errors.New("memory path contains an invalid component")
 		}

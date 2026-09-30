@@ -187,9 +187,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 }
 
 func TestEditFileTextLimits(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("file scripts require Linux confinement")
-	}
+	setupFileExec(t)
 	if err := CheckFileToolSupport(t.Context()); err != nil {
 		t.Fatalf("file tool support: %v", err)
 	}
