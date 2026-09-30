@@ -128,6 +128,26 @@ const apiTokensRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ApiTokensPage'), 'ApiTokensPage'),
 })
 
+// Not under onboardedRoute: users with no organization must still be able to
+// reach their account, e.g. to delete it.
+const accountSettingsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/user/account',
+  component: lazyRouteComponent(
+    () => import('@/routes/AccountSettingsPage'),
+    'AccountSettingsPage',
+  ),
+})
+
+const organizationSettingsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/settings',
+  component: lazyRouteComponent(
+    () => import('@/routes/OrganizationSettingsPage'),
+    'OrganizationSettingsPage',
+  ),
+})
+
 const projectRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId',
@@ -286,6 +306,7 @@ const routeTree = rootRoute.addChildren([
     oauthAuthorizeRoute,
     onboardingRoute,
     invitationsRoute,
+    accountSettingsRoute,
     onboardedRoute.addChildren([
       overviewRoute,
       membersRoute,
@@ -295,6 +316,7 @@ const routeTree = rootRoute.addChildren([
       secretsRoute,
       skillsRoute,
       apiTokensRoute,
+      organizationSettingsRoute,
       projectRoute,
       projectAgentsRoute,
       projectGrantsRoute,

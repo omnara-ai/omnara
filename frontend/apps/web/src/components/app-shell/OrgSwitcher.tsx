@@ -3,7 +3,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { BrandMark } from '@/components/brand/OmnaraMark'
-import { Check, ChevronsUpDown, Mail, Plus } from '@/components/icons'
+import { Check, ChevronsUpDown, Mail, Plus, SettingsIcon } from '@/components/icons'
 import { CreateOrgDialog } from '@/components/org/CreateOrgDialog'
 import {
   DropdownMenu,
@@ -83,6 +83,17 @@ export function OrgSwitcher() {
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link
+                  to="/settings"
+                  onClick={() => {
+                    setOpenMobile(false)
+                  }}
+                >
+                  <SettingsIcon />
+                  Organization settings
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
                   setNewOrgOpen(true)
