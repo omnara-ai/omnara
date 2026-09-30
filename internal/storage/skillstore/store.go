@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -30,14 +31,15 @@ type Access interface {
 }
 
 type Store struct {
-	pool   *pgxpool.Pool
+	pool   *storeutil.Pool
 	q      *dbsqlc.Queries
 	blobs  blobstore.Store
 	access Access
 }
 
 func New(pool *pgxpool.Pool, blobs blobstore.Store, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), blobs: blobs, access: access}
+	db := storeutil.WrapPool(pool)
+	return &Store{pool: db, q: dbsqlc.New(db), blobs: blobs, access: access}
 }
 
 type SkillRecord struct {

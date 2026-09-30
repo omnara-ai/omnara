@@ -40,6 +40,7 @@ const (
 	provisioningFactDrift
 	provisioningFinalFailure
 	provisioningAdmissionFinalFailure
+	provisioningPermanentFailure
 )
 
 func TestPoolMachineManagerPersistsResolvedProviderFacts(t *testing.T) {
@@ -183,6 +184,10 @@ func TestPoolMachineManagerCleansUpResourceAfterFinalProvisionFailure(t *testing
 
 func TestPoolMachineManagerFinalizesCleanupAfterAdmissionExhaustion(t *testing.T) {
 	testPoolMachineManagerProvisioningScenario(t, provisioningAdmissionFinalFailure)
+}
+
+func TestPoolMachineManagerCleansUpImmediatelyAfterPermanentProviderError(t *testing.T) {
+	testPoolMachineManagerProvisioningScenario(t, provisioningPermanentFailure)
 }
 
 func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachineProvisioningScenario) {
@@ -560,6 +565,49 @@ func testPoolMachineManagerProvisioningScenario(t *testing.T, scenario poolMachi
 		}
 		if provider.inspectMachineID != uuid.Nil {
 			t.Fatalf("provider resource was inspected despite checkpointed identity: %s", provider.inspectMachineID)
+		}
+
+	case provisioningPermanentFailure:
+		permanentMachineID := insertPoolMachineForManagerTestWithFields(
+			t,
+			ctx,
+			pool,
+			machinePool,
+			"provisioning",
+			"",
+			intent,
+			machinePool.DefaultMachineEnv,
+			machinePool.DefaultMachineSecretEnv,
+			now,
+		)
+		if _, err := pool.Exec(
+			ctx,
+			`INSERT INTO project_machine_grants(org_id, project_id, machine_id, source_kind, project_machine_pool_grant_id, description, metadata, created_at, updated_at) VALUES ($1, $2, $3, 'pool', $4, 'permanent failure machine', '{}'::jsonb, $5, $5)`,
+			orgID,
+			projectID,
+			permanentMachineID,
+			poolGrant.ID,
+			now,
+		); err != nil {
+			t.Fatalf("insert permanent failure project machine grant: %v", err)
+		}
+		permanentErr := fmt.Errorf("snapshot exceeds configured size: %w", providers.ErrPermanent)
+		provider.provisionResourceID = "resource-with-permanent-error"
+		provider.provisionErr = permanentErr
+		provider.deletedResourceIDs = nil
+		if err := manager.ProvisionMachine(ctx, orgID, permanentMachineID); !errors.Is(err, providers.ErrPermanent) {
+			t.Fatalf("permanent provider failure = %v, want permanent error", err)
+		}
+		permanentMachine, err := store.Execution().GetMachine(ctx, orgID, permanentMachineID)
+		if err != nil {
+			t.Fatalf("get permanent failure machine: %v", err)
+		}
+		if permanentMachine.LifecycleState != "deleted" || permanentMachine.ProvisionAttempts != 1 {
+			t.Fatalf("permanent failure machine was not cleaned up on its first attempt: %+v", permanentMachine)
+		}
+		if len(provider.deletedResourceIDs) != 1 ||
+			provider.deletedResourceIDs[0] != "resource-with-permanent-error" {
+			t.Fatalf("deleted resources = %v, want provider-returned resource", provider.deletedResourceIDs)
 		}
 
 	case provisioningAdmissionFinalFailure:

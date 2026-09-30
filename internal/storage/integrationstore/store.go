@@ -17,15 +17,16 @@ type Access interface {
 }
 
 type Store struct {
-	pool   *pgxpool.Pool
+	pool   *storeutil.Pool
 	q      *dbsqlc.Queries
 	access Access
 }
 
 func New(pool *pgxpool.Pool, access Access) *Store {
+	db := storeutil.WrapPool(pool)
 	return &Store{
-		pool:   pool,
-		q:      dbsqlc.New(pool),
+		pool:   db,
+		q:      dbsqlc.New(db),
 		access: access,
 	}
 }

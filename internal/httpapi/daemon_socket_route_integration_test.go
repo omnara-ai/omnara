@@ -6,10 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,8 +20,10 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -1603,5 +1608,342 @@ func readSocketMessageOfType(
 			continue
 		}
 		t.Fatalf("unexpected %s while waiting for %s: %+v", msg.Type, wantType, msg)
+	}
+}
+
+type socketDrainQueryTracer struct {
+	pgx.QueryTracer
+	calls                               int
+	initial, started, canceled, release chan struct{}
+}
+
+func (tracer *socketDrainQueryTracer) TraceQueryStart(
+	ctx context.Context,
+	conn *pgx.Conn,
+	data pgx.TraceQueryStartData,
+) context.Context {
+	ctx = tracer.QueryTracer.TraceQueryStart(ctx, conn, data)
+	if strings.HasPrefix(data.SQL, "-- name: ListDaemonProcessOffers :many") {
+		tracer.calls++
+		switch tracer.calls {
+		case 1:
+			close(tracer.initial)
+		case 2:
+			close(tracer.started)
+			<-ctx.Done()
+			close(tracer.canceled)
+			<-tracer.release
+		}
+	}
+	return ctx
+}
+
+type socketCloseBarrierListener struct {
+	net.Listener
+	started, release chan struct{}
+}
+
+func (l socketCloseBarrierListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &socketCloseBarrierConn{Conn: conn, started: l.started, release: l.release}, nil
+}
+
+type socketCloseBarrierConn struct {
+	net.Conn
+	started, release chan struct{}
+	once             sync.Once
+}
+
+func (c *socketCloseBarrierConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { close(c.started) })
+	<-c.release
+	return err
+}
+
+type socketWriteErrorListener struct {
+	net.Listener
+	err              error
+	armed            atomic.Bool
+	blockRead        bool
+	started, release chan struct{}
+	once             sync.Once
+}
+
+func (l *socketWriteErrorListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &socketWriteErrorConn{Conn: conn, listener: l}, nil
+}
+
+type socketWriteErrorConn struct {
+	net.Conn
+	listener *socketWriteErrorListener
+}
+
+func (c *socketWriteErrorConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 && c.listener.armed.Load() && c.listener.blockRead {
+		c.listener.once.Do(func() { close(c.listener.started) })
+		<-c.listener.release
+	}
+	return n, err
+}
+
+func (c *socketWriteErrorConn) Write(p []byte) (int, error) {
+	if c.listener.armed.Load() {
+		return 0, &net.OpError{Op: "write", Net: "tcp", Err: c.listener.err}
+	}
+	return c.Conn.Write(p)
+}
+
+type socketBlockingReplyPublisher struct {
+	started chan context.Context
+	release chan struct{}
+}
+
+func (p socketBlockingReplyPublisher) PublishChannel(ctx context.Context, _ string, _ []byte) error {
+	select {
+	case p.started <- ctx:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+	case <-p.release:
+	}
+	return ctx.Err()
+}
+
+func TestDaemonSocketWaitsForRedisDrainBeforeLogging(t *testing.T) {
+	for _, tt := range []struct {
+		name, source  string
+		localClose    websocket.StatusCode
+		peerClose     websocket.StatusCode
+		writeErr      error
+		queuedMessage bool
+		keepOpen      bool
+		keepSending   bool
+	}{
+		{name: "transport failure", source: "socket_failure"},
+		{name: "normal local close during message", localClose: websocket.StatusNormalClosure, source: "socket_closed"},
+		{name: "local policy failure during message", localClose: websocket.StatusPolicyViolation, source: "socket_failure"},
+		{name: "normal peer close", peerClose: websocket.StatusNormalClosure, source: "socket_closed"},
+		{name: "peer going away", peerClose: websocket.StatusGoingAway, source: "socket_closed"},
+		{name: "peer policy failure", peerClose: websocket.StatusPolicyViolation, source: "socket_failure"},
+		{
+			name: "broken pipe before peer close", source: "socket_closed",
+			peerClose: websocket.StatusNormalClosure, writeErr: syscall.EPIPE,
+		},
+		{
+			name: "reset before peer close", source: "socket_closed",
+			peerClose: websocket.StatusNormalClosure, writeErr: syscall.ECONNRESET,
+		},
+		{
+			name: "peer close behind queued message", source: "socket_closed",
+			peerClose: websocket.StatusNormalClosure, writeErr: syscall.EPIPE, queuedMessage: true,
+		},
+		{
+			name: "transport failure behind queued message", source: "socket_failure",
+			writeErr: syscall.EPIPE, queuedMessage: true,
+		},
+		{
+			name: "broken pipe with silent peer", source: "socket_failure",
+			writeErr: syscall.EPIPE, keepOpen: true,
+		},
+		{
+			name: "reset with silent peer", source: "socket_failure",
+			writeErr: syscall.ECONNRESET, keepOpen: true,
+		},
+		{
+			name: "broken pipe with incoming messages", source: "socket_failure",
+			writeErr: syscall.EPIPE, keepOpen: true, keepSending: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tracer := &socketDrainQueryTracer{
+				QueryTracer: metrics.NewDBRecorder(metrics.New(), metrics.SubsystemDB),
+				initial:     make(chan struct{}), started: make(chan struct{}),
+				canceled: make(chan struct{}), release: make(chan struct{}),
+			}
+			pool := poolWithQueryTracer(t, t.Context(), openIntegrationDB(t, t.Context()), tracer)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			publisher := socketBlockingReplyPublisher{started: make(chan context.Context, 1), release: make(chan struct{})}
+			hub := &daemonSocketHub{
+				presence:  newDaemonSocketRouteTestPresence(),
+				byMachine: map[uuid.UUID]*daemonSocket{}, byRuntime: map[uuid.UUID]*daemonSocket{},
+				fallbackDrainInterval: time.Hour,
+				replyPublisher:        publisher,
+				pendingSkillReports:   map[skillReportKey]skillReportPending{},
+			}
+			backend := &Server{store: storage.NewStore(pool), daemonHub: hub}
+			buf, logger := newRequestEventCapture()
+			ready := make(chan *daemonSocket, 1)
+			finished := make(chan struct{})
+			handler := requestLog(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := websocket.Accept(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer func() { _ = conn.CloseNow() }()
+				socket := newDaemonSocket(backend, daemonprotocol.NewBackendSocket(conn, ""),
+					uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), false)
+				if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
+					socket.send = make(chan daemonSocketOutbound)
+				}
+				ready <- socket
+				socket.run(r.Context())
+			}))
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(finished)
+				handler.ServeHTTP(w, r)
+			}))
+			closeStarted, closeRelease := make(chan struct{}), make(chan struct{})
+			var writeErrors *socketWriteErrorListener
+			if tt.writeErr != nil {
+				writeErrors = &socketWriteErrorListener{
+					Listener: server.Listener, err: tt.writeErr, blockRead: !tt.queuedMessage && !tt.keepOpen,
+					started: closeStarted, release: closeRelease,
+				}
+				server.Listener = writeErrors
+			} else if tt.peerClose != 0 || tt.localClose != 0 {
+				server.Listener = socketCloseBarrierListener{server.Listener, closeStarted, closeRelease}
+			}
+			server.Start()
+			t.Cleanup(server.Close)
+			releasePublisher := sync.OnceFunc(func() { close(publisher.release) })
+			t.Cleanup(releasePublisher)
+			releaseClose := sync.OnceFunc(func() { close(closeRelease) })
+			t.Cleanup(releaseClose)
+			release := sync.OnceFunc(func() { close(tracer.release) })
+			t.Cleanup(release)
+			conn, response, err := websocket.Dial(ctx, server.URL, nil)
+			if response != nil && response.Body != nil {
+				t.Cleanup(func() { _ = response.Body.Close() })
+			}
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.CloseNow() })
+			wait := func(done <-chan struct{}) {
+				t.Helper()
+				select {
+				case <-done:
+				case <-ctx.Done():
+					t.Fatal("socket operation did not finish: ", ctx.Err())
+				}
+			}
+			wait(tracer.initial)
+			socket := <-ready
+			socket.workMu.Lock()
+			initialDrain := socket.drainDone
+			socket.workMu.Unlock()
+			wait(initialDrain)
+			hub.handleWakeup(context.Background(), notifications.WakeupMessage{
+				Type: notifications.WakeupTypeDaemonWork, MachineID: socket.machineID,
+			})
+			wait(tracer.started)
+			var messageCtx context.Context
+			if tt.localClose != 0 || tt.queuedMessage || tt.keepSending {
+				hub.recordPendingSkillReply(socket.machineID, "test", "reply")
+				require.NoError(t, wsjson.Write(ctx, conn, daemonprotocol.Message{
+					Type:        daemonprotocol.MessageSkillReport,
+					SkillReport: &daemonprotocol.SkillReport{RequestID: "test"},
+				}))
+				select {
+				case messageCtx = <-publisher.started:
+				case <-ctx.Done():
+					t.Fatal("socket reader did not start handling message")
+				}
+				if tt.queuedMessage {
+					require.NoError(t, wsjson.Write(ctx, conn, daemonprotocol.Message{
+						Type:        daemonprotocol.MessageSkillReport,
+						SkillReport: &daemonprotocol.SkillReport{RequestID: "queued"},
+					}))
+				}
+			}
+			if writeErrors != nil {
+				writeErrors.armed.Store(true)
+			}
+			if tt.localClose != 0 {
+				go func() { _, _, _ = conn.Read(ctx) }()
+				go socket.close(tt.localClose, "test close")
+			} else if tt.peerClose != 0 {
+				go func() { _ = conn.Close(tt.peerClose, "test close") }()
+			} else if !tt.keepOpen {
+				require.NoError(t, conn.CloseNow())
+			}
+			if tt.peerClose != 0 || tt.localClose != 0 || tt.writeErr != nil {
+				if !tt.queuedMessage && !tt.keepOpen {
+					wait(closeStarted)
+				}
+				var handlerCanceled <-chan struct{}
+				if messageCtx != nil {
+					handlerCanceled = messageCtx.Done()
+				}
+				select {
+				case socket.send <- daemonSocketOutbound{msg: daemonprotocol.Message{Type: daemonprotocol.MessageHeartbeatAck}}:
+				case <-handlerCanceled:
+				case <-ctx.Done():
+					t.Fatal("socket writer did not receive message")
+				}
+				if (tt.peerClose != 0 && !tt.queuedMessage) || tt.keepOpen {
+					select {
+					case <-tracer.canceled:
+						t.Fatal("writer canceled drain before reader reported the close reason")
+					case <-time.After(100 * time.Millisecond):
+					}
+				}
+				releaseClose()
+			}
+			trafficDone := make(chan struct{})
+			if tt.keepSending {
+				releasePublisher()
+				go func() {
+					defer close(trafficDone)
+					ticker := time.NewTicker(20 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						hub.recordPendingSkillReply(socket.machineID, "after_write_failure", "reply")
+						if err := wsjson.Write(ctx, conn, daemonprotocol.Message{
+							Type:        daemonprotocol.MessageSkillReport,
+							SkillReport: &daemonprotocol.SkillReport{RequestID: "after_write_failure"},
+						}); err != nil {
+							return
+						}
+						select {
+						case <-ticker.C:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}()
+			} else {
+				close(trafficDone)
+			}
+			if messageCtx != nil {
+				wait(messageCtx.Done())
+				require.EqualError(t, context.Cause(messageCtx), tt.source)
+			}
+			wait(tracer.canceled)
+			select {
+			case <-finished:
+				t.Fatal("request finished before drain query completion")
+			case <-time.After(100 * time.Millisecond):
+			}
+			release()
+			wait(finished)
+			wait(trafficDone)
+			require.Empty(t, publisher.started, "message handler started after writer stopped")
+			event := decodeRequestEvent(t, buf)
+			require.Equal(t, "ListDaemonProcessOffers", event["db.queries.2.name"])
+			require.Equal(t, "context_canceled", event["db.queries.2.error_kind"])
+			require.Equal(t, tt.source, event["db.queries.2.cancel_source"])
+			require.Equal(t, float64(1), event["db.queries.error_count"])
+		})
 	}
 }

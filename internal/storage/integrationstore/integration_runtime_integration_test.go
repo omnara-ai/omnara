@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -725,7 +726,9 @@ func TestIntegrationRuntimeFencesOwnershipAndCommitsReceiptWithCheckpoint(t *tes
 			}
 			require.Error(t, err)
 			if scenario == "rollback" {
-				require.ErrorContains(t, err, "injected checkpoint failure")
+				var pgErr *pgconn.PgError
+				require.ErrorAs(t, err, &pgErr)
+				require.Equal(t, "injected checkpoint failure", pgErr.Message)
 			}
 			var count int
 			require.NoError(

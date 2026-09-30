@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"hash/fnv"
+	"net"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -30,6 +33,8 @@ type daemonSocket struct {
 	workMu            sync.Mutex
 	drainQueued       bool
 	drainRunning      bool
+	drainDone         chan struct{}
+	drain             func()
 	acceptedProcesses map[uuid.UUID]struct{}
 	acceptedActions   map[uuid.UUID]struct{}
 	leaseRenewAfter   time.Time
@@ -37,6 +42,7 @@ type daemonSocket struct {
 	drainAfterRenewal bool
 	done              chan struct{}
 	closeOnce         sync.Once
+	closeCode         websocket.StatusCode
 }
 
 type daemonSocketOutbound struct {
@@ -102,29 +108,26 @@ func (s *daemonSocket) authority() executionstore.DaemonRuntimeAuthority {
 	}
 }
 
-func (s *daemonSocket) enqueueDrain(ctx context.Context) bool {
+func (s *daemonSocket) enqueueDrain() bool {
+	s.workMu.Lock()
+	defer s.workMu.Unlock()
 	select {
 	case <-s.done:
 		return false
 	default:
 	}
-	s.workMu.Lock()
-	if s.drainRunning {
-		if s.drainQueued {
-			s.workMu.Unlock()
-			return false
-		}
-		s.drainQueued = true
-		s.workMu.Unlock()
-		return true
-	}
 	if s.drainQueued {
-		s.workMu.Unlock()
 		return false
 	}
 	s.drainQueued = true
-	s.workMu.Unlock()
-	go s.drainLoop(ctx)
+	if !s.drainRunning {
+		done := make(chan struct{})
+		s.drainDone = done
+		go func() {
+			s.drain()
+			close(done)
+		}()
+	}
 	return true
 }
 
@@ -152,6 +155,7 @@ func (s *daemonSocket) enqueueThenClose(
 
 func (s *daemonSocket) close(code websocket.StatusCode, reason string) {
 	s.closeOnce.Do(func() {
+		s.closeCode = code
 		close(s.done)
 		if s.wire != nil {
 			_ = s.wire.Close(code, reason)
@@ -160,8 +164,10 @@ func (s *daemonSocket) close(code websocket.StatusCode, reason string) {
 }
 
 func (s *daemonSocket) run(ctx context.Context) {
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	runCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	s.drain = func() { s.drainLoop(runCtx) }
+	s.server.daemonHub.register(s)
 	defer func() {
 		s.server.daemonHub.unregister(s)
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -171,12 +177,22 @@ func (s *daemonSocket) run(ctx context.Context) {
 		_ = s.server.daemonHub.presence.DeleteRuntimeIfOwned(cleanupCtx, s.runtimeID, owner)
 	}()
 	writerDone := make(chan struct{})
+	writeStopped := make(chan struct{})
 	go func() {
 		defer close(writerDone)
-		defer cancel()
-		s.writeLoop(runCtx)
+		err := s.writeLoop(runCtx)
+		close(writeStopped)
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-s.done:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		cancel(s.cancellationCause(err))
 	}()
-	s.enqueueDrain(runCtx)
+	s.enqueueDrain()
 	fallbackDrainTimer := time.NewTimer(s.server.daemonHub.fallbackDrainDelay(s.connectionID))
 	defer fallbackDrainTimer.Stop()
 	go func() {
@@ -185,17 +201,22 @@ func (s *daemonSocket) run(ctx context.Context) {
 			case <-runCtx.Done():
 				return
 			case <-fallbackDrainTimer.C:
-				if s.enqueueDrain(runCtx) {
+				if s.enqueueDrain() {
 					s.recordSocketEvent("work_drain", "queued", "fallback_timer")
 				}
 				fallbackDrainTimer.Reset(s.server.daemonHub.fallbackDrainDelay(s.connectionID))
 			}
 		}
 	}()
-	s.readLoop(runCtx)
-	cancel()
+	s.readLoop(runCtx, cancel, writeStopped)
 	s.close(websocket.StatusNormalClosure, "closing")
+	s.workMu.Lock()
+	drainDone := s.drainDone
+	s.workMu.Unlock()
 	<-writerDone
+	if drainDone != nil {
+		<-drainDone
+	}
 }
 
 func stableJitterDuration(value string, maxDuration time.Duration) time.Duration {
@@ -211,42 +232,66 @@ func stableHashUint64(value string) uint64 {
 	return h.Sum64()
 }
 
-func (s *daemonSocket) writeLoop(ctx context.Context) {
+func (s *daemonSocket) writeLoop(ctx context.Context) error {
 	pingTicker := time.NewTicker(20 * time.Second)
 	defer pingTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case <-pingTicker.C:
 			pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			err := s.wire.Ping(pingCtx)
 			cancel()
 			if err != nil {
-				return
+				return err
 			}
 		case outbound := <-s.send:
 			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			err := s.wire.Write(writeCtx, outbound.msg)
 			cancel()
 			if err != nil {
-				return
+				return err
 			}
 			if outbound.closeCode != 0 {
 				s.close(outbound.closeCode, outbound.closeReason)
-				return
+				return nil
 			}
 		}
 	}
 }
 
-func (s *daemonSocket) readLoop(ctx context.Context) {
-	for {
-		readCtx, cancel := context.WithTimeout(ctx, 70*time.Second)
-		msg, err := s.wire.Read(readCtx)
-		cancel()
-		if err != nil {
-			return
+func (s *daemonSocket) readLoop(ctx context.Context, cancel context.CancelCauseFunc, writeStopped <-chan struct{}) {
+	messages := make(chan daemonprotocol.Message)
+	go func() {
+		defer close(messages)
+		for {
+			readCtx, readCancel := context.WithTimeout(ctx, 70*time.Second)
+			msg, err := s.wire.Read(readCtx)
+			readCancel()
+			if err != nil {
+				cancel(s.cancellationCause(err))
+				return
+			}
+			select {
+			case messages <- msg:
+			case <-writeStopped:
+			case <-s.done:
+				cancel(s.cancellationCause(nil))
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	for msg := range messages {
+		select {
+		case <-writeStopped:
+			continue
+		default:
+		}
+		if ctx.Err() != nil {
+			continue
 		}
 		if err := s.handleMessage(ctx, msg); err != nil {
 			s.enqueueOrClose(errorResponseForMessage(msg, err))
@@ -402,7 +447,7 @@ func (s *daemonSocket) handleHeartbeat(ctx context.Context, msg daemonprotocol.M
 	}
 	if renewedLease && s.drainAfterRenewal {
 		s.drainAfterRenewal = false
-		s.enqueueDrain(ctx)
+		s.enqueueDrain()
 	}
 	s.enqueueOrClose(
 		daemonprotocol.Message{
@@ -547,4 +592,24 @@ func (s *daemonSocket) enqueueOrClose(msg daemonprotocol.Message) bool {
 	s.recordSocketEvent("send_queue", "dropped", "queue_full")
 	s.close(websocket.StatusPolicyViolation, "daemon socket send queue full")
 	return false
+}
+
+func (s *daemonSocket) cancellationCause(err error) error {
+	select {
+	case <-s.done:
+		err = websocket.CloseError{Code: s.closeCode}
+	default:
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	status := websocket.CloseStatus(err)
+	if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
+		return logpkg.ErrSocketClosed
+	}
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		return logpkg.ErrSocketTimeout
+	}
+	return logpkg.ErrSocketFailure
 }

@@ -187,7 +187,7 @@ func (c *httpClient) Initialize(
 
 	var result sdkmcp.InitializeResult
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
-		return "", InitializeResult{}, fmt.Errorf("mcp: decode initialize result: %w", err)
+		return "", InitializeResult{}, fmt.Errorf("%w: decode initialize result: %w", ErrMalformedResponse, err)
 	}
 	serverCapabilities, err := marshalObject(result.Capabilities)
 	if err != nil {
@@ -227,7 +227,7 @@ func (c *httpClient) Discover(ctx context.Context, conn Conn, protocolVersion st
 		Meta              json.RawMessage `json:"_meta"`
 	}
 	if err := json.Unmarshal(resultJSON, &result); err != nil {
-		return DiscoverResult{}, fmt.Errorf("mcp: decode server/discover result: %w", err)
+		return DiscoverResult{}, fmt.Errorf("%w: decode server/discover result: %w", ErrMalformedResponse, err)
 	}
 	negotiated, ok := NegotiateStatelessProtocolVersion(result.SupportedVersions)
 	if !ok {
@@ -330,7 +330,7 @@ func (c *httpClient) ListTools(
 	}
 	var page ToolsPage
 	if err := json.Unmarshal(result, &page); err != nil {
-		return ToolsPage{}, fmt.Errorf("mcp: decode tools/list: %w", err)
+		return ToolsPage{}, fmt.Errorf("%w: decode tools/list: %w", ErrMalformedResponse, err)
 	}
 	return page, nil
 }
@@ -368,7 +368,7 @@ func (c *httpClient) CallTool(
 	}
 	var out sdkmcp.CallToolResult
 	if err := json.Unmarshal(result, &out); err != nil {
-		return nil, fmt.Errorf("mcp: decode tools/call: %w", err)
+		return nil, fmt.Errorf("%w: decode tools/call: %w", ErrMalformedResponse, err)
 	}
 	return &out, nil
 }

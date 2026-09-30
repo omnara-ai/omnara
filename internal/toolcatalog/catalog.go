@@ -58,9 +58,10 @@ const (
 	webFetchToolDescription = "Fetch a public http(s) URL and return its readable content as markdown (read-only). " +
 		"localhost and private or internal addresses are not reachable from this tool - use run_command " +
 		"(e.g. curl) on the machine where the service runs instead."
-	readFileToolDescription = "Read a text file in Omnara's virtual filesystem. " +
+	readFileToolDescription = "Read a text or image file in Omnara's virtual filesystem. " +
 		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
-		"Reads lines by default; supply offset_char or limit_chars to read by character. " +
+		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
+		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +
 		"Currently searches one /artifacts/<artifact_id> path per call; no machine is required. " +

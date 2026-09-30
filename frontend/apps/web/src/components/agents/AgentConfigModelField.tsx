@@ -1,4 +1,4 @@
-import { useClusterModelPricing, useProjectModelGrants } from '@omnara/react'
+import { exactNameGlob, useClusterModelPricing, useProjectModelGrants } from '@omnara/react'
 import type { ConfiguredModelSummary, DiscoveredModelPricing } from '@omnara/sdk'
 import { useEffect, useRef, useState } from 'react'
 
@@ -12,7 +12,7 @@ import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
-import { exactNameGlob, useTypeaheadSearch } from '@/hooks/use-resource-list'
+import { useTypeaheadSearch } from '@/hooks/use-resource-list'
 import { useProjectPage } from '@/lib/use-project-page'
 
 interface ModelChoice extends ConfiguredModelSummary {

@@ -3,6 +3,7 @@ package openaichatcompletions
 import (
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -11,6 +12,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 )
+
+const claudeImageBase64Limit = 5_000_000
 
 func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.RenderedMedia {
 	var rendered []modelcontext.RenderedMedia
@@ -22,6 +25,7 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 			openRouterFallbackModelSlugs(p.client.APIVariantOptions)...,
 		)
 	}
+	servesClaude := slices.ContainsFunc(modelCandidates, isClaudeModelSlug)
 	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
 		if occurrence.MessageRole != modelprotocol.RoleUser && !occurrence.IsToolResult() {
 			continue
@@ -35,6 +39,10 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		routeParsed := compat.parsesPDFDocuments && item.MediaType == "application/pdf"
 		switch item.Kind {
 		case modelcontext.AttachmentKindImage:
+			if servesClaude && !occurrence.Opening &&
+				base64.StdEncoding.EncodedLen(int(item.SizeBytes)) > claudeImageBase64Limit {
+				continue
+			}
 			tokenEstimate = model.OpenAIImageTokenEstimateForModels(modelCandidates, item)
 		case modelcontext.AttachmentKindDocument:
 			if !occurrence.Opening && item.MediaType == "application/pdf" && !routeParsed &&
@@ -59,6 +67,10 @@ func (p protocol) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontex
 		})
 	}
 	return rendered
+}
+
+func isClaudeModelSlug(slug string) bool {
+	return strings.Contains(strings.ToLower(slug), "claude")
 }
 
 func openRouterFallbackModelSlugs(options json.RawMessage) []string {

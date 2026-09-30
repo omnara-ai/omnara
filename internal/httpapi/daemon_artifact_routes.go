@@ -13,6 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -71,14 +72,10 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 	if len(content) == 0 {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "artifact content is required")
 	}
-	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
-	if contentType == "" {
-		contentType = http.DetectContentType(content)
-	}
 	artifact, err := s.server.store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
 		ProjectID:      uploadScope.ProjectID,
 		AgentID:        uploadScope.AgentID,
-		ContentType:    contentType,
+		ContentType:    uploadedArtifactContentType(filename, content),
 		Filename:       filename,
 		Content:        content,
 		MaxBytes:       daemonprotocol.MaxArtifactUploadBytes,
@@ -94,6 +91,17 @@ func (s strictOpenAPIServer) UploadDaemonArtifact(
 	return openapi.UploadDaemonArtifact201JSONResponse{
 		ArtifactId: artifactID,
 	}, nil
+}
+
+func uploadedArtifactContentType(filename string, content []byte) string {
+	detected := http.DetectContentType(content)
+	if kind, _ := modelcontext.AttachmentKindForMediaType(detected); kind == modelcontext.AttachmentKindImage {
+		return detected
+	}
+	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))); contentType != "" {
+		return contentType
+	}
+	return detected
 }
 
 func (s strictOpenAPIServer) DownloadDaemonArtifact(

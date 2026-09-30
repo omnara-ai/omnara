@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
@@ -172,7 +173,9 @@ EXECUTE FUNCTION fail_scheduled_plan()`)
 			err := worker.consume(t.Context(), receipt)
 			require.ErrorIs(t, err, ErrScheduledActionFailed)
 			if !test.deleteProfile && !test.unknown {
-				require.ErrorContains(t, err, "injected scheduled plan failure")
+				var pgErr *pgconn.PgError
+				require.ErrorAs(t, err, &pgErr)
+				require.Equal(t, "injected scheduled plan failure", pgErr.Message)
 			}
 			saved, err := f.store.Integrations().GetIntegrationInbox(t.Context(), f.ids.ProjectID, receipt.ID)
 			require.NoError(t, err)

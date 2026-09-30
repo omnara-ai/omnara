@@ -38,29 +38,63 @@ description: Use when writing release notes for Acme.
 Follow the Acme release-note format in templates/example.md.
 ```
 
-The `name` must match the top-level directory. Write the description as a trigger—“Use when…”—because it helps the model decide when to load the skill.
+Write the description as a trigger—“Use when…”—because it helps the model decide when to load the skill.
+
+| Rule | Limit |
+|---|---|
+| `name` | Required. Lowercase letters and digits in hyphen-separated segments (`release-notes`), up to 64 characters. Must match the archive's top-level directory. |
+| `description` | Required, up to 1,024 characters. |
+| `SKILL.md` | Must sit directly inside the top-level directory, up to 256 KB. |
+| Archive | Up to 25 MB and 1,000 entries. Symlinks are rejected; macOS metadata (`__MACOSX/`, `.DS_Store`, `._*`) is ignored. |
 
 <Tabs>
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
 
-  `POST /skills` takes multipart form data: an `owner` and the `archive` itself. The CLI's `--archive` takes a `.zip` or `.tar.gz` file, or a skill directory that it packs for you:
+  `POST /skills` takes multipart form data: an `owner` and the `archive` itself. When calling the API directly, send `owner` as a JSON part (`Content-Type: application/json`); the SDK and CLI do this for you. The CLI's `--archive` takes a `.zip` or `.tar.gz` file, or a skill directory that it packs for you:
 
   <SkillsCreate />
 
   For a project- or user-owned skill, set the owner accordingly: `--owner-kind project --owner-project-id proj_…` or `--owner-kind user` with the CLI, or `{"kind": "project", "project_id": "proj_…"}` / `{"kind": "user"}` as the `owner`.
 </Tab>
 <Tab title="Dashboard">
-  1. Open **Organization Skills**, **User Skills**, or a project's **Project Skills** page. The page determines who owns the skill.
-  2. Click **Upload skill** and select the archive.
+  1. Open **Skills** and pick the **User** or **Organization** tab, or open a project's **Project Skills** page. The page determines who owns the skill.
+  2. Click **Create skill**.
+  3. Drop files or a folder onto the dialog, or use **Choose files** / **Choose a folder**. You can also switch to the **SKILL.md** tab and write the skill in the editor.
 
-  Omnara reads the name and description from `SKILL.md`. Uploading the same skill name to the same owner creates a new revision.
+  The dashboard accepts a `.zip`, a `.tar.gz`, a loose `SKILL.md`, or a folder, and zips folders in the browser before uploading. A folder or archive holds one skill when `SKILL.md` sits at its top, or several skills when each subfolder has its own `SKILL.md`; deeper `SKILL.md` files are not picked up. Folders skip `node_modules` and dot-directories such as `.git`; archives upload every file. The dashboard names each skill's top-level directory after its frontmatter `name`, so the folder name does not have to match.
+
+  Frontmatter problems are flagged before anything uploads. When you upload several skills, reuse an existing name, or include two skills with the same name, a review step lists each skill as new, a new revision (for example `v2 → v3`), or skipped, and uploads only after you confirm. Skills upload one at a time; if some fail, **Retry** re-sends only those.
 </Tab>
 </Tabs>
 
 The owner (`org`, `project`, or `user`) decides who manages the skill and cannot change. A project can attach only skills it owns or has been granted—even skills owned by its organization.
 
 Uploading again with the same owner and name creates the next revision: the `skl_` ID stays the same and the `skr_` revision ID changes. Attached agents resolve the latest revision at each model call, so they do not need to be relaunched.
+
+## Update a skill
+
+Each update creates the next revision; the skill's name cannot change.
+
+<Tabs>
+<Tab title="API">
+  `POST /skills/{skillID}` takes multipart form data with exactly one of:
+
+  - `skill_md` — replacement `SKILL.md` text. Every other file in the current revision is kept.
+  - `archive` — a new `.zip` or `.tar.gz` that replaces all of the skill's files.
+
+  ```bash
+  curl "$OMNARA_API/orgs/$ORG/skills/skl_ik7mv4qtrwz3jehcyd5n6a2bfg" \
+    -H "Authorization: Bearer $OMNARA_TOKEN" \
+    -F "skill_md=<release-notes/SKILL.md"
+  ```
+
+  The CLI has no update command. Running `omnara skills create` again with the same owner and skill name uploads the next revision.
+</Tab>
+<Tab title="Dashboard">
+  Open the skill's row menu and click **Edit**. The **SKILL.md** tab edits the instructions in place and keeps the other files; **Upload archive** replaces every file. Frontmatter errors are marked in the editor, and **Save** stays disabled until they are fixed.
+</Tab>
+</Tabs>
 
 ## List, inspect, delete
 
@@ -98,8 +132,10 @@ skills:
   - skl_ik7mv4qtrwz3jehcyd5n6a2bfg
 ```
 
+In the dashboard's agent builder, click **+** in the **Skills** section and search for a skill to attach it. The search list includes **Create skill**, first when nothing matches the search and after the matching skills otherwise. It opens the same upload dialog, creates the skills in the project, and attaches them. A created skill replaces an attached skill with the same name.
+
 Attaching a skill automatically enables the built-in `skill` tool. The model sees each skill's name and description; when it calls the tool, Omnara returns the `SKILL.md` instructions and attempts to install the supporting files on each attached machine. The instructions still work when no machine is attached or an installation fails.
 
 <Info>
-Full schema and playground: [Create skill](/api-reference/endpoints/skills/create-skill) · [List skills](/api-reference/endpoints/skills/list-skills-visible-through-ownership-authority) · [Skill grants](/api-reference/endpoints/skills/create-skill-grant) · [Project skills](/api-reference/endpoints/skills/list-skills-available-to-project).
+Full schema and playground: [Create skill](/api-reference/endpoints/skills/create-skill) · [Update skill](/api-reference/endpoints/skills/update-skill-by-uploading-a-new-revision) · [List skills](/api-reference/endpoints/skills/list-skills-visible-through-ownership-authority) · [Skill grants](/api-reference/endpoints/skills/create-skill-grant) · [Project skills](/api-reference/endpoints/skills/list-skills-available-to-project).
 </Info>

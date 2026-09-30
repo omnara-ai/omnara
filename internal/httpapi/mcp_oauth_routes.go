@@ -23,6 +23,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/resourcename"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -155,10 +156,11 @@ func (s strictOpenAPIServer) startMCPOAuth(
 	defer cancel()
 	requirement, err := mcp.DetectAuth(outboundCtx, mcpURL, mcp.AuthOptions{HTTPClient: s.server.mcpOAuthHTTPClient})
 	if err != nil {
-		apiErr := apierror.FromCode(
-			openapi.ErrorCodeUpstreamError,
-			"mcp authorization discovery failed: "+err.Error(),
-		).WithCause(err)
+		apiErr := mcpUpstreamFailure(
+			err,
+			"mcp_url or its authorization server did not respond: ",
+			"could not detect an MCP server that requires authorization at mcp_url: ",
+		)
 		return openapi.MCPOAuthStartResponse{}, &apiErr, nil
 	}
 	if !requirement.Required {
@@ -269,17 +271,18 @@ func (s *Server) resolveMCPOAuthClientForAPI(
 		if len(scopes) > 0 {
 			clientMeta.Scope = strings.Join(scopes, " ")
 		}
-		registered, err := oauthex.RegisterClient(
+		registered, err := mcp.RegisterClient(
 			ctx,
 			requirement.AuthorizationServer.RegistrationEndpoint,
 			clientMeta,
 			s.mcpOAuthHTTPClient,
 		)
 		if err != nil {
-			apiErr := apierror.FromCode(
-				openapi.ErrorCodeUpstreamError,
-				"mcp client registration failed: "+err.Error(),
-			).WithCause(err)
+			apiErr := mcpUpstreamFailure(
+				err,
+				"the authorization server did not respond to dynamic client registration: ",
+				"the authorization server rejected dynamic client registration; supply client_id: ",
+			)
 			return "", "", &apiErr
 		}
 		return registered.ClientID, registered.ClientSecret, nil
@@ -343,8 +346,12 @@ func (s *Server) mcpOAuthCallbackRoute(w http.ResponseWriter, r *http.Request) {
 		HTTPClient:    s.mcpOAuthHTTPClient,
 	})
 	if err != nil {
-		logpkg.Error(r.Context(), fmt.Errorf("mcp oauth code exchange failed: %w", err))
-		s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {"exchange_failed"}})
+		logpkg.LoggerFromContext(r.Context()).WarnContext(r.Context(), "mcp oauth code exchange failed", "error", err)
+		exchangeError := "exchange_failed"
+		if mcp.IsRetryableConnectionFailure(err) {
+			exchangeError = "exchange_unavailable"
+		}
+		s.redirectOAuthOutcome(w, r, flowData.ReturnTo, url.Values{"mcp_oauth_error": {exchangeError}})
 		return
 	}
 	secretID, err := s.saveMCPOAuthSecret(r.Context(), flow, flowData, token)
@@ -507,4 +514,14 @@ func (s *Server) mcpOAuthClientMetadataURL() (string, bool) {
 		return "", false
 	}
 	return s.absolutePublicURL(mcpOAuthClientMetadataPath), true
+}
+
+func mcpUpstreamFailure(err error, transientPrefix string, rejectedPrefix string) apierror.ResponseError {
+	if errors.Is(err, ssrf.ErrBlockedAddress) {
+		return apierror.FromCode(openapi.ErrorCodeInvalidRequest, rejectedPrefix+err.Error()).WithCause(err)
+	}
+	if mcp.IsRetryableConnectionFailure(err) {
+		return apierror.FromCode(openapi.ErrorCodeUpstreamUnavailable, transientPrefix+err.Error()).WithCause(err)
+	}
+	return apierror.FromCode(openapi.ErrorCodeUnprocessable, rejectedPrefix+err.Error()).WithCause(err)
 }

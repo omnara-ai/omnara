@@ -47,7 +47,7 @@ func (m Manager) DiscoverTools(
 	}
 	tools, err := decodeToolsSnapshot(catalog.ToolsSnapshot)
 	if err != nil {
-		return DiscoveredServer{}, fmt.Errorf("decode cached mcp tools: %w", err)
+		return DiscoveredServer{}, fmt.Errorf("%w: decode cached mcp tools: %w", ErrInternal, err)
 	}
 	return newDiscoveredServer(catalog.ProtocolVersion, catalog.ServerInfo, tools)
 }
@@ -79,7 +79,7 @@ func newDiscoveredServer(
 ) (DiscoveredServer, error) {
 	var serverInfo sdkmcp.Implementation
 	if err := json.Unmarshal(serverInfoJSON, &serverInfo); err != nil {
-		return DiscoveredServer{}, fmt.Errorf("decode mcp server info: %w", err)
+		return DiscoveredServer{}, fmt.Errorf("%w: decode mcp server info: %w", ErrMalformedResponse, err)
 	}
 	return DiscoveredServer{ProtocolVersion: protocolVersion, ServerInfo: serverInfo, Tools: tools}, nil
 }

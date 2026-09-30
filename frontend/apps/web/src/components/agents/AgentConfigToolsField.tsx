@@ -39,7 +39,7 @@ const toolDescriptions = new Map([
   ['delete_machine', 'Delete a machine created for the agent.'],
   ['list_machines', 'List the machines and machine pools available to the agent.'],
   ['inspect_machine', 'View details about a machine available to the agent.'],
-  ['read_file', "Read a text file in Omnara's virtual filesystem."],
+  ['read_file', "Read a text or image file in Omnara's virtual filesystem."],
   ['search_files', "Search text inside files in Omnara's virtual filesystem."],
   ['upload_file', "Copy a file into Omnara's virtual filesystem."],
   ['download_file', "Copy a file from Omnara's virtual filesystem to a machine."],

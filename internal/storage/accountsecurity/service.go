@@ -8,11 +8,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type Service struct {
-	pool     *pgxpool.Pool
+	pool     *storeutil.Pool
 	identity *identitystore.Store
 }
 
@@ -20,8 +21,9 @@ func New(
 	pool *pgxpool.Pool,
 	identity *identitystore.Store,
 ) *Service {
+	db := storeutil.WrapPool(pool)
 	return &Service{
-		pool:     pool,
+		pool:     db,
 		identity: identity,
 	}
 }

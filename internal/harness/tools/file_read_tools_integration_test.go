@@ -89,6 +89,49 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 			t.Fatalf("%s artifact content = %q", contentType, content)
 		}
 	}
+	if _, err := fixture.Pool.Exec(
+		ctx, "UPDATE artifacts SET content_type = 'image/png' WHERE id = $1", artifact.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	call.Call = model.ToolCall{
+		Name:  toolcatalog.ToolNameReadFile,
+		Input: json.RawMessage(`{"path":"` + path + `"}`),
+	}
+	result, err = runReadFileAsync(ctx, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content := asyncCompletionContent(t, result); !strings.Contains(string(content), "TARGET") ||
+		strings.Contains(string(content), "media_ref") {
+		t.Fatalf("text labeled image/png read result = %s", content)
+	}
+	image, err := fixture.Store.Artifacts().CreateArtifact(ctx, artifactstore.CreateArtifactInput{
+		ProjectID:   toolsTestProjectID,
+		AgentID:     fixture.Agent.ID,
+		ContentType: "image/png",
+		Content:     testImages(t)["image/png"],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imagePublicID, err := publicid.Encode(publicid.KindArtifact, image.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call.Call = model.ToolCall{
+		Name:  toolcatalog.ToolNameReadFile,
+		Input: json.RawMessage(`{"path":"/artifacts/` + imagePublicID + `","offset_line":2}`),
+	}
+	result, err = runReadFileAsync(ctx, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content := asyncCompletionContent(t, result); !strings.Contains(
+		string(content), `{"type":"media_ref","artifact_id":"`+image.ID.String()+`"}`,
+	) {
+		t.Fatalf("image read result = %s", content)
+	}
 	call.Turn.AgentID = uuid.New()
 	if _, _, err := loadReadableArtifact(ctx, call, artifact.ID); err == nil {
 		t.Fatal("cross-agent access accepted")
