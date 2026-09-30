@@ -1,6 +1,7 @@
 package fileexec
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	seccomp "github.com/elastic/go-seccomp-bpf"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"golang.org/x/sys/unix"
 )
 
@@ -99,6 +101,56 @@ func TestFileExecSeccomp(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileExecArtifactConfinement(t *testing.T) {
+	launcher := fileExecLauncher(t)
+	rg, err := exec.LookPath("rg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const content = "TARGET\nEND\n"
+	private := filepath.Join(t.TempDir(), "private.txt")
+	if err := os.WriteFile(private, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	large := bytes.Repeat([]byte("padding\n"), daemonprotocol.MaxFileDownloadBytes/8)
+	copy(large[len(large)-len(content):], content)
+	for _, test := range []struct {
+		name, operand string
+		content       []byte
+		deny          bool
+	}{
+		{name: "stdin", operand: "-", content: []byte(content)},
+		{name: "48 MiB multiline", operand: "-", content: large},
+		{name: "filesystem denied", operand: private, deny: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.CommandContext(t.Context(), launcher, "0", rg,
+				"--no-config", "--no-mmap", "--threads", "1", "--json", "--encoding", "none",
+				"-U", "-e", `TARGET\nEND`, "--", test.operand)
+			command.Stdin = bytes.NewReader(test.content)
+			output, err := command.CombinedOutput()
+			if test.deny {
+				if err == nil || !strings.Contains(string(output), "Permission denied") ||
+					strings.Contains(string(output), `"type":"match"`) {
+					t.Fatalf("filesystem access was not denied: %s, %v", output, err)
+				}
+			} else if err != nil || strings.Count(string(output), `"type":"match"`) != 1 {
+				t.Fatalf("stdin search failed: %s, %v", output, err)
+			}
+		})
+	}
+	t.Run("confinement required", func(t *testing.T) {
+		command := exec.CommandContext(t.Context(), os.Args[0],
+			"-test.run=^TestFileExecWithoutLandlock$", "--", launcher, "0", rg, "-e", "TARGET", "--", "-")
+		command.Stdin = strings.NewReader(content)
+		output, err := command.CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "missing kernel Landlock support") ||
+			strings.Contains(string(output), "TARGET") {
+			t.Fatalf("did not fail closed: %s, %v", output, err)
+		}
+	})
 }
 
 func TestFileExecConfinement(t *testing.T) {

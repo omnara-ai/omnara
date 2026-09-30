@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/listing"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
+
+const maxDescriptionLength = 1024
 
 type Store struct {
 	pool  *storeutil.Pool
@@ -94,6 +97,16 @@ func authorize(ctx context.Context, q *dbsqlc.Queries, scope Scope, manage bool)
 	return nil
 }
 
+func validateDescription(description string) error {
+	if err := dbsafe.Text(description); err != nil {
+		return err
+	}
+	if utf8.RuneCountInString(description) > maxDescriptionLength {
+		return fmt.Errorf("memory store description must be at most %d characters", maxDescriptionLength)
+	}
+	return nil
+}
+
 func (s *Store) Create(ctx context.Context, scope Scope, name, description string, readOnly bool) (Record, error) {
 	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", err)
@@ -101,7 +114,7 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 	if err := skills.ValidateName(name); err != nil {
 		return Record{}, storeerr.InvalidRequest(err)
 	}
-	if err := dbsafe.Text(description); err != nil {
+	if err := validateDescription(description); err != nil {
 		return Record{}, storeerr.InvalidRequest(err)
 	}
 	id, err := uuid.NewV7()
@@ -231,7 +244,7 @@ func (s *Store) Update(
 		return Record{}, fmt.Errorf("update memory store: %w", mapped(err))
 	}
 	if description != nil {
-		if err := dbsafe.Text(*description); err != nil {
+		if err := validateDescription(*description); err != nil {
 			return Record{}, storeerr.InvalidRequest(err)
 		}
 		r.Description = *description

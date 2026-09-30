@@ -329,25 +329,24 @@ func newSearchCommand(
 	} else {
 		args = append(args, "--with-filename")
 	}
+	var roots []*os.File
 	if len(source.stores) == 0 {
-		command := exec.CommandContext(ctx, "rg", append(args, "--", "-")...)
-		command.Stdin = bytes.NewReader(source.content)
-		return command, nil
-	}
-	args = append(args, "--hidden", "--no-ignore",
-		"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
-	args = append(args, memorySearchArgs(input.Path)...)
-	var operands []string
-	roots := []*os.File{view}
-	for _, store := range source.stores {
-		operand := "memory/" + store.name
-		if !strings.ContainsAny(input.Path, "*?") {
-			operand = strings.TrimPrefix(input.Path, "/")
+		args = append(args, "--", "-")
+	} else {
+		args = append(args, "--hidden", "--no-ignore",
+			"--max-filesize", strconv.Itoa(daemonprotocol.MaxFileTransferBytes))
+		args = append(args, memorySearchArgs(input.Path)...)
+		args = append(args, "--")
+		roots = append(roots, view)
+		for _, store := range source.stores {
+			operand := "memory/" + store.name
+			if !strings.ContainsAny(input.Path, "*?") {
+				operand = strings.TrimPrefix(input.Path, "/")
+			}
+			args = append(args, operand)
+			roots = append(roots, store.root)
 		}
-		operands = append(operands, operand)
-		roots = append(roots, store.root)
 	}
-	args = append(append(args, "--"), operands...)
 	binary, err := exec.LookPath("rg")
 	if err != nil {
 		return nil, err
@@ -355,6 +354,9 @@ func newSearchCommand(
 	command := exec.CommandContext(ctx, "omnara-file-exec",
 		append([]string{strconv.Itoa(len(source.stores)), binary}, args...)...)
 	command.ExtraFiles = roots
+	if len(source.stores) == 0 {
+		command.Stdin = bytes.NewReader(source.content)
+	}
 	return command, nil
 }
 

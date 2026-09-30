@@ -265,6 +265,9 @@ func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, n
 	if err := root.MkdirAll(path.Dir(name), 0700); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := CheckPath(root, path.Dir(name)); err != nil {
 		return err
 	}
@@ -281,6 +284,9 @@ func (f *Filesystem) Publish(ctx context.Context, ref StoreRef, root *os.Root, n
 		return err
 	}
 	defer func() { _ = destination.Close() }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := renameFile(source, path.Base(staged), destination, path.Base(name)); err != nil {
 		return fmt.Errorf("publish memory file: %w", err)
 	}

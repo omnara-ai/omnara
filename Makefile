@@ -389,9 +389,10 @@ build-omnarad:
 	CGO_ENABLED=0 $(GO) build -ldflags "-X github.com/omnara-ai/omnara/internal/omnarad.version=$(OMNARAD_VERSION)" -o bin/omnarad ./cmd/daemon
 
 install-file-edit: ## Install the confined editor for native Linux workers (requires sudo)
-	mkdir -p bin
-	CGO_ENABLED=0 $(GO) build -o bin/omnara-file-edit ./cmd/file-edit
-	sudo sh cmd/file-edit/install.sh bin/omnara-file-edit /
+	@set -e; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
+		CGO_ENABLED=0 $(GO) build -o "$$tmp_dir/omnara-file-edit" ./cmd/file-edit; \
+		sudo sh cmd/file-edit/install.sh "$$tmp_dir/omnara-file-edit" /; \
+		rm -f bin/omnara-file-edit
 
 build-file-exec:
 	mkdir -p bin

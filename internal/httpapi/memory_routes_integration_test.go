@@ -29,12 +29,13 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 	handler := newIntegrationServerWithStoreOptions(pool, []storage.Option{memoryFileOption(t)})
 	project := bootstrapPublicHTTPProject(t, handler, "memory-api")
 	path := project.ProjectPath + "/memory-stores"
+	description := strings.Repeat("😀", 1024)
 	created := requestJSONWithHeaders(
 		t,
 		handler,
 		http.MethodPost,
 		path,
-		`{"name":"engineering"}`,
+		fmt.Sprintf(`{"name":"engineering","description":%q}`, description),
 		"",
 		http.StatusCreated,
 		authHeaders(project.AdminToken),
@@ -42,6 +43,18 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 	id, ok := created["id"].(string)
 	if !ok || id == "" {
 		t.Fatalf("missing id: %+v", created)
+	}
+	if created["description"] != description {
+		t.Fatal("description at the character limit was not preserved")
+	}
+	for _, test := range []struct{ method, path, body string }{
+		{http.MethodPost, path, fmt.Sprintf(`{"name":"too-long","description":%q}`, description+"x")},
+		{http.MethodPatch, path + "/" + id, fmt.Sprintf(`{"description":%q}`, description+"x")},
+	} {
+		requestJSONWithHeaders(
+			t, handler, test.method, test.path, test.body,
+			"", http.StatusBadRequest, authHeaders(project.AdminToken),
+		)
 	}
 	requestJSONWithHeaders(
 		t,

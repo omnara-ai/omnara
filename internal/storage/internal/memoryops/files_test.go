@@ -103,6 +103,22 @@ func TestFilePublication(t *testing.T) {
 	if err != nil || !bytes.Equal(body, content) {
 		t.Fatalf("read: %v %v", body, err)
 	}
+	t.Run("canceled replacement", func(t *testing.T) {
+		staged, err := files.Stage(ref, []byte("replacement"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = files.Discard(staged) }()
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if err := files.Publish(ctx, ref, root, "nested/file.bin", staged); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled publication: %v", err)
+		}
+		body, err := Read(root, "nested/file.bin")
+		if err != nil || !bytes.Equal(body, content) {
+			t.Fatalf("canceled publication changed current file: %q, %v", body, err)
+		}
+	})
 	oldFile, err := root.Open("nested/file.bin")
 	if err != nil {
 		t.Fatal(err)

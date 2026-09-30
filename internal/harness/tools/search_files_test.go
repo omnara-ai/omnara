@@ -25,6 +25,56 @@ func TestSearchStoreBatchSize(t *testing.T) {
 	}
 }
 
+func setupFileExec(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("file search confinement requires Linux")
+	}
+	dir := t.TempDir()
+	build := exec.CommandContext(t.Context(), "go", "build",
+		"-o", filepath.Join(dir, "omnara-file-exec"), "../../../cmd/file-exec")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build file launcher: %s, %v", output, err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestCheckFileToolSupportSearchFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses shell fixtures")
+	}
+	for _, test := range []struct {
+		name, launcher, want string
+	}{
+		{name: "missing launcher", want: "omnara-file-exec"},
+		{
+			name: "sandbox failure", want: "sandbox unavailable",
+			launcher: "#!/bin/sh\n[ \"$1\" = 1 ] || exit 2\nprintf 'sandbox unavailable\\n' >&2\nexit 1\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "rg"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if test.launcher != "" {
+				if err := os.WriteFile(filepath.Join(dir, "omnara-file-exec"), []byte(test.launcher), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", dir)
+			temp := t.TempDir()
+			t.Setenv("TMPDIR", temp)
+			if err := CheckFileToolSupport(t.Context()); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("support check = %v, want %q", err, test.want)
+			}
+			if entries, err := os.ReadDir(temp); err != nil || len(entries) != 0 {
+				t.Fatalf("probe left temporary files: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
 func searchRequestForTest(t *testing.T, args []string, limit int) searchFilesRequest {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{"path": "/memory/team/file.txt", "args": args, "limit": limit})
@@ -39,6 +89,7 @@ func searchRequestForTest(t *testing.T, args []string, limit int) searchFilesReq
 }
 
 func TestSearchFilesModes(t *testing.T) {
+	setupFileExec(t)
 	for _, test := range []struct {
 		name, text string
 		args       []string
@@ -85,6 +136,7 @@ func TestSearchFilesModes(t *testing.T) {
 }
 
 func TestSearchFilesContextAndLimits(t *testing.T) {
+	setupFileExec(t)
 	text := "before\nTARGET\nTARGET\nafter\nTARGET\nlast\n"
 	for _, test := range []struct {
 		name          string
@@ -125,6 +177,7 @@ func TestSearchFilesContextAndLimits(t *testing.T) {
 }
 
 func TestSearchFilesLimitAcrossSources(t *testing.T) {
+	setupFileExec(t)
 	for _, test := range []struct {
 		name string
 		args []string
@@ -158,6 +211,7 @@ func TestSearchFilesLimitAcrossSources(t *testing.T) {
 }
 
 func TestSearchFilesResponseBudget(t *testing.T) {
+	setupFileExec(t)
 	input := searchRequestForTest(t, []string{"-C", "5", "-e", "TARGET"}, 100)
 	input.Path = "/memory/team/" + strings.Repeat("name/", 190) + "file.txt"
 	output := &searchOutput{input: input}
@@ -169,6 +223,7 @@ func TestSearchFilesResponseBudget(t *testing.T) {
 }
 
 func TestSearchFilesTextAndOutputBounds(t *testing.T) {
+	setupFileExec(t)
 	input := searchRequestForTest(t, []string{"-C", "5", "-e", "TARGET"}, 100)
 	text := strings.Repeat(strings.Repeat("é", 5000)+"\n", 5) + "TARGET" +
 		strings.Repeat("x", 5000) + "\n" + strings.Repeat("after\n", 5)
@@ -191,6 +246,7 @@ func TestSearchFilesTextAndOutputBounds(t *testing.T) {
 }
 
 func TestSearchFilesNativeBinaryContent(t *testing.T) {
+	setupFileExec(t)
 	for _, test := range []struct {
 		name, content, snippet string
 		binary                 bool
@@ -214,6 +270,7 @@ func TestSearchFilesNativeBinaryContent(t *testing.T) {
 }
 
 func TestSearchFilesMatchSnippets(t *testing.T) {
+	setupFileExec(t)
 	for _, test := range []struct {
 		name, content, pattern, want string
 		prefix, suffix               bool
@@ -282,6 +339,7 @@ func TestSearchFilesRejectsUnsafeArguments(t *testing.T) {
 }
 
 func TestSearchFilesOversizedEvents(t *testing.T) {
+	setupFileExec(t)
 	large := strings.Repeat("x", 3*1024*1024) + "TARGET"
 	for _, test := range []struct {
 		name, content string
@@ -318,6 +376,7 @@ func TestSearchFilesOversizedEvents(t *testing.T) {
 }
 
 func TestSearchFilesCancellation(t *testing.T) {
+	setupFileExec(t)
 	input := searchRequestForTest(t, []string{"-e", "TARGET"}, 20)
 	page := &searchOutput{input: input}
 	ctx, cancel := context.WithCancel(t.Context())

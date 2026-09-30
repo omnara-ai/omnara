@@ -8976,6 +8976,8 @@ components:
           $ref: "#/components/schemas/MemoryStoreName"
         description:
           type: string
+          maxLength: 1024
+          x-omnara-unicode-length: true
         read_only:
           type: boolean
         created_at:
@@ -8994,6 +8996,8 @@ components:
           $ref: "#/components/schemas/MemoryStoreName"
         description:
           type: string
+          maxLength: 1024
+          x-omnara-unicode-length: true
         read_only:
           type: boolean
     UpdateMemoryStore:
@@ -9002,6 +9006,8 @@ components:
       properties:
         description:
           type: string
+          maxLength: 1024
+          x-omnara-unicode-length: true
         read_only:
           type: boolean
     MemoryStoreList:

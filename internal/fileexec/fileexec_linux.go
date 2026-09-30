@@ -27,6 +27,10 @@ const (
 )
 
 func Run(args []string) error {
+	return run(args, false)
+}
+
+func run(args []string, edit bool) error {
 	if len(args) < 3 || !filepath.IsAbs(args[1]) {
 		return errors.New("invalid file-exec arguments")
 	}
@@ -98,9 +102,10 @@ func Run(args []string) error {
 		landlock.ROFiles(args[0]),
 		landlock.ROFiles("/etc/ld.so.cache").IgnoreIfMissing(),
 	}
-	if rootCount == 0 {
+	if edit {
 		rules = append(rules, landlock.PathAccess(ll.AccessFSReadFile|ll.AccessFSReadDir, "/usr/lib/locale/C.utf8"))
-	} else {
+	}
+	if rootCount > 0 {
 		rules = append(rules, landlock.PathAccess(ll.AccessFSReadDir, workingDir))
 	}
 	for _, dir := range []string{"/lib/" + triplet, "/usr/lib/" + triplet, "/usr/lib"} {
@@ -113,7 +118,7 @@ func Run(args []string) error {
 	if err := landlock.V2.Restrict(rules...); err != nil {
 		return err
 	}
-	if rootCount == 0 {
+	if edit {
 		if err := unix.Setrlimit(unix.RLIMIT_DATA, &unix.Rlimit{
 			Cur: scriptMemoryLimitBytes, Max: scriptMemoryLimitBytes,
 		}); err != nil {

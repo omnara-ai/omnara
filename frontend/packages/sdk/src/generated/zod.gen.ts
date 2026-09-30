@@ -602,7 +602,7 @@ export const zSkillGrant = z.object({
 export const zMemoryStore = z.object({
     id: zMemoryStoreId,
     name: zMemoryStoreName,
-    description: z.string(),
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }),
     read_only: z.boolean(),
     created_at: z.iso.datetime({ offset: true }),
     updated_at: z.iso.datetime({ offset: true })
@@ -610,12 +610,12 @@ export const zMemoryStore = z.object({
 
 export const zCreateMemoryStore = z.object({
     name: zMemoryStoreName,
-    description: z.string().optional(),
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
     read_only: z.boolean().optional()
 });
 
 export const zUpdateMemoryStore = z.object({
-    description: z.string().optional(),
+    description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
     read_only: z.boolean().optional()
 });
 

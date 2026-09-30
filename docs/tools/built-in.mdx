@@ -200,7 +200,7 @@ Use `download_file` to copy a file stored in Omnara to an attached machine. Down
 
 Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads include the file's `digest` in the process output; use it when uploading an edited memory file.
 
-Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools.
+Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools. The download process has a 120-second execution timeout.
 
 ### `read_file`
 
