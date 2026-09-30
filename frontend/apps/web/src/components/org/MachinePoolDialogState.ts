@@ -314,7 +314,7 @@ export function machinePoolFormFromPool(pool: MachinePool): MachinePoolFormValue
         : undefined) ?? '',
     image: options[definition.resource.key] ?? '',
     rootfs: options.rootfs ?? createosRootFS,
-    location: options[definition.location.key] ?? '',
+    location: definition.location.hidden ? '' : (options[definition.location.key] ?? ''),
     startupScript: options.startup_script ?? '',
     cwd: pool.default_cwd,
     envRows: textRowsFromRecord(pool.default_machine_env),
@@ -358,7 +358,7 @@ export function machinePoolUpdateRequest(
     ),
   )
   defaultMachineProviderOptions[definition.resource.key] = values.image.trim()
-  if (values.location.trim() !== '') {
+  if (!definition.location.hidden && values.location.trim() !== '') {
     defaultMachineProviderOptions[definition.location.key] = values.location.trim()
   }
   Object.assign(defaultMachineProviderOptions, rootfsOption(values))

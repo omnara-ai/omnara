@@ -141,7 +141,7 @@ Machine pool templates automatically create a base machine pool for any new orga
 | `unikraft` | Default and maximums required; minimum optional | Optional `api_base_url`, `allowed_images`, and `allowed_metros` | `image`, `metro`, and optional `startup_script` and `sleep_after_ms` |
 | `blaxel` | Omit all CPU fields | Required `workspace`; optional `allowed_images` and `allowed_regions` | Blaxel sandbox `image`, `region`, and optional `startup_script` and `sleep_after_ms` |
 | `daytona` | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_snapshots`, and `allowed_targets` | Daytona snapshot name, `target`, and optional `startup_script` |
-| `createos` | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_shapes`, `allowed_rootfses`, and `allowed_regions` | CreateOS `shape`, optional `rootfs`, `region`, and optional `startup_script` |
+| `createos` | Maximums required; default and minimum optional | Optional `api_base_url`, `allowed_shapes`, and `allowed_rootfses` | CreateOS `shape`, optional `rootfs`, and optional `startup_script`; placement is automatic |
 | `modal` | Default and maximums required; minimum optional | Optional `app` (defaults to `omnara`), `environment` (defaults to `main`), `allowed_images`, and `allowed_regions` | Public linux/amd64 `image` plus optional `region` and `startup_script` |
 
 Provider notes:

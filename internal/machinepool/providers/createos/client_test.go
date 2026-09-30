@@ -56,7 +56,7 @@ func TestCreateOSRESTClientReadsTheRootFSCatalog(t *testing.T) {
 }
 
 func TestCreateOSRESTClientCreatesSandboxesWithTheRequestedShape(t *testing.T) {
-	var received createSandboxRequest
+	var received map[string]json.RawMessage
 	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/sandboxes" {
 			t.Errorf("create request = %s %s", r.Method, r.URL.Path)
@@ -74,7 +74,6 @@ func TestCreateOSRESTClientCreatesSandboxesWithTheRequestedShape(t *testing.T) {
 		Shape:  "s-1vcpu-1gb",
 		RootFS: "devbox:1",
 		Name:   "omnara-abc",
-		Region: "us",
 		Envs:   map[string]string{"OMNARA_API_URL": "https://api.omnara.test/v1"},
 	})
 	if err != nil {
@@ -83,8 +82,22 @@ func TestCreateOSRESTClientCreatesSandboxesWithTheRequestedShape(t *testing.T) {
 	if created.ID != "sb-123" {
 		t.Fatalf("created sandbox = %+v, want sb-123", created)
 	}
-	if received.Shape != "s-1vcpu-1gb" || received.Region != "us" || received.Envs["OMNARA_API_URL"] == "" {
-		t.Fatalf("create request = %+v, want the shape, region and env carried through", received)
+	if _, ok := received["region"]; ok {
+		t.Fatalf("create request = %s, want region omitted", received["region"])
+	}
+	if _, ok := received["bandwidth_quota_bytes"]; ok {
+		t.Fatalf("create request = %s, want bandwidth quota omitted", received["bandwidth_quota_bytes"])
+	}
+	var shape string
+	var envs map[string]string
+	if err := json.Unmarshal(received["shape"], &shape); err != nil {
+		t.Fatalf("decode shape: %v", err)
+	}
+	if err := json.Unmarshal(received["envs"], &envs); err != nil {
+		t.Fatalf("decode envs: %v", err)
+	}
+	if shape != "s-1vcpu-1gb" || envs["OMNARA_API_URL"] == "" {
+		t.Fatalf("create request = %+v, want the shape and env carried through", received)
 	}
 }
 

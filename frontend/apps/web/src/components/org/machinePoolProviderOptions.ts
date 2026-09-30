@@ -9,9 +9,15 @@ export function machineProviderOptions(values: MachinePoolFormValues) {
   const definition = machinePoolProviderDefinitions[values.provider]
   return {
     [definition.resource.key]: values.image.trim(),
-    [definition.location.key]: values.location.trim(),
+    ...locationOption(values),
     ...rootfsOption(values),
   }
+}
+
+function locationOption(values: MachinePoolFormValues) {
+  const location = machinePoolProviderDefinitions[values.provider].location
+  if (location.hidden) return {}
+  return { [location.key]: values.location.trim() }
 }
 
 /** The CreateOS rootfs entry, absent for other providers and for an empty draft. */

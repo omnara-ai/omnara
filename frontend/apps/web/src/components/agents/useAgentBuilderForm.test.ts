@@ -495,7 +495,7 @@ mcp:
     expect(applyToSource(source, config)).toBe(source)
   })
 
-  it('preserves hidden CreateOS options while editing an agent', () => {
+  it('removes the legacy CreateOS region while editing an agent', () => {
     const source = `${minimalYaml}machine_sources:
   - machine_pool_name: "createos-pool"
     machine_provider_options_overlay: {"shape":"s-2vcpu-4gb","region":"eu","startup_script":"echo ready"}
@@ -524,7 +524,6 @@ mcp:
           cwd: '/workspace',
           machine_provider_options_overlay: {
             [createOSMachineTypeOption]: 's-2vcpu-4gb',
-            region: 'eu',
             startup_script: 'echo ready',
           },
         },

@@ -79,7 +79,6 @@ func (p *provider) ProvisionMachine(
 			Shape:  options.Shape,
 			RootFS: options.RootFS,
 			Name:   name,
-			Region: options.Region,
 			Envs:   env,
 		})
 		if err != nil {
@@ -88,7 +87,7 @@ func (p *provider) ProvisionMachine(
 				return providers.ProvisionMachineResult{}, err
 			}
 		} else {
-			// The create response intentionally omits lifecycle status and region.
+			// The create response intentionally omits lifecycle status.
 			// Resolve the authoritative public view before validating/adopting it.
 			createdID := target.ID
 			target, found, err = p.api.GetSandbox(ctx, target.ID)
@@ -104,8 +103,7 @@ func (p *provider) ProvisionMachine(
 	if target.ID == "" || target.Name != name {
 		return result, errors.New("createos sandbox does not match expected allocation")
 	}
-	if target.Shape != options.Shape || target.RootFS != options.RootFS ||
-		(options.Region != "" && target.Region != options.Region) {
+	if target.Shape != options.Shape || target.RootFS != options.RootFS {
 		return result, errors.New("createos sandbox configuration does not match provisioning intent")
 	}
 	if target.Status != sandboxStatusRunning {

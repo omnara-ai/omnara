@@ -160,7 +160,7 @@ describe('CreateOS machine pools', () => {
       name: 'createos-pool',
       image: 's-2vcpu-4gb',
       rootfs: 'devbox:1',
-      location: 'us',
+      location: 'legacy-region',
       cpu: '2',
       memoryGb: '4',
       maxMachines: '3',
@@ -182,7 +182,7 @@ describe('CreateOS machine pools', () => {
     })
   })
 
-  it('hydrates provider-resolved resources and preserves hidden options on edit', () => {
+  it('hydrates provider-resolved resources and removes the legacy region on edit', () => {
     const pool = machinePool({
       provider: 'createos',
       default_machine_cpu: null,
@@ -205,15 +205,14 @@ describe('CreateOS machine pools', () => {
       provider: 'createos',
       image: 's-2vcpu-4gb',
       rootfs: 'devbox:1',
-      location: 'us',
+      location: '',
       cpu: '2',
       memoryGb: '4',
     })
-    expect(machinePoolUpdateRequest(pool, { ...values, rootfs: '', location: 'eu' })).toMatchObject(
+    expect(machinePoolUpdateRequest(pool, { ...values, rootfs: '', location: 'ignored' })).toMatchObject(
       {
         default_machine_provider_options: {
           [createOSMachineTypeOption]: 's-2vcpu-4gb',
-          region: 'eu',
           internal_option: 'preserve-me',
         },
         max_machine_cpu: 2,

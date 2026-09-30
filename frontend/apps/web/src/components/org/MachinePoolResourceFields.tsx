@@ -35,7 +35,7 @@ export function MachinePoolResourceFields({
   return (
     <>
       <div className={hasSizeControls ? 'grid gap-4 sm:grid-cols-2' : 'grid gap-4'}>
-        {!clusterManaged && (
+        {!clusterManaged && !definition.location.hidden && (
           <MachinePoolInputField
             id="mpool-location"
             label={definition.location.label}
