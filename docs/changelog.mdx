@@ -8,18 +8,22 @@ mode: "center"
 <Update
   label="September 30, 2026"
   rss={{
-    title: "GPT-6, Claude Opus 5.5, and Freestyle sandboxes",
-    description: "New hosted models, Freestyle as a sandbox provider, easier skill creation, image viewing for agents, a reasoning effort selector, and fixes."
+    title: "GPT-6, Claude Opus 5.5, and more tools on hosted machines",
+    description: "New hosted models, preinstalled tools on Omnara-managed machines, Freestyle as a sandbox provider, easier skill creation, image viewing for agents, a reasoning effort selector, and fixes."
   }}
 >
 
-## GPT-6, Claude Opus 5.5, and Freestyle sandboxes
+## GPT-6, Claude Opus 5.5, and more tools on hosted machines
 
-The hosted catalog now includes GPT-6 Sol and Luna and Claude Opus 5.5, and Freestyle joins the sandbox providers. Also new: easier skill creation, image viewing for agents, and a reasoning effort selector.
+The hosted catalog now includes GPT-6 Sol and Luna and Claude Opus 5.5, and machines in Omnara-managed pools come with common development tools preinstalled. Also new: Freestyle as a sandbox provider, easier skill creation, image viewing for agents, and a reasoning effort selector.
 
 ### New models
 
 `omnara-openrouter` now includes GPT-6 Sol, GPT-6 Luna, and Claude Opus 5.5, and new agents default to `openai/gpt-6-sol`. GPT-5.6 Sol, GPT-5.6 Luna, and Claude Opus 5 are being retired: agents already using them keep working, and each model is removed once nothing references it. Update saved configs and scripts that name them.
+
+### More tools on Omnara-managed machines
+
+New machines in Omnara-managed pools, including `default-pool`, now run Ubuntu 24.04 with common development tools preinstalled: Python, Node.js, Go, uv, pnpm, PostgreSQL, Redis, `gh`, Python data and document libraries, and Playwright with headless Chromium. Agents can start working without installing them first. Existing machines keep their current image. See [Default machine environment](/machines/pools#default-machine-environment).
 
 ### Freestyle sandboxes
 
