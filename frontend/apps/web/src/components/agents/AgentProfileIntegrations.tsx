@@ -1,5 +1,6 @@
 import { useDeleteIntegrationInstall, useIntegrationInstalls } from '@omnara/react'
 import { ApiError, type IntegrationInstall } from '@omnara/sdk'
+import type { ReactNode } from 'react'
 
 import { Trash2 } from '@/components/icons'
 import { Badge } from '@/components/ui/badge'
@@ -23,11 +24,13 @@ export function AgentProfileIntegrations({
   projectId,
   profileId,
   canManage,
+  emptyAction,
 }: {
   orgId: string
   projectId: string
   profileId: string
   canManage: boolean
+  emptyAction?: ReactNode
 }) {
   const query = useIntegrationInstalls(orgId, projectId, {
     filters: { agent_profile_id: profileId },
@@ -53,9 +56,12 @@ export function AgentProfileIntegrations({
           </Button>
         </div>
       ) : installs.length === 0 ? (
-        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-          No integrations yet.
-          {canManage && ' Use “Add integration” to make this profile available in an external app.'}
+        <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-4 text-center text-sm">
+          <p>
+            No integrations yet.
+            {canManage && ' Add one to make this profile available in an external app.'}
+          </p>
+          {emptyAction}
         </div>
       ) : (
         <ul className="bg-background flex flex-col divide-y rounded-md border">

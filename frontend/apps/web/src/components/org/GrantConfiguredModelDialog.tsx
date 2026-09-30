@@ -72,7 +72,7 @@ export function GrantConfiguredModelDialog({
       setState({ projectIds: [], grantedProjectIds: [], status: idle })
       onOpenChange(false)
     } catch (err) {
-      const status = submitError(err, 'Could not grant model')
+      const status = submitError(err, 'Could not share model')
       setState((prev) => ({ ...prev, status }))
     }
   }
@@ -81,7 +81,7 @@ export function GrantConfiguredModelDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Grant configured model</DialogTitle>
+          <DialogTitle>Share configured model</DialogTitle>
           <DialogDescription>Let agents in a project use {model.name}.</DialogDescription>
         </DialogHeader>
         <form
@@ -108,7 +108,7 @@ export function GrantConfiguredModelDialog({
                 disabled={isSubmitting || state.projectIds.length === 0}
                 loading={isSubmitting}
               >
-                Grant model
+                Share model
               </Button>
             </DialogFooter>
           </FieldGroup>

@@ -49,14 +49,14 @@ const PoolNameCombobox = createResourceCombobox<PoolOption>({
   itemKey: (item) => item.name,
   itemLabel: (item) => item.name,
   placeholder: 'Search machine pools…',
-  emptyMessage: 'No machine pools granted.',
+  emptyMessage: 'No shared machine pools.',
 })
 
 const MachineNameCombobox = createResourceCombobox<MachineOption>({
   itemKey: (machine) => machine.name,
   itemLabel: (machine) => machine.name,
   placeholder: 'Search machines…',
-  emptyMessage: 'No machines granted.',
+  emptyMessage: 'No shared machines.',
 })
 
 function useStaleName<TItem, TFetchResult>(
@@ -155,7 +155,7 @@ export function PoolSourceCombobox({
         action={
           project?.access.can_manage_access && (
             <GrantAction
-              label="Grant machine pool"
+              label="Share machine pool"
               onOpen={() => {
                 setGrantOpen(true)
               }}
@@ -237,7 +237,7 @@ export function MachineSourceCombobox({
         action={
           project?.access.can_manage_access && (
             <GrantAction
-              label="Grant machine"
+              label="Share machine"
               onOpen={() => {
                 setGrantOpen(true)
               }}

@@ -198,7 +198,7 @@ WHERE profile.project_id = sqlc.arg(project_id)
   AND profile.name = sqlc.arg(name)::text
   AND profile.deleted_at IS NULL;
 
--- name: ListAgentProfilesForProject :many
+-- name: ListAgentProfilesForProjects :many
 WITH listed AS (
 SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,
@@ -236,7 +236,7 @@ JOIN configured_models model ON model.org_id = config.org_id
   AND model.id = config.configured_model_id
 JOIN model_provider_configs provider ON provider.org_id = model.org_id
   AND provider.id = model.model_provider_config_id
-WHERE profile.project_id = sqlc.arg(project_id)
+WHERE profile.project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND profile.deleted_at IS NULL
   AND (sqlc.arg(name_pattern)::text = '' OR profile.name ILIKE sqlc.arg(name_pattern)::text ESCAPE '\')
   AND (sqlc.narg(model_provider_config_id)::uuid IS NULL OR provider.id = sqlc.narg(model_provider_config_id)::uuid)

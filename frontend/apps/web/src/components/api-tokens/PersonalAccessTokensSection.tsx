@@ -14,19 +14,22 @@ export function PersonalAccessTokensSection() {
   const query = usePersonalAccessTokens()
   const paged = usePagedQuery(query)
   const [createOpen, setCreateOpen] = useState(false)
+  const createButton = (
+    <Button
+      size="sm"
+      onClick={() => {
+        setCreateOpen(true)
+      }}
+    >
+      New token
+    </Button>
+  )
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionTitle title="Personal access tokens" guide={guides.apiTokens} />
-        <Button
-          size="sm"
-          onClick={() => {
-            setCreateOpen(true)
-          }}
-        >
-          New token
-        </Button>
+        {createButton}
       </div>
       <DataTable
         columns={[
@@ -88,6 +91,7 @@ export function PersonalAccessTokensSection() {
         isError={query.isError}
         onRetry={() => void query.refetch()}
         emptyMessage="No API tokens yet. Create one to authenticate an API client or command-line tool."
+        emptyAction={createButton}
       />
       <CreatePersonalAccessTokenDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>

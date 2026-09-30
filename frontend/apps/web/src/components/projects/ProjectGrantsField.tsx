@@ -59,7 +59,7 @@ export function ProjectGrantsField({
 
   return (
     <Field>
-      <FieldLabel>Project grants</FieldLabel>
+      <FieldLabel>Shared with projects</FieldLabel>
       <ProjectMultiCombobox
         items={projects}
         value={selectedProjects}
@@ -73,7 +73,7 @@ export function ProjectGrantsField({
         disabled={disabled}
       />
       <FieldDescription>
-        {projectsQuery.isError ? 'Could not load grantable projects. Try again.' : description}
+        {projectsQuery.isError ? 'Could not load projects. Try again.' : description}
       </FieldDescription>
     </Field>
   )

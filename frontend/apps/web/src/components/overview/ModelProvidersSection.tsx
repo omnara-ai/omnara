@@ -154,6 +154,7 @@ export function ModelProvidersSection() {
             void query.refetch()
           }}
           emptyMessage="No model providers yet. Connect OpenAI, OpenRouter, Anthropic, or Amazon Bedrock."
+          emptyAction={newProviderButton()}
         />
       </div>
       {canManage && (

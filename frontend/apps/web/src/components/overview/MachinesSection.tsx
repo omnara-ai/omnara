@@ -135,6 +135,7 @@ export function MachinesSection() {
             void query.refetch()
           }}
           emptyMessage="No machines yet. Connect one you operate, or let pools provision them."
+          emptyAction={connectButton()}
         />
       </div>
       <ConnectMachineDialog open={connectOpen} onOpenChange={setConnectOpen} orgId={activeOrg.id} />

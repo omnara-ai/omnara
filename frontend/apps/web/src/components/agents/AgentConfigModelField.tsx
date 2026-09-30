@@ -47,8 +47,8 @@ const ModelCombobox = createResourceCombobox<ModelChoice>({
       </span>
     </span>
   ),
-  placeholder: 'Search granted models…',
-  emptyMessage: 'No granted models found.',
+  placeholder: 'Search shared models…',
+  emptyMessage: 'No shared models found.',
 })
 
 export interface ModelSelection {
@@ -195,7 +195,7 @@ function reasoningEffortState(model: ModelChoice | null, effort: string) {
 
 function modelPlaceholder(isPending: boolean, noneGranted: boolean): string {
   if (isPending) return 'Loading models…'
-  return noneGranted ? 'No models granted' : 'Search granted models…'
+  return noneGranted ? 'No shared models' : 'Search shared models…'
 }
 
 function UnsupportedEffortError({
@@ -313,7 +313,7 @@ export function AgentConfigModelField({
                     }}
                   >
                     <PlusIcon className="size-4" />
-                    Grant models…
+                    Share models…
                   </Button>
                 )
               }
@@ -342,12 +342,12 @@ export function AgentConfigModelField({
         {unavailable && (
           <p className="text-destructive text-sm">
             The configured model “{value.modelName}” ({value.providerConfig}) is no longer available
-            to the project. Pick another model or grant it again.
+            to the project. Pick another model or share it again.
           </p>
         )}
         {grantsQuery.isError && (
           <QueryRetryError
-            message="Could not load granted models."
+            message="Could not load shared models."
             onRetry={() => {
               void grantsQuery.refetch()
             }}

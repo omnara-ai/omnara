@@ -11,7 +11,7 @@ export function ResourceRowActions({
   onEdit,
   onGrant,
   onDelete,
-  grantLabel = 'Grant to project',
+  grantLabel = 'Share with project',
   deleteLabel = 'Delete',
 }: {
   onEdit?: () => void

@@ -156,6 +156,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
             void query.refetch()
           }}
           emptyMessage="No secrets yet. Add the API keys and credentials your providers and pools use."
+          emptyAction={newSecretButton()}
         />
       </div>
       {canManage && (

@@ -1,10 +1,17 @@
-import { type ListAgentProfilesData, sdk, type UpdateAgentProfileRequest } from '@omnara/sdk'
+import {
+  type ListAgentProfilesData,
+  type ListOrgAgentProfilesData,
+  sdk,
+  type UpdateAgentProfileRequest,
+} from '@omnara/sdk'
 import {
   getAgentProfileOptions,
   getAgentProfileQueryKey,
   getOrgOverviewQueryKey,
   listAgentProfilesInfiniteOptions,
   listAgentProfilesQueryKey,
+  listOrgAgentProfilesInfiniteOptions,
+  listOrgAgentProfilesQueryKey,
 } from '@omnara/sdk/tanstack'
 import {
   type QueryClient,
@@ -49,6 +56,23 @@ export function useAgentProfiles(
   })
 }
 
+export type OrgAgentProfileListOptions = PaginatedListOptions<ListOrgAgentProfilesData>
+
+export function useOrgAgentProfiles(orgID: string, options?: OrgAgentProfileListOptions) {
+  const client = useOmnaraClient()
+  const list = paginatedListOptions<ListOrgAgentProfilesData>(options)
+  return useInfiniteQuery({
+    ...cursorPaginated(
+      listOrgAgentProfilesInfiniteOptions({
+        path: { orgID },
+        query: list.query,
+        client,
+      }),
+    ),
+    enabled: list.enabled,
+  })
+}
+
 export function useAgentProfile(orgID: string, projectID: string, agentProfileID: string) {
   const client = useOmnaraClient()
   return useSuspenseQuery(
@@ -78,6 +102,9 @@ export function useCreateAgentProfile(orgID: string, projectID: string) {
         await Promise.all([
           queryClient.invalidateQueries({
             queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: listOrgAgentProfilesQueryKey({ path: { orgID }, client }),
           }),
           queryClient.invalidateQueries({
             queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),
@@ -117,6 +144,9 @@ export function useUpdateAgentProfile(orgID: string, projectID: string) {
           queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
         }),
         queryClient.invalidateQueries({
+          queryKey: listOrgAgentProfilesQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
           queryKey: getAgentProfileQueryKey({
             path: { orgID, projectID, agentProfileID },
             client,
@@ -147,6 +177,9 @@ export function useRenameAgentProfile(orgID: string, projectID: string) {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgAgentProfilesQueryKey({ path: { orgID }, client }),
         }),
         queryClient.invalidateQueries({
           queryKey: getAgentProfileQueryKey({
@@ -181,6 +214,9 @@ export function useDeleteAgentProfile(orgID: string, projectID: string) {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: listAgentProfilesQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgAgentProfilesQueryKey({ path: { orgID }, client }),
         }),
         queryClient.invalidateQueries({
           queryKey: getOrgOverviewQueryKey({ path: { orgID }, client }),

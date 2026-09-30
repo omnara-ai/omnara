@@ -1,14 +1,17 @@
-import type { OrgOverviewUsage, UsageTotals } from '@omnara/sdk'
+import type { UsageTimeseries, UsageTotals } from '@omnara/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
+  formatBucketLabel,
+  formatBucketTitle,
   labelledColumns,
   noProfileSeriesKey,
   otherSeriesKey,
+  usageBucketEnd,
   usageChartData,
   usageMeasureValue,
   usageTicks,
-} from '@/components/overview/usage-overview-data'
+} from '@/components/usage/usage-chart-data'
 import { profileIcon, tintColor } from '@/lib/agent-icon'
 
 function totals(input: number, output: number, cost: string, calls: number): UsageTotals {
@@ -30,32 +33,18 @@ const opus = 'mdl_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 const sonnet = 'mdl_bbbbbbbbbbbbbbbbbbbbbbbbbb'
 const reviewer = 'aprf_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
-const usage: OrgOverviewUsage = {
-  totals: totals(800, 90, '3.5', 10),
-  active_agents: 3,
-  models: [
-    { id: opus, name: 'Opus', totals: totals(500, 50, '2.5', 4) },
-    { id: sonnet, name: 'Sonnet', totals: totals(300, 30, '0.75', 4) },
-  ],
-  profiles: [
-    { id: reviewer, name: 'Reviewer', totals: totals(600, 60, '3', 6) },
-    { totals: totals(200, 30, '0.5', 4) },
-  ],
-  days: [
-    {
-      start: '2026-09-21T07:00:00Z',
-      totals: totals(500, 50, '2.5', 4),
-      models: [{ id: opus, tokens: 550 }],
-      profiles: [{ id: reviewer, tokens: 550 }],
-    },
-    { start: '2026-09-22T07:00:00Z', totals: totals(0, 0, '0', 0), models: [], profiles: [] },
-    {
-      start: '2026-09-23T07:00:00Z',
-      totals: totals(300, 40, '1', 6),
-      models: [{ id: sonnet, tokens: 330 }],
-      profiles: [{ id: reviewer, tokens: 110 }, { tokens: 230 }],
-    },
-  ],
+function timeseries(series: UsageTimeseries['series']): UsageTimeseries {
+  return {
+    metric: 'sum_tokens',
+    interval: 'day',
+    group_by: 'model',
+    timezone: 'UTC',
+    bucket_starts: ['2026-09-21T00:00:00Z', '2026-09-22T00:00:00Z', '2026-09-23T00:00:00Z'],
+    until: '2026-09-24T00:00:00Z',
+    totals: totals(800, 90, '3.5', 10),
+    active_agents: 3,
+    series,
+  }
 }
 
 describe('usageMeasureValue', () => {
@@ -68,12 +57,19 @@ describe('usageMeasureValue', () => {
 })
 
 describe('usageChartData', () => {
-  it('keeps ranked models, derives Other from the remainder, and stacks every day', () => {
-    const data = usageChartData(usage, 'model')
-    expect(data.series.map((series) => [series.key, series.total])).toEqual([
-      [opus, 550],
-      [sonnet, 330],
-      [otherSeriesKey, 10],
+  it('colors ranked models in order, keeps Other muted, and stacks every bucket', () => {
+    const data = usageChartData(
+      timeseries([
+        { kind: 'model', id: opus, name: 'Opus', total: 550, values: [550, 0, 0] },
+        { kind: 'model', id: sonnet, name: 'Sonnet', total: 330, values: [0, 0, 330] },
+        { kind: 'other', total: 10, values: [0, 0, 10] },
+      ]),
+      'tokens',
+    )
+    expect(data.series.map((series) => [series.key, series.name, series.total])).toEqual([
+      [opus, 'Opus', 550],
+      [sonnet, 'Sonnet', 330],
+      [otherSeriesKey, 'Other', 10],
     ])
     expect(data.series[0]?.color).toBe('var(--chart-1)')
     expect(data.series[2]?.color).toBe('var(--muted-foreground)')
@@ -84,15 +80,18 @@ describe('usageChartData', () => {
       [otherSeriesKey]: 10,
     })
     expect(data.columns[1]?.values.size).toBe(0)
+    expect(data.interval).toBe('day')
+    expect(data.measure).toBe('tokens')
   })
 
-  it('omits Other when the named models cover everything', () => {
-    const covered = usageChartData({ ...usage, totals: totals(800, 80, '3.25', 8) }, 'model')
-    expect(covered.series.map((series) => series.key)).toEqual([opus, sonnet])
-  })
-
-  it('breaks the same days down by profile and names usage without a profile', () => {
-    const data = usageChartData(usage, 'profile')
+  it('gives profiles their icon tint and names usage without a profile', () => {
+    const data = usageChartData(
+      timeseries([
+        { kind: 'profile', id: reviewer, name: 'Reviewer', total: 660, values: [550, 0, 110] },
+        { kind: 'no_profile', total: 230, values: [0, 0, 230] },
+      ]),
+      'tokens',
+    )
     expect(data.series.map((series) => [series.key, series.name, series.total])).toEqual([
       [reviewer, 'Reviewer', 660],
       [noProfileSeriesKey, 'No profile', 230],
@@ -100,11 +99,30 @@ describe('usageChartData', () => {
     expect(data.series[0]?.color).toBe(tintColor(profileIcon(reviewer).tint))
     expect(data.series[0]?.icon).toEqual(profileIcon(reviewer))
     expect(data.series[1]?.icon).toBeUndefined()
-    expect(data.columns.map((column) => column.total)).toEqual([550, 0, 340])
     expect(Object.fromEntries(data.columns[2]?.values ?? [])).toEqual({
       [reviewer]: 110,
       [noProfileSeriesKey]: 230,
     })
+  })
+
+  it('plots an ungrouped series as a single total', () => {
+    const data = usageChartData(
+      timeseries([{ kind: 'all', total: 1.5, values: [1, 0, 0.5] }]),
+      'cost',
+    )
+    expect(data.series.map((series) => [series.key, series.name])).toEqual([['all', 'Total']])
+    expect(data.columns.map((column) => column.total)).toEqual([1, 0, 0.5])
+  })
+})
+
+describe('bucket formatting', () => {
+  it('labels months by month and weeks by their first day', () => {
+    const start = new Date(2026, 8, 1)
+    expect(formatBucketLabel(start, 'month')).toContain('2026')
+    expect(formatBucketTitle(start, 'week')).toMatch(/^Week of /)
+    expect(usageBucketEnd(start, 'month')).toEqual(new Date(2026, 9, 1))
+    expect(usageBucketEnd(start, 'week')).toEqual(new Date(2026, 8, 8))
+    expect(usageBucketEnd(start, 'day')).toEqual(new Date(2026, 8, 2))
   })
 })
 

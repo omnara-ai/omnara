@@ -238,8 +238,9 @@ export function ConfiguredModelsSection() {
           emptyMessage={
             providers.length === 0
               ? 'No model providers yet. Create a provider before adding configured models.'
-              : 'No configured models yet.'
+              : 'No configured models yet. Add one so agents can use it.'
           }
+          emptyAction={newModelButton()}
         />
       </div>
       {canManage && (

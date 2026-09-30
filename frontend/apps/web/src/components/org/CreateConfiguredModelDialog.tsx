@@ -316,7 +316,7 @@ export function CreateConfiguredModelDialog({
                     disabled={isSubmitting || (phase.kind === 'form' && !valid)}
                     loading={isSubmitting}
                   >
-                    {phase.kind === 'retry-grants' ? 'Retry project grants' : 'Add model'}
+                    {phase.kind === 'retry-grants' ? 'Retry sharing' : 'Add model'}
                   </Button>
                 )}
               </form.Subscribe>

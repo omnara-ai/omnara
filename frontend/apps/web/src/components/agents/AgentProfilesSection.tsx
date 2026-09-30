@@ -4,8 +4,9 @@ import {
   useAgentProfileUsage,
   useAgents,
   useCreateAgent,
+  useOrgAgentProfiles,
 } from '@omnara/react'
-import { type Agent, type AgentProfileSummary, ApiError } from '@omnara/sdk'
+import { type Agent, type AgentProfileSummary, ApiError, type VisibleProject } from '@omnara/sdk'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { type ReactNode, useId, useState } from 'react'
 
@@ -18,27 +19,37 @@ import {
   AgentCardTime,
 } from '@/components/agents/AgentCardList'
 import { AgentIcon } from '@/components/agents/AgentIcon'
-import { AgentStatus } from '@/components/agents/AgentStatus'
+import {
+  CreateAgentProfileButton,
+  OrgCreateAgentProfileButton,
+} from '@/components/agents/CreateAgentProfileButton'
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
+import { ProjectTag } from '@/components/agents/ProjectTag'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert, Users } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { usePagedQuery } from '@/hooks/use-paged-query'
+import { type PaginationControls, usePagedQuery } from '@/hooks/use-paged-query'
+import { useProjectDirectory } from '@/hooks/use-project-directory'
 import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
+import { agentStatusLabel, isAgentActive } from '@/lib/agent-status'
 import { formatCount, formatTimeAgo, formatUsd } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useWebConfig } from '@/lib/web-config'
+
+type ProfileListControls = ReturnType<typeof useResourceList<AgentProfileListSort>>
 
 export function AgentProfilesSection({
   orgId,
   projectId,
   canOperate,
+  canManage,
 }: {
   orgId: string
   projectId: string
   canOperate: boolean
+  canManage: boolean
 }) {
   const list = useResourceList<AgentProfileListSort>('-updated_at')
   const query = useAgentProfiles(orgId, projectId, {
@@ -46,33 +57,72 @@ export function AgentProfilesSection({
     sort: list.sort,
   })
   const paged = usePagedQuery(query, list.queryKey)
-  const createAgent = useCreateAgent(orgId, projectId)
+  return (
+    <AgentProfileList
+      orgId={orgId}
+      list={list}
+      rows={paged.rows}
+      pagination={paged.pagination}
+      isPending={query.isPending}
+      isError={query.isError}
+      onRetry={() => {
+        void query.refetch()
+      }}
+      canOperate={() => canOperate}
+      emptyAction={canManage && <CreateAgentProfileButton projectId={projectId} />}
+    />
+  )
+}
+
+export function OrgAgentProfilesSection({ orgId }: { orgId: string }) {
+  const list = useResourceList<AgentProfileListSort>('-updated_at')
+  const query = useOrgAgentProfiles(orgId, { filters: list.apiFilters, sort: list.sort })
+  const paged = usePagedQuery(query, list.queryKey)
+  const projects = useProjectDirectory(orgId)
+  return (
+    <AgentProfileList
+      orgId={orgId}
+      list={list}
+      rows={paged.rows}
+      pagination={paged.pagination}
+      isPending={query.isPending}
+      isError={query.isError}
+      onRetry={() => {
+        void query.refetch()
+      }}
+      canOperate={(profile) => projects.get(profile.project_id)?.access.can_operate ?? false}
+      projectOf={(profile) => projects.get(profile.project_id)}
+      emptyAction={<OrgCreateAgentProfileButton orgId={orgId} />}
+    />
+  )
+}
+
+function AgentProfileList({
+  orgId,
+  list,
+  rows,
+  pagination,
+  isPending,
+  isError,
+  onRetry,
+  canOperate,
+  projectOf,
+  emptyAction,
+}: {
+  orgId: string
+  list: ProfileListControls
+  rows: AgentProfileSummary[]
+  pagination: PaginationControls
+  isPending: boolean
+  isError: boolean
+  onRetry: () => void
+  canOperate: (profile: AgentProfileSummary) => boolean
+  projectOf?: (profile: AgentProfileSummary) => VisibleProject | undefined
+  emptyAction: ReactNode
+}) {
   const { data: webConfig } = useWebConfig()
-  const navigate = useNavigate()
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [launchError, setLaunchError] = useState<ApiError>()
-
-  async function launch(profile: AgentProfileSummary) {
-    setLaunchError(undefined)
-    setLaunchingId(profile.id)
-    try {
-      const launched = await createAgent.mutateAsync({
-        profile: profile.id,
-        config: profile.current_config_id,
-      })
-      await navigate({
-        to: '/projects/$projectId/agents/$agentId',
-        params: { projectId, agentId: launched.agent.id },
-      })
-    } catch (error) {
-      if (isInsufficientCreditsError(error)) {
-        setLaunchError(error)
-      } else {
-        window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
-      }
-    }
-    setLaunchingId(null)
-  }
 
   return (
     <>
@@ -100,44 +150,102 @@ export function AgentProfilesSection({
           />
         </div>
         <AgentCardList
-          items={paged.rows}
+          items={rows}
           getId={(profile) => profile.id}
           renderCard={(profile) => (
             <ProfileCard
               orgId={orgId}
-              projectId={projectId}
               profile={profile}
+              project={projectOf?.(profile)}
               action={
-                canOperate && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="text-primary hover:text-primary h-9 px-2 sm:h-7"
+                canOperate(profile) && (
+                  <LaunchProfileButton
+                    orgId={orgId}
+                    profile={profile}
                     disabled={launchingId !== null}
                     loading={launchingId === profile.id}
-                    onClick={() => {
-                      void launch(profile)
+                    onStart={() => {
+                      setLaunchError(undefined)
+                      setLaunchingId(profile.id)
                     }}
-                  >
-                    Launch
-                  </Button>
+                    onInsufficientCredits={setLaunchError}
+                    onFinish={() => {
+                      setLaunchingId(null)
+                    }}
+                  />
                 )
               }
             />
           )}
           isFiltered={list.isFiltering}
-          pagination={paged.pagination}
-          isPending={query.isPending}
-          isError={query.isError}
-          onRetry={() => {
-            void query.refetch()
-          }}
+          pagination={pagination}
+          isPending={isPending}
+          isError={isError}
+          onRetry={onRetry}
           emptyMessage="No agent profiles yet. A profile is a saved, reusable agent config for launching agents in one click."
+          emptyAction={emptyAction}
         />
       </div>
       <SlackOAuthOutcomeDialog />
     </>
+  )
+}
+
+function LaunchProfileButton({
+  orgId,
+  profile,
+  disabled,
+  loading,
+  onStart,
+  onInsufficientCredits,
+  onFinish,
+}: {
+  orgId: string
+  profile: AgentProfileSummary
+  disabled: boolean
+  loading: boolean
+  onStart: () => void
+  onInsufficientCredits: (error: ApiError) => void
+  onFinish: () => void
+}) {
+  const createAgent = useCreateAgent(orgId, profile.project_id)
+  const navigate = useNavigate()
+
+  async function launch() {
+    onStart()
+    try {
+      const launched = await createAgent.mutateAsync({
+        profile: profile.id,
+        config: profile.current_config_id,
+      })
+      await navigate({
+        to: '/projects/$projectId/agents/$agentId',
+        params: { projectId: profile.project_id, agentId: launched.agent.id },
+      })
+    } catch (error) {
+      if (isInsufficientCreditsError(error)) {
+        onInsufficientCredits(error)
+      } else {
+        window.alert(error instanceof ApiError ? error.message : 'Could not launch agent')
+      }
+    }
+    onFinish()
+  }
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      className="text-primary hover:text-primary h-9 px-2 sm:h-7"
+      disabled={disabled}
+      loading={loading}
+      onClick={() => {
+        void launch()
+      }}
+    >
+      Launch
+    </Button>
   )
 }
 
@@ -146,15 +254,16 @@ const recentAgentLimit = 5
 
 function ProfileCard({
   orgId,
-  projectId,
   profile,
+  project,
   action,
 }: {
   orgId: string
-  projectId: string
   profile: AgentProfileSummary
+  project?: VisibleProject
   action: ReactNode
 }) {
+  const projectId = profile.project_id
   const usage = useAgentProfileUsage(orgId, projectId, profile.id, { includeSubagents: true })
   const instances = useAgents(orgId, projectId, {
     filters: { agent_profile_id: profile.id },
@@ -190,13 +299,16 @@ function ProfileCard({
     <AgentCard
       icon={profileIcon(profile.id)}
       title={
-        <Link
-          to="/projects/$projectId/agent-profiles/$profileId"
-          params={{ projectId, profileId: profile.id }}
-          className={agentCardLinkClass}
-        >
-          {profile.name}
-        </Link>
+        <>
+          <Link
+            to="/projects/$projectId/agent-profiles/$profileId"
+            params={{ projectId, profileId: profile.id }}
+            className={agentCardLinkClass}
+          >
+            {profile.name}
+          </Link>
+          {project && <ProjectTag project={project} />}
+        </>
       }
       subtitle={
         <>
@@ -263,10 +375,15 @@ function RecentAgentList({
             >
               <AgentIcon
                 icon={agentIcon(agent.agent_profile_id, agent.id)}
+                animated={isAgentActive(agent)}
                 className="size-5 rounded-[3px]"
               />
               <span className="truncate">{agent.name || 'Agent'}</span>
-              {agent.activity?.state !== 'idle' && <AgentStatus agent={agent} />}
+              {agent.activity?.state !== 'idle' && (
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {agentStatusLabel(agent)}
+                </span>
+              )}
               <span className="text-muted-foreground ml-auto shrink-0 text-xs tabular-nums">
                 {formatTimeAgo(agent.activity?.last_activity_at ?? agent.updated_at)}
               </span>

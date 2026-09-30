@@ -28,13 +28,7 @@ export function ProjectPageFrame({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb
-        items={[
-          { id: 'organization', label: context.activeOrg.name, to: '/' },
-          { id: 'project', label: context.project.name },
-          { id: 'page', label: title },
-        ]}
-      />
+      <PageBreadcrumb items={[{ id: 'page', label: title }]} />
       {children(context)}
     </div>
   )

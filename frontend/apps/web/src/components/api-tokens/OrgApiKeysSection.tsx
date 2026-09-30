@@ -14,19 +14,22 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
   const query = useOrgApiKeys(orgId)
   const paged = usePagedQuery(query, orgId)
   const [createOpen, setCreateOpen] = useState(false)
+  const createButton = (
+    <Button
+      size="sm"
+      onClick={() => {
+        setCreateOpen(true)
+      }}
+    >
+      New token
+    </Button>
+  )
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionTitle title="Organization API tokens" guide={guides.apiTokens} />
-        <Button
-          size="sm"
-          onClick={() => {
-            setCreateOpen(true)
-          }}
-        >
-          New token
-        </Button>
+        {createButton}
       </div>
       <DataTable
         columns={[
@@ -93,6 +96,7 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
         isError={query.isError}
         onRetry={() => void query.refetch()}
         emptyMessage="No organization API tokens yet. Create one to give an integration or automation its own org access."
+        emptyAction={createButton}
       />
       <CreateOrgApiKeyDialog open={createOpen} onOpenChange={setCreateOpen} orgId={orgId} />
     </div>

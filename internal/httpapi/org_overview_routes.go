@@ -17,11 +17,8 @@ import (
 const (
 	orgOverviewRecentLimit = 5
 	// orgOverviewMaxProjects caps how many visible projects the overview
-	// considers (and returns); recents and usage beyond this cap are best-effort omitted.
+	// considers (and returns); recents beyond this cap are best-effort omitted.
 	orgOverviewMaxProjects = 200
-
-	orgOverviewUsageDays       = 30
-	orgOverviewUsageGroupLimit = 8
 )
 
 func (s strictOpenAPIServer) GetOrgOverview(
@@ -32,7 +29,7 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	location, err := orgOverviewLocation(request.Params.Timezone)
+	location, err := timezoneLocation(request.Params.Timezone)
 	if err != nil {
 		return nil, err
 	}
@@ -103,25 +100,12 @@ func (s strictOpenAPIServer) GetOrgOverview(
 	if err != nil {
 		return nil, err
 	}
-	dayStarts := executionstore.UsageDayStarts(time.Now(), orgOverviewUsageDays, location)
+	todayStart := executionstore.UsageDayStart(time.Now(), location)
 	activity, err := s.server.store.Execution().CountOrgActivity(ctx, executionstore.CountOrgActivityInput{
-		ProjectIDs: agentProjectIDs, Window: executionstore.UsageWindow{Since: &dayStarts[len(dayStarts)-1]},
+		ProjectIDs: agentProjectIDs, Window: executionstore.UsageWindow{Since: &todayStart},
 	})
 	if err != nil {
 		return nil, apierror.OrgScoped(err)
-	}
-	series, err := s.server.store.Execution().SumOrgModelUsageSeries(ctx, executionstore.SumOrgModelUsageSeriesInput{
-		OrgID:      org.ID,
-		ProjectIDs: readableProjectIDs,
-		DayStarts:  dayStarts,
-		GroupLimit: orgOverviewUsageGroupLimit,
-	})
-	if err != nil {
-		return nil, apierror.OrgScoped(err)
-	}
-	usage, err := orgOverviewUsageResponse(series)
-	if err != nil {
-		return nil, err
 	}
 	return openapi.GetOrgOverview200JSONResponse(openapi.OrgOverviewResponse{
 		Projects:                projects,
@@ -132,7 +116,6 @@ func (s strictOpenAPIServer) GetOrgOverview(
 			AgentsCreated: activity.AgentsCreated,
 			MessagesSent:  activity.MessagesSent,
 		},
-		Usage: usage,
 	}), nil
 }
 
@@ -176,7 +159,7 @@ func (s strictOpenAPIServer) referencedAgentProfiles(
 	return references, nil
 }
 
-func orgOverviewLocation(timezone *string) (*time.Location, error) {
+func timezoneLocation(timezone *string) (*time.Location, error) {
 	if timezone == nil {
 		return time.UTC, nil
 	}
@@ -185,61 +168,4 @@ func orgOverviewLocation(timezone *string) (*time.Location, error) {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid timezone")
 	}
 	return location, nil
-}
-
-func orgOverviewUsageResponse(series executionstore.ModelUsageSeries) (openapi.OrgOverviewUsage, error) {
-	modelIDs := make(map[uuid.UUID]string, len(series.Models))
-	models := make([]openapi.OrgOverviewUsageModel, 0, len(series.Models))
-	for _, model := range series.Models {
-		id, err := publicID(publicid.KindConfiguredModel, model.ID)
-		if err != nil {
-			return openapi.OrgOverviewUsage{}, err
-		}
-		modelIDs[model.ID] = id
-		models = append(models, openapi.OrgOverviewUsageModel{
-			Id: id, Name: model.Name, Totals: usageTotalsResponse(model.Totals),
-		})
-	}
-	profileIDs := make(map[uuid.UUID]*string, len(series.Profiles))
-	profiles := make([]openapi.OrgOverviewUsageProfile, 0, len(series.Profiles))
-	for _, profile := range series.Profiles {
-		response := openapi.OrgOverviewUsageProfile{Totals: usageTotalsResponse(profile.Totals)}
-		if profile.ID != uuid.Nil {
-			id, err := publicID(publicid.KindAgentProfile, profile.ID)
-			if err != nil {
-				return openapi.OrgOverviewUsage{}, err
-			}
-			response.Id, response.Name = new(id), new(profile.Name)
-		}
-		profileIDs[profile.ID] = response.Id
-		profiles = append(profiles, response)
-	}
-	days := make([]openapi.OrgOverviewUsageDay, 0, len(series.Days))
-	for _, day := range series.Days {
-		dayModels := make([]openapi.OrgOverviewUsageDayModel, 0, len(day.Models))
-		for _, model := range day.Models {
-			dayModels = append(dayModels, openapi.OrgOverviewUsageDayModel{
-				Id: modelIDs[model.GroupID], Tokens: model.Tokens,
-			})
-		}
-		dayProfiles := make([]openapi.OrgOverviewUsageDayProfile, 0, len(day.Profiles))
-		for _, profile := range day.Profiles {
-			dayProfiles = append(dayProfiles, openapi.OrgOverviewUsageDayProfile{
-				Id: profileIDs[profile.GroupID], Tokens: profile.Tokens,
-			})
-		}
-		days = append(days, openapi.OrgOverviewUsageDay{
-			Start:    day.Start.UTC(),
-			Totals:   usageTotalsResponse(day.Totals),
-			Models:   dayModels,
-			Profiles: dayProfiles,
-		})
-	}
-	return openapi.OrgOverviewUsage{
-		Totals:       usageTotalsResponse(series.Totals),
-		ActiveAgents: series.ActiveAgents,
-		Models:       models,
-		Profiles:     profiles,
-		Days:         days,
-	}, nil
 }

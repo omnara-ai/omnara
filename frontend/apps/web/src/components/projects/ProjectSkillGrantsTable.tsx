@@ -1,10 +1,12 @@
 import { type ProjectAvailableSkillListSort, useProjectAvailableSkills } from '@omnara/react'
+import { Link } from '@tanstack/react-router'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SkillRowActions } from '@/components/skills/SkillRowActions'
+import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
@@ -35,14 +37,14 @@ export function ProjectSkillGrantsTable({
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title="Skill grants"
+        title="Shared skills"
         guide={guides.skills}
         toolbar={
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
             sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
-            placeholder="Search skill grants by name…"
+            placeholder="Search shared skills by name…"
             showSearch={showToolbar}
           />
         }
@@ -102,7 +104,12 @@ export function ProjectSkillGrantsTable({
         onRetry={() => {
           void query.refetch()
         }}
-        emptyMessage="No skills granted to this project. Grant one from its owner’s Skills page."
+        emptyMessage="No skills shared with this project. Share one from its owner’s Skills page."
+        emptyAction={
+          <Button asChild size="sm" variant="outline">
+            <Link to="/skills">Go to skills</Link>
+          </Button>
+        }
       />
     </div>
   )

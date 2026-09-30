@@ -89,8 +89,6 @@ export function CreateAgentFormView({
         <div className="flex min-h-full w-full flex-col gap-6 pb-6">
           <PageBreadcrumb
             items={[
-              { id: 'organization', label: activeOrg.name, to: '/' },
-              { id: 'project', label: project.name },
               {
                 id: 'agents',
                 label: 'Agents',

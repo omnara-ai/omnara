@@ -193,9 +193,7 @@ function AgentSubagentsGroup({
               >
                 <span className="flex min-w-0 flex-col">
                   <AgentReferenceLink
-                    projectId={projectId}
-                    agentId={subagent.id}
-                    profileId={subagent.agent_profile_id}
+                    agent={subagent}
                     name={subagent.name || (subagent.subagent_key ?? 'Agent')}
                   />
                   <span className="text-muted-foreground truncate font-mono text-xs">
