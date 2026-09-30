@@ -191,7 +191,9 @@ func TestIntegrationSendToolRejectsInvalidFiles(t *testing.T) {
 	scope := memorystore.Scope{
 		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(fixture.User.ID),
 	}
-	unattached, err := fixture.Store.Memories().Create(ctx, scope, "unattached", "", false)
+	unattached, err := fixture.Store.Memories().Create(
+		ctx, scope, "unattached", "", agentconfig.MemoryStoreAccessReadWrite,
+	)
 	require.NoError(t, err)
 	_, err = fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
 		Scope: scope, StoreID: unattached.ID, Path: "secret.txt", Content: []byte("private"),
@@ -205,7 +207,9 @@ VALUES ($1, $2, 'Other Project', 'send-files-other-project', statement_timestamp
 	require.NoError(t, err)
 	otherScope := scope
 	otherScope.ProjectID = otherProjectID
-	foreign, err := fixture.Store.Memories().Create(ctx, otherScope, "foreign", "", false)
+	foreign, err := fixture.Store.Memories().Create(
+		ctx, otherScope, "foreign", "", agentconfig.MemoryStoreAccessReadWrite,
+	)
 	require.NoError(t, err)
 	_, err = fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
 		Scope: otherScope, StoreID: foreign.ID, Path: "secret.txt", Content: []byte("private"),
@@ -356,7 +360,8 @@ func TestIntegrationSendToolUploadsFilesWithSafeRetries(t *testing.T) {
 					require.NoError(t, err)
 					memoryDigest = written.Digest
 					if tt.readOnly {
-						_, err = fixture.Store.Memories().Update(ctx, memoryInput.Scope, resource.ID, nil, &tt.readOnly)
+						agentAccess := agentconfig.MemoryStoreAccessReadOnly
+						_, err = fixture.Store.Memories().Update(ctx, memoryInput.Scope, resource.ID, nil, &agentAccess)
 						require.NoError(t, err)
 					}
 					paths = append(paths, "/memory/engineering/"+memoryInput.Path)
@@ -2255,7 +2260,7 @@ tools:
 	if fixtureOptions.withMemory {
 		_, err := store.Memories().Create(ctx, memorystore.Scope{
 			OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(userID),
-		}, "engineering", "", false)
+		}, "engineering", "", agentconfig.MemoryStoreAccessReadWrite)
 		require.NoError(t, err)
 		sourceYAML += "memory_stores:\n  - name: engineering\n    access: read_only\n"
 	}

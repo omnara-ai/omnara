@@ -604,6 +604,12 @@ func readFileTool() (Entry, error) {
 				"minLength":   1,
 				"description": "Exact file path: /artifacts/<artifact_id> or /memory/<store>/<file>.",
 			},
+			"expected_digest": map[string]any{
+				"type":    "string",
+				"pattern": `^sha256:[0-9a-f]{64}$`,
+				"description": "Optional digest precondition. Use the first page's digest when continuing a memory read. " +
+					"Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read.",
+			},
 			"offset_line": map[string]any{
 				"type":    "integer",
 				"minimum": 1,

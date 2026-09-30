@@ -44,6 +44,9 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 	if !ok || id == "" {
 		t.Fatalf("missing id: %+v", created)
 	}
+	if created["agent_access"] != "read_write" {
+		t.Fatalf("default agent access: %+v", created)
+	}
 	if created["description"] != description {
 		t.Fatal("description at the character limit was not preserved")
 	}
@@ -55,6 +58,15 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 			t, handler, test.method, test.path, test.body,
 			"", http.StatusBadRequest, authHeaders(project.AdminToken),
 		)
+	}
+	for _, access := range []string{`""`, `"write"`, `true`, `null`} {
+		for _, method := range []string{http.MethodPost, http.MethodPatch} {
+			target, body := path, fmt.Sprintf(`{"name":"invalid","agent_access":%s}`, access)
+			if method == http.MethodPatch {
+				target, body = path+"/"+id, fmt.Sprintf(`{"agent_access":%s}`, access)
+			}
+			requestJSONWithHeaders(t, handler, method, target, body, "", http.StatusBadRequest, authHeaders(project.AdminToken))
+		}
 	}
 	requestJSONWithHeaders(
 		t,
@@ -71,13 +83,20 @@ func TestMemoryStoreManagementAPI(t *testing.T) {
 		handler,
 		http.MethodPatch,
 		path+"/"+id,
-		`{"read_only":true,"description":"Reference"}`,
+		`{"agent_access":"read_only","description":"Reference"}`,
 		"",
 		http.StatusOK,
 		authHeaders(project.AdminToken),
 	)
-	if got["read_only"] != true || got["description"] != "Reference" {
+	if got["agent_access"] != "read_only" || got["description"] != "Reference" {
 		t.Fatalf("update: %+v", got)
+	}
+	got = requestJSONWithHeaders(
+		t, handler, http.MethodPatch, path+"/"+id, `{"description":"Updated reference"}`,
+		"", http.StatusOK, authHeaders(project.AdminToken),
+	)
+	if got["agent_access"] != "read_only" {
+		t.Fatalf("description update changed agent access: %+v", got)
 	}
 	requestJSONWithHeaders(
 		t,

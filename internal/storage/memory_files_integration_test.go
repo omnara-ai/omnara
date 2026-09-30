@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -54,7 +55,9 @@ func TestMemoryFileMutationsWithSingleConnection(t *testing.T) {
 			t.Cleanup(limited.Close)
 			memories := newIntegrationStore(limited, WithMemoryFilesystem(files)).Memories()
 			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: principal}
-			resource, err := memories.Create(ctx, scope, strings.ReplaceAll(principal.Type, "_", "-"), "", false)
+			resource, err := memories.Create(
+				ctx, scope, strings.ReplaceAll(principal.Type, "_", "-"), "", agentconfig.MemoryStoreAccessReadWrite,
+			)
 			require.NoError(t, err)
 			input := memorystore.WriteInput{
 				Scope: scope, StoreID: resource.ID, Path: "notes.txt", Content: []byte("original"),
@@ -86,7 +89,9 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 	for _, unfinishedCleanup := range []bool{false, true} {
 		t.Run(fmt.Sprintf("name-reuse-%t", unfinishedCleanup), func(t *testing.T) {
 			t.Parallel()
-			original, err := store.Memories().Create(ctx, scope, fmt.Sprintf("reuse-%t", unfinishedCleanup), "", false)
+			original, err := store.Memories().Create(
+				ctx, scope, fmt.Sprintf("reuse-%t", unfinishedCleanup), "", agentconfig.MemoryStoreAccessReadWrite,
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,7 +101,9 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 			if _, err := store.Memories().Write(ctx, oldInput); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := store.Memories().Create(ctx, scope, original.Name, "", false); !errors.Is(err, storeerr.ErrConflict) {
+			if _, err := store.Memories().Create(
+				ctx, scope, original.Name, "", agentconfig.MemoryStoreAccessReadWrite,
+			); !errors.Is(err, storeerr.ErrConflict) {
 				t.Fatalf("duplicate creation: %v", err)
 			}
 			_, body, err := store.Memories().Read(ctx, scope, original.ID, oldInput.Path)
@@ -112,7 +119,9 @@ func TestMemoryStoreNameReuse(t *testing.T) {
 			} else if err := store.Memories().Delete(ctx, scope, original.ID); err != nil {
 				t.Fatal(err)
 			}
-			replacement, err := store.Memories().Create(ctx, scope, original.Name, "", false)
+			replacement, err := store.Memories().Create(
+				ctx, scope, original.Name, "", agentconfig.MemoryStoreAccessReadWrite,
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -189,7 +198,7 @@ func TestMemoryFilesystemContentsAndQuota(t *testing.T) {
 	}
 	admin := createSecretTestUser(t, ctx, stores[0], "Memory Files Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	resource, err := stores[0].Memories().Create(ctx, scope, "files", "", false)
+	resource, err := stores[0].Memories().Create(ctx, scope, "files", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +300,9 @@ func TestMemoryScopeDeletionRemovesDeletedStoreFiles(t *testing.T) {
 			store := newIntegrationStore(pool, WithMemoryFilesystem(files))
 			admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
 			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-			resource, err := store.Memories().Create(ctx, scope, "old-store", "", false)
+			resource, err := store.Memories().Create(
+				ctx, scope, "old-store", "", agentconfig.MemoryStoreAccessReadWrite,
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -315,7 +326,9 @@ func TestMemoryScopeDeletionRemovesDeletedStoreFiles(t *testing.T) {
 			for _, projectID := range []uuid.UUID{scope.ProjectID, other.ID} {
 				activeScope := scope
 				activeScope.ProjectID = projectID
-				_, err := store.Memories().Create(ctx, activeScope, "active-store", "", false)
+				_, err := store.Memories().Create(
+					ctx, activeScope, "active-store", "", agentconfig.MemoryStoreAccessReadWrite,
+				)
 				require.NoError(t, err)
 			}
 			if organization {
@@ -366,7 +379,7 @@ func TestMemoryDeletionLogsCleanupFailure(t *testing.T) {
 			store := newIntegrationStore(pool, WithMemoryFilesystem(files))
 			admin := createSecretTestUser(t, ctx, store, "Memory Cleanup Admin", "admin")
 			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-			resource, err := store.Memories().Create(ctx, scope, "notes", "", false)
+			resource, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
 			require.NoError(t, err)
 			_, err = store.Memories().Write(ctx, memorystore.WriteInput{
 				Scope: scope, StoreID: resource.ID, Path: "note.txt", Content: []byte("retained"),
@@ -412,7 +425,7 @@ func TestMemoryFileMutationsWaitForStoreDeletion(t *testing.T) {
 	for _, operation := range []string{"write", "delete-file"} {
 		t.Run(operation, func(t *testing.T) {
 			ctx := t.Context()
-			resource, err := store.Memories().Create(ctx, scope, operation, "", false)
+			resource, err := store.Memories().Create(ctx, scope, operation, "", agentconfig.MemoryStoreAccessReadWrite)
 			require.NoError(t, err)
 			input := memorystore.WriteInput{Scope: scope, StoreID: resource.ID, Path: "note.txt", Content: []byte("original")}
 			result, err := store.Memories().Write(ctx, input)
@@ -436,7 +449,9 @@ func TestMemoryFileMutationsWaitForStoreDeletion(t *testing.T) {
 				ProjectID: scope.ProjectID, ID: resource.ID,
 			}))
 			require.NoError(t, tx.Commit(ctx))
-			require.ErrorIs(t, integrationdb.Await(t, done, "memory mutation after store deletion"), storeerr.ErrNotFound)
+			mutationErr := integrationdb.Await(t, done, "memory mutation after store deletion")
+			require.ErrorIs(t, mutationErr, storeerr.ErrNotFound)
+			require.EqualError(t, mutationErr, "memory store is unavailable: not found")
 			root, err := files.OpenStore(memoryFilesystemRef(t, scope, resource))
 			require.NoError(t, err)
 			defer func() { _ = root.Close() }()

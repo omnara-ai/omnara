@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -94,18 +95,20 @@ func TestSearchMemoryScopesAndLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondary, err := fixture.Store.Memories().Create(ctx, scope, "secondary", "", false)
+	secondary, err := fixture.Store.Memories().Create(
+		ctx, scope, "secondary", "", agentconfig.MemoryStoreAccessReadWrite,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	private, err := fixture.Store.Memories().Create(ctx, scope, "private", "", false)
+	private, err := fixture.Store.Memories().Create(ctx, scope, "private", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := fixture.AgentConfig.Source + "  - name: secondary\n    access: read_only\n"
 	for i := range searchStoreBatchSize + 1 {
 		name := fmt.Sprintf("batch-%02d", i)
-		store, err := fixture.Store.Memories().Create(ctx, scope, name, "", false)
+		store, err := fixture.Store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
 		if err != nil {
 			t.Fatal(err)
 		}

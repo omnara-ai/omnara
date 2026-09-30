@@ -28,7 +28,7 @@ const store = {
   id: storeID,
   name: 'engineering',
   description: '',
-  read_only: false,
+  agent_access: 'read_write',
   created_at: '2026-09-18T00:00:00Z',
   updated_at: '2026-09-18T00:00:00Z',
 }
@@ -89,17 +89,17 @@ function cli(reply: (request: Request) => Response | Promise<Response>) {
 describe('memory store commands', () => {
   it.each([
     {
-      args: ['create', '--name', 'engineering', '--read-only'],
+      args: ['create', '--name', 'engineering', '--agent-access', 'read_only'],
       method: 'POST',
       suffix: '',
-      body: { name: 'engineering', read_only: true },
+      body: { name: 'engineering', agent_access: 'read_only' },
     },
     { args: ['get', storeID], method: 'GET', suffix: `/${storeID}`, body: undefined },
     {
-      args: ['update', storeID, '--description', 'Reference', '--no-read-only'],
+      args: ['update', storeID, '--description', 'Reference', '--agent-access', 'read_write'],
       method: 'PATCH',
       suffix: `/${storeID}`,
-      body: { description: 'Reference', read_only: false },
+      body: { description: 'Reference', agent_access: 'read_write' },
     },
     { args: ['delete', storeID], method: 'DELETE', suffix: `/${storeID}`, body: undefined },
   ])('sends $method with the configured project', async ({ args, method, suffix, body }) => {

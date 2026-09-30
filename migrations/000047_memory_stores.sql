@@ -1,15 +1,16 @@
 -- +goose Up
 
 CREATE TABLE memory_stores (
-    id          uuid PRIMARY KEY DEFAULT uuidv7(),
-    project_id  uuid NOT NULL REFERENCES projects(id),
-    name        text COLLATE "C" NOT NULL,
-    description text NOT NULL DEFAULT '',
-    read_only   boolean NOT NULL DEFAULT false,
-    created_at  timestamptz NOT NULL DEFAULT statement_timestamp(),
-    updated_at  timestamptz NOT NULL DEFAULT statement_timestamp(),
-    deleted_at  timestamptz,
+    id           uuid PRIMARY KEY DEFAULT uuidv7(),
+    project_id   uuid NOT NULL REFERENCES projects(id),
+    name         text COLLATE "C" NOT NULL,
+    description  text NOT NULL DEFAULT '',
+    agent_access text NOT NULL DEFAULT 'read_write',
+    created_at   timestamptz NOT NULL DEFAULT statement_timestamp(),
+    updated_at   timestamptz NOT NULL DEFAULT statement_timestamp(),
+    deleted_at   timestamptz,
 
+    CHECK (agent_access IN ('read_only', 'read_write')),
     CHECK (length(name) BETWEEN 1 AND 64 AND name ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
 );
 

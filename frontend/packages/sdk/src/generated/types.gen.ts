@@ -871,11 +871,13 @@ export type ListSkillGrantsResponse = {
     next_cursor: string | null;
 };
 
+export type MemoryStoreAccess = 'read_only' | 'read_write';
+
 export type MemoryStore = {
     id: MemoryStoreId;
     name: MemoryStoreName;
     description: string;
-    read_only: boolean;
+    agent_access: MemoryStoreAccess;
     created_at: string;
     updated_at: string;
 };
@@ -883,12 +885,12 @@ export type MemoryStore = {
 export type CreateMemoryStore = {
     name: MemoryStoreName;
     description?: string;
-    read_only?: boolean;
+    agent_access?: MemoryStoreAccess;
 };
 
 export type UpdateMemoryStore = {
     description?: string;
-    read_only?: boolean;
+    agent_access?: MemoryStoreAccess;
 };
 
 export type MemoryStoreList = {
@@ -1428,7 +1430,7 @@ export type CompiledSkill = {
 
 export type CompiledMemoryStore = {
     id: MemoryStoreId;
-    access: 'read_only' | 'read_write';
+    access: MemoryStoreAccess;
 };
 
 export type CompiledSubagent = ({

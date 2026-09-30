@@ -523,18 +523,18 @@ export const zSkillOwner = z.discriminatedUnion('kind', [
 
 export const zCreateSkillRequest = z.object({
     owner: zSkillOwnerInput,
-    archive: z.string()
+    archive: z.instanceof(Blob)
 });
 
 export const zUpdateSkillRequest = z.intersection(z.union([
     z.object({
-        archive: z.string()
+        archive: z.instanceof(Blob)
     }),
     z.object({
         skill_md: z.string()
     })
 ]), z.object({
-    archive: z.string().optional(),
+    archive: z.instanceof(Blob).optional(),
     skill_md: z.string().optional()
 }));
 
@@ -599,11 +599,13 @@ export const zSkillGrant = z.object({
     created_at: zTimestamp
 });
 
+export const zMemoryStoreAccess = z.enum(['read_only', 'read_write']);
+
 export const zMemoryStore = z.object({
     id: zMemoryStoreId,
     name: zMemoryStoreName,
     description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }),
-    read_only: z.boolean(),
+    agent_access: zMemoryStoreAccess,
     created_at: z.iso.datetime({ offset: true }),
     updated_at: z.iso.datetime({ offset: true })
 });
@@ -611,12 +613,12 @@ export const zMemoryStore = z.object({
 export const zCreateMemoryStore = z.object({
     name: zMemoryStoreName,
     description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
-    read_only: z.boolean().optional()
+    agent_access: zMemoryStoreAccess.optional().default('read_write')
 });
 
 export const zUpdateMemoryStore = z.object({
     description: z.string().refine(value => Array.from(value).length <= 1024, { message: 'String cannot exceed 1024 Unicode characters' }).optional(),
-    read_only: z.boolean().optional()
+    agent_access: zMemoryStoreAccess.optional()
 });
 
 export const zMemoryStoreList = z.object({
@@ -1020,7 +1022,7 @@ export const zCompiledSkill = z.object({
 
 export const zCompiledMemoryStore = z.object({
     id: zMemoryStoreId,
-    access: z.enum(['read_only', 'read_write'])
+    access: zMemoryStoreAccess
 });
 
 export const zCompiledSubagentModel = z.object({
@@ -3770,9 +3772,9 @@ export const zDownloadMemoryFileQuery = z.object({
 /**
  * Success.
  */
-export const zDownloadMemoryFileResponse = z.string();
+export const zDownloadMemoryFileResponse = z.instanceof(Blob);
 
-export const zWriteMemoryFileBody = z.string();
+export const zWriteMemoryFileBody = z.instanceof(Blob);
 
 export const zWriteMemoryFilePath = z.object({
     orgID: zOrganizationId,
@@ -4561,7 +4563,7 @@ export const zGetArtifactContentPath = z.object({
 /**
  * Artifact bytes, served with the artifact's stored content type.
  */
-export const zGetArtifactContentResponse = z.string();
+export const zGetArtifactContentResponse = z.instanceof(Blob);
 
 export const zListVisibleProjectMachinesPath = z.object({
     orgID: z.string().regex(/^org_[a-z2-7]{26}$/),
@@ -5157,9 +5159,9 @@ export const zGetDaemonSkillArchiveQuery = z.object({
 /**
  * Skill archive bytes.
  */
-export const zGetDaemonSkillArchiveResponse = z.string();
+export const zGetDaemonSkillArchiveResponse = z.instanceof(Blob);
 
-export const zUploadDaemonArtifactBody = z.string();
+export const zUploadDaemonArtifactBody = z.instanceof(Blob);
 
 export const zUploadDaemonArtifactPath = z.object({
     toolCallID: zToolCallId
@@ -5182,7 +5184,7 @@ export const zDownloadDaemonArtifactPath = z.object({
 /**
  * Artifact bytes, served with the artifact's stored content type.
  */
-export const zDownloadDaemonArtifactResponse = z.string();
+export const zDownloadDaemonArtifactResponse = z.instanceof(Blob);
 
 export const zDownloadDaemonFilePath = z.object({
     toolCallID: zToolCallId
@@ -5191,9 +5193,9 @@ export const zDownloadDaemonFilePath = z.object({
 /**
  * Success.
  */
-export const zDownloadDaemonFileResponse = z.string();
+export const zDownloadDaemonFileResponse = z.instanceof(Blob);
 
-export const zUploadDaemonFileBody = z.string();
+export const zUploadDaemonFileBody = z.instanceof(Blob);
 
 export const zUploadDaemonFilePath = z.object({
     toolCallID: zToolCallId

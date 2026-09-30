@@ -246,7 +246,8 @@ func TestMemoryFileManagementAPI(t *testing.T) {
 		project.AdminToken, http.StatusOK)
 	digest := rec.Header().Get("X-Omnara-File-Digest")
 	requestJSONWithHeaders(
-		t, handler, http.MethodPatch, base, `{"read_only":true}`, "", http.StatusOK, authHeaders(project.AdminToken),
+		t, handler, http.MethodPatch, base, `{"agent_access":"read_only"}`,
+		"", http.StatusOK, authHeaders(project.AdminToken),
 	)
 	request(t, http.MethodPut, file("new.txt"), []byte("x"),
 		project.AdminToken, http.StatusOK)

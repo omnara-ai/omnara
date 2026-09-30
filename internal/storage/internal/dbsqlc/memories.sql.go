@@ -31,9 +31,9 @@ func (q *Queries) CountMemoryStores(ctx context.Context, arg CountMemoryStoresPa
 }
 
 const createMemoryStore = `-- name: CreateMemoryStore :one
-INSERT INTO memory_stores(id, project_id, name, description, read_only)
+INSERT INTO memory_stores(id, project_id, name, description, agent_access)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 `
 
 type CreateMemoryStoreParams struct {
@@ -41,7 +41,7 @@ type CreateMemoryStoreParams struct {
 	ProjectID   uuid.UUID
 	Name        string
 	Description string
-	ReadOnly    bool
+	AgentAccess string
 }
 
 func (q *Queries) CreateMemoryStore(ctx context.Context, arg CreateMemoryStoreParams) (MemoryStore, error) {
@@ -50,7 +50,7 @@ func (q *Queries) CreateMemoryStore(ctx context.Context, arg CreateMemoryStorePa
 		arg.ProjectID,
 		arg.Name,
 		arg.Description,
-		arg.ReadOnly,
+		arg.AgentAccess,
 	)
 	var i MemoryStore
 	err := row.Scan(
@@ -58,7 +58,7 @@ func (q *Queries) CreateMemoryStore(ctx context.Context, arg CreateMemoryStorePa
 		&i.ProjectID,
 		&i.Name,
 		&i.Description,
-		&i.ReadOnly,
+		&i.AgentAccess,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -122,7 +122,7 @@ func (q *Queries) GetAgentMemoryConfig(ctx context.Context, arg GetAgentMemoryCo
 }
 
 const getMemoryStore = `-- name: GetMemoryStore :one
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -142,7 +142,7 @@ func (q *Queries) GetMemoryStore(ctx context.Context, arg GetMemoryStoreParams) 
 		&i.ProjectID,
 		&i.Name,
 		&i.Description,
-		&i.ReadOnly,
+		&i.AgentAccess,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -151,7 +151,7 @@ func (q *Queries) GetMemoryStore(ctx context.Context, arg GetMemoryStoreParams) 
 }
 
 const getMemoryStoreByName = `-- name: GetMemoryStoreByName :one
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = $1
   AND name = $2
@@ -171,7 +171,7 @@ func (q *Queries) GetMemoryStoreByName(ctx context.Context, arg GetMemoryStoreBy
 		&i.ProjectID,
 		&i.Name,
 		&i.Description,
-		&i.ReadOnly,
+		&i.AgentAccess,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -180,7 +180,7 @@ func (q *Queries) GetMemoryStoreByName(ctx context.Context, arg GetMemoryStoreBy
 }
 
 const listAttachedMemoryStores = `-- name: ListAttachedMemoryStores :many
-SELECT s.id, s.name, s.description, s.read_only, p.org_id
+SELECT s.id, s.name, s.description, s.agent_access, p.org_id
 FROM memory_stores s
 JOIN projects p ON p.id = s.project_id
 WHERE s.project_id = $1
@@ -205,7 +205,7 @@ type ListAttachedMemoryStoresRow struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
-	ReadOnly    bool
+	AgentAccess string
 	OrgID       uuid.UUID
 }
 
@@ -228,7 +228,7 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 			&i.ID,
 			&i.Name,
 			&i.Description,
-			&i.ReadOnly,
+			&i.AgentAccess,
 			&i.OrgID,
 		); err != nil {
 			return nil, err
@@ -242,7 +242,7 @@ func (q *Queries) ListAttachedMemoryStores(ctx context.Context, arg ListAttached
 }
 
 const listMemoryStores = `-- name: ListMemoryStores :many
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = $1
   AND deleted_at IS NULL
@@ -278,7 +278,7 @@ func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresPara
 			&i.ProjectID,
 			&i.Name,
 			&i.Description,
-			&i.ReadOnly,
+			&i.AgentAccess,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -294,7 +294,7 @@ func (q *Queries) ListMemoryStores(ctx context.Context, arg ListMemoryStoresPara
 }
 
 const lockMemoryStore = `-- name: LockMemoryStore :one
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = $1
   AND id = $2
@@ -315,7 +315,7 @@ func (q *Queries) LockMemoryStore(ctx context.Context, arg LockMemoryStoreParams
 		&i.ProjectID,
 		&i.Name,
 		&i.Description,
-		&i.ReadOnly,
+		&i.AgentAccess,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -344,44 +344,20 @@ func (q *Queries) LockMemoryStoreShared(ctx context.Context, arg LockMemoryStore
 	return id, err
 }
 
-const memoryStoreHasActiveReferences = `-- name: MemoryStoreHasActiveReferences :one
-SELECT EXISTS (
-    SELECT 1
-    FROM agents a
-    JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
-    WHERE a.project_id = $1
-      AND a.state = 'active'
-      AND c.compiled_definition->'memory_stores' @>
-          jsonb_build_array(jsonb_build_object('id', $2::uuid))
-)
-`
-
-type MemoryStoreHasActiveReferencesParams struct {
-	ProjectID uuid.UUID
-	ID        uuid.UUID
-}
-
-func (q *Queries) MemoryStoreHasActiveReferences(ctx context.Context, arg MemoryStoreHasActiveReferencesParams) (bool, error) {
-	row := q.db.QueryRow(ctx, memoryStoreHasActiveReferences, arg.ProjectID, arg.ID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const updateMemoryStore = `-- name: UpdateMemoryStore :one
 UPDATE memory_stores
 SET description = $1,
-    read_only = $2,
+    agent_access = $2,
     updated_at = statement_timestamp()
 WHERE project_id = $3
   AND id = $4
   AND deleted_at IS NULL
-RETURNING id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 `
 
 type UpdateMemoryStoreParams struct {
 	Description string
-	ReadOnly    bool
+	AgentAccess string
 	ProjectID   uuid.UUID
 	ID          uuid.UUID
 }
@@ -389,7 +365,7 @@ type UpdateMemoryStoreParams struct {
 func (q *Queries) UpdateMemoryStore(ctx context.Context, arg UpdateMemoryStoreParams) (MemoryStore, error) {
 	row := q.db.QueryRow(ctx, updateMemoryStore,
 		arg.Description,
-		arg.ReadOnly,
+		arg.AgentAccess,
 		arg.ProjectID,
 		arg.ID,
 	)
@@ -399,7 +375,7 @@ func (q *Queries) UpdateMemoryStore(ctx context.Context, arg UpdateMemoryStorePa
 		&i.ProjectID,
 		&i.Name,
 		&i.Description,
-		&i.ReadOnly,
+		&i.AgentAccess,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,

@@ -665,7 +665,7 @@ func validateMemoryStoresTx(
 		return bytes.Compare(config.Stores[i].ID[:], config.Stores[j].ID[:]) < 0
 	})
 	for i, store := range config.Stores {
-		if store.Access != agentconfig.MemoryStoreAccessReadOnly && store.Access != agentconfig.MemoryStoreAccessReadWrite {
+		if !store.Access.Valid() {
 			return storeerr.InvalidRequest(errors.New("invalid memory store access"))
 		}
 		if store.ID == uuid.Nil {

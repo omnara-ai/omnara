@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/log/logent"
@@ -83,9 +84,9 @@ func (s *Store) authorizeFile(
 	}
 	store, err := q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
 	if err != nil {
-		return memoryops.StoreRef{}, mapped(err)
+		return memoryops.StoreRef{}, fmt.Errorf("memory store is unavailable: %w", mapped(err))
 	}
-	if write && scope.AgentID != uuid.Nil && store.ReadOnly {
+	if write && scope.AgentID != uuid.Nil && store.AgentAccess != string(agentconfig.MemoryStoreAccessReadWrite) {
 		return memoryops.StoreRef{}, fmt.Errorf("memory store is read-only: %w", storeerr.ErrConflict)
 	}
 	return memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, store.ID, store.Name)
@@ -139,7 +140,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) (WriteResult, error
 	if _, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
 		ProjectID: input.Scope.ProjectID, ID: input.StoreID,
 	}); err != nil {
-		return WriteResult{}, mapped(err)
+		return WriteResult{}, fmt.Errorf("memory store is unavailable: %w", mapped(err))
 	}
 	if _, err := s.authorizeFile(ctx, q, input.Scope, input.StoreID, true); err != nil {
 		return WriteResult{}, err
@@ -245,7 +246,7 @@ func (s *Store) DeleteFile(ctx context.Context, scope Scope, storeID uuid.UUID, 
 	if _, err := q.LockMemoryStoreShared(ctx, dbsqlc.LockMemoryStoreSharedParams{
 		ProjectID: scope.ProjectID, ID: storeID,
 	}); err != nil {
-		return mapped(err)
+		return fmt.Errorf("memory store is unavailable: %w", mapped(err))
 	}
 	if _, err := s.authorizeFile(ctx, q, scope, storeID, true); err != nil {
 		return err

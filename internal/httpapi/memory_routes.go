@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -40,7 +41,7 @@ func memoryStoreResponse(r memorystore.Record) (openapi.MemoryStore, error) {
 		Id:          id,
 		Name:        r.Name,
 		Description: r.Description,
-		ReadOnly:    r.ReadOnly,
+		AgentAccess: openapi.MemoryStoreAccess(r.AgentAccess),
 		CreatedAt:   r.CreatedAt,
 		UpdatedAt:   r.UpdatedAt,
 	}, err
@@ -61,8 +62,11 @@ func (s strictOpenAPIServer) CreateMemoryStore(
 	if req.Body.Description != nil {
 		description = *req.Body.Description
 	}
-	readOnly := req.Body.ReadOnly != nil && *req.Body.ReadOnly
-	r, err := s.server.store.Memories().Create(ctx, scope, req.Body.Name, description, readOnly)
+	agentAccess := agentconfig.MemoryStoreAccessReadWrite
+	if req.Body.AgentAccess != nil {
+		agentAccess = agentconfig.MemoryStoreAccess(*req.Body.AgentAccess)
+	}
+	r, err := s.server.store.Memories().Create(ctx, scope, req.Body.Name, description, agentAccess)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
@@ -97,7 +101,9 @@ func (s strictOpenAPIServer) UpdateMemoryStore(
 	if req.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "body is required")
 	}
-	r, err := s.server.store.Memories().Update(ctx, scope, id, req.Body.Description, req.Body.ReadOnly)
+	r, err := s.server.store.Memories().Update(
+		ctx, scope, id, req.Body.Description, (*agentconfig.MemoryStoreAccess)(req.Body.AgentAccess),
+	)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
 	}
