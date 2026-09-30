@@ -34,8 +34,6 @@ export function IntegrationPortalSetup({
   title?: string
 }) {
   const { apiOrigin, unavailable } = useIntegrationSetupURLs()
-  const [copied, setCopied] = useState('')
-  const [copyFailed, setCopyFailed] = useState(false)
   const github = integrationKind === 'github_pr'
   const url = apiOrigin
     ? github
@@ -51,49 +49,16 @@ export function IntegrationPortalSetup({
         <FieldLabel htmlFor="provider-endpoint">
           {github ? 'Webhook URL' : 'Interactions Endpoint URL'}
         </FieldLabel>
-        <div className="flex gap-2">
-          <Input
-            id="provider-endpoint"
-            readOnly
-            value={url}
-            placeholder={
-              !apiOrigin
-                ? unavailable
-                  ? 'Public API URL unavailable'
-                  : 'Loading setup URL…'
-                : 'Enter the App ID above'
-            }
-            className="font-mono"
-            onFocus={(event) => {
-              event.currentTarget.select()
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!url}
-            icon={copied === url && url ? <CheckIcon /> : <CopyIcon />}
-            onClick={() => {
-              setCopyFailed(false)
-              void navigator.clipboard.writeText(url).then(
-                () => {
-                  setCopied(url)
-                },
-                () => {
-                  setCopied('')
-                  setCopyFailed(true)
-                },
-              )
-            }}
-          >
-            {copied === url && url ? 'Copied' : 'Copy'}
-          </Button>
-        </div>
-        {copyFailed && (
-          <p role="alert" className="text-destructive text-sm">
-            Could not copy. Select the URL and copy it manually.
-          </p>
-        )}
+        <SetupURLInput
+          url={url}
+          placeholder={
+            !apiOrigin
+              ? unavailable
+                ? 'Public API URL unavailable'
+                : 'Loading setup URL…'
+              : 'Enter the App ID above'
+          }
+        />
         <FieldDescription>
           {github
             ? 'In your GitHub App’s settings, set this as the webhook URL with the webhook secret above, and subscribe to pull_request, issue_comment, pull_request_review, and pull_request_review_comment. Set Pull requests permission to Read and write, Issues to Read-only, and Contents to Read-only so agents can clone repositories.'
@@ -128,5 +93,52 @@ export function IntegrationPortalSetup({
         )}
       </Field>
     </div>
+  )
+}
+
+function SetupURLInput({ url, placeholder }: { url: string; placeholder: string }) {
+  const [copied, setCopied] = useState('')
+  const [copyFailed, setCopyFailed] = useState(false)
+  const isCopied = url !== '' && copied === url
+  return (
+    <>
+      <div className="flex gap-2">
+        <Input
+          id="provider-endpoint"
+          readOnly
+          value={url}
+          placeholder={placeholder}
+          className="font-mono"
+          onFocus={(event) => {
+            event.currentTarget.select()
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!url}
+          icon={isCopied ? <CheckIcon /> : <CopyIcon />}
+          onClick={() => {
+            setCopyFailed(false)
+            void navigator.clipboard.writeText(url).then(
+              () => {
+                setCopied(url)
+              },
+              () => {
+                setCopied('')
+                setCopyFailed(true)
+              },
+            )
+          }}
+        >
+          {isCopied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      {copyFailed && (
+        <p role="alert" className="text-destructive text-sm">
+          Could not copy. Select the URL and copy it manually.
+        </p>
+      )}
+    </>
   )
 }
