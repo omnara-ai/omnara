@@ -1,7 +1,6 @@
----
-title: Composable integrations cutover
-description: Coordinated downtime for schema 44, 45 or 46 to SQL47 and Go48
----
+# Integration release deployment checklist
+
+One-time operator plan for this release. Product documentation describes the resulting behavior.
 
 This is a downtime upgrade: stop all cluster writers, apply
 [SQL47](https://github.com/omnara-ai/omnara/blob/main/migrations/000047_composable_integrations.sql) and the frozen
@@ -89,7 +88,7 @@ deferred loading and permissions. `interaction_handlers` maps integration names 
 Catalog tools and handlers expose static `input_schema`. Captured interaction
 destinations contain the captured integration identity, target and provider fields
 in `conversation`, using the same format as subscriptions. See the
-[OpenAPI contract](/api-reference/openapi.yaml).
+[OpenAPI contract](https://docs.omnara.com/api-reference/openapi.yaml).
 
 Hosted and scheduled launches establish one immutable sending conversation per
 integration and agent. Tools always use it; calls have no destination arguments. Migrated
@@ -128,7 +127,7 @@ that validate or switch on cron target types before creating integration schedul
 
 1. Pin the release images for `api`, `worker`, `maintenance`, `web` and `migrate`;
    retain the old images and configuration for a restore. Use the existing
-   [deployment procedure](/self-hosting/deployment), [Compose file](https://github.com/omnara-ai/omnara/blob/main/compose.yaml)
+   [deployment procedure](https://docs.omnara.com/self-hosting/deployment), [Compose file](https://github.com/omnara-ai/omnara/blob/main/compose.yaml)
    and [cluster release workflow](https://github.com/omnara-ai/omnara/blob/main/.github/workflows/cluster-release.yaml).
    The workflow publishes images; map the shutdown/startup steps below to the
    actual deployment's replica and scheduler controls before the window.
@@ -155,12 +154,12 @@ that validate or switch on cron target types before creating integration schedul
    interactive callbacks for smoke tests. Record intended backlog and schedule
    disposition so restarting workers does not unexpectedly resume work.
 
-Run the packaged [preflight SQL](/self-hosting/assets/composable-integrations-preflight.sql)
+Run the packaged [preflight SQL](../../../migrations/preflight/000047_composable_integrations.sql)
 from the release checkout against the explicitly selected writer:
 
 ```sh
 psql "$CUTOVER_DATABASE_URL" -X --set=ON_ERROR_STOP=1 \
-  --file=docs/self-hosting/assets/composable-integrations-preflight.sql
+  --file=migrations/preflight/000047_composable_integrations.sql
 ```
 
 Set `CUTOVER_DATABASE_URL` to the intended writer using your normal credential
@@ -218,8 +217,8 @@ OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmod
 
 1. **About one hour before:** enable the Cloudflare announcement banner with the
    date, window and timezone. Use the packaged
-   [Cloudflare snippet](/self-hosting/assets/cloudflare-maintenance.mjs), also at
-   `docs/self-hosting/assets/cloudflare-maintenance.mjs` in the release checkout.
+   [Cloudflare snippet](cloudflare-maintenance.mjs), also at
+   `plans/composable-agent-apps/deployment/cloudflare-maintenance.mjs` in the release checkout.
    Set `NOTICE`, then use `MODE = "banner"`, `"maintenance"`, and `"off"` for the
    three stages via [Cloudflare Snippets](https://developers.cloudflare.com/rules/snippets/create-dashboard/).
    Scope its rule to the web console, public API and webhook hostnames. Preview the rule
@@ -239,7 +238,7 @@ OMNARA_TEST_DATABASE_URL='postgres://omnara:omnara@127.0.0.1:55432/omnara?sslmod
    their normal lifecycle. Use the old dashboard Cancel action or
    `POST /api/v1/orgs/{orgID}/projects/{projectID}/agents/{agentID}/cancel`
    (adjust the versioned API mount for your deployment), with public IDs and
-   normal authorization. See [agent cancellation](/agents/overview#stop-current-work)
+   normal authorization. See [agent cancellation](https://docs.omnara.com/agents/overview#stop-current-work)
    and [cancellation implementation](https://github.com/omnara-ai/omnara/blob/main/internal/storage/executionstore/agent_runtime_cancellation_store.go).
    Cancellation supplies neither approval nor an answer, and closes the same
    interaction shown in the dashboard. Do not archive agents or edit terminal
@@ -273,7 +272,7 @@ A message or action sent during downtime may need to be resent after reopening.
 `Retry-After` is not a delivery guarantee; the new inbox only protects receipts
 actually persisted by the new service.
 
-Outbound [event webhooks](/events/webhooks) have a ten-minute delivery window,
+Outbound [event webhooks](https://docs.omnara.com/events/webhooks) have a ten-minute delivery window,
 which continues during downtime. Let pending notifications drain before stopping
 workers when possible. Notifications that age past that window, including
 cutover config-change notifications, will not be sent after restart. Timeline
@@ -289,7 +288,7 @@ and interaction state through the API. Do not extend deadlines with ad hoc SQL.
    PostgreSQL writer, not RDS Proxy or transaction-pooling PgBouncer. Configure
    `OMNARA_DATABASE_URL`, `OMNARA_MIGRATIONS_DIR` and
    `OMNARA_MIGRATION_TIMEOUT` as in
-   [database configuration](/self-hosting/configuration#database-and-redis).
+   [database configuration](https://docs.omnara.com/self-hosting/configuration#database-and-redis).
    Use the rehearsal to size both the total migration timeout and the per-statement
    `statement_timeout` runtime parameter in the database URL, including SQL45's index builds.
    Do not use a plain SQL-only Goose invocation: Go48 must execute. Capture exit
@@ -316,50 +315,8 @@ and interaction state through the API. Do not extend deadlines with ad hoc SQL.
    do not reopen all provider callbacks as a test bypass.
 4. Record the decision to reopen, then disable maintenance and restore intended
    schedules/admissions. Monitor migration/service errors, failed receipts and
-   queued receipt age. Explain the old-thread reset and resend requirement to
-   users. A startup or smoke failure keeps maintenance active.
-
-## Failed integration events
-
-Accepted events retry automatically up to eight attempts with exponential delay.
-A terminal failure releases unfinished launch reservations. Already committed agents
-and inputs remain intact. A new mention or message can retry transient failures, but
-a removed subscription must be restored before that conversation can forward messages.
-Failed receipts are never requeued; they become eligible for cleanup after seven days,
-retaining diagnostics and receipt deduplication until cleanup runs.
-
-The worker makes a best-effort failure notice for unfinished human requests when
-provider access still works. Empty or fully admitted plans do not produce an
-error message. Scheduled failures remain visible in the schedule's latest run;
-a known opening thread can also receive a notice. Crash recovery can miss notices
-and unused-upload cleanup without blocking new work. Inspect `integration inbox admission
-failed` logs using the receipt, integration and project IDs. See the
-[inbox operation and retention](/self-hosting/configuration#integration-inbox-operation).
-
-If a GitHub webhook failed before intake persisted it, restore intake and manually
-redeliver it from GitHub. GitHub does not automatically retry these deliveries.
-Redelivery of an already accepted failed receipt does not reset its budget; send
-a fresh comment/mention instead. See
-[GitHub delivery recovery](/integrations/github#configure-incoming-pr-work).
-
-### Shared-webhook setup failures
-
-Independent saved integrations can share a physical bot and webhook endpoint. Known
-invalid signatures and revoked/missing setups are skipped, but unknown secret,
-decryption/KMS or database errors still return non-2xx. Healthy siblings commit
-their receipts before that response; redelivery deduplicates those receipts.
-
-Find `provider event integration failed` logs and use `integration_id`, `project_id`, provider,
-`setup_revision`, `stage` and `retryable` to identify the affected setup. Logs
-include the error type, not raw error text, payloads or credentials. Restore a
-shared database/KMS outage first. For a persistently corrupt setup, reconnect
-that saved integration with valid credentials for the same provider identity, or
-disconnect it until repaired so independent healthy integrations can continue. Do not
-acknowledge unknown failures merely because another integration succeeded.
-
-After repair, redeliver events that failed before intake persisted them; GitHub
-requires manual redelivery. Disconnect preserves retained inbox diagnostics. Reconnect before sending fresh
-requests; previously failed work remains terminal.
+   queued receipt age. See [failed integration events](https://docs.omnara.com/self-hosting/configuration#failed-integration-events)
+   for ongoing recovery. Explain the old-thread reset and resend requirement to users. A startup or smoke failure keeps maintenance active.
 
 ## Failure and restore
 

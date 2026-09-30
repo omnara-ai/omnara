@@ -169,9 +169,9 @@ write** and remains subject to GitHub's repository rules; workflow-file changes
 can also require **Workflows** permission. Omnara does not request these write
 permissions automatically. See GitHub's [permission guidance](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app).
 
-**Upgrade `omnarad` with this release before using Git credentials.** Older daemons
-ignore the credential flag in process offers and may use ambient machine
-credentials instead. There is no version gate or compatibility fallback.
+Git credentials require an up-to-date `omnarad` on every machine. Omnara does not
+enforce a minimum daemon version for this feature. Older daemons ignore the
+credential setting and may use existing machine credentials instead.
 
 The helper handles `github.com` HTTPS authentication in enabled agent processes
 and replaces other GitHub HTTPS helpers there. Other processes, hosts and SSH
@@ -242,7 +242,9 @@ GitHub does not automatically retry failed webhook deliveries. If Omnara cannot
 persist an event and returns a non-2xx response, explicitly
 [redeliver it from GitHub](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)
 after recovery, manually or through GitHub's API. Once a receipt is accepted,
-Omnara retries processing failures through its internal inbox.
+Omnara retries processing failures through its internal inbox. Once a receipt has
+failed permanently, redelivering the same event does not reset its retry budget;
+send a fresh comment or mention instead.
 
 For an active configured installation, Omnara commits the signed raw callback
 before returning HTTP 204. A persistence failure returns 503; it does not schedule

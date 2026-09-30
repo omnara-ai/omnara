@@ -84,15 +84,45 @@ transport deduplication window; exceptionally late replays can be accepted again
 Accepted agent history is independent and remains intact. Newer messages may pass
 an older receipt waiting to retry.
 
-The opt-in `TestIntegrationInboxLocalLoad` experiment runs with `OMNARA_INBOX_LOAD=1`
-and the normal local test database URL. A September 2026 PostgreSQL 18 run against
-100,000 historical receipts completed about 289 receipts/s with four consumers
-and ten connections, or 639/s with sixteen consumers and twenty connections.
-Neither reached 1,000 completions/s; admission outpaced completion. Empty recipient
-plans make these optimistic local results, not production agent-delivery capacity.
-At 1,000 receipts/s, seven-day retention implies about 605 million rows, which this
-experiment did not test. Measure representative routing, payloads, retained history
-and competing workloads before sizing deployment capacity.
+Size database capacity for retained receipts as well as peak processing. Retained
+row counts grow with incoming event rate and retention time. Measure representative
+routing, payloads and competing workloads before sizing the deployment.
+
+## Failed integration events
+
+Accepted events retry automatically up to eight attempts with exponential delay.
+A terminal failure releases unfinished launch reservations. Already committed agents
+and inputs remain intact. A new mention or message can retry transient failures, but
+a removed subscription must be restored before that conversation can forward messages.
+
+The worker makes a best-effort failure notice for unfinished human requests when
+provider access still works. Empty or fully admitted plans do not produce an
+error message. Scheduled failures remain visible in the schedule's latest run;
+a known opening thread can also receive a notice. Crash recovery can miss notices
+and unused-upload cleanup without blocking new work. Inspect `integration inbox admission
+failed` logs using the receipt, integration and project IDs. See the
+[inbox operation and retention](#integration-inbox-operation).
+
+### Shared-webhook setup failures
+
+Independent saved integrations can share a physical bot and webhook endpoint. Known
+invalid signatures and revoked/missing setups are skipped, but unknown secret,
+decryption/KMS or database errors still return non-2xx. Healthy siblings commit
+their receipts before that response; redelivery deduplicates those receipts.
+
+Find `provider event integration failed` logs and use `integration_id`, `project_id`, provider,
+`setup_revision`, `stage` and `retryable` to identify the affected setup. Logs
+include the error type, not raw error text, payloads or credentials. Restore a
+shared database/KMS outage first. For a persistently corrupt setup, reconnect
+that saved integration with valid credentials for the same provider identity, or
+disconnect it until repaired so independent healthy integrations can continue. Do not
+acknowledge unknown failures merely because another integration succeeded.
+
+After repair, recover events that failed before intake persisted them. Use the
+provider's redelivery where available; otherwise, ask the sender to resend the message
+or action. See the [integration guides](/integrations/overview) for provider-specific
+setup. Disconnecting preserves retained inbox diagnostics. Reconnect before sending
+fresh requests; previously failed work remains terminal.
 
 ## Database and Redis
 

@@ -306,12 +306,16 @@ The list and setter return that mode. Each interaction captures its destination 
 created, so changing the selection does not move an existing prompt.
 
 The dashboard remains available if provider presentation fails. Removing a handler,
-disconnecting its integration, or losing its assigned conversation invalidates external
+disconnecting its integration, revoking project access to its credentials, or losing its
+assigned conversation invalidates external
 callbacks. Captured interaction responses identify the integration and target, with
 the provider fields in `conversation`, using the same format as subscriptions.
 See [interactions](/events/interactions) for answering through the API.
 
-For an existing Slack deployment, use the coordinated
-[maintenance cutover](/self-hosting/composable-integrations-cutover). Inbound events retry automatically with a bounded budget. Terminal failures
-release unfinished launches, preserve accepted work, and remain for seven days
-for diagnostics. See [failed integration events](/self-hosting/composable-integrations-cutover#failed-integration-events).
+## Delivery and failures
+
+Inbound events retry automatically with a bounded budget. Terminal failures release
+unfinished launch reservations and preserve accepted agents and inputs. Failed receipts
+remain available for diagnostics until cleanup, which starts no earlier than seven days
+after failure unless the integration, project or organization is deleted. See
+[failed integration events](/self-hosting/configuration#failed-integration-events).

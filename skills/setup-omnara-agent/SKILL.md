@@ -46,7 +46,6 @@ Then, ask the user questions on what type of agent they'd like to create:
    - For manual configs with an interaction handler, include `list_interaction_handlers` and `set_interaction_handler` under `tools`. These tools are not added to every config. The dashboard remains available for questions and approvals.
    - Incoming subscriptions belong to the integration, independently of config. Removing a tool does not stop forwarding; remove the specific subscription through the integration Conversations page or subscription API.
    - Validate source against the [source JSON Schema](https://github.com/omnara-ai/omnara/blob/main/internal/agentconfig/generated/agent_config.schema.json). The [OpenAPI contract](https://docs.omnara.com/api-reference/openapi.yaml) defines matching API/SDK schemas.
-   - Existing native Slack deployments need the [coordinated maintenance cutover](https://docs.omnara.com/self-hosting/composable-integrations-cutover); profile edits alone do not migrate them.
    - The granted model and machine pool
    - Relevant secrets or startup scripts for the machine pool env override. For example, if the user wants to clone a Github repository, you may setup a script which clones the repo upon starting the machine. If needed, you can pipe a Github PAT via a secret into the env var overlay
 

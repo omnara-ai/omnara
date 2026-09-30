@@ -2,8 +2,7 @@
 
 Built-in integrations are reviewed code shipped with Omnara. Customer-hosted integrations
 use the [public input, custom-tool and interaction APIs](../../docs/integrations/custom-integrations.mdx).
-For user setup, see [Integrations](../../docs/integrations/overview.mdx); for deployment, see
-[the Slack cutover guide](../../docs/self-hosting/composable-integrations-cutover.mdx).
+For user setup, see [Integrations](../../docs/integrations/overview.mdx).
 
 ## Where to make a change
 

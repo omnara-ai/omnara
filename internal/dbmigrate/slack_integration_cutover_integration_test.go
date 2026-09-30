@@ -31,7 +31,7 @@ func TestSlackIntegrationCutoverPreflight(t *testing.T) {
 	pool := integrationdb.OpenUnmigratedPool(t, ctx)
 	db := stdlib.OpenDBFromPool(pool)
 	t.Cleanup(func() { _ = db.Close() })
-	preflight, err := os.ReadFile("../../docs/self-hosting/assets/composable-integrations-preflight.sql")
+	preflight, err := os.ReadFile("../../migrations/preflight/000047_composable_integrations.sql")
 	require.NoError(t, err)
 	for _, version := range []int64{44, 45, 46} {
 		t.Run(fmt.Sprintf("schema_%d", version), func(t *testing.T) {

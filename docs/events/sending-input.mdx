@@ -114,8 +114,7 @@ GitHub uses `github:github.com`. Within a project, the same person shares an act
 across configured bots and integration kinds on that platform. Projects, Slack
 workspaces, and platforms keep separate identities. Actors are attribution records,
 not permissions. Their saved `metadata.source_label` identifies the platform in the
-timeline even after an integration is deleted. The downtime cutover converts old
-Slack actors in place, preserving their IDs and historical input references.
+timeline even after an integration is deleted.
 
 Actors belong to a project and can be listed, fetched, or created through the API. Omit `actor` when the request is authenticated as an Omnara user; their account already provides the attribution.
 

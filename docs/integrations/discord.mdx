@@ -215,8 +215,7 @@ can still leave a gap. The worker records that it must start a fresh session;
 restarting is not a guarantee that Discord retains every missed message.
 
 HTTP interactions use the API service separately. Keep a healthy API instance
-receiving requests while another drains. Routine rolling restarts differ from
-this release's [one-time migration maintenance window](/self-hosting/composable-integrations-cutover).
+receiving requests while another drains.
 
 Before a production rollout, use a dedicated test guild to check a mention,
 a plain reply in the resulting thread, and another reply after restarting the
