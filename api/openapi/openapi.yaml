@@ -8009,12 +8009,31 @@ components:
     ProjectModelGrantListItem:
       type: object
       additionalProperties: false
-      required: [grant, model]
+      required: [grant, model, effective_reasoning]
       properties:
         grant:
           $ref: '#/components/schemas/ProjectModelGrant'
         model:
           $ref: '#/components/schemas/ConfiguredModelSummary'
+        effective_reasoning:
+          $ref: '#/components/schemas/ProjectModelGrantEffectiveReasoning'
+    ProjectModelGrantEffectiveReasoning:
+      type: object
+      additionalProperties: false
+      description: Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+      required: [supports_reasoning, default_reasoning_effort, supported_reasoning_efforts]
+      properties:
+        supports_reasoning:
+          type: boolean
+          description: Whether agents can use this model's reasoning features. False when the grant no longer fits the configured model.
+        default_reasoning_effort:
+          type: string
+          description: Reasoning effort sent when an agent config does not set model.reasoning.effort. Empty means the provider default.
+        supported_reasoning_efforts:
+          type: array
+          description: Values an agent config may set as model.reasoning.effort, including limits the model's API format imposes when the configured model lists none. Empty means any value is accepted.
+          items:
+            type: string
     ConfiguredModelSummary:
       type: object
       additionalProperties: false

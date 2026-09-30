@@ -401,17 +401,24 @@ func TestModelProviderConfigStorageLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create anthropic-messages model without format-specific default: %v", err)
 	}
-	if _, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                  testOrgID,
-		ModelProviderConfigID:  anthropicConfig.ID,
-		Name:                   "claude-thinking-not-yet",
-		ProviderModelSlug:      "claude-thinking-not-yet",
-		ContextWindowTokens:    200000,
-		MaxOutputTokens:        new(4096),
-		SupportsReasoning:      true,
-		DefaultReasoningEffort: "high",
-	}); !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
-		t.Fatalf("anthropic reasoning options error = %v, want ErrInvalidModelProviderConfig", err)
+	anthropicEffortModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
+		OrgID:                     testOrgID,
+		ModelProviderConfigID:     anthropicConfig.ID,
+		Name:                      "claude-effort",
+		ProviderModelSlug:         "claude-effort",
+		ContextWindowTokens:       200000,
+		MaxOutputTokens:           new(4096),
+		SupportsReasoning:         true,
+		DefaultReasoningEffort:    "high",
+		SupportedReasoningEfforts: []string{"max", "xhigh", "high", "medium", "low"},
+	})
+	if err != nil {
+		t.Fatalf("create anthropic-messages model with effort: %v", err)
+	}
+	if !anthropicEffortModel.SupportsReasoning ||
+		anthropicEffortModel.DefaultReasoningEffort != "high" ||
+		!slices.Equal(anthropicEffortModel.SupportedReasoningEfforts, []string{"max", "xhigh", "high", "medium", "low"}) {
+		t.Fatalf("anthropic-messages effort options mismatch: %+v", anthropicEffortModel)
 	}
 
 	modelInput := modelstore.CreateConfiguredModelInput{
@@ -1860,22 +1867,25 @@ func TestListProjectModelGrantsSearchSortAndEmbeddedModel(t *testing.T) {
 		t.Fatalf("create beta model: %v", err)
 	}
 	alphaModel, err := store.Models().CreateConfiguredModel(ctx, modelstore.CreateConfiguredModelInput{
-		OrgID:                 testOrgID,
-		ModelProviderConfigID: providerConfig.ID,
-		Name:                  "gpt-alpha",
-		ProviderModelSlug:     "gpt-alpha",
-		ContextWindowTokens:   128000,
-		MaxOutputTokens:       new(8192),
+		OrgID:                     testOrgID,
+		ModelProviderConfigID:     providerConfig.ID,
+		Name:                      "gpt-alpha",
+		ProviderModelSlug:         "gpt-alpha",
+		ContextWindowTokens:       128000,
+		MaxOutputTokens:           new(8192),
+		SupportsReasoning:         true,
+		DefaultReasoningEffort:    "medium",
+		SupportedReasoningEfforts: []string{"low", "medium", "high"},
 	})
 	if err != nil {
 		t.Fatalf("create alpha model: %v", err)
 	}
-	for i, modelID := range []uuid.UUID{betaModel.ID, alphaModel.ID} {
-		if _, err := store.Models().CreateProjectModelGrant(ctx, modelstore.CreateProjectModelGrantInput{
-			OrgID:             testOrgID,
-			ProjectID:         testProjectID,
-			ConfiguredModelID: modelID,
-		}); err != nil {
+	for i, grant := range []modelstore.CreateProjectModelGrantInput{
+		{ConfiguredModelID: betaModel.ID},
+		{ConfiguredModelID: alphaModel.ID, SupportedReasoningEfforts: []string{"low", "medium"}},
+	} {
+		grant.OrgID, grant.ProjectID = testOrgID, testProjectID
+		if _, err := store.Models().CreateProjectModelGrant(ctx, grant); err != nil {
 			t.Fatalf("grant model %d: %v", i, err)
 		}
 	}
@@ -1898,6 +1908,14 @@ func TestListProjectModelGrantsSearchSortAndEmbeddedModel(t *testing.T) {
 		first.Model.ModelProviderConfigID != providerConfig.ID ||
 		first.Model.ProviderConfigName != "openai-list" {
 		t.Fatalf("embedded model summary mismatch: %+v", first)
+	}
+	if first.Effective == nil || !first.Effective.SupportsReasoning ||
+		first.Effective.DefaultReasoningEffort != "medium" ||
+		!slices.Equal(first.Effective.SupportedReasoningEfforts, []string{"low", "medium"}) {
+		t.Fatalf("alpha effective model = %+v, want grant-narrowed reasoning", first.Effective)
+	}
+	if second := page.Grants[1]; second.Effective == nil || second.Effective.SupportsReasoning {
+		t.Fatalf("beta effective model = %+v, want reasoning unsupported", second.Effective)
 	}
 
 	filtered, err := store.Models().ListProjectModelGrants(ctx, modelstore.ListProjectModelGrantsInput{

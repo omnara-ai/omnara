@@ -861,16 +861,32 @@ func validateEffectiveModelOptions(apiFormat modelprotocol.APIFormat, input conf
 			storeerr.ErrInvalidModelProviderConfig,
 		)
 	}
-	switch apiFormat {
-	case modelprotocol.APIFormatOpenAIResponses,
-		modelprotocol.APIFormatOpenAIChatCompletions:
-	case modelprotocol.APIFormatAnthropicMessages:
-		if input.SupportsReasoning || input.DefaultReasoningEffort != "" || len(input.SupportedReasoningEfforts) > 0 {
-			return fmt.Errorf(
-				"anthropic-messages reasoning options are not supported: %w",
-				storeerr.ErrInvalidModelProviderConfig,
-			)
+	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
+		for _, effort := range append([]string{input.DefaultReasoningEffort}, input.SupportedReasoningEfforts...) {
+			if effort != "" && !slices.Contains(anthropicMessagesReasoningEfforts, effort) {
+				return fmt.Errorf(
+					"anthropic-messages reasoning effort %q must be one of %s: %w",
+					effort,
+					strings.Join(anthropicMessagesReasoningEfforts, ", "),
+					storeerr.ErrInvalidModelProviderConfig,
+				)
+			}
 		}
+	}
+	return nil
+}
+
+var anthropicMessagesReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
+// acceptedReasoningEfforts returns the efforts an agent config may set for a
+// model listing supported. An empty list accepts any effort the API format
+// allows, so anthropic-messages still narrows it; nil means any value.
+func acceptedReasoningEfforts(apiFormat modelprotocol.APIFormat, supported []string) []string {
+	if len(supported) > 0 {
+		return append([]string(nil), supported...)
+	}
+	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
+		return append([]string(nil), anthropicMessagesReasoningEfforts...)
 	}
 	return nil
 }

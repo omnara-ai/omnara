@@ -644,6 +644,25 @@ export type ListProjectModelGrantsResponse = {
 export type ProjectModelGrantListItem = {
     grant: ProjectModelGrant;
     model: ConfiguredModelSummary;
+    effective_reasoning: ProjectModelGrantEffectiveReasoning;
+};
+
+/**
+ * Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+ */
+export type ProjectModelGrantEffectiveReasoning = {
+    /**
+     * Whether agents can use this model's reasoning features. False when the grant no longer fits the configured model.
+     */
+    supports_reasoning: boolean;
+    /**
+     * Reasoning effort sent when an agent config does not set model.reasoning.effort. Empty means the provider default.
+     */
+    default_reasoning_effort: string;
+    /**
+     * Values an agent config may set as model.reasoning.effort, including limits the model's API format imposes when the configured model lists none. Empty means any value is accepted.
+     */
+    supported_reasoning_efforts: Array<string>;
 };
 
 export type ConfiguredModelSummary = {

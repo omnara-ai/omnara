@@ -60,11 +60,15 @@ export function agentTemplateConfig(
   catalog?: ToolCatalog,
   defaultPool?: MachinePoolSummary,
   defaultModel?: ConfiguredModelSummary,
-): Pick<BasicConfig, 'instruction' | 'tools' | 'machineSources' | 'providerConfig' | 'modelName'> {
+): Pick<
+  BasicConfig,
+  'instruction' | 'tools' | 'machineSources' | 'providerConfig' | 'modelName' | 'reasoningEffort'
+> {
   return {
     instruction: template.instruction,
     providerConfig: defaultModel?.provider_config ?? '',
     modelName: defaultModel?.name ?? '',
+    reasoningEffort: '',
     tools: catalogTools(catalog, templateToolNames),
     machineSources: defaultAgentMachineSources(defaultPool),
   }

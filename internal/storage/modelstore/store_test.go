@@ -175,6 +175,67 @@ func TestValidateConfiguredModelOptionsUnknownCapacity(t *testing.T) {
 	}
 }
 
+func TestValidateConfiguredModelOptionsAnthropicReasoningEfforts(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		format    modelprotocol.APIFormat
+		effort    string
+		supported []string
+		wantErr   bool
+	}{
+		{
+			name:      "all anthropic efforts",
+			format:    modelprotocol.APIFormatAnthropicMessages,
+			effort:    "high",
+			supported: []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{name: "anthropic default only", format: modelprotocol.APIFormatAnthropicMessages, effort: "xhigh"},
+		{
+			name:      "anthropic without default",
+			format:    modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"low", "high"},
+		},
+		{name: "unknown anthropic default", format: modelprotocol.APIFormatAnthropicMessages, effort: "none", wantErr: true},
+		{
+			name:      "unknown anthropic supported",
+			format:    modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"minimal", "low"},
+			wantErr:   true,
+		},
+		{
+			name:      "openai efforts unchanged",
+			format:    modelprotocol.APIFormatOpenAIResponses,
+			effort:    "minimal",
+			supported: []string{"none", "minimal"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateConfiguredModelOptions(tc.format, configuredModelOptions{
+				ContextWindowTokens:       128000,
+				SupportsReasoning:         true,
+				DefaultReasoningEffort:    tc.effort,
+				SupportedReasoningEfforts: tc.supported,
+			})
+			if tc.wantErr {
+				if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+					t.Fatalf("error = %v, want invalid configuration", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	_, err := EffectiveConfiguredModelRevisionForAgentOptions(
+		modelprotocol.APIFormatAnthropicMessages,
+		ConfiguredModelRevisionRecord{ContextWindowTokens: 128000, SupportsReasoning: true},
+		agentconfig.ModelOverrides{ReasoningEffort: "none"},
+	)
+	if !errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
+		t.Fatalf("agent reasoning.effort error = %v, want invalid configuration", err)
+	}
+}
+
 func TestValidateConfiguredModelOptionsTokenBounds(t *testing.T) {
 	if err := validateConfiguredModelOptions(modelprotocol.APIFormatOpenAIResponses, configuredModelOptions{
 		ContextWindowTokens:    math.MaxInt32,
@@ -923,5 +984,35 @@ func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAcceptedReasoningEfforts(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFormat modelprotocol.APIFormat
+		supported []string
+		want      []string
+	}{
+		{
+			name:      "listed efforts win",
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"low", "high"},
+			want:      []string{"low", "high"},
+		},
+		{
+			name:      "anthropic messages narrows an empty list",
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			want:      []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{
+			name:      "openai responses accepts any effort",
+			apiFormat: modelprotocol.APIFormatOpenAIResponses,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, acceptedReasoningEfforts(tt.apiFormat, tt.supported))
+		})
 	}
 }
