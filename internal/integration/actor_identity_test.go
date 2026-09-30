@@ -76,7 +76,7 @@ func TestDiscordActorIdentityAcrossApplicationsAndGuilds(t *testing.T) {
 		require.NoError(t, err)
 		raw, err := json.Marshal(discord.Dispatch{Type: "MESSAGE_CREATE", Sequence: 17, Data: data})
 		require.NoError(t, err)
-		event, ok, err := NormalizeDiscordIntegrationEvent(integration, raw, channel)
+		event, ok, err := normalizeDiscordIntegrationEvent(integration, raw, channel)
 		require.NoError(t, err)
 		require.True(t, ok)
 		if i == 0 {

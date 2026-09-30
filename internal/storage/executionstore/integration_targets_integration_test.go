@@ -400,7 +400,7 @@ func TestIntegrationDeletionWaitsForTargetCreation(t *testing.T) {
 		t.Fatalf("lock project integration: %v", err)
 	}
 	targetDone := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
-		return store.Execution().AdmitInboxInputSlot(ctx, lease, "recipient", nil)
+		return store.Execution().AdmitInboxInputRecipient(ctx, lease, "recipient", nil)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	deleteDone := integrationdb.RunAsyncError(func() error {
@@ -476,7 +476,7 @@ func TestIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	targetDone := integrationdb.RunAsync(func() (executionstore.InboxInputResult, error) {
-		return store.Execution().AdmitInboxInputSlot(ctx, lateLease, "recipient", nil)
+		return store.Execution().AdmitInboxInputRecipient(ctx, lateLease, "recipient", nil)
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleShared", 1)
 
@@ -747,7 +747,7 @@ func TestIntegrationSetupRechecksRevisionAfterLifecycleLock(t *testing.T) {
 			integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleExclusive", 1)
 
 			settings := json.RawMessage(fmt.Sprintf(
-				`{"launcher":{"trigger":"mention","scope_kind":"workspace","scope_ref":"T_UPDATE_LOCK","slots":[{"key":"default","agent_profile_id":%q}]}}`,
+				`{"launcher":{"profiles":[%q]}}`,
 				profile.ID.String(),
 			))
 			edited, err := q.UpdateIntegrationSettings(ctx, dbsqlc.UpdateIntegrationSettingsParams{
@@ -1063,24 +1063,24 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	)
 
 	install := mustCreateIntegration(t, ctx, store, installInput)
-	slot := inboxInputPlan(t, agent.ID, install, "Ev-first")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "dm", Ref: "D_FIRST"}
-	slot.Input.Actor.ProviderUserID = "U_SHARED"
-	slot.Input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"first"}]`)
-	slot.Input.Metadata = nil
-	slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
+	recipient := inboxInputPlan(t, agent.ID, install, "Ev-first")
+	recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "dm", Ref: "D_FIRST"}
+	recipient.Input.Actor.ProviderUserID = "U_SHARED"
+	recipient.Input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"first"}]`)
+	recipient.Input.Metadata = nil
+	recipient.Input.DeliveryMode, recipient.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 	fixture := integrationActivationFixture{ctx: ctx, store: store}
-	receipt := freezeInboxInput(t, fixture, slot, "first", time.Minute)
-	first, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+	receipt := freezeInboxInput(t, fixture, recipient, "first", time.Minute)
+	first, err := store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil {
 		t.Fatalf("admit first input and target: %v", err)
 	}
 	firstTarget, firstInput := first.IntegrationTarget, first.AgentInput
 	wrongTenant := inboxInputPlan(t, agent.ID, install, "Ev-wrong-tenant")
-	wrongTenant.Input.Origin.Address = slot.Input.Origin.Address
+	wrongTenant.Input.Origin.Address = recipient.Input.Origin.Address
 	wrongTenant.Input.Actor.ProviderTenantID = "T_WRONG"
 	wrongReceipt := freezeInboxInput(t, fixture, wrongTenant, "wrong-tenant", time.Minute)
-	_, err = store.Execution().AdmitInboxInputSlot(ctx, wrongReceipt.Lease(), "recipient", nil)
+	_, err = store.Execution().AdmitInboxInputRecipient(ctx, wrongReceipt.Lease(), "recipient", nil)
 	if err == nil {
 		t.Fatal("integration input with the wrong provider tenant succeeded")
 	}
@@ -1108,11 +1108,11 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 			firstTarget.ID,
 		)
 	}
-	slot.Input.Origin.Address.Ref = "D_SECOND"
-	slot.Input.IdempotencyKey = "Ev-second"
-	slot.Input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"second"}]`)
-	secondReceipt := freezeInboxInput(t, fixture, slot, "second", time.Minute)
-	second, err := store.Execution().AdmitInboxInputSlot(ctx, secondReceipt.Lease(), "recipient", nil)
+	recipient.Input.Origin.Address.Ref = "D_SECOND"
+	recipient.Input.IdempotencyKey = "Ev-second"
+	recipient.Input.ContentBlocks = json.RawMessage(`[{"type":"text","text":"second"}]`)
+	secondReceipt := freezeInboxInput(t, fixture, recipient, "second", time.Minute)
+	second, err := store.Execution().AdmitInboxInputRecipient(ctx, secondReceipt.Lease(), "recipient", nil)
 	if err != nil {
 		t.Fatalf("admit second input and target: %v", err)
 	}
@@ -1130,7 +1130,7 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	if secondAgent.InteractionTargetID != uuid.Nil {
 		t.Fatalf("origin without an authorized handler selected target %s", secondAgent.InteractionTargetID)
 	}
-	replayed, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+	replayed, err := store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || replayed.AgentInput.ID != firstInput.ID {
 		t.Fatalf("replayed input = %+v, err=%v; want %s", replayed, err, firstInput.ID)
 	}
@@ -1142,9 +1142,9 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 		t.Fatalf("replay changed interaction destination to %s", afterReplay.InteractionTargetID)
 	}
 
-	lateSlot := inboxInputPlan(t, agent.ID, install, "Ev-disabled-new")
-	lateSlot.Input.Origin.Address = slot.Input.Origin.Address
-	lateReceipt := freezeInboxInput(t, fixture, lateSlot, "disabled-new", time.Minute)
+	lateRecipient := inboxInputPlan(t, agent.ID, install, "Ev-disabled-new")
+	lateRecipient.Input.Origin.Address = recipient.Input.Origin.Address
+	lateReceipt := freezeInboxInput(t, fixture, lateRecipient, "disabled-new", time.Minute)
 	if _, err := store.Integrations().DisconnectIntegration(
 		ctx,
 		integrationstore.DisconnectIntegrationInput{
@@ -1155,11 +1155,11 @@ func TestIntegrationInputDedupeTargetProgressionAndDisconnect(t *testing.T) {
 	); err != nil {
 		t.Fatalf("disable input install: %v", err)
 	}
-	disabledReplay, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+	disabledReplay, err := store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || disabledReplay.AgentInput.ID != firstInput.ID {
 		t.Fatalf("disabled replay = %+v, err=%v; want %s", disabledReplay, err, firstInput.ID)
 	}
-	_, err = store.Execution().AdmitInboxInputSlot(ctx, lateReceipt.Lease(), "recipient", nil)
+	_, err = store.Execution().AdmitInboxInputRecipient(ctx, lateReceipt.Lease(), "recipient", nil)
 	if !errors.Is(err, storeerr.ErrUnauthorized) {
 		t.Fatalf("new input on disabled install error = %v, want ErrUnauthorized", err)
 	}
@@ -1234,21 +1234,21 @@ func TestIntegrationInputAdmissionSerializesWithIntegrationDisconnectAndDeletion
 			}
 
 			idempotencyKey := "Ev-input-install-race"
-			slot := inboxInputPlan(t, agent.ID, install, idempotencyKey)
-			slot.Input.Origin.Address = integrationstore.ConversationAddress{
+			recipient := inboxInputPlan(t, agent.ID, install, idempotencyKey)
+			recipient.Input.Origin.Address = integrationstore.ConversationAddress{
 				Kind: target.ScopeKind,
 				Ref:  target.ScopeRef,
 			}
-			slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
+			recipient.Input.DeliveryMode, recipient.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 			receipt := freezeInboxInput(
 				t,
 				integrationActivationFixture{ctx: ctx, store: store},
-				slot,
+				recipient,
 				"input-race",
 				time.Minute,
 			)
 			createInput := func() (executionstore.AgentInputRecord, error) {
-				result, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+				result, err := store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 				return result.AgentInput, err
 			}
 			changeInstall := func() error {
@@ -1383,20 +1383,20 @@ func TestIntegrationTargetHostedOriginRequiresInbox(t *testing.T) {
 			t.Fatalf("public hosted origin: %v", err)
 		}
 	}
-	slot := inboxInputPlan(t, agent.ID, install, "Ev-verified")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{
+	recipient := inboxInputPlan(t, agent.ID, install, "Ev-verified")
+	recipient.Input.Origin.Address = integrationstore.ConversationAddress{
 		Kind: target.ScopeKind,
 		Ref:  target.ScopeRef,
 	}
 	fixture := integrationActivationFixture{ctx: ctx, store: store}
-	receipt := freezeInboxInput(t, fixture, slot, "verified", time.Minute)
-	created, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+	receipt := freezeInboxInput(t, fixture, recipient, "verified", time.Minute)
+	created, err := store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil || created.AgentInput.IntegrationTargetID != target.ID {
 		t.Fatalf("verified provider input: %+v %v", created, err)
 	}
-	slot.Input.Actor.ProviderTenantID, slot.Input.IdempotencyKey = "T_OTHER", "Ev-wrong-tenant"
-	wrong := freezeInboxInput(t, fixture, slot, "wrong-tenant", time.Minute)
-	if _, err := store.Execution().AdmitInboxInputSlot(
+	recipient.Input.Actor.ProviderTenantID, recipient.Input.IdempotencyKey = "T_OTHER", "Ev-wrong-tenant"
+	wrong := freezeInboxInput(t, fixture, recipient, "wrong-tenant", time.Minute)
+	if _, err := store.Execution().AdmitInboxInputRecipient(
 		ctx,
 		wrong.Lease(),
 		"recipient", nil,
@@ -1418,13 +1418,13 @@ func prepareIntegrationOrigin(
 	if err != nil {
 		t.Fatalf("load origin integration: %v", err)
 	}
-	slot := inboxInputPlan(t, agentID, integration, uuid.NewString())
-	slot.Input.Origin.Address = address
-	slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
+	recipient := inboxInputPlan(t, agentID, integration, uuid.NewString())
+	recipient.Input.Origin.Address = address
+	recipient.Input.DeliveryMode, recipient.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 	receipt := freezeInboxInput(
 		t,
 		integrationActivationFixture{ctx: ctx, store: store},
-		slot,
+		recipient,
 		uuid.NewString(),
 		time.Minute,
 	)
@@ -1437,7 +1437,7 @@ func admitIntegrationOrigin(
 ) (executionstore.InboxInputResult, error) {
 	t.Helper()
 	lease := prepareIntegrationOrigin(t, ctx, store, agentID, integrationID, address)
-	return store.Execution().AdmitInboxInputSlot(ctx, lease, "recipient", nil)
+	return store.Execution().AdmitInboxInputRecipient(ctx, lease, "recipient", nil)
 }
 
 func createIntegrationProjectAdmin(
@@ -1630,22 +1630,22 @@ func mustCreateIntegrationInput(
 	providerUserID, idempotencyKey, text string,
 ) executionstore.AgentInputRecord {
 	t.Helper()
-	slot := inboxInputPlan(t, target.AgentID, install, idempotencyKey)
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{
+	recipient := inboxInputPlan(t, target.AgentID, install, idempotencyKey)
+	recipient.Input.Origin.Address = integrationstore.ConversationAddress{
 		Kind: target.ScopeKind,
 		Ref:  target.ScopeRef,
 	}
-	slot.Input.Actor.ProviderUserID = providerUserID
-	slot.Input.ContentBlocks = json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, text))
-	slot.Input.DeliveryMode, slot.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
+	recipient.Input.Actor.ProviderUserID = providerUserID
+	recipient.Input.ContentBlocks = json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, text))
+	recipient.Input.DeliveryMode, recipient.Input.CancelOpenInteractions = executionstore.DeliveryModeQueued, false
 	receipt := freezeInboxInput(
 		t,
 		integrationActivationFixture{ctx: ctx, store: store},
-		slot,
+		recipient,
 		uuid.NewString(),
 		time.Minute,
 	)
-	result, err := store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+	result, err := store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 	if err != nil {
 		t.Fatalf("admit integration input: %v", err)
 	}

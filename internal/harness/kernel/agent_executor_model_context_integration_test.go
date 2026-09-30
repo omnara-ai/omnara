@@ -188,7 +188,7 @@ model:
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"hello"}]`),
 				SemanticEventKey: "kernel-origin",
 				Actor:            &actor,
-				Origin: &executionstore.LaunchInputOrigin{
+				Origin: &executionstore.AgentInputOrigin{
 					IntegrationID: install.ID,
 					Address: integrationstore.ConversationAddress{
 						Kind: "thread",
@@ -343,6 +343,9 @@ model:
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		Now: func() time.Time { return now.Add(4 * time.Millisecond) },
 	}
 	err = executor.ExecuteModelWork(ctx, turn)
@@ -557,7 +560,7 @@ func attachKernelSlackHandler(
 	target, err := fixture.Store.Integrations().
 		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 			ProjectID: kernelTestProjectID, AgentID: agentID, IntegrationID: install.ID,
-			Address: address,
+			Address: address, LaunchKey: "default",
 		})
 	require.NoError(t, err)
 	require.NoError(
@@ -633,10 +636,6 @@ func (f kernelFixture) admitSlackContentInputTurn(
 	require.Equal(t, executionstore.InteractionSelection{
 		AutoSelect: true, IntegrationTargetID: handler.target.ID, HandlerKey: handler.integration.Name,
 	}, selection, "admitted Slack origin selects the configured handler")
-	destination, err := f.Store.Execution().GetSelectedInteractionDestination(ctx, kernelTestProjectID, agentID)
-	require.NoError(t, err)
-	require.NotNil(t, destination)
-	require.Equal(t, handler.target.ID, destination.IntegrationTargetID)
 	return modelWorkExecutionFromClaimForKernelTest(claim, now.Add(3*time.Millisecond))
 }
 

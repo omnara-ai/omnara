@@ -32,7 +32,7 @@ func (s strictOpenAPIServer) ConfigureIntegration(
 	}
 	input, err := s.integrationSetupInput(ctx, scope, request.Body, &current)
 	if err != nil {
-		return nil, integrationSetupInputError(err)
+		return nil, integrationSetupInputError(ctx, err)
 	}
 	record, err := s.server.store.Integrations().ConfigureIntegration(ctx, input)
 	if err != nil {

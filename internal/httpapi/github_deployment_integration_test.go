@@ -32,9 +32,10 @@ func sendGitHubDeploymentWebhook(
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		server.URL+"/api/integrations/github/123/events", strings.NewReader(raw))
+		server.URL+GitHubEventsPath, strings.NewReader(raw))
 	require.NoError(t, err)
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
 	r.Header.Set(github.EventHeader, "issue_comment")
 	r.Header.Set(github.DeliveryHeader, delivery)
 	mac := hmac.New(sha256.New, []byte(githubJourneyWebhookSecret))

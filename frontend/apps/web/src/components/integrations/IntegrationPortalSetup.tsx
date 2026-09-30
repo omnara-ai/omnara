@@ -1,4 +1,3 @@
-import { useOmnaraClient } from '@omnara/react'
 import type { IntegrationKind } from '@omnara/sdk'
 import { useState } from 'react'
 
@@ -6,6 +5,8 @@ import { CheckIcon, CopyIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+
+import { useIntegrationSetupURLs } from './useIntegrationSetupURLs'
 
 const addReactions = 1n << 6n
 const viewChannels = 1n << 10n
@@ -25,20 +26,23 @@ const discordBotPermissions =
 
 export function IntegrationPortalSetup({
   integrationKind,
-  providerId,
+  providerId = '',
   title = 'Finish in Discord',
 }: {
   integrationKind: Exclude<IntegrationKind, 'slack_thread'>
-  providerId: string
+  providerId?: string
   title?: string
 }) {
-  const client = useOmnaraClient()
+  const { apiOrigin, unavailable } = useIntegrationSetupURLs()
   const [copied, setCopied] = useState('')
   const [copyFailed, setCopyFailed] = useState(false)
   const github = integrationKind === 'github_pr'
-  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
-  const url = /^[1-9][0-9]*$/.test(providerId)
-    ? `${apiOrigin}/api/integrations/${github ? `github/${providerId}/events` : `discord/${providerId}/interactions`}`
+  const url = apiOrigin
+    ? github
+      ? `${apiOrigin}/api/integrations/github/events`
+      : /^[1-9][0-9]*$/.test(providerId)
+        ? `${apiOrigin}/api/integrations/discord/${providerId}/interactions`
+        : ''
     : ''
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -52,7 +56,13 @@ export function IntegrationPortalSetup({
             id="provider-endpoint"
             readOnly
             value={url}
-            placeholder="Enter the App ID above"
+            placeholder={
+              !apiOrigin
+                ? unavailable
+                  ? 'Public API URL unavailable'
+                  : 'Loading setup URL…'
+                : 'Enter the App ID above'
+            }
             className="font-mono"
             onFocus={(event) => {
               event.currentTarget.select()
@@ -93,7 +103,9 @@ export function IntegrationPortalSetup({
           <div className="flex flex-col items-start gap-2 pt-3">
             <p className="text-muted-foreground text-sm">
               Under Installation, make sure Guild Install is enabled. Then add the bot to your
-              server below. Already installed? Make sure its role also allows Add Reactions.
+              server below. Already installed? Make sure its role also allows Add Reactions. People
+              in conversations the bot can access can launch offered profiles and answer agent
+              questions and approvals, even without an Omnara account.
             </p>
             {url && (
               <Button asChild variant="outline">
@@ -108,7 +120,9 @@ export function IntegrationPortalSetup({
             )}
             <p className="text-muted-foreground text-xs">
               Choose a server you manage. Discord will ask for access to read messages, reply in
-              threads, react to messages and attach files.
+              threads, react to messages and attach files. For internal use, turn off Public Bot in
+              the Bot settings when available, and review existing servers and channel access.
+              Public bots are supported; Discord controls who can install them.
             </p>
           </div>
         )}

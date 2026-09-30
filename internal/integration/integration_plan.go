@@ -75,7 +75,7 @@ func (r *IntegrationRouter) Freeze(
 	if err != nil || frozen.Recipients != nil {
 		return frozen, err
 	}
-	plan := IntegrationInboxPlan{Recipients: map[string]IntegrationInboxSlot{}}
+	plan := IntegrationInboxPlan{Recipients: map[string]IntegrationInboxRecipient{}}
 	if event != nil {
 		plan, err = r.buildIntegrationPlan(ctx, receipt, integrationSetup, request)
 		if err != nil {
@@ -104,16 +104,16 @@ func (r *IntegrationRouter) Freeze(
 			if !sameIntegrationCandidates(current, request.candidates) {
 				return ErrIntegrationRoutingChanged
 			}
-			hasSelection := false
+			hasLaunchClaim := false
 			for _, recipient := range plan.Recipients {
-				if recipient.Selection != nil {
-					hasSelection = true
+				if recipient.LaunchClaim != nil {
+					hasLaunchClaim = true
 					break
 				}
 			}
 			// A reserved agent may not have a subscription yet, even when observers already match.
-			if !hasSelection {
-				if err := work.CheckNoUnsettledIntegrationSelection(ctx, request.address); err != nil {
+			if !hasLaunchClaim {
+				if err := work.CheckNoUnsettledIntegrationLaunch(ctx, request.address); err != nil {
 					return err
 				}
 			}
@@ -210,13 +210,13 @@ func (r integrationEventCandidates) matchesSubscriptionAddress(address integrati
 
 func sameIntegrationCandidates(a, b integrationstore.IntegrationRoutingCandidates) bool {
 	canonical := func(c integrationstore.IntegrationRoutingCandidates) integrationstore.IntegrationRoutingCandidates {
-		c.Subscriptions, c.Selections = slices.Clone(c.Subscriptions), slices.Clone(c.Selections)
+		c.Subscriptions, c.LaunchOwners = slices.Clone(c.Subscriptions), slices.Clone(c.LaunchOwners)
 		slices.SortFunc(
 			c.Subscriptions,
 			func(a, b integrationstore.IntegrationSubscriptionRecord) int { return bytes.Compare(a.ID[:], b.ID[:]) },
 		)
 		slices.SortFunc(
-			c.Selections,
+			c.LaunchOwners,
 			func(a, b integrationstore.IntegrationTargetRecord) int { return bytes.Compare(a.ID[:], b.ID[:]) },
 		)
 		return c
@@ -230,7 +230,15 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 ) (IntegrationInboxPlan, error) {
 	fail := func(err error) (IntegrationInboxPlan, error) { return IntegrationInboxPlan{}, err }
 	event, candidates := request.event, request.candidates
-	content, err := integrationdefinition.AppendInputContext(integrationSetup.Name, event.Event.Scope, event.ContentBlocks)
+	details := integrationdefinition.InputContext{
+		SenderID: event.Actor.ProviderUserID, Mentioned: event.Event.Mentioned, ConversationName: event.DisplayName,
+	}
+	if event.Actor.DisplayName != nil {
+		details.SenderName = *event.Actor.DisplayName
+	}
+	content, err := integrationdefinition.AppendEventInputContext(
+		integrationSetup.Name, event.Event.Scope, event.ContentBlocks, details,
+	)
 	if err != nil {
 		return fail(err)
 	}
@@ -244,7 +252,7 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 			CancelOpenInteractions: event.CancelOpenInteractions,
 			Sibling:                event.Sibling, Files: event.Files,
 		},
-		Recipients: map[string]IntegrationInboxSlot{},
+		Recipients: map[string]IntegrationInboxRecipient{},
 	}
 	recipients := map[uuid.UUID]*executionstore.InboxSubscriptionAuthority{}
 	for _, subscription := range candidates.Subscriptions {
@@ -304,8 +312,8 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 		if err != nil {
 			return fail(err)
 		}
-		plan.Recipients[key] = IntegrationInboxSlot{
-			Selection: &integrationstore.InboxIntegrationSelection{
+		plan.Recipients[key] = IntegrationInboxRecipient{
+			LaunchClaim: &integrationstore.InboxLaunchClaim{
 				IntegrationID: integration.ID, Address: request.address, LaunchKey: intent.LaunchKey,
 			},
 			AgentID: agentID, ArtifactIDs: ids,
@@ -324,7 +332,7 @@ func (r *IntegrationRouter) buildIntegrationPlan(
 			return fail(err)
 		}
 		key := integrationPlanKey(event.SemanticKey, "input", agentID.String())
-		plan.Recipients[key] = IntegrationInboxSlot{AgentID: agentID, Subscription: subscription, ArtifactIDs: ids}
+		plan.Recipients[key] = IntegrationInboxRecipient{AgentID: agentID, Subscription: subscription, ArtifactIDs: ids}
 	}
 	return plan, nil
 }
@@ -354,7 +362,7 @@ func resolveIntegrationLaunchIntent(
 	}) != nil {
 		return unavailable()
 	}
-	for _, target := range candidates.Selections {
+	for _, target := range candidates.LaunchOwners {
 		if target.IntegrationID != integration.ID || target.LaunchKey == "" {
 			continue
 		}

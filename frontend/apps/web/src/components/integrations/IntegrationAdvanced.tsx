@@ -1,13 +1,14 @@
-import { useOmnaraClient } from '@omnara/react'
 import type { Integration } from '@omnara/sdk'
 
 import { ChevronRightIcon } from '@/components/icons'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
+import { useIntegrationSetupURLs } from './useIntegrationSetupURLs'
+
 export function IntegrationAdvanced({ integration }: { integration: Integration }) {
-  const client = useOmnaraClient()
-  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
+  const { apiOrigin, unavailable } = useIntegrationSetupURLs()
   const tools = Object.entries(integration.capabilities.tools)
+  const providerId = integration.provider_tenant_id ?? ''
   return (
     <Collapsible asChild>
       <section aria-label="Advanced" className="text-sm">
@@ -20,10 +21,10 @@ export function IntegrationAdvanced({ integration }: { integration: Integration 
         <CollapsibleContent className="pl-5.5 flex flex-col gap-6 pt-4">
           <div className="flex flex-col gap-2">
             <h3 className="font-medium">Connection details</h3>
-            {integration.provider_tenant_id ? (
+            {providerId ? (
               <p className="text-muted-foreground break-words">
                 {integration.integration_kind === 'slack_thread' ? 'Workspace' : 'Application'}{' '}
-                {integration.provider_tenant_id} · {integration.provider_account_ref}
+                {providerId} · {integration.provider_account_ref}
               </p>
             ) : (
               <p className="text-muted-foreground">No account has been connected.</p>
@@ -32,19 +33,25 @@ export function IntegrationAdvanced({ integration }: { integration: Integration 
               <p className="text-muted-foreground">
                 Webhook URL:{' '}
                 <code className="text-foreground break-all">
-                  {apiOrigin}/api/integrations/github/{integration.provider_tenant_id || 'APP_ID'}
-                  /events
+                  {apiOrigin
+                    ? `${apiOrigin}/api/integrations/github/events`
+                    : unavailable
+                      ? 'Public API URL unavailable'
+                      : 'Loading setup URL…'}
                 </code>
-                . Subscribe to pull requests, issue comments, and pull request review comments.
+                . Subscribe to pull requests, issue comments, pull request reviews, and pull request
+                review comments.
               </p>
             )}
             {integration.integration_kind === 'discord_thread' && (
               <p className="text-muted-foreground">
                 Interactions Endpoint URL:{' '}
                 <code className="text-foreground break-all">
-                  {apiOrigin}/api/integrations/discord/
-                  {integration.provider_tenant_id || 'APPLICATION_ID'}
-                  /interactions
+                  {apiOrigin
+                    ? `${apiOrigin}/api/integrations/discord/${providerId || 'APPLICATION_ID'}/interactions`
+                    : unavailable
+                      ? 'Public API URL unavailable'
+                      : 'Loading setup URL…'}
                 </code>
               </p>
             )}

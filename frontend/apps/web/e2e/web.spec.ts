@@ -647,7 +647,6 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       await launch.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
     } else {
       await expect(launch.getByRole('checkbox')).toHaveCount(0)
-      await expect(launch.getByLabel('Server ID', { exact: true })).toHaveCount(0)
       await expect(launch.getByLabel('Channel ID', { exact: true })).toHaveCount(0)
       await expect(launch.getByLabel('Respond to mentions in', { exact: true })).toHaveCount(0)
     }
@@ -663,8 +662,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       ).toBeVisible()
     }
     if (integrationKind === 'github_pr')
-      await expect(launch.getByLabel('Repository ID', { exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
+      await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled()
     const savedLauncher = page.waitForResponse(
       (response) =>
         response.request().method() === 'PUT' &&
@@ -703,7 +701,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     await expectIntegrationCapabilities(page, changedIntegration)
     if (integrationKind === 'github_pr') {
       await expect(page.getByRole('region', { name: 'Advanced', exact: true })).toContainText(
-        '/api/integrations/github/111/events',
+        '/api/integrations/github/events',
       )
     } else await expect(launch).toContainText('in any server where it has access')
 

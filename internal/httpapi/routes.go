@@ -41,7 +41,6 @@ var serverManualRouteContracts = []manualRouteContract{
 	{Method: http.MethodPost, Pattern: integrationActionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: discordInteractionsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodPost, Pattern: GitHubEventsPath, Access: manualRouteAccessProviderSigned},
-	{Method: http.MethodPost, Pattern: GitHubSharedEventsPath, Access: manualRouteAccessProviderSigned},
 	{Method: http.MethodGet, Pattern: openAPIYAMLPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: omnaradInstallPath, Access: manualRouteAccessStatic},
 	{Method: http.MethodGet, Pattern: webConfigPath, Access: manualRouteAccessStatic},
@@ -61,7 +60,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/integrations/slack/events", s.integrationEventsRoute)
 	mux.HandleFunc("POST /api/integrations/slack/actions", s.integrationActionsRoute)
 	mux.HandleFunc("POST /api/integrations/discord/{application_id}/interactions", s.discordInteractionsRoute)
-	mux.Handle("POST /api/integrations/github/{app_id}/events", s.GitHubEventsHandler())
 	mux.Handle("POST /api/integrations/github/events", s.GitHubEventsHandler())
 	mux.HandleFunc("GET /api/openapi.yaml", s.openapiYAMLRoute)
 	mux.HandleFunc("GET /install/omnarad.sh", s.omnaradInstallRoute)
@@ -87,12 +85,14 @@ func (s *Server) openapiYAMLRoute(w http.ResponseWriter, _ *http.Request) {
 type webConfigResponse struct {
 	BillingURL string `json:"billing_url,omitempty"`
 	APIURL     string `json:"api_url,omitempty"`
+	PublicURL  string `json:"public_url,omitempty"`
 }
 
 func (s *Server) webConfigRoute(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, webConfigResponse{
 		BillingURL: s.billingURL,
 		APIURL:     s.publicAPIURL,
+		PublicURL:  s.publicURL,
 	})
 }
 

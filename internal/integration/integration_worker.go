@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/metrics"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type IntegrationInboxSchedulerStore interface {
@@ -31,7 +32,7 @@ type IntegrationInboxSchedulerStore interface {
 }
 
 type IntegrationReceiptConsumer interface {
-	Consume(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error)
+	Consume(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error)
 }
 
 type IntegrationLaunchProvisioner interface {
@@ -286,9 +287,8 @@ func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integratio
 		return nil
 	}
 	outcome := "lease_lost"
-	terminal := (receipt.Source == integrationstore.IntegrationInboxSourceChoice &&
-		errors.Is(err, ErrIntegrationLaunchUnavailable)) ||
-		errors.Is(err, ErrScheduledActionFailed) || errors.Is(err, ErrIntegrationInboundPermanent)
+	terminal := errors.Is(err, ErrScheduledActionFailed) || errors.Is(err, ErrIntegrationInboundPermanent) ||
+		errors.Is(err, storeerr.ErrManagedWorkAdmissionDenied)
 	if !errors.Is(err, integrationstore.ErrIntegrationInboxLeaseLost) {
 		retryCtx, retryCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer retryCancel()
@@ -306,26 +306,30 @@ func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integratio
 		if receipt.AttemptCount >= integrationstore.IntegrationInboxMaxAttempts || terminal {
 			outcome = "failed"
 		}
-		if retryErr != nil {
+		if errors.Is(retryErr, integrationstore.ErrIntegrationInboxLeaseLost) {
+			outcome = "lease_lost"
+		} else if retryErr != nil {
 			outcome = "retry_not_recorded"
-		}
-		if retryErr != nil && !errors.Is(retryErr, integrationstore.ErrIntegrationInboxLeaseLost) {
 			err = errors.Join(err, fmt.Errorf("schedule inbox retry: %w", retryErr))
 		}
 	}
 	if outcome == "failed" {
 		if finalizer, ok := w.consumer.(interface {
-			FinalizeFailure(context.Context, uuid.UUID, uuid.UUID) error
+			FinalizeFailure(context.Context, uuid.UUID, uuid.UUID, error) error
 		}); ok {
 			finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 40*time.Second)
-			if finalErr := finalizer.FinalizeFailure(finalCtx, receipt.ProjectID, receipt.ID); finalErr != nil {
+			if finalErr := finalizer.FinalizeFailure(finalCtx, receipt.ProjectID, receipt.ID, err); finalErr != nil {
 				w.options.Log.WarnContext(ctx, "finalize failed integration inbox", "receipt_id", receipt.ID, "error", finalErr)
 			}
 			finalCancel()
 		}
 	}
-	w.options.Log.WarnContext(
-		ctx,
+	level := slog.LevelWarn
+	if outcome == "failed" || outcome == "retry_not_recorded" {
+		level = slog.LevelError
+	}
+	w.options.Log.Log(
+		ctx, level,
 		"integration inbox admission failed",
 		"receipt_id",
 		receipt.ID,

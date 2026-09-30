@@ -79,11 +79,14 @@ type GatewayError struct {
 	Fatal        bool
 	CloseCode    int
 	RetryAfter   time.Duration
+	cause        error
 }
 
 func (e *GatewayError) Error() string {
 	return fmt.Sprintf("discord gateway stopped (close %d, reset %t, fatal %t)", e.CloseCode, e.ResetSession, e.Fatal)
 }
+
+func (e *GatewayError) Unwrap() error { return e.cause }
 
 func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, commit CommitDispatch) (runErr error) {
 	// Reload the durable checkpoint before each run: intake may commit even when
@@ -130,7 +133,7 @@ func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, co
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return &GatewayError{RetryAfter: time.Second}
+		return &GatewayError{RetryAfter: time.Second, cause: err}
 	}
 	var jobs sync.WaitGroup
 	var workerErr error
@@ -317,7 +320,7 @@ func gatewayConnectionError(ctx context.Context, err error) error {
 	if errors.As(err, &apiError) {
 		return apiError
 	}
-	result := &GatewayError{RetryAfter: time.Second}
+	result := &GatewayError{RetryAfter: time.Second, cause: err}
 	if code := websocket.CloseStatus(err); code >= 0 {
 		result.CloseCode = int(code)
 	}

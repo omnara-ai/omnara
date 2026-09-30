@@ -130,10 +130,13 @@ func (f *choiceJourney) restart() {
 		providers,
 		nil,
 		workflow,
+		WithIntegrationStateHandlers(map[integrationdefinition.Kind]IntegrationStateHandler{
+			integrationdefinition.SlackThread: launcher.HandleState,
+		}),
 	)
 }
 
-func (f *choiceJourney) receive(key string, event IntegrationEvent) []IntegrationSlotAdmission {
+func (f *choiceJourney) receive(key string, event IntegrationEvent) []IntegrationRecipientAdmission {
 	f.t.Helper()
 	_, _, err := f.store.Integrations().AcceptIntegrationReceipt(f.t.Context(),
 		integrationstore.VerifiedIntegrationReceipt{
@@ -244,6 +247,33 @@ func TestChatProfileChoiceLaunchesSelectedProfileAfterRestart(t *testing.T) {
 	require.Equal(t, launch.Agent.ID, results[0].Input.AgentInput.AgentID)
 }
 
+func TestChatProfileChoiceRecordedMenuDoesNotCallProviderAgain(t *testing.T) {
+	t.Parallel()
+	f := newChoiceJourney(t, 2)
+	ctx := t.Context()
+	_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: f.ids.ProjectID, IntegrationID: f.integrationSetup.ID, ReceiptKey: "mention", Payload: []byte(`{}`),
+	})
+	require.NoError(t, err)
+	input := IntegrationLaunchContext{
+		Receipt: f.claim(), Integration: f.integration, Event: f.event,
+		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
+	}
+	for range 2 {
+		launcher := NewChatIntegrationLauncher(f.store.Integrations(), f.store.Execution(),
+			map[string]IntegrationInboxProvider{"slack": f.provider})
+		intents, err := launcher.Decide(ctx, input)
+		require.NoError(t, err)
+		require.Empty(t, intents)
+		require.Len(t, f.provider.menus, 1, "recorded menus must bypass the provider, including after a restart")
+		choice, err := f.store.Integrations().GetIntegrationProfileChoice(
+			ctx, f.ids.ProjectID, f.integrationSetup.ID, f.provider.menus[0].ID)
+		require.NoError(t, err)
+		require.Equal(t, input.Receipt.ID, choice.OwnerReceiptID)
+		require.NotEmpty(t, choice.MessageID)
+	}
+}
+
 func TestChatProfileChoiceSingleProfileNeedsNoMenu(t *testing.T) {
 	t.Parallel()
 	f := newChoiceJourney(t, 1)
@@ -268,7 +298,7 @@ func TestChatProfileChoiceFastClickBeforeOwnerFreeze(t *testing.T) {
 	require.Len(t, f.provider.menus, 1)
 	f.choose(f.provider.menus[0], "heavy")
 	_, err = f.consumer.Consume(ctx, owner.Lease())
-	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 	decided := f.claim()
 	results, err := f.consumer.Consume(ctx, decided.Lease())
 	require.NoError(t, err)
@@ -459,7 +489,7 @@ func TestChatProfileChoiceRemovedOfferedProfileCannotLaunchReplacement(t *testin
 	var state string
 	var attempts, agents int
 	require.NoError(t, f.pool.QueryRow(t.Context(),
-		`SELECT state,attempt_count FROM integration_inbox WHERE project_id=$1 AND source = 'choice'`,
+		`SELECT state,attempt_count FROM integration_inbox WHERE project_id=$1 AND source = 'state'`,
 		f.ids.ProjectID).Scan(&state, &attempts))
 	require.Equal(t, "failed", state)
 	require.Equal(t, 1, attempts)
@@ -544,7 +574,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			router := NewIntegrationRouter(f.store.Execution(), f.store.Integrations())
 			if scenario.frozen {
 				choice, err := f.store.Integrations().GetIntegrationProfileChoice(
-					ctx, selected.ProjectID, selected.IntegrationID, selected.StateID)
+					ctx, selected.ProjectID, selected.IntegrationID, selected.SourceStateID)
 				require.NoError(t, err)
 				event, err := selectedIntegrationEvent(choice)
 				require.NoError(t, err)
@@ -562,11 +592,11 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 			f.provider.event = &event
 			if !scenario.mentioned {
 				_, err = router.freezeEmptyIfUnrouted(ctx, reply.Lease(), f.integrationSetup, event)
-				require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved,
+				require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved,
 					"Slack's download shortcut must protect the selection-to-plan gap too")
 			}
 			_, err = f.consumer.Consume(ctx, reply.Lease())
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 			require.Len(t, f.provider.menus, 1, "a later mention cannot create another menu while launch is queued")
 			results, err := f.consumer.Consume(ctx, selected.Lease())
 			require.NoError(t, err)
@@ -684,7 +714,7 @@ func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
 			selected := f.claim()
 			if frozen {
 				choice, err := f.store.Integrations().GetIntegrationProfileChoice(
-					ctx, selected.ProjectID, selected.IntegrationID, selected.StateID)
+					ctx, selected.ProjectID, selected.IntegrationID, selected.SourceStateID)
 				require.NoError(t, err)
 				event, err := selectedIntegrationEvent(choice)
 				require.NoError(t, err)
@@ -701,7 +731,7 @@ func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
 			require.NoError(t, err)
 			late := f.claim()
 			_, err = f.consumer.Consume(ctx, late.Lease())
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 			waiting, err := inbox.GetIntegrationInbox(ctx, f.ids.ProjectID, late.ID)
 			require.NoError(t, err)
 			require.Empty(t, waiting.Plan, "the sibling cannot acquire independent launch authority")
@@ -741,7 +771,7 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 	f.choose(f.provider.menus[0], "heavy")
 	selected := f.claim()
 	choice, err := inbox.GetIntegrationProfileChoice(
-		ctx, selected.ProjectID, selected.IntegrationID, selected.StateID)
+		ctx, selected.ProjectID, selected.IntegrationID, selected.SourceStateID)
 	require.NoError(t, err)
 	event, err := selectedIntegrationEvent(choice)
 	require.NoError(t, err)
@@ -750,7 +780,7 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 	require.Len(t, plan.Recipients, 1)
 	var agentID uuid.UUID
 	for key := range plan.Recipients {
-		result, err := f.store.Execution().AdmitInboxLaunchSlot(ctx, selected.Lease(), key, nil)
+		result, err := f.store.Execution().AdmitInboxLaunchRecipient(ctx, selected.Lease(), key, nil)
 		require.NoError(t, err)
 		agentID = result.Agent.ID
 	}

@@ -92,8 +92,7 @@ and changes no comments or reviews in GitHub.
 Set the GitHub registration's webhook to
 `https://YOUR_OMNARA_HOST/api/integrations/github/events`. The GitHub App ID header
 selects candidate credentials; the signature and installation identity authenticate
-the event. The existing `/api/integrations/github/APP_ID/events` URL also works with
-the numeric GitHub App ID. Verified installation identity routes ordinary events to each
+the event. Verified installation identity routes ordinary events to each
 matching active Omnara integration. Independent integrations may use the same installation;
 they are not automatically merged. Configure an active integration before testing ping.
 
@@ -131,7 +130,8 @@ commit and submission time. Unpublished pending reviews are excluded.
 includes `is_resolved`, `is_outdated`, its path/line and, when available, a
 `comment_id` linking to the first available comment in `review_comments` or `reply`.
 Read comment bodies and replies with `review_comments`. Lists default to 30 items
-and accept a `limit` of 1–100. Large or binary diffs may be incomplete.
+and accept a `limit` of 1–100. Oversized `diff` reads fail with guidance to use
+`files` and follow `next_page`. Individual file patches may be incomplete for large or binary changes.
 
 `discussion_comment` posts a PR conversation comment using `body`.
 `review_comment` posts on the diff using `body`, `commit_id`, `path`, `line` and

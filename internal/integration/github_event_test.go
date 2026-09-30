@@ -126,7 +126,39 @@ func TestGitHubNormalizeIntegrationEvents(t *testing.T) {
 					metadata.Path != "a.go" || metadata.ReplyToID != 3000) {
 				t.Fatalf("inline metadata: %s", event.Metadata)
 			}
+			if tc.eventType == "pull_request_review_comment" {
+				for _, want := range []string{
+					"a.go:15", "comment_id: 3001", "side: RIGHT", "start_line: 12",
+					"in_reply_to_id: 3000", "@helper please fix this",
+				} {
+					if !strings.Contains(blocks[0]["text"], want) {
+						t.Errorf("inline input lacks %q: %s", want, blocks[0]["text"])
+					}
+				}
+			}
 		})
+	}
+}
+
+func TestGitHubInlineInputDoesNotInventCurrentLineForOutdatedComments(t *testing.T) {
+	payload := githubEventFixture("pull_request_review_comment")
+	payload.Comment.Line, payload.Comment.StartLine = nil, nil
+	payload.Comment.OriginalLine = new(15)
+	event, ok, err := NormalizeGitHubIntegrationEvent(githubEventIntegration(), githubEventJSON(t, payload))
+	if err != nil || !ok {
+		t.Fatalf("normalize: %v, %v", ok, err)
+	}
+	var blocks []map[string]string
+	if json.Unmarshal(event.ContentBlocks, &blocks) != nil || len(blocks) != 1 {
+		t.Fatalf("blocks: %s", event.ContentBlocks)
+	}
+	for _, want := range []string{"a.go", "original line 15; current line unavailable", "comment_id: 3001"} {
+		if !strings.Contains(blocks[0]["text"], want) {
+			t.Errorf("outdated inline comment lacks %q: %s", want, blocks[0]["text"])
+		}
+	}
+	if strings.Contains(blocks[0]["text"], "a.go:15") {
+		t.Fatal("outdated comment was rendered as a current line")
 	}
 }
 

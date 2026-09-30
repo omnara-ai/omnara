@@ -2,16 +2,16 @@
 INSERT INTO integration_inbox (project_id, integration_id, receipt_key, payload)
 VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), sqlc.arg(payload))
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, integration_id, receipt_key, payload, source, source_state_id, reserved_scope_kind, reserved_scope_ref, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
 
 -- name: GetIntegrationInboxReceiptByKey :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, integration_id, receipt_key, payload, source, source_state_id, reserved_scope_kind, reserved_scope_ref, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)
   AND receipt_key = sqlc.arg(receipt_key);
 
 -- name: GetIntegrationInboxReceipt :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
+SELECT id, project_id, integration_id, receipt_key, payload, source, source_state_id, reserved_scope_kind, reserved_scope_ref, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
@@ -77,7 +77,7 @@ SET state = 'processing', attempt_count = inbox.attempt_count + 1,
     claim_expires_at = statement_timestamp() + sqlc.arg(lease_milliseconds)::bigint * interval '1 millisecond',
     updated_at = statement_timestamp()
 FROM candidate WHERE inbox.id = candidate.id
-RETURNING inbox.id, inbox.project_id, inbox.integration_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.state_id, inbox.plan, inbox.state, inbox.attempt_count, inbox.next_attempt_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
+RETURNING inbox.id, inbox.project_id, inbox.integration_id, inbox.receipt_key, inbox.payload, inbox.source, inbox.source_state_id, inbox.reserved_scope_kind, inbox.reserved_scope_ref, inbox.plan, inbox.state, inbox.attempt_count, inbox.next_attempt_at, inbox.claim_token, inbox.claim_expires_at, inbox.last_error, inbox.created_at, inbox.updated_at, inbox.completed_at;
 
 -- Use a fresh statement after locking: statement_timestamp() does not advance during lock waits.
 -- name: LockIntegrationInboxReceipt :one
@@ -86,7 +86,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 FOR UPDATE;
 
 -- name: ReadIntegrationInboxLease :one
-SELECT id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
+SELECT id, project_id, integration_id, receipt_key, payload, source, source_state_id, reserved_scope_kind, reserved_scope_ref, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
@@ -220,4 +220,11 @@ DELETE FROM integration_inbox inbox USING candidates WHERE inbox.id = candidates
 INSERT INTO integration_inbox (project_id, integration_id, receipt_key, payload, source)
 VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), sqlc.arg(payload), 'scheduled')
 ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+RETURNING id, project_id, integration_id, receipt_key, payload, source, source_state_id, reserved_scope_kind, reserved_scope_ref, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;
+
+-- name: InsertIntegrationStateWork :one
+INSERT INTO integration_inbox(project_id, integration_id, receipt_key, source, source_state_id, reserved_scope_kind, reserved_scope_ref)
+VALUES (sqlc.arg(project_id), sqlc.arg(integration_id), sqlc.arg(receipt_key), 'state', sqlc.arg(source_state_id),
+        sqlc.narg(reserved_scope_kind), sqlc.narg(reserved_scope_ref))
+ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
+RETURNING id, project_id, integration_id, receipt_key, payload, source, source_state_id, reserved_scope_kind, reserved_scope_ref, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at;

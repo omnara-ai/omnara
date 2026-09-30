@@ -58,15 +58,15 @@ func TestIntegrationInboxConversationQuotaPreservesObserversAndRetriesLaunch(t *
 			require.NoError(t, err)
 			var launchID uuid.UUID
 			var launchKey string
-			for key, slot := range plan.Recipients {
-				if slot.Launch != nil {
+			for key, recipient := range plan.Recipients {
+				if recipient.Launch != nil {
 					require.Equal(t, uuid.Nil, launchID, "the receipt must contain exactly one launch")
-					launchID, launchKey = slot.AgentID, key
-					require.Equal(t, executionstore.InboxSlotPending, outcomes[key])
+					launchID, launchKey = recipient.AgentID, key
+					require.Equal(t, executionstore.InboxRecipientPending, outcomes[key])
 					continue
 				}
-				require.Contains(t, observers, slot.AgentID)
-				require.Equal(t, executionstore.InboxSlotDelivered, outcomes[key])
+				require.Contains(t, observers, recipient.AgentID)
+				require.Equal(t, executionstore.InboxRecipientDelivered, outcomes[key])
 			}
 			require.NotEqual(t, uuid.Nil, launchID)
 			_, err = f.store.Execution().GetAgentInProject(ctx, f.ids.ProjectID, launchID)
@@ -129,7 +129,7 @@ func TestIntegrationInboxConversationQuotaPreservesObserversAndRetriesLaunch(t *
 				require.Equal(t, 2, after.AttemptCount)
 				require.Len(t, current, 17)
 				require.Contains(t, current, launchID)
-				require.Equal(t, executionstore.InboxSlotDelivered, finalOutcomes[launchKey])
+				require.Equal(t, executionstore.InboxRecipientDelivered, finalOutcomes[launchKey])
 				launched, err := f.store.Execution().GetAgentInProject(ctx, f.ids.ProjectID, launchID)
 				require.NoError(t, err)
 				require.Equal(t, f.profiles[0].ID, launched.AgentProfileID)

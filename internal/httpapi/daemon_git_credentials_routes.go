@@ -40,7 +40,7 @@ func (s strictOpenAPIServer) GetDaemonGitCredentials(
 	}
 	authority, err := s.server.daemonGitCredentialsAuthority(ctx, scope, processID)
 	if err != nil {
-		return nil, daemonGitCredentialsError(err)
+		return nil, daemonGitCredentialsError(ctx, err)
 	}
 	credential, err := s.server.store.Secrets().ReadProjectAvailableSecretPayload(ctx,
 		secretstore.ReadProjectAvailableSecretPayloadInput{
@@ -48,11 +48,11 @@ func (s strictOpenAPIServer) GetDaemonGitCredentials(
 			SecretID: authority.CredentialSecretID, Kind: secrets.KindGitHubAppCredentials,
 		})
 	if err != nil {
-		return nil, daemonGitCredentialsError(err)
+		return nil, daemonGitCredentialsError(ctx, err)
 	}
 	credentialAppID, err := strconv.ParseInt(credential.Payload[secrets.KeyAppID], 10, 64)
 	if err != nil || credentialAppID != authority.AppID || credential.CurrentVersionID != authority.CredentialVersionID {
-		return nil, daemonGitCredentialsError(storeerr.ErrNotFound)
+		return nil, daemonGitCredentialsError(ctx, storeerr.ErrNotFound)
 	}
 	client, err := s.server.gitCredentialClients.Client(
 		authority.CredentialSecretID, authority.CredentialVersionID, authority.InstallationID,
@@ -62,19 +62,19 @@ func (s strictOpenAPIServer) GetDaemonGitCredentials(
 		},
 	)
 	if err != nil {
-		return nil, daemonGitCredentialsError(err)
+		return nil, daemonGitCredentialsError(ctx, err)
 	}
 	result, err := client.InstallationGitCredentials(ctx)
 	if err != nil {
-		return nil, daemonGitCredentialsError(err)
+		return nil, daemonGitCredentialsError(ctx, err)
 	}
 	// Recheck after issuance and cache hits alike; never return a token under stale authority.
 	current, err := s.server.daemonGitCredentialsAuthority(ctx, scope, processID)
 	if err != nil {
-		return nil, daemonGitCredentialsError(err)
+		return nil, daemonGitCredentialsError(ctx, err)
 	}
 	if current != authority {
-		return nil, daemonGitCredentialsError(storeerr.ErrNotFound)
+		return nil, daemonGitCredentialsError(ctx, storeerr.ErrNotFound)
 	}
 	response := openapi.GetDaemonGitCredentials200JSONResponse{
 		Headers: openapi.GetDaemonGitCredentials200ResponseHeaders{CacheControl: "no-store"},
@@ -127,7 +127,7 @@ func (s *Server) daemonGitCredentialsAuthority(
 	}, nil
 }
 
-func daemonGitCredentialsError(err error) error {
+func daemonGitCredentialsError(ctx context.Context, err error) error {
 	if errors.Is(err, storeerr.ErrNotFound) {
 		return apierror.FromCode(openapi.ErrorCodeNotFound, "Git credentials are not available for this process")
 	}
@@ -140,5 +140,6 @@ func daemonGitCredentialsError(err error) error {
 		return apierror.FromCode(openapi.ErrorCodeConflict,
 			"Git credentials are unavailable; check the GitHub App and installation permissions")
 	}
+	logIntegrationCredentialError(ctx, "issue daemon Git credentials", err)
 	return apierror.FromCode(openapi.ErrorCodeServiceUnavailable, "Git credentials are temporarily unavailable")
 }

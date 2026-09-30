@@ -20,7 +20,7 @@ type ScheduleDefinition struct {
 	ValidatePlan     func(SchedulePlan) error
 }
 
-type ScheduleSlot struct {
+type ScheduleLaunch struct {
 	Key       string
 	Scope     Scope
 	ProfileID uuid.UUID
@@ -31,7 +31,7 @@ type SchedulePlan struct {
 	IntegrationName string
 	Occurrence      cronschedule.Occurrence
 	Settings        json.RawMessage
-	Slots           []ScheduleSlot
+	Launches        []ScheduleLaunch
 }
 
 func ValidateScheduleSettings(integrationKind Kind, settings json.RawMessage) (json.RawMessage, error) {

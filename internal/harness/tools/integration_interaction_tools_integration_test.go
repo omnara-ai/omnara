@@ -404,13 +404,12 @@ func prepareInteractionPromptFixture(t *testing.T, ctx context.Context, f integr
 			ctx, tx, toolsTestProjectID, f.Agent.ID, f.Install.ID, address,
 		))
 	}
-	selected, err := executionstore.SelectInteractionDestinationForOriginTx(
-		ctx, tx, toolsTestProjectID, f.Agent.ID, f.Target.ID,
+	changed, err := tx.Exec(ctx, `UPDATE agents
+		SET interaction_target_id=$3, interaction_handler_key='chat', interaction_auto_select=true
+		WHERE project_id=$1 AND id=$2`, toolsTestProjectID, f.Agent.ID, f.Target.ID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{
-		AutoSelect: true, HandlerKey: "chat", IntegrationTargetID: f.Target.ID,
-	}, selected)
+	require.EqualValues(t, 1, changed.RowsAffected())
 	require.NoError(t, tx.Commit(ctx))
 }
 

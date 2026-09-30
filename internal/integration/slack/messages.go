@@ -377,7 +377,7 @@ func retryAfter(raw string) time.Duration {
 }
 
 func slackTimestamp(t time.Time) string {
-	return strconv.FormatFloat(float64(t.UnixNano())/float64(time.Second), 'f', 6, 64)
+	return fmt.Sprintf("%d.%06d", t.Unix(), t.Nanosecond()/int(time.Microsecond))
 }
 
 func ErrorResult(code string) APIResult {

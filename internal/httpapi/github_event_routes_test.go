@@ -147,9 +147,9 @@ const githubIntakeBody = `{
 
 func githubIntakeRequest(t *testing.T, f *githubIntakeFixture, raw string) *http.Request {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodPost, "/api/integrations/github/123/events", strings.NewReader(raw))
+	r := httptest.NewRequest(http.MethodPost, GitHubEventsPath, strings.NewReader(raw))
 	r = r.WithContext(t.Context())
-	r.SetPathValue("app_id", "123")
+	r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set(github.EventHeader, "issue_comment")
 	r.Header.Set(github.DeliveryHeader, "delivery-1")
@@ -260,8 +260,8 @@ func TestGitHubHTTPIntakeRejectsUnverifiedOrUncommitted(t *testing.T) {
 		{"unknown app", http.StatusNoContent, func(f *githubIntakeFixture, _ *http.Request) {
 			f.lookupErr = storeerr.ErrNotFound
 		}},
-		{"bad path", http.StatusNotFound, func(_ *githubIntakeFixture, r *http.Request) {
-			r.SetPathValue("app_id", "bad")
+		{"bad App hint", http.StatusNotFound, func(_ *githubIntakeFixture, r *http.Request) {
+			r.Header.Set("X-Github-Hook-Installation-Target-Id", "bad")
 		}},
 		{"lookup failure", http.StatusServiceUnavailable, func(f *githubIntakeFixture, _ *http.Request) {
 			f.lookupErr = errors.New("private-key webhook-secret")
@@ -366,7 +366,7 @@ func TestGitHubHTTPMountedRouteUsesProviderAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := "/api/integrations/github/123/events"
+	path := GitHubEventsPath
 	if requiresAuth(path) {
 		t.Fatal("GitHub callbacks must not require a bearer token or browser session")
 	}
@@ -457,7 +457,7 @@ func TestGitHubHTTPIntegrationPingAndUnmanagedInstallationDoNotChooseProject(t *
 	w := httptest.NewRecorder()
 	r := githubIntakeRequest(t, f, `{"zen":"Keep it logically awesome","hook":{"id":123}}`)
 	r.Header.Set(github.EventHeader, "ping")
-	r.SetPathValue("app_id", "999")
+	r.Header.Set("X-Github-Hook-Installation-Target-Id", "999")
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("cross-App credential selection: %d", w.Code)
@@ -639,8 +639,7 @@ func TestGitHubSharedIntakeLookupHintRequiresVerification(t *testing.T) {
 			t.Parallel()
 			f := newGitHubIntakeFixture()
 			r := githubIntakeRequest(t, f, githubIntakeBody)
-			r.SetPathValue("app_id", "")
-			r.URL.Path = GitHubSharedEventsPath
+			r.Header.Del("X-Github-Hook-Installation-Target-Id")
 			for _, hint := range tc.hints {
 				r.Header.Add("X-Github-Hook-Installation-Target-Id", hint)
 			}
@@ -668,9 +667,6 @@ func TestGitHubSharedIntakeFailsClosedBeforeConfiguration(t *testing.T) {
 	f.integrations = []integrationstore.IntegrationRecord{}
 	f.candidates = []integrationstore.IntegrationRecord{}
 	r := githubIntakeRequest(t, f, `{"zen":"bootstrap","hook":{"id":1}}`)
-	r.SetPathValue("app_id", "")
-	r.URL.Path = GitHubSharedEventsPath
-	r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
 	r.Header.Set(github.EventHeader, "ping")
 	w := httptest.NewRecorder()
 	(&githubIntakeHandler{store: f, secrets: f, credentialIntegrations: f.credentialIntegrations}).ServeHTTP(w, r)

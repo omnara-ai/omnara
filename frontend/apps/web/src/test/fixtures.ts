@@ -214,8 +214,6 @@ export function integration(overrides: Partial<Integration> = {}): Integration {
     state: 'disconnected',
     setup_revision: 1,
     settings: {},
-    provider_tenant_id: '',
-    provider_account_ref: '',
     provider_agent_display_name: '',
     provider_config: {},
     capabilities: definition.capabilities,

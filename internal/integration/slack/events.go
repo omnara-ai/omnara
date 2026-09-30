@@ -83,6 +83,7 @@ type historyResponse struct {
 }
 
 type HistoryMessage struct {
+	Channel  string         `json:"channel,omitempty"`
 	User     string         `json:"user"`
 	BotID    string         `json:"bot_id"`
 	Text     string         `json:"text"`
@@ -175,7 +176,11 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 	if len(lines) == 0 {
 		return ""
 	}
-	return "Recent Slack context:\n" + strings.Join(lines, "\n")
+	heading := "Recent Slack context:"
+	if event.ThreadTS != "" && event.ThreadTS != event.TS {
+		heading = "Earlier Slack thread context (first page, oldest-first; newer replies may be omitted):"
+	}
+	return heading + "\n" + strings.Join(lines, "\n")
 }
 
 func ShouldFetchRecentContext(route InboundRoute, newlyMapped bool) bool {

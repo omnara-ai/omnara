@@ -171,7 +171,7 @@ func (s *Store) launchAgentTx(
 	}
 	var origins []AgentInputOrigin
 	if initial != nil && initial.Origin != nil {
-		origins = append(origins, AgentInputOrigin(*initial.Origin))
+		origins = append(origins, *initial.Origin)
 	}
 	subscriptions := make([]integrationstore.RegisterIntegrationSubscriptionInput, 0, len(input.Subscriptions))
 	for _, attachment := range input.Subscriptions {

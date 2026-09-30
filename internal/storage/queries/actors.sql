@@ -42,6 +42,12 @@ FROM actors
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id);
 
+-- name: ListActorIdentitiesByIDs :many
+SELECT id, provider, provider_user_id
+FROM actors
+WHERE project_id = sqlc.arg(project_id)
+  AND id = ANY(sqlc.arg(ids)::uuid[]);
+
 -- name: ListActors :many
 SELECT id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
 FROM actors

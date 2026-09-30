@@ -53,7 +53,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
     connects = 0
   await page.route(`**/projects/${projectID}/integrations`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
-    const request = schemas.zSaveIntegrationRequest.parse(route.request().postDataJSON())
+    const request = schemas.zCreateIntegrationRequest.parse(route.request().postDataJSON())
     expect(request.settings).toEqual({})
     integration = { ...integration, name: request.name, settings: request.settings }
     await route.fulfill({ status: 201, json: integration })
@@ -90,7 +90,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
       inspections++
       expect(
         schemas.zInspectGitHubInstallationsRequest.parse(route.request().postDataJSON()),
-      ).toEqual({ credentials_secret_ref: secretID, page: 1 })
+      ).toEqual({ credential_secret_id: secretID, page: 1 })
       await route.fulfill({
         json: { ...installations, installations: approved ? installations.installations : [] },
       })
@@ -127,7 +127,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
       await route.fulfill({
         status: 302,
         headers: {
-          location: `${origin}${integrationPath}?github_setup=credentials_saved&credentials_secret_ref=${secretID}`,
+          location: `${origin}${integrationPath}?github_setup=credentials_saved&credential_secret_id=${secretID}`,
         },
         body: '',
       })
@@ -143,7 +143,6 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await page.goto(`/projects/${projectID}/integrations/new/github_pr`)
   await expect(page.getByRole('button', { name: 'Continue to GitHub', exact: true })).toBeVisible()
   await expect(page.getByLabel('GitHub App ID', { exact: true })).toHaveCount(0)
-  await expect(page.getByLabel('Bot display name', { exact: false })).toHaveCount(0)
   await page.getByLabel('Integration name', { exact: true }).fill('guided-reviewer')
   await captureGitHubSetup(page, 'personal')
   await page.getByLabel('GitHub App owner').selectOption('organization')
@@ -186,7 +185,6 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
     .getByRole('checkbox', { name: 'Launch agents from GitHub events', exact: true })
     .check()
   await expect(launch.getByRole('combobox', { name: 'Agent profile', exact: true })).toBeVisible()
-  await expect(launch.getByLabel('Repository ID')).toHaveCount(0)
   await captureGitHubSetup(page, 'connected')
 }
 

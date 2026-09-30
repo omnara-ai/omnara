@@ -11,7 +11,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func (c *IntegrationInboxConsumer) FinalizeFailure(ctx context.Context, projectID, receiptID uuid.UUID) error {
+func (c *IntegrationInboxConsumer) FinalizeFailure(
+	ctx context.Context, projectID, receiptID uuid.UUID, cause error,
+) error {
 	receipt, err := c.inbox.GetIntegrationInbox(ctx, projectID, receiptID)
 	if err != nil {
 		return err
@@ -34,13 +36,16 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(ctx context.Context, projectI
 			failures = append(failures, err)
 		} else {
 			for _, outcome := range outcomes {
-				if outcome == executionstore.InboxSlotPending {
+				if outcome == executionstore.InboxRecipientPending {
 					unfinished = true
-				} else if outcome == executionstore.InboxSlotDelivered {
+				} else if outcome == executionstore.InboxRecipientDelivered {
 					message = "I couldn't deliver this request to every agent. Some agents have already received it."
 				}
 			}
 		}
+	}
+	if errors.Is(cause, storeerr.ErrManagedWorkAdmissionDenied) {
+		message = launchUnavailableMessage
 	}
 	if unfinished {
 		noticeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)

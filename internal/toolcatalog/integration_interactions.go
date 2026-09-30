@@ -17,7 +17,8 @@ func interactionHandlerTools() ([]Entry, error) {
 	list, err := toolEntry(ToolNameListInteractionHandlers,
 		"List eligible handlers for future questions and approval prompts. Returns handler keys, destinations, descriptions, "+
 			"effective argument schemas, and the current selection including args independently of the page. "+
-			"auto_select reports whether new opening inputs change the selection. Pass next_cursor as cursor to continue listing. Null selection means dashboard only.", nil, map[string]any{
+			"Reports whether auto_select is enabled. "+
+			"Pass next_cursor as cursor to continue listing. Null selection means dashboard only.", nil, map[string]any{
 			"cursor": map[string]any{"type": "string", "minLength": 1},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": InteractionHandlersMaxLimit},
 		})
@@ -27,7 +28,11 @@ func interactionHandlerTools() ([]Entry, error) {
 	set, err := toolEntry(ToolNameSetInteractionHandler,
 		"Select an eligible handler for future questions and approval prompts. "+
 			"Use the selected handler's argument schema from list_interaction_handlers. "+
-			"Pass handler: null and args: {} for dashboard only. Set auto_select to false to pin this choice, or true to follow future opening inputs. Omit it to keep the current mode. Existing prompts retain their destination; the dashboard remains available.",
+			"Pass handler: null and args: {} for dashboard only. Set auto_select to false to pin this choice, "+
+			"or true to follow the last eligible content input admitted to each turn. "+
+			"Integration origins select their eligible handler; dashboard/API inputs and origins without one clear selection. "+
+			"Originless internal agent messages, reports and cron inputs preserve selection. "+
+			"Omit auto_select to keep the current mode. Existing prompts retain their destination; the dashboard remains available.",
 		[]string{"handler", "args"}, map[string]any{
 			"handler": map[string]any{
 				"anyOf": []any{map[string]any{"type": "null"}, map[string]any{"type": "string", "pattern": IntegrationNamePattern}},

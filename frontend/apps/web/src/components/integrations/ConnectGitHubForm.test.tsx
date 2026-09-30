@@ -157,7 +157,7 @@ it('explains an integration creation conflict before GitHub registration', async
 it.each([false, true])(
   'uses the returned credential in manual setup (inspected=%s)',
   async (inspected) => {
-    window.history.replaceState(null, '', `/?credentials_secret_ref=${secretId}`)
+    window.history.replaceState(null, '', `/?credential_secret_id=${secretId}`)
     const api = fakeApi([
       ...reads,
       { method: 'POST', path: inspectPath, respond: () => Response.json(verified) },
@@ -288,7 +288,6 @@ it.each([false, true])(
     })
     render(api, <ConnectGitHubForm orgId={orgId} projectId={projectId} onConnected={vi.fn()} />)
     expect(container.textContent).toContain('private')
-    expect(container.querySelector('#provider-display')).toBeNull()
     expect(document.querySelector<HTMLSelectElement>('#github-owner')?.labels[0]?.textContent).toBe(
       'GitHub App owner',
     )
@@ -327,7 +326,7 @@ it.each(['registration', 'connection'] as const)(
   'disables deletion and mode switching during guided %s',
   async (operation) => {
     if (operation === 'connection')
-      window.history.replaceState(null, '', `/?credentials_secret_ref=${secretId}`)
+      window.history.replaceState(null, '', `/?credential_secret_id=${secretId}`)
     let release!: (response: Response) => void
     const pending = new Promise<Response>((resolve) => {
       release = resolve

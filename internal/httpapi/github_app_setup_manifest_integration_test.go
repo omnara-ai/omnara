@@ -207,7 +207,7 @@ func (f *githubManifestFixture) saveCredentials(t *testing.T) string {
 	location, err := url.Parse(response.Header().Get("Location"))
 	require.NoError(t, err)
 	require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
-	return location.Query().Get("credentials_secret_ref")
+	return location.Query().Get("credential_secret_id")
 }
 
 func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *testing.T) {
@@ -225,7 +225,7 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 	require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
 	require.Equal(
 		t,
-		map[string]any{"url": "https://omnara.test" + GitHubSharedEventsPath, "active": true},
+		map[string]any{"url": "https://omnara.test" + GitHubEventsPath, "active": true},
 		manifest["hook_attributes"],
 	)
 	require.Equal(t,
@@ -248,7 +248,7 @@ func TestGitHubManifestRegistrationSavesRecoverableSecretWithoutConnecting(t *te
 	require.Equal(t, canonical, location.Scheme+"://"+location.Host+location.Path)
 	require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
 	require.Empty(t, location.Query().Get("github_setup_error"))
-	ref := location.Query().Get("credentials_secret_ref")
+	ref := location.Query().Get("credential_secret_id")
 	secretID, err := publicid.Decode(publicid.KindSecret, ref)
 	require.NoError(t, err)
 	secret, err := f.project.Store.Secrets().
@@ -296,7 +296,7 @@ func TestGitHubManifestUsesAPIOriginOnlyForWebhook(t *testing.T) {
 			manifest := testutil.RequireType[map[string]any](t, response["manifest"])
 			api, err := url.Parse(apiURL)
 			require.NoError(t, err)
-			webhookURL := api.Scheme + "://" + api.Host + GitHubSharedEventsPath
+			webhookURL := api.Scheme + "://" + api.Host + GitHubEventsPath
 			require.Equal(t, map[string]any{"url": webhookURL, "active": true}, manifest["hook_attributes"])
 			require.Equal(t, "https://omnara.test"+githubManifestCallbackPath, manifest["redirect_url"])
 			canonical := "https://omnara.test/projects/" + f.project.ProjectID + "/integrations/" +
@@ -324,7 +324,7 @@ func TestGitHubManifestCallbackSavesCredentialsForLargestAppID(t *testing.T) {
 	location, err := url.Parse(response.Header().Get("Location"))
 	require.NoError(t, err)
 	require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
-	secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credentials_secret_ref"))
+	secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credential_secret_id"))
 	require.NoError(t, err)
 	secret, err := f.project.Store.Secrets().GetSecret(t.Context(), f.project.OrgUUID, secretID)
 	require.NoError(t, err)
@@ -449,7 +449,7 @@ func TestGitHubInstallationInspectionUsesSavedSecretAndExplicitPagination(t *tes
 		f.handler,
 		http.MethodPost,
 		f.path(t)+"/installations",
-		integrationHTTPJSON(t, map[string]any{"credentials_secret_ref": ref}),
+		integrationHTTPJSON(t, map[string]any{"credential_secret_id": ref}),
 		"",
 		http.StatusOK,
 		f.headers(),
@@ -477,7 +477,7 @@ func TestGitHubInstallationInspectionUsesSavedSecretAndExplicitPagination(t *tes
 		f.handler,
 		http.MethodPost,
 		f.path(t)+"/installations",
-		integrationHTTPJSON(t, map[string]any{"credentials_secret_ref": ref, "page": 2}),
+		integrationHTTPJSON(t, map[string]any{"credential_secret_id": ref, "page": 2}),
 		"",
 		http.StatusOK,
 		f.headers(),
@@ -500,7 +500,7 @@ func TestGitHubInstallationInspectionUsesSavedSecretAndExplicitPagination(t *tes
 		http.MethodPost,
 		other.ProjectPath+
 			"/integrations/"+testPublicID(t, publicid.KindIntegration, foreign.ID)+"/github-setup/installations",
-		integrationHTTPJSON(t, map[string]any{"credentials_secret_ref": ref}),
+		integrationHTTPJSON(t, map[string]any{"credential_secret_id": ref}),
 		"",
 		http.StatusNotFound,
 		map[string]string{
@@ -581,7 +581,7 @@ func TestGitHubManifestCallbackRechecksRevocationAndPreservesConvertedSecretOnSe
 			require.NoError(t, err)
 			require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
 			require.Equal(t, "integration_setup_changed", location.Query().Get("github_setup_error"))
-			secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credentials_secret_ref"))
+			secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credential_secret_id"))
 			require.NoError(t, err)
 			_, err = f.project.Store.Secrets().
 				ReadProjectAvailableSecretPayload(t.Context(), secretstore.ReadProjectAvailableSecretPayloadInput{
@@ -605,7 +605,7 @@ func TestGitHubManifestCallbackRechecksRevocationAndPreservesConvertedSecretOnSe
 			body := map[string]any{
 				"expected_setup_revision": f.integration.SetupRevision,
 				"provider_tenant_id":      "123", "provider_account_ref": "456",
-				"credential_secret_id": location.Query().Get("credentials_secret_ref"),
+				"credential_secret_id": location.Query().Get("credential_secret_id"),
 			}
 			requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, f.integration),
 				integrationHTTPJSON(t, body), "", http.StatusConflict, f.headers())

@@ -3,12 +3,15 @@ package slack
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReconcilePromptBoundsPagination(t *testing.T) {
@@ -79,6 +82,34 @@ func TestReconcilePromptBoundsPagination(t *testing.T) {
 	}
 }
 
+func TestReconcilePromptReceiptKeepsExistingMarkerAndActionMatchers(t *testing.T) {
+	for _, marker := range []bool{true, false} {
+		action, err := json.Marshal(PromptActionValue{Type: PromptType, InteractionID: "question",
+			AgentID: "agent", IntegrationTargetID: "target"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		block := HistoryBlock{Elements: []actionButton{{ActionID: PromptAction, Value: string(action)}}}
+		if marker {
+			block = HistoryBlock{BlockID: promptMarkerBlockID("question")}
+		}
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/conversations.replies" {
+				t.Errorf("unexpected method %s", r.URL.Path)
+			}
+			writeSlackTestJSON(w, map[string]any{
+				"ok": true, "messages": []HistoryMessage{{TS: "2.3", Blocks: []HistoryBlock{block}}},
+			})
+		}))
+		id, result, err := ReconcilePromptReceipt(t.Context(), slackTestClient(server),
+			MessageTarget{Channel: "C123", ThreadTS: "1.2", BotToken: "secret"}, "question")
+		server.Close()
+		if err != nil || result != (APIResult{}) || id != "2.3" {
+			t.Fatalf("existing prompt matcher = %q, %+v, %v", id, result, err)
+		}
+	}
+}
+
 func TestDismissPromptUsesConfirmedReceiptWithoutHistory(t *testing.T) {
 	t.Parallel()
 	for _, providerError := range []string{"", "ratelimited", "message_not_found"} {
@@ -103,7 +134,7 @@ func TestDismissPromptUsesConfirmedReceiptWithoutHistory(t *testing.T) {
 					http.Error(w, "invalid request", http.StatusBadRequest)
 					return
 				}
-				if body.Channel != "C123" || body.TS != "222.333" || body.Blocks == nil || len(body.Blocks) != 0 {
+				if body.Channel != "C123" || body.TS != "222.333" || len(body.Blocks) != 1 {
 					t.Errorf("dismiss payload = %+v", body)
 				}
 				writeSlackTestJSON(w, map[string]any{"ok": providerError == "", "error": providerError})
@@ -115,6 +146,55 @@ func TestDismissPromptUsesConfirmedReceiptWithoutHistory(t *testing.T) {
 				result.RateLimited != (providerError == "ratelimited") ||
 				result.PermanentFailure != (providerError == "message_not_found") {
 				t.Fatalf("dismiss calls=%d result=%+v err=%v", calls, result, err)
+			}
+		})
+	}
+}
+
+func TestDismissPromptKeepsFormTextLiteralAndBounded(t *testing.T) {
+	t.Parallel()
+	const literal = "Question <!channel>\nRepository: <https://example.com|repo> & &lt;@U123&gt;\n" +
+		"Deploy *all*?\n• <@U123>\n• <#C123> @here https://example.com 界"
+	const status = "Dismissed because a newer message was sent."
+	for _, tc := range []struct{ name, text string }{
+		{"dismissed", literal + "\n\n" + status},
+		{"resolved", literal + "\n\nApproved: run_command"},
+		{"limit", strings.Repeat("&", promptLabelLimit-len(status)-2) + "\n\n" + status},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			updates := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode dismissal: %v", err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				updates <- body
+				writeSlackTestJSON(w, map[string]any{"ok": true})
+			}))
+			defer server.Close()
+			result, err := DismissPrompt(t.Context(), slackTestClient(server),
+				MessageTarget{Channel: "C123", BotToken: "secret"}, "222.333", tc.text)
+			require.NoError(t, err)
+			require.Equal(t, APIResult{}, result)
+			body := <-updates
+			require.Equal(t, []any{map[string]any{
+				"type": "section", "text": map[string]any{"type": "plain_text", "text": tc.text},
+			}}, body["blocks"], "all interactive controls must be replaced by a single plain-text section")
+			require.LessOrEqual(t, utf8.RuneCountInString(tc.text), promptLabelLimit)
+			require.Equal(t, "none", body["parse"])
+			require.NotContains(t, body, "link_names")
+			fallback, ok := body["text"].(string)
+			require.True(t, ok)
+			require.Equal(t, tc.text, html.UnescapeString(fallback), "fallback must preserve the full closure text")
+			require.NotContains(t, fallback, "<")
+			require.NotContains(t, fallback, ">")
+			require.LessOrEqual(t, utf8.RuneCountInString(fallback), 5*promptLabelLimit)
+			if tc.name != "limit" {
+				require.Contains(t, fallback, "&lt;!channel&gt;")
+				require.Contains(t, fallback, "&amp;lt;@U123&amp;gt;")
 			}
 		})
 	}
@@ -284,7 +364,10 @@ func TestInteractionFormPromptBlocksAllowsOptionsWithOptionalText(t *testing.T) 
 	label, labelOK := text["label"].(map[string]any)
 	element, elementOK := text["element"].(map[string]any)
 	if !labelOK || !elementOK || text["optional"] != true ||
-		label["text"] != "Text for your selected option" || element["type"] != "plain_text_input" {
+		label["text"] != "Text for Other" || element["type"] != "plain_text_input" {
 		t.Fatalf("optional question text block = %#v", text)
+	}
+	if _, ok := text["hint"]; ok {
+		t.Fatalf("text field must not imply changing the selected choice: %#v", text["hint"])
 	}
 }

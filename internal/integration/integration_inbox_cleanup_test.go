@@ -26,7 +26,7 @@ func (s *cleanupCountingInbox) GetIntegrationInbox(
 
 type cleanupReplayExecution struct{ IntegrationExecutionStore }
 
-func (cleanupReplayExecution) AdmitInboxInputSlot(
+func (cleanupReplayExecution) AdmitInboxInputRecipient(
 	context.Context, integrationstore.IntegrationInboxLease, string, []artifactstore.PreparedArtifact,
 ) (executionstore.InboxInputResult, error) {
 	return executionstore.InboxInputResult{Skipped: executionstore.InboxInputSkipAgentArchived}, nil
@@ -36,13 +36,15 @@ func TestIntegrationInboxConsumerCleanupReadsOnlyForPlannedArtifacts(t *testing.
 	for _, scenario := range []string{"empty", "text only", "file"} {
 		t.Run(scenario, func(t *testing.T) {
 			projectID, receiptID := uuid.New(), uuid.New()
-			plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{}}
+			plan := IntegrationInboxPlan{
+				Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxRecipient{},
+			}
 			if scenario != "empty" {
-				slot := IntegrationInboxSlot{AgentID: uuid.New()}
+				recipient := IntegrationInboxRecipient{AgentID: uuid.New()}
 				if scenario == "file" {
-					slot.ArtifactIDs = []uuid.UUID{uuid.New()}
+					recipient.ArtifactIDs = []uuid.UUID{uuid.New()}
 				}
-				plan.Recipients["slot"] = slot
+				plan.Recipients["recipient"] = recipient
 			}
 			raw, err := json.Marshal(plan)
 			require.NoError(t, err)
@@ -61,7 +63,7 @@ func TestIntegrationInboxConsumerCleanupReadsOnlyForPlannedArtifacts(t *testing.
 			require.NoError(t, err)
 			if scenario == "file" {
 				require.Equal(t, 3, inbox.reads, "completed replay still attempts unused-upload cleanup")
-				require.Equal(t, plan.Recipients["slot"].ArtifactIDs, artifacts.checked)
+				require.Equal(t, plan.Recipients["recipient"].ArtifactIDs, artifacts.checked)
 			} else {
 				require.Equal(t, 2, inbox.reads, "only consumer and router reads; no cleanup read")
 				require.Empty(t, artifacts.checked)
@@ -84,14 +86,14 @@ func TestIntegrationInboxCleanupChecksAllPlannedArtifactsOnlyAfterTerminalReceip
 		t.Run(scenario.name, func(t *testing.T) {
 			projectID, receiptID, agentID := uuid.New(), uuid.New(), uuid.New()
 			artifactIDs := []uuid.UUID{uuid.New(), uuid.New()}
-			slot := IntegrationInboxSlot{
+			recipient := IntegrationInboxRecipient{
 				AgentID: agentID, ArtifactIDs: artifactIDs[:1],
 			}
-			otherSlot := slot
-			otherSlot.ArtifactIDs = artifactIDs[1:]
+			otherRecipient := recipient
+			otherRecipient.ArtifactIDs = artifactIDs[1:]
 			plan, err := json.Marshal(IntegrationInboxPlan{
 				Message:    &executionstore.InboxMessage{},
-				Recipients: map[string]IntegrationInboxSlot{"a": slot, "b": otherSlot},
+				Recipients: map[string]IntegrationInboxRecipient{"a": recipient, "b": otherRecipient},
 			})
 			require.NoError(t, err)
 			receipt := integrationstore.IntegrationInboxRecord{

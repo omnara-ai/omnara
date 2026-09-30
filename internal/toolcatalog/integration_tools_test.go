@@ -43,7 +43,7 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(entry.InputSchema, &schema))
 				for _, field := range []string{
-					"channel_id", "thread_ts", "guild_id", "thread_id", "repository_id", "pull_request", "follow_replies",
+					"channel_id", "thread_ts", "guild_id", "thread_id", "repository_id", "pull_request",
 				} {
 					require.NotContains(t, schema.Properties, field, "model cannot select a conversation")
 				}

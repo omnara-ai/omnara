@@ -16,8 +16,8 @@ import (
 func TestScheduledPlanKeepsIntegrationAndConversationAuthority(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
-		"valid", "wrong parent", "missing thread", "wrong address", "extra slot",
-		"wrong slot name", "wrong integration",
+		"valid", "wrong parent", "missing thread", "wrong address", "extra recipient",
+		"wrong recipient name", "wrong integration",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
@@ -50,27 +50,27 @@ func TestScheduledPlanKeepsIntegrationAndConversationAuthority(t *testing.T) {
 			}
 			kind, ref, err := root.Conversation()
 			require.NoError(t, err)
-			selection := integrationstore.InboxIntegrationSelection{
+			claim := integrationstore.InboxLaunchClaim{
 				IntegrationID: receipt.IntegrationID, LaunchKey: "scheduled",
 				Address: integrationstore.ConversationAddress{Kind: kind, Ref: ref},
 			}
 			switch scenario {
 			case "wrong address":
-				selection.Address.Ref = "301:500"
-			case "wrong slot name":
-				selection.LaunchKey = "other"
+				claim.Address.Ref = "301:500"
+			case "wrong recipient name":
+				claim.LaunchKey = "other"
 			case "wrong integration":
-				selection.IntegrationID = uuid.New()
+				claim.IntegrationID = uuid.New()
 			}
 			content, err := integrationdefinition.AppendInputContext("daily", root, json.RawMessage(`[{"type":"text","text":"Summarize activity."}]`))
 			require.NoError(t, err)
-			slot := map[string]any{
-				"selection": selection,
-				"launch":    map[string]any{"profile_id": profileID},
+			recipient := map[string]any{
+				"launch_claim": claim,
+				"launch":       map[string]any{"profile_id": profileID},
 			}
-			plan := map[string]any{"scheduled": slot}
-			if scenario == "extra slot" {
-				plan["another"] = slot
+			plan := map[string]any{"scheduled": recipient}
+			if scenario == "extra recipient" {
+				plan["another"] = recipient
 			}
 			raw, err := json.Marshal(map[string]any{
 				"message": map[string]any{"scope": root, "content_blocks": content}, "recipients": plan,

@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 )
 
@@ -56,6 +57,9 @@ type ArtifactStore interface {
 }
 
 type IntegrationStore interface {
+	GetAgentIntegrationConversation(
+		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
+	) (integrationstore.ConversationAddress, bool, error)
 	ResolveIntegrationDefinitions(
 		context.Context,
 		uuid.UUID,

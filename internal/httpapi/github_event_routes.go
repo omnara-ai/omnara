@@ -21,8 +21,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-const GitHubEventsPath = "/api/integrations/github/{app_id}/events"
-const GitHubSharedEventsPath = "/api/integrations/github/events"
+const GitHubEventsPath = "/api/integrations/github/events"
 
 // Leave headroom under GitHub's 10s deadline:
 // https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds
@@ -75,15 +74,12 @@ func (h *githubIntakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(r.Context(), githubIntakeTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
-	appID := r.PathValue("app_id")
-	if appID == "" && r.URL.Path == GitHubSharedEventsPath {
-		values := r.Header.Values("X-Github-Hook-Installation-Target-Id")
-		if len(values) != 1 {
-			apierror.Write(w, openapi.ErrorCodeInvalidRequest, "GitHub App lookup hint is required")
-			return
-		}
-		appID = values[0]
+	values := r.Header.Values("X-Github-Hook-Installation-Target-Id")
+	if len(values) != 1 {
+		apierror.Write(w, openapi.ErrorCodeInvalidRequest, "GitHub App lookup hint is required")
+		return
 	}
+	appID := values[0]
 	parsedAppID, err := strconv.ParseInt(appID, 10, 64)
 	if err != nil || parsedAppID <= 0 || strconv.FormatInt(parsedAppID, 10) != appID {
 		apierror.Write(w, openapi.ErrorCodeNotFound)

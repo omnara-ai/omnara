@@ -247,8 +247,8 @@ func inboxErrorText(value *string) string {
 func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
 	var plan json.RawMessage
 	var stateID uuid.UUID
-	if row.StateID != nil {
-		stateID = *row.StateID
+	if row.SourceStateID != nil {
+		stateID = *row.SourceStateID
 	}
 	if row.Plan != nil {
 		plan = *row.Plan
@@ -258,10 +258,10 @@ func inboxRecord(row dbsqlc.IntegrationInbox) IntegrationInboxRecord {
 		State: IntegrationInboxState(row.State), AttemptCount: int(row.AttemptCount), NextAttemptAt: row.NextAttemptAt,
 		ClaimExpiresAt: row.ClaimExpiresAt, LastError: inboxErrorText(row.LastError),
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, CompletedAt: row.CompletedAt,
-		Source:     IntegrationInboxSource(row.Source),
-		Payload:    row.Payload,
-		StateID:    stateID,
-		Plan:       plan,
-		ClaimToken: storeutil.IDFromPtr(row.ClaimToken),
+		Source:        IntegrationInboxSource(row.Source),
+		Payload:       row.Payload,
+		SourceStateID: stateID,
+		Plan:          plan,
+		ClaimToken:    storeutil.IDFromPtr(row.ClaimToken),
 	}
 }

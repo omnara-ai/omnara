@@ -108,7 +108,7 @@ func TestFailedIntegrationInboxArtifactCleanup(t *testing.T) {
 	for _, file := range files[:2] {
 		require.NoError(t, artifacts.UploadPreparedArtifact(ctx, plannedAgent, *file.Expected, content))
 	}
-	plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{
+	plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxRecipient{
 		"uncommitted": {
 			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{files[0].ArtifactID, files[1].ArtifactID, files[2].ArtifactID},
 		},
@@ -206,14 +206,14 @@ func TestFailedIntegrationInboxCleanupProtectsDurableArtifacts(t *testing.T) {
 		t,
 		artifacts.UploadPreparedArtifact(ctx, plannedAgent, *unused.Expected, []byte("unused launch bytes")),
 	)
-	plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{
+	plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxRecipient{
 		"partial": {
 			AgentID: agentID, ArtifactIDs: []uuid.UUID{file.ArtifactID},
 		},
 		"failed-launch": {
 			AgentID: plannedAgent, ArtifactIDs: []uuid.UUID{unused.ArtifactID},
 			Launch: &executionstore.InboxLaunchPlan{AgentConfigID: base.ID},
-			Selection: &integrationstore.InboxIntegrationSelection{
+			LaunchClaim: &integrationstore.InboxLaunchClaim{
 				IntegrationID: integration.ID, LaunchKey: "reviewer",
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			},
@@ -335,17 +335,17 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 				skippedError: errors.New("archived recipient upload response lost"),
 			}
 			var skippedKey, liveKey string
-			for key, slot := range plan.Recipients {
-				if slot.AgentID == agents[0] {
+			for key, recipient := range plan.Recipients {
+				if recipient.AgentID == agents[0] {
 					skippedKey = key
 				} else {
 					liveKey = key
 				}
 				if scenario == "uploaded before retry" {
-					_, files, err := plan.Message.RecipientContent(slot.ArtifactIDs)
+					_, files, err := plan.Message.RecipientContent(recipient.ArtifactIDs)
 					require.NoError(t, err)
 					prepared := *files[0].Expected
-					require.NoError(t, artifacts.Store.UploadPreparedArtifact(ctx, slot.AgentID, prepared, content))
+					require.NoError(t, artifacts.Store.UploadPreparedArtifact(ctx, recipient.AgentID, prepared, content))
 				}
 			}
 			skippedArtifact, liveArtifact := plan.Recipients[skippedKey].ArtifactIDs[0], plan.Recipients[liveKey].ArtifactIDs[0]
@@ -366,7 +366,7 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 			results, err := consumer.Consume(ctx, receipt.Lease())
 			if scenario == "live sibling failure" {
 				require.ErrorIs(t, err, artifacts.siblingError)
-				require.NotErrorIs(t, err, artifacts.skippedError, "only settled slots lose their preparation errors")
+				require.NotErrorIs(t, err, artifacts.skippedError, "only settled recipients lose their preparation errors")
 				require.Len(t, results, 1)
 				require.Equal(t, executionstore.InboxInputSkipAgentArchived, results[0].Input.Skipped)
 				require.Empty(t, blobs.deleted, "unfinished receipts cannot clean potentially admissible uploads")
@@ -384,7 +384,7 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 			var inputID uuid.UUID
 			for _, result := range results {
 				require.NotNil(t, result.Input)
-				if result.Slot == skippedKey {
+				if result.Recipient == skippedKey {
 					require.Equal(t, executionstore.InboxInputSkipAgentArchived, result.Input.Skipped)
 				} else {
 					require.True(t, result.Input.Created)
@@ -409,7 +409,7 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 			require.Len(t, replayed, 2)
 			for _, result := range replayed {
 				require.False(t, result.Input.Created)
-				if result.Slot == liveKey {
+				if result.Recipient == liveKey {
 					require.Equal(t, inputID, result.Input.AgentInput.ID)
 				}
 			}

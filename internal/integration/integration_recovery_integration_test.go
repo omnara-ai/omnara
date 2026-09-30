@@ -81,9 +81,9 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 2)
 	var abandonedAgent uuid.UUID
-	for _, slot := range plan.Recipients {
-		if slot.Launch != nil {
-			abandonedAgent = slot.AgentID
+	for _, recipient := range plan.Recipients {
+		if recipient.Launch != nil {
+			abandonedAgent = recipient.AgentID
 		}
 	}
 	require.NotEqual(t, uuid.Nil, abandonedAgent)
@@ -107,9 +107,9 @@ func TestIntegrationRouterFailedMixedPlanPreservesAdmittedSubscriptionInput(t *t
 	fresh, err := freezeTestIntegrationEvent(ctx, router, second.Lease(), &event)
 	require.NoError(t, err)
 	require.Len(t, fresh.Recipients, 2)
-	for _, slot := range fresh.Recipients {
-		if slot.Launch != nil {
-			require.NotEqual(t, abandonedAgent, slot.AgentID)
+	for _, recipient := range fresh.Recipients {
+		if recipient.Launch != nil {
+			require.NotEqual(t, abandonedAgent, recipient.AgentID)
 		}
 	}
 	results, err = router.Admit(ctx, second.Lease(), nil)

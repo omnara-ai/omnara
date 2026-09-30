@@ -36,7 +36,7 @@ func TestLaunchInitialContentOriginAndReplay(t *testing.T) {
 		),
 		Metadata: json.RawMessage(`{"event":"message","timestamp":"123.456"}`),
 		Actor:    mustIntegrationActorParams(t, f.integration, "U_INITIAL"),
-		Origin: &executionstore.LaunchInputOrigin{
+		Origin: &executionstore.AgentInputOrigin{
 			IntegrationID: f.integration.ID,
 			Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			DisplayName:   "Initial thread",
@@ -99,7 +99,7 @@ func TestLaunchInitialInputFailureRollsBackAgentConfigAndTarget(t *testing.T) {
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks: json.RawMessage(`[{"type":"text","text":"test"}]`),
 				Actor:         mustIntegrationActorParams(t, f.integration, "U_INITIAL"),
-				Origin: &executionstore.LaunchInputOrigin{
+				Origin: &executionstore.AgentInputOrigin{
 					IntegrationID: f.integration.ID,
 					Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 				},
@@ -188,8 +188,8 @@ func TestLaunchPreparedArtifactMetadataReplayAndRollback(t *testing.T) {
 
 type inboxLaunchFixture struct {
 	integrationActivationFixture
-	receipt integrationstore.IntegrationInboxRecord
-	slots   map[string]executionstore.InboxLaunchSlot
+	receipt    integrationstore.IntegrationInboxRecord
+	recipients map[string]executionstore.InboxLaunchRecipient
 }
 
 func newInboxLaunchFixture(
@@ -212,7 +212,7 @@ func newInboxLaunchFixtureForIntegration(
 	t.Helper()
 	f := inboxLaunchFixture{
 		integrationActivationFixture: integration,
-		slots:                        map[string]executionstore.InboxLaunchSlot{},
+		recipients:                   map[string]executionstore.InboxLaunchRecipient{},
 	}
 	setup := integrationstore.SaveIntegrationInput{
 		OrgID:           testOrgID,
@@ -263,18 +263,18 @@ func newInboxLaunchFixtureForIntegration(
 			),
 			Metadata: json.RawMessage(`{"event":"frozen-first"}`),
 			Actor:    mustIntegrationActorParams(t, f.integration, "U_LAUNCH"),
-			Origin: &executionstore.LaunchInputOrigin{
+			Origin: &executionstore.AgentInputOrigin{
 				IntegrationID: f.integration.ID,
 				Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
 			},
 			SemanticEventKey: "message:123.456",
 			DeliveryMode:     executionstore.DeliveryModeSteering,
 		}
-		slot := executionstore.InboxLaunchSlot{
+		recipient := executionstore.InboxLaunchRecipient{
 			AgentID:      plannedID,
 			Launch:       f.freezeLaunch(t, launch),
 			InitialInput: launch.InitialInput,
-			Selection: integrationstore.InboxIntegrationSelection{
+			LaunchClaim: integrationstore.InboxLaunchClaim{
 				IntegrationID: f.integration.ID,
 				Address:       launch.InitialInput.Origin.Address,
 				LaunchKey:     key,
@@ -283,18 +283,18 @@ func newInboxLaunchFixtureForIntegration(
 		if withFile {
 			fileID, err := uuid.NewV7()
 			require.NoError(t, err)
-			slot.ArtifactIDs = []uuid.UUID{fileID}
-			slot.Files = []executionstore.InboxPlannedFile{{ArtifactID: fileID, Expected: &artifactstore.PreparedArtifact{
+			recipient.ArtifactIDs = []uuid.UUID{fileID}
+			recipient.Files = []executionstore.InboxPlannedFile{{ArtifactID: fileID, Expected: &artifactstore.PreparedArtifact{
 				ID: fileID, ContentType: "text/plain", Filename: "first.txt",
 				Digest: blobstore.ContentDigest([]byte("first")), SizeBytes: 5,
 			}}}
-			slot.InitialInput.ContentBlocks = json.RawMessage(
+			recipient.InitialInput.ContentBlocks = json.RawMessage(
 				`[{"type":"text","text":"First event"},{"type":"media_ref","artifact_id":"` + fileID.String() + `"}]`,
 			)
 		}
-		f.slots[key] = slot
+		f.recipients[key] = recipient
 	}
-	plan, err := marshalInboxLaunchPlan(f.slots)
+	plan, err := marshalInboxLaunchPlan(f.recipients)
 	require.NoError(t, err)
 	require.NoError(
 		t,
@@ -310,7 +310,7 @@ func newInboxLaunchFixtureForIntegration(
 
 func (f inboxLaunchFixture) artifacts(key string) []artifactstore.PreparedArtifact {
 	var artifacts []artifactstore.PreparedArtifact
-	for _, file := range f.slots[key].Files {
+	for _, file := range f.recipients[key].Files {
 		artifacts = append(artifacts, *file.Expected)
 	}
 	return artifacts
@@ -331,17 +331,17 @@ func (f integrationActivationFixture) freezeLaunch(
 
 func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 	t.Helper()
-	slot := f.slots[key]
+	recipient := f.recipients[key]
 	for _, check := range []struct {
 		query string
 		arg   any
 	}{
-		{`SELECT count(*) FROM agents WHERE id=$1`, slot.AgentID},
-		{`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, slot.AgentID},
-		{`SELECT count(*) FROM integration_subscriptions WHERE agent_id=$1`, slot.AgentID},
-		{`SELECT count(*) FROM integration_states WHERE kind='agent_conversation' AND key=$1`, slot.AgentID.String()},
-		{`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, slot.AgentID},
-		{`SELECT count(*) FROM artifacts WHERE agent_id=$1`, slot.AgentID},
+		{`SELECT count(*) FROM agents WHERE id=$1`, recipient.AgentID},
+		{`SELECT count(*) FROM integration_targets WHERE agent_id=$1`, recipient.AgentID},
+		{`SELECT count(*) FROM integration_subscriptions WHERE agent_id=$1`, recipient.AgentID},
+		{`SELECT count(*) FROM integration_states WHERE kind='agent_conversation' AND key=$1`, recipient.AgentID.String()},
+		{`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, recipient.AgentID},
+		{`SELECT count(*) FROM artifacts WHERE agent_id=$1`, recipient.AgentID},
 	} {
 		var count int
 		require.NoError(t, f.store.pool.QueryRow(f.ctx, check.query, check.arg).Scan(&count))
@@ -352,14 +352,14 @@ func (f inboxLaunchFixture) assertAbsent(t *testing.T, key string) {
 func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, true, time.Minute, "a")
-	_, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", nil)
+	_, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", nil)
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 	f.assertAbsent(t, "a")
 
 	start := make(chan struct{})
 	admit := func() (executionstore.LaunchAgentResult, error) {
 		<-start
-		return f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+		return f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	}
 	first, second := integrationdb.RunAsync(admit), integrationdb.RunAsync(admit)
 	close(start)
@@ -370,7 +370,7 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	require.NotEqual(t, results[0].Created, results[1].Created)
 	var created executionstore.LaunchAgentResult
 	for _, result := range results {
-		require.Equal(t, f.slots["a"].AgentID, result.Agent.ID)
+		require.Equal(t, f.recipients["a"].AgentID, result.Agent.ID)
 		if result.Created {
 			created = result
 		}
@@ -382,12 +382,12 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, f.slots["a"].Selection.Address, conversation)
+	require.Equal(t, f.recipients["a"].LaunchClaim.Address, conversation)
 	require.Equal(t, created.IntegrationTarget.ID, created.AgentInput.IntegrationTargetID)
 	require.Len(t, created.Artifacts, 1)
-	require.Equal(t, f.slots["a"].ArtifactIDs[0], created.Artifacts[0].ID)
+	require.Equal(t, f.recipients["a"].ArtifactIDs[0], created.Artifacts[0].ID)
 	require.Equal(t, created.Agent.ID, created.Artifacts[0].AgentID)
-	require.JSONEq(t, string(f.slots["a"].InitialInput.ContentBlocks), string(created.InputContentBlocks))
+	require.JSONEq(t, string(f.recipients["a"].InitialInput.ContentBlocks), string(created.InputContentBlocks))
 	subscriptions := f.subscriptions(t, created.Agent.ID)
 	require.Len(t, subscriptions, 1, "one concrete frozen attachment is registered atomically")
 	require.Equal(t, "thread", subscriptions[0].ScopeKind)
@@ -419,7 +419,7 @@ func TestInboxLaunchFilesAtomicConcurrentAndReplay(t *testing.T) {
 		require.NoError(t, f.store.Integrations().DeleteIntegrationSubscription(
 			f.ctx, testOrgID, testProjectID, subscription.IntegrationID, subscription.ID))
 	}
-	replayed, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+	replayed, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, changed.AgentConfig.ID, replayed.Agent.CurrentConfigID)
@@ -438,12 +438,12 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 				f.ctx,
 				dbsqlc.LockAgentLaunchIdempotencyKeyParams{
 					ProjectID:      testProjectID,
-					IdempotencyKey: f.slots["a"].Launch.IdempotencyKey,
+					IdempotencyKey: f.recipients["a"].Launch.IdempotencyKey,
 				},
 			),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
-		return f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+		return f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentLaunchIdempotencyKey", 1)
 	// The lease is issued and fenced by PostgreSQL's clock, which may differ
@@ -462,7 +462,7 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 	require.NoError(t, err)
 	outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, receipt)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InboxSlotPending, outcomes["a"])
+	require.Equal(t, executionstore.InboxRecipientPending, outcomes["a"])
 	recovered, err := f.store.Integrations().RecoverIntegrationInbox(f.ctx, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, recovered)
@@ -480,17 +480,17 @@ func TestInboxLaunchLeaseExpiryRollsBackAllAdmissionRows(t *testing.T) {
 	require.Equal(t, receipt.ID, reclaimed.ID)
 	require.NotEqual(t, receipt.ClaimToken, reclaimed.ClaimToken)
 	require.JSONEq(t, string(receipt.Plan), string(reclaimed.Plan))
-	admitted, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, reclaimed.Lease(), "a", f.artifacts("a"))
+	admitted, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, reclaimed.Lease(), "a", f.artifacts("a"))
 	require.NoError(t, err)
 	require.True(t, admitted.Created)
-	require.Equal(t, f.slots["a"].AgentID, admitted.Agent.ID)
+	require.Equal(t, f.recipients["a"].AgentID, admitted.Agent.ID)
 	require.Equal(
 		t,
-		f.slots["a"].Launch.AgentConfigID,
+		f.recipients["a"].Launch.AgentConfigID,
 		admitted.AgentConfig.ID,
 	)
 	require.Len(t, admitted.Artifacts, 1)
-	require.Equal(t, f.slots["a"].ArtifactIDs[0], admitted.Artifacts[0].ID)
+	require.Equal(t, f.recipients["a"].ArtifactIDs[0], admitted.Artifacts[0].ID)
 }
 
 func TestInboxLaunchArtifactsMustMatchFrozenIdentityAndMetadata(t *testing.T) {
@@ -512,7 +512,7 @@ func TestInboxLaunchArtifactsMustMatchFrozenIdentityAndMetadata(t *testing.T) {
 			case "size":
 				artifacts[0].SizeBytes++
 			}
-			_, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", artifacts)
+			_, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", artifacts)
 			require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 			f.assertAbsent(t, "a")
 		})
@@ -523,9 +523,9 @@ func TestInboxLaunchRetainsFrozenMembershipAcrossIntegrationEdit(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, true, time.Minute, "a", "b")
 
-	first, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+	first, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	require.NoError(t, err)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "b", nil)
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "b", nil)
 	require.Error(t, err)
 	f.assertAbsent(t, "b")
 	settings := integrationtest.ChatSettings("C456", uuid.New())
@@ -543,17 +543,17 @@ func TestInboxLaunchRetainsFrozenMembershipAcrossIntegrationEdit(t *testing.T) {
 		)
 	require.NoError(t, err)
 
-	second, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "b", f.artifacts("b"))
+	second, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "b", f.artifacts("b"))
 	require.NoError(t, err)
 	require.Equal(t, "b", second.IntegrationTarget.LaunchKey)
-	require.Equal(t, f.slots["b"].AgentID, second.Agent.ID)
+	require.Equal(t, f.recipients["b"].AgentID, second.Agent.ID)
 	require.Equal(
 		t,
-		f.slots["b"].Launch.AgentConfigID,
+		f.recipients["b"].Launch.AgentConfigID,
 		second.AgentConfig.ID,
 	)
 	require.NotEqual(t, first.Agent.ID, second.Agent.ID)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "c", f.artifacts("c"))
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "c", f.artifacts("c"))
 	require.ErrorIs(t, err, storeerr.ErrInvalidRequest)
 }
 
@@ -562,10 +562,10 @@ func TestInboxLaunchRejectsIdempotencyKeyForDifferentPlannedAgent(t *testing.T) 
 	f := newInboxLaunchFixture(t, true, time.Minute, "a")
 
 	other, err := f.store.Execution().
-		LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, f.slots["a"].Launch.IdempotencyKey))
+		LaunchAgent(f.ctx, f.launchInput(f.profile.CurrentConfigID, f.recipients["a"].Launch.IdempotencyKey))
 	require.NoError(t, err)
-	require.NotEqual(t, f.slots["a"].AgentID, other.Agent.ID)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+	require.NotEqual(t, f.recipients["a"].AgentID, other.Agent.ID)
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)
 	f.assertAbsent(t, "a")
 }
@@ -584,23 +584,23 @@ func TestInboxLaunchLocksSecondaryIntegrationBeforeReceipt(t *testing.T) {
 	resource.IntegrationID = secondary.ID
 	resource.Conversation = json.RawMessage(`{"channel_id":"CSECOND","thread_ts":"456.789"}`)
 	definition := f.definition(t, "Secondary subscription gate")
-	slot := f.slots["a"]
+	recipient := f.recipients["a"]
 	var err error
-	slot.AgentID, err = uuid.NewV7()
+	recipient.AgentID, err = uuid.NewV7()
 	require.NoError(t, err)
-	slot.Selection.Address.Ref = "C123:789.012"
-	initial := *slot.InitialInput
+	recipient.LaunchClaim.Address.Ref = "C123:789.012"
+	initial := *recipient.InitialInput
 	origin := *initial.Origin
-	origin.Address = slot.Selection.Address
+	origin.Address = recipient.LaunchClaim.Address
 	initial.Origin, initial.SemanticEventKey = &origin, "message:789.012"
-	slot.InitialInput = &initial
+	recipient.InitialInput = &initial
 	saved, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
 	require.NoError(t, err)
-	slot.Launch.AgentConfigID = saved.ID
+	recipient.Launch.AgentConfigID = saved.ID
 	primary := f.attachment()
 	primary.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
-	slot.Launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{resource, primary}
-	slot.Launch.IdempotencyKey = "secondary-launch"
+	recipient.Launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{resource, primary}
+	recipient.Launch.IdempotencyKey = "secondary-launch"
 	_, _, err = f.store.Integrations().
 		AcceptIntegrationReceipt(
 			f.ctx,
@@ -623,7 +623,7 @@ func TestInboxLaunchLocksSecondaryIntegrationBeforeReceipt(t *testing.T) {
 		)
 	require.NoError(t, err)
 	require.True(t, found)
-	plan, err := marshalInboxLaunchPlan(map[string]executionstore.InboxLaunchSlot{"a": slot})
+	plan, err := marshalInboxLaunchPlan(map[string]executionstore.InboxLaunchRecipient{"a": recipient})
 	require.NoError(t, err)
 	require.NoError(
 		t,
@@ -644,7 +644,7 @@ func TestInboxLaunchLocksSecondaryIntegrationBeforeReceipt(t *testing.T) {
 		),
 	)
 	done := integrationdb.RunAsync(func() (executionstore.LaunchAgentResult, error) {
-		return f.store.Execution().AdmitInboxLaunchSlot(f.ctx, receipt.Lease(), "a", f.artifacts("a"))
+		return f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, receipt.Lease(), "a", f.artifacts("a"))
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockIntegrationLifecycleShared", 1)
 	lockCtx, cancel := context.WithTimeout(f.ctx, 2*time.Second)
@@ -656,7 +656,7 @@ func TestInboxLaunchLocksSecondaryIntegrationBeforeReceipt(t *testing.T) {
 	require.NoError(t, err, "secondary integration gate must precede receipt lock")
 	require.NoError(t, blocker.Commit(f.ctx))
 	result := integrationdb.AwaitSuccess(t, done, "secondary integration admission")
-	require.Equal(t, slot.AgentID, result.Agent.ID)
+	require.Equal(t, recipient.AgentID, result.Agent.ID)
 	subscriptions := f.subscriptions(t, result.Agent.ID)
 	require.Len(t, subscriptions, 2)
 	integrationIDs := make([]uuid.UUID, 0, len(subscriptions))
@@ -736,9 +736,9 @@ func TestSavedDerivedLaunchRejectsForeignProjectConfig(t *testing.T) {
 func TestInboxConversationAuthorityRechecksSavedModel(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, false, time.Minute, "a")
-	slot := f.slots["a"]
+	recipient := f.recipients["a"]
 	require.NoError(t, f.store.Execution().CheckInboxConversationAuthority(
-		f.ctx, f.receipt.Lease(), "a", slot.Selection.Address,
+		f.ctx, f.receipt.Lease(), "a", recipient.LaunchClaim.Address,
 	))
 	modelID := f.profile.CurrentConfig.ConfiguredModelID
 	grant, err := f.store.Models().GetActiveProjectModelGrantForConfiguredModel(f.ctx, testOrgID, testProjectID, modelID)
@@ -747,9 +747,9 @@ func TestInboxConversationAuthorityRechecksSavedModel(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.store.Models().DeleteConfiguredModel(f.ctx, testOrgID, modelID)
 	require.NoError(t, err)
-	err = f.store.Execution().CheckInboxConversationAuthority(f.ctx, f.receipt.Lease(), "a", slot.Selection.Address)
+	err = f.store.Execution().CheckInboxConversationAuthority(f.ctx, f.receipt.Lease(), "a", recipient.LaunchClaim.Address)
 	require.True(t, storeerr.IsNotFound(err), "%v", err)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	require.True(t, storeerr.IsNotFound(err), "%v", err)
 	f.assertAbsent(t, "a")
 }
@@ -764,7 +764,7 @@ func TestInboxSavedConfigRechecksModelGrantAndRecovers(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			f := newInboxLaunchFixture(t, false, time.Minute, "a")
-			slot := f.slots["a"]
+			recipient := f.recipients["a"]
 			modelID := f.profile.CurrentConfig.ConfiguredModelID
 			grant, err := f.store.Models().GetActiveProjectModelGrantForConfiguredModel(
 				f.ctx, testOrgID, testProjectID, modelID,
@@ -781,9 +781,9 @@ func TestInboxSavedConfigRechecksModelGrantAndRecovers(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Error(t, f.store.Execution().CheckInboxConversationAuthority(
-				f.ctx, f.receipt.Lease(), "a", slot.Selection.Address,
+				f.ctx, f.receipt.Lease(), "a", recipient.LaunchClaim.Address,
 			))
-			_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+			_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 			require.Error(t, err)
 			f.assertAbsent(t, "a")
 			if revoke {
@@ -797,9 +797,9 @@ func TestInboxSavedConfigRechecksModelGrantAndRecovers(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NoError(t, f.store.Execution().CheckInboxConversationAuthority(
-				f.ctx, f.receipt.Lease(), "a", slot.Selection.Address,
+				f.ctx, f.receipt.Lease(), "a", recipient.LaunchClaim.Address,
 			))
-			result, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+			result, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 			require.NoError(t, err)
 			require.True(t, result.Created)
 			restored, err := f.store.Models().GetActiveProjectModelGrantForConfiguredModel(
@@ -808,17 +808,17 @@ func TestInboxSavedConfigRechecksModelGrantAndRecovers(t *testing.T) {
 			require.NoError(t, err)
 			_, err = f.store.Models().DeleteProjectModelGrant(f.ctx, testOrgID, testProjectID, restored.ID)
 			require.NoError(t, err)
-			replay, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+			replay, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 			require.NoError(t, err)
 			require.Equal(t, result.Agent.ID, replay.Agent.ID)
 		})
 	}
 }
 
-func TestCompleteIntegrationInboxRequiresEverySlotOutcome(t *testing.T) {
+func TestCompleteIntegrationInboxRequiresEveryRecipientOutcome(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, true, time.Minute, "a", "b")
-	readOutcomes := func() map[string]executionstore.InboxSlotOutcome {
+	readOutcomes := func() map[string]executionstore.InboxRecipientOutcome {
 		t.Helper()
 		receipt, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, f.receipt.ID)
 		require.NoError(t, err)
@@ -826,29 +826,29 @@ func TestCompleteIntegrationInboxRequiresEverySlotOutcome(t *testing.T) {
 		require.NoError(t, err)
 		return outcomes
 	}
-	require.Equal(t, map[string]executionstore.InboxSlotOutcome{
-		"a": executionstore.InboxSlotPending, "b": executionstore.InboxSlotPending,
+	require.Equal(t, map[string]executionstore.InboxRecipientOutcome{
+		"a": executionstore.InboxRecipientPending, "b": executionstore.InboxRecipientPending,
 	}, readOutcomes())
-	first, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
+	first, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", f.artifacts("a"))
 	require.NoError(t, err)
 	require.ErrorIs(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, f.receipt.Lease()),
 		storeerr.ErrStateTransitionConflict, "one recipient's files have not been verified")
 	_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, first.Agent.ID, userPrincipal(f.user.ID))
 	require.NoError(t, err)
-	require.Equal(t, map[string]executionstore.InboxSlotOutcome{
-		"a": executionstore.InboxSlotDelivered, "b": executionstore.InboxSlotPending,
+	require.Equal(t, map[string]executionstore.InboxRecipientOutcome{
+		"a": executionstore.InboxRecipientDelivered, "b": executionstore.InboxRecipientPending,
 	}, readOutcomes(), "archival cannot turn a committed launch into a skipped delivery")
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "b", f.artifacts("b"))
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "b", f.artifacts("b"))
 	require.NoError(t, err)
 	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, f.receipt.Lease()))
-	require.Equal(t, map[string]executionstore.InboxSlotOutcome{
-		"a": executionstore.InboxSlotDelivered, "b": executionstore.InboxSlotDelivered,
+	require.Equal(t, map[string]executionstore.InboxRecipientOutcome{
+		"a": executionstore.InboxRecipientDelivered, "b": executionstore.InboxRecipientDelivered,
 	}, readOutcomes())
 	// Historical replay must survive deletion of the integration and its targets.
 	require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
-	replayed, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "a", nil)
+	replayed, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", nil)
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, first.Agent.ID, replayed.Agent.ID)
-	require.Equal(t, executionstore.InboxSlotDelivered, readOutcomes()["a"])
+	require.Equal(t, executionstore.InboxRecipientDelivered, readOutcomes()["a"])
 }

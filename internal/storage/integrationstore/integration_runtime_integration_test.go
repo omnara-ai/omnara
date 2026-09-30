@@ -146,14 +146,15 @@ func newIntegrationRuntimeFixture(
 func TestUnclaimedDiscordIntegrations(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
-		"new", "claimed", "expired", "retry_wait", "disconnected", "deleted", "project_deleted", "org_deleted",
+		"new", "claimed", "claimed_setup_changed", "claimed_rotated", "expired", "retry_wait",
+		"disconnected", "deleted", "project_deleted", "org_deleted",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
-			f, _, integration, version := newIntegrationRuntimeFixture(t)
+			f, secretStore, integration, version := newIntegrationRuntimeFixture(t)
 			want := int64(1)
 			switch scenario {
-			case "claimed", "expired", "retry_wait":
+			case "claimed", "claimed_setup_changed", "claimed_rotated", "expired", "retry_wait":
 				claim, found, err := f.store.ClaimIntegrationRuntime(f.ctx, integrationstore.IntegrationRuntimeRevision{
 					ProjectID: f.project, IntegrationID: integration.ID,
 					SetupRevision: integration.SetupRevision, CredentialVersionID: version,
@@ -161,13 +162,25 @@ func TestUnclaimedDiscordIntegrations(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, found)
 				switch scenario {
-				case "claimed":
+				case "claimed", "claimed_setup_changed", "claimed_rotated":
 					want = 0
+					if scenario == "claimed_setup_changed" {
+						f.exec(t, `UPDATE integrations SET setup_revision=setup_revision+1 WHERE id=$1`, integration.ID)
+					} else if scenario == "claimed_rotated" {
+						_, _, err := secretStore.CreateSecretVersion(f.ctx, secretstore.CreateSecretVersionInput{
+							OrgID: f.org, SecretID: integration.CredentialSecretID,
+							Actor: identitystore.NewUserPrincipal(f.user), Material: secrets.GenericMaterial{Value: "rotated"},
+						})
+						require.NoError(t, err)
+					}
 				case "expired":
 					f.exec(t, `UPDATE integration_runtime SET claim_expires_at=now()-interval '1 second'
 WHERE integration_id=$1`, integration.ID)
 				case "retry_wait":
 					require.NoError(t, f.store.ReleaseIntegrationRuntime(f.ctx, claim.Lease, time.Hour, "retrying"))
+					_, found, err := f.store.ClaimIntegrationRuntime(f.ctx, claim.Lease.IntegrationRuntimeRevision, time.Minute)
+					require.NoError(t, err)
+					require.False(t, found, "discovery must not bypass backoff")
 				}
 			case "disconnected":
 				f.exec(t, `UPDATE integrations SET state='disconnected' WHERE id=$1`, integration.ID)
@@ -185,8 +198,136 @@ WHERE integration_id=$1`, integration.ID)
 			count, err := f.store.CountUnclaimedDiscordIntegrations(f.ctx)
 			require.NoError(t, err)
 			require.Equal(t, want, count)
+			wantListed := int(want)
+			if scenario == "retry_wait" {
+				wantListed = 0
+			}
+			refs, err := f.store.ListPersistentIntegrations(f.ctx, uuid.Nil, 1)
+			require.NoError(t, err)
+			require.Len(t, refs, wantListed, "live claims and retry waits must be skipped before resolving credentials")
+			if wantListed != 0 {
+				refs, err = f.store.ListPersistentIntegrations(f.ctx, integration.ID, 1)
+				require.NoError(t, err)
+				require.Empty(t, refs, "discovery must still respect its cursor")
+			}
 		})
 	}
+}
+
+func TestPersistentIntegrationsSkipRetryWaitBeforePagination(t *testing.T) {
+	t.Parallel()
+	f, _, integration, versionID := newIntegrationRuntimeFixture(t)
+	f.exec(t, `INSERT INTO integrations
+ (id,org_id,project_id,name,integration_kind,state,installed_by_user_id,credential_secret_id,
+  provider_tenant_id,provider_account_ref,setup_revision,created_at,updated_at)
+ SELECT ('00000000-0000-4000-8000-' || lpad(n::text,12,'0'))::uuid,
+        org_id,project_id,'waiting-' || n,integration_kind,state,installed_by_user_id,credential_secret_id,
+        provider_tenant_id,provider_account_ref,setup_revision,now(),now()
+ FROM integrations CROSS JOIN generate_series(1,500) n WHERE id=$1`, integration.ID)
+	f.exec(t, `INSERT INTO integration_runtime
+ (project_id,integration_id,setup_revision,credential_version_id,next_attempt_at,last_error)
+ SELECT project_id,id,setup_revision,$2,now()+interval '1 hour','Discord Gateway closed: 4004'
+ FROM integrations WHERE project_id=$1 AND name LIKE 'waiting-%'`, f.project, versionID)
+	refs, err := f.store.ListPersistentIntegrations(f.ctx, uuid.Nil, 1)
+	require.NoError(t, err)
+	require.Equal(t, []integrationstore.IntegrationInboxIntegration{
+		{ProjectID: f.project, IntegrationID: integration.ID},
+	}, refs)
+	count, err := f.store.CountUnclaimedDiscordIntegrations(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(501), count, "retry filtering must not hide missing runtime owners from metrics")
+}
+
+func TestPersistentIntegrationsRetryUsesCurrentSetupAndCredential(t *testing.T) {
+	t.Parallel()
+	for _, change := range []string{"unchanged", "retry_due", "setup", "credential", "settings"} {
+		t.Run(change, func(t *testing.T) {
+			t.Parallel()
+			f, secretStore, integration, versionID := newIntegrationRuntimeFixture(t)
+			revision := integrationstore.IntegrationRuntimeRevision{
+				ProjectID: f.project, IntegrationID: integration.ID,
+				SetupRevision: integration.SetupRevision, CredentialVersionID: versionID,
+			}
+			claim, found, err := f.store.ClaimIntegrationRuntime(f.ctx, revision, time.Minute)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.NoError(t, f.store.ReleaseIntegrationRuntime(f.ctx, claim.Lease, time.Hour, "retrying"))
+			switch change {
+			case "retry_due":
+				f.exec(t, `UPDATE integration_runtime SET next_attempt_at=now()-interval '1 second'
+ WHERE integration_id=$1`,
+					integration.ID)
+			case "setup":
+				f.exec(t, `UPDATE integrations SET setup_revision=setup_revision+1 WHERE id=$1`, integration.ID)
+				revision.SetupRevision++
+			case "credential":
+				_, version, err := secretStore.CreateSecretVersion(f.ctx, secretstore.CreateSecretVersionInput{
+					OrgID: f.org, SecretID: integration.CredentialSecretID,
+					Actor: identitystore.NewUserPrincipal(f.user), Material: secrets.GenericMaterial{Value: "rotated"},
+				})
+				require.NoError(t, err)
+				revision.CredentialVersionID = version.ID
+			case "settings":
+				var profileID uuid.UUID
+				require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT id FROM agent_profiles WHERE project_id=$1`,
+					f.project).Scan(&profileID))
+				_, err := f.store.UpdateIntegration(f.ctx, integration.ID, integrationstore.SaveIntegrationInput{
+					OrgID: f.org, ProjectID: f.project, Name: integration.Name, IntegrationKind: integration.IntegrationKind,
+					Settings: integrationtest.ChatSettings("", profileID),
+				})
+				require.NoError(t, err)
+			}
+			refs, err := f.store.ListPersistentIntegrations(f.ctx, uuid.Nil, 1)
+			require.NoError(t, err)
+			want := change != "unchanged" && change != "settings"
+			require.Equal(t, want, len(refs) == 1, "only a due retry or a changed runtime revision bypasses backoff")
+			_, found, err = f.store.ClaimIntegrationRuntime(f.ctx, revision, time.Minute)
+			require.NoError(t, err)
+			require.Equal(t, want, found, "discovery must agree with claim eligibility")
+		})
+	}
+}
+
+func TestPersistentIntegrationsRequireAvailableCredential(t *testing.T) {
+	t.Parallel()
+	f, secretStore, integration, _ := newIntegrationRuntimeFixture(t)
+	secret, version, err := secretStore.CreateSecret(f.ctx, secretstore.CreateSecretInput{
+		OrgID: f.org, OwnerKind: secretstore.SecretOwnerOrg, Name: "shared-runtime",
+		Actor: identitystore.NewUserPrincipal(f.user), Material: secrets.GenericMaterial{Value: "bot-token"},
+	})
+	require.NoError(t, err)
+	grant := func() {
+		t.Helper()
+		f.exec(t, `INSERT INTO secret_grants(org_id,secret_id,target_project_id,created_at)
+ VALUES($1,$2,$3,now())`, f.org, secret.ID, f.project)
+	}
+	grant()
+	_, err = f.store.ConfigureIntegration(f.ctx, integrationstore.ConfigureIntegrationInput{
+		OrgID: f.org, ProjectID: f.project, IntegrationID: integration.ID, InstalledByUserID: f.user,
+		Provider: integration.Provider, ProviderTenantID: integration.ProviderTenantID,
+		ProviderAccountRef: integration.ProviderAccountRef, CredentialSecretID: secret.ID,
+		CredentialVersionID: version.ID, ExpectedSetupRevision: integration.SetupRevision,
+	})
+	require.NoError(t, err)
+	assertListed := func(want int) {
+		t.Helper()
+		refs, err := f.store.ListPersistentIntegrations(f.ctx, uuid.Nil, 1)
+		require.NoError(t, err)
+		require.Len(t, refs, want)
+		_, err = secretStore.GetProjectAvailableSecret(f.ctx, f.org, f.project, secret.ID)
+		if want == 0 {
+			require.ErrorIs(t, err, storeerr.ErrNotFound)
+		} else {
+			require.NoError(t, err)
+		}
+	}
+	assertListed(1)
+	f.exec(t, `DELETE FROM secret_grants WHERE secret_id=$1 AND target_project_id=$2`, secret.ID, f.project)
+	assertListed(0)
+	grant()
+	assertListed(1)
+	f.exec(t, `UPDATE secrets SET deleted_at=now() WHERE id=$1`, secret.ID)
+	assertListed(0)
 }
 
 func TestIntegrationRuntimeIsolatesIntegrationsSharingBot(t *testing.T) {

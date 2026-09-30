@@ -188,26 +188,26 @@ func TestIntegrationPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T)
 	require.Len(t, plan.Recipients, 1)
 	require.Equal(t, 1, execution.reads)
 	agents, artifacts := map[uuid.UUID]bool{}, map[uuid.UUID]bool{}
-	for _, slot := range plan.Recipients {
-		_, files, err := plan.Message.RecipientContent(slot.ArtifactIDs)
+	for _, recipient := range plan.Recipients {
+		_, files, err := plan.Message.RecipientContent(recipient.ArtifactIDs)
 		require.NoError(t, err)
-		require.Equal(t, uuid.Version(7), slot.AgentID.Version())
-		require.False(t, agents[slot.AgentID])
-		agents[slot.AgentID] = true
-		require.Equal(t, execution.profile.CurrentConfig.ID, slot.Launch.DerivedBaseConfigID)
-		require.Empty(t, execution.configs[slot.Launch.AgentConfigID].Source)
+		require.Equal(t, uuid.Version(7), recipient.AgentID.Version())
+		require.False(t, agents[recipient.AgentID])
+		agents[recipient.AgentID] = true
+		require.Equal(t, execution.profile.CurrentConfig.ID, recipient.Launch.DerivedBaseConfigID)
+		require.Empty(t, execution.configs[recipient.Launch.AgentConfigID].Source)
 		require.Len(t, files, 1)
 		require.False(t, artifacts[files[0].ArtifactID])
 		artifacts[files[0].ArtifactID] = true
 		require.NotEqual(t, oldID, files[0].ArtifactID)
 		var compiled agentconfig.Compiled
-		require.NoError(t, json.Unmarshal(execution.configs[slot.Launch.AgentConfigID].CompiledDefinition, &compiled))
+		require.NoError(t, json.Unmarshal(execution.configs[recipient.Launch.AgentConfigID].CompiledDefinition, &compiled))
 		require.Equal(t, "Pinned original", compiled.Instruction)
 		require.Equal(t, base.Model, compiled.Model)
 		require.Equal(t, base.EventWebhook, compiled.EventWebhook)
 		require.False(t, compiled.Tools[toolcatalog.IntegrationToolName("chat", "post_message")].Enabled)
-		require.Len(t, slot.Launch.Subscriptions, 1)
-		subscription := slot.Launch.Subscriptions[0]
+		require.Len(t, recipient.Launch.Subscriptions, 1)
+		subscription := recipient.Launch.Subscriptions[0]
 		require.Equal(t, integration.ID, subscription.IntegrationID)
 		require.JSONEq(t, `{"channel_id":"C123","thread_ts":"1.2"}`, string(subscription.Conversation))
 		require.Equal(
@@ -216,14 +216,14 @@ func TestIntegrationPlanPinsFullProfileMembershipAndCompiledPolicy(t *testing.T)
 			compiled.Tools[toolcatalog.IntegrationToolName(integration.Name, "read")].IntegrationID,
 		)
 		require.Equal(t, integration.ID, compiled.InteractionHandlers[integration.Name].IntegrationID)
-		raw, err := json.Marshal(slot)
+		raw, err := json.Marshal(recipient)
 		require.NoError(t, err)
-		var kernel executionstore.InboxLaunchSlot
+		var kernel executionstore.InboxLaunchRecipient
 		require.NoError(t, json.Unmarshal(raw, &kernel))
-		require.Equal(t, *slot.Selection, kernel.Selection)
-		require.Equal(t, slot.AgentID, kernel.AgentID)
-		require.Equal(t, slot.Launch.Subscriptions, kernel.Launch.Subscriptions)
-		require.Equal(t, execution.configs[slot.Launch.AgentConfigID], execution.configs[kernel.Launch.AgentConfigID])
+		require.Equal(t, *recipient.LaunchClaim, kernel.LaunchClaim)
+		require.Equal(t, recipient.AgentID, kernel.AgentID)
+		require.Equal(t, recipient.Launch.Subscriptions, kernel.Launch.Subscriptions)
+		require.Equal(t, execution.configs[recipient.Launch.AgentConfigID], execution.configs[kernel.Launch.AgentConfigID])
 		contract, err := agentconfig.RuntimeContractFromCompiled(
 			execution.configs[kernel.Launch.AgentConfigID].CompiledDefinition,
 			execution.configs[kernel.Launch.AgentConfigID].EffectiveDefinitionHash,
@@ -267,8 +267,8 @@ func TestIntegrationPlanDiscordThreadRequiresExactSubscription(t *testing.T) {
 	plan, err := router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 1)
-	for _, slot := range plan.Recipients {
-		require.Equal(t, exact, slot.AgentID)
+	for _, recipient := range plan.Recipients {
+		require.Equal(t, exact, recipient.AgentID)
 	}
 	request.candidates.Subscriptions = request.candidates.Subscriptions[:1]
 	applyTestIntegrationLaunchPolicy(t, integrations.receipt, integrations.integrationSetup, &request)
@@ -325,9 +325,9 @@ func TestIntegrationPlanLaunchesOnlyExplicitIntents(t *testing.T) {
 	plan, err = router.buildIntegrationPlan(t.Context(), integrations.receipt, integrations.integrationSetup, request)
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 1)
-	for _, slot := range plan.Recipients {
-		require.NotNil(t, slot.Launch)
-		require.Equal(t, integrationdefinition.ProfileLaunchKey, slot.Selection.LaunchKey)
+	for _, recipient := range plan.Recipients {
+		require.NotNil(t, recipient.Launch)
+		require.Equal(t, integrationdefinition.ProfileLaunchKey, recipient.LaunchClaim.LaunchKey)
 	}
 }
 
@@ -346,9 +346,9 @@ func TestIntegrationPlanRejectsUnavailableLaunchIntents(t *testing.T) {
 			r.candidates.Launcher.Settings = integrationtest.ChatSettings("", uuid.New())
 		}},
 		{"missing expected recipient", func(r *integrationEventCandidates) { r.event.Launches[0].ProfileID = uuid.Nil }},
-		{"retired selection", func(r *integrationEventCandidates) {
+		{"retired launch owner", func(r *integrationEventCandidates) {
 			now := time.Now()
-			r.candidates.Selections = []integrationstore.IntegrationTargetRecord{{
+			r.candidates.LaunchOwners = []integrationstore.IntegrationTargetRecord{{
 				IntegrationID: r.event.Launches[0].IntegrationID, LaunchKey: "a", AgentID: uuid.New(), DeletedAt: &now,
 			}}
 		}},
@@ -619,9 +619,9 @@ func TestIntegrationPlanLargeSingleMessageFanoutSharesContentAndDeduplicatesAgen
 	require.Equal(t, 1, bytes.Count(raw, []byte("large-single-message:")))
 	require.Less(t, len(raw), len(event.ContentBlocks)+128*1024)
 	require.Less(t, len(raw), integrationstore.IntegrationInboxMaxPlanBytes)
-	for _, slot := range plan.Recipients {
-		require.Len(t, slot.Subscription.Alternatives, 2)
-		recipient, err := json.Marshal(slot)
+	for _, recipient := range plan.Recipients {
+		require.Len(t, recipient.Subscription.Alternatives, 2)
+		recipient, err := json.Marshal(recipient)
 		require.NoError(t, err)
 		require.NotContains(t, string(recipient), "content_blocks")
 		require.NotContains(t, string(recipient), "metadata")
@@ -631,22 +631,22 @@ func TestIntegrationPlanLargeSingleMessageFanoutSharesContentAndDeduplicatesAgen
 func TestIntegrationPlanRecipientAllowanceCoversSupportedFacts(t *testing.T) {
 	// Routing addresses from supported providers are canonical ASCII IDs, so their
 	// schema byte maxima incur no JSON escape expansion. Files contribute UUIDs only.
-	slot := IntegrationInboxSlot{
+	recipient := IntegrationInboxRecipient{
 		AgentID: uuid.Must(uuid.NewV7()), Subscription: &executionstore.InboxSubscriptionAuthority{},
 	}
 	for range 8 {
-		slot.Subscription.Alternatives = append(slot.Subscription.Alternatives, integrationstore.ConversationAddress{
-			Kind: strings.Repeat("x", 128), Ref: strings.Repeat("C", 2048),
-		})
+		recipient.Subscription.Alternatives = append(recipient.Subscription.Alternatives,
+			integrationstore.ConversationAddress{Kind: strings.Repeat("x", 128), Ref: strings.Repeat("C", 2048)},
+		)
 	}
 	for range 20 {
-		slot.ArtifactIDs = append(slot.ArtifactIDs, uuid.Must(uuid.NewV7()))
+		recipient.ArtifactIDs = append(recipient.ArtifactIDs, uuid.Must(uuid.NewV7()))
 	}
 	address := integrationstore.ConversationAddress{Kind: "thread", Ref: strings.Repeat("C", 2048)}
-	slot.Selection = &integrationstore.InboxIntegrationSelection{
+	recipient.LaunchClaim = &integrationstore.InboxLaunchClaim{
 		IntegrationID: uuid.New(), Address: address, LaunchKey: "scheduled",
 	}
-	slot.Launch = &executionstore.InboxLaunchPlan{
+	recipient.Launch = &executionstore.InboxLaunchPlan{
 		ProfileID: uuid.New(), AgentConfigID: uuid.New(), DerivedBaseConfigID: uuid.New(),
 		IdempotencyKey: strings.Repeat("x", 128),
 		Subscriptions: []integrationstore.IntegrationSubscriptionAttachment{{
@@ -655,7 +655,7 @@ func TestIntegrationPlanRecipientAllowanceCoversSupportedFacts(t *testing.T) {
 	}
 	// This combines even the mutually exclusive launch/subscription facts to bound
 	// either real recipient; indentation overestimates jsonb's separator spaces.
-	raw, err := json.MarshalIndent(slot, "", " ")
+	raw, err := json.MarshalIndent(recipient, "", " ")
 	require.NoError(t, err)
 	require.Less(t, len(raw), 32*1024)
 	t.Logf("conservative recipient envelope: %d bytes of 32768", len(raw))

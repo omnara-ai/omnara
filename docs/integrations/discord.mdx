@@ -22,6 +22,14 @@ In the dashboard, **Add bot to server** opens Discord with these permissions
 already selected. After connecting, save the displayed Interactions Endpoint URL
 in your application's General Information page.
 
+Discord controls who can install the bot and access its conversations. Public bots
+are supported: people in accessible conversations can launch the offered profiles
+and answer agent questions and approvals without Omnara project membership, subject
+to the agent's configured permissions. For internal use, turn off **Public Bot**
+under **Bot** in the Developer Portal when available, and restrict server/channel
+access in Discord. This setting limits new installations; review existing servers
+separately. See Discord's [bot authorization guidance](https://docs.discord.com/developers/topics/oauth2#bot-authorization-flow).
+
 Save the token as a project-available [generic secret](/organization/secrets),
 with `material: {"kind":"generic","value":"your-bot-token"}`. Configure the
 saved integration through `POST /orgs/{orgID}/projects/{projectID}/integrations/{integrationID}/setup`:
@@ -50,9 +58,10 @@ including in different projects, but duplicated sessions consume provider capaci
 Overlapping launch behavior can create duplicate responses. Omnara does not merge
 these independently configured integrations.
 
-Unrelated messages that do not mention the bot use inbox capacity but make no
+Unrelated messages without role mentions or a mention of this bot use inbox capacity but make no
 Discord REST requests. Omnara checks exact thread subscriptions and pending launches
-before looking up the channel. Mentions still require a channel lookup and share
+before looking up the channel. Role mentions require a guild-role lookup unless the
+bot user is also mentioned. Bot mentions require a channel lookup and share
 the bot's [REST quota](https://docs.discord.com/developers/topics/rate-limits) with replies.
 Identity checks and attachment downloads happen only after routing finds a recipient.
 
@@ -61,6 +70,15 @@ Identity checks and attachment downloads happen only after routing finds a recip
 Choose **Profiles for mentions** in the integration's settings. Mentions work in every
 server where this bot is installed and permitted; manage server and channel
 access in Discord. All of those servers use this Omnara project's profile choices.
+Mention either the bot user or its own Discord-managed role. Omnara verifies role
+ownership with Discord; matching names, other assigned roles and `@everyone` do not
+trigger a launch. Mentioning both the user and its role is one request.
+
+When starting an agent inside an existing thread or forum post, wait for the bot's
+response before sending follow-ups. Messages sent while Omnara is identifying that
+thread can be missed, including while Discord lookups are retrying. Once the agent
+has been attached to the thread, this limitation no longer applies.
+
 The API launcher is `{"profiles":["aprf_…"]}` with ordered, distinct public profile
 IDs. Discord launchers do not accept server or channel filters. Updates contain
 only `settings`; one profile starts immediately and several offer a menu.
@@ -151,7 +169,16 @@ The Discord launcher adds the handler and both tools automatically, preserving e
 The handler uses the thread assigned when the integration launches the agent.
 Select it with `{"handler":"support","args":{}}`; the model does not supply
 channel, thread or server IDs. The list tool shows the assigned destination. Adding
-a handler to a manual config does not create an assignment. With automatic selection enabled, the last content input admitted into a new turn selects its eligible handler. Inputs without a handler select dashboard-only delivery. Waiting inputs do not change the current turn. Set `auto_select: false` with `set_interaction_handler` to pin a choice, or `true` to follow future inputs; omission preserves the mode. The list tool reports the mode. Questions remain answerable in the dashboard if Discord
+a handler to a manual config does not create an assignment. With automatic selection
+enabled, the last eligible content input admitted into a new turn selects its handler.
+Inputs from the dashboard, API, or an integration without an eligible handler select
+dashboard-only delivery. Ordinary scheduled instructions and internal agent
+messages/reports without an integration origin preserve the selection. An explicit
+integration origin takes precedence, including a scheduled launch in a new thread.
+Waiting inputs do not change the current turn. Set `auto_select: false` with
+`set_interaction_handler` to pin a choice, or `true` to resume automatic selection;
+omission preserves the mode. The list tool reports the mode. Questions remain
+answerable in the dashboard if Discord
 presentation fails. There is no Gateway fallback for interaction answers or
 automatic slash-command registration. A bot used only for messages with one
 profile can omit the public key.

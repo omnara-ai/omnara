@@ -24,6 +24,7 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 	var scope discord.Scope
 	var root bool
 	var source *discord.MessageEvent
+	var client *discord.Client
 	switch {
 	case receipt.Source == integrationstore.IntegrationInboxSourceScheduled:
 		known, ok, err := scheduledInboxFailureScope(receipt, integrationdefinition.ProviderDiscord)
@@ -34,8 +35,11 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 			return nil
 		}
 		scope = discord.Scope(*known.Discord)
-		root, text = true, scheduledInboxFailureMessage
-	case receipt.Source == integrationstore.IntegrationInboxSourceChoice:
+		root = true
+		if text == inboxFailureMessage {
+			text = scheduledInboxFailureMessage
+		}
+	case receipt.Source == integrationstore.IntegrationInboxSourceState:
 		event, err := inboxFailureSelectedEvent(ctx, p.integrations, receipt, integrationdefinition.ProviderDiscord)
 		if err != nil {
 			return err
@@ -45,7 +49,9 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 			return fmt.Errorf("invalid Discord failure source metadata")
 		}
 		scope = discord.Scope(*event.Event.Scope.Discord)
-		text = selectedInboxFailureMessage
+		if text == inboxFailureMessage {
+			text = selectedInboxFailureMessage
+		}
 		root = metadata.ThreadStarter
 		if scope.GuildID == "" || scope.ThreadID == "" ||
 			(root && (metadata.SourceChannelID != scope.ChannelID || metadata.MessageID != scope.ThreadID)) ||
@@ -59,13 +65,29 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 		if err != nil || !ok {
 			return err
 		}
+		if len(receipt.Plan) == 0 && !message.MentionsBot && len(message.Message.MentionRoles) != 0 {
+			client, _, err = p.requestClient(ctx, integration, nil)
+			if err != nil {
+				return err
+			}
+			message, err = client.ResolveBotMention(ctx, message)
+			if err != nil {
+				return err
+			}
+		}
 		if len(receipt.Plan) == 0 && !message.MentionsBot {
 			return nil
 		}
 		source = &message
 	}
-	client, _, err := p.requestAccess(ctx, integration, nil)
-	if err != nil {
+	if client == nil {
+		var err error
+		client, _, err = p.requestClient(ctx, integration, nil)
+		if err != nil {
+			return err
+		}
+	}
+	if err := client.CheckIdentity(ctx); err != nil {
 		return err
 	}
 	if source != nil {
@@ -96,6 +118,6 @@ func (p *DiscordIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context
 		}
 	}
 	nonce := "f_" + base64.RawURLEncoding.EncodeToString(receipt.ID[:])
-	_, err = client.CreateMessage(ctx, scope, discord.MessageArgs{Content: text, Nonce: nonce})
+	_, err := client.CreateMessage(ctx, scope, discord.MessageArgs{Content: text, Nonce: nonce})
 	return err
 }

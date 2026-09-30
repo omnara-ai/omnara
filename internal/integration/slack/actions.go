@@ -192,6 +192,16 @@ func ResolveInteractionForm(
 			}
 			optionIndices = append(optionIndices, optionIndex)
 		}
+		text := state.Values[questionBlockID(index)+"_text"][PromptAnswerAction].Value
+		allowsText := false
+		for _, optionIndex := range optionIndices {
+			if optionIndex >= 0 && optionIndex < len(question.Options) {
+				allowsText = allowsText || question.Options[optionIndex].AllowsText
+			}
+		}
+		if !allowsText {
+			text = ""
+		}
 		if len(optionIndices) == 0 {
 			return InteractionFormResolutionResult{
 				InvalidReason: fmt.Sprintf("question %d requires an answer", index),
@@ -199,7 +209,7 @@ func ResolveInteractionForm(
 		}
 		resolution.Answers = append(resolution.Answers, interactionform.Answer{
 			OptionIndices: optionIndices,
-			Text:          state.Values[questionBlockID(index)+"_text"][PromptAnswerAction].Value,
+			Text:          text,
 		})
 	}
 	normalized, err := interactionform.NormalizeResolution(value, resolution)

@@ -148,6 +148,10 @@ func (c *Client) GetDiff(ctx context.Context, scope Scope) (Diff, error) {
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
 		c.invalidateToken(ctx, pull.token)
 	}
+	if apiErr != nil && apiErr.Code == ResponseTooLarge {
+		return Diff{}, fmt.Errorf("github diff exceeds the 2 MiB response limit; "+
+			"use read with section=files and follow next_page for paged file patches instead: %w", err)
+	}
 	return Diff{Text: string(body)}, err
 }
 

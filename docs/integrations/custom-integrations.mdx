@@ -42,8 +42,9 @@ explicitly. Steering can also cancel open interactions with
 `cancel_open_interactions: true`.
 
 Your service owns webhook verification, event persistence and retry policy.
-Sending an input does not grant tools, create an integration subscription or change a built-in
-integration's interaction destination.
+Sending an input does not grant tools or create an integration subscription.
+When an ordinary API message is admitted in automatic mode, it clears the selected
+built-in interaction handler for future prompts. A manually pinned destination remains selected.
 
 ## Let the model act in your system
 

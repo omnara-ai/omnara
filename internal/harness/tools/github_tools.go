@@ -131,8 +131,10 @@ func (e Executor) githubToolClient(
 			PrivateKeyPEM: access.Credential[secrets.KeyPrivateKey],
 			WebhookSecret: access.Credential[secrets.KeyWebhookSecret],
 		},
-		InstallationID: installationID,
-		HTTPClient:     e.IntegrationHTTPClient,
+		InstallationID:      installationID,
+		HTTPClient:          e.IntegrationHTTPClient,
+		CredentialSecretID:  access.Integration.CredentialSecretID,
+		CredentialVersionID: access.CredentialVersion,
 		BeforeRequest: func(ctx context.Context) error {
 			return e.recheckIntegrationToolAccess(ctx, turn, tool, access)
 		},

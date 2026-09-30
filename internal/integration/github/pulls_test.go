@@ -1,12 +1,16 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 )
 
 func TestReadPagesAndDiff(t *testing.T) {
@@ -74,6 +78,87 @@ func TestReadPagesAndDiff(t *testing.T) {
 	diff, err := client.GetDiff(t.Context(), testScope())
 	if err != nil || !strings.HasPrefix(diff.Text, "diff --git") || requests.Load() != 5 {
 		t.Fatalf("diff = %+v, err = %v, requests = %d", diff, err, requests.Load())
+	}
+}
+
+func TestOversizedDiffOffersPagedFilesWithoutReturningPartialText(t *testing.T) {
+	var diffReads atomic.Int32
+	client, _ := testClient(t, withPreparedPull(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") == "application/vnd.github.diff" {
+			diffReads.Add(1)
+			_, _ = fmt.Fprint(w, strings.Repeat("+", ResponseMaxBytes+1))
+			return
+		}
+		if r.URL.Path != pullPath(testRepository(), 42)+"/files" {
+			t.Errorf("unexpected read %s", r.URL.Path)
+		}
+		_, _ = fmt.Fprint(w, `[{"filename":"a.go","patch":"@@ -1 +1 @@\n-old\n+new"}]`)
+	}))
+	diff, err := client.GetDiff(t.Context(), testScope())
+	requireAPIError(t, err, ResponseTooLarge)
+	for _, hint := range []string{"2 MiB", "section=files", "next_page"} {
+		if !strings.Contains(err.Error(), hint) {
+			t.Errorf("diff error lacks %q: %v", hint, err)
+		}
+	}
+	if diff.Text != "" || diffReads.Load() != 1 {
+		t.Fatal("oversized diff must fail once without partial text")
+	}
+	files, err := client.ListFiles(t.Context(), testScope(), PageOptions{})
+	if err != nil || len(files.Files) != 1 || files.Files[0].Patch == nil {
+		t.Fatalf("files fallback = %+v, %v", files, err)
+	}
+}
+
+func TestIncompleteDiffDoesNotClaimSizeLimitAndCanBeReadAgain(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cause error
+	}{
+		{"interrupted body", io.ErrUnexpectedEOF},
+		{"body timeout", context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, _ := testClient(t, withPreparedPull(func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected request: %s", r.URL.Path)
+			}))
+			transport := client.http.Transport
+			if transport == nil {
+				transport = http.DefaultTransport
+			}
+			const completeDiff = "diff --git a/file b/file\n+new line\n"
+			var reads int
+			client.http.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.Header.Get("Accept") != "application/vnd.github.diff" {
+					return transport.RoundTrip(r)
+				}
+				reads++
+				response := fixtureResponse(r, completeDiff)
+				if reads == 1 {
+					response.Body = io.NopCloser(io.MultiReader(
+						strings.NewReader("diff --git a/file"), iotest.ErrReader(tc.cause),
+					))
+				}
+				return response, nil
+			})
+			diff, err := client.GetDiff(t.Context(), testScope())
+			requireAPIError(t, err, InvalidResponse)
+			for _, hint := range []string{"2 MiB", "section=files", "next_page"} {
+				if strings.Contains(err.Error(), hint) {
+					t.Errorf("incomplete body was described as oversized: %v", err)
+				}
+			}
+			if diff.Text != "" || reads != 1 {
+				t.Fatalf("partial diff escaped: %+v, reads=%d", diff, reads)
+			}
+			if errors.Is(tc.cause, context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("body deadline cause lost: %v", err)
+			}
+			diff, err = client.GetDiff(t.Context(), testScope())
+			if err != nil || diff.Text != completeDiff || reads != 2 {
+				t.Fatalf("read after interrupted diff = %+v, %v, reads=%d", diff, err, reads)
+			}
+		})
 	}
 }
 

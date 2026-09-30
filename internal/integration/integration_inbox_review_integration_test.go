@@ -67,7 +67,7 @@ func TestIntegrationInboxObserverFollowupWaitsForLaunch(t *testing.T) {
 					f.choose(f.provider.menus[0], "heavy")
 					owner = f.claim()
 					if scenario.freezeChoice {
-						choice, err := inbox.GetIntegrationProfileChoice(ctx, owner.ProjectID, owner.IntegrationID, owner.StateID)
+						choice, err := inbox.GetIntegrationProfileChoice(ctx, owner.ProjectID, owner.IntegrationID, owner.SourceStateID)
 						require.NoError(t, err)
 						event, err := selectedIntegrationEvent(choice)
 						require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestIntegrationInboxObserverFollowupWaitsForLaunch(t *testing.T) {
 				event.SemanticKey, event.Event.Mentioned = "early-reply", mentioned
 				f.provider.event = &event
 				_, err := f.consumer.Consume(ctx, reply.Lease())
-				require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+				require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 				unplanned, err := inbox.GetIntegrationInbox(ctx, f.ids.ProjectID, reply.ID)
 				require.NoError(t, err)
 				require.Empty(t, unplanned.Plan, "an observer must not freeze out the pending launch recipient")
@@ -149,11 +149,11 @@ func TestIntegrationInboxCommittedLaunchDoesNotWaitForRevokedObserver(t *testing
 			require.Len(t, plan.Recipients, 2)
 			var launched uuid.UUID
 			var launchKey, observerKey string
-			for key, slot := range plan.Recipients {
-				if slot.Launch != nil {
-					launched, launchKey = slot.AgentID, key
+			for key, recipient := range plan.Recipients {
+				if recipient.Launch != nil {
+					launched, launchKey = recipient.AgentID, key
 				} else {
-					require.Equal(t, observer.ID, slot.AgentID)
+					require.Equal(t, observer.ID, recipient.AgentID)
 					observerKey = key
 				}
 			}
@@ -169,8 +169,8 @@ func TestIntegrationInboxCommittedLaunchDoesNotWaitForRevokedObserver(t *testing
 			require.Equal(t, integrationstore.IntegrationInboxQueued, pending.State)
 			outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(ctx, pending)
 			require.NoError(t, err)
-			require.Equal(t, executionstore.InboxSlotDelivered, outcomes[launchKey])
-			require.Equal(t, executionstore.InboxSlotPending, outcomes[observerKey])
+			require.Equal(t, executionstore.InboxRecipientDelivered, outcomes[launchKey])
+			require.Equal(t, executionstore.InboxRecipientPending, outcomes[observerKey])
 			readInputs := func(semanticKey string) map[uuid.UUID]uuid.UUID {
 				t.Helper()
 				rows, err := f.pool.Query(ctx,
@@ -281,14 +281,14 @@ func TestIntegrationInboxObserverWaiterRetainsBoundedRetryPolicy(t *testing.T) {
 	worker := NewIntegrationInboxWorker(inbox, f.consumer, IntegrationInboxWorkerOptions{})
 	worked, err := worker.RunOnce(ctx)
 	require.True(t, worked)
-	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 	failed, err := inbox.GetIntegrationInbox(ctx, f.ids.ProjectID, waiter.ID)
 	require.NoError(t, err)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
 	require.Equal(t, integrationstore.IntegrationInboxMaxAttempts, failed.AttemptCount)
 	require.NotNil(t, failed.CompletedAt)
 	require.Empty(t, failed.Plan)
-	require.Contains(t, failed.LastError, integrationstore.ErrIntegrationSelectionReserved.Error())
+	require.Contains(t, failed.LastError, integrationstore.ErrIntegrationLaunchReserved.Error())
 	_, err = f.pool.Exec(ctx, `UPDATE integration_inbox SET next_attempt_at=now() WHERE id=$1`, owner.ID)
 	require.NoError(t, err)
 	worked, err = worker.RunOnce(ctx)

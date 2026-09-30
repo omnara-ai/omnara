@@ -231,7 +231,7 @@ func (f integrationInteractionFixture) selectOrigin(
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
-	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, f.process.AgentID, targetID,
 	)
 	require.NoError(t, err)
@@ -526,7 +526,7 @@ func TestIntegrationInteractionsRejectForeignCallbackAndTarget(t *testing.T) {
 		ProjectID: testProjectID, ID: f.process.AgentID,
 	})
 	require.NoError(t, err)
-	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, f.process.AgentID, foreign.ID,
 	)
 	require.NoError(t, err)
@@ -608,7 +608,7 @@ func TestIntegrationInteractionsCaptureUsesLockedCurrentSelectionWithoutIntegrat
 			})
 	})
 	integrationdb.WaitForNamedLockWaiters(t, f.ctx, f.store.pool, "LockAgentInProject", 1)
-	_, err = executionstore.SelectInteractionDestinationForOriginTx(
+	_, err = executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, selectionTx, testProjectID, f.process.AgentID, f.b.ID,
 	)
 	require.NoError(t, err)

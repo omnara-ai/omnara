@@ -18,7 +18,7 @@ WITH candidates AS (
       AND NOT EXISTS (
           SELECT 1 FROM integration_inbox inbox
           WHERE inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-            AND inbox.state_id = choice.id AND inbox.source = 'choice'
+            AND inbox.source_state_id = choice.id AND inbox.source = 'state'
       )
     ORDER BY choice.expires_at, choice.id
     LIMIT $2
@@ -46,7 +46,7 @@ WITH candidates AS (
     (SELECT choice.id, 0 AS priority
      FROM integration_states choice
      JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-       AND inbox.state_id = choice.id AND inbox.source = 'choice'
+       AND inbox.source_state_id = choice.id AND inbox.source = 'state'
      WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.integration_id = $2
        AND choice.scope_kind = $3::text
        AND choice.scope_ref = $4::text AND COALESCE(choice.data->>'selected_key', '') <> ''
@@ -106,44 +106,6 @@ func (q *Queries) FindPendingIntegrationProfileChoice(ctx context.Context, arg F
 	return i, err
 }
 
-const findUnplannedIntegrationProfileChoiceReservation = `-- name: FindUnplannedIntegrationProfileChoiceReservation :one
-SELECT inbox.id, inbox.state
-FROM integration_states choice
-JOIN integration_inbox inbox ON inbox.project_id = choice.project_id AND inbox.integration_id = choice.integration_id
-  AND inbox.state_id = choice.id AND inbox.source = 'choice'
-WHERE choice.kind = 'profile_choice' AND choice.project_id = $1 AND choice.integration_id = $2
-  AND choice.scope_kind = $3::text AND choice.scope_ref = $4::text
-  AND COALESCE(choice.data->>'selected_key', '') <> '' AND inbox.id <> $5
-  AND inbox.plan IS NULL AND inbox.state IN ('queued', 'processing')
-LIMIT 1
-`
-
-type FindUnplannedIntegrationProfileChoiceReservationParams struct {
-	ProjectID     uuid.UUID
-	IntegrationID uuid.UUID
-	AddressKind   string
-	AddressRef    string
-	ReceiptID     uuid.UUID
-}
-
-type FindUnplannedIntegrationProfileChoiceReservationRow struct {
-	ID    uuid.UUID
-	State string
-}
-
-func (q *Queries) FindUnplannedIntegrationProfileChoiceReservation(ctx context.Context, arg FindUnplannedIntegrationProfileChoiceReservationParams) (FindUnplannedIntegrationProfileChoiceReservationRow, error) {
-	row := q.db.QueryRow(ctx, findUnplannedIntegrationProfileChoiceReservation,
-		arg.ProjectID,
-		arg.IntegrationID,
-		arg.AddressKind,
-		arg.AddressRef,
-		arg.ReceiptID,
-	)
-	var i FindUnplannedIntegrationProfileChoiceReservationRow
-	err := row.Scan(&i.ID, &i.State)
-	return i, err
-}
-
 const getIntegrationProfileChoiceIntegrationForShare = `-- name: GetIntegrationProfileChoiceIntegrationForShare :one
 SELECT id, org_id, project_id, installed_by_user_id, state, provider_tenant_id, provider_account_ref, provider_agent_display_name, credential_secret_id, provider_config, provider_identity, provider_metadata, last_oauth_flow_id, deleted_at, created_at, updated_at, name, integration_kind, settings, setup_revision
 FROM integrations
@@ -180,50 +142,6 @@ func (q *Queries) GetIntegrationProfileChoiceIntegrationForShare(ctx context.Con
 		&i.IntegrationKind,
 		&i.Settings,
 		&i.SetupRevision,
-	)
-	return i, err
-}
-
-const insertIntegrationProfileChoiceInboxReceipt = `-- name: InsertIntegrationProfileChoiceInboxReceipt :one
-INSERT INTO integration_inbox(project_id, integration_id, receipt_key, source, state_id)
-VALUES ($1, $2, $3, 'choice', $4::uuid)
-ON CONFLICT (project_id, integration_id, receipt_key) DO NOTHING
-RETURNING id, project_id, integration_id, receipt_key, payload, source, state_id, plan, state, attempt_count, next_attempt_at, claim_token, claim_expires_at, last_error, created_at, updated_at, completed_at
-`
-
-type InsertIntegrationProfileChoiceInboxReceiptParams struct {
-	ProjectID     uuid.UUID
-	IntegrationID uuid.UUID
-	ReceiptKey    string
-	StateID       *uuid.UUID
-}
-
-func (q *Queries) InsertIntegrationProfileChoiceInboxReceipt(ctx context.Context, arg InsertIntegrationProfileChoiceInboxReceiptParams) (IntegrationInbox, error) {
-	row := q.db.QueryRow(ctx, insertIntegrationProfileChoiceInboxReceipt,
-		arg.ProjectID,
-		arg.IntegrationID,
-		arg.ReceiptKey,
-		arg.StateID,
-	)
-	var i IntegrationInbox
-	err := row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.IntegrationID,
-		&i.ReceiptKey,
-		&i.Payload,
-		&i.Source,
-		&i.StateID,
-		&i.Plan,
-		&i.State,
-		&i.AttemptCount,
-		&i.NextAttemptAt,
-		&i.ClaimToken,
-		&i.ClaimExpiresAt,
-		&i.LastError,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CompletedAt,
 	)
 	return i, err
 }

@@ -54,7 +54,7 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			settingsSchema, err := json.Marshal(definition.Capabilities.Settings.InputSchema)
 			require.NoError(t, err)
 			require.NoError(t, jsonschema.Validate(settingsSchema, json.RawMessage(`{}`)))
-			require.Error(t, jsonschema.Validate(settingsSchema, json.RawMessage(`{"launcher":{"slots":[]}}`)))
+			require.Error(t, jsonschema.Validate(settingsSchema, json.RawMessage(`{"unexpected":true}`)))
 			require.NotNil(t, definition.Capabilities.Subscription)
 			conversationSchema, err := json.Marshal(definition.Capabilities.Subscription.ConversationSchema)
 			require.NoError(t, err)

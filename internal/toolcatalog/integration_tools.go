@@ -88,8 +88,11 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 			Operation:       IntegrationOperationRead,
 			IntegrationKind: integrationdefinition.SlackThread,
 			Scope:           IntegrationToolScopeConversation,
-			Description:     "Read messages from this agent's assigned Slack conversation.",
-			properties:      map[string]any{"cursor": text(), "limit": limit()},
+			Description: "Read one bounded page from this agent's assigned Slack conversation (default limit 15). " +
+				"Thread replies are oldest-first, starting at the root; channel history is newest-first. " +
+				"Pass next_cursor as cursor to continue; a thread's first page may not include recent replies. " +
+				"Use next_cursor to inspect later thread pages after an uncertain post; absence from an earlier page is not proof of failure.",
+			properties: map[string]any{"cursor": text(), "limit": limit()},
 		},
 		{
 			Operation:       IntegrationOperationPostMessage,
@@ -110,7 +113,8 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 				"reviews returns submitted review bodies and states. Comments, reviews and files use page and limit; " +
 				"follow next_page even after an empty page. review_threads returns resolution/outdated state and " +
 				"a comment_id linking to review_comments/reply; use cursor and limit, following next_cursor. " +
-				"Diff/file patches can be incomplete for very large or binary changes.",
+				"Diff reads over 2 MiB fail; use section=files and follow next_page instead. " +
+				"File patches can be incomplete for very large or binary changes.",
 			properties: map[string]any{
 				"section": map[string]any{
 					"type": "string",
@@ -150,9 +154,11 @@ func buildIntegrationToolDefinitions() []IntegrationToolDefinition {
 			Operation:       IntegrationOperationReply,
 			IntegrationKind: integrationdefinition.GitHubPR,
 			Scope:           IntegrationToolScopeConversation,
-			Description:     "Reply to a review comment in the selected GitHub pull request.",
-			required:        []string{"comment_id", "body"},
-			properties:      map[string]any{"comment_id": positive(), "body": text()},
+			Description: "Reply to a review comment in the selected GitHub pull request. " +
+				"Use comment_id from an incoming inline review comment, the id in read section=review_comments, " +
+				"or comment_id in read section=review_threads; discussion comment IDs and review IDs cannot be used.",
+			required:   []string{"comment_id", "body"},
+			properties: map[string]any{"comment_id": positive(), "body": text()},
 		},
 		{
 			Operation:       IntegrationOperationRead,

@@ -29,7 +29,7 @@ func TestDiscordInboxDropsUnsupportedOnlyNonMentionsBeforeRouting(t *testing.T) 
 			require.NoError(t, err)
 			raw, err := json.Marshal(discord.Dispatch{Type: "MESSAGE_CREATE", Sequence: 17, Data: encoded})
 			require.NoError(t, err)
-			_, ok, err := NormalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels["400"])
+			_, ok, err := normalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels["400"])
 			require.NoError(t, err)
 			require.False(t, ok)
 			expansion, err := provider.ExpandRouted(t.Context(), f.integrationSetup, raw,
@@ -65,7 +65,7 @@ func TestDiscordInboxEmptyFilterKeepsTextFilesAndNativeMentions(t *testing.T) {
 				f.attach("600", []byte("attachment"), "text/plain")
 			}
 			raw := discordInboxPayload(t, f.message)
-			_, ok, err := NormalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels[f.message.ChannelID])
+			_, ok, err := normalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels[f.message.ChannelID])
 			require.NoError(t, err)
 			require.True(t, ok)
 			routed := false

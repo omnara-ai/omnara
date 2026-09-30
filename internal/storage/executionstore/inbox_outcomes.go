@@ -14,12 +14,12 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type InboxSlotOutcome string
+type InboxRecipientOutcome string
 
 const (
-	InboxSlotPending   InboxSlotOutcome = ""
-	InboxSlotDelivered InboxSlotOutcome = "delivered"
-	InboxSlotSkipped   InboxSlotOutcome = "skipped"
+	InboxRecipientPending   InboxRecipientOutcome = ""
+	InboxRecipientDelivered InboxRecipientOutcome = "delivered"
+	InboxRecipientSkipped   InboxRecipientOutcome = "skipped"
 )
 
 // InboxPlannedFile reads the immutable metadata needed for storage admission.
@@ -30,8 +30,8 @@ type InboxPlannedFile struct {
 	Expected       *artifactstore.PreparedArtifact `json:"expected,omitempty"`
 }
 
-type inboxSlotResult struct {
-	Outcome          InboxSlotOutcome
+type inboxRecipientResult struct {
+	Outcome          InboxRecipientOutcome
 	Agent            AgentRecord
 	Input            AgentInputRecord
 	SiblingDelivered bool
@@ -42,23 +42,23 @@ type inboxSlotResult struct {
 // input is skipped. Neither outcome grants permission to deliver any new work.
 func (s *Store) GetIntegrationInboxOutcomes(
 	ctx context.Context, receipt integrationstore.IntegrationInboxRecord,
-) (map[string]InboxSlotOutcome, error) {
+) (map[string]InboxRecipientOutcome, error) {
 	return integrationInboxOutcomes(ctx, s.q, receipt)
 }
 
 func integrationInboxOutcomes(
 	ctx context.Context, q *dbsqlc.Queries, receipt integrationstore.IntegrationInboxRecord,
-) (map[string]InboxSlotOutcome, error) {
-	outcomes := make(map[string]InboxSlotOutcome)
+) (map[string]InboxRecipientOutcome, error) {
+	outcomes := make(map[string]InboxRecipientOutcome)
 	if len(receipt.Plan) == 0 {
 		return outcomes, nil
 	}
-	slots, err := inboxPlanSlots(receipt)
+	recipients, err := inboxPlanRecipients(receipt)
 	if err != nil {
 		return nil, err
 	}
-	for key, raw := range slots {
-		result, err := resolveInboxSlotOutcome(ctx, q, receipt, raw)
+	for key, raw := range recipients {
+		result, err := resolveInboxRecipientOutcome(ctx, q, receipt, raw)
 		if err != nil {
 			return nil, err
 		}
@@ -68,7 +68,7 @@ func integrationInboxOutcomes(
 }
 
 // CompleteIntegrationInbox fences completion and checks every frozen recipient in
-// the same transaction. A failed upload leaves its pending slot incomplete.
+// the same transaction. A failed upload leaves its pending recipient incomplete.
 func (s *Store) CompleteIntegrationInbox(ctx context.Context, lease integrationstore.IntegrationInboxLease) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -88,7 +88,7 @@ func (s *Store) CompleteIntegrationInbox(ctx context.Context, lease integrations
 		return err
 	}
 	for _, outcome := range outcomes {
-		if outcome == InboxSlotPending {
+		if outcome == InboxRecipientPending {
 			return storeerr.ErrStateTransitionConflict
 		}
 	}
@@ -98,7 +98,7 @@ func (s *Store) CompleteIntegrationInbox(ctx context.Context, lease integrations
 	return tx.Commit(ctx)
 }
 
-func inboxPlanSlots(receipt integrationstore.IntegrationInboxRecord) (map[string]json.RawMessage, error) {
+func inboxPlanRecipients(receipt integrationstore.IntegrationInboxRecord) (map[string]json.RawMessage, error) {
 	var plan struct {
 		Recipients map[string]json.RawMessage `json:"recipients"`
 	}
@@ -108,38 +108,38 @@ func inboxPlanSlots(receipt integrationstore.IntegrationInboxRecord) (map[string
 	return plan.Recipients, nil
 }
 
-func inboxPlanSlot(receipt integrationstore.IntegrationInboxRecord, key string) (json.RawMessage, error) {
-	slots, err := inboxPlanSlots(receipt)
+func inboxPlanRecipient(receipt integrationstore.IntegrationInboxRecord, key string) (json.RawMessage, error) {
+	recipients, err := inboxPlanRecipients(receipt)
 	if err != nil {
 		return nil, err
 	}
-	if len(slots[key]) == 0 {
-		return nil, storeerr.InvalidRequest(errors.New("slot is missing from frozen inbox plan"))
+	if len(recipients[key]) == 0 {
+		return nil, storeerr.InvalidRequest(errors.New("recipient is missing from frozen inbox plan"))
 	}
-	return slots[key], nil
+	return recipients[key], nil
 }
 
-func resolveInboxSlotOutcome(
+func resolveInboxRecipientOutcome(
 	ctx context.Context, q *dbsqlc.Queries, receipt integrationstore.IntegrationInboxRecord, raw json.RawMessage,
-) (inboxSlotResult, error) {
+) (inboxRecipientResult, error) {
 	var envelope struct {
 		Launch *InboxLaunchPlan `json:"launch"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil {
-		return inboxSlotResult{}, storeerr.ErrInvalidRequest
+		return inboxRecipientResult{}, storeerr.ErrInvalidRequest
 	}
 	if envelope.Launch != nil {
-		slot, err := decodeInboxLaunchSlot(receipt, raw)
+		recipient, err := decodeInboxLaunchRecipient(receipt, raw)
 		if err != nil {
-			return inboxSlotResult{}, err
+			return inboxRecipientResult{}, err
 		}
-		return resolveInboxLaunchOutcome(ctx, q, receipt.ProjectID, slot)
+		return resolveInboxLaunchOutcome(ctx, q, receipt.ProjectID, recipient)
 	}
-	slot, _, err := decodeInboxInputSlot(receipt, raw)
+	recipient, _, err := decodeInboxInputRecipient(receipt, raw)
 	if err != nil {
-		return inboxSlotResult{}, err
+		return inboxRecipientResult{}, err
 	}
-	return resolveInboxInputOutcome(ctx, q, slot)
+	return resolveInboxInputOutcome(ctx, q, recipient)
 }
 
 func inboxInputScope(scope integrationdefinition.Scope, integrationID uuid.UUID) (string, error) {
@@ -167,65 +167,68 @@ func inboxInputByKey(
 }
 
 func resolveInboxLaunchOutcome(
-	ctx context.Context, q *dbsqlc.Queries, projectID uuid.UUID, slot InboxLaunchSlot,
-) (inboxSlotResult, error) {
+	ctx context.Context, q *dbsqlc.Queries, projectID uuid.UUID, recipient InboxLaunchRecipient,
+) (inboxRecipientResult, error) {
 	row, err := q.GetAgentByIdempotencyKey(ctx, dbsqlc.GetAgentByIdempotencyKeyParams{
-		ProjectID: projectID, IdempotencyKey: slot.Launch.IdempotencyKey,
+		ProjectID: projectID, IdempotencyKey: recipient.Launch.IdempotencyKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return inboxSlotResult{}, nil
+		return inboxRecipientResult{}, nil
 	}
 	if err != nil {
-		return inboxSlotResult{}, err
+		return inboxRecipientResult{}, err
 	}
-	if row.ID != slot.AgentID {
-		return inboxSlotResult{}, storeerr.ErrIdempotencyConflict
+	if row.ID != recipient.AgentID {
+		return inboxRecipientResult{}, storeerr.ErrIdempotencyConflict
 	}
 	// The planned UUIDv7 can only be admitted by this inbox launch. The agent,
 	// initial config activation and initial content commit in one transaction.
-	return inboxSlotResult{Outcome: InboxSlotDelivered, Agent: agentRecordFromIdempotencySQLC(row)}, nil
+	return inboxRecipientResult{Outcome: InboxRecipientDelivered, Agent: agentRecordFromIdempotencySQLC(row)}, nil
 }
 
-func resolveInboxInputOutcome(ctx context.Context, q *dbsqlc.Queries, slot InboxInputSlot) (inboxSlotResult, error) {
+func resolveInboxInputOutcome(
+	ctx context.Context, q *dbsqlc.Queries, recipient InboxInputRecipient,
+) (inboxRecipientResult, error) {
 	// Read archival before input identity. If archived, any delivery that won the
 	// agent lock is already committed and must be observed before deciding skip.
 	agent, err := q.GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{
-		ProjectID: slot.Input.ProjectID, ID: slot.AgentID,
+		ProjectID: recipient.Input.ProjectID, ID: recipient.AgentID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return inboxSlotResult{}, nil
+		return inboxRecipientResult{}, nil
 	}
 	if err != nil {
-		return inboxSlotResult{}, err
+		return inboxRecipientResult{}, err
 	}
 	input, found, err := inboxInputByKey(
-		ctx, q, slot.Input.ProjectID, slot.AgentID, slot.Input.IdempotencyScope, slot.Input.IdempotencyKey,
+		ctx, q, recipient.Input.ProjectID, recipient.AgentID,
+		recipient.Input.IdempotencyScope, recipient.Input.IdempotencyKey,
 	)
 	if err != nil {
-		return inboxSlotResult{}, err
+		return inboxRecipientResult{}, err
 	}
-	result := inboxSlotResult{}
-	if !found && slot.Sibling != nil {
+	result := inboxRecipientResult{}
+	if !found && recipient.Sibling != nil {
 		sibling, siblingFound, err := inboxInputByKey(
-			ctx, q, slot.Input.ProjectID, slot.AgentID, slot.Input.IdempotencyScope, slot.Sibling.Key,
+			ctx, q, recipient.Input.ProjectID, recipient.AgentID, recipient.Input.IdempotencyScope, recipient.Sibling.Key,
 		)
 		if err != nil {
-			return inboxSlotResult{}, err
+			return inboxRecipientResult{}, err
 		}
 		result.SiblingDelivered = siblingFound
 		// A late attachment callback must admit its own files even when the
 		// companion message was delivered. Plain sibling callbacks share delivery.
-		if siblingFound && slot.Sibling.AttachmentNotice == "" {
+		if siblingFound && recipient.Sibling.AttachmentNotice == "" {
 			input, found = sibling, true
 		}
 	}
 	if found {
 		if input.InputKind != "content" || input.IntegrationTargetID == uuid.Nil {
-			return inboxSlotResult{}, storeerr.ErrIdempotencyConflict
+			return inboxRecipientResult{}, storeerr.ErrIdempotencyConflict
 		}
-		result.Outcome, result.Input = InboxSlotDelivered, input
+		result.Outcome, result.Input = InboxRecipientDelivered, input
 	} else if agent.State == string(AgentStateArchived) {
-		result.Outcome = InboxSlotSkipped
+		result.Outcome = InboxRecipientSkipped
 	}
 	return result, nil
 }

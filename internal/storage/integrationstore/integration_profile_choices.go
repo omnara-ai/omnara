@@ -134,7 +134,7 @@ func ensureIntegrationProfileChoiceTx(
 func checkProfileChoiceUnsettled(
 	ctx context.Context, q *dbsqlc.Queries, receipt IntegrationInboxRecord, input EnsureIntegrationProfileChoiceInput,
 ) error {
-	targets, err := q.ListConversationSelections(ctx, dbsqlc.ListConversationSelectionsParams{
+	targets, err := q.ListConversationLaunchOwners(ctx, dbsqlc.ListConversationLaunchOwnersParams{
 		ProjectID: receipt.ProjectID, IntegrationID: receipt.IntegrationID,
 		Kind: input.Address.Kind, Ref: input.Address.Ref,
 	})
@@ -142,7 +142,7 @@ func checkProfileChoiceUnsettled(
 		return err
 	}
 	if len(targets) != 0 {
-		return ErrIntegrationSelectionSettled
+		return ErrIntegrationLaunchSettled
 	}
 	return nil
 }
@@ -292,14 +292,8 @@ func (s *Store) ChooseIntegrationProfile(
 	if err != nil {
 		return result, err
 	}
-	_, err = q.InsertIntegrationProfileChoiceInboxReceipt(ctx, dbsqlc.InsertIntegrationProfileChoiceInboxReceiptParams{
-		ProjectID: input.ProjectID, IntegrationID: input.IntegrationID, ReceiptKey: "choice:" + input.ID.String(),
-		StateID: &input.ID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return result, storeerr.ErrConflict
-	}
-	if err != nil {
+	if _, err := enqueueIntegrationStateWork(ctx, q, input.ProjectID, input.IntegrationID,
+		"choice:"+input.ID.String(), input.ID, &row.Address); err != nil {
 		return result, err
 	}
 	result = row

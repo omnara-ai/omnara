@@ -11,6 +11,7 @@ import (
 type MessagePage struct {
 	Messages   []HistoryMessage `json:"messages"`
 	NextCursor string           `json:"next_cursor,omitempty"`
+	Order      string           `json:"order"`
 }
 
 func ReadMessages(
@@ -31,8 +32,10 @@ func ReadMessages(
 		values.Set("cursor", cursor)
 	}
 	method := "conversations.history"
+	order := "newest_first"
 	if target.ThreadTS != "" {
 		method = "conversations.replies"
+		order = "oldest_first"
 		values.Set("ts", target.ThreadTS)
 	}
 	var out historyResponse
@@ -43,5 +46,5 @@ func ReadMessages(
 	if !out.OK {
 		return MessagePage{}, ErrorResult(out.Error), nil
 	}
-	return MessagePage{Messages: out.Messages, NextCursor: out.ResponseMetadata.NextCursor}, APIResult{}, nil
+	return MessagePage{Messages: out.Messages, NextCursor: out.ResponseMetadata.NextCursor, Order: order}, APIResult{}, nil
 }

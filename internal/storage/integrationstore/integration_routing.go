@@ -15,7 +15,7 @@ import (
 type IntegrationRoutingCandidates struct {
 	Launcher      *IntegrationRecord
 	Subscriptions []IntegrationSubscriptionRecord
-	Selections    []IntegrationTargetRecord
+	LaunchOwners  []IntegrationTargetRecord
 }
 
 func (s *Store) IntegrationRoutingCandidatesForInbox(
@@ -110,9 +110,9 @@ func (s *Store) IntegrationRoutingCandidatesTx(
 	for _, row := range subscriptions {
 		result.Subscriptions = append(result.Subscriptions, integrationSubscriptionRecord(row))
 	}
-	selections, err := q.ListConversationSelections(
+	owners, err := q.ListConversationLaunchOwners(
 		ctx,
-		dbsqlc.ListConversationSelectionsParams{
+		dbsqlc.ListConversationLaunchOwnersParams{
 			ProjectID:     projectID,
 			IntegrationID: integrationID,
 			Kind:          conversation.Kind,
@@ -122,11 +122,23 @@ func (s *Store) IntegrationRoutingCandidatesTx(
 	if err != nil {
 		return IntegrationRoutingCandidates{}, err
 	}
-	for _, row := range selections {
-		result.Selections = append(
-			result.Selections,
+	for _, row := range owners {
+		result.LaunchOwners = append(
+			result.LaunchOwners,
 			integrationTargetRecord(dbsqlc.GetAgentConversationTargetRow(row), integration.OrgID),
 		)
 	}
 	return result, nil
+}
+
+func (s *Store) HasIntegrationLaunchOwner(
+	ctx context.Context, projectID, integrationID uuid.UUID, address ConversationAddress,
+) (bool, error) {
+	if err := address.Validate(); err != nil {
+		return false, err
+	}
+	owners, err := s.q.ListConversationLaunchOwners(ctx, dbsqlc.ListConversationLaunchOwnersParams{
+		ProjectID: projectID, IntegrationID: integrationID, Kind: address.Kind, Ref: address.Ref,
+	})
+	return len(owners) != 0, err
 }

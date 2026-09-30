@@ -142,7 +142,14 @@ tools:
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 			assert.Equal(t, "C123", body["channel"])
 			assert.Equal(t, fmt.Sprintf("%d.200", rootPosts.Load()*111), body["ts"])
-			assert.Empty(t, body["blocks"], "accepted human reply removes question controls")
+			blocks := testutil.RequireType[[]any](t, body["blocks"])
+			assert.Len(t, blocks, 1, "accepted human reply replaces controls with the closed question")
+			block := testutil.RequireType[map[string]any](t, blocks[0])
+			assert.Equal(t, "section", block["type"])
+			text := testutil.RequireType[map[string]any](t, block["text"])
+			assert.Equal(t, "plain_text", text["type"])
+			assert.Contains(t, text["text"], question)
+			assert.Contains(t, text["text"], "Dismissed because a newer message was sent.")
 			dismissals.Add(1)
 			response = map[string]any{"ok": true, "channel": "C123", "ts": body["ts"]}
 		case "conversations.replies", "conversations.history":

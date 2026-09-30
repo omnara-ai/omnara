@@ -33,12 +33,10 @@ func TestIntegrationSettingsOwnedByDefinition(t *testing.T) {
 		{SlackThread, fmt.Sprintf(`{"launcher":{"profiles":[%q,%q]}}`, profile, profile)},
 		{SlackThread, `{"launcher":{"profiles":[]}}`},
 		{SlackThread, `{"launcher":{"profiles":["11111111-1111-4111-8111-111111111111"]}}`},
-		{SlackThread, fmt.Sprintf(`{"launcher":{"profiles":[%q],"scope_kind":"workspace","scope_ref":"T123"}}`, profile)},
 		{DiscordThread, fmt.Sprintf(`{"launcher":{"profiles":[%q],"channel_id":"123"}}`, profile)},
 		{GitHubPR, fmt.Sprintf(`{"launcher":{"profiles":[%q]}}`, profile)},
 		{GitHubPR, fmt.Sprintf(
 			`{"launcher":{"profile":%q,"trigger":"mention","repository_id":"9223372036854775808"}}`, profile)},
-		{SlackThread, `{"launcher":{"slots":[{"key":"a","agent_id":"agt_aaa"}],"trigger":"mention"}}`},
 	} {
 		_, err := ValidateSettings(tc.kind, json.RawMessage(tc.settings))
 		require.Error(t, err, tc.settings)
@@ -88,6 +86,41 @@ func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 	require.NoError(t, definition.Settings.Validate(json.RawMessage(`{"enabled":true}`)))
 	require.NoError(t, definition.AuthorizeLaunch(json.RawMessage(`{"enabled":true}`), Event{}, LaunchIntent{LaunchKey: "own-policy"}))
 	require.Error(t, definition.AuthorizeLaunch(json.RawMessage(`{"enabled":false}`), Event{}, LaunchIntent{LaunchKey: "own-policy"}))
+	require.False(t, definition.MayLaunchWithoutSelection(json.RawMessage(`{"enabled":true}`), Event{}))
 	definition.Launcher = nil
 	require.False(t, definition.MatchesLaunch(json.RawMessage(`{"enabled":true}`), Event{}))
+	require.False(t, definition.MayLaunchWithoutSelection(json.RawMessage(`{"enabled":true}`), Event{}))
+}
+
+func TestPendingLaunchPredicateOnlyProtectsSingleProfileChat(t *testing.T) {
+	for _, kind := range []Kind{SlackThread, DiscordThread} {
+		t.Run(string(kind), func(t *testing.T) {
+			definition, _ := Lookup(kind)
+			event := Event{Kind: "message", Mentioned: true,
+				Scope: Scope{Slack: &SlackScope{ChannelID: "C123", ThreadTS: "1.2"}}}
+			if kind == DiscordThread {
+				event.Scope = Scope{Discord: &DiscordScope{GuildID: "123", ChannelID: "456", ThreadID: "789"}}
+			}
+			single := testLaunchSettings(kind, "mention")
+			require.True(t, definition.MayLaunchWithoutSelection(single, event))
+			event.Mentioned = false
+			require.False(t, definition.MayLaunchWithoutSelection(single, event))
+			event.Mentioned = true
+			require.False(t, definition.MayLaunchWithoutSelection(json.RawMessage(`{}`), event))
+			profiles, err := ReadChatLauncher(single)
+			require.NoError(t, err)
+			other, err := publicid.Encode(publicid.KindAgentProfile, uuid.New())
+			require.NoError(t, err)
+			profiles.Profiles = append(profiles.Profiles, other)
+			menu, err := json.Marshal(map[string]any{"launcher": profiles})
+			require.NoError(t, err)
+			require.True(t, definition.MatchesLaunch(menu, event))
+			require.False(t, definition.MayLaunchWithoutSelection(menu, event))
+		})
+	}
+	github, _ := Lookup(GitHubPR)
+	pr := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: "pull_request_opened"}
+	require.True(t, github.MatchesLaunch(testLaunchSettings(GitHubPR, "pull_request_opened"), pr))
+	require.Nil(t, github.Launcher.MayLaunchWithoutSelection)
+	require.False(t, github.MayLaunchWithoutSelection(testLaunchSettings(GitHubPR, "pull_request_opened"), pr))
 }

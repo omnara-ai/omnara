@@ -59,3 +59,31 @@ func TestDiscordRuntimeFailureMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscordReconnectDelayHonorsProviderFailures(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		err     error
+		minimum time.Duration
+	}{
+		{"revoked token", &discord.APIError{Code: discord.PermanentFailure, StatusCode: 401}, time.Hour},
+		{"missing permissions", &discord.APIError{Code: discord.PermanentFailure, StatusCode: 403}, time.Hour},
+		{"READY identity mismatch", &discord.APIError{Code: discord.ScopeMismatch}, time.Hour},
+		{"rate limit", &discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour}, 2 * time.Hour},
+		{"disabled intent", &discord.GatewayError{Fatal: true}, time.Hour},
+		{"session budget", discordIdentifyWaitError{After: 20 * time.Hour}, 20 * time.Hour},
+		{"reconnect with permit wait", errors.Join(
+			&discord.GatewayError{RetryAfter: time.Second}, discordIdentifyWaitError{After: 20 * time.Hour},
+		), 20 * time.Hour},
+		{"reconnect with API rate limit", errors.Join(
+			&discord.GatewayError{RetryAfter: time.Second},
+			&discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour},
+		), 2 * time.Hour},
+		{"network", errors.New("network unavailable"), time.Second},
+	} {
+		t.Run(
+			test.name,
+			func(t *testing.T) { require.GreaterOrEqual(t, discordReconnectDelay(test.err), test.minimum) },
+		)
+	}
+}

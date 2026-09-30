@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { canManageOrg } from '@/lib/permissions'
 import { useActiveOrg } from '@/lib/use-active-org'
 
-const webConfigQuery = { queryKey: ['web-config'] as const, queryFn: fetchWebConfig }
+export const webConfigQuery = { queryKey: ['web-config'] as const, queryFn: fetchWebConfig }
 
 export function useWebConfig() {
   const { activeOrg } = useActiveOrg()

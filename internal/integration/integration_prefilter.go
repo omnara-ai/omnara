@@ -31,6 +31,19 @@ func (r *IntegrationRouter) freezeEmptyIfUnrouted(
 			if err != nil {
 				return err
 			}
+			matchesLaunch, pendingLaunch := false, false
+			if integration := candidates.Launcher; integration != nil &&
+				integration.State == integrationstore.IntegrationStateActive {
+				definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
+				matchesLaunch = definition.MatchesLaunch(integration.Settings, event.Event)
+				pendingLaunch = len(candidates.LaunchOwners) == 0 &&
+					definition.MayLaunchWithoutSelection(integration.Settings, event.Event)
+			}
+			if pendingLaunch {
+				if err := work.MarkIntegrationPendingLaunch(ctx, request.address); err != nil {
+					return err
+				}
+			}
 			if slices.ContainsFunc(
 				candidates.Subscriptions,
 				func(subscription integrationstore.IntegrationSubscriptionRecord) bool {
@@ -39,14 +52,10 @@ func (r *IntegrationRouter) freezeEmptyIfUnrouted(
 			) {
 				return nil
 			}
-			if integration := candidates.Launcher; integration != nil &&
-				integration.State == integrationstore.IntegrationStateActive {
-				definition, _ := integrationdefinition.Lookup(integration.IntegrationKind)
-				if definition.MatchesLaunch(integration.Settings, event.Event) {
-					return nil
-				}
+			if matchesLaunch {
+				return nil
 			}
-			if err := work.CheckNoUnsettledIntegrationSelection(ctx, request.address); err != nil {
+			if err := work.CheckNoUnsettledIntegrationLaunch(ctx, request.address); err != nil {
 				return err
 			}
 			if err := work.FreezePlan(ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {

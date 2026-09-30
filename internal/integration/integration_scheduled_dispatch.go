@@ -14,7 +14,7 @@ type IntegrationScheduledHandler func(
 	integrationstore.IntegrationInboxLease,
 	integrationstore.IntegrationInboxRecord,
 	integrationstore.IntegrationRecord,
-) ([]IntegrationSlotAdmission, error)
+) ([]IntegrationRecipientAdmission, error)
 
 type IntegrationInboxConsumerOption func(*IntegrationInboxConsumer)
 
@@ -30,7 +30,7 @@ func (c *IntegrationInboxConsumer) consumeScheduled(
 	lease integrationstore.IntegrationInboxLease,
 	receipt integrationstore.IntegrationInboxRecord,
 	integration integrationstore.IntegrationRecord,
-) ([]IntegrationSlotAdmission, error) {
+) ([]IntegrationRecipientAdmission, error) {
 	handler := c.scheduled[integration.IntegrationKind]
 	if handler == nil {
 		return nil, fmt.Errorf(

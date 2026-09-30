@@ -16,7 +16,7 @@ func ScheduledInboxActor(
 func validateScheduledInboxLaunch(
 	receipt integrationstore.IntegrationInboxRecord,
 	integration integrationstore.IntegrationRecord,
-	slot InboxLaunchSlot,
+	recipient InboxLaunchRecipient,
 ) error {
 	launch, err := receipt.ScheduledEvent()
 	if err != nil {
@@ -25,10 +25,11 @@ func validateScheduledInboxLaunch(
 	if err := receipt.ValidateScheduledPlan(integration, receipt.Plan); err != nil {
 		return err
 	}
-	input := slot.InitialInput
+	input := recipient.InitialInput
 	if integration.ID != receipt.IntegrationID || integration.ProjectID != receipt.ProjectID ||
-		slot.Selection.IntegrationID != receipt.IntegrationID ||
-		slot.Launch.LaunchedBy.Type != identitystore.PrincipalTypeSystem || slot.Launch.LaunchedBy.ID != launch.TriggerID ||
+		recipient.LaunchClaim.IntegrationID != receipt.IntegrationID ||
+		recipient.Launch.LaunchedBy.Type != identitystore.PrincipalTypeSystem ||
+		recipient.Launch.LaunchedBy.ID != launch.TriggerID ||
 		input == nil || input.Actor == nil || input.SemanticEventKey != receipt.ReceiptKey {
 		return storeerr.ErrUnauthorized
 	}

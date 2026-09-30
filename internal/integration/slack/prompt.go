@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
 )
@@ -72,49 +72,9 @@ func ReconcilePromptReceipt(
 	target MessageTarget,
 	interactionID string,
 ) (string, APIResult, error) {
-	values := url.Values{
-		"channel":   {target.Channel},
-		"inclusive": {"true"},
-		"limit":     {strconv.Itoa(readbackPageLimit)},
-	}
-	method := "conversations.history"
-	if target.ThreadTS != "" {
-		method = "conversations.replies"
-		values.Set("ts", target.ThreadTS)
-	}
-	for range readbackMaxPages {
-		var out historyResponse
-		result, err := callFormAt(
-			ctx,
-			client,
-			defaultAPIURL,
-			target.BotToken,
-			method,
-			values,
-			&out,
-		)
-		if err != nil || result.RateLimited || result.TransientFailure || result.PermanentFailure ||
-			result.DeliveryUnknown {
-			return "", result, err
-		}
-		if !out.OK {
-			return "", ErrorResult(out.Error), nil
-		}
-		for _, message := range out.Messages {
-			if interactionPromptMessage(message, []string{interactionID}) {
-				return message.TS, APIResult{}, nil
-			}
-		}
-		nextCursor := strings.TrimSpace(out.ResponseMetadata.NextCursor)
-		if nextCursor == "" {
-			return "", APIResult{}, nil
-		}
-		values.Set("cursor", nextCursor)
-	}
-	return "", APIResult{
-		DeliveryUnknown: true,
-		Message:         "integration prompt readback exceeded its page limit",
-	}, nil
+	return reconcilePromptReceipt(ctx, client, defaultAPIURL, target, time.Time{}, func(message HistoryMessage) bool {
+		return interactionPromptMessage(message, []string{interactionID})
+	})
 }
 
 func DismissPrompt(
@@ -123,8 +83,12 @@ func DismissPrompt(
 	target MessageTarget,
 	messageID, text string,
 ) (APIResult, error) {
-	body, err := json.Marshal(map[string]any{"channel": target.Channel, "ts": messageID,
-		"text": PromptLabel(text), "blocks": []any{}})
+	text = PromptLabel(text)
+	fallback := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(text)
+	body, err := json.Marshal(map[string]any{
+		"channel": target.Channel, "ts": messageID, "text": fallback, "parse": "none",
+		"blocks": []map[string]any{sectionBlock(text)},
+	})
 	if err != nil {
 		return APIResult{}, err
 	}
@@ -215,7 +179,7 @@ func InteractionFormPromptBlocks(
 				"type":     "input",
 				"block_id": questionBlockID(index) + "_text",
 				"optional": true,
-				"label":    map[string]any{"type": "plain_text", "text": "Text for your selected option"},
+				"label":    map[string]any{"type": "plain_text", "text": promptText("Text for "+option.Label, promptInputLabelLimit)},
 				"element": map[string]any{
 					"type":       "plain_text_input",
 					"action_id":  PromptAnswerAction,
@@ -223,6 +187,7 @@ func InteractionFormPromptBlocks(
 					"max_length": 3000,
 				},
 			})
+
 			break
 		}
 	}

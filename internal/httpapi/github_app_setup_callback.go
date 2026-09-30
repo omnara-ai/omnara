@@ -120,11 +120,13 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		BeforeRequest: s.githubClientConfig.BeforeRequest,
 	})
 	if err != nil {
+		logIntegrationCredentialError(ctx, "convert GitHub App manifest", err)
 		outcome("conversion_failed")
 		return
 	}
 	converted, err := client.ConvertManifest(ctx, query.Get("code"))
 	if err != nil {
+		logIntegrationCredentialError(ctx, "convert GitHub App manifest", err)
 		outcome("conversion_failed")
 		return
 	}
@@ -139,6 +141,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		},
 	})
 	if err != nil {
+		logIntegrationCredentialError(ctx, "save GitHub App manifest credentials", err)
 		outcome("secret_save_failed")
 		return
 	}
@@ -149,7 +152,7 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	params := url.Values{
-		"github_setup": {"credentials_saved"}, "credentials_secret_ref": {ref},
+		"github_setup": {"credentials_saved"}, "credential_secret_id": {ref},
 	}
 	current, err := s.store.Integrations().GetIntegration(ctx, state.ProjectID, state.IntegrationID)
 	if err != nil || current.SetupRevision != state.SetupRevision {

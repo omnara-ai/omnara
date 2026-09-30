@@ -85,6 +85,9 @@ func TestAgentExecutorAppliesManagedWorkAdmissionAtModelClaim(t *testing.T) {
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
@@ -800,6 +803,9 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		Now: func() time.Time { return now.Add(2 * time.Millisecond) },
 	}
 	if err := executor.ExecuteModelWork(ctx, turn); err != nil {

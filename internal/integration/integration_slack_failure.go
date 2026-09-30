@@ -28,14 +28,18 @@ func (p *SlackIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,
 		if scope.Slack.ThreadTS == "" {
 			return nil
 		}
-		text = scheduledInboxFailureMessage
-	case receipt.Source == integrationstore.IntegrationInboxSourceChoice:
+		if text == inboxFailureMessage {
+			text = scheduledInboxFailureMessage
+		}
+	case receipt.Source == integrationstore.IntegrationInboxSourceState:
 		event, err := inboxFailureSelectedEvent(ctx, p.integrations, receipt, integrationdefinition.ProviderSlack)
 		if err != nil {
 			return err
 		}
 		scope = event.Event.Scope
-		text = selectedInboxFailureMessage
+		if text == inboxFailureMessage {
+			text = selectedInboxFailureMessage
+		}
 	case receipt.Source != integrationstore.IntegrationInboxSourceProvider:
 		return nil
 	default:

@@ -118,7 +118,7 @@ func (m InboxMessage) input(projectID, agentID uuid.UUID, content json.RawMessag
 func (m InboxMessage) initialInput(content json.RawMessage) *LaunchInitialInput {
 	return &LaunchInitialInput{
 		ContentBlocks: content, Metadata: m.Metadata, Actor: m.Actor,
-		Origin: &LaunchInputOrigin{
+		Origin: &AgentInputOrigin{
 			IntegrationID: m.Origin.IntegrationID, Address: m.Origin.Address, DisplayName: m.Origin.DisplayName,
 		},
 		SemanticEventKey: m.SemanticKey, DeliveryMode: m.DeliveryMode, CancelOpenInteractions: m.CancelOpenInteractions,

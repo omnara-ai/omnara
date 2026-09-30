@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
@@ -30,6 +31,9 @@ type Config struct {
 	HTTPClient     *http.Client
 	BeforeRequest  func(context.Context) error
 	APIURL         string
+	// Supplying both IDs shares repository tokens without sharing BeforeRequest.
+	CredentialSecretID  uuid.UUID
+	CredentialVersionID uuid.UUID
 }
 
 type Client struct {
@@ -37,6 +41,8 @@ type Client struct {
 	installationID int64
 	tokenGate      chan struct{}
 	tokens         [2]cachedToken
+	sharedTokens   *installationTokenCache
+	tokenIdentity  installationTokenIdentity
 	gitTokenGate   chan struct{}
 	gitCredentials InstallationCredentials
 }
@@ -54,6 +60,11 @@ func NewClient(config Config) (*Client, error) {
 	if config.Credentials.AppID <= 0 || config.InstallationID <= 0 || config.Credentials.WebhookSecret == "" {
 		return nil, errors.New("github requires app ID, installation ID and webhook secret")
 	}
+	shareTokens := config.CredentialSecretID != uuid.Nil || config.CredentialVersionID != uuid.Nil
+	if shareTokens && (config.CredentialSecretID == uuid.Nil || config.CredentialVersionID == uuid.Nil ||
+		config.BeforeRequest == nil) {
+		return nil, errors.New("github shared tokens require credential secret/version and request authority")
+	}
 	app, err := newAppClient(SetupConfig{
 		Credentials: config.Credentials, HTTPClient: config.HTTPClient,
 		APIURL: config.APIURL, BeforeRequest: config.BeforeRequest,
@@ -61,10 +72,21 @@ func NewClient(config Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
+	client := &Client{
 		appClient: app, installationID: config.InstallationID, tokenGate: make(chan struct{}, 1),
 		gitTokenGate: make(chan struct{}, 1),
-	}, nil
+	}
+	if shareTokens {
+		client.sharedTokens, err = sharedInstallationTokens()
+		if err != nil {
+			return nil, err
+		}
+		client.tokenIdentity = installationTokenIdentity{
+			origin: app.base.String(), secretID: config.CredentialSecretID, versionID: config.CredentialVersionID,
+			appID: app.appID, installationID: config.InstallationID,
+		}
+	}
+	return client, nil
 }
 
 func newAppClient(config SetupConfig) (*appClient, error) {
@@ -215,6 +237,9 @@ func (c *appClient) attempt(req *http.Request, mutation bool) ([]byte, http.Head
 	body, err := io.ReadAll(io.LimitReader(resp.Body, ResponseMaxBytes+1))
 	if err != nil || len(body) > ResponseMaxBytes {
 		code := InvalidResponse
+		if len(body) > ResponseMaxBytes {
+			code = ResponseTooLarge
+		}
 		if mutation {
 			code = DeliveryUnknown
 		}

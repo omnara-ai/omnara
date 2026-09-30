@@ -14,13 +14,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-type InboxLaunchSlot struct {
-	InitialInput *LaunchInitialInput                        `json:"-"`
-	Files        []InboxPlannedFile                         `json:"-"`
-	Selection    integrationstore.InboxIntegrationSelection `json:"selection"`
-	AgentID      uuid.UUID                                  `json:"agent_id"`
-	Launch       InboxLaunchPlan                            `json:"launch"`
-	ArtifactIDs  []uuid.UUID                                `json:"artifact_ids,omitempty"`
+type InboxLaunchRecipient struct {
+	InitialInput *LaunchInitialInput               `json:"-"`
+	Files        []InboxPlannedFile                `json:"-"`
+	LaunchClaim  integrationstore.InboxLaunchClaim `json:"launch_claim"`
+	AgentID      uuid.UUID                         `json:"agent_id"`
+	Launch       InboxLaunchPlan                   `json:"launch"`
+	ArtifactIDs  []uuid.UUID                       `json:"artifact_ids,omitempty"`
 }
 
 type InboxLaunchPrincipal struct {
@@ -46,24 +46,24 @@ func (p InboxLaunchPlan) launchInput(projectID uuid.UUID, initial *LaunchInitial
 	}
 }
 
-func (s *Store) AdmitInboxLaunchSlot(
+func (s *Store) AdmitInboxLaunchRecipient(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-	slotKey string,
+	recipientKey string,
 	artifacts []artifactstore.PreparedArtifact,
 ) (LaunchAgentResult, error) {
-	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || slotKey == "" {
-		return LaunchAgentResult{}, storeerr.InvalidRequest(errors.New("inbox lease and slot are required"))
+	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || recipientKey == "" {
+		return LaunchAgentResult{}, storeerr.InvalidRequest(errors.New("inbox lease and recipient are required"))
 	}
-	return storeutil.RetryTransaction(ctx, "admit_inbox_launch_slot", func() (LaunchAgentResult, error) {
-		return s.admitInboxLaunchSlotOnce(ctx, lease, slotKey, artifacts)
+	return storeutil.RetryTransaction(ctx, "admit_inbox_launch_recipient", func() (LaunchAgentResult, error) {
+		return s.admitInboxLaunchRecipientOnce(ctx, lease, recipientKey, artifacts)
 	})
 }
 
-func (s *Store) admitInboxLaunchSlotOnce(
+func (s *Store) admitInboxLaunchRecipientOnce(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-	slotKey string,
+	recipientKey string,
 	artifacts []artifactstore.PreparedArtifact,
 ) (LaunchAgentResult, error) {
 	// Read the immutable plan first to discover integration gates that must precede the receipt lock.
@@ -71,17 +71,17 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	raw, err := inboxPlanSlot(snapshot, slotKey)
+	raw, err := inboxPlanRecipient(snapshot, recipientKey)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	slot, err := decodeInboxLaunchSlot(snapshot, raw)
+	recipient, err := decodeInboxLaunchRecipient(snapshot, raw)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
 	if outcome, err := resolveInboxLaunchOutcome(
-		ctx, s.q, snapshot.ProjectID, slot,
-	); err != nil || outcome.Outcome != InboxSlotPending {
+		ctx, s.q, snapshot.ProjectID, recipient,
+	); err != nil || outcome.Outcome != InboxRecipientPending {
 		return LaunchAgentResult{Agent: outcome.Agent}, err
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -90,7 +90,7 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	resources, err := launchIntegrationIDsTx(ctx, q, slot.Launch.launchInput(lease.ProjectID, slot.InitialInput))
+	resources, err := launchIntegrationIDsTx(ctx, q, recipient.Launch.launchInput(lease.ProjectID, recipient.InitialInput))
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
@@ -100,8 +100,8 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		_ = tx.Rollback(ctx)
 		// Another attempt may have committed and released its lease while this worker waited.
 		if outcome, readErr := resolveInboxLaunchOutcome(
-			ctx, s.q, snapshot.ProjectID, slot,
-		); readErr == nil && outcome.Outcome != InboxSlotPending {
+			ctx, s.q, snapshot.ProjectID, recipient,
+		); readErr == nil && outcome.Outcome != InboxRecipientPending {
 			return LaunchAgentResult{Agent: outcome.Agent}, nil
 		}
 		return LaunchAgentResult{}, err
@@ -111,22 +111,22 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		return LaunchAgentResult{}, storeerr.ErrIdempotencyConflict
 	}
 	if outcome, err := resolveInboxLaunchOutcome(
-		ctx, q, locked.ProjectID, slot,
-	); err != nil || outcome.Outcome != InboxSlotPending {
+		ctx, q, locked.ProjectID, recipient,
+	); err != nil || outcome.Outcome != InboxRecipientPending {
 		return LaunchAgentResult{Agent: outcome.Agent}, err
 	}
-	artifacts, err = validateInboxLaunchArtifacts(slot, artifacts)
+	artifacts, err = validateInboxLaunchArtifacts(recipient, artifacts)
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// These gates are already held. Recheck only this slot's authority so another
-	// slot's revocation cannot block its independent progress.
+	// These gates are already held. Recheck only this recipient's authority so another
+	// recipient's revocation cannot block its independent progress.
 	if err := integrationstore.LockIntegrationsTx(ctx, tx, lease.ProjectID, resources); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	selection := slot.Selection
-	origins := []AgentInputOrigin{{IntegrationID: selection.IntegrationID, Address: selection.Address}}
-	for _, attachment := range slot.Launch.Subscriptions {
+	claim := recipient.LaunchClaim
+	origins := []AgentInputOrigin{{IntegrationID: claim.IntegrationID, Address: claim.Address}}
+	for _, attachment := range recipient.Launch.Subscriptions {
 		prepared, err := integrationstore.PrepareIntegrationSubscriptionTx(ctx, tx, lease.ProjectID, attachment)
 		if err != nil {
 			return LaunchAgentResult{}, err
@@ -142,16 +142,16 @@ func (s *Store) admitInboxLaunchSlotOnce(
 		if err != nil {
 			return LaunchAgentResult{}, err
 		}
-		if err := validateScheduledInboxLaunch(locked, integration, slot); err != nil {
+		if err := validateScheduledInboxLaunch(locked, integration, recipient); err != nil {
 			return LaunchAgentResult{}, err
 		}
 	}
-	launch := slot.Launch.launchInput(lease.ProjectID, slot.InitialInput)
+	launch := recipient.Launch.launchInput(lease.ProjectID, recipient.InitialInput)
 	launch.admission = &launchAdmission{
 		Scheduled:     scheduled,
-		AgentID:       slot.AgentID,
-		IntegrationID: selection.IntegrationID,
-		LaunchKey:     selection.LaunchKey,
+		AgentID:       recipient.AgentID,
+		IntegrationID: claim.IntegrationID,
+		LaunchKey:     claim.LaunchKey,
 		Artifacts:     artifacts,
 	}
 	txNotifications := s.newTxNotifications()
@@ -159,74 +159,74 @@ func (s *Store) admitInboxLaunchSlotOnce(
 	if err != nil {
 		return LaunchAgentResult{}, err
 	}
-	if !result.Created || result.Agent.ID != slot.AgentID {
+	if !result.Created || result.Agent.ID != recipient.AgentID {
 		return LaunchAgentResult{}, storeerr.ErrIdempotencyConflict
 	}
 	if err := work.CheckLease(ctx); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "admit inbox launch slot"); err != nil {
+	if err := s.commitTxWithNotifications(ctx, tx, txNotifications, "admit inbox launch recipient"); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	return result, nil
 }
 
-func decodeInboxLaunchSlot(
+func decodeInboxLaunchRecipient(
 	receipt integrationstore.IntegrationInboxRecord,
 	raw json.RawMessage,
-) (InboxLaunchSlot, error) {
-	var slot InboxLaunchSlot
-	fail := func(message string) (InboxLaunchSlot, error) {
-		return slot, storeerr.InvalidRequest(errors.New(message))
+) (InboxLaunchRecipient, error) {
+	var recipient InboxLaunchRecipient
+	fail := func(message string) (InboxLaunchRecipient, error) {
+		return recipient, storeerr.InvalidRequest(errors.New(message))
 	}
-	if err := json.Unmarshal(raw, &slot); err != nil {
-		return fail("invalid frozen launch slot")
+	if err := json.Unmarshal(raw, &recipient); err != nil {
+		return fail("invalid frozen launch recipient")
 	}
-	if slot.AgentID.Version() != 7 || slot.AgentID.Variant() != uuid.RFC4122 {
+	if recipient.AgentID.Version() != 7 || recipient.AgentID.Variant() != uuid.RFC4122 {
 		return fail("planned agent requires a UUIDv7 identity")
 	}
-	selection := slot.Selection
-	if selection.IntegrationID == uuid.Nil || selection.IntegrationID != receipt.IntegrationID ||
-		selection.LaunchKey == "" {
-		return fail("launch selection must belong to the receipt integration and name a launch key")
+	claim := recipient.LaunchClaim
+	if claim.IntegrationID == uuid.Nil || claim.IntegrationID != receipt.IntegrationID ||
+		claim.LaunchKey == "" {
+		return fail("launch claim must belong to the receipt integration and name a launch key")
 	}
-	if slot.Launch.ProfileID == uuid.Nil || slot.Launch.AgentConfigID == uuid.Nil ||
-		slot.Launch.DerivedBaseConfigID == uuid.Nil || slot.Launch.IdempotencyKey == "" {
+	if recipient.Launch.ProfileID == uuid.Nil || recipient.Launch.AgentConfigID == uuid.Nil ||
+		recipient.Launch.DerivedBaseConfigID == uuid.Nil || recipient.Launch.IdempotencyKey == "" {
 		return fail("inbox launch requires profile, derived and base config identities and an idempotency key")
 	}
 	message, err := inboxMessage(receipt)
 	if err != nil {
-		return slot, err
+		return recipient, err
 	}
-	content, files, err := message.RecipientContent(slot.ArtifactIDs)
+	content, files, err := message.RecipientContent(recipient.ArtifactIDs)
 	if err != nil {
-		return slot, err
+		return recipient, err
 	}
-	slot.Files, slot.InitialInput = files, message.initialInput(content)
-	launch, err := validateLaunchAgentInput(slot.Launch.launchInput(receipt.ProjectID, slot.InitialInput))
+	recipient.Files, recipient.InitialInput = files, message.initialInput(content)
+	launch, err := validateLaunchAgentInput(recipient.Launch.launchInput(receipt.ProjectID, recipient.InitialInput))
 	if err != nil {
-		return slot, err
+		return recipient, err
 	}
 	initial, _, err := prepareLaunchInitialInput(launch)
 	if err != nil {
-		return slot, err
+		return recipient, err
 	}
-	if slot.InitialInput == nil || initial.Origin == nil || initial.Actor == nil ||
-		initial.Origin.IntegrationID != selection.IntegrationID || initial.Origin.Address != selection.Address {
-		return fail("inbox launch requires initial content, actor and origin matching its frozen selection")
+	if recipient.InitialInput == nil || initial.Origin == nil || initial.Actor == nil ||
+		initial.Origin.IntegrationID != claim.IntegrationID || initial.Origin.Address != claim.Address {
+		return fail("inbox launch requires initial content, actor and origin matching its frozen claim")
 	}
-	return slot, nil
+	return recipient, nil
 }
 
 func validateInboxLaunchArtifacts(
-	slot InboxLaunchSlot,
+	recipient InboxLaunchRecipient,
 	artifacts []artifactstore.PreparedArtifact,
 ) ([]artifactstore.PreparedArtifact, error) {
-	_, blocks, err := prepareLaunchInitialInput(LaunchAgentInput{InitialInput: slot.InitialInput})
+	_, blocks, err := prepareLaunchInitialInput(LaunchAgentInput{InitialInput: recipient.InitialInput})
 	if err != nil {
 		return nil, err
 	}
-	return validateInboxPreparedArtifacts(slot.ArtifactIDs, slot.Files, blocks, artifacts)
+	return validateInboxPreparedArtifacts(recipient.ArtifactIDs, recipient.Files, blocks, artifacts)
 }
 
 func validateInboxPreparedArtifacts(

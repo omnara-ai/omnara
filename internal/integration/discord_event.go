@@ -74,13 +74,9 @@ type DiscordEventFile struct {
 
 var errDiscordChannelUnroutable = fmt.Errorf("unsupported Discord message channel: %w", storeerr.ErrInvalidRequest)
 
-func NormalizeDiscordIntegrationEvent(
-	integrationSetup integrationstore.IntegrationRecord, raw []byte, channel discord.Channel,
+func normalizeDiscordIntegrationMessage(
+	integrationSetup integrationstore.IntegrationRecord, message discord.MessageEvent, channel discord.Channel,
 ) (IntegrationEvent, bool, error) {
-	message, ok, err := discordInboxMessage(integrationSetup, raw)
-	if err != nil || !ok {
-		return IntegrationEvent{}, ok, err
-	}
 	scope, err := discordInboxMessageScope(message.Message, channel)
 	if errors.Is(err, errDiscordChannelUnroutable) {
 		return IntegrationEvent{}, false, nil
@@ -167,7 +163,8 @@ func discordInboxMessage(
 	}
 	// Stickers, polls and forwarded snapshots alone contain no supported input.
 	// Keep native mentions and attachment-only messages on the normal path.
-	if !message.MentionsBot && message.Message.Content == "" && len(message.Message.Attachments) == 0 {
+	if !message.MentionsBot && len(message.Message.MentionRoles) == 0 &&
+		message.Message.Content == "" && len(message.Message.Attachments) == 0 {
 		return discord.MessageEvent{}, false, nil
 	}
 	return message, true, nil
@@ -298,6 +295,21 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 	if err != nil || !ok {
 		return IntegrationInboxExpansion{}, err
 	}
+	var client *discord.Client
+	var check func(context.Context) error
+	if !message.MentionsBot && len(message.Message.MentionRoles) != 0 {
+		client, check, err = p.requestClient(ctx, integrationSetup, nil)
+		if err != nil {
+			return IntegrationInboxExpansion{}, err
+		}
+		message, err = client.ResolveBotMention(ctx, message)
+		if err != nil {
+			return IntegrationInboxExpansion{}, err
+		}
+		if !message.MentionsBot && message.Message.Content == "" && len(message.Message.Attachments) == 0 {
+			return IntegrationInboxExpansion{}, nil
+		}
+	}
 	if routeEvent != nil && !message.MentionsBot {
 		// Ordinary thread messages match only the exact thread subscription or an
 		// unsettled launch/menu for that thread. MESSAGE_CREATE already carries
@@ -312,9 +324,11 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 			return IntegrationInboxExpansion{}, err
 		}
 	}
-	client, check, err := p.requestClient(ctx, integrationSetup, nil)
-	if err != nil {
-		return IntegrationInboxExpansion{}, err
+	if client == nil {
+		client, check, err = p.requestClient(ctx, integrationSetup, nil)
+		if err != nil {
+			return IntegrationInboxExpansion{}, err
+		}
 	}
 	channel, err := client.GetChannel(ctx, message.Message.ChannelID)
 	if err != nil {
@@ -334,7 +348,7 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 		}
 		return IntegrationInboxExpansion{}, err
 	}
-	event, ok, err := NormalizeDiscordIntegrationEvent(integrationSetup, raw, channel)
+	event, ok, err := normalizeDiscordIntegrationMessage(integrationSetup, message, channel)
 	if err != nil || !ok {
 		return IntegrationInboxExpansion{}, err
 	}
@@ -547,21 +561,37 @@ func (p *DiscordIntegrationInboxProvider) PrepareConversation(
 	if err != nil {
 		return err
 	}
-	event, ok, err := NormalizeDiscordIntegrationEvent(integrationSetup, raw, channel)
+	scope, err := discordInboxMessageScope(message.Message, channel)
 	if err != nil {
 		return err
 	}
-	if !ok || *event.Event.Scope.Discord != frozenScope {
+	// Mention eligibility is frozen; preparation rechecks the source address and live authority.
+	if scope.ThreadID == "" {
+		scope.ThreadID = message.Message.ID
+	}
+	if integrationdefinition.DiscordScope(scope) != frozenScope {
 		return storeerr.ErrUnauthorized
 	}
 	if !channel.IsThread() {
 		_, err = client.EnsureThread(ctx, discord.Scope{GuildID: frozenScope.GuildID, ChannelID: frozenScope.ChannelID},
 			message.Message.ID, discordConversationName(integrationSetup))
 		if err != nil {
-			return err
+			return discordInboundThreadError(err)
 		}
 	}
 	return check(ctx)
+}
+
+func discordInboundThreadError(err error) error {
+	var apiErr *discord.APIError
+	if errors.As(err, &apiErr) &&
+		(apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound) {
+		switch apiErr.ProviderCode {
+		case 10008, 50001, 50013: // Unknown Message, Missing Access, Missing Permissions.
+			return fmt.Errorf("%w: create Discord inbound thread: %w", ErrIntegrationInboundPermanent, err)
+		}
+	}
+	return err
 }
 
 func discordConversationName(integrationSetup integrationstore.IntegrationRecord) string {

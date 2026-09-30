@@ -75,7 +75,7 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			})
 			require.NoError(t, err)
 			require.True(t, found)
-			event, eligible, err := NormalizeDiscordIntegrationEvent(integration, raw, f.channels["300"])
+			event, eligible, err := normalizeDiscordIntegrationEvent(integration, raw, f.channels["300"])
 			require.NoError(t, err)
 			require.True(t, eligible)
 			if scenario != "revoked sibling" {
@@ -112,9 +112,9 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			var artifacts IntegrationArtifactUploader
 			if scenario == "active sibling with file" {
 				uploads := &discordInboxArtifacts{uploaded: map[uuid.UUID][]byte{}}
-				for _, slot := range plan.Recipients {
-					if slot.AgentID != agents[0] {
-						for _, id := range slot.ArtifactIDs {
+				for _, recipient := range plan.Recipients {
+					if recipient.AgentID != agents[0] {
+						for _, id := range recipient.ArtifactIDs {
 							uploads.uploaded[id] = []byte("note")
 						}
 					}
@@ -139,14 +139,14 @@ func TestIntegrationDiscordFrozenArchivedRecipientsDoNotRequirePreparation(t *te
 			require.Len(t, results, count)
 			for _, result := range results {
 				require.NotNil(t, result.Input)
-				if plan.Recipients[result.Slot].AgentID == agents[0] {
+				if plan.Recipients[result.Recipient].AgentID == agents[0] {
 					require.Equal(t, executionstore.InboxInputSkipAgentArchived, result.Input.Skipped)
 				} else {
 					require.True(t, result.Input.Created)
 				}
 			}
 			if count == 1 {
-				require.Empty(t, f.requests, "archived-only slots must need neither Discord nor artifact preparation")
+				require.Empty(t, f.requests, "archived-only recipients must need neither Discord nor artifact preparation")
 			}
 			latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 			require.NoError(t, err)

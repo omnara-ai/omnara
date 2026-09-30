@@ -1589,7 +1589,7 @@ export const createIntegrationSlackSetup = <ThrowOnError extends boolean = true>
 /**
  * Start registration of a customer-owned GitHub App
  *
- * Starts guided registration on github.com for a never-connected GitHub integration. Requires a browser session and project management access. Submit manifest as a JSON-encoded form field to registration_url. The callback saves a project credential secret and redirects to the canonical integration page with github_setup=credentials_saved and credentials_secret_ref (a public secret ID). It does not connect an installation or change launcher settings.
+ * Starts guided registration on github.com for a never-connected GitHub integration. Requires a browser session and project management access. Submit manifest as a JSON-encoded form field to registration_url. The callback saves a project credential secret and redirects to the canonical integration page with github_setup=credentials_saved and credential_secret_id (a public secret ID). It does not connect an installation or change launcher settings.
  */
 export const createIntegrationGitHubSetup = <ThrowOnError extends boolean = true>(options: Options<CreateIntegrationGitHubSetupData, ThrowOnError>): RequestResult<CreateIntegrationGitHubSetupResponses, CreateIntegrationGitHubSetupErrors, ThrowOnError> => (options.client ?? client).post<CreateIntegrationGitHubSetupResponses, CreateIntegrationGitHubSetupErrors, ThrowOnError>({
     responseValidator: relaxedResponseValidator(zCreateIntegrationGitHubSetupResponse),

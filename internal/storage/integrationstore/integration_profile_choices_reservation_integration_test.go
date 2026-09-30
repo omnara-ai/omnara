@@ -18,12 +18,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (f profileChoiceFixture) selectionPlan(t *testing.T, integrationID uuid.UUID, slot string) json.RawMessage {
+func (f profileChoiceFixture) launchClaimPlan(t *testing.T, integrationID uuid.UUID, launchKey string) json.RawMessage {
 	t.Helper()
 	plan, err := json.Marshal(map[string]any{
 		"message": map[string]any{}, "recipients": map[string]any{"chosen": map[string]any{
-			"selection": integrationstore.InboxIntegrationSelection{
-				IntegrationID: integrationID, Address: f.input.Address, LaunchKey: slot,
+			"launch_claim": integrationstore.InboxLaunchClaim{
+				IntegrationID: integrationID, Address: f.input.Address, LaunchKey: launchKey,
 			},
 		}},
 	})
@@ -53,10 +53,10 @@ func TestIntegrationProfileChoiceUnplannedHandoffReservesConversation(t *testing
 			require.False(t, created)
 			require.Equal(t, choice.ID, reused.ID)
 			require.Equal(t, f.input.Options[0].Key, reused.SelectedKey)
-			var reservation *integrationstore.IntegrationSelectionReservationError
+			var reservation *integrationstore.IntegrationLaunchClaimError
 			err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
 				func(work *integrationstore.IntegrationInboxLeaseTx) error {
-					if err := work.CheckNoUnsettledIntegrationSelection(f.ctx, f.input.Address); err != nil {
+					if err := work.CheckNoUnsettledIntegrationLaunch(f.ctx, f.input.Address); err != nil {
 						return err
 					}
 					return work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`))
@@ -73,7 +73,7 @@ func TestIntegrationProfileChoiceUnplannedHandoffReservesConversation(t *testing
 			setup.Settings = integrationtest.ChatSettings("", f.input.Options[1].ProfileID)
 			_, err = f.store.UpdateIntegration(f.ctx, f.integration.ID, setup)
 			require.NoError(t, err)
-			plan := f.selectionPlan(t, f.integration.ID, "review")
+			plan := f.launchClaimPlan(t, f.integration.ID, "review")
 			err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
 				func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) })
 			require.ErrorAs(t, err, &reservation)
@@ -92,7 +92,7 @@ func TestIntegrationProfileChoiceUnplannedHandoffReservesConversation(t *testing
 			require.NoError(t, err)
 			require.True(t, created, "a distinct integration still owns its independent menu")
 			require.Equal(t, otherIntegration.ID, independent.IntegrationID)
-			otherPlan := f.selectionPlan(t, otherIntegration.ID, "review")
+			otherPlan := f.launchClaimPlan(t, otherIntegration.ID, "review")
 			other.mutate(t, otherReceipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 				return work.FreezePlan(f.ctx, otherPlan)
 			})
@@ -108,9 +108,9 @@ func TestIntegrationProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 	_, err := f.store.ChooseIntegrationProfile(f.ctx, f.chooseInput(t, choice, "support"))
 	require.NoError(t, err)
 	decided := f.claim(t)
-	plan := f.selectionPlan(t, f.integration.ID, "support")
+	plan := f.launchClaimPlan(t, f.integration.ID, "support")
 	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.CheckNoUnsettledIntegrationSelection(f.ctx, f.input.Address); err != nil {
+		if err := work.CheckNoUnsettledIntegrationLaunch(f.ctx, f.input.Address); err != nil {
 			return err
 		}
 		return work.FreezePlan(f.ctx, plan)
@@ -132,9 +132,9 @@ func TestIntegrationProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 	decided = f.claim(t)
 	err = f.store.WithIntegrationInboxLease(f.ctx, late.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
-			return work.CheckNoUnsettledIntegrationSelection(f.ctx, f.input.Address)
+			return work.CheckNoUnsettledIntegrationLaunch(f.ctx, f.input.Address)
 		})
-	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 	f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		return work.Fail(f.ctx, "frozen plan failed")
 	})
@@ -145,7 +145,7 @@ func TestIntegrationProfileChoiceFrozenPlanTakesOverReservation(t *testing.T) {
 	require.True(t, created, "terminal work releases the conversation for a new menu")
 	require.NotEqual(t, choice.ID, reused.ID)
 	f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.CheckNoUnsettledIntegrationSelection(f.ctx, f.input.Address); err != nil {
+		if err := work.CheckNoUnsettledIntegrationLaunch(f.ctx, f.input.Address); err != nil {
 			return err
 		}
 		return work.FreezePlan(f.ctx, plan)
@@ -166,7 +166,7 @@ func TestIntegrationProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	})
 	require.Nil(t, f.read(t, decided.ID).Plan)
 	f.mutate(t, late, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		return work.CheckNoUnsettledIntegrationSelection(f.ctx, f.input.Address)
+		return work.CheckNoUnsettledIntegrationLaunch(f.ctx, f.input.Address)
 	})
 	newInput := f.input
 	newInput.SourceKey = "replacement-message"
@@ -182,13 +182,13 @@ func TestIntegrationProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	_, err = f.store.ChooseIntegrationProfile(f.ctx, f.chooseInput(t, fresh, "review"))
 	require.NoError(t, err)
 	newDecided := f.claim(t)
-	newPlan := f.selectionPlan(t, f.integration.ID, "review")
+	newPlan := f.launchClaimPlan(t, f.integration.ID, "review")
 	f.mutate(t, newDecided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		return work.FreezePlan(f.ctx, newPlan)
 	})
 	err = f.store.WithIntegrationInboxLease(f.ctx, decided.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
-			return work.FreezePlan(f.ctx, f.selectionPlan(t, f.integration.ID, "support"))
+			return work.FreezePlan(f.ctx, f.launchClaimPlan(t, f.integration.ID, "support"))
 		})
 	require.ErrorIs(t, err, integrationstore.ErrIntegrationInboxLeaseLost)
 	retained, found, err := f.store.GetIntegrationProfileChoiceBySource(
@@ -202,7 +202,7 @@ func TestIntegrationProfileChoiceFailedUnplannedAllowsNewRequest(t *testing.T) {
 	require.Equal(t, f.input.Options[0].Key, retained.SelectedKey)
 }
 
-func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t *testing.T) {
+func TestIntegrationProfileChoiceRechecksSettledLaunchOwnerAfterRoutingSnapshot(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name                          string
@@ -232,7 +232,7 @@ func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t 
 					[]integrationstore.ConversationAddress{f.input.Address})
 				return err
 			})
-			require.Empty(t, snapshot.Selections)
+			require.Empty(t, snapshot.LaunchOwners)
 			execution := executionstore.New(f.pool, executionstore.Config{})
 			profile, err := execution.GetAgentProfile(f.ctx, f.project, f.input.Options[0].ProfileID)
 			require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t 
 			input := f.input
 			input.SourceKey = "stale-new-mention"
 			choice, created, err := f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), input)
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionSettled)
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchSettled)
 			require.False(t, created)
 			require.Zero(t, choice)
 			_, found, err := f.store.GetIntegrationProfileChoiceBySource(f.ctx, f.project, f.integration.ID, input.SourceKey)
@@ -278,7 +278,7 @@ func TestIntegrationProfileChoiceRechecksSettledSelectionAfterRoutingSnapshot(t 
 			if tc.pending {
 				replayed, created, err := f.store.EnsureIntegrationProfileChoice(f.ctx, f.source.Lease(), f.input)
 				if tc.unpublished {
-					require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionSettled,
+					require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchSettled,
 						"an old publisher cannot recreate its menu after another request launched")
 				} else {
 					require.NoError(t, err)

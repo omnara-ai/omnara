@@ -49,7 +49,7 @@ func (f integrationActivationFixture) launchWithSelectedIntegration(t *testing.T
 		f.ctx, tx, testProjectID, launch.Agent.ID, f.integration.ID,
 		integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef},
 	))
-	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
+	selection, err := executionstore.IntegrationSelectInteractionDestinationForOriginTx(
 		f.ctx, tx, testProjectID, launch.Agent.ID, target.ID,
 	)
 	require.NoError(t, err)
@@ -142,7 +142,10 @@ func TestConfigChangeSerializesNextIntegrationWithRevocation(t *testing.T) {
 				current, err := f.store.Execution().GetAgentInProject(f.ctx, testProjectID, launch.Agent.ID)
 				require.NoError(t, err)
 				require.Equal(t, result.AgentConfig.ID, current.CurrentConfigID, "revoked references remain valid metadata")
-				destination, err := f.store.Execution().GetSelectedInteractionDestination(f.ctx, testProjectID, launch.Agent.ID)
+				captureTx := integrationdb.BeginTx(t, f.ctx, f.store.pool)
+				destination, err := executionstore.IntegrationCaptureInteractionDestinationTx(
+					f.ctx, captureTx, testProjectID, launch.Agent.ID,
+				)
 				require.NoError(t, err)
 				require.Nil(t, destination, "config activation cannot grant live authority to a revoked integration")
 				if state == "deleted" || order == "revocation-first" {

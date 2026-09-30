@@ -35,7 +35,7 @@ func TestProfileChoicePromptNativeSelectRoundTrip(t *testing.T) {
 			choiceID := profileChoiceTestID(t)
 			options := make([]ProfileChoiceOption, count)
 			for i := range options {
-				options[i] = ProfileChoiceOption{Key: fmt.Sprintf("slot-%d", i), Name: strings.Repeat("🦉", 120)}
+				options[i] = ProfileChoiceOption{Key: fmt.Sprintf("profile-%d", i), Name: strings.Repeat("🦉", 120)}
 			}
 			text, rows, err := ProfileChoicePrompt(choiceID, options, "Available until 12:00 UTC.")
 			require.NoError(t, err)

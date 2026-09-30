@@ -269,6 +269,8 @@ func TestReviewThreadGraphQLErrorsAndHTTPFailuresAreReads(t *testing.T) {
 				require.Empty(t, client.tokens[0].token)
 			case "server error", "transport":
 				code, attempts = TransientFailure, 3
+			case "oversized":
+				code = ResponseTooLarge
 			}
 			apiErr := requireAPIError(t, err, code)
 			require.Equal(t, attempts, queries.Load())

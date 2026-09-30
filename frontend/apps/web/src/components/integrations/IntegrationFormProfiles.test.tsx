@@ -382,7 +382,6 @@ it.each(['saved channel', 'new launcher'] as const)(
     }
     selectScope('')
     expect(container.textContent).toContain('Workspace: T123')
-    expect(container.textContent).not.toContain('Enter a Slack workspace ID')
     expect(button('Save changes').disabled).toBe(false)
     await submit()
     await waitForUI(() => {

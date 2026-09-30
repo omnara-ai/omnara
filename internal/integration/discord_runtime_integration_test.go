@@ -224,10 +224,16 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 	claim, found, err = store.Integrations().ClaimIntegrationRuntime(ctx, revision, discordRuntimeLease)
 	require.NoError(t, err)
 	require.True(t, found)
+	r.HTTPClient = &http.Client{Transport: discordRuntimeTransport(func(*http.Request) (*http.Response, error) {
+		t.Error("saved-session resume must not request gateway metadata")
+		return nil, errors.New("REST unavailable")
+	})}
 	r.runShard = func(
 		ctx context.Context, config discord.ShardConfig, prior *discord.Checkpoint, commit discord.CommitDispatch,
 	) error {
 		require.Equal(t, &checkpoint, prior, "restart resumes from committed provider checkpoint")
+		require.Empty(t, config.GatewayURL, "resume uses the saved URL")
+		require.NoError(t, config.BeforeConnect(ctx), "resume still verifies the live lease and credentials")
 		_, _, err := store.Secrets().
 			CreateSecretVersion(
 				ctx,
@@ -270,7 +276,17 @@ func TestDiscordRuntimePersistsResumeAndFencesRevokedCredentials(t *testing.T) {
 
 func TestDiscordRuntimePersistsOnlySafeFailureMessage(t *testing.T) {
 	untrusted := "private upstream token=do-not-expose\x00" + strings.Repeat("界", 2000)
+	dialFailure := discord.RunShard(t.Context(), discord.ShardConfig{
+		Credentials: discord.Credentials{ApplicationID: "123", BotUserID: "456", BotToken: "token"},
+		ShardCount:  1, GatewayURL: "wss://gateway.discord.gg",
+		BeforeIdentify: func(context.Context) error { return nil },
+		HTTPClient: &http.Client{Transport: discordRuntimeTransport(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New(untrusted)
+		})},
+	}, nil, func(context.Context, discord.Dispatch, discord.Checkpoint) error { return nil })
+	require.Error(t, dialFailure)
 	for _, cause := range []error{
+		dialFailure,
 		errors.New(untrusted),
 		fmt.Errorf("%s: %w", untrusted, &discord.APIError{
 			Code: discord.PermanentFailure, StatusCode: http.StatusUnauthorized,
@@ -314,11 +330,15 @@ func TestDiscordRuntimePersistsOnlySafeFailureMessage(t *testing.T) {
 			var entry struct {
 				Message string `json:"msg"`
 				Error   string `json:"error"`
+				Cause   string `json:"cause"`
 			}
 			require.NoError(t, json.Unmarshal(lines.Bytes(), &entry))
 			if entry.Message == "Discord connection stopped" {
 				foundStopped = true
 				require.Equal(t, cause.Error(), entry.Error, "internal logs retain the full diagnostic")
+				if errors.Is(cause, dialFailure) {
+					require.Equal(t, errors.Unwrap(dialFailure).Error(), entry.Cause, "logs retain the transport cause")
+				}
 			}
 		}
 		require.NoError(t, lines.Err())
@@ -326,38 +346,43 @@ func TestDiscordRuntimePersistsOnlySafeFailureMessage(t *testing.T) {
 	}
 }
 
+func TestDiscordRuntimeRejectsInvalidCheckpointBeforeGatewayRequests(t *testing.T) {
+	f := newDiscordRuntimeFixture(t)
+	claim, found, err := f.store.Integrations().ClaimIntegrationRuntime(
+		t.Context(),
+		integrationstore.IntegrationRuntimeRevision{
+			ProjectID: f.integrationSetup.ProjectID, IntegrationID: f.integrationSetup.ID,
+			SetupRevision: f.integrationSetup.SetupRevision, CredentialVersionID: f.version,
+		},
+		discordRuntimeLease,
+	)
+	require.NoError(t, err)
+	require.True(t, found)
+	r := DiscordRuntime{
+		Integrations: f.store.Integrations(), Secrets: f.store.Secrets(),
+		HTTPClient: &http.Client{Transport: discordRuntimeTransport(func(*http.Request) (*http.Response, error) {
+			t.Error("invalid checkpoint must not reach REST or websocket transport")
+			return nil, errors.New("unexpected request")
+		})},
+	}
+	for _, raw := range []string{
+		"{",
+		"null",
+		"{}",
+		`{"application_id":"999","bot_user_id":"456","shard_count":1,"session_id":"session","sequence":1,"resume_url":"wss://gateway.discord.gg"}`,
+		`{"application_id":"123","bot_user_id":"456","shard_count":1,"session_id":"session","sequence":1,"resume_url":"wss://evil.example"}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			claim.Checkpoint = json.RawMessage(raw)
+			require.Error(t, r.connect(t.Context(), f.integrationSetup, claim))
+		})
+	}
+}
+
 type discordRuntimeTransport func(*http.Request) (*http.Response, error)
 
 func (f discordRuntimeTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
-}
-
-func TestDiscordReconnectDelayHonorsProviderFailures(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		err     error
-		minimum time.Duration
-	}{
-		{"revoked token", &discord.APIError{Code: discord.PermanentFailure, StatusCode: 401}, time.Hour},
-		{"missing permissions", &discord.APIError{Code: discord.PermanentFailure, StatusCode: 403}, time.Hour},
-		{"READY identity mismatch", &discord.APIError{Code: discord.ScopeMismatch}, time.Hour},
-		{"rate limit", &discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour}, 2 * time.Hour},
-		{"disabled intent", &discord.GatewayError{Fatal: true}, time.Hour},
-		{"session budget", discordIdentifyWaitError{After: 20 * time.Hour}, 20 * time.Hour},
-		{"reconnect with permit wait", errors.Join(
-			&discord.GatewayError{RetryAfter: time.Second}, discordIdentifyWaitError{After: 20 * time.Hour},
-		), 20 * time.Hour},
-		{"reconnect with API rate limit", errors.Join(
-			&discord.GatewayError{RetryAfter: time.Second},
-			&discord.APIError{Code: discord.RateLimited, RetryAfter: 2 * time.Hour},
-		), 2 * time.Hour},
-		{"network", errors.New("network unavailable"), time.Second},
-	} {
-		t.Run(
-			test.name,
-			func(t *testing.T) { require.GreaterOrEqual(t, discordReconnectDelay(test.err), test.minimum) },
-		)
-	}
 }
 
 func TestDiscordRuntimeScanClaimsAvailableIntegrationsWithinCapacity(t *testing.T) {

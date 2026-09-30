@@ -1,10 +1,10 @@
 import * as z from 'zod'
 
 import type {
+  CreateIntegrationRequest,
   IntegrationKind,
   IntegrationProviderConfig,
   IntegrationSettings,
-  SaveIntegrationRequest,
   UpdateIntegrationRequest,
 } from './generated/types.gen'
 import { zAgentProfileId, zIntegrationName } from './generated/zod.gen'
@@ -87,7 +87,7 @@ export function profileIntegrationSetup(input: {
   channelId?: string
   repositoryId?: string
   trigger?: 'mention' | 'pull_request_opened'
-}): SaveIntegrationRequest {
+}): CreateIntegrationRequest {
   const settings: IntegrationSettings = {}
   if (input.launcher !== false) {
     const profiles = profilesSchema
@@ -119,7 +119,7 @@ export function profileIntegrationSetup(input: {
 }
 
 export function profileIntegrationProfileUpdate(
-  integration: Pick<SaveIntegrationRequest, 'integration_kind' | 'settings'>,
+  integration: Pick<CreateIntegrationRequest, 'integration_kind' | 'settings'>,
   profileIds: readonly string[],
 ): UpdateIntegrationRequest {
   if (!['slack_thread', 'discord_thread'].includes(integration.integration_kind))

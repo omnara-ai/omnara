@@ -41,6 +41,24 @@ func (s *Store) GetIntegrationTarget(
 	return getIntegrationTarget(ctx, s.q, projectID, id)
 }
 
+func (s *Store) GetAgentIntegrationLaunchOwner(
+	ctx context.Context, projectID, agentID uuid.UUID,
+) (IntegrationTargetRecord, bool, error) {
+	rows, err := s.q.GetAgentIntegrationLaunchOwners(ctx, dbsqlc.GetAgentIntegrationLaunchOwnersParams{
+		ProjectID: projectID, AgentID: agentID,
+	})
+	if err != nil {
+		return IntegrationTargetRecord{}, false, fmt.Errorf("get agent integration launch owner: %w", err)
+	}
+	if len(rows) == 0 {
+		return IntegrationTargetRecord{}, false, nil
+	}
+	if len(rows) != 1 {
+		return IntegrationTargetRecord{}, false, storeerr.ErrConflict
+	}
+	return integrationTargetRecordFromGetSQLC(dbsqlc.GetIntegrationTargetRow(rows[0])), true, nil
+}
+
 func (s *Store) GetIntegrationTargetTx(
 	ctx context.Context,
 	tx pgx.Tx,

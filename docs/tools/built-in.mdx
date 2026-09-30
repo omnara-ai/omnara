@@ -234,8 +234,8 @@ Existing media references remain inline so their attachments remain available to
 Select [integration tools](/integrations/overview) by qualified name, such as
 `int__engineering__post_message`. An integration owns its credentials and defines its
 tools' argument schemas and conversation requirements. See its guide and catalog
-for available operations, arguments and pagination. Tool declarations have no
-hidden `config`. Credential access, live integration state and ordinary permission govern
+for available operations, arguments and pagination. Credential access, live integration
+state and ordinary permission govern
 execution. Ordinary model output remains in Omnara.
 
 Subscriptions control incoming forwarding independently of enabled tools. Manage
@@ -254,10 +254,13 @@ independently of pagination. No eligible handlers means an empty list.
 An integration may infer the destination from its agent state; in that case its
 schema accepts empty arguments. Use `{"handler":null,"args":{}}` for dashboard only.
 Pass `auto_select: false` to pin the choice, or `true` to enable automatic selection;
-omitting it preserves the current mode. In automatic mode, the last new message admitted
-to a turn selects its eligible handler, or clears the choice if none applies. Dashboard
-and API messages therefore select dashboard-only delivery. Existing prompts keep their
-captured destination. Both tools report the current automatic-selection mode.
+omitting it preserves the current mode. In automatic mode, the last eligible content input
+admitted to a turn selects its handler, or clears the choice if none applies. Dashboard
+and API messages therefore select dashboard-only delivery. Internal agent reports/messages
+and ordinary cron instructions preserve selection. An explicit integration origin takes
+precedence over that exception, including a scheduled integration thread's initial input.
+Existing prompts keep their captured destination. Both tools report the current
+automatic-selection mode.
 
 ## Subagents
 

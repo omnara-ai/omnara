@@ -23,6 +23,9 @@ type SettingsDefinition struct {
 type LauncherDefinition struct {
 	Matches         func(json.RawMessage, Event) bool
 	AuthorizeIntent func(json.RawMessage, Event, LaunchIntent) error
+	// MayLaunchWithoutSelection protects early replies while a matching event is
+	// enriched. It is a pure candidate check, not authorization or a saved choice.
+	MayLaunchWithoutSelection func(json.RawMessage, Event) bool
 }
 
 // LaunchIntent contains only admission facts, not a public settings contract.
@@ -67,6 +70,11 @@ func (s SettingsDefinition) Validate(raw json.RawMessage) error {
 
 func (d Definition) MatchesLaunch(settings json.RawMessage, event Event) bool {
 	return d.Launcher != nil && d.Launcher.Matches != nil && d.Launcher.Matches(settings, event)
+}
+
+func (d Definition) MayLaunchWithoutSelection(settings json.RawMessage, event Event) bool {
+	return d.MatchesLaunch(settings, event) && d.Launcher.MayLaunchWithoutSelection != nil &&
+		d.Launcher.MayLaunchWithoutSelection(settings, event)
 }
 
 func (d Definition) AuthorizeLaunch(settings json.RawMessage, event Event, intent LaunchIntent) error {

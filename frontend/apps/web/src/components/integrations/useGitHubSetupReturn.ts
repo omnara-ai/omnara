@@ -5,7 +5,7 @@ import { z } from 'zod'
 const returnKeys = [
   'github_setup',
   'github_setup_error',
-  'credentials_secret_ref',
+  'credential_secret_id',
   'installation_id',
   'setup_action',
   'state',
@@ -20,7 +20,7 @@ function readReturn() {
   const params = new URLSearchParams(window.location.search)
   // Installation state carries a public credential selection hint, not OAuth authorization.
   const secret = schemas.zSecretId.safeParse(
-    params.get('credentials_secret_ref') ?? params.get('state'),
+    params.get('credential_secret_id') ?? params.get('state'),
   )
   const installation = z
     .string()

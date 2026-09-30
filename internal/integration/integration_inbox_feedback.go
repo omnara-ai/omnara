@@ -37,10 +37,10 @@ func inboxFailureSelectedEvent(
 	},
 	receipt integrationstore.IntegrationInboxRecord, provider string,
 ) (IntegrationEvent, error) {
-	if receipt.Source != integrationstore.IntegrationInboxSourceChoice || receipt.StateID == uuid.Nil {
+	if receipt.Source != integrationstore.IntegrationInboxSourceState || receipt.SourceStateID == uuid.Nil {
 		return IntegrationEvent{}, fmt.Errorf("invalid selected inbox failure source")
 	}
-	choice, err := reader.GetIntegrationProfileChoice(ctx, receipt.ProjectID, receipt.IntegrationID, receipt.StateID)
+	choice, err := reader.GetIntegrationProfileChoice(ctx, receipt.ProjectID, receipt.IntegrationID, receipt.SourceStateID)
 	if err != nil {
 		return IntegrationEvent{}, err
 	}

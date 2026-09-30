@@ -202,7 +202,7 @@ DROP INDEX integration_targets_active_provider_ref_idx;
 CREATE UNIQUE INDEX integration_targets_active_agent_address_idx
     ON integration_targets(project_id, agent_id, integration_id, scope_kind, scope_ref)
     WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX integration_targets_selection_idx
+CREATE UNIQUE INDEX integration_targets_launch_owner_idx
     ON integration_targets(project_id, integration_id, scope_kind, scope_ref, launch_key)
     WHERE launch_key IS NOT NULL;
 CREATE INDEX integration_targets_conversation_idx
@@ -271,10 +271,13 @@ CREATE TABLE integration_inbox (
     integration_id uuid NOT NULL,
     receipt_key text NOT NULL CHECK (octet_length(receipt_key) BETWEEN 1 AND 512),
     payload bytea CHECK (octet_length(payload) BETWEEN 1 AND 1048576),
-    source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled', 'choice')),
-    state_id uuid,
-    CHECK ((source = 'choice' AND state_id IS NOT NULL AND payload IS NULL)
-        OR (source IN ('provider', 'scheduled') AND state_id IS NULL AND payload IS NOT NULL)),
+    source text NOT NULL DEFAULT 'provider' CHECK (source IN ('provider', 'scheduled', 'state')),
+    source_state_id uuid,
+    reserved_scope_kind text CHECK (octet_length(reserved_scope_kind) BETWEEN 1 AND 128),
+    reserved_scope_ref text CHECK (octet_length(reserved_scope_ref) BETWEEN 1 AND 2048),
+    CHECK ((reserved_scope_kind IS NULL) = (reserved_scope_ref IS NULL)),
+    CHECK ((source = 'state' AND source_state_id IS NOT NULL AND payload IS NULL)
+        OR (source IN ('provider', 'scheduled') AND source_state_id IS NULL AND payload IS NOT NULL)),
     plan jsonb CHECK (jsonb_typeof(plan) = 'object' AND octet_length(plan::text) <= 12615680),
     state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'processing', 'completed', 'failed')),
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
@@ -300,9 +303,13 @@ CREATE INDEX integration_inbox_terminal_idx ON integration_inbox(completed_at, i
     WHERE state IN ('completed', 'failed');
 CREATE INDEX integration_inbox_integration_ready_idx
     ON integration_inbox(project_id, integration_id, next_attempt_at, id) WHERE state = 'queued';
-CREATE INDEX integration_inbox_selection_idx ON integration_inbox USING gin
-    ((jsonb_path_query_array(plan, '$.recipients.*.selection')) jsonb_path_ops)
+CREATE INDEX integration_inbox_launch_claim_idx ON integration_inbox USING gin
+    ((jsonb_path_query_array(plan, '$.recipients.*.launch_claim')) jsonb_path_ops)
     WHERE plan IS NOT NULL AND state IN ('queued', 'processing');
+
+CREATE INDEX integration_inbox_reserved_conversation_idx
+    ON integration_inbox(project_id, integration_id, reserved_scope_kind, reserved_scope_ref, id)
+    WHERE reserved_scope_kind IS NOT NULL AND plan IS NULL AND state IN ('queued', 'processing');
 
 CREATE TABLE integration_states (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -322,9 +329,9 @@ CREATE TABLE integration_states (
     UNIQUE (project_id, integration_id, kind, key),
     UNIQUE (project_id, integration_id, id)
 );
-ALTER TABLE integration_inbox ADD FOREIGN KEY (project_id, integration_id, state_id)
+ALTER TABLE integration_inbox ADD FOREIGN KEY (project_id, integration_id, source_state_id)
     REFERENCES integration_states(project_id, integration_id, id);
-CREATE INDEX integration_inbox_state_idx ON integration_inbox(state_id) WHERE state_id IS NOT NULL;
+CREATE INDEX integration_inbox_source_state_id_idx ON integration_inbox(source_state_id) WHERE source_state_id IS NOT NULL;
 
 CREATE INDEX integration_states_scope_idx
     ON integration_states(project_id, integration_id, kind, scope_kind, scope_ref, expires_at, id)

@@ -51,18 +51,19 @@ type Attachment struct {
 }
 
 type Message struct {
-	ID          string          `json:"id"`
-	ChannelID   string          `json:"channel_id"`
-	GuildID     string          `json:"guild_id,omitempty"`
-	Author      User            `json:"author"`
-	Content     string          `json:"content"`
-	Timestamp   string          `json:"timestamp"`
-	Type        int             `json:"type"`
-	WebhookID   string          `json:"webhook_id,omitempty"`
-	Mentions    []User          `json:"mentions"`
-	Attachments []Attachment    `json:"attachments"`
-	Thread      *Channel        `json:"thread,omitempty"`
-	Nonce       json.RawMessage `json:"nonce,omitempty"`
+	ID           string          `json:"id"`
+	ChannelID    string          `json:"channel_id"`
+	GuildID      string          `json:"guild_id,omitempty"`
+	Author       User            `json:"author"`
+	Content      string          `json:"content"`
+	Timestamp    string          `json:"timestamp"`
+	Type         int             `json:"type"`
+	WebhookID    string          `json:"webhook_id,omitempty"`
+	Mentions     []User          `json:"mentions"`
+	MentionRoles []string        `json:"mention_roles"`
+	Attachments  []Attachment    `json:"attachments"`
+	Thread       *Channel        `json:"thread,omitempty"`
+	Nonce        json.RawMessage `json:"nonce,omitempty"`
 }
 
 type Scope struct {

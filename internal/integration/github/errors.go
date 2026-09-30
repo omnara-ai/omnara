@@ -20,6 +20,7 @@ const (
 	TransientFailure   ErrorCode = "transient_failure"
 	PermanentFailure   ErrorCode = "permanent_failure"
 	InvalidResponse    ErrorCode = "invalid_response"
+	ResponseTooLarge   ErrorCode = "response_too_large"
 	ScopeMismatch      ErrorCode = "scope_mismatch"
 	UnsupportedAccount ErrorCode = "unsupported_account"
 )

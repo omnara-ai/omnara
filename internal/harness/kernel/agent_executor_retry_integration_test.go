@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -251,6 +252,9 @@ func TestManagedModelRetryStopsAfterAdmissionCloses(t *testing.T) {
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		StreamPublisher: &capturingStreamPublisher{},
 		Now:             func() time.Time { return currentNow },
 		ModelRetryDelay: immediateKernelModelRetryDelay,

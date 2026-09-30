@@ -29,7 +29,7 @@ type IntegrationInboxSource string
 
 const (
 	IntegrationInboxSourceProvider  IntegrationInboxSource = "provider"
-	IntegrationInboxSourceChoice    IntegrationInboxSource = "choice"
+	IntegrationInboxSourceState     IntegrationInboxSource = "state"
 	IntegrationInboxSourceScheduled IntegrationInboxSource = "scheduled"
 )
 
@@ -62,7 +62,7 @@ type IntegrationInboxRecord struct {
 	CompletedAt    *time.Time
 	Source         IntegrationInboxSource
 	Payload        []byte
-	StateID        uuid.UUID
+	SourceStateID  uuid.UUID
 	Plan           json.RawMessage
 	ClaimToken     uuid.UUID
 }

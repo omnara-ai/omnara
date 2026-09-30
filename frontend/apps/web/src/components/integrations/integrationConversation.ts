@@ -20,7 +20,7 @@ export function integrationConversation(
       const channel = `Channel ${channel_id}`
       const destination = new URLSearchParams({
         channel: channel_id,
-        team: integration.provider_tenant_id,
+        team: integration.provider_tenant_id ?? '',
       })
       return {
         label: thread_ts ? `${channel} · Thread ${thread_ts}` : channel,

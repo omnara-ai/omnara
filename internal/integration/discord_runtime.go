@@ -62,6 +62,7 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 			delete(active, integrationID)
 			r.Metrics.RecordClaims(len(active))
 		case <-timer.C:
+			scanDelay := 2 * time.Second
 			if len(active) < capacity {
 				scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				refs, err := r.Integrations.ListPersistentIntegrations(scanCtx, cursor, 100)
@@ -119,11 +120,13 @@ func (r *DiscordRuntime) Run(ctx context.Context) error {
 					}
 					if len(refs) < 100 {
 						cursor = uuid.Nil
+					} else if len(active) < capacity && scanCtx.Err() == nil {
+						scanDelay = 0
 					}
 				}
 				cancel()
 			}
-			timer.Reset(2 * time.Second)
+			timer.Reset(scanDelay)
 		}
 	}
 }
@@ -149,7 +152,12 @@ func (r *DiscordRuntime) run(
 		delay := discordReconnectDelay(runErr)
 		failure := discordRuntimeFailureMessage(runErr)
 		if failure != "" {
-			log.Warn("Discord connection stopped", "integration_id", integrationSetup.ID, "error", runErr)
+			attrs := []any{"integration_id", integrationSetup.ID, "error", runErr}
+			var gatewayError *discord.GatewayError
+			if errors.As(runErr, &gatewayError) && errors.Unwrap(gatewayError) != nil {
+				attrs = append(attrs, "cause", errors.Unwrap(gatewayError))
+			}
+			log.Warn("Discord connection stopped", attrs...)
 		}
 		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
 		defer releaseCancel()
@@ -242,16 +250,20 @@ func (r *DiscordRuntime) connect(
 	if err != nil {
 		return err
 	}
-	info, err := client.GetGatewayBot(ctx)
-	if err != nil {
-		return err
-	}
 	var checkpoint *discord.Checkpoint
 	if len(claim.Checkpoint) > 0 {
 		checkpoint = &discord.Checkpoint{}
 		if err := json.Unmarshal(claim.Checkpoint, checkpoint); err != nil {
 			return fmt.Errorf("invalid persisted Discord checkpoint: %w", err)
 		}
+	}
+	var gatewayURL string
+	if checkpoint == nil {
+		info, err := client.GetGatewayBot(ctx)
+		if err != nil {
+			return err
+		}
+		gatewayURL = info.URL
 	}
 	runner := r.runShard
 	if runner == nil {
@@ -263,7 +275,7 @@ func (r *DiscordRuntime) connect(
 			Credentials:   credentials,
 			ShardID:       0,
 			ShardCount:    1,
-			GatewayURL:    info.URL,
+			GatewayURL:    gatewayURL,
 			HTTPClient:    r.HTTPClient,
 			BeforeConnect: recheck,
 			BeforeIdentify: func(ctx context.Context) error {

@@ -23,38 +23,43 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 	agent, err := f.store.Execution().LaunchAgent(f.ctx, launch)
 	require.NoError(t, err)
 	original := f.subscriptions(t, agent.Agent.ID)[0]
-	slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:subscription")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
-	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
+	recipient := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:subscription")
+	recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	recipient.Subscription = &executionstore.InboxSubscriptionAuthority{
 		Alternatives: []integrationstore.ConversationAddress{{Kind: "channel", Ref: "C123"}},
 	}
-	receipt := freezeInboxInput(t, f, slot, "subscription-receipt", time.Minute)
+	receipt := freezeInboxInput(t, f, recipient, "subscription-receipt", time.Minute)
 	require.NoError(
 		t,
-		f.store.Execution().CheckInboxConversationAuthority(f.ctx, receipt.Lease(), "recipient", slot.Input.Origin.Address),
+		f.store.Execution().CheckInboxConversationAuthority(
+			f.ctx, receipt.Lease(), "recipient", recipient.Input.Origin.Address,
+		),
 	)
 	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(f.ctx, receipt.Lease(), "recipient",
 		integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:9.9"}), storeerr.ErrUnauthorized)
 	_, err = f.store.Execution().ChangeAgentConfig(f.ctx, f.changeInput(t, agent.Agent.ID, "unrelated edit", "unrelated"))
 	require.NoError(t, err)
-	result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+	result, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.True(t, result.Created)
-	slot.Input.IdempotencyKey = "message:revoked"
-	revoked := freezeInboxInput(t, f, slot, "revoked-receipt", time.Minute)
+	recipient.Input.IdempotencyKey = "message:revoked"
+	revoked := freezeInboxInput(t, f, recipient, "revoked-receipt", time.Minute)
 	f.detach(t, agent.Agent.ID)
 	require.ErrorIs(
 		t,
-		f.store.Execution().CheckInboxConversationAuthority(f.ctx, revoked.Lease(), "recipient", slot.Input.Origin.Address),
+		f.store.Execution().CheckInboxConversationAuthority(
+			f.ctx, revoked.Lease(), "recipient", recipient.Input.Origin.Address,
+		),
 		storeerr.ErrUnauthorized,
 	)
-	_, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, revoked.Lease(), "recipient", nil)
+	_, err = f.store.Execution().AdmitInboxInputRecipient(f.ctx, revoked.Lease(), "recipient", nil)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	pending, err := f.store.Integrations().GetIntegrationInbox(f.ctx, testProjectID, revoked.ID)
 	require.NoError(t, err)
 	outcomes, err := f.store.Execution().GetIntegrationInboxOutcomes(f.ctx, pending)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InboxSlotPending, outcomes["recipient"], "revocation leaves the frozen slot retryable")
+	require.Equal(t, executionstore.InboxRecipientPending, outcomes["recipient"],
+		"revocation leaves the frozen recipient retryable")
 	var count int
 	require.NoError(
 		t,
@@ -65,7 +70,7 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 		).Scan(&count),
 	)
 	require.Equal(t, 1, count)
-	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+	replayed, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.False(t, replayed.Created)
 	require.Equal(t, result.AgentInput.ID, replayed.AgentInput.ID)
@@ -76,7 +81,7 @@ func TestInboxSubscriptionRechecksRevocationAndPreservesReplay(t *testing.T) {
 		t,
 		f.store.Integrations().DeleteIntegrationSubscription(f.ctx, testOrgID, testProjectID, f.integration.ID, original.ID),
 	)
-	result, err = f.store.Execution().AdmitInboxInputSlot(f.ctx, revoked.Lease(), "recipient", nil)
+	result, err = f.store.Execution().AdmitInboxInputRecipient(f.ctx, revoked.Lease(), "recipient", nil)
 	require.NoError(t, err, "live address authorization does not pin the old subscription ID")
 	require.True(t, result.Created)
 }
@@ -101,14 +106,14 @@ func TestInboxSubscriptionAuthorityUsesLiveAddressAndIntegration(t *testing.T) {
 				IntegrationID: f.integration.ID, Conversation: json.RawMessage(`{"repository_id":123,"pull_request":42}`),
 			}
 			f.attach(t, agent.Agent.ID, attachment)
-			slot := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:keyed")
-			slot.Subscription = &executionstore.InboxSubscriptionAuthority{
+			recipient := inboxInputPlan(t, agent.Agent.ID, f.integration, "message:keyed")
+			recipient.Subscription = &executionstore.InboxSubscriptionAuthority{
 				Alternatives: []integrationstore.ConversationAddress{
 					{Kind: "pull_request", Ref: "123#41"},
-					slot.Input.Origin.Address,
+					recipient.Input.Origin.Address,
 				},
 			}
-			receipt := freezeInboxInput(t, f, slot, "keyed-subscription-receipt", time.Minute)
+			receipt := freezeInboxInput(t, f, recipient, "keyed-subscription-receipt", time.Minute)
 			switch scenario {
 			case "address", "other integration":
 				f.detach(t, agent.Agent.ID)
@@ -151,7 +156,7 @@ func TestInboxSubscriptionAuthorityUsesLiveAddressAndIntegration(t *testing.T) {
 			case "disconnected":
 				f.disable(t)
 			}
-			result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+			result, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 			if scenario == "matching alternative" || scenario == "config edit" {
 				require.NoError(t, err)
 				require.True(t, result.Created)
@@ -198,31 +203,31 @@ func TestSubagentExplicitSubscriptionReceivesAndArchiveCleansUp(t *testing.T) {
 	attachment := f.attachment()
 	attachment.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"1.2"}`)
 	f.attach(t, child.Agent.ID, attachment)
-	slot := inboxInputPlan(t, child.Agent.ID, f.integration, "message:child")
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
-	slot.Subscription = &executionstore.InboxSubscriptionAuthority{
-		Alternatives: []integrationstore.ConversationAddress{slot.Input.Origin.Address},
+	recipient := inboxInputPlan(t, child.Agent.ID, f.integration, "message:child")
+	recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}
+	recipient.Subscription = &executionstore.InboxSubscriptionAuthority{
+		Alternatives: []integrationstore.ConversationAddress{recipient.Input.Origin.Address},
 	}
-	receipt := freezeInboxInput(t, f, slot, "child-receipt", time.Minute)
-	received, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+	receipt := freezeInboxInput(t, f, recipient, "child-receipt", time.Minute)
+	received, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.True(t, received.Created)
 	require.Equal(t, child.Agent.ID, received.AgentInput.AgentID)
-	slot.Input.IdempotencyKey = "message:after-archive"
-	pending := freezeInboxInput(t, f, slot, "child-after-archive", time.Minute)
+	recipient.Input.IdempotencyKey = "message:after-archive"
+	pending := freezeInboxInput(t, f, recipient, "child-after-archive", time.Minute)
 	_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, child.Agent.ID, userPrincipal(f.user.ID))
 	require.NoError(t, err)
 	require.Empty(t, f.subscriptions(t, child.Agent.ID))
 	require.Len(t, f.subscriptions(t, parent.Agent.ID), 1, "child archival leaves its parent's attachment intact")
-	skipped, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient", nil)
+	skipped, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, pending.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.Equal(t, executionstore.InboxInputSkipAgentArchived, skipped.Skipped)
 	require.False(t, skipped.Created)
 	require.Equal(t, uuid.Nil, skipped.AgentInput.ID)
 	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, pending.Lease()))
-	replayed, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, pending.Lease(), "recipient", nil)
+	replayed, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, pending.Lease(), "recipient", nil)
 	require.NoError(t, err)
-	require.Equal(t, skipped, replayed, "an archived recipient durably settles the slot")
+	require.Equal(t, skipped, replayed, "an archived recipient durably settles the recipient")
 	_, err = f.store.Integrations().CreateIntegrationSubscription(
 		f.ctx,
 		integrationstore.CreateIntegrationSubscriptionInput{

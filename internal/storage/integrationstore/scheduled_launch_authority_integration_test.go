@@ -58,7 +58,7 @@ func acceptScheduledInbox(t *testing.T, f inboxFixture, launch integrationstore.
 	require.NoError(t, tx.Commit(f.ctx))
 }
 
-func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
+func TestScheduledLaunchClaimRequiresTrustedReceiptSource(t *testing.T) {
 	t.Parallel()
 	for _, configured := range []bool{false, true} {
 		t.Run(fmt.Sprintf("launcher_configured=%t", configured), func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 			plan, err := json.Marshal(map[string]any{
 				"message": message, "recipients": map[string]any{"scheduled": map[string]any{
 					"launch": launchFacts,
-					"selection": integrationstore.InboxIntegrationSelection{
+					"launch_claim": integrationstore.InboxLaunchClaim{
 						IntegrationID: f.integrationID, LaunchKey: "scheduled",
 						Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 					},
@@ -118,7 +118,7 @@ func TestScheduledSelectionRequiresTrustedReceiptSource(t *testing.T) {
 	}
 }
 
-func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
+func TestScheduledLaunchClaimRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{
 		"no scope", "different thread", "wrong parent", "multiple conversations", "empty plan",
@@ -129,39 +129,39 @@ func TestScheduledSelectionRequiresOneThreadWithinAcceptedParent(t *testing.T) {
 			acceptScheduledInbox(t, f, scheduledInboxSnapshot(t, f))
 			receipt := f.claim(t)
 			root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
-			selection := integrationstore.InboxIntegrationSelection{
+			claim := integrationstore.InboxLaunchClaim{
 				IntegrationID: f.integrationID, LaunchKey: "scheduled",
 				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
 			}
 			if scenario == "different thread" {
-				selection.Address.Ref = "C123:101.1"
+				claim.Address.Ref = "C123:101.1"
 			}
 			launchFacts, message := scheduledPlanFacts(t, f, scheduledInboxSnapshot(t, f), root)
-			slots := map[string]any{"scheduled": map[string]any{
-				"selection": selection,
-				"launch":    launchFacts,
+			recipients := map[string]any{"scheduled": map[string]any{
+				"launch_claim": claim,
+				"launch":       launchFacts,
 			}}
 			if scenario == "no scope" {
-				slots["scheduled"] = map[string]any{"selection": selection}
+				recipients["scheduled"] = map[string]any{"launch_claim": claim}
 				message = nil
 			}
 			if scenario == "wrong parent" {
 				root.Slack.ChannelID = "C999"
 				launchFacts, message = scheduledPlanFacts(t, f, scheduledInboxSnapshot(t, f), root)
-				selection.Address.Ref = "C999:100.1"
-				slots["scheduled"] = map[string]any{
-					"selection": selection,
-					"launch":    launchFacts,
+				claim.Address.Ref = "C999:100.1"
+				recipients["scheduled"] = map[string]any{
+					"launch_claim": claim,
+					"launch":       launchFacts,
 				}
 			}
 			if scenario == "empty plan" {
-				slots = map[string]any{}
+				recipients = map[string]any{}
 			}
 			if scenario == "multiple conversations" {
-				selection.Address.Ref = "C123:101.1"
-				slots["another"] = map[string]any{"selection": selection}
+				claim.Address.Ref = "C123:101.1"
+				recipients["another"] = map[string]any{"launch_claim": claim}
 			}
-			plan, err := json.Marshal(map[string]any{"message": message, "recipients": slots})
+			plan, err := json.Marshal(map[string]any{"message": message, "recipients": recipients})
 			require.NoError(t, err)
 			err = f.store.WithIntegrationInboxLease(
 				f.ctx,

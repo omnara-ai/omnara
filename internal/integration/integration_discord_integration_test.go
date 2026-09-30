@@ -26,6 +26,7 @@ import (
 func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *testing.T) {
 	for _, scenario := range []string{
 		"launch and reply", "reaction denied", "no launcher", "unsupported channel", "revoked before preparation",
+		"managed role launch and reply", "both mentions launch and reply",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
@@ -35,6 +36,13 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 			f, provider := newDiscordInboxFixture(t)
 			f.integrationSetup = integrationSetup
 			provider.integrations = store.Integrations()
+			if scenario == "managed role launch and reply" || scenario == "both mentions launch and reply" {
+				f.message.MentionRoles = []string{"700"}
+				if scenario == "managed role launch and reply" {
+					f.message.Mentions = nil
+					f.message.Content = "<@&700> help"
+				}
+			}
 			if scenario == "no launcher" {
 				f.message.Attachments = []discord.Attachment{{ID: "600", Size: 4, Filename: "unneeded.txt"}}
 			}
@@ -191,6 +199,7 @@ func TestIntegrationDiscordConsumerPreparesOnlyAuthorizedFrozenConversation(t *t
 			require.Equal(t, 1, f.posts)
 			f.override = nil
 			reply := f.message
+			reply.MentionRoles = nil
 			reply.ID, reply.ChannelID, reply.Content, reply.Mentions = "501", "500", "continue", nil
 			accept("reply", reply)
 			worked, err = worker.RunOnce(ctx)
@@ -277,7 +286,12 @@ func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) 
 			f.channels["500"] = discord.Channel{ID: "500", GuildID: "100", ParentID: "300", Type: 11}
 			router := NewIntegrationRouter(store.Execution(), store.Integrations())
 			consumer := NewIntegrationInboxConsumer(router, store.Integrations(), nil,
-				map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router))
+				map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router),
+				WithIntegrationStateHandlers(map[integrationdefinition.Kind]IntegrationStateHandler{
+					integrationdefinition.DiscordThread: NewChatIntegrationLauncher(
+						store.Integrations(), store.Execution(), nil,
+					).HandleState,
+				}))
 			capture := func(message discord.Message) integrationstore.IntegrationInboxRecord {
 				t.Helper()
 				_, _, err := store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
@@ -295,7 +309,7 @@ func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) 
 				return receipt
 			}
 			root := capture(f.message)
-			event, ok, err := NormalizeDiscordIntegrationEvent(integration, root.Payload, f.channels["300"])
+			event, ok, err := normalizeDiscordIntegrationEvent(integration, root.Payload, f.channels["300"])
 			require.NoError(t, err)
 			require.True(t, ok)
 			launchReceipt := root
@@ -332,7 +346,7 @@ func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) 
 				)
 				require.NoError(t, err)
 				require.True(t, found)
-				require.Equal(t, integrationstore.IntegrationInboxSourceChoice, launchReceipt.Source)
+				require.Equal(t, integrationstore.IntegrationInboxSourceState, launchReceipt.Source)
 				require.Empty(t, launchReceipt.Plan, "exercise the accepted-menu handoff before any launch plan exists")
 			} else {
 				plan, err := freezeTestIntegrationEvent(ctx, router, root.Lease(), &event)
@@ -343,7 +357,7 @@ func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) 
 			reply.ID, reply.ChannelID, reply.Mentions, reply.Content = "501", "500", nil, "continue"
 			receipt := capture(reply)
 			_, err = consumer.Consume(ctx, receipt.Lease())
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 			require.Empty(t, f.requests, "pending reservation is checked before provider I/O")
 			latest, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 			require.NoError(t, err)
@@ -396,7 +410,12 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 			}
 			router := NewIntegrationRouter(store.Execution(), store.Integrations())
 			consumer := NewIntegrationInboxConsumer(router, store.Integrations(), nil,
-				map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router))
+				map[string]IntegrationInboxProvider{"discord": provider}, nil, testIntegrationLaunchWorkflow(router),
+				WithIntegrationStateHandlers(map[integrationdefinition.Kind]IntegrationStateHandler{
+					integrationdefinition.DiscordThread: NewChatIntegrationLauncher(
+						store.Integrations(), store.Execution(), nil,
+					).HandleState,
+				}))
 			capture := func(key string, message discord.Message) integrationstore.IntegrationInboxRecord {
 				t.Helper()
 				_, _, err := store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{

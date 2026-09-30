@@ -127,6 +127,44 @@ func (q *Queries) ListActorDisplayNames(ctx context.Context, arg ListActorDispla
 	return items, nil
 }
 
+const listActorIdentitiesByIDs = `-- name: ListActorIdentitiesByIDs :many
+SELECT id, provider, provider_user_id
+FROM actors
+WHERE project_id = $1
+  AND id = ANY($2::uuid[])
+`
+
+type ListActorIdentitiesByIDsParams struct {
+	ProjectID uuid.UUID
+	Ids       []uuid.UUID
+}
+
+type ListActorIdentitiesByIDsRow struct {
+	ID             uuid.UUID
+	Provider       string
+	ProviderUserID string
+}
+
+func (q *Queries) ListActorIdentitiesByIDs(ctx context.Context, arg ListActorIdentitiesByIDsParams) ([]ListActorIdentitiesByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listActorIdentitiesByIDs, arg.ProjectID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActorIdentitiesByIDsRow{}
+	for rows.Next() {
+		var i ListActorIdentitiesByIDsRow
+		if err := rows.Scan(&i.ID, &i.Provider, &i.ProviderUserID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActors = `-- name: ListActors :many
 SELECT id, project_id, provider, provider_tenant_id, provider_user_id, display_name, metadata, created_at, updated_at
 FROM actors

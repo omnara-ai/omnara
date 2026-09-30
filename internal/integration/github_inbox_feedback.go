@@ -125,6 +125,8 @@ func (p GitHubIntegrationInboxProvider) requestAccess(ctx context.Context,
 	config.Credentials = github.Credentials{AppID: appID,
 		PrivateKeyPEM: credential.Payload[secrets.KeyPrivateKey], WebhookSecret: credential.Payload[secrets.KeyWebhookSecret]}
 	config.InstallationID = installationID
+	config.CredentialSecretID = integration.CredentialSecretID
+	config.CredentialVersionID = credential.CurrentVersionID
 	config.BeforeRequest = func(ctx context.Context) error {
 		access, err := p.secrets.GetProjectAvailableSecret(
 			ctx,

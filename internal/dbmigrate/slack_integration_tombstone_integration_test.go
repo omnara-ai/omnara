@@ -180,10 +180,10 @@ func TestSlackIntegrationCutoverTombstoneNamesAndCredentials(t *testing.T) {
 				assertSlackCutoverConversationState(t, db, ids.ProjectID, agentID, liveID,
 					integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:111.222"})
 			}
-			var slot sql.NullString
+			var launchKey sql.NullString
 			require.NoError(t, db.QueryRowContext(ctx,
-				`SELECT launch_key FROM integration_targets WHERE id=$1`, targetID).Scan(&slot))
-			require.False(t, slot.Valid)
+				`SELECT launch_key FROM integration_targets WHERE id=$1`, targetID).Scan(&launchKey))
+			require.False(t, launchKey.Valid)
 			if scenario.sourceFormat != "" {
 				assertSlackTombstoneSourceResave(
 					t,

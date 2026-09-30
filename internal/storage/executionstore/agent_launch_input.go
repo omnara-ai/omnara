@@ -19,16 +19,10 @@ type LaunchInitialInput struct {
 	ContentBlocks          json.RawMessage        `json:"content_blocks"`
 	Metadata               json.RawMessage        `json:"metadata,omitempty"`
 	Actor                  *ActorParams           `json:"actor,omitempty"`
-	Origin                 *LaunchInputOrigin     `json:"origin,omitempty"`
+	Origin                 *AgentInputOrigin      `json:"origin,omitempty"`
 	DeliveryMode           AgentInputDeliveryMode `json:"delivery_mode,omitempty"`
 	CancelOpenInteractions bool                   `json:"cancel_open_interactions,omitempty"`
 	SemanticEventKey       string                 `json:"semantic_event_key,omitempty"`
-}
-
-type LaunchInputOrigin struct {
-	IntegrationID uuid.UUID                            `json:"integration_id"`
-	Address       integrationstore.ConversationAddress `json:"address"`
-	DisplayName   string                               `json:"display_name,omitempty"`
 }
 
 type launchAdmission struct {

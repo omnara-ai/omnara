@@ -104,7 +104,7 @@ without that context; their arguments cannot choose another destination. Integra
 also define standalone tools that use their credentials without a conversation.
 Shipped interaction handlers use the assigned conversation and accept empty arguments.
 Incoming subscriptions belong to the integration and are attached via
-launch requests or the integration subscriptions API; configs have no `listeners` block.
+launch requests or the integration subscriptions API.
 `integrations get` and `integrations definitions` show optional
 `capabilities.subscription.conversation_schema`. Attachments specify the integration
 and conversation; the integration determines which activity is forwarded. Tools and

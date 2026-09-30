@@ -126,7 +126,7 @@ func (s *Server) githubManifestWebhookURL() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return origin.url + GitHubSharedEventsPath, nil
+	return origin.url + GitHubEventsPath, nil
 }
 
 func (s *Server) validateGitHubGuidedSetup() error {

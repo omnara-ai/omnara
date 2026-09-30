@@ -19,7 +19,7 @@ type IntegrationProfileChoiceExecution interface {
 	integrationLaunchProfileReader
 	GetIntegrationInboxOutcomes(
 		context.Context, integrationstore.IntegrationInboxRecord,
-	) (map[string]executionstore.InboxSlotOutcome, error)
+	) (map[string]executionstore.InboxRecipientOutcome, error)
 }
 
 type IntegrationProfileChoiceProvider interface {
@@ -123,7 +123,7 @@ func (l *ChatIntegrationLauncher) decideProfiles(
 			Event: raw, Payload: input.Receipt.Payload, Options: options,
 			HasAttachments: len(source.Files) != 0 || (source.Sibling != nil && source.Sibling.AttachmentNotice != ""),
 		})
-	if errors.Is(err, integrationstore.ErrIntegrationSelectionSettled) {
+	if errors.Is(err, integrationstore.ErrIntegrationLaunchSettled) {
 		return nil, nil
 	}
 	if err != nil {
@@ -199,14 +199,14 @@ func (l *ChatIntegrationLauncher) selectedChoiceIntent(
 			return nil, err
 		}
 		for key := range plan.Recipients {
-			if outcomes[key] == executionstore.InboxSlotDelivered {
+			if outcomes[key] == executionstore.InboxRecipientDelivered {
 				return choiceIntent(choice), nil
 			}
 		}
 	}
 	if receipt.State == integrationstore.IntegrationInboxQueued ||
 		receipt.State == integrationstore.IntegrationInboxProcessing {
-		return nil, &integrationstore.IntegrationSelectionReservationError{ReceiptID: receipt.ID, State: receipt.State}
+		return nil, &integrationstore.IntegrationLaunchClaimError{ReceiptID: receipt.ID, State: receipt.State}
 	}
 	return nil, nil
 }

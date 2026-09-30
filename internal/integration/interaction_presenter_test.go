@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +24,45 @@ import (
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
 )
+
+func TestInteractionDismissalPreservesPromptAndStatus(t *testing.T) {
+	form := interactionform.Form{
+		Title:   "Question",
+		Context: []interactionform.ContextItem{{Label: "Repository", Value: "owner/repo"}},
+		Questions: []interactionform.Question{{
+			Prompt: "Deploy?", Options: []interactionform.Option{{Label: "Yes"}, {Label: "No"}},
+		}},
+	}
+	raw, err := json.Marshal(form)
+	require.NoError(t, err)
+	record := executionstore.AgentInteractionRecord{InteractionKind: executionstore.AgentInteractionKindQuestion,
+		State: executionstore.AgentInteractionStateCanceled, Request: raw, ResolvedByInputID: uuid.New()}
+	for _, limit := range []int{2000, 3000} {
+		text := interactionClosedText(record, limit)
+		for _, want := range []string{
+			"Question", "Repository: owner/repo", "Deploy?", "Yes", "No", "Dismissed because a newer message was sent.",
+		} {
+			require.Contains(t, text, want)
+		}
+	}
+	record.ResolvedByInputID = uuid.Nil
+	require.True(t, strings.HasSuffix(interactionClosedText(record, 2000), "Dismissed."))
+	record.State = executionstore.AgentInteractionStateResolved
+	require.Equal(t,
+		"Question\nRepository: owner/repo\nDeploy?\n• Yes\n• No\n\nAnswers recorded.",
+		interactionClosedText(record, 2000),
+	)
+	record.State = executionstore.AgentInteractionStateCanceled
+	form.Questions[0].Prompt = strings.Repeat("界", 4000)
+	record.Request, err = json.Marshal(form)
+	require.NoError(t, err)
+	for _, limit := range []int{2000, 3000} {
+		text := interactionClosedText(record, limit)
+		require.True(t, utf8.ValidString(text))
+		require.Equal(t, limit, utf8.RuneCountInString(text))
+		require.True(t, strings.HasSuffix(text, "Dismissed."))
+	}
+}
 
 func TestInteractionPromptTextDependsOnKind(t *testing.T) {
 	t.Parallel()

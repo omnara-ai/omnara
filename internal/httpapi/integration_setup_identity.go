@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 )
 
-func integrationSetupInputError(err error) error {
+func integrationSetupInputError(ctx context.Context, err error) error {
 	var discordErr *discord.APIError
 	if errors.As(err, &discordErr) {
 		switch discordErr.Code {
@@ -23,6 +24,7 @@ func integrationSetupInputError(err error) error {
 			return apierror.FromCode(openapi.ErrorCodeRateLimited,
 				"Discord integration setup is rate limited; retry later")
 		default:
+			logIntegrationCredentialError(ctx, "verify Discord integration identity", err)
 			return apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
 				"Discord identity verification is unavailable; retry later")
 		}
@@ -43,6 +45,7 @@ func integrationSetupInputError(err error) error {
 		return apierror.FromCode(openapi.ErrorCodeRateLimited,
 			"GitHub integration setup is rate limited; retry later")
 	default:
+		logIntegrationCredentialError(ctx, "verify GitHub integration identity", err)
 		return apierror.FromCode(openapi.ErrorCodeServiceUnavailable,
 			"GitHub identity verification is unavailable; retry later")
 	}

@@ -90,7 +90,7 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
-	slots, err := inboxSlots(plan)
+	recipients, err := inboxRecipients(plan)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 		}
 		return nil
 	}
-	if err := w.reserveIntegrationSelections(ctx, plan, slots); err != nil {
+	if err := w.reserveIntegrationLaunchClaims(ctx, plan, recipients); err != nil {
 		return err
 	}
 	rows, err := w.q.FreezeIntegrationInboxPlan(ctx, dbsqlc.FreezeIntegrationInboxPlanParams{
@@ -120,7 +120,7 @@ func (w *IntegrationInboxLeaseTx) Complete(ctx context.Context) error {
 	if err := w.CheckLease(ctx); err != nil {
 		return err
 	}
-	if _, err := inboxSlots(w.record.Plan); err != nil {
+	if _, err := inboxRecipients(w.record.Plan); err != nil {
 		return err
 	}
 	rows, err := w.q.CompleteIntegrationInboxReceipt(ctx, dbsqlc.CompleteIntegrationInboxReceiptParams{
@@ -219,29 +219,29 @@ func inboxObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	return value, nil
 }
 
-func inboxSlots(raw json.RawMessage) (map[string]json.RawMessage, error) {
+func inboxRecipients(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	plan, err := inboxObject(raw)
 	if err != nil {
 		return nil, err
 	}
-	slots, err := inboxObject(plan["recipients"])
+	recipients, err := inboxObject(plan["recipients"])
 	if err != nil {
 		return nil, err
 	}
-	if len(slots) != 0 {
+	if len(recipients) != 0 {
 		if _, err := inboxObject(plan["message"]); err != nil {
 			return nil, err
 		}
 	}
-	for slot, value := range slots {
-		if strings.TrimSpace(slot) == "" || len(slot) > IntegrationInboxMaxReceiptKeyBytes {
-			return nil, inboxInvalid("invalid inbox slot key")
+	for recipient, value := range recipients {
+		if strings.TrimSpace(recipient) == "" || len(recipient) > IntegrationInboxMaxReceiptKeyBytes {
+			return nil, inboxInvalid("invalid inbox recipient key")
 		}
 		if _, err := inboxObject(value); err != nil {
 			return nil, err
 		}
 	}
-	return slots, nil
+	return recipients, nil
 }
 
 func boundedInboxError(reason string) string {

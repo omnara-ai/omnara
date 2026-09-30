@@ -108,6 +108,11 @@ beforeEach(() => {
   cache = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
   })
+  cache.setQueryDefaults(['web-config'], { enabled: false })
+  cache.setQueryData(['web-config'], {
+    apiURL: 'https://omnara.test/api/v1',
+    publicURL: 'https://omnara.test',
+  })
 })
 afterEach(() => {
   act(() => {

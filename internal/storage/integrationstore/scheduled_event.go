@@ -118,8 +118,8 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(
 			ContentBlocks json.RawMessage             `json:"content_blocks"`
 		} `json:"message"`
 		Recipients map[string]struct {
-			Selection *InboxIntegrationSelection `json:"selection"`
-			Launch    *struct {
+			LaunchClaim *InboxLaunchClaim `json:"launch_claim"`
+			Launch      *struct {
 				ProfileID uuid.UUID `json:"profile_id"`
 			} `json:"launch"`
 		} `json:"recipients"`
@@ -130,26 +130,26 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(
 	facts := integrationdefinition.SchedulePlan{
 		IntegrationName: integration.Name, Occurrence: event.Occurrence, Settings: event.Settings,
 	}
-	for key, slot := range frozen.Recipients {
-		fact := integrationdefinition.ScheduleSlot{Key: key, Scope: frozen.Message.Scope}
-		if slot.Launch != nil {
-			if slot.Selection == nil {
-				return inboxInvalid("scheduled launch requires a selection")
+	for key, recipient := range frozen.Recipients {
+		fact := integrationdefinition.ScheduleLaunch{Key: key, Scope: frozen.Message.Scope}
+		if recipient.Launch != nil {
+			if recipient.LaunchClaim == nil {
+				return inboxInvalid("scheduled launch requires a launch claim")
 			}
-			fact.ProfileID = slot.Launch.ProfileID
+			fact.ProfileID = recipient.Launch.ProfileID
 			fact.Content = frozen.Message.ContentBlocks
 		}
-		if slot.Selection != nil {
+		if recipient.LaunchClaim != nil {
 			kind, ref, err := frozen.Message.Scope.Conversation()
 			if err != nil {
 				return storeerr.InvalidRequest(err)
 			}
-			if slot.Selection.IntegrationID != r.IntegrationID || slot.Selection.LaunchKey != key ||
-				slot.Selection.Address != (ConversationAddress{Kind: kind, Ref: ref}) {
+			if recipient.LaunchClaim.IntegrationID != r.IntegrationID || recipient.LaunchClaim.LaunchKey != key ||
+				recipient.LaunchClaim.Address != (ConversationAddress{Kind: kind, Ref: ref}) {
 				return storeerr.ErrUnauthorized
 			}
 		}
-		facts.Slots = append(facts.Slots, fact)
+		facts.Launches = append(facts.Launches, fact)
 	}
 	if err := integrationdefinition.ValidateSchedulePlan(integration.IntegrationKind, facts); err != nil {
 		return storeerr.InvalidRequest(err)

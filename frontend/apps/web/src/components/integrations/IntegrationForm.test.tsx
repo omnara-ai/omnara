@@ -42,6 +42,11 @@ afterEach(() => {
 })
 function render(api: FakeApi, node: ReactNode) {
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1', fetch: api.fetch })
+  cache.setQueryDefaults(['web-config'], { staleTime: Infinity })
+  cache.setQueryData(['web-config'], {
+    apiURL: 'https://omnara.test/api/v1',
+    publicURL: 'https://omnara.test',
+  })
   const rerender = (next: ReactNode) => {
     act(() => {
       root.render(
@@ -326,7 +331,7 @@ it.each([
   },
 )
 
-it('keeps the displayed GitHub application and endpoint aligned when another tab connects the integration', async () => {
+it('updates the GitHub application while keeping the shared endpoint when another tab connects', async () => {
   const integration = integrationFixture({ integration_kind: 'github_pr' })
   const props = { orgId, projectId, integrationKind: 'github_pr' as const, onSaved: vi.fn() }
   const { rerender } = render(
@@ -334,10 +339,10 @@ it('keeps the displayed GitHub application and endpoint aligned when another tab
     <IntegrationSetup {...props} integration={integration} />,
   )
   const value = (id: string) => container.querySelector<HTMLInputElement>(`#${id}`)?.value
-  expect(value('provider-endpoint')).toBe('')
-  expect(button('Copy').disabled).toBe(true)
+  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/events')
+  expect(button('Copy').disabled).toBe(false)
   await enter('GitHub App ID', '111')
-  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/111/events')
+  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/events')
   expect(button('Copy').disabled).toBe(false)
   rerender(
     <IntegrationSetup
@@ -351,7 +356,7 @@ it('keeps the displayed GitHub application and endpoint aligned when another tab
     />,
   )
   expect(value('provider-tenant')).toBe('333')
-  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/333/events')
+  expect(value('provider-endpoint')).toBe('https://omnara.test/api/integrations/github/events')
 })
 
 it('blocks a stale edit until explicitly reloaded', async () => {

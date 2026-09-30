@@ -278,38 +278,14 @@ func TestIntegrationHTTPDiscordLaunchesAcrossServers(t *testing.T) {
 	integration = requestJSONWithHeaders(t, handler, http.MethodPut, integrationPath,
 		integrationHTTPJSON(t, map[string]any{"settings": body["settings"]}),
 		"", http.StatusOK, authHeaders(project.AdminToken))
-	savedLauncher := testutil.RequireType[map[string]any](t,
-		testutil.RequireType[map[string]any](t, integration["settings"])["launcher"])
-	require.NotContains(t, savedLauncher, "scope_kind")
-	require.NotContains(t, savedLauncher, "scope_ref")
-	for _, scope := range []map[string]any{
-		{"scope_kind": "guild", "scope_ref": "123"},
-		{"scope_kind": "channel", "scope_ref": "456"},
-		{"scope_kind": "thread", "scope_ref": "456:789"},
-		{"scope_kind": "guild"}, {"scope_ref": "123"}, {"scope_kind": " "},
-		{"scope_kind": ""}, {"scope_ref": ""},
-	} {
-		delete(launcher, "scope_kind")
-		delete(launcher, "scope_ref")
-		for key, value := range scope {
-			launcher[key] = value
-		}
-		for _, request := range []struct{ method, path string }{
-			{http.MethodPost, project.ProjectPath + "/integrations"}, {http.MethodPut, integrationPath},
-		} {
-			requestBody := body
-			if request.method == http.MethodPut {
-				requestBody = map[string]any{"settings": body["settings"]}
-			}
-			requestJSONWithHeaders(t, handler, request.method, request.path,
-				integrationHTTPJSON(t, requestBody), "", http.StatusBadRequest, authHeaders(project.AdminToken))
-		}
-	}
+	launcher["unexpected"] = true
+	requestJSONWithHeaders(t, handler, http.MethodPut, integrationPath,
+		integrationHTTPJSON(t, map[string]any{"settings": body["settings"]}),
+		"", http.StatusBadRequest, authHeaders(project.AdminToken))
+	delete(launcher, "unexpected")
 	stored := requestJSONWithHeaders(t, handler, http.MethodGet, integrationPath,
 		"", "", http.StatusOK, authHeaders(project.AdminToken))
 	require.Equal(t, integration["settings"], stored["settings"])
-	delete(launcher, "scope_kind")
-	delete(launcher, "scope_ref")
 	body["integration_kind"] = "github_pr"
 	requestJSONWithHeaders(t, handler, http.MethodPost, project.ProjectPath+"/integrations",
 		integrationHTTPJSON(t, body), "", http.StatusBadRequest, authHeaders(project.AdminToken))

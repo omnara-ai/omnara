@@ -70,7 +70,7 @@ func bindInboxQueryFile(t *testing.T, file, name string, parameters map[string]a
 }
 
 //nolint:tparallel // Subtests mutate one shared fixture and compare each successive query plan.
-func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(t *testing.T) {
+func TestInboxLaunchClaimAccessPathIgnoresHistoryAndOtherConversations(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	integration := f.integrationID
@@ -80,8 +80,8 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
  CASE WHEN n<=8000 THEN 'completed' WHEN n<=16000 THEN 'failed' WHEN n<=24000 THEN 'queued'
       WHEN n<=28000 THEN 'processing' ELSE 'failed' END,
  CASE WHEN n>8000 AND n<=16000 THEN NULL ELSE
-   jsonb_build_object('recipients',jsonb_build_object('a',jsonb_build_object('selection',jsonb_build_object(
-     'integration_id',$3::text,'slot','a',
+   jsonb_build_object('recipients',jsonb_build_object('a',jsonb_build_object('launch_claim',jsonb_build_object(
+     'integration_id',$3::text,'launch_key','a',
      'address',jsonb_build_object('kind','thread','ref',
        CASE WHEN n<=8000 THEN 'C123:123.456' ELSE 'C123:'||n||'.456' END))))) END,
  CASE WHEN n>24000 AND n<=28000 THEN uuidv7() ELSE NULL END,
@@ -93,15 +93,15 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 		"integration_id": integration,
 		"address":        map[string]any{"kind": "thread", "ref": "C123:123.456"},
 	}
-	selection, err := json.Marshal(identity)
+	claim, err := json.Marshal(identity)
 	require.NoError(t, err)
 	own := uuid.New()
 	parameters := map[string]any{
-		"project_id": f.project, "integration_id": f.integrationID, "receipt_id": own, "selection": selection,
+		"project_id": f.project, "integration_id": f.integrationID, "receipt_id": own, "launch_claim": claim,
 	}
 	assertLookup := func(t *testing.T, wantID uuid.UUID, wantState string, maxInspected float64) {
 		t.Helper()
-		query, args := bindInboxQueryFile(t, "integration_selections.sql", "FindInboxSelectionReservations", parameters)
+		query, args := bindInboxQueryFile(t, "integration_launch_claims.sql", "FindInboxLaunchClaims", parameters)
 		rows, err := f.pool.Query(f.ctx, query, args...)
 		require.NoError(t, err)
 		defer rows.Close()
@@ -118,13 +118,13 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 		require.False(t, rows.Next(), "unexpected or duplicated reservation owner")
 		require.NoError(t, rows.Err())
 		rows.Close()
-		plan := explainInboxQueryFile(t, f, "integration_selections.sql", "FindInboxSelectionReservations", parameters)
+		plan := explainInboxQueryFile(t, f, "integration_launch_claims.sql", "FindInboxLaunchClaims", parameters)
 		require.Equal(t, wantRows, plan.Rows, "reservation lookup result count")
 		assertInboxRowsInspected(t, plan, maxInspected)
 		var ginUsed bool
 		var walk func(inboxQueryPlan)
 		walk = func(node inboxQueryPlan) {
-			if node.Index == "integration_inbox_selection_idx" && node.Loops > 0 {
+			if node.Index == "integration_inbox_launch_claim_idx" && node.Loops > 0 {
 				ginUsed = true
 				require.LessOrEqual(
 					t,
@@ -145,20 +145,20 @@ func TestInboxSelectionReservationAccessPathIgnoresHistoryAndOtherConversations(
 		t.Run(state, func(t *testing.T) {
 			// Separate addresses avoid counting dead GIN entries retained until vacuum.
 			identity["address"] = map[string]any{"kind": "thread", "ref": "C123:123." + strconv.Itoa(456+i)}
-			selection, err := json.Marshal(identity)
+			claim, err := json.Marshal(identity)
 			require.NoError(t, err)
 			own, match := uuid.New(), uuid.New()
-			parameters["receipt_id"], parameters["selection"] = own, selection
+			parameters["receipt_id"], parameters["launch_claim"] = own, claim
 			f.exec(t, `INSERT INTO integration_inbox
  (id,project_id,integration_id,receipt_key,payload,plan,state,claim_token,claim_expires_at,completed_at)
  SELECT id,$1,$2,'matching:'||id,'x'::bytea,
    jsonb_build_object('recipients',jsonb_build_object(
-                      'a',jsonb_build_object('selection',$5::jsonb||'{"launch_key":"a"}'::jsonb),
-                      'b',jsonb_build_object('selection',$5::jsonb||'{"launch_key":"b"}'::jsonb))), $6::text,
+                      'a',jsonb_build_object('launch_claim',$5::jsonb||'{"launch_key":"a"}'::jsonb),
+                      'b',jsonb_build_object('launch_claim',$5::jsonb||'{"launch_key":"b"}'::jsonb))), $6::text,
    CASE WHEN $6::text='processing' THEN uuidv7() ELSE NULL END,
    CASE WHEN $6::text='processing' THEN now()+interval '1 minute' ELSE NULL END,
    CASE WHEN $6::text='failed' THEN now() ELSE NULL END
- FROM unnest(ARRAY[$3::uuid,$4::uuid]) id`, f.project, f.integrationID, own, match, selection, state)
+ FROM unnest(ARRAY[$3::uuid,$4::uuid]) id`, f.project, f.integrationID, own, match, claim, state)
 			if state == "failed" {
 				assertLookup(t, uuid.Nil, "", 0)
 			} else {

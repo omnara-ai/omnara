@@ -86,9 +86,10 @@ func githubHTTPWebhook(
 	t *testing.T, handler http.Handler, eventType, deliveryID, secret, raw string, want int,
 ) {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodPost, "/api/integrations/github/123/events", strings.NewReader(raw))
+	r := httptest.NewRequest(http.MethodPost, GitHubEventsPath, strings.NewReader(raw))
 	r = r.WithContext(t.Context())
 	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
 	r.Header.Set(github.EventHeader, eventType)
 	r.Header.Set(github.DeliveryHeader, deliveryID)
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -99,7 +100,7 @@ func githubHTTPWebhook(
 	require.Equal(t, want, w.Code, w.Body.String())
 }
 
-func (f githubHTTPJourney) consume(t *testing.T, raw string) []integrationruntime.IntegrationSlotAdmission {
+func (f githubHTTPJourney) consume(t *testing.T, raw string) []integrationruntime.IntegrationRecipientAdmission {
 	t.Helper()
 	inbox := f.project.Store.Integrations()
 	receipt, found, err := inbox.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
@@ -463,7 +464,7 @@ func TestGitHubHTTPSharedAppCredentialsAndInstallationIsolation(t *testing.T) {
 	githubHTTPWebhook(t, f.handler, "ping", "unavailable-ping", githubJourneyWebhookSecret, ping, http.StatusUnauthorized)
 }
 
-func TestGitHubSharedAndLegacyRoutesDeduplicateSameIntegrationFanout(t *testing.T) {
+func TestGitHubRepeatedDeliveryDeduplicatesIndependentIntegrationFanout(t *testing.T) {
 	t.Parallel()
 	f := newGitHubHTTPJourney(t, "github-shared-events")
 	second := createSetupHTTPIntegration(t, f.handler, f.project, "second-github-app", integrationdefinition.GitHubPR)
@@ -473,11 +474,11 @@ func TestGitHubSharedAndLegacyRoutesDeduplicateSameIntegrationFanout(t *testing.
 	requestJSONWithHeaders(t, f.handler, http.MethodPost, integrationSetupPath(t, f.project, second),
 		integrationHTTPJSON(t, body), "", http.StatusOK, authHeaders(f.project.AdminToken))
 	raw := githubHTTPComment(t, 42, 3001, "@helper please review")
-	for _, path := range []string{GitHubSharedEventsPath, "/api/integrations/github/123/events", GitHubSharedEventsPath} {
-		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(raw))
+	for range 3 {
+		r := httptest.NewRequest(http.MethodPost, GitHubEventsPath, strings.NewReader(raw))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set(github.EventHeader, "issue_comment")
-		r.Header.Set(github.DeliveryHeader, "cross-route-delivery")
+		r.Header.Set(github.DeliveryHeader, "repeated-delivery")
 		r.Header.Set("X-Github-Hook-Installation-Target-Id", "123")
 		mac := hmac.New(sha256.New, []byte(githubJourneyWebhookSecret))
 		_, _ = mac.Write([]byte(raw))
@@ -488,7 +489,7 @@ func TestGitHubSharedAndLegacyRoutesDeduplicateSameIntegrationFanout(t *testing.
 	var receipts int
 	require.NoError(t, integrationPoolForHandler(t, f.handler).QueryRow(t.Context(),
 		`SELECT count(*) FROM integration_inbox
-		 WHERE project_id=$1 AND receipt_key='github:issue_comment:cross-route-delivery'`,
+		 WHERE project_id=$1 AND receipt_key='github:issue_comment:repeated-delivery'`,
 		f.project.ProjectUUID).Scan(&receipts))
-	require.Equal(t, 2, receipts, "each saved integration gets one receipt independently of callback route")
+	require.Equal(t, 2, receipts, "each saved integration gets one receipt across repeated deliveries")
 }

@@ -239,15 +239,18 @@ func TestWebConfigRoute(t *testing.T) {
 		opts           []Option
 		wantBillingURL string
 		wantAPIURL     string
+		wantPublicURL  string
 	}{
 		{
 			name: "public config set",
 			opts: []Option{
 				WithBillingURL("https://billing.omnara.test/credits/"),
 				WithPublicAPIURL("https://api.omnara.test/v1/"),
+				WithPublicURL("https://dashboard.omnara.test/"),
 			},
 			wantBillingURL: "https://billing.omnara.test/credits",
 			wantAPIURL:     "https://api.omnara.test/v1",
+			wantPublicURL:  "https://dashboard.omnara.test",
 		},
 		{name: "unset values omitted"},
 	}
@@ -255,7 +258,11 @@ func TestWebConfigRoute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := mustNewUnitServer(t, tt.opts...)
 			rec := httptest.NewRecorder()
-			server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, webConfigPath, nil))
+			target := webConfigPath
+			if tt.wantPublicURL != "" {
+				target = tt.wantPublicURL + webConfigPath
+			}
+			server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 			if rec.Code != http.StatusOK {
 				t.Fatalf("web config status = %d, want %d", rec.Code, http.StatusOK)
 			}
@@ -266,6 +273,7 @@ func TestWebConfigRoute(t *testing.T) {
 			for key, want := range map[string]string{
 				"billing_url": tt.wantBillingURL,
 				"api_url":     tt.wantAPIURL,
+				"public_url":  tt.wantPublicURL,
 			} {
 				got, ok := body[key]
 				if want == "" {

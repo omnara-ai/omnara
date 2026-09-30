@@ -15,7 +15,7 @@ func TestGitHubSetupUnsupportedAccountIsNonRetryable(t *testing.T) {
 	t.Parallel()
 	providerErr := fmt.Errorf("inspect GitHub installations: %w", &github.APIError{Code: github.UnsupportedAccount})
 	var response apierror.ResponseError
-	require.ErrorAs(t, integrationSetupInputError(providerErr), &response)
+	require.ErrorAs(t, integrationSetupInputError(t.Context(), providerErr), &response)
 	require.Equal(t, http.StatusBadRequest, response.Status)
 	require.Equal(t, openapi.ErrorCodeInvalidRequest, response.Code)
 	require.Contains(t, response.Message, "Guided GitHub setup supports user or organization Apps and installations")

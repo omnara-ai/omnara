@@ -21,6 +21,8 @@ beforeEach(() => {
   document.body.append(container)
   root = createRoot(container)
   cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  cache.setQueryDefaults(['web-config'], { staleTime: Infinity })
+  cache.setQueryData(['web-config'], { publicURL: 'https://omnara.test' })
 })
 afterEach(() => {
   act(() => {

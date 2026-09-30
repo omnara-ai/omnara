@@ -674,18 +674,18 @@ func TestIntegrationCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *test
 				Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 			}}
 			definition = f.encodedDefinition(t, compiled)
-			slot := f.slots["a"]
-			slot.AgentID = uuid.Must(uuid.NewV7())
-			slot.Selection.Address.Ref = "C123:789.012"
-			slot.InitialInput.Origin.Address = slot.Selection.Address
-			slot.InitialInput.SemanticEventKey = "message:789.012"
-			slot.Launch.IdempotencyKey = "unavailable-secondary"
+			recipient := f.recipients["a"]
+			recipient.AgentID = uuid.Must(uuid.NewV7())
+			recipient.LaunchClaim.Address.Ref = "C123:789.012"
+			recipient.InitialInput.Origin.Address = recipient.LaunchClaim.Address
+			recipient.InitialInput.SemanticEventKey = "message:789.012"
+			recipient.Launch.IdempotencyKey = "unavailable-secondary"
 			saved, err := f.store.Execution().CreateAgentConfig(f.ctx, definition)
 			require.NoError(t, err)
-			slot.Launch.AgentConfigID = saved.ID
+			recipient.Launch.AgentConfigID = saved.ID
 			attachment := f.attachment()
 			attachment.Conversation = json.RawMessage(`{"channel_id":"C123","thread_ts":"789.012"}`)
-			slot.Launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{attachment}
+			recipient.Launch.Subscriptions = []integrationstore.IntegrationSubscriptionAttachment{attachment}
 			_, _, err = f.store.Integrations().AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
 
 				ProjectID:     testProjectID,
@@ -704,7 +704,7 @@ func TestIntegrationCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *test
 			)
 			require.NoError(t, err)
 			require.True(t, found)
-			plan, err := marshalInboxLaunchPlan(map[string]executionstore.InboxLaunchSlot{"a": slot})
+			plan, err := marshalInboxLaunchPlan(map[string]executionstore.InboxLaunchRecipient{"a": recipient})
 			require.NoError(t, err)
 			require.NoError(t, f.store.Integrations().WithIntegrationInboxLease(f.ctx, receipt.Lease(),
 				func(work *integrationstore.IntegrationInboxLeaseTx) error { return work.FreezePlan(f.ctx, plan) }))
@@ -717,14 +717,14 @@ func TestIntegrationCapabilitiesInboxLaunchToleratesUnavailableSecondary(t *test
 				)
 				require.NoError(t, err)
 			}
-			launch, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, receipt.Lease(), "a", nil)
+			launch, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, receipt.Lease(), "a", nil)
 			require.NoError(t, err)
 			require.True(t, launch.Created)
-			require.Equal(t, slot.AgentID, launch.Agent.ID)
+			require.Equal(t, recipient.AgentID, launch.Agent.ID)
 			subscriptions := f.subscriptions(t, launch.Agent.ID)
 			require.Len(t, subscriptions, 1, "only the explicit primary attachment is created")
-			require.Equal(t, slot.Selection.Address.Ref, subscriptions[0].ScopeRef)
-			replay, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, receipt.Lease(), "a", nil)
+			require.Equal(t, recipient.LaunchClaim.Address.Ref, subscriptions[0].ScopeRef)
+			replay, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, receipt.Lease(), "a", nil)
 			require.NoError(t, err)
 			require.False(t, replay.Created)
 		})

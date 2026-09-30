@@ -188,6 +188,9 @@ func main() {
 	}
 	executor := workerpkg.AgentWorkExecutor(kernel.AgentExecutor{
 		Store: store,
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		ContextBuilder: modelcontext.Builder{
 			Store:  modelcontext.NewStore(store.Execution(), store.Artifacts(), store.Integrations()),
 			Skills: store.Skills(),
@@ -295,6 +298,12 @@ func main() {
 		integrationProviders,
 		integrationruntime.InteractionPresenter{Store: store, HTTPClient: integrationHTTPClient, Log: log},
 		integrationLaunchers,
+		integrationruntime.WithIntegrationStateHandlers(
+			map[integrationdefinition.Kind]integrationruntime.IntegrationStateHandler{
+				integrationdefinition.SlackThread:   chatLauncher.HandleState,
+				integrationdefinition.DiscordThread: chatLauncher.HandleState,
+			},
+		),
 		integrationruntime.WithIntegrationScheduledHandlers(
 			map[integrationdefinition.Kind]integrationruntime.IntegrationScheduledHandler{
 				integrationdefinition.SlackThread: integrationruntime.NewThreadIntegrationScheduledHandler(

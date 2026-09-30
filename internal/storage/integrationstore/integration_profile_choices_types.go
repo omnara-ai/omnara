@@ -26,6 +26,7 @@ type IntegrationProfileChoiceRecord struct {
 	Options                      []IntegrationProfileChoiceOption
 	SelectedKey, SelectedBy      string
 	MessageChannelID, MessageID  string
+	CreatedAt                    time.Time
 	ExpiresAt                    time.Time
 	Revision                     int64
 }

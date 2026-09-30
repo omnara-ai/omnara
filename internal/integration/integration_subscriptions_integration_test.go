@@ -87,13 +87,13 @@ func TestIntegrationConsumerLaterReceiptsUseLaunchedSubscriptionForMessagesAndMe
 		plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &incoming)
 		require.NoError(t, err)
 		require.Len(t, plan.Recipients, 1)
-		for _, slot := range plan.Recipients {
+		for _, recipient := range plan.Recipients {
 			if i == 0 {
-				plannedAgent = slot.AgentID
-				require.Len(t, slot.Launch.Subscriptions, 1)
+				plannedAgent = recipient.AgentID
+				require.Len(t, recipient.Launch.Subscriptions, 1)
 			} else {
-				require.Equal(t, plannedAgent, slot.AgentID)
-				require.NotNil(t, slot.Subscription)
+				require.Equal(t, plannedAgent, recipient.AgentID)
+				require.NotNil(t, recipient.Subscription)
 			}
 		}
 		results, err := consumer.Consume(ctx, receipt.Lease())
@@ -208,9 +208,9 @@ func TestIntegrationRouterFrozenSubscriptionEventRechecksLiveAttachment(t *testi
 	plan, err = router.Freeze(ctx, receipt.Lease(), &event)
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 1)
-	for _, slot := range plan.Recipients {
+	for _, recipient := range plan.Recipients {
 		require.Equal(t, []integrationstore.ConversationAddress{{Kind: "pull_request", Ref: "123#42"}},
-			slot.Subscription.Alternatives)
+			recipient.Subscription.Alternatives)
 	}
 	removeTestAgentSubscriptions(t, store, integration, launched.Agent.ID)
 	_, err = router.Freeze(ctx, receipt.Lease(), &excluded)

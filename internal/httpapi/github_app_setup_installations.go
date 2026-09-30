@@ -38,9 +38,9 @@ func (s strictOpenAPIServer) InspectIntegrationGitHubInstallations(
 	if request.Body == nil {
 		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "request body is required")
 	}
-	secretID, err := publicid.Decode(publicid.KindSecret, request.Body.CredentialsSecretRef)
+	secretID, err := publicid.Decode(publicid.KindSecret, request.Body.CredentialSecretId)
 	if err != nil {
-		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid credentials_secret_ref")
+		return nil, apierror.FromCode(openapi.ErrorCodeInvalidRequest, "invalid credential_secret_id")
 	}
 	page := 1
 	if request.Body.Page != nil {
@@ -83,18 +83,18 @@ func (s strictOpenAPIServer) InspectIntegrationGitHubInstallations(
 	defer cancel()
 	metadata, err := client.App(ctx)
 	if err != nil {
-		return nil, integrationSetupInputError(err)
+		return nil, integrationSetupInputError(ctx, err)
 	}
 	installations, err := client.ListInstallations(ctx, github.PageOptions{Page: page, PerPage: 100})
 	if err != nil {
-		return nil, integrationSetupInputError(err)
+		return nil, integrationSetupInputError(ctx, err)
 	}
 	response := openapi.GitHubInstallations{
 		ProviderAppId: strconv.FormatInt(metadata.ID, 10),
 		Name:          metadata.Name,
 		Slug:          metadata.Slug,
 		InstallUrl: "https://github.com/apps/" + url.PathEscape(metadata.Slug) + "/installations/new?" +
-			url.Values{"state": {request.Body.CredentialsSecretRef}}.Encode(),
+			url.Values{"state": {request.Body.CredentialSecretId}}.Encode(),
 		Installations: make([]openapi.GitHubSetupInstallation, 0, len(installations.Installations)),
 	}
 	for _, installation := range installations.Installations {

@@ -16,7 +16,7 @@ For user setup, see [Integrations](../../docs/integrations/overview.mdx); for de
 | Provider HTTP/socket protocol | `internal/integration/<provider>/` |
 | Event normalization and launcher policy | Provider event files, `integration_launch.go` and `integration_profile_choice.go` |
 | Setup and verified webhook/callback intake | `internal/httpapi` |
-| Provider, launcher and scheduled-action registration | `cmd/worker` |
+| Provider, launcher, state-work and scheduled-action registration | `cmd/worker` |
 | Integration, subscription, workflow state, inbox and transport leases | `internal/storage/integrationstore` |
 | Atomic agent launch/input and interaction resolution | `internal/storage/executionstore` |
 
@@ -74,6 +74,7 @@ The assignment survives subscription changes and agent archival; integration/pro
 teardown reclaims it with other integration state. All their current tools are
 conversation-scoped and take action arguments, not destinations. A missing or
 malformed assignment never grants unrestricted sending.
+The model-facing tool description identifies this assigned conversation; subscribed inputs do not retarget it.
 Their executors require that conversation; a future standalone operation must be
 dispatched before that requirement. GitHub PR tools also narrow their installation
 token to the assigned repository; standalone operations must choose their own
@@ -89,15 +90,18 @@ routing identity and lifecycle. Forwarding policy lives in the integration.
 Absence of the capability rejects attachment.
 Tool removal, config changes and posting do not alter subscriptions.
 Launch attachments commit with the agent and initial input. Deleting a subscription
-stops forwarding but retains selection history, so the next comment cannot launch
+stops forwarding but retains launch ownership, so the next comment cannot launch
 a replacement for a stopped conversation.
 
 The shipped interaction handlers resolve the assigned conversation from integration
 state and accept empty arguments. Shared storage looks up its existing target;
-selection does not create targets or grants. In automatic mode, the last new content
-input admitted to a turn selects its eligible handler; dashboard and other inputs
-without a handler clear that selection. Receipt alone does not retarget a running
-turn. The model can select a destination and pin it with `auto_select: false`;
+selection does not create targets or grants. In automatic mode, the last eligible content
+input admitted to a turn selects its handler; dashboard/API inputs and integration origins
+without an eligible handler clear that selection. Originless content from Omnara actors
+with a valid agent or cron-trigger public ID preserves selection. Explicit integration
+origins take precedence, including scheduled thread launches. Classify the stored actor
+identity with `publicid.Decode`, never names, metadata or ID prefixes. Receipt alone does
+not retarget a running turn. The model can select a destination and pin it with `auto_select: false`;
 omitting that option preserves the current mode. Each question or approval captures
 its destination. Callback owner IDs only route the request: verify that
 owner's signature, live setup and captured conversation before resolving it.
@@ -180,7 +184,29 @@ and validate JSON in its owning workflow; keep integration identity, credentials
 subscription routing and transport leases in their existing structures.
 Replacements use revisions, and decisions with a deadline check database time at
 the write. Decision deadlines are not retention TTLs. The profile chooser is the
-existing example.
+existing example. A state transition can atomically enqueue work referencing that record through
+`source_state_id`. Register its `IntegrationStateHandler` by integration kind. The handler
+interprets the state and chooses its retry policy; it completes through the supplied
+`process(event, payload)` callback, using `process(nil, nil)` when no delivery is needed.
+The inbox does not decode workflow-specific JSON.
+
+State work can reserve a conversation while its plan is pending. This makes incoming
+follow-ups and launches wait for that work to plan or finish. The producer must
+serialize creation under the conversation lock and keep at most one active state-work
+reservation for that conversation; competing reservations would wait on each other.
+
+A launcher's optional pure `MayLaunchWithoutSelection` predicate protects early
+replies once the provider routes the event. Provider I/O before routing is unprotected;
+route before I/O where the payload supplies enough information. Single-profile chat
+launchers opt in; menus and GitHub do not. The provider receipt saves its address in
+the same reservation fields, but this marker only delays later provider receipts
+that are planning delivery.
+Actual launches and state work ignore provider markers, preserving first-freeze
+ordering and accepted-choice priority. Accepted state reservations and frozen launch
+claims still block at any age. Provider delivery waits only on earlier markers, so
+receipts that become menu-only or delivery-only cannot wait on each other cyclically.
+Markers survive retries and stop counting once their receipt has a plan or is terminal;
+there is no explicit release step or separate pre-selection message buffer.
 
 Query within an indexed identity/scope before filtering workflow JSON. Keep state
 and retained histories small; JSON replacement rewrites the document. Do not infer

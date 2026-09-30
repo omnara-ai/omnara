@@ -81,12 +81,12 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 		winner = 1
 	}
 	require.NoError(t, failures[winner])
-	require.ErrorIs(t, failures[1-winner], integrationstore.ErrIntegrationSelectionReserved)
+	require.ErrorIs(t, failures[1-winner], integrationstore.ErrIntegrationLaunchReserved)
 	plan, receipt := plans[winner], receipts[winner]
 	require.Len(t, plan.Recipients, 2)
 	var launchKey, inputKey string
-	for key, slot := range plan.Recipients {
-		if slot.Launch != nil {
+	for key, recipient := range plan.Recipients {
+		if recipient.Launch != nil {
 			launchKey = key
 		} else {
 			inputKey = key
@@ -304,7 +304,7 @@ func TestIntegrationRouterPlainFollowupWaitsForReservedConversation(t *testing.T
 				require.NoError(t, err)
 			} else {
 				_, err = freezeTestIntegrationEvent(ctx, router, follow.Lease(), &event)
-				var reservation *integrationstore.IntegrationSelectionReservationError
+				var reservation *integrationstore.IntegrationLaunchClaimError
 				require.ErrorAs(t, err, &reservation)
 				require.Equal(t, owner.ID, reservation.ReceiptID)
 				require.Equal(t, ownerState, reservation.State)

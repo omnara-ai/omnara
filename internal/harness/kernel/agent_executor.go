@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
@@ -18,7 +17,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/sigv4"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 type AgentExecutor struct {
@@ -34,9 +32,10 @@ type AgentExecutor struct {
 	StreamLog                *slog.Logger
 	MCPInitializationBackoff func(attempt int) time.Duration
 	ModelRetryDelay          func(time.Duration) time.Duration
+	OnModelFailure           func(ctx context.Context, projectID, agentID, runtimeLockID uuid.UUID) error
 }
 
-func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExecution) (err error) {
+func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExecution) error {
 	if e.Store == nil {
 		return errors.New("kernel store is required")
 	}
@@ -47,12 +46,6 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 		input.Now = e.now()
 	}
 	builder := e.contextBuilder()
-	modelProducedResponse := false
-	defer func() {
-		if shouldPostIntegrationRuntimeMessage(ctx, err, modelProducedResponse) {
-			e.postIntegrationRuntimeError(ctx, input)
-		}
-	}()
 	if e.ModelResolver == nil {
 		return errors.New("kernel model resolver is required")
 	}
@@ -89,7 +82,6 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	case modelStepWaiting, modelStepDone:
 		return nil
 	case modelStepToolUse:
-		modelProducedResponse = true
 		if _, err := e.recordToolCallSourceEvent(
 			ctx,
 			input,
@@ -107,17 +99,19 @@ func (e AgentExecutor) ExecuteModelWork(ctx context.Context, input ModelWorkExec
 	}
 }
 
-func (e AgentExecutor) postIntegrationRuntimeError(
-	ctx context.Context,
-	input ModelWorkExecution,
-) {
+func (e AgentExecutor) notifyModelFailure(ctx context.Context, input ModelWorkExecution) {
+	if e.OnModelFailure == nil || ctx.Err() != nil {
+		return
+	}
 	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	_ = e.configuredToolExecutor().PostIntegrationRuntimeMessage(
-		postCtx,
-		toToolTurn(input),
-		integrationruntime.AgentRequestFailureMessage,
-	)
+	if err := e.OnModelFailure(postCtx, input.ProjectID, input.AgentID, input.RuntimeLockID); err != nil {
+		log := e.StreamLog
+		if log == nil {
+			log = slog.Default()
+		}
+		log.WarnContext(postCtx, "notify model failure", "agent_id", input.AgentID, "error", err)
+	}
 }
 
 func validateModelWorkExecution(input ModelWorkExecution) error {
@@ -156,31 +150,4 @@ func validateModelWorkExecution(input ModelWorkExecution) error {
 		return fmt.Errorf("unsupported model work kind %q", input.Kind)
 	}
 	return nil
-}
-
-func shouldPostIntegrationRuntimeMessage(ctx context.Context, err error, modelProducedResponse bool) bool {
-	if modelProducedResponse && !errors.Is(err, storeerr.ErrModelGrantUnavailable) {
-		return false
-	}
-	return shouldPostIntegrationRuntimeError(ctx, err)
-}
-
-func shouldPostIntegrationRuntimeError(ctx context.Context, err error) bool {
-	if err == nil {
-		return false
-	}
-	if ctx.Err() != nil {
-		return false
-	}
-	if errors.Is(err, storeerr.ErrModelGrantUnavailable) {
-		return true
-	}
-	if errors.Is(err, context.Canceled) ||
-		errors.Is(err, storeerr.ErrAgentNotAdvanceable) ||
-		errors.Is(err, storeerr.ErrDaemonRuntimeUnregistered) ||
-		errors.Is(err, storeerr.ErrRuntimeLockInactive) ||
-		errors.Is(err, storeerr.ErrStateTransitionConflict) {
-		return false
-	}
-	return true
 }

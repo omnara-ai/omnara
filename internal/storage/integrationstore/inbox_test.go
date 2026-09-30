@@ -62,30 +62,30 @@ func TestInboxReceiptBounds(t *testing.T) {
 	}
 }
 
-func TestInboxSelectionRequiresReceiptIntegration(t *testing.T) {
+func TestInboxLaunchClaimRequiresReceiptIntegration(t *testing.T) {
 	integrationID := uuid.New()
-	selection := InboxIntegrationSelection{
+	claim := InboxLaunchClaim{
 		IntegrationID: integrationID, Address: ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, LaunchKey: "default",
 	}
-	raw, err := json.Marshal(map[string]any{"selection": selection})
+	raw, err := json.Marshal(map[string]any{"launch_claim": claim})
 	if err != nil {
 		t.Fatal(err)
 	}
-	slots := map[string]json.RawMessage{"one": raw}
-	identities, err := inboxSelectionIdentities(slots, integrationID)
+	recipients := map[string]json.RawMessage{"one": raw}
+	identities, err := inboxLaunchIdentities(recipients, integrationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(identities) != 1 || !identities[integrationSelectionIdentity{
-		IntegrationID: integrationID, Address: selection.Address,
-	}][selection.LaunchKey] {
-		t.Fatalf("frozen recipient selection missing: %v", identities)
+	if len(identities) != 1 || !identities[integrationLaunchIdentity{
+		IntegrationID: integrationID, Address: claim.Address,
+	}][claim.LaunchKey] {
+		t.Fatalf("frozen recipient claim missing: %v", identities)
 	}
-	if _, err := inboxSelectionIdentities(slots, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
-		t.Fatalf("another integration's selection accepted: %v", err)
+	if _, err := inboxLaunchIdentities(recipients, uuid.New()); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		t.Fatalf("another integration's claim accepted: %v", err)
 	}
-	slots["two"] = raw
-	if _, err := inboxSelectionIdentities(slots, integrationID); !errors.Is(err, storeerr.ErrInvalidRequest) {
+	recipients["two"] = raw
+	if _, err := inboxLaunchIdentities(recipients, integrationID); !errors.Is(err, storeerr.ErrInvalidRequest) {
 		t.Fatalf("duplicate launch key accepted: %v", err)
 	}
 	_, _, err = ensureIntegrationProfileChoiceTx(t.Context(), nil,
@@ -116,17 +116,17 @@ func TestInboxPlanShapeAndBounds(t *testing.T) {
 	for _, raw := range []string{
 		`{"recipients":{}}`, `{"message":{},"recipients":{"one":{"agent_id":"pinned"},"two":{"config_id":"pinned"}}}`,
 	} {
-		if _, err := inboxSlots(json.RawMessage(raw)); err != nil {
+		if _, err := inboxRecipients(json.RawMessage(raw)); err != nil {
 			t.Fatalf("valid plan %s: %v", raw, err)
 		}
 	}
 	for _, raw := range []string{
 		"", `null`, `[]`, `{"one":null}`, `{"one":[]}`, `{" ":{}}`, `{} {}`,
-		`{"one":{"selection":{"launch_key":"scheduled"}}}`,
+		`{"one":{"launch_claim":{"launch_key":"scheduled"}}}`,
 		`{"recipients":{"one":{}}}`, `{"message":{},"recipients":{"one":null}}`,
 		`{"one":{"data":"` + strings.Repeat("x", IntegrationInboxMaxPlanBytes) + `"}}`,
 	} {
-		if _, err := inboxSlots(json.RawMessage(raw)); !errors.Is(err, storeerr.ErrInvalidRequest) {
+		if _, err := inboxRecipients(json.RawMessage(raw)); !errors.Is(err, storeerr.ErrInvalidRequest) {
 			t.Fatalf("invalid plan accepted: %v", err)
 		}
 	}

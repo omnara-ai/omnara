@@ -30,7 +30,6 @@ export async function exerciseDiscordIntegrationSchedule(
   const schedules = page.getByRole('region', { name: 'Schedules', exact: true })
   await schedules.getByRole('button', { name: 'Add schedule', exact: true }).click()
   const createDialog = page.getByRole('dialog', { name: 'Add cron schedule', exact: true })
-  await expect(createDialog.getByLabel('Server ID', { exact: false })).toHaveCount(0)
   await createDialog.getByLabel('Name', { exact: true }).fill(name)
   await createDialog.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
   await page.getByPlaceholder('Choose an agent profile…').fill(profileName)

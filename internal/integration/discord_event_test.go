@@ -27,6 +27,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+func normalizeDiscordIntegrationEvent(
+	integrationSetup integrationstore.IntegrationRecord, raw []byte, channel discord.Channel,
+) (IntegrationEvent, bool, error) {
+	message, ok, err := discordInboxMessage(integrationSetup, raw)
+	if err != nil || !ok {
+		return IntegrationEvent{}, ok, err
+	}
+	return normalizeDiscordIntegrationMessage(integrationSetup, message, channel)
+}
+
 func discordInboxIntegration() integrationstore.IntegrationRecord {
 	return integrationstore.IntegrationRecord{
 		ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(), CredentialSecretID: uuid.New(),
@@ -61,7 +71,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	integrationSetup := discordInboxIntegration()
 	message := discordInboxMessageFixture()
 	channel := discord.Channel{ID: "300", GuildID: "100", Type: 0, Name: "help"}
-	root, ok, err := NormalizeDiscordIntegrationEvent(integrationSetup, discordInboxPayload(t, message), channel)
+	root, ok, err := normalizeDiscordIntegrationEvent(integrationSetup, discordInboxPayload(t, message), channel)
 	if err != nil || !ok {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
@@ -81,7 +91,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 	message.ID, message.ChannelID, message.Type = "501", "500", 19
 	message.Content, message.Mentions = "ordinary reply", nil
 	channel = discord.Channel{ID: "500", GuildID: "100", ParentID: "300", Type: 11, Name: "discussion"}
-	reply, ok, err := NormalizeDiscordIntegrationEvent(integrationSetup, discordInboxPayload(t, message), channel)
+	reply, ok, err := normalizeDiscordIntegrationEvent(integrationSetup, discordInboxPayload(t, message), channel)
 	if err != nil || !ok || *reply.Event.Scope.Discord != want || reply.Event.Mentioned ||
 		reply.DeliveryMode != executionstore.DeliveryModeSteering || !reply.CancelOpenInteractions {
 		t.Fatalf("reply: %+v ok=%v err=%v", reply, ok, err)
@@ -90,7 +100,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 		t.Fatal("different messages share semantic identity")
 	}
 	message.Thread = &discord.Channel{ID: "999", ParentID: "777", GuildID: "888", Type: 11}
-	replayed, ok, err := NormalizeDiscordIntegrationEvent(integrationSetup, discordInboxPayload(t, message), channel)
+	replayed, ok, err := normalizeDiscordIntegrationEvent(integrationSetup, discordInboxPayload(t, message), channel)
 	if err != nil || !ok || replayed.SemanticKey != reply.SemanticKey || *replayed.Event.Scope.Discord != want {
 		t.Fatalf("nested event thread altered scope: %+v %v", replayed, err)
 	}
@@ -98,7 +108,7 @@ func TestDiscordInboxNormalizesMentionAndThreadReply(t *testing.T) {
 
 func TestDiscordInboxRoutesNonMentionsBeforeAnyHTTP(t *testing.T) {
 	t.Parallel()
-	for _, routeErr := range []error{nil, integrationstore.ErrIntegrationSelectionReserved} {
+	for _, routeErr := range []error{nil, integrationstore.ErrIntegrationLaunchReserved} {
 		t.Run(fmt.Sprint(routeErr), func(t *testing.T) {
 			t.Parallel()
 			f, p := newDiscordInboxFixture(t)
@@ -231,7 +241,7 @@ func TestDiscordInboxIgnoresNonConversationalEvents(t *testing.T) {
 			t.Parallel()
 			m := discordInboxMessageFixture()
 			tc.edit(&m)
-			_, ok, err := NormalizeDiscordIntegrationEvent(discordInboxIntegration(), discordInboxPayload(t, m),
+			_, ok, err := normalizeDiscordIntegrationEvent(discordInboxIntegration(), discordInboxPayload(t, m),
 				discord.Channel{ID: "300", GuildID: "100", Type: 0})
 			if err != nil || ok {
 				t.Fatalf("ignored input: ok=%v err=%v", ok, err)
@@ -250,7 +260,7 @@ func TestDiscordInboxRejectsUnprovenScope(t *testing.T) {
 		{ID: "300", GuildID: "100", ParentID: "300", Type: 11},
 		{ID: "300", GuildID: "100", ParentID: "../400", Type: 11},
 	} {
-		if _, ok, err := NormalizeDiscordIntegrationEvent(discordInboxIntegration(),
+		if _, ok, err := normalizeDiscordIntegrationEvent(discordInboxIntegration(),
 			discordInboxPayload(t, discordInboxMessageFixture()), channel); err == nil || ok {
 			t.Fatalf("accepted unproven channel: %+v", channel)
 		}
@@ -276,6 +286,7 @@ type discordInboxFixture struct {
 	identity         discord.Identity
 	channels         map[string]discord.Channel
 	message          discord.Message
+	roles            json.RawMessage
 	contents         map[string][]byte
 	requests         []string
 	posts            int
@@ -338,6 +349,7 @@ func newDiscordInboxFixture(t *testing.T) (*discordInboxFixture, *DiscordIntegra
 	t.Helper()
 	f := &discordInboxFixture{integrationSetup: discordInboxIntegration(), version: uuid.New(),
 		identity: discord.Identity{ApplicationID: "11", BotUserID: "22"}, message: discordInboxMessageFixture(),
+		roles: json.RawMessage(`[{"id":"700","managed":true,"tags":{"bot_id":"22"}}]`),
 		channels: map[string]discord.Channel{
 			"300": {ID: "300", GuildID: "100", Type: 0, Name: "help"},
 			"400": {ID: "400", GuildID: "100", ParentID: "300", Type: 11, Name: "thread"},
@@ -364,6 +376,8 @@ func newDiscordInboxFixture(t *testing.T) (*discordInboxFixture, *DiscordIntegra
 			result = discord.User{ID: f.identity.BotUserID, Bot: true}
 		case "/api/v10/applications/@me":
 			result = map[string]string{"id": f.identity.ApplicationID}
+		case "/api/v10/guilds/100/roles":
+			result = f.roles
 		default:
 			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v10/"), "/")
 			switch {
@@ -587,6 +601,78 @@ func TestDiscordInboxPrepareRevocationCancelsMutation(t *testing.T) {
 	}
 }
 
+func TestDiscordInboxClassifiesThreadCreationFailures(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"single profile", "multiple profiles"} {
+		for _, stage := range []string{"source message", "thread creation"} {
+			for _, test := range []struct {
+				name         string
+				status       int
+				providerCode int
+				permanent    bool
+			}{
+				{"deleted message", http.StatusNotFound, 10008, true},
+				{"missing access", http.StatusForbidden, 50001, true},
+				{"missing permissions", http.StatusForbidden, 50013, true},
+				{"code-less forbidden", http.StatusForbidden, 0, false},
+				{"unknown forbidden", http.StatusForbidden, 40333, false},
+				{"code-less not found", http.StatusNotFound, 0, false},
+				{"rate limit", http.StatusTooManyRequests, 50013, false},
+				{"uncertain server error", http.StatusServiceUnavailable, 50013, false},
+			} {
+				t.Run(path+"/"+stage+"/"+test.name, func(t *testing.T) {
+					t.Parallel()
+					f, p := newDiscordInboxFixture(t)
+					failures := 0
+					f.override = func(w http.ResponseWriter, r *http.Request) bool {
+						path := "/api/v10/channels/300/messages/500"
+						if stage == "thread creation" {
+							path += "/threads"
+						}
+						if r.URL.Path != path {
+							return false
+						}
+						failures++
+						w.Header().Set("Retry-After", "60")
+						w.WriteHeader(test.status)
+						_ = json.NewEncoder(w).Encode(map[string]any{"code": test.providerCode})
+						return true
+					}
+					check := func(context.Context) error { return nil }
+					var err error
+					if path == "single profile" {
+						err = p.PrepareConversation(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message),
+							integrationdefinition.Scope{
+								Discord: &integrationdefinition.DiscordScope{GuildID: "100", ChannelID: "300", ThreadID: "500"},
+							}, check)
+					} else {
+						f.integrationSetup.ProviderConfig = json.RawMessage(`{"public_key":"` + strings.Repeat("a", 64) + `"}`)
+						event, ok, normalizeErr := normalizeDiscordIntegrationEvent(
+							f.integrationSetup, discordInboxPayload(t, f.message), f.channels["300"])
+						if normalizeErr != nil || !ok {
+							t.Fatalf("normalize profile choice: %v %v", ok, normalizeErr)
+						}
+						choice := providerProfileChoice(t)
+						choice.Event, err = json.Marshal(event)
+						if err != nil {
+							t.Fatal(err)
+						}
+						_, _, err = p.PresentProfileChoice(t.Context(), f.integrationSetup, choice, check)
+					}
+					var apiErr *discord.APIError
+					if failures == 0 || errors.Is(err, ErrIntegrationInboundPermanent) != test.permanent ||
+						!errors.As(err, &apiErr) || apiErr.StatusCode != test.status || apiErr.ProviderCode != test.providerCode {
+						t.Fatalf("thread failure: err=%v failures=%d requests=%v", err, failures, f.requests)
+					}
+					if f.posts != 0 {
+						t.Fatal("failed thread creation unexpectedly succeeded")
+					}
+				})
+			}
+		}
+	}
+}
+
 func (f *discordInboxFixture) attach(id string, content []byte, mediaType string) {
 	f.contents[id] = content
 	f.message.Attachments = append(f.message.Attachments, discord.Attachment{ID: id, Filename: "note-" + id + ".txt",
@@ -641,8 +727,8 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 	}
 	artifacts := &discordInboxArtifacts{uploaded: map[uuid.UUID][]byte{}}
 	consumer := &IntegrationInboxConsumer{artifacts: artifacts}
-	slot := IntegrationInboxSlot{AgentID: uuid.New(), ArtifactIDs: ids}
-	prepared, err := consumer.prepareFiles(t.Context(), p, f.integrationSetup, raw, message, slot, expansion.Files)
+	recipient := IntegrationInboxRecipient{AgentID: uuid.New(), ArtifactIDs: ids}
+	prepared, err := consumer.prepareFiles(t.Context(), p, f.integrationSetup, raw, message, recipient, expansion.Files)
 	if err != nil || len(prepared) != 1 || string(artifacts.uploaded[files[0].ArtifactID]) != "hello" {
 		t.Fatalf("artifact upload: %+v %v", prepared, err)
 	}
@@ -653,7 +739,7 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 		f.integrationSetup,
 		raw,
 		message,
-		slot,
+		recipient,
 		map[string]IntegrationInboxFile{},
 	); err != nil ||
 		len(f.requests) != requestCount {
@@ -666,7 +752,7 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 		f.integrationSetup,
 		raw,
 		message,
-		slot,
+		recipient,
 		map[string]IntegrationInboxFile{},
 	); err != nil {
 		t.Fatalf("rehydrated frozen bytes: %v", err)
@@ -676,7 +762,7 @@ func TestDiscordInboxAttachmentsUseExistingFrozenArtifactFlow(t *testing.T) {
 	f.contents["701"] = []byte("other")
 	f.mu.Unlock()
 	_, err = consumer.prepareFiles(
-		t.Context(), p, f.integrationSetup, raw, message, slot, map[string]IntegrationInboxFile{},
+		t.Context(), p, f.integrationSetup, raw, message, recipient, map[string]IntegrationInboxFile{},
 	)
 	if !errors.Is(err, storeerr.ErrIdempotencyConflict) || len(artifacts.uploaded) != 0 {
 		t.Fatalf("changed content was admitted: %v", err)

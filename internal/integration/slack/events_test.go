@@ -201,6 +201,12 @@ func TestFormatRecentContextRendersSlackReferences(t *testing.T) {
 	if got != want {
 		t.Fatalf("FormatRecentContext =\n%s\nwant\n%s", got, want)
 	}
+	thread := FormatRecentContext([]HistoryMessage{{User: "U999", Text: "earlier reply", TS: "111.111"}},
+		Event{TS: "222.222", ThreadTS: "100.000"}, labels)
+	if !strings.Contains(thread, "first page, oldest-first; newer replies may be omitted") ||
+		strings.Contains(thread, "Recent Slack context") {
+		t.Fatalf("thread context must not claim to contain the latest replies: %s", thread)
+	}
 }
 
 func TestInboundEventMetadataSerializesTypedFileResults(t *testing.T) {

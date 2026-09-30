@@ -6,7 +6,63 @@ import (
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/interactionform"
+	"github.com/stretchr/testify/require"
 )
+
+func TestQuestionTextFollowsExplicitOptionSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		multiple bool
+		selected []string
+		text     string
+		want     []int
+		invalid  bool
+	}{
+		{"ordinary choice", false, []string{"0"}, "", []int{0}, false},
+		{"whitespace is not an answer", false, []string{"0"}, "  ", []int{0}, false},
+		{"text ignored for ordinary choice", false, []string{"0"}, "wait for CI", []int{0}, false},
+		{"text with Other", false, []string{"1"}, "wait for CI", []int{1}, false},
+		{"text without radio choice", false, nil, "wait for CI", nil, true},
+		{"multiple preserves choices", true, []string{"0"}, "wait for CI", []int{0}, false},
+		{"multiple Other is not duplicated", true, []string{"0", "1"}, "wait for CI", []int{0, 1}, false},
+		{"blank without choice", false, nil, "", nil, true},
+		{"text does not hide invalid choice", false, []string{"9"}, "wait for CI", nil, true},
+		{"text does not hide duplicate choice", true, []string{"0", "0"}, "wait for CI", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			form := interactionform.Form{Title: "Question", Questions: []interactionform.Question{{
+				Prompt: "Deploy?", Multiple: tc.multiple,
+				Options: []interactionform.Option{{Label: "Yes"}, {Label: "Other", AllowsText: true}},
+			}}}
+			choice := actionStateValue{}
+			for _, selected := range tc.selected {
+				if tc.multiple {
+					choice.SelectedOptions = append(choice.SelectedOptions, actionStateOption{Value: selected})
+				} else {
+					choice.SelectedOption = &actionStateOption{Value: selected}
+				}
+			}
+			result := ResolveInteractionForm(form, ActionState{Values: map[string]map[string]actionStateValue{
+				questionBlockID(0):           {PromptAnswerAction: choice},
+				questionBlockID(0) + "_text": {PromptAnswerAction: {Value: tc.text}},
+			}})
+			if tc.invalid {
+				require.NotEmpty(t, result.InvalidReason)
+				return
+			}
+			require.Empty(t, result.InvalidReason)
+			require.Len(t, result.Resolution.Answers, 1)
+			require.Equal(t, tc.want, result.Resolution.Answers[0].OptionIndices)
+			wantText := ""
+			for _, index := range tc.want {
+				if index == 1 {
+					wantText = strings.TrimSpace(tc.text)
+				}
+			}
+			require.Equal(t, wantText, result.Resolution.Answers[0].Text)
+		})
+	}
+}
 
 func TestPromptCallbackIdentityDoesNotSubmitFormEdits(t *testing.T) {
 	value := PromptActionValue{

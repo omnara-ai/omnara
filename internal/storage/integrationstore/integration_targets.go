@@ -94,7 +94,7 @@ func (s *Store) EnsureConversationTargetTx(
 	}
 	var existing dbsqlc.GetAgentConversationTargetRow
 	if input.LaunchKey != "" {
-		row, findErr := q.GetIntegrationSelectionTarget(ctx, dbsqlc.GetIntegrationSelectionTargetParams{
+		row, findErr := q.GetIntegrationLaunchOwner(ctx, dbsqlc.GetIntegrationLaunchOwnerParams{
 			ProjectID:     input.ProjectID,
 			IntegrationID: input.IntegrationID,
 			Kind:          input.Address.Kind,

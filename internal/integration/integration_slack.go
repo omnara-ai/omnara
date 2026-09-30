@@ -35,6 +35,9 @@ type SlackInboxSecrets interface {
 }
 
 type SlackInboxIntegrations interface {
+	HasIntegrationLaunchOwner(
+		context.Context, uuid.UUID, uuid.UUID, integrationstore.ConversationAddress,
+	) (bool, error)
 	GetIntegrationProfileChoice(
 		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
 	) (integrationstore.IntegrationProfileChoiceRecord, error)
@@ -287,13 +290,21 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 	route := slack.InboundRoute{ProviderRefKind: kind, ProviderRef: ref, AppendOnly: !normalized.Event.Mentioned}
 	enrichCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
+	newConversation := false
+	if kind == "thread" && normalized.Event.Mentioned {
+		hasOwner, err := p.integrations.HasIntegrationLaunchOwner(enrichCtx, integrationSetup.ProjectID,
+			integrationSetup.ID, integrationstore.ConversationAddress{Kind: kind, Ref: ref})
+		// History is optional. An unavailable ownership read must not replay old
+		// context into an established conversation or prevent the new input.
+		newConversation = err == nil && !hasOwner
+	}
 	history, status, _ := slack.FetchRecentContextMessages(
 		enrichCtx,
 		config,
 		token,
 		event,
 		route,
-		normalized.Event.Mentioned,
+		newConversation,
 	)
 	var stored map[string]string
 	if p.actors != nil {
@@ -339,7 +350,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 			status = "empty"
 		}
 	}
-	_, contextText := slack.ModelInputTextParts(event, route, normalized.Event.Mentioned, historyText, labels)
+	_, contextText := slack.ModelInputTextParts(event, route, newConversation, historyText, labels)
 	blocks := []map[string]any{
 		{"type": "text", "text": contextText, "metadata": map[string]string{"omnara_hidden": "true"}},
 	}

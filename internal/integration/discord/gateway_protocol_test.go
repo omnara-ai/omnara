@@ -463,6 +463,7 @@ func TestGatewayHelloTimeout(t *testing.T) {
 	})
 	requireGatewayRetry(t, err)
 	require.NoError(t, ctx.Err(), "the HELLO deadline must precede caller cancellation")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.True(t, waitGatewayBarrier(t, t.Context(), closed))
 	require.EqualValues(t, 1, connections.Load())
 }

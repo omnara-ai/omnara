@@ -76,23 +76,39 @@ func (c *appClient) appJWT() (string, error) {
 }
 
 func (c *Client) installationToken(ctx context.Context, repositoryID int64, write bool) (string, error) {
+	if c.sharedTokens != nil {
+		return c.sharedTokens.token(ctx, c, repositoryID, write)
+	}
 	select {
 	case c.tokenGate <- struct{}{}:
 		defer func() { <-c.tokenGate }()
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
-	index, permission := 0, "read"
+	index := 0
 	if write {
-		index, permission = 1, "write"
+		index = 1
 	}
 	cached := c.tokens[index]
 	if cached.repositoryID == repositoryID && cached.expiresAt.After(c.now().Add(time.Minute)) {
 		return cached.token, nil
 	}
-	jwt, err := c.appJWT()
+	fresh, err := c.mintInstallationToken(ctx, repositoryID, write)
 	if err != nil {
 		return "", err
+	}
+	c.tokens[index] = fresh
+	return fresh.token, nil
+}
+
+func (c *Client) mintInstallationToken(ctx context.Context, repositoryID int64, write bool) (cachedToken, error) {
+	jwt, err := c.appJWT()
+	if err != nil {
+		return cachedToken{}, err
+	}
+	permission := "read"
+	if write {
+		permission = "write"
 	}
 	input := struct {
 		RepositoryIDs []int64           `json:"repository_ids"`
@@ -105,17 +121,20 @@ func (c *Client) installationToken(ctx context.Context, repositoryID int64, writ
 	path := "/app/installations/" + strconv.FormatInt(c.installationID, 10) + "/access_tokens"
 	_, err = c.doJSON(ctx, http.MethodPost, path, jwt, input, &result, false)
 	if err != nil {
-		return "", err
+		return cachedToken{}, err
 	}
 	if result.Token == "" || strings.ContainsAny(result.Token, "\r\n") ||
 		!result.ExpiresAt.After(c.now().Add(time.Minute)) {
-		return "", &APIError{Code: InvalidResponse}
+		return cachedToken{}, &APIError{Code: InvalidResponse}
 	}
-	c.tokens[index] = cachedToken{repositoryID: repositoryID, token: result.Token, expiresAt: result.ExpiresAt}
-	return result.Token, nil
+	return cachedToken{repositoryID: repositoryID, token: result.Token, expiresAt: result.ExpiresAt}, nil
 }
 
 func (c *Client) invalidateToken(ctx context.Context, token string) {
+	if c.sharedTokens != nil {
+		c.sharedTokens.invalidate(c.tokenIdentity, token)
+		return
+	}
 	select {
 	case c.tokenGate <- struct{}{}:
 		defer func() { <-c.tokenGate }()

@@ -21,9 +21,12 @@ func TestInteractionSelectionFollowsLastAdmittedContent(t *testing.T) {
 		want    string
 	}{
 		{"last thread", []string{"chat", "other"}, "other"},
-		{"dashboard clears", []string{"other", ""}, ""},
+		{"dashboard clears before background", []string{"other", "", "agent", "cron"}, ""},
 		{"thread after dashboard", []string{"", "other"}, "other"},
 		{"github clears", []string{"other", "github"}, ""},
+		{"background preserves", []string{"agent", "cron"}, "chat"},
+		{"last eligible thread", []string{"other", "agent", "cron"}, "other"},
+		{"external agent ID clears", []string{"other", "external-agent", "cron"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -31,9 +34,23 @@ func TestInteractionSelectionFollowsLastAdmittedContent(t *testing.T) {
 			before := f.selectOrigin(t, f.a.ID)
 			var ids []uuid.UUID
 			for _, origin := range tc.origins {
-				if origin == "" {
+				var actor *executionstore.ActorParams
+				var err error
+				switch origin {
+				case "agent", "external-agent":
+					actor, err = executionstore.SubagentActorParams(testOrgID, executionstore.AgentRecord{ID: f.process.AgentID})
+					require.NoError(t, err)
+					if origin == "external-agent" {
+						actor.Provider = executionstore.ActorProviderExternal
+					}
+				case "cron":
+					actor, err = executionstore.CronTriggerActor(testOrgID, uuid.New(), "Routine instructions")
+					require.NoError(t, err)
+				}
+				if origin == "" || actor != nil {
 					input, _, _, err := f.store.Execution().CreateAgentContentInput(f.ctx, executionstore.CreateAgentContentInputInput{
 						ProjectID: testProjectID, AgentID: f.process.AgentID,
+						Actor:         actor,
 						ContentBlocks: json.RawMessage(`[{"type":"text","text":"dashboard"}]`),
 						DeliveryMode:  executionstore.DeliveryModeSteering,
 					})
@@ -47,13 +64,13 @@ func TestInteractionSelectionFollowsLastAdmittedContent(t *testing.T) {
 				} else if origin == "github" {
 					integration = inboxInputIntegration(t, f.activation(), "github")
 				}
-				slot := inboxInputPlan(t, f.process.AgentID, integration, uuid.NewString())
-				slot.Input.CancelOpenInteractions = false
+				recipient := inboxInputPlan(t, f.process.AgentID, integration, uuid.NewString())
+				recipient.Input.CancelOpenInteractions = false
 				if origin != "github" {
-					slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef}
+					recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: target.ScopeKind, Ref: target.ScopeRef}
 				}
-				receipt := freezeInboxInput(t, f.activation(), slot, uuid.NewString(), time.Minute)
-				result, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+				receipt := freezeInboxInput(t, f.activation(), recipient, uuid.NewString(), time.Minute)
+				result, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 				require.NoError(t, err)
 				ids = append(ids, result.AgentInput.ID)
 			}
@@ -112,11 +129,11 @@ func TestInteractionSelectionToolControlsAutomaticMode(t *testing.T) {
 
 	dashboard := set("", new(false))
 	require.Equal(t, executionstore.InteractionSelection{AutoSelect: false}, dashboard)
-	slot := inboxInputPlan(t, f.process.AgentID, f.otherIntegration, "pinned-dashboard-content")
-	slot.Input.CancelOpenInteractions = false
-	slot.Input.Origin.Address = integrationstore.ConversationAddress{Kind: f.b.ScopeKind, Ref: f.b.ScopeRef}
-	receipt := freezeInboxInput(t, f.activation(), slot, "pinned-dashboard-content", time.Minute)
-	received, err := f.store.Execution().AdmitInboxInputSlot(f.ctx, receipt.Lease(), "recipient", nil)
+	recipient := inboxInputPlan(t, f.process.AgentID, f.otherIntegration, "pinned-dashboard-content")
+	recipient.Input.CancelOpenInteractions = false
+	recipient.Input.Origin.Address = integrationstore.ConversationAddress{Kind: f.b.ScopeKind, Ref: f.b.ScopeRef}
+	receipt := freezeInboxInput(t, f.activation(), recipient, "pinned-dashboard-content", time.Minute)
+	received, err := f.store.Execution().AdmitInboxInputRecipient(f.ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	require.True(t, received.Created)
 	require.Equal(t, f.b.ID, received.AgentInput.IntegrationTargetID)
@@ -133,7 +150,4 @@ func TestInteractionSelectionToolControlsAutomaticMode(t *testing.T) {
 	selection, err = f.store.Execution().GetInteractionSelection(f.ctx, testProjectID, f.process.AgentID)
 	require.NoError(t, err)
 	require.Equal(t, dashboard, selection, "admitting an eligible origin must preserve the dashboard-only pin")
-	destination, err := f.store.Execution().GetSelectedInteractionDestination(f.ctx, testProjectID, f.process.AgentID)
-	require.NoError(t, err)
-	require.Nil(t, destination)
 }

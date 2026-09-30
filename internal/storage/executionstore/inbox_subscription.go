@@ -8,12 +8,13 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-func validateInboxSubscriptionTx(ctx context.Context, tx pgx.Tx, slot InboxInputSlot) error {
+func validateInboxSubscriptionTx(ctx context.Context, tx pgx.Tx, recipient InboxInputRecipient) error {
 	q := dbsqlc.New(tx)
-	for _, address := range slot.Subscription.Alternatives {
+	for _, address := range recipient.Subscription.Alternatives {
 		allowed, err := q.HasIntegrationSubscription(ctx, dbsqlc.HasIntegrationSubscriptionParams{
-			ProjectID: slot.Input.ProjectID, AgentID: slot.AgentID, IntegrationID: slot.Input.Origin.IntegrationID,
-			ScopeKind: address.Kind, ScopeRef: address.Ref,
+			ProjectID: recipient.Input.ProjectID, AgentID: recipient.AgentID,
+			IntegrationID: recipient.Input.Origin.IntegrationID,
+			ScopeKind:     address.Kind, ScopeRef: address.Ref,
 		})
 		if err != nil {
 			return err

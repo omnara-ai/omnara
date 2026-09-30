@@ -283,7 +283,7 @@ func TestScheduledLaunchRetriesFrozenPlanAndBlocksEarlyFollowup(t *testing.T) {
 		Actor:         integrationTestActor(t, integration, "U123"),
 	}
 	_, err = f.consumer.router.freezeEmptyIfUnrouted(t.Context(), claimed.Lease(), integration, event)
-	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 	f.provider.ensure = nil
 	_, err = f.pool.Exec(t.Context(),
 		`UPDATE integration_inbox SET next_attempt_at=now()-interval '1 second' WHERE id=$1`, receipt.ID)

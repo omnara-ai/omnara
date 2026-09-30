@@ -168,7 +168,7 @@ it('shows a saved GitHub callback credential when another setup already connecte
   window.history.replaceState(
     null,
     '',
-    `/projects/${projectId}/integrations/${integration.id}?github_setup=credentials_saved&github_setup_error=integration_setup_changed&credentials_secret_ref=${secretId}`,
+    `/projects/${projectId}/integrations/${integration.id}?github_setup=credentials_saved&github_setup_error=integration_setup_changed&credential_secret_id=${secretId}`,
   )
   const api = fakeApi([
     {

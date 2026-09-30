@@ -128,8 +128,8 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 			require.NoError(t, err)
 			if archiveBeforeDecision {
 				require.Len(t, plan.Recipients, 1, "known archived destinations are omitted")
-				for _, slot := range plan.Recipients {
-					require.Equal(t, agentIDs[1], slot.AgentID)
+				for _, recipient := range plan.Recipients {
+					require.Equal(t, agentIDs[1], recipient.AgentID)
 				}
 			} else {
 				require.Len(t, plan.Recipients, 2)
@@ -141,7 +141,7 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 			var delivered uuid.UUID
 			for _, result := range admitted {
 				require.NotNil(t, result.Input)
-				if plan.Recipients[result.Slot].AgentID == agentIDs[0] {
+				if plan.Recipients[result.Recipient].AgentID == agentIDs[0] {
 					require.Equal(t, executionstore.InboxInputSkipAgentArchived, result.Input.Skipped)
 					require.False(t, result.Input.Created)
 				} else {
@@ -157,7 +157,7 @@ func TestIntegrationLaunchExistingRecipientsArchiveBeforeDecisionOrAdmission(t *
 			require.NoError(t, err)
 			for _, result := range replayed {
 				require.False(t, result.Input.Created)
-				if plan.Recipients[result.Slot].AgentID == agentIDs[1] {
+				if plan.Recipients[result.Recipient].AgentID == agentIDs[1] {
 					require.Equal(t, delivered, result.Input.AgentInput.ID)
 				}
 			}

@@ -78,6 +78,10 @@ func newChatSettings(provider string) *SettingsDefinition {
 
 func newChatLauncher(provider string) *LauncherDefinition {
 	return &LauncherDefinition{
+		MayLaunchWithoutSelection: func(raw json.RawMessage, _ Event) bool {
+			profiles, err := ChatLaunchProfiles(raw)
+			return err == nil && len(profiles) == 1
+		},
 		Matches: func(raw json.RawMessage, event Event) bool {
 			launcher, err := ReadChatLauncher(raw)
 			if err != nil || launcher == nil || event.Scope.Provider() != provider || !matchesTrigger(event, "mention") {

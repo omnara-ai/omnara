@@ -96,7 +96,8 @@ function IntegrationLauncherScopeFields({
     return (
       <FieldDescription>
         Mentions work in every server where this bot is installed and has access. Manage server and
-        channel access in Discord.
+        channel access in Discord. People in those conversations can launch these profiles and
+        answer agent questions and approvals without Omnara project membership.
       </FieldDescription>
     )
   const github = integrationKind === 'github_pr'
@@ -108,6 +109,7 @@ function IntegrationLauncherScopeFields({
           : 'Applies to repositories granted to this GitHub installation. Manage repository access in GitHub.'}
       </FieldDescription>
     )
+  const workspace = integration.provider_tenant_id ?? ''
   return (
     <>
       <Field>
@@ -137,7 +139,7 @@ function IntegrationLauncherScopeFields({
           />
         </Field>
       ) : (
-        <FieldDescription>{`Workspace: ${integration.provider_tenant_id || 'Connect this Slack app'}. The bot must have access to the conversation.`}</FieldDescription>
+        <FieldDescription>{`Workspace: ${workspace || 'Connect this Slack app'}. The bot must have access to the conversation.`}</FieldDescription>
       )}
     </>
   )

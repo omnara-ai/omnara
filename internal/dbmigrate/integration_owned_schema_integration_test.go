@@ -42,17 +42,17 @@ func TestIntegrationOwnedSchemaKeepsIndependentSetupAndImmutableIdentity(t *test
 	var legacyObjects []string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT ARRAY(
         SELECT relname FROM pg_class WHERE relnamespace=current_schema()::regnamespace
-            AND relname ~ '^(app_|project_apps|integration_installs)'
+            AND relname ~ '^integration_installs'
         UNION ALL
         SELECT conname FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
-            AND conname ~ '(app_|project_apps|integration_installs|integration_install_id)'
+            AND conname ~ '(integration_installs|integration_install_id)'
         UNION ALL
         SELECT table_name || '.' || column_name FROM information_schema.columns
             WHERE table_schema=current_schema()
-                AND column_name IN ('app_id','app_target_id','app_type','integration_install_id')
+                AND column_name = 'integration_install_id'
         UNION ALL
         SELECT proname FROM pg_proc WHERE pronamespace=current_schema()::regnamespace
-            AND prosrc ~ '\m(app_targets|app_target_id|app_inbox|project_apps|integration_installs)\M'
+            AND prosrc ~ '\mintegration_installs\M'
         ORDER BY 1)`).Scan(&legacyObjects))
 	require.Empty(t, legacyObjects, "live relations, constraints, views and functions use integration names")
 	ids := storagefixture.ProjectIDs{

@@ -19,35 +19,37 @@ func TestProviderInboxLaunchCannotClaimCronActor(t *testing.T) {
 	t.Parallel()
 	f := newInboxLaunchFixture(t, false, time.Minute, "default")
 	require.Equal(t, integrationstore.IntegrationInboxSourceProvider, f.receipt.Source)
-	slot := f.slots["default"]
-	providerActor := slot.InitialInput.Actor
+	recipient := f.recipients["default"]
+	providerActor := recipient.InitialInput.Actor
 	triggerID := uuid.New()
 	tenant, err := publicid.Encode(publicid.KindOrganization, testOrgID)
 	require.NoError(t, err)
 	trigger, err := publicid.Encode(publicid.KindCronTrigger, triggerID)
 	require.NoError(t, err)
-	slot.Launch.LaunchedBy = executionstore.InboxLaunchPrincipal{Type: identitystore.PrincipalTypeSystem, ID: triggerID}
-	slot.InitialInput.Actor = &executionstore.ActorParams{
+	recipient.Launch.LaunchedBy = executionstore.InboxLaunchPrincipal{
+		Type: identitystore.PrincipalTypeSystem, ID: triggerID,
+	}
+	recipient.InitialInput.Actor = &executionstore.ActorParams{
 		Provider: executionstore.ActorProviderOmnara, ProviderTenantID: tenant, ProviderUserID: trigger,
 		DisplayName: new("Daily review"),
 	}
-	f.slots["default"] = slot
-	plan, err := marshalInboxLaunchPlan(f.slots)
+	f.recipients["default"] = recipient
+	plan, err := marshalInboxLaunchPlan(f.recipients)
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
-	_, err = f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "default", nil)
+	_, err = f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "default", nil)
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
 	f.assertAbsent(t, "default")
 
-	slot.InitialInput.Actor = providerActor
-	f.slots["default"] = slot
-	plan, err = marshalInboxLaunchPlan(f.slots)
+	recipient.InitialInput.Actor = providerActor
+	f.recipients["default"] = recipient
+	plan, err = marshalInboxLaunchPlan(f.recipients)
 	require.NoError(t, err)
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE integration_inbox SET plan=$2 WHERE id=$1`, f.receipt.ID, plan)
 	require.NoError(t, err)
-	launch, err := f.store.Execution().AdmitInboxLaunchSlot(f.ctx, f.receipt.Lease(), "default", nil)
+	launch, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "default", nil)
 	require.NoError(t, err)
 	require.True(t, launch.Created)
-	require.Equal(t, slot.AgentID, launch.Agent.ID)
+	require.Equal(t, recipient.AgentID, launch.Agent.ID)
 }

@@ -3008,7 +3008,7 @@ paths:
       tags: [Integrations]
       summary: Start registration of a customer-owned GitHub App
       description: >-
-        Starts guided registration on github.com for a never-connected GitHub integration. Requires a browser session and project management access. Submit manifest as a JSON-encoded form field to registration_url. The callback saves a project credential secret and redirects to the canonical integration page with github_setup=credentials_saved and credentials_secret_ref (a public secret ID). It does not connect an installation or change launcher settings.
+        Starts guided registration on github.com for a never-connected GitHub integration. Requires a browser session and project management access. Submit manifest as a JSON-encoded form field to registration_url. The callback saves a project credential secret and redirects to the canonical integration page with github_setup=credentials_saved and credential_secret_id (a public secret ID). It does not connect an installation or change launcher settings.
       security:
         - browserSessionCookie: []
           csrfHeader: []
@@ -6953,7 +6953,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SaveIntegrationRequest'
+              $ref: '#/components/schemas/CreateIntegrationRequest'
       responses:
         '201':
           description: Create an integration and optional launcher.
@@ -9014,9 +9014,9 @@ components:
     InspectGitHubInstallationsRequest:
       type: object
       additionalProperties: false
-      required: [credentials_secret_ref]
+      required: [credential_secret_id]
       properties:
-        credentials_secret_ref:
+        credential_secret_id:
           $ref: '#/components/schemas/SecretID'
         page:
           type: integer
@@ -10420,14 +10420,12 @@ components:
     IntegrationTarget:
       type: object
       additionalProperties: false
-      required: [provider, provider_ref, provider_ref_kind, display_name]
+      required: [provider, conversation, display_name]
       properties:
         provider:
           type: string
-        provider_ref:
-          type: string
-        provider_ref_kind:
-          type: string
+        conversation:
+          $ref: '#/components/schemas/IntegrationConversation'
         display_name:
           type: string
         provider_uri:
@@ -14252,7 +14250,7 @@ components:
       properties:
         settings:
           $ref: '#/components/schemas/IntegrationSettings'
-    SaveIntegrationRequest:
+    CreateIntegrationRequest:
       type: object
       additionalProperties: false
       required: [name, integration_kind, settings]
@@ -14267,7 +14265,7 @@ components:
     Integration:
       type: object
       additionalProperties: false
-      required: [id, project_id, name, integration_kind, state, setup_revision, settings, provider_tenant_id, provider_account_ref, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
+      required: [id, project_id, name, integration_kind, state, setup_revision, settings, provider_agent_display_name, provider_config, capabilities, created_at, updated_at]
       properties:
         id:
           $ref: '#/components/schemas/IntegrationID'
@@ -14292,8 +14290,10 @@ components:
           $ref: '#/components/schemas/IntegrationSettings'
         provider_tenant_id:
           type: string
+          description: Verified provider identity, omitted until first connection. Retained after disconnect.
         provider_account_ref:
           type: string
+          description: Verified provider account, omitted until first connection. Retained after disconnect.
         provider_agent_display_name:
           $ref: '#/components/schemas/IntegrationProviderDisplayName'
         credential_secret_id:

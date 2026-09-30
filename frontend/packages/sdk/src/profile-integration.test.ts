@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  chatIntegrationLauncher,
   githubIntegrationSettings,
   profileIntegrationDiscordKeyStatus,
   profileIntegrationProfileUpdate,
@@ -87,17 +86,10 @@ describe('integration-owned launcher settings', () => {
     expect(() => profileIntegrationSetup({ ...input, profileIds: [first, second] })).toThrow(
       'exactly one profile',
     )
+    expect(() => githubIntegrationSettings({ launcher: { profiles: [first, second] } })).toThrow()
     expect(() =>
       profileIntegrationSetup({ ...input, repositoryId: '9223372036854775808' }),
     ).toThrow()
-  })
-  it('rejects removed slots rather than quietly changing launch behavior', () => {
-    expect(() =>
-      chatIntegrationLauncher({
-        launcher: { slots: [{ key: 'default', agent_profile_id: first }] },
-      }),
-    ).toThrow()
-    expect(() => githubIntegrationSettings({ launcher: { profiles: [first, second] } })).toThrow()
   })
   it('requires a valid Discord key for a launcher or interactions', () => {
     const input = {

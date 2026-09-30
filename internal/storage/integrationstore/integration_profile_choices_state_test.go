@@ -31,15 +31,17 @@ func TestIntegrationProfileChoiceStateCodec(t *testing.T) {
 		require.JSONEq(t, `"menu"`, string(fields["message_id"]))
 		require.JSONEq(t, `"`+record.OwnerReceiptID.String()+`"`, string(fields["owner_receipt_id"]))
 		deadline := time.Now().Add(time.Hour)
+		createdAt := deadline.Add(-time.Hour)
 		row := dbsqlc.IntegrationState{
 			Kind: integrationProfileChoiceKind, Key: record.SourceKey, IntegrationID: record.IntegrationID,
 			ScopeKind: &record.Address.Kind, ScopeRef: &record.Address.Ref,
-			Data: data, ExpiresAt: &deadline, Revision: 2,
+			Data: data, CreatedAt: createdAt, ExpiresAt: &deadline, Revision: 2,
 		}
 		decoded, err := integrationProfileChoiceRecord(row)
 		require.NoError(t, err)
 		require.Equal(t, record.Payload, decoded.Payload)
 		require.Equal(t, record.SelectedKey, decoded.SelectedKey)
+		require.Equal(t, createdAt, decoded.CreatedAt)
 		require.EqualValues(t, 2, decoded.Revision)
 		fields["additional_state"] = json.RawMessage(`{"important":true}`)
 		row.Data, err = json.Marshal(fields)

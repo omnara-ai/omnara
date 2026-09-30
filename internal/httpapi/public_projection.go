@@ -8,6 +8,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -52,11 +53,20 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 	if record.IntegrationTarget.Provider != "" &&
 		record.IntegrationTarget.ProviderRef != "" &&
 		record.IntegrationTarget.ProviderRefKind != "" {
+		scope, err := integrationdefinition.ParseConversation(
+			record.IntegrationTarget.Provider, record.IntegrationTarget.ProviderRefKind, record.IntegrationTarget.ProviderRef,
+		)
+		if err != nil {
+			return openapi.Agent{}, err
+		}
+		conversation, err := scope.ConversationJSON()
+		if err != nil {
+			return openapi.Agent{}, err
+		}
 		target := openapi.IntegrationTarget{
-			Provider:        record.IntegrationTarget.Provider,
-			ProviderRef:     record.IntegrationTarget.ProviderRef,
-			ProviderRefKind: record.IntegrationTarget.ProviderRefKind,
-			DisplayName:     record.IntegrationTarget.DisplayName,
+			Provider:     record.IntegrationTarget.Provider,
+			Conversation: conversation,
+			DisplayName:  record.IntegrationTarget.DisplayName,
 		}
 		if providerURI := integrationTargetProviderURI(record.IntegrationTarget); providerURI != "" {
 			target.ProviderUri = &providerURI

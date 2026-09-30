@@ -124,23 +124,23 @@ func validateThreadSchedulePlan(provider string, plan SchedulePlan) error {
 	if err != nil {
 		return err
 	}
-	if len(plan.Slots) != 1 || plan.Slots[0].Key != "scheduled" {
+	if len(plan.Launches) != 1 || plan.Launches[0].Key != "scheduled" {
 		return fmt.Errorf("thread schedule requires one launch")
 	}
-	slot := plan.Slots[0]
-	if slot.ProfileID != profileID {
+	launch := plan.Launches[0]
+	if launch.ProfileID != profileID {
 		return fmt.Errorf("scheduled profile differs from integration settings")
 	}
-	if err := slot.Scope.Validate(provider); err != nil {
+	if err := launch.Scope.Validate(provider); err != nil {
 		return err
 	}
 	matches := false
 	switch provider {
 	case ProviderSlack:
-		matches = slot.Scope.Slack.ThreadTS != "" && slot.Scope.Slack.ChannelID == settings.ChannelID
+		matches = launch.Scope.Slack.ThreadTS != "" && launch.Scope.Slack.ChannelID == settings.ChannelID
 	case ProviderDiscord:
-		matches = slot.Scope.Discord.ThreadID != "" && slot.Scope.Discord.GuildID != "" &&
-			slot.Scope.Discord.ChannelID == settings.ChannelID
+		matches = launch.Scope.Discord.ThreadID != "" && launch.Scope.Discord.GuildID != "" &&
+			launch.Scope.Discord.ChannelID == settings.ChannelID
 	}
 	if !matches {
 		return fmt.Errorf("scheduled thread differs from its configured parent")
@@ -153,11 +153,11 @@ func validateThreadSchedulePlan(provider string, plan SchedulePlan) error {
 	if err != nil {
 		return err
 	}
-	content, err = AppendInputContext(plan.IntegrationName, slot.Scope, content)
+	content, err = AppendInputContext(plan.IntegrationName, launch.Scope, content)
 	if err != nil {
 		return err
 	}
-	if !jsoncanonical.Equal(content, slot.Content) {
+	if !jsoncanonical.Equal(content, launch.Content) {
 		return fmt.Errorf("scheduled input differs from integration settings")
 	}
 	return nil

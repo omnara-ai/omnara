@@ -15,6 +15,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -384,6 +385,8 @@ type fakeContextStore struct {
 	toolCalls                     []executionstore.ToolCallRecord
 	completedToolCallWatermark    int64
 	integrationDefinitions        map[uuid.UUID]agentconfig.IntegrationResolution
+	integrationConversations      map[uuid.UUID]integrationstore.ConversationAddress
+	integrationConversationReads  int
 	integrationDefinitionRequests []integrationDefinitionRequest
 	integrationDefinitionsErr     error
 	watermark                     int64
@@ -511,6 +514,14 @@ func (s *fakeContextStore) ListCompletedToolCallsAtWatermark(
 type integrationDefinitionRequest struct {
 	ProjectID uuid.UUID
 	IDs       []uuid.UUID
+}
+
+func (s *fakeContextStore) GetAgentIntegrationConversation(
+	_ context.Context, _, _, id uuid.UUID,
+) (integrationstore.ConversationAddress, bool, error) {
+	s.integrationConversationReads++
+	address, ok := s.integrationConversations[id]
+	return address, ok, nil
 }
 
 func (s *fakeContextStore) ResolveIntegrationDefinitions(

@@ -28,7 +28,7 @@ func TestDiscordRoutedThreadNormalizesAfterSingleChannelRead(t *testing.T) {
 				f.message.Mentions = nil
 			}
 			raw := discordInboxPayload(t, f.message)
-			want, ok, err := NormalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels["400"])
+			want, ok, err := normalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels["400"])
 			require.NoError(t, err)
 			require.True(t, ok)
 			calls := 0

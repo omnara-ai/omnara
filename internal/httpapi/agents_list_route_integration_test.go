@@ -155,8 +155,7 @@ func TestListAgents(t *testing.T) {
 					t,
 					row,
 					"slack",
-					"C0BAK8REEGY:1783382417.000100",
-					"thread",
+					map[string]any{"channel_id": "C0BAK8REEGY", "thread_ts": "1783382417.000100"},
 					"agent-testing",
 					"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
 				)
@@ -215,7 +214,7 @@ func TestListAgents(t *testing.T) {
 				gotNames = append(gotNames, testutil.RequireType[string](t, row["name"]))
 				if row["id"] == slackTargetAgentID {
 					assertListAgentsIntegrationTarget(
-						t, row, "slack", "C0BAK8REEGY:1783382417.000100", "thread", "agent-testing",
+						t, row, "slack", map[string]any{"channel_id": "C0BAK8REEGY", "thread_ts": "1783382417.000100"}, "agent-testing",
 						"https://slack.com/app_redirect?channel=C0BAK8REEGY&team=TLISTAGENTS",
 					)
 				}
@@ -583,12 +582,12 @@ func seedListAgentsSlackTarget(
 			Actor: &actor, SemanticKey: "list-origin",
 			ContentBlocks: json.RawMessage(`[{"type":"text","text":"list origin"}]`),
 		},
-		"recipients": map[string]executionstore.InboxInputSlot{"recipient": {AgentID: agent.ID}},
+		"recipients": map[string]executionstore.InboxInputRecipient{"recipient": {AgentID: agent.ID}},
 	})
 	require.NoError(t, err)
 	require.NoError(t, store.Integrations().WithIntegrationInboxLease(ctx, receipt.Lease(),
 		func(w *integrationstore.IntegrationInboxLeaseTx) error { return w.FreezePlan(ctx, plan) }))
-	_, err = store.Execution().AdmitInboxInputSlot(ctx, receipt.Lease(), "recipient", nil)
+	_, err = store.Execution().AdmitInboxInputRecipient(ctx, receipt.Lease(), "recipient", nil)
 	require.NoError(t, err)
 	claim, found, err := store.Execution().ClaimNextAgentWork(ctx, httpTestClaimInput())
 	require.NoError(t, err)
@@ -616,8 +615,7 @@ func assertListAgentsIntegrationTarget(
 	t *testing.T,
 	row map[string]any,
 	provider string,
-	providerRef string,
-	refKind string,
+	conversation map[string]any,
 	displayName string,
 	providerURI string,
 ) {
@@ -634,12 +632,7 @@ func assertListAgentsIntegrationTarget(
 	if got := target["provider"]; got != provider {
 		t.Fatalf("integration target provider = %v, want %q", got, provider)
 	}
-	if got := target["provider_ref"]; got != providerRef {
-		t.Fatalf("integration target provider_ref = %v, want %q", got, providerRef)
-	}
-	if got := target["provider_ref_kind"]; got != refKind {
-		t.Fatalf("integration target provider_ref_kind = %v, want %q", got, refKind)
-	}
+	require.Equal(t, conversation, target["conversation"])
 	if got := target["display_name"]; got != displayName {
 		t.Fatalf("integration target display_name = %v, want %q", got, displayName)
 	}

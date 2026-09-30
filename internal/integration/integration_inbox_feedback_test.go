@@ -38,8 +38,8 @@ func feedbackPlan(t *testing.T, scope integrationdefinition.Scope) json.RawMessa
 	t.Helper()
 	return githubEventJSON(t, IntegrationInboxPlan{
 		Message: &executionstore.InboxMessage{Scope: scope},
-		Recipients: map[string]IntegrationInboxSlot{"scheduled": {
-			AgentID: uuid.New(), Selection: &integrationstore.InboxIntegrationSelection{},
+		Recipients: map[string]IntegrationInboxRecipient{"scheduled": {
+			AgentID: uuid.New(), LaunchClaim: &integrationstore.InboxLaunchClaim{},
 			Launch: &executionstore.InboxLaunchPlan{},
 		}},
 	})
@@ -72,7 +72,7 @@ func TestSlackNotifyInboxFailureDestination(t *testing.T) {
 				normalized, ok, err := NormalizeSlackIntegrationEvent(integration, receipt.Payload)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.Source, receipt.StateID = integrationstore.IntegrationInboxSourceChoice, uuid.New()
+				receipt.Source, receipt.SourceStateID = integrationstore.IntegrationInboxSourceState, uuid.New()
 				access.choice = feedbackChoice(t, receipt, normalized)
 				receipt.Payload = []byte(`{"menu_callback":"not the source"}`)
 				wantText = selectedInboxFailureMessage
@@ -219,14 +219,14 @@ func TestDiscordNotifyInboxFailureDestination(t *testing.T) {
 			receipt := feedbackReceipt(f.integrationSetup, discordInboxPayload(t, f.message))
 			wantText := inboxFailureMessage
 			if tc.selected {
-				event, ok, err := NormalizeDiscordIntegrationEvent(
+				event, ok, err := normalizeDiscordIntegrationEvent(
 					f.integrationSetup,
 					receipt.Payload,
 					f.channels[f.message.ChannelID],
 				)
 				require.NoError(t, err)
 				require.True(t, ok)
-				receipt.Source, receipt.StateID = integrationstore.IntegrationInboxSourceChoice, uuid.New()
+				receipt.Source, receipt.SourceStateID = integrationstore.IntegrationInboxSourceState, uuid.New()
 				f.choice = feedbackChoice(t, receipt, event)
 				receipt.Payload = []byte(`{"interaction":"not the source"}`)
 				wantText = selectedInboxFailureMessage
@@ -377,7 +377,7 @@ func feedbackChoice(
 	t *testing.T, receipt integrationstore.IntegrationInboxRecord, event IntegrationEvent,
 ) integrationstore.IntegrationProfileChoiceRecord {
 	return integrationstore.IntegrationProfileChoiceRecord{
-		ID: receipt.StateID, ProjectID: receipt.ProjectID, IntegrationID: receipt.IntegrationID,
+		ID: receipt.SourceStateID, ProjectID: receipt.ProjectID, IntegrationID: receipt.IntegrationID,
 		Event: githubEventJSON(t, event), SelectedKey: "selected",
 		Options: []integrationstore.IntegrationProfileChoiceOption{{Key: "selected", ProfileID: uuid.New()}},
 	}

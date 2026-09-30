@@ -619,7 +619,7 @@ func TestSlackEventsReusesStoredDisplayNames(t *testing.T) {
 		ctx,
 		pool,
 		input,
-		"This message directly mentioned the agent inside an existing Slack thread.\n\n"+
+		"This message directly mentioned the agent inside a Slack thread that is already attached to this agent.\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) follow up",
 		[]bool{true, false},
@@ -2772,7 +2772,7 @@ func TestSlackEventsThreadStartHistoryFetchBoundsBeforeTrigger(t *testing.T) {
 		pool,
 		input,
 		"This message directly mentioned the agent inside an existing Slack thread.\n\n"+
-			"Recent Slack context:\n"+
+			"Earlier Slack thread context (first page, oldest-first; newer replies may be omitted):\n"+
 			"<@U999> (Grace): earlier\n\n"+
 			"<@U123> (Ada) in <#C123> (#general), thread 111.222:\n"+
 			"<@U_BOT> (Omnara) use the prior context",
@@ -2918,6 +2918,7 @@ func TestSlackEventsPostsMessageOnlyAfterTerminalAgentLaunchFailure(t *testing.T
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	postedMessages := make(chan map[string]any, 1)
+	expectedAttempts := integrationstore.IntegrationInboxMaxAttempts
 	slackServer := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -2951,7 +2952,7 @@ SELECT state,attempt_count,completed_at IS NOT NULL
 FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 `).Scan(&state, &attempts, &completed); err != nil {
 					t.Errorf("read receipt during failure notice: %v", err)
-				} else if state != "failed" || attempts != integrationstore.IntegrationInboxMaxAttempts || !completed {
+				} else if state != "failed" || attempts != expectedAttempts || !completed {
 					t.Errorf("notice preceded terminal commit: state=%s attempts=%d completed=%v", state, attempts, completed)
 				}
 				select {
@@ -3069,7 +3070,8 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 		authHeaders(fixture.Project.AdminToken),
 	)
 
-	assertLaunchFailure := func(eventID, threadTS string) {
+	assertLaunchFailure := func(eventID, threadTS, expectedMessage string, maxAttempts int) {
+		expectedAttempts = maxAttempts
 		t.Helper()
 		body := fmt.Sprintf(
 			`{"type":"event_callback","team_id":"T123","api_app_id":"A123","event_id":"%s","authorizations":[{"team_id":"T123","user_id":"U_BOT","is_bot":true}],"event":{"type":"app_mention","user":"U123","text":"<@U_BOT> run","channel":"C123","channel_type":"channel","ts":"%s","team":"T123"}}`,
@@ -3089,7 +3091,7 @@ FROM integration_inbox ORDER BY created_at DESC LIMIT 1
 		require.Equal(t, "received", response["ok"])
 		worker := slackJourneyWorker(fixture.Project, fixture.Slack)
 		var frozenPlan json.RawMessage
-		for attempt := 1; attempt <= integrationstore.IntegrationInboxMaxAttempts; attempt++ {
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			if attempt > 1 {
 				_, err := pool.Exec(ctx,
 					`UPDATE integration_inbox SET next_attempt_at=now() WHERE project_id=$1 AND receipt_key=$2`,
@@ -3119,7 +3121,7 @@ FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 			} else {
 				require.JSONEq(t, string(frozenPlan), string(plan), "retries retain the frozen plan")
 			}
-			if attempt < integrationstore.IntegrationInboxMaxAttempts {
+			if attempt < maxAttempts {
 				require.Equal(t, "queued", state)
 				require.False(t, completed)
 				require.True(t, retryScheduled, "retry keeps the existing backoff")
@@ -3137,7 +3139,7 @@ FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 		case message := <-postedMessages:
 			require.Equal(t, "C123", message["channel"])
 			require.Equal(t, threadTS, message["thread_ts"])
-			require.Equal(t, "I couldn't deliver this request to the agent. Please send your message again.", message["text"])
+			require.Equal(t, expectedMessage, message["text"])
 			require.NotContains(t, message, "metadata", "failure notice must not claim an accepted agent message")
 		default:
 			t.Fatal("terminal worker attempt did not post a failure notice")
@@ -3162,7 +3164,9 @@ FROM integration_inbox WHERE project_id=$1 AND receipt_key=$2
 		require.Zero(t, agentCount, "failed admission must not create agents")
 	}
 
-	assertLaunchFailure("Ev-launch-capacity-failure", "111.444")
+	assertLaunchFailure("Ev-launch-capacity-failure", "111.444",
+		"I couldn't deliver this request to the agent. Please send your message again.",
+		integrationstore.IntegrationInboxMaxAttempts)
 	result, err := pool.Exec(ctx, `
 UPDATE machine_pools
 SET max_total_machines = 1,
@@ -3183,7 +3187,8 @@ SET new_managed_work_allowed = EXCLUDED.new_managed_work_allowed
 `, fixture.Project.OrgUUID); err != nil {
 		t.Fatalf("disable managed work admission: %v", err)
 	}
-	assertLaunchFailure("Ev-launch-admission-failure", "111.445")
+	assertLaunchFailure("Ev-launch-admission-failure", "111.445",
+		"The Omnara agent is unavailable. Please contact the integration owner.", 1)
 }
 
 func TestSlackEventsLauncherIndependentOfDisabledPostTool(
@@ -4313,7 +4318,7 @@ func slackJourneyTarget(
 	}
 	if len(ids) != 1 {
 		t.Fatalf(
-			"fixture expected one live target for %s, got %d; assert explicit integration/slot membership",
+			"fixture expected one live target for %s, got %d; assert explicit integration/launch-key membership",
 			ref,
 			len(ids),
 		)

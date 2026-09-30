@@ -45,20 +45,20 @@ func (a *failedInboxArtifacts) DeleteUnreferencedPreparedArtifact(
 
 type failedInboxExecution struct {
 	IntegrationExecutionStore
-	outcomes map[string]executionstore.InboxSlotOutcome
+	outcomes map[string]executionstore.InboxRecipientOutcome
 	err      error
 }
 
 func (s failedInboxExecution) GetIntegrationInboxOutcomes(
 	context.Context, integrationstore.IntegrationInboxRecord,
-) (map[string]executionstore.InboxSlotOutcome, error) {
+) (map[string]executionstore.InboxRecipientOutcome, error) {
 	return s.outcomes, s.err
 }
 
 func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 	for _, scenario := range []struct {
 		name           string
-		outcomes       map[string]executionstore.InboxSlotOutcome
+		outcomes       map[string]executionstore.InboxRecipientOutcome
 		planned, empty bool
 		wantNotice     bool
 		wantPartial    bool
@@ -67,36 +67,36 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 		{"unrouted", nil, true, true, false, false},
 		{
 			"complete bookkeeping failed",
-			map[string]executionstore.InboxSlotOutcome{
-				"a": executionstore.InboxSlotDelivered, "b": executionstore.InboxSlotDelivered,
+			map[string]executionstore.InboxRecipientOutcome{
+				"a": executionstore.InboxRecipientDelivered, "b": executionstore.InboxRecipientDelivered,
 			},
 			true, false, false, false,
 		},
 		{
 			"partially admitted",
-			map[string]executionstore.InboxSlotOutcome{
-				"a": executionstore.InboxSlotDelivered, "b": executionstore.InboxSlotPending,
+			map[string]executionstore.InboxRecipientOutcome{
+				"a": executionstore.InboxRecipientDelivered, "b": executionstore.InboxRecipientPending,
 			},
 			true, false, true, true,
 		},
 		{
 			"skipped and unfinished",
-			map[string]executionstore.InboxSlotOutcome{
-				"a": executionstore.InboxSlotSkipped, "b": executionstore.InboxSlotPending,
+			map[string]executionstore.InboxRecipientOutcome{
+				"a": executionstore.InboxRecipientSkipped, "b": executionstore.InboxRecipientPending,
 			},
 			true, false, true, false,
 		},
 		{
 			"skipped and delivered",
-			map[string]executionstore.InboxSlotOutcome{
-				"a": executionstore.InboxSlotSkipped, "b": executionstore.InboxSlotDelivered,
+			map[string]executionstore.InboxRecipientOutcome{
+				"a": executionstore.InboxRecipientSkipped, "b": executionstore.InboxRecipientDelivered,
 			},
 			true, false, false, false,
 		},
 		{
 			"all skipped",
-			map[string]executionstore.InboxSlotOutcome{
-				"a": executionstore.InboxSlotSkipped, "b": executionstore.InboxSlotSkipped,
+			map[string]executionstore.InboxRecipientOutcome{
+				"a": executionstore.InboxRecipientSkipped, "b": executionstore.InboxRecipientSkipped,
 			},
 			true, false, false, false,
 		},
@@ -109,13 +109,15 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 				State: integrationstore.IntegrationInboxFailed,
 			}
 			if scenario.planned {
-				plan := IntegrationInboxPlan{Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{}}
+				plan := IntegrationInboxPlan{
+					Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxRecipient{},
+				}
 				if !scenario.empty {
-					plan.Recipients["a"] = IntegrationInboxSlot{
+					plan.Recipients["a"] = IntegrationInboxRecipient{
 						AgentID:     uuid.New(),
 						ArtifactIDs: []uuid.UUID{files[0]},
 					}
-					plan.Recipients["b"] = IntegrationInboxSlot{
+					plan.Recipients["b"] = IntegrationInboxRecipient{
 						AgentID:     uuid.New(),
 						ArtifactIDs: []uuid.UUID{files[1]},
 					}
@@ -137,7 +139,7 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 				nil,
 				nil,
 			)
-			err := consumer.FinalizeFailure(t.Context(), project, receiptID)
+			err := consumer.FinalizeFailure(t.Context(), project, receiptID, nil)
 			if scenario.wantNotice {
 				require.ErrorIs(t, err, provider.err)
 				require.Equal(t, 1, provider.notices)
@@ -158,7 +160,8 @@ func TestIntegrationFailureFinalizationPreservesAcceptedWork(t *testing.T) {
 			require.Equal(t, wantChecked, artifacts.checked, "notice outcome must not skip durable-reference checks")
 			require.Equal(t, receipt, store.receipt)
 			store.receipt.State = integrationstore.IntegrationInboxQueued
-			require.ErrorIs(t, consumer.FinalizeFailure(t.Context(), project, receiptID), storeerr.ErrStateTransitionConflict)
+			require.ErrorIs(t, consumer.FinalizeFailure(t.Context(), project, receiptID, nil),
+				storeerr.ErrStateTransitionConflict)
 		})
 	}
 }
@@ -167,12 +170,12 @@ func TestIntegrationFailureCleanupReadsOnlyForPlannedArtifacts(t *testing.T) {
 	for _, scenario := range []string{"text only", "file", "outcome unavailable"} {
 		t.Run(scenario, func(t *testing.T) {
 			projectID, receiptID, integrationID := uuid.New(), uuid.New(), uuid.New()
-			slot := IntegrationInboxSlot{AgentID: uuid.New()}
+			recipient := IntegrationInboxRecipient{AgentID: uuid.New()}
 			if scenario != "text only" {
-				slot.ArtifactIDs = []uuid.UUID{uuid.New()}
+				recipient.ArtifactIDs = []uuid.UUID{uuid.New()}
 			}
 			plan, err := json.Marshal(IntegrationInboxPlan{
-				Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxSlot{"slot": slot},
+				Message: &executionstore.InboxMessage{}, Recipients: map[string]IntegrationInboxRecipient{"recipient": recipient},
 			})
 			require.NoError(t, err)
 			inbox := &cleanupCountingInbox{integrationPlanStore: integrationPlanStore{
@@ -195,7 +198,7 @@ func TestIntegrationFailureCleanupReadsOnlyForPlannedArtifacts(t *testing.T) {
 			consumer := NewIntegrationInboxConsumer(
 				NewIntegrationRouter(failedInboxExecution{
 					err:      outcomeErr,
-					outcomes: map[string]executionstore.InboxSlotOutcome{"slot": executionstore.InboxSlotPending},
+					outcomes: map[string]executionstore.InboxRecipientOutcome{"recipient": executionstore.InboxRecipientPending},
 				}, inbox),
 				inbox,
 				artifacts,
@@ -203,7 +206,7 @@ func TestIntegrationFailureCleanupReadsOnlyForPlannedArtifacts(t *testing.T) {
 				nil,
 				nil,
 			)
-			err = consumer.FinalizeFailure(t.Context(), projectID, receiptID)
+			err = consumer.FinalizeFailure(t.Context(), projectID, receiptID, nil)
 			if outcomeErr != nil {
 				require.ErrorIs(t, err, outcomeErr)
 				require.Zero(t, provider.notices, "unknown delivery must not produce a misleading failure notice")
@@ -214,11 +217,25 @@ func TestIntegrationFailureCleanupReadsOnlyForPlannedArtifacts(t *testing.T) {
 			}
 			if scenario != "text only" {
 				require.Equal(t, 2, inbox.reads)
-				require.Equal(t, slot.ArtifactIDs, artifacts.checked)
+				require.Equal(t, recipient.ArtifactIDs, artifacts.checked)
 			} else {
 				require.Equal(t, 1, inbox.reads, "text-only failure needs no cleanup receipt read")
 				require.Empty(t, artifacts.checked)
 			}
 		})
 	}
+}
+
+func TestIntegrationFailureAdmissionDeniedContactsOwner(t *testing.T) {
+	project, integration, receiptID := uuid.New(), uuid.New(), uuid.New()
+	store := &integrationPlanStore{receipt: integrationstore.IntegrationInboxRecord{
+		ID: receiptID, ProjectID: project, IntegrationID: integration, State: integrationstore.IntegrationInboxFailed,
+	}, integrationSetup: integrationstore.IntegrationRecord{ID: integration, ProjectID: project, Provider: "slack"}}
+	provider := &failedInboxProvider{}
+	consumer := NewIntegrationInboxConsumer(
+		nil, store, nil, map[string]IntegrationInboxProvider{"slack": provider}, nil, nil,
+	)
+	require.NoError(t, consumer.FinalizeFailure(t.Context(), project, receiptID, storeerr.ErrManagedWorkAdmissionDenied))
+	require.Equal(t, 1, provider.notices)
+	require.Equal(t, launchUnavailableMessage, provider.message)
 }

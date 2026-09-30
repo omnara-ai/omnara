@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -109,7 +110,7 @@ func immediateIntegrationBackgroundRunner(ctx context.Context) BackgroundRunner 
 	})
 }
 
-func TestPostIntegrationRuntimeMessageUsesSelectedHandler(t *testing.T) {
+func TestRuntimeFailureUsesLaunchConversationWithoutSelectedHandler(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "runtime-message")
 	prepareInteractionPromptFixture(t, ctx, fixture)
@@ -139,7 +140,7 @@ func TestPostIntegrationRuntimeMessageUsesSelectedHandler(t *testing.T) {
 			return
 		}
 		if payload.Channel != "C123" || payload.ThreadTS != "111.222" ||
-			payload.Text != "I couldn't complete this request: model unavailable" {
+			payload.Text != integrationruntime.AgentRequestFailureMessage {
 			t.Errorf("unexpected runtime message payload: %+v", payload)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
@@ -148,24 +149,22 @@ func TestPostIntegrationRuntimeMessageUsesSelectedHandler(t *testing.T) {
 	}))
 	defer server.Close()
 
-	executor := Executor{
-		Store:                 fixture.Store,
-		IntegrationHTTPClient: integrationProviderTestClient(server),
+	notifier := integrationruntime.RuntimeFailureNotifier{
+		Store: fixture.Store, HTTPClient: integrationProviderTestClient(server),
 	}
-	if err := executor.PostIntegrationRuntimeMessage(
-		ctx,
-		fixture.turn(),
-		"I couldn't complete this request: model unavailable",
-	); err != nil {
-		t.Fatalf("post runtime message: %v", err)
-	}
+	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
+	require.Zero(t, postCount, "a selected handler and tool assignment do not establish launch ownership")
+	markRuntimeLaunchOwner(t, fixture)
+	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
 	if postCount != 1 {
 		t.Fatalf("post count = %d, want 1", postCount)
 	}
 	activateInteractionToolHandlers(t, ctx, fixture)
-	require.NoError(t, executor.PostIntegrationRuntimeMessage(ctx, fixture.turn(), "dashboard only"))
-	require.Equal(t, 1, postCount)
-
+	selection, err := fixture.Store.Execution().GetInteractionSelection(ctx, toolsTestProjectID, fixture.Agent.ID)
+	require.NoError(t, err)
+	require.Empty(t, selection.HandlerKey)
+	require.NoError(t, notifier.Notify(ctx, toolsTestProjectID, fixture.Agent.ID, fixture.Lock.ID))
+	require.Equal(t, 2, postCount, "clearing the interaction handler must not clear the launch destination")
 }
 
 func TestIntegrationQuestionPromptDisabledTargetFallsBackToOmnara(t *testing.T) {
@@ -968,7 +967,7 @@ VALUES ($1, $2, 'Tools Integration Project', $3, $4, $4)
 	if fixtureOptions.toolContextAddress.Kind != "" {
 		address = fixtureOptions.toolContextAddress
 	}
-	origin := &executionstore.LaunchInputOrigin{IntegrationID: install.ID, Address: address}
+	origin := &executionstore.AgentInputOrigin{IntegrationID: install.ID, Address: address}
 	integrationActor, err := executionstore.IntegrationActorParams(install, "U_FIXTURE", nil)
 	require.NoError(t, err)
 	actor := &integrationActor

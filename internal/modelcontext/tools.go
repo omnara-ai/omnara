@@ -40,6 +40,11 @@ func RuntimeContractToolSpecs(
 	if err != nil {
 		return nil, err
 	}
+	if err := describeIntegrationToolConversations(
+		ctx, store, projectID, agentID, contract, integrations, prepared,
+	); err != nil {
+		return nil, err
+	}
 	runtimeTools := append(append([]agentconfig.RuntimeTool(nil), contract.Tools...), prepared...)
 	for _, tool := range runtimeTools {
 		if tool.Name == "" {

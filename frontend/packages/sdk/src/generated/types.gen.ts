@@ -925,7 +925,7 @@ export type GitHubSetup = {
 };
 
 export type InspectGitHubInstallationsRequest = {
-    credentials_secret_ref: SecretId;
+    credential_secret_id: SecretId;
     page?: number;
 };
 
@@ -1729,8 +1729,7 @@ export type AgentModel = {
 
 export type IntegrationTarget = {
     provider: string;
-    provider_ref: string;
-    provider_ref_kind: string;
+    conversation: IntegrationConversation;
     display_name: string;
     provider_uri?: string;
 };
@@ -3834,7 +3833,7 @@ export type UpdateIntegrationRequest = {
 /**
  * Creates a disconnected integration. Name and integration_kind are immutable. Configure credentials through this integration's setup endpoints.
  */
-export type SaveIntegrationRequest = {
+export type CreateIntegrationRequest = {
     name: IntegrationName;
     integration_kind: IntegrationKind;
     settings: IntegrationSettings;
@@ -3853,8 +3852,14 @@ export type Integration = {
     last_oauth_flow_id?: IntegrationOAuthFlowId;
     runtime_failure?: IntegrationRuntimeFailure;
     settings: IntegrationSettings;
-    provider_tenant_id: string;
-    provider_account_ref: string;
+    /**
+     * Verified provider identity, omitted until first connection. Retained after disconnect.
+     */
+    provider_tenant_id?: string;
+    /**
+     * Verified provider account, omitted until first connection. Retained after disconnect.
+     */
+    provider_account_ref?: string;
     provider_agent_display_name: IntegrationProviderDisplayName;
     credential_secret_id?: SecretId;
     provider_config: IntegrationProviderConfig;
@@ -14923,7 +14928,7 @@ export type ListIntegrationsResponses = {
 export type ListIntegrationsResponse2 = ListIntegrationsResponses[keyof ListIntegrationsResponses];
 
 export type CreateIntegrationData = {
-    body: SaveIntegrationRequest;
+    body: CreateIntegrationRequest;
     path: {
         orgID: OrganizationId;
         projectID: ProjectId;

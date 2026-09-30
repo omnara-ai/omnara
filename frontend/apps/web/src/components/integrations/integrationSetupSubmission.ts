@@ -31,11 +31,11 @@ export async function submitIntegrationSetup(
       .trim()
   if (integration.integration_kind === 'slack_thread')
     throw new Error('Use Slack authorization to connect this integration.')
-  const tenant = integration.provider_tenant_id || value('tenant')
+  const savedTenant = integration.provider_tenant_id ?? ''
+  const savedAccount = integration.provider_account_ref ?? ''
+  const tenant = savedTenant || value('tenant')
   const account =
-    integration.integration_kind === 'github_pr'
-      ? integration.provider_account_ref || value('account')
-      : undefined
+    integration.integration_kind === 'github_pr' ? savedAccount || value('account') : undefined
   const identity = z.string().regex(/^[1-9][0-9]*$/, 'Enter a positive numeric provider ID.')
   identity.parse(tenant)
   if (integration.integration_kind === 'github_pr') identity.parse(account)

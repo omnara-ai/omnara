@@ -23,11 +23,6 @@ config migrations committed before the integration preflight runs. The original 
 must not restart against that changed schema; use matching images or restore the
 pre-upgrade backup.
 
-Development or preview databases that already applied an earlier revision of this
-PR, including when its migrations used earlier numbers, must be rebuilt or restored
-from a pre-integration baseline before applying this release. Goose does not rerun
-an applied version when its file changes.
-
 Inventory your deployment before scheduling. Set the window from a restored-copy
 rehearsal with the exact release artifacts, allowing time for recovery. Local
 fixture tests establish neither production readiness nor a fixed completion time.
@@ -61,18 +56,20 @@ fixture tests establish neither production readiness nor a fixed completion time
 The project `/integration-installs` API is replaced by `/integrations`; public
 integration IDs use `itg_` rather than `iin_`. Internal IDs and audit references
 are preserved. Upgrade clients and generated SDKs with the cluster release.
-Integrations own credentials, setup and optional launcher settings; there is no
-separate connection API. `Agent.integration_target` is the selected destination for
+Integrations own credentials, setup and optional launcher settings. `Agent.integration_target` is the selected destination for
 question and approval prompts, not the launch origin or posting authority. The selection
 can remain while the integration is disconnected; prompts then fall back to the dashboard.
+Its `provider_ref_kind` and `provider_ref` fields are replaced by a provider-shaped
+`conversation` object, such as `{"channel_id":"C123","thread_ts":"123.456"}` for a Slack thread.
+Slack channels and DMs both use `channel_id`; there is no separate kind field.
 Captured interaction destinations use `integration_id` and `integration_target_id`.
 OAuth return query parameters are `integration_oauth`, `integration_oauth_error`
 and `integration_id`. Existing interaction IDs (`int_`), target IDs (`itgt_`),
 OAuth flow IDs (`ioaf_`) and configured `/api/integrations/` webhook and OAuth
 callback URLs remain unchanged.
 
-Provider event logs use `integration_event.*`. Slack send results report unavailable
-setup as `integration_disconnected` instead of `integration_disabled`.
+Provider event logs use `integration_event.*`. Integration tool calls report unavailable
+setup as `integration_tool_failed`.
 Integration records and save requests identify behavior with `integration_kind`:
 `slack_thread`, `discord_thread` or `github_pr`. The `/integration-definitions`
 catalog returns `integration_kind` and `capabilities`. Neither integration records

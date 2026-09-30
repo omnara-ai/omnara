@@ -182,7 +182,7 @@ func (f profileChoiceHTTPFixture) menu(t *testing.T, other bool) integrationstor
 	})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.Equal(t, uuid.Nil, accepted.StateID)
+	require.Equal(t, uuid.Nil, accepted.SourceStateID)
 	claimed, found, err := store.ClaimIntegrationInbox(t.Context(), integrationstore.ClaimIntegrationInboxInput{
 		ProjectID: f.project.ProjectUUID, IntegrationID: f.integration.ID,
 		LeaseDuration: integrationstore.IntegrationInboxMaxLease,
@@ -345,9 +345,9 @@ func TestIntegrationProfileChoiceSignedCallbacksOnlyQueueOriginalRequest(t *test
 			require.Equal(t, integrationstore.IntegrationInboxQueued, receipt.State)
 			require.Nil(t, receipt.Plan, "the callback does not plan or admit a launch")
 			require.Nil(t, receipt.Payload, "receipt must not duplicate the saved provider source")
-			require.Equal(t, integrationstore.IntegrationInboxSourceChoice, receipt.Source)
+			require.Equal(t, integrationstore.IntegrationInboxSourceState, receipt.Source)
 			require.Equal(t, menu.Payload, chosen.Payload)
-			require.Equal(t, menu.ID, receipt.StateID, "the receipt references the immutable source choice")
+			require.Equal(t, menu.ID, receipt.SourceStateID, "the receipt references the immutable source choice")
 			require.Equal(t, menu.Event, chosen.Event)
 			for _, replay := range []struct{ key, actor string }{{"reviewer", actor}, {"support", actor + "2"}} {
 				f.assertAccepted(t, f.callback(t, menu, menu.ID, replay.key, replay.actor, false, nil), menu)

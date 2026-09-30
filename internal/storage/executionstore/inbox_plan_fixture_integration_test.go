@@ -10,16 +10,16 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-func marshalInboxLaunchPlan(slots map[string]executionstore.InboxLaunchSlot) ([]byte, error) {
+func marshalInboxLaunchPlan(recipients map[string]executionstore.InboxLaunchRecipient) ([]byte, error) {
 	var message *executionstore.InboxMessage
-	keys := make([]string, 0, len(slots))
-	for key := range slots {
+	keys := make([]string, 0, len(recipients))
+	for key := range recipients {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	if len(keys) > 0 {
-		slot := slots[keys[0]]
-		input := slot.InitialInput
+		recipient := recipients[keys[0]]
+		input := recipient.InitialInput
 		message = &executionstore.InboxMessage{
 			Scope: integrationdefinition.Scope{
 				Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "123.456"},
@@ -27,7 +27,7 @@ func marshalInboxLaunchPlan(slots map[string]executionstore.InboxLaunchSlot) ([]
 			ContentBlocks: input.ContentBlocks, Metadata: input.Metadata, Actor: input.Actor,
 			SemanticKey: input.SemanticEventKey, DeliveryMode: input.DeliveryMode,
 			CancelOpenInteractions: input.CancelOpenInteractions,
-			Files:                  slot.Files,
+			Files:                  recipient.Files,
 		}
 		if input.Origin != nil {
 			message.Origin = &executionstore.AgentInputOrigin{
@@ -39,25 +39,25 @@ func marshalInboxLaunchPlan(slots map[string]executionstore.InboxLaunchSlot) ([]
 		}
 	}
 	return json.Marshal(struct {
-		Message    *executionstore.InboxMessage              `json:"message"`
-		Recipients map[string]executionstore.InboxLaunchSlot `json:"recipients"`
-	}{message, slots})
+		Message    *executionstore.InboxMessage                   `json:"message"`
+		Recipients map[string]executionstore.InboxLaunchRecipient `json:"recipients"`
+	}{message, recipients})
 }
 
-func marshalInboxInputPlan(slot executionstore.InboxInputSlot) ([]byte, error) {
-	input := slot.Input
+func marshalInboxInputPlan(recipient executionstore.InboxInputRecipient) ([]byte, error) {
+	input := recipient.Input
 	message := executionstore.InboxMessage{
-		Scope: slot.Scope, ContentBlocks: input.ContentBlocks, Metadata: input.Metadata,
+		Scope: recipient.Scope, ContentBlocks: input.ContentBlocks, Metadata: input.Metadata,
 		Actor: input.Actor, Origin: input.Origin,
 		SemanticKey: input.IdempotencyKey, DeliveryMode: input.DeliveryMode,
 		CancelOpenInteractions: input.CancelOpenInteractions,
-		Sibling:                slot.Sibling, Files: slot.Files,
+		Sibling:                recipient.Sibling, Files: recipient.Files,
 	}
 	for i := range message.Files {
 		message.Files[i].ProviderFileID = "file"
 	}
 	return json.Marshal(struct {
-		Message    executionstore.InboxMessage              `json:"message"`
-		Recipients map[string]executionstore.InboxInputSlot `json:"recipients"`
-	}{message, map[string]executionstore.InboxInputSlot{"recipient": slot}})
+		Message    executionstore.InboxMessage                   `json:"message"`
+		Recipients map[string]executionstore.InboxInputRecipient `json:"recipients"`
+	}{message, map[string]executionstore.InboxInputRecipient{"recipient": recipient}})
 }

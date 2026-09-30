@@ -17,11 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func freezeInboxSelection(
+func freezeInboxLaunchClaim(
 	t *testing.T,
 	f inboxFixture,
 	name string,
-) (integrationstore.IntegrationInboxRecord, integrationstore.InboxIntegrationSelection) {
+) (integrationstore.IntegrationInboxRecord, integrationstore.InboxLaunchClaim) {
 	t.Helper()
 	var profileID uuid.UUID
 	require.NoError(
@@ -38,15 +38,15 @@ func freezeInboxSelection(
 		},
 	)
 	require.NoError(t, err)
-	selection := integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID,
+	claim := integrationstore.InboxLaunchClaim{IntegrationID: integration.ID,
 		Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"}, LaunchKey: "a"}
 	plan, err := json.Marshal(
 		map[string]any{"message": map[string]any{}, "recipients": map[string]any{"a": map[string]any{
 			"agent_id": uuid.Must(
 				uuid.NewV7(),
 			),
-			"selection": selection,
-			"launch":    map[string]any{"profile_id": profileID},
+			"launch_claim": claim,
+			"launch":       map[string]any{"profile_id": profileID},
 		}}},
 	)
 	require.NoError(t, err)
@@ -55,10 +55,10 @@ func freezeInboxSelection(
 	f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		return work.FreezePlan(f.ctx, plan)
 	})
-	return f.read(t, receipt.ID), selection
+	return f.read(t, receipt.ID), claim
 }
 
-func failInboxSelection(
+func failInboxLaunchClaim(
 	t *testing.T,
 	f inboxFixture,
 	receipt integrationstore.IntegrationInboxRecord,
@@ -70,11 +70,11 @@ func failInboxSelection(
 	return f.read(t, receipt.ID)
 }
 
-func TestInboxTerminalFailureRetainsDedupeAndReleasesSelection(t *testing.T) {
+func TestInboxTerminalFailureRetainsDedupeAndReleasesLaunchClaim(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	receipt, _ := freezeInboxSelection(t, f, "failed")
-	failed := failInboxSelection(t, f, receipt)
+	receipt, _ := freezeInboxLaunchClaim(t, f, "failed")
+	failed := failInboxLaunchClaim(t, f, receipt)
 	require.Equal(t, integrationstore.IntegrationInboxFailed, failed.State)
 	require.NotNil(t, failed.CompletedAt)
 	require.Equal(t, receipt.Plan, failed.Plan)
@@ -134,7 +134,7 @@ func TestInboxTerminalFailurePreservesRetainedTargets(t *testing.T) {
 		t.Run(map[bool]string{false: "active", true: "retired"}[retired], func(t *testing.T) {
 			t.Parallel()
 			f := newInboxFixture(t)
-			receipt, selection := freezeInboxSelection(t, f, "retained")
+			receipt, claim := freezeInboxLaunchClaim(t, f, "retained")
 			var configID uuid.UUID
 			require.NoError(
 				t,
@@ -161,15 +161,15 @@ func TestInboxTerminalFailurePreservesRetainedTargets(t *testing.T) {
   launch_key,deleted_at,created_at,updated_at)
  VALUES($1,$2,$3,'thread','C123:1.2','a',
   CASE WHEN $4 THEN now() ELSE NULL END,now(),now())`,
-				f.project, launch.Agent.ID, selection.IntegrationID, retired)
-			failed := failInboxSelection(t, f, receipt)
+				f.project, launch.Agent.ID, claim.IntegrationID, retired)
+			failed := failInboxLaunchClaim(t, f, receipt)
 			f.accept(t, "replacement")
 			replacement := f.claim(t)
 			err = f.store.WithIntegrationInboxLease(f.ctx, replacement.Lease(),
 				func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					return work.FreezePlan(f.ctx, failed.Plan)
 				})
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionSettled,
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchSettled,
 				"committed targets retain membership after the failed receipt releases its reservation")
 			f.exec(t, `UPDATE integration_inbox SET completed_at=now()-interval '8 days' WHERE id=$1`, receipt.ID)
 			count, err := f.store.CleanupTerminalIntegrationInbox(f.ctx, 7*24*time.Hour, 1)
@@ -186,7 +186,7 @@ func TestInboxTerminalFailurePreservesRetainedTargets(t *testing.T) {
 				func(work *integrationstore.IntegrationInboxLeaseTx) error {
 					return work.FreezePlan(f.ctx, failed.Plan)
 				})
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionSettled)
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchSettled)
 		})
 	}
 }
@@ -194,7 +194,7 @@ func TestInboxTerminalFailurePreservesRetainedTargets(t *testing.T) {
 func TestInboxReservationsExcludeFailedOwnersBeforeLimit(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	pending, selection := freezeInboxSelection(t, f, "still-preparing")
+	pending, claim := freezeInboxLaunchClaim(t, f, "still-preparing")
 	f.exec(t, `INSERT INTO integration_inbox(id,project_id,integration_id,receipt_key,payload,plan,state,completed_at)
  SELECT ('00000000-0000-7000-8000-'||lpad(n::text,12,'0'))::uuid,
         project_id,integration_id,'failed-'||n,payload,plan,'failed',now()
@@ -205,15 +205,15 @@ func TestInboxReservationsExcludeFailedOwnersBeforeLimit(t *testing.T) {
 		f.ctx,
 		follow.Lease(),
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
-			return work.CheckNoUnsettledIntegrationSelection(f.ctx, selection.Address)
+			return work.CheckNoUnsettledIntegrationLaunch(f.ctx, claim.Address)
 		},
 	)
-	var reservation *integrationstore.IntegrationSelectionReservationError
+	var reservation *integrationstore.IntegrationLaunchClaimError
 	require.ErrorAs(t, err, &reservation)
 	require.Equal(t, pending.ID, reservation.ReceiptID)
-	failInboxSelection(t, f, pending)
+	failInboxLaunchClaim(t, f, pending)
 	f.mutate(t, follow, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-		if err := work.CheckNoUnsettledIntegrationSelection(f.ctx, selection.Address); err != nil {
+		if err := work.CheckNoUnsettledIntegrationLaunch(f.ctx, claim.Address); err != nil {
 			return err
 		}
 		if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {

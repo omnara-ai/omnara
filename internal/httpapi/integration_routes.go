@@ -168,7 +168,7 @@ func (s strictOpenAPIServer) ListIntegrations(
 }
 
 func parseIntegrationRequest(
-	body *openapi.SaveIntegrationRequest,
+	body *openapi.CreateIntegrationRequest,
 	orgID,
 	projectID uuid.UUID,
 ) (integrationstore.SaveIntegrationInput, error) {
@@ -210,11 +210,15 @@ func integrationResponse(
 		IntegrationKind:          openapi.IntegrationKind(integration.IntegrationKind),
 		State:                    openapi.IntegrationState(integration.State),
 		SetupRevision:            integration.SetupRevision,
-		ProviderTenantId:         integration.ProviderTenantID,
-		ProviderAccountRef:       integration.ProviderAccountRef,
 		ProviderAgentDisplayName: integration.ProviderAgentDisplayName,
 		CreatedAt:                integration.CreatedAt,
 		UpdatedAt:                integration.UpdatedAt,
+	}
+	if integration.ProviderTenantID != "" {
+		response.ProviderTenantId = &integration.ProviderTenantID
+	}
+	if integration.ProviderAccountRef != "" {
+		response.ProviderAccountRef = &integration.ProviderAccountRef
 	}
 	response.CredentialSecretId, err = idOrNil(publicid.KindSecret, integration.CredentialSecretID)
 	if err != nil {

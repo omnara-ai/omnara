@@ -40,11 +40,15 @@ it.each([
   expect(actions.configureIntegration).not.toHaveBeenCalled()
 })
 
-it('pins the integration ID, revision and original provider identity on reconnect', async () => {
+it.each([
+  { tenant: undefined, account: undefined, expectedTenant: '999', expectedAccount: '999' },
+  { tenant: '', account: '', expectedTenant: '999', expectedAccount: '999' },
+  { tenant: '111', account: '222', expectedTenant: '111', expectedAccount: '222' },
+])('uses form IDs only when saved identity is absent: %j', async (identity) => {
   const integration = integrationFixture({
     integration_kind: 'github_pr',
-    provider_tenant_id: '111',
-    provider_account_ref: '222',
+    provider_tenant_id: identity.tenant,
+    provider_account_ref: identity.account,
     setup_revision: 8,
   })
   const form = new FormData()
@@ -59,8 +63,8 @@ it('pins the integration ID, revision and original provider identity on reconnec
   expect(configureIntegration).toHaveBeenCalledWith({
     integrationID: integration.id,
     expected_setup_revision: 8,
-    provider_tenant_id: '111',
-    provider_account_ref: '222',
+    provider_tenant_id: identity.expectedTenant,
+    provider_account_ref: identity.expectedAccount,
     credential_secret_id: fakeId('sec'),
     provider_config: {},
   })

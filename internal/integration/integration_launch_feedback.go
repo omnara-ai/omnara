@@ -8,21 +8,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/integration/discord"
 	"github.com/omnara-ai/omnara/internal/integration/github"
 	"github.com/omnara-ai/omnara/internal/integration/slack"
 )
 
-const (
-	launchUnavailableMessage = "I couldn't start an agent because a configured profile is unavailable. " +
-		"Ask an integration administrator to update the launch profiles."
-	launchCapabilitiesUnavailableMessage = "I couldn't start an agent because a configured profile's capabilities " +
-		"refer to a different integration. Ask an integration administrator to update the profile."
-	discordProfileChoiceSetupMessage = "I couldn't offer a profile choice " +
-		"because Discord interactions aren't configured. " +
-		"Ask an integration administrator to configure the public key and interactions endpoint."
-)
+const launchUnavailableMessage = "The Omnara agent is unavailable. Please contact the integration owner."
 
 var errDiscordProfileChoiceSetup = errors.New("discord profile choices require interaction setup")
 
@@ -46,14 +37,7 @@ func (w *IntegrationLaunchWorkflow) launchUnavailable(
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	message := launchUnavailableMessage
-	switch {
-	case errors.Is(cause, errDiscordProfileChoiceSetup):
-		message = discordProfileChoiceSetupMessage
-	case errors.Is(cause, agentconfig.ErrIntegrationCapabilityUnavailable):
-		message = launchCapabilitiesUnavailableMessage
-	}
-	if err := provider.NotifyLaunchUnavailable(ctx, input, message); err != nil {
+	if err := provider.NotifyLaunchUnavailable(ctx, input, launchUnavailableMessage); err != nil {
 		log.WarnContext(ctx, "notify unavailable integration launch", "integration_id", input.Integration.ID, "error", err)
 	}
 }

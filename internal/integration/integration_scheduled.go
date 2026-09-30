@@ -51,7 +51,7 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 	lease integrationstore.IntegrationInboxLease,
 	receipt integrationstore.IntegrationInboxRecord,
 	integration integrationstore.IntegrationRecord,
-) ([]IntegrationSlotAdmission, error) {
+) ([]IntegrationRecipientAdmission, error) {
 	event, err := receipt.ScheduledEvent()
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func (h *ThreadIntegrationScheduledHandler) Handle(
 		return nil, err
 	}
 	for key := range plan.Recipients {
-		if outcomes[key] != executionstore.InboxSlotPending {
+		if outcomes[key] != executionstore.InboxRecipientPending {
 			continue
 		}
 		kind, ref, err := plan.Message.Scope.Conversation()
@@ -217,9 +217,9 @@ func (r *IntegrationRouter) FreezeScheduledLaunch(
 				IntegrationID: integration.ID, Address: address, DisplayName: event.Occurrence.Name,
 			},
 		},
-		Recipients: map[string]IntegrationInboxSlot{key: {
+		Recipients: map[string]IntegrationInboxRecipient{key: {
 			AgentID: agentID,
-			Selection: &integrationstore.InboxIntegrationSelection{
+			LaunchClaim: &integrationstore.InboxLaunchClaim{
 				IntegrationID: integration.ID, Address: address, LaunchKey: key,
 			},
 			Launch: &frozenLaunch,

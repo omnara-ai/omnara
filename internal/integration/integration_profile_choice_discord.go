@@ -37,7 +37,7 @@ func (p *DiscordIntegrationInboxProvider) PresentProfileChoice(
 		_, err := client.EnsureThread(ctx, discord.Scope{GuildID: scope.GuildID, ChannelID: scope.ChannelID},
 			metadata.MessageID, discordConversationName(integrationSetup))
 		if err != nil {
-			return "", "", err
+			return "", "", discordInboundThreadError(err)
 		}
 	}
 	id, err := publicid.Encode(publicid.KindIntegrationProfileChoice, choice.ID)

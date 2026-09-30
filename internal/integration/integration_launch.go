@@ -111,7 +111,7 @@ func integrationLaunchEligible(input IntegrationLaunchContext) bool {
 }
 
 func integrationHasLaunchOwner(input IntegrationLaunchContext) bool {
-	for _, selected := range input.Candidates.Selections {
+	for _, selected := range input.Candidates.LaunchOwners {
 		if selected.IntegrationID == input.Integration.ID && selected.LaunchKey != "" {
 			return true
 		}

@@ -23,7 +23,7 @@ func TestIntegrationProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *tes
 			require.NoError(t, err)
 			decided := f.claim(t)
 			f.mutate(t, decided, func(work *integrationstore.IntegrationInboxLeaseTx) error {
-				if err := work.FreezePlan(f.ctx, f.selectionPlan(t, f.integration.ID, "support")); err != nil {
+				if err := work.FreezePlan(f.ctx, f.launchClaimPlan(t, f.integration.ID, "support")); err != nil {
 					return err
 				}
 				return work.Fail(f.ctx, "launch failed")

@@ -95,7 +95,7 @@ export function useGitHubGuidedSetup({
         if (!isMounted()) return
         const result = await inspect.mutateAsync({
           integrationID: draft.id,
-          credentials_secret_ref: secretId,
+          credential_secret_id: secretId,
           page,
         })
         if (!isMounted()) return

@@ -37,7 +37,7 @@ func TestScheduledDispatchUsesIntegrationKindWithoutThreadInputsOrProvider(t *te
 			lease integrationstore.IntegrationInboxLease,
 			got integrationstore.IntegrationInboxRecord,
 			integration integrationstore.IntegrationRecord,
-		) ([]IntegrationSlotAdmission, error) {
+		) ([]IntegrationRecipientAdmission, error) {
 			require.Equal(t, t.Context(), ctx)
 			require.Equal(t, receipt.Lease(), lease)
 			require.Equal(t, receipt, got)

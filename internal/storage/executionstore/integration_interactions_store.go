@@ -36,29 +36,26 @@ func (s *Store) GetInteractionSelection(
 	return interactionSelectionFromRow(row), err
 }
 
-func SelectInteractionDestinationForOriginTx(
+func resolveInteractionSelectionForOriginTx(
 	ctx context.Context,
 	tx pgx.Tx,
-	projectID, agentID, originTargetID uuid.UUID,
+	projectID, agentID, configID, originTargetID uuid.UUID,
 ) (InteractionSelection, error) {
 	q := dbsqlc.New(tx)
-	row, err := q.GetInteractionSelection(
-		ctx, dbsqlc.GetInteractionSelectionParams{ProjectID: projectID, AgentID: agentID},
-	)
-	current := interactionSelectionFromRow(row)
-	if err != nil || !current.AutoSelect {
-		return current, err
-	}
 	selection := InteractionSelection{AutoSelect: true}
 	if originTargetID == uuid.Nil {
-		if current == selection {
-			return current, nil
-		}
-		return selection, writeInteractionSelection(ctx, q, projectID, agentID, selection)
+		return selection, nil
 	}
-	_, handlers, err := loadInteractionHandlers(ctx, q, projectID, agentID)
+	contract, err := interactionContractForConfig(ctx, q, projectID, configID)
 	if err != nil {
 		return InteractionSelection{}, err
+	}
+	handlers, err := prepareInteractionHandlers(ctx, q, projectID, contract.InteractionHandlers)
+	if err != nil {
+		return InteractionSelection{}, err
+	}
+	if len(handlers) == 0 {
+		return selection, nil
 	}
 	target, err := q.GetInteractionDestinationTarget(
 		ctx,
@@ -69,7 +66,7 @@ func SelectInteractionDestinationForOriginTx(
 		},
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return selection, writeInteractionSelection(ctx, q, projectID, agentID, selection)
+		return selection, nil
 	}
 	if err != nil {
 		return InteractionSelection{}, err
@@ -98,10 +95,7 @@ func SelectInteractionDestinationForOriginTx(
 	if matches != 1 {
 		selection = InteractionSelection{AutoSelect: true}
 	}
-	if current == selection {
-		return current, nil
-	}
-	return selection, writeInteractionSelection(ctx, q, projectID, agentID, selection)
+	return selection, nil
 }
 
 func (s *Store) ReconcileInteractionSelectionTx(
@@ -109,50 +103,18 @@ func (s *Store) ReconcileInteractionSelectionTx(
 	tx pgx.Tx,
 	projectID, agentID uuid.UUID,
 ) (InteractionSelection, error) {
-	q := dbsqlc.New(tx)
-	selection, contract, err := loadInteractionContract(ctx, q, projectID, agentID)
-	if err != nil || selection.HandlerKey == "" {
-		return selection, err
-	}
-	destination, err := selectedInteractionDestination(
-		ctx,
-		tx,
-		projectID,
-		agentID,
-		selection,
-		contract,
-	)
-	if err != nil || destination != nil {
+	selection, destination, err := loadSelectedInteractionDestinationTx(ctx, tx, projectID, agentID)
+	if err != nil || selection.HandlerKey == "" || destination != nil {
 		return selection, err
 	}
 	cleared := InteractionSelection{AutoSelect: selection.AutoSelect}
 	return cleared, writeInteractionSelection(
 		ctx,
-		q,
+		dbsqlc.New(tx),
 		projectID,
 		agentID,
 		cleared,
 	)
-}
-
-func (s *Store) GetSelectedInteractionDestination(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-) (*InteractionDestination, error) {
-	tx, err := s.pool.BeginTx(
-		ctx,
-		pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := dbsqlc.New(tx)
-	selection, contract, err := loadInteractionContract(ctx, q, projectID, agentID)
-	if err != nil {
-		return nil, err
-	}
-	return selectedInteractionDestination(ctx, tx, projectID, agentID, selection, contract)
 }
 
 func (r *ToolCallReader) ListInteractionHandlers(
@@ -404,12 +366,20 @@ func loadInteractionContract(
 	if err != nil {
 		return InteractionSelection{}, agentconfig.RuntimeContract{}, err
 	}
-	config, err := loadAgentConfigTx(ctx, q, projectID, row.CurrentConfigID)
-	if err != nil {
-		return InteractionSelection{}, agentconfig.RuntimeContract{}, err
-	}
-	contract, err := launchableRuntimeContract(config)
+	contract, err := interactionContractForConfig(ctx, q, projectID, row.CurrentConfigID)
 	return interactionSelectionFromRow(row), contract, err
+}
+
+func interactionContractForConfig(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	projectID, configID uuid.UUID,
+) (agentconfig.RuntimeContract, error) {
+	config, err := loadAgentConfigTx(ctx, q, projectID, configID)
+	if err != nil {
+		return agentconfig.RuntimeContract{}, err
+	}
+	return launchableRuntimeContract(config)
 }
 
 type resolvedInteractionHandler struct {
@@ -560,17 +530,25 @@ func selectedInteractionDestination(
 	return destination, nil
 }
 
-// Taking an integration gate under the held agent lock would invert lock order;
-// presentation and callbacks recheck live authority afterward.
-func captureInteractionDestinationTx(
+func loadSelectedInteractionDestinationTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	projectID, agentID uuid.UUID,
-) (json.RawMessage, error) {
+) (InteractionSelection, *InteractionDestination, error) {
 	q := dbsqlc.New(tx)
-	selection, contract, err := loadInteractionContract(ctx, q, projectID, agentID)
+	row, err := q.GetInteractionSelection(ctx, dbsqlc.GetInteractionSelectionParams{
+		ProjectID: projectID, AgentID: agentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return InteractionSelection{}, nil, storeerr.ErrNotFound
+	}
+	selection := interactionSelectionFromRow(row)
+	if err != nil || selection.HandlerKey == "" {
+		return selection, nil, err
+	}
+	contract, err := interactionContractForConfig(ctx, q, projectID, row.CurrentConfigID)
 	if err != nil {
-		return nil, err
+		return selection, nil, err
 	}
 	destination, err := selectedInteractionDestination(
 		ctx,
@@ -580,6 +558,17 @@ func captureInteractionDestinationTx(
 		selection,
 		contract,
 	)
+	return selection, destination, err
+}
+
+// Taking an integration gate under the held agent lock would invert lock order;
+// presentation and callbacks recheck live authority afterward.
+func captureInteractionDestinationTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	projectID, agentID uuid.UUID,
+) (json.RawMessage, error) {
+	_, destination, err := loadSelectedInteractionDestinationTx(ctx, tx, projectID, agentID)
 	if err != nil || destination == nil {
 		return nil, err
 	}

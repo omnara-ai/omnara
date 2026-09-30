@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *testing.T) {
+func TestIntegrationConversationLaunchOwnershipRemainsIndependentOfSubscriptions(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	execution := executionstore.New(f.pool, executionstore.Config{})
@@ -57,7 +57,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replay.ID)
 	require.False(t, replay.Created)
-	input.LaunchKey = "another-slot"
+	input.LaunchKey = "another-launch-key"
 	_, err = ensure(input)
 	require.ErrorIs(t, err, storeerr.ErrConflict)
 	input.LaunchKey = "agent"
@@ -76,7 +76,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	require.NoError(t, err)
 	input.AgentID = secondLaunch.Agent.ID
 	_, err = ensure(input)
-	require.ErrorIs(t, err, storeerr.ErrConflict, "an integration slot cannot select another agent")
+	require.ErrorIs(t, err, storeerr.ErrConflict, "a launch key cannot be reassigned to another agent")
 	input.LaunchKey = "reviewer"
 	second, err := ensure(input)
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 	attribution, err := ensure(input)
 	require.NoError(t, err)
 	require.Equal(t, second.ID, attribution.ID)
-	require.Equal(t, "reviewer", attribution.LaunchKey, "input attribution must preserve launch selection")
+	require.Equal(t, "reviewer", attribution.LaunchKey, "input attribution must preserve launch ownership")
 
 	originalAddress := input.Address
 	input.Address.Ref = "C123:789.123"
@@ -142,19 +142,19 @@ func TestIntegrationConversationSelectionsRemainIndependentOfSubscriptions(t *te
 		[]integrationstore.ConversationAddress{input.Address},
 	)
 	require.NoError(t, err)
-	require.Len(t, candidates.Selections, 2)
+	require.Len(t, candidates.LaunchOwners, 2)
 	require.Empty(t, candidates.Subscriptions)
 	require.ElementsMatch(
 		t,
 		[]uuid.UUID{sharedAgent.ID, second.ID},
-		[]uuid.UUID{candidates.Selections[0].ID, candidates.Selections[1].ID},
+		[]uuid.UUID{candidates.LaunchOwners[0].ID, candidates.LaunchOwners[1].ID},
 	)
 	require.NoError(t, integrationstore.LockConversationTx(f.ctx, tx, f.project, first.IntegrationID, input.Address))
 	other, err := store.IntegrationRoutingCandidatesTx(f.ctx, tx, f.project, first.IntegrationID, input.Address,
 		[]integrationstore.ConversationAddress{input.Address})
 	require.NoError(t, err)
-	require.Len(t, other.Selections, 1)
-	require.Equal(t, first.ID, other.Selections[0].ID)
+	require.Len(t, other.LaunchOwners, 1)
+	require.Equal(t, first.ID, other.LaunchOwners[0].ID)
 	require.Len(t, other.Subscriptions, 1)
 	require.Equal(t, input.AgentID, other.Subscriptions[0].AgentID)
 }

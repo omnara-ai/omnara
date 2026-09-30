@@ -413,7 +413,7 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 	const resourceNameRef = "#/components/schemas/ResourceName"
 	exceptions := map[string]string{
 		"Integration.name":                                        "#/components/schemas/IntegrationName",
-		"SaveIntegrationRequest.name":                             "#/components/schemas/IntegrationName",
+		"CreateIntegrationRequest.name":                           "#/components/schemas/IntegrationName",
 		"Agent.name":                                              "#/components/schemas/AgentName",
 		"AgentInteraction.agent_name":                             "#/components/schemas/AgentName",
 		"IntegrationSubscription.agent_name":                      "#/components/schemas/AgentName",

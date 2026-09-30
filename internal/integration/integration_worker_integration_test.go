@@ -113,7 +113,9 @@ type integrationWorkerFailureConsumer struct {
 	finalize func(context.Context, uuid.UUID, uuid.UUID) error
 }
 
-func (c integrationWorkerFailureConsumer) FinalizeFailure(ctx context.Context, project, receipt uuid.UUID) error {
+func (c integrationWorkerFailureConsumer) FinalizeFailure(
+	ctx context.Context, project, receipt uuid.UUID, _ error,
+) error {
 	return c.finalize(ctx, project, receipt)
 }
 
@@ -155,20 +157,20 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	transient := &discord.APIError{Code: discord.RateLimited, RetryAfter: time.Hour}
 	var admissions []executionstore.InboxInputResult
 	consumer := integrationWorkerConsumerFunc(
-		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			event.SemanticKey = lease.ReceiptID.String()
 			plan, err := freezeTestIntegrationEvent(ctx, router, lease, &event)
 			if err != nil {
 				return nil, err
 			}
-			for key, slot := range plan.Recipients {
-				if slot.AgentID == agents[0] {
-					result, err := store.Execution().AdmitInboxInputSlot(ctx, lease, key, nil)
+			for key, recipient := range plan.Recipients {
+				if recipient.AgentID == agents[0] {
+					result, err := store.Execution().AdmitInboxInputRecipient(ctx, lease, key, nil)
 					if err != nil {
 						return nil, err
 					}
 					admissions = append(admissions, result)
-					return []IntegrationSlotAdmission{{Slot: key, Input: &result}}, transient
+					return []IntegrationRecipientAdmission{{Recipient: key, Input: &result}}, transient
 				}
 			}
 			return nil, errors.New("fixture did not route the first recipient")
@@ -198,11 +200,11 @@ func TestIntegrationInboxWorkerDurablePartialRetryAndExhaustion(t *testing.T) {
 	var plan IntegrationInboxPlan
 	require.NoError(t, json.Unmarshal(first.Plan, &plan))
 	require.Len(t, plan.Recipients, 2)
-	for key, slot := range plan.Recipients {
-		if slot.AgentID == agents[0] {
-			require.Equal(t, executionstore.InboxSlotDelivered, outcomes[key])
+	for key, recipient := range plan.Recipients {
+		if recipient.AgentID == agents[0] {
+			require.Equal(t, executionstore.InboxRecipientDelivered, outcomes[key])
 		} else {
-			require.Equal(t, executionstore.InboxSlotPending, outcomes[key])
+			require.Equal(t, executionstore.InboxRecipientPending, outcomes[key])
 		}
 	}
 	require.Zero(t, finalizations, "no failure notice during retry")
@@ -283,7 +285,7 @@ func TestIntegrationInboxWorkerRecoversExpiredLeaseBeforeDiscovery(t *testing.T)
 	worker := NewIntegrationInboxWorker(
 		inbox,
 		integrationWorkerConsumerFunc(
-			func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+			func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 				require.Equal(t, old.ID, lease.ReceiptID)
 				require.NotEqual(t, old.ClaimToken, lease.Token)
 				err := inbox.WithIntegrationInboxLease(
@@ -337,7 +339,7 @@ func TestIntegrationInboxWorkerSlowReceiptDoesNotBlockSameIntegration(t *testing
 	slowStarted := make(chan struct{})
 	fastCompleted := make(chan error, 1)
 	consumer := integrationWorkerConsumerFunc(
-		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			if lease.ReceiptID == slow.ID {
 				close(slowStarted)
 				<-ctx.Done()
@@ -412,6 +414,7 @@ func TestIntegrationInboxWorkerOnlyMarkedInboundFailuresAreTerminal(t *testing.T
 			&discord.APIError{Code: discord.PermanentFailure, StatusCode: http.StatusForbidden}), true},
 		{"missing channel", fmt.Errorf("expand: %w: %w", ErrIntegrationInboundPermanent,
 			&discord.APIError{Code: discord.PermanentFailure, StatusCode: http.StatusNotFound}), true},
+		{"out of credits", fmt.Errorf("launch: %w", storeerr.ErrManagedWorkAdmissionDenied), true},
 		{"revoked stored authority", fmt.Errorf("recipient: %w", storeerr.ErrUnauthorized), false},
 		{"unmarked invalid request", storeerr.InvalidRequest(errors.New("admission rejected")), false},
 		{"unmarked channel forbidden", &discord.APIError{
@@ -439,7 +442,7 @@ func TestIntegrationInboxWorkerOnlyMarkedInboundFailuresAreTerminal(t *testing.T
 				integrationWorkerConsumerFunc: func(
 					context.Context,
 					integrationstore.IntegrationInboxLease,
-				) ([]IntegrationSlotAdmission, error) {
+				) ([]IntegrationRecipientAdmission, error) {
 					attempts++
 					return nil, test.cause
 				},

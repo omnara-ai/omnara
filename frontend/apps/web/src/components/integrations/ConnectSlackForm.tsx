@@ -1,8 +1,4 @@
-import {
-  useCreateIntegrationOAuthSetup,
-  useCreateIntegrationSlackSetup,
-  useOmnaraClient,
-} from '@omnara/react'
+import { useCreateIntegrationOAuthSetup, useCreateIntegrationSlackSetup } from '@omnara/react'
 import type { Integration, IntegrationOAuthSetup } from '@omnara/sdk'
 import { createFormHook, createFormHookContexts, formOptions } from '@tanstack/react-form'
 import { type ReactNode, useState } from 'react'
@@ -28,6 +24,7 @@ import { IntegrationNameField } from './IntegrationNameField'
 import { IntegrationSetupGroup } from './IntegrationSetupGroup'
 import { SlackAppIconField } from './SlackAppIconField'
 import { useIntegrationDraft } from './useIntegrationDraft'
+import { useIntegrationSetupURLs } from './useIntegrationSetupURLs'
 import { useSlackAuthorization } from './useSlackAuthorization'
 
 const { fieldContext, formContext } = createFormHookContexts()
@@ -360,24 +357,31 @@ function slackSetupValid(existingApp: boolean, values: typeof slackSetupForm.def
 }
 
 function SlackAppUrls() {
-  const client = useOmnaraClient()
-  const apiOrigin = new URL(client.getConfig().baseUrl ?? '/api/v1', window.location.origin).origin
+  const { publicURL, unavailable } = useIntegrationSetupURLs()
   return (
     <IntegrationSetupGroup
       title="In Slack"
       hint="Configure these URLs in your Slack app before authorizing."
     >
-      <div className="text-muted-foreground flex flex-col gap-2 break-all text-sm">
+      {publicURL ? (
+        <div className="text-muted-foreground flex flex-col gap-2 break-all text-sm">
+          <p>
+            OAuth redirect: <code>{publicURL}/api/integrations/oauth/callback</code>
+          </p>
+          <p>
+            Events: <code>{publicURL}/api/integrations/slack/events</code>
+          </p>
+          <p>
+            Interactivity: <code>{publicURL}/api/integrations/slack/actions</code>
+          </p>
+        </div>
+      ) : (
         <p>
-          OAuth redirect: <code>{apiOrigin}/api/integrations/oauth/callback</code>
+          {unavailable
+            ? 'Public URL unavailable. Check the server configuration.'
+            : 'Loading setup URLs…'}
         </p>
-        <p>
-          Events: <code>{apiOrigin}/api/integrations/slack/events</code>
-        </p>
-        <p>
-          Interactivity: <code>{apiOrigin}/api/integrations/slack/actions</code>
-        </p>
-      </div>
+      )}
     </IntegrationSetupGroup>
   )
 }

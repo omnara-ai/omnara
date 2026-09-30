@@ -49,7 +49,7 @@ func integrationProfileChoiceRecord(row dbsqlc.IntegrationState) (IntegrationPro
 	result = IntegrationProfileChoiceRecord{
 		ID: row.ID, ProjectID: row.ProjectID, IntegrationID: row.IntegrationID, SourceKey: row.Key,
 		Address:  ConversationAddress{Kind: *row.ScopeKind, Ref: *row.ScopeRef},
-		Revision: row.Revision, ExpiresAt: *row.ExpiresAt,
+		Revision: row.Revision, CreatedAt: row.CreatedAt, ExpiresAt: *row.ExpiresAt,
 		OwnerReceiptID: data.OwnerReceiptID, Event: data.Event, Payload: data.Payload,
 		Options: data.Options, SelectedKey: data.SelectedKey, SelectedBy: data.SelectedBy,
 		MessageChannelID: data.MessageChannelID, MessageID: data.MessageID,

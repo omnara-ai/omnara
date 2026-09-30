@@ -23,13 +23,13 @@ func TestDiscordLaunchUnavailableFeedbackUsesStableNonceAndCorrectReason(t *test
 				f.message.ChannelID = "400"
 			}
 			raw := discordInboxPayload(t, f.message)
-			event, ok, err := NormalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels[f.message.ChannelID])
+			event, ok, err := normalizeDiscordIntegrationEvent(f.integrationSetup, raw, f.channels[f.message.ChannelID])
 			require.NoError(t, err)
 			require.True(t, ok)
 			input := IntegrationLaunchContext{
 				Integration: f.integrationSetup, Receipt: feedbackReceipt(f.integrationSetup, raw), Event: event,
 			}
-			cause, wantText := ErrIntegrationLaunchUnavailable, launchUnavailableMessage
+			cause := ErrIntegrationLaunchUnavailable
 			if scenario == "missing interaction setup" {
 				choice := providerProfileChoice(t)
 				choice.Event, err = json.Marshal(event)
@@ -39,7 +39,6 @@ func TestDiscordLaunchUnavailableFeedbackUsesStableNonceAndCorrectReason(t *test
 				require.ErrorIs(t, cause, ErrIntegrationLaunchUnavailable)
 				require.ErrorIs(t, cause, errDiscordProfileChoiceSetup)
 				require.Empty(t, f.requests)
-				wantText = discordProfileChoiceSetupMessage
 			}
 			bodies := make(chan map[string]any, 3)
 			f.override = func(w http.ResponseWriter, r *http.Request) bool {
@@ -66,7 +65,7 @@ func TestDiscordLaunchUnavailableFeedbackUsesStableNonceAndCorrectReason(t *test
 			workflow.launchUnavailable(t.Context(), input, cause)
 			require.Len(t, bodies, 3, "feedback must reach the real Discord HTTP client")
 			first, replay, next := <-bodies, <-bodies, <-bodies
-			require.Equal(t, wantText, first["content"])
+			require.Equal(t, launchUnavailableMessage, first["content"])
 			require.Equal(t, true, first["enforce_nonce"])
 			require.Equal(t, map[string]any{"parse": []any{}}, first["allowed_mentions"])
 			nonce, ok := first["nonce"].(string)

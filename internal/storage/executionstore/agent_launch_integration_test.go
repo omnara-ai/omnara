@@ -364,7 +364,7 @@ func TestConcurrentSameKeyLaunchIgnoresLosingBody(t *testing.T) {
 			input.InitialInput = &executionstore.LaunchInitialInput{
 				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"losing input"}]`),
 				SemanticEventKey: "losing-event",
-				Origin: &executionstore.LaunchInputOrigin{
+				Origin: &executionstore.AgentInputOrigin{
 					IntegrationID: testID("missing-concurrent-retry-integration"),
 					Address:       integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:1.2"},
 				},

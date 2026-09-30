@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +16,47 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/stretchr/testify/require"
 )
+
+func TestGatewayTransportErrorsRetainCause(t *testing.T) {
+	t.Parallel()
+	cause := &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+	config := ShardConfig{
+		Credentials: credentials(), ShardCount: 1, GatewayURL: "wss://gateway.discord.gg",
+		BeforeIdentify: func(context.Context) error { t.Fatal("failed dial requested IDENTIFY"); return nil },
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, cause
+		})},
+	}
+	err := RunShard(t.Context(), config, nil, func(context.Context, Dispatch, Checkpoint) error {
+		t.Fatal("failed dial committed a dispatch")
+		return nil
+	})
+	var stopped *GatewayError
+	var network *net.OpError
+	require.ErrorAs(t, err, &stopped)
+	require.ErrorAs(t, err, &network)
+	require.Same(t, cause, network)
+	require.ErrorIs(t, err, cause)
+	require.Positive(t, stopped.RetryAfter)
+	require.ErrorContains(t, errors.Unwrap(stopped), "connection refused")
+
+	for _, cause := range []error{
+		io.ErrUnexpectedEOF,
+		context.DeadlineExceeded,
+		websocket.CloseError{Code: 4009, Reason: "private session detail"},
+	} {
+		err := gatewayConnectionError(t.Context(), fmt.Errorf("read websocket: %w", cause))
+		require.ErrorAs(t, err, &stopped)
+		require.ErrorIs(t, err, cause)
+		require.NotContains(t, err.Error(), "private")
+		require.Equal(t, websocket.CloseStatus(cause) == 4009, stopped.ResetSession)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, gatewayConnectionError(ctx, io.ErrUnexpectedEOF), context.Canceled)
+}
 
 type gatewayPacket struct {
 	Op   int             `json:"op"`
@@ -269,6 +311,11 @@ func TestGatewayDisconnectsNeverAutoReconnect(t *testing.T) {
 			if stopped.ResetSession != wantReset || stopped.Fatal != wantFatal || strings.Contains(err.Error(), "private") {
 				t.Fatalf("wrong disconnect classification: %+v", stopped)
 			}
+			if stopped.CloseCode != 0 {
+				var closeError websocket.CloseError
+				require.ErrorAs(t, err, &closeError)
+				require.EqualValues(t, stopped.CloseCode, closeError.Code)
+			}
 		})
 	}
 }
@@ -319,6 +366,22 @@ func TestGatewayURLCheckpointAndIdentifyRequirements(t *testing.T) {
 	cp.BotUserID = "111"
 	if err := RunShard(t.Context(), config, cp, commit); err == nil {
 		t.Fatal("application ID substituted for bot user ID")
+	}
+	for _, mutate := range []func(*Checkpoint){
+		func(cp *Checkpoint) { cp.ApplicationID = "999" },
+		func(cp *Checkpoint) { cp.ShardID = 1 },
+		func(cp *Checkpoint) { cp.ShardCount = 2 },
+		func(cp *Checkpoint) { cp.Sequence = -1 },
+		func(cp *Checkpoint) { cp.SessionID = "" },
+		func(cp *Checkpoint) { cp.ResumeURL = "wss://evil.example" },
+	} {
+		cp := resumeCheckpoint(config)
+		mutate(cp)
+		config.BeforeConnect = func(context.Context) error {
+			t.Fatal("invalid checkpoint reached the connection authority callback")
+			return nil
+		}
+		require.Error(t, RunShard(t.Context(), config, cp, commit))
 	}
 	config.BeforeConnect = func(context.Context) error { return context.Canceled }
 	if err := RunShard(t.Context(), config, resumeCheckpoint(config), commit); !errors.Is(err, context.Canceled) {

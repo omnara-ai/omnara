@@ -156,7 +156,7 @@ func runInboxLoad(t *testing.T, capacity int, poolSize int32, holdSnapshot bool,
 	var cleanupDrainedAt time.Duration
 	consumer := integrationWorkerConsumerFunc(func(
 		callCtx context.Context, lease integrationstore.IntegrationInboxLease,
-	) ([]IntegrationSlotAdmission, error) {
+	) ([]IntegrationRecipientAdmission, error) {
 		started := time.Now()
 		var created time.Time
 		err := inbox.WithIntegrationInboxLease(callCtx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {

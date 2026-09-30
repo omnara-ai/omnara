@@ -21,7 +21,7 @@ type InboxMessageSibling struct {
 	AttachmentNotice string `json:"attachment_notice,omitempty"`
 }
 
-type InboxInputSlot struct {
+type InboxInputRecipient struct {
 	Scope        integrationdefinition.Scope  `json:"-"`
 	Files        []InboxPlannedFile           `json:"-"`
 	Sibling      *InboxMessageSibling         `json:"-"`
@@ -39,45 +39,45 @@ type InboxInputSkipReason string
 
 const InboxInputSkipAgentArchived InboxInputSkipReason = "agent_archived"
 
-func (s *Store) AdmitInboxInputSlot(
+func (s *Store) AdmitInboxInputRecipient(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-	slotKey string,
+	recipientKey string,
 	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
-	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || slotKey == "" {
-		return InboxInputResult{}, storeerr.InvalidRequest(errors.New("inbox lease and slot are required"))
+	if lease.ProjectID == uuid.Nil || lease.ReceiptID == uuid.Nil || lease.Token == uuid.Nil || recipientKey == "" {
+		return InboxInputResult{}, storeerr.InvalidRequest(errors.New("inbox lease and recipient are required"))
 	}
-	return storeutil.RetryTransaction(ctx, "admit_inbox_input_slot", func() (InboxInputResult, error) {
-		return s.admitInboxInputSlotOnce(ctx, lease, slotKey, artifacts)
+	return storeutil.RetryTransaction(ctx, "admit_inbox_input_recipient", func() (InboxInputResult, error) {
+		return s.admitInboxInputRecipientOnce(ctx, lease, recipientKey, artifacts)
 	})
 }
 
-func (s *Store) admitInboxInputSlotOnce(
+func (s *Store) admitInboxInputRecipientOnce(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-	slotKey string,
+	recipientKey string,
 	artifacts []artifactstore.PreparedArtifact,
 ) (InboxInputResult, error) {
 	snapshot, err := s.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	raw, err := inboxPlanSlot(snapshot, slotKey)
+	raw, err := inboxPlanRecipient(snapshot, recipientKey)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	slot, blocks, err := decodeInboxInputSlot(snapshot, raw)
+	recipient, blocks, err := decodeInboxInputRecipient(snapshot, raw)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
 	if outcome, err := resolveInboxInputOutcome(
-		ctx, s.q, slot,
-	); err != nil || outcome.Outcome != InboxSlotPending {
+		ctx, s.q, recipient,
+	); err != nil || outcome.Outcome != InboxRecipientPending {
 		if err != nil {
 			return InboxInputResult{}, err
 		}
-		return replayInboxInput(ctx, s.q, slot, outcome)
+		return replayInboxInput(ctx, s.q, recipient, outcome)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -88,9 +88,9 @@ func (s *Store) admitInboxInputSlotOnce(
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		if outcome, readErr := resolveInboxInputOutcome(
-			ctx, s.q, slot,
-		); readErr == nil && outcome.Outcome != InboxSlotPending {
-			return replayInboxInput(ctx, s.q, slot, outcome)
+			ctx, s.q, recipient,
+		); readErr == nil && outcome.Outcome != InboxRecipientPending {
+			return replayInboxInput(ctx, s.q, recipient, outcome)
 		}
 		return InboxInputResult{}, err
 	}
@@ -103,30 +103,30 @@ func (s *Store) admitInboxInputSlotOnce(
 		ctx,
 		tx,
 		lease.ProjectID,
-		slot.Input.Origin.IntegrationID,
-		slot.Input.Origin.Address,
+		recipient.Input.Origin.IntegrationID,
+		recipient.Input.Origin.Address,
 	); err != nil {
 		return InboxInputResult{}, err
 	}
 	if err := lifecyclelock.Agents(ctx, tx, []lifecyclelock.AgentRef{{
-		ProjectID: lease.ProjectID, AgentID: slot.AgentID,
+		ProjectID: lease.ProjectID, AgentID: recipient.AgentID,
 	}}); err != nil {
 		return InboxInputResult{}, err
 	}
-	outcome, err := resolveInboxInputOutcome(ctx, q, slot)
+	outcome, err := resolveInboxInputOutcome(ctx, q, recipient)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
-	if outcome.Outcome != InboxSlotPending {
-		return replayInboxInput(ctx, q, slot, outcome)
+	if outcome.Outcome != InboxRecipientPending {
+		return replayInboxInput(ctx, q, recipient, outcome)
 	}
-	artifacts, err = validateInboxPreparedArtifacts(slot.ArtifactIDs, slot.Files, blocks, artifacts)
+	artifacts, err = validateInboxPreparedArtifacts(recipient.ArtifactIDs, recipient.Files, blocks, artifacts)
 	if err != nil {
 		return InboxInputResult{}, err
 	}
 	if outcome.SiblingDelivered {
 		supplemental := []CreateContentBlockInput{{
-			BlockKind: ContentBlockKindText, TextContent: slot.Sibling.AttachmentNotice,
+			BlockKind: ContentBlockKindText, TextContent: recipient.Sibling.AttachmentNotice,
 			Metadata: map[string]string{"omnara_hidden": "true"},
 		}}
 		for _, block := range blocks {
@@ -136,14 +136,14 @@ func (s *Store) admitInboxInputSlotOnce(
 			}
 		}
 		blocks = supplemental
-		slot.Input.ContentBlocks, err = marshalAgentInputContentBlocks(blocks)
+		recipient.Input.ContentBlocks, err = marshalAgentInputContentBlocks(blocks)
 		if err != nil {
 			return InboxInputResult{}, err
 		}
-		slot.Input.CancelOpenInteractions = false
+		recipient.Input.CancelOpenInteractions = false
 	}
-	if slot.Subscription != nil {
-		if err := validateInboxSubscriptionTx(ctx, tx, slot); err != nil {
+	if recipient.Subscription != nil {
+		if err := validateInboxSubscriptionTx(ctx, tx, recipient); err != nil {
 			return InboxInputResult{}, err
 		}
 	}
@@ -152,7 +152,7 @@ func (s *Store) admitInboxInputSlotOnce(
 		ctx,
 		tx,
 		notifications,
-		slot.Input,
+		recipient.Input,
 		blocks,
 		artifacts,
 	)
@@ -162,60 +162,62 @@ func (s *Store) admitInboxInputSlotOnce(
 	if err := work.CheckLease(ctx); err != nil {
 		return InboxInputResult{}, err
 	}
-	if err := s.commitTxWithNotifications(ctx, tx, notifications, "admit inbox input slot"); err != nil {
+	if err := s.commitTxWithNotifications(ctx, tx, notifications, "admit inbox input recipient"); err != nil {
 		return InboxInputResult{}, err
 	}
 	return result, nil
 }
 
-func decodeInboxInputSlot(
+func decodeInboxInputRecipient(
 	receipt integrationstore.IntegrationInboxRecord,
 	raw json.RawMessage,
-) (InboxInputSlot, []CreateContentBlockInput, error) {
-	var slot InboxInputSlot
-	fail := func() (InboxInputSlot, []CreateContentBlockInput, error) {
-		return slot, nil, storeerr.InvalidRequest(errors.New("invalid frozen existing-agent input slot"))
+) (InboxInputRecipient, []CreateContentBlockInput, error) {
+	var recipient InboxInputRecipient
+	fail := func() (InboxInputRecipient, []CreateContentBlockInput, error) {
+		return recipient, nil, storeerr.InvalidRequest(errors.New("invalid frozen existing-agent input recipient"))
 	}
 	var envelope map[string]json.RawMessage
-	if json.Unmarshal(raw, &envelope) != nil || envelope["selection"] != nil {
+	if json.Unmarshal(raw, &envelope) != nil || envelope["launch_claim"] != nil {
 		return fail()
 	}
-	if json.Unmarshal(raw, &slot) != nil || slot.AgentID == uuid.Nil {
+	if json.Unmarshal(raw, &recipient) != nil || recipient.AgentID == uuid.Nil {
 		return fail()
 	}
 	message, err := inboxMessage(receipt)
 	if err != nil {
-		return slot, nil, err
+		return recipient, nil, err
 	}
-	content, files, err := message.RecipientContent(slot.ArtifactIDs)
+	content, files, err := message.RecipientContent(recipient.ArtifactIDs)
 	if err != nil {
-		return slot, nil, err
+		return recipient, nil, err
 	}
-	slot.Scope, slot.Sibling, slot.Files = message.Scope, message.Sibling, files
-	slot.Input = message.input(receipt.ProjectID, slot.AgentID, content)
-	if slot.Sibling != nil &&
-		(slot.Sibling.Key == "" || slot.Sibling.Key == slot.Input.IdempotencyKey ||
-			len(slot.Sibling.Key) > 512 || len(slot.Sibling.AttachmentNotice) > 16384) {
+	recipient.Scope, recipient.Sibling, recipient.Files = message.Scope, message.Sibling, files
+	recipient.Input = message.input(receipt.ProjectID, recipient.AgentID, content)
+	if recipient.Sibling != nil &&
+		(recipient.Sibling.Key == "" || recipient.Sibling.Key == recipient.Input.IdempotencyKey ||
+			len(recipient.Sibling.Key) > 512 || len(recipient.Sibling.AttachmentNotice) > 16384) {
 		return fail()
 	}
 	var blocks []CreateContentBlockInput
-	slot.Input, blocks, err = prepareOriginContentInput(slot.Input)
+	recipient.Input, blocks, err = prepareOriginContentInput(recipient.Input)
 	if err != nil {
-		return slot, nil, err
+		return recipient, nil, err
 	}
-	slot.Input.IdempotencyScope, err = inboxInputScope(slot.Scope, receipt.IntegrationID)
+	recipient.Input.IdempotencyScope, err = inboxInputScope(recipient.Scope, receipt.IntegrationID)
 	if err != nil {
-		return slot, nil, err
+		return recipient, nil, err
 	}
-	return slot, blocks, nil
+	return recipient, blocks, nil
 }
 
 func replayInboxInput(
-	ctx context.Context, q *dbsqlc.Queries, slot InboxInputSlot, outcome inboxSlotResult,
+	ctx context.Context, q *dbsqlc.Queries, recipient InboxInputRecipient, outcome inboxRecipientResult,
 ) (InboxInputResult, error) {
-	if outcome.Outcome == InboxSlotSkipped {
+	if outcome.Outcome == InboxRecipientSkipped {
 		return InboxInputResult{Skipped: InboxInputSkipAgentArchived}, nil
 	}
-	content, err := agentInputContentBlocks(ctx, q, slot.Input.ProjectID, slot.AgentID, []uuid.UUID{outcome.Input.ID})
+	content, err := agentInputContentBlocks(
+		ctx, q, recipient.Input.ProjectID, recipient.AgentID, []uuid.UUID{outcome.Input.ID},
+	)
 	return InboxInputResult{AgentInput: outcome.Input, ContentBlocks: content[outcome.Input.ID]}, err
 }

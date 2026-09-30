@@ -69,10 +69,10 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 		plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &event)
 		require.NoError(t, err)
 		require.Len(t, plan.Recipients, 1, "each receipt belongs only to its saved integration")
-		for _, slot := range plan.Recipients {
-			require.Equal(t, integration.ID, slot.Selection.IntegrationID)
-			require.Len(t, slot.Launch.Subscriptions, 1)
-			require.Equal(t, integration.ID, slot.Launch.Subscriptions[0].IntegrationID)
+		for _, recipient := range plan.Recipients {
+			require.Equal(t, integration.ID, recipient.LaunchClaim.IntegrationID)
+			require.Len(t, recipient.Launch.Subscriptions, 1)
+			require.Equal(t, integration.ID, recipient.Launch.Subscriptions[0].IntegrationID)
 		}
 		results, err := router.Admit(ctx, receipt.Lease(), nil)
 		require.NoError(t, err)
@@ -100,12 +100,12 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 			plan, err := freezeTestIntegrationEvent(ctx, router, receipt.Lease(), &next)
 			require.NoError(t, err)
 			require.Len(t, plan.Recipients, 1)
-			for _, slot := range plan.Recipients {
-				require.Equal(t, agents[integration.ID], slot.AgentID)
-				require.Nil(t, slot.Launch)
-				require.NotNil(t, slot.Subscription)
+			for _, recipient := range plan.Recipients {
+				require.Equal(t, agents[integration.ID], recipient.AgentID)
+				require.Nil(t, recipient.Launch)
+				require.NotNil(t, recipient.Subscription)
 				require.Equal(t, []integrationstore.ConversationAddress{{Kind: "thread", Ref: "C123:1.2"}},
-					slot.Subscription.Alternatives)
+					recipient.Subscription.Alternatives)
 			}
 			results, err := router.Admit(ctx, receipt.Lease(), nil)
 			require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 	attempts := 0
 	worker := NewIntegrationInboxWorker(inbox, integrationWorkerConsumerFunc(func(
 		ctx context.Context, lease integrationstore.IntegrationInboxLease,
-	) ([]IntegrationSlotAdmission, error) {
+	) ([]IntegrationRecipientAdmission, error) {
 		attempts++
 		if attempts == 1 {
 			_, err := router.Freeze(ctx, lease, decided)
@@ -236,12 +236,12 @@ func TestIntegrationRouterDirectedSettledIntentWithoutSubscription(t *testing.T)
 		require.NoError(t, err)
 		if directed {
 			require.Len(t, plan.Recipients, 1)
-			for _, slot := range plan.Recipients {
-				require.Equal(t, agentID, slot.AgentID)
-				require.Nil(t, slot.Launch)
-				require.Nil(t, slot.Launch)
-				require.Nil(t, slot.Selection)
-				require.Nil(t, slot.Subscription)
+			for _, recipient := range plan.Recipients {
+				require.Equal(t, agentID, recipient.AgentID)
+				require.Nil(t, recipient.Launch)
+				require.Nil(t, recipient.Launch)
+				require.Nil(t, recipient.LaunchClaim)
+				require.Nil(t, recipient.Subscription)
 			}
 		} else {
 			require.Empty(t, plan.Recipients)

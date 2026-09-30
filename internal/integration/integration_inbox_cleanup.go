@@ -21,8 +21,8 @@ type IntegrationInboxArtifactCleaner interface {
 }
 
 func integrationInboxPlanHasArtifacts(plan IntegrationInboxPlan) bool {
-	for _, slot := range plan.Recipients {
-		if len(slot.ArtifactIDs) != 0 {
+	for _, recipient := range plan.Recipients {
+		if len(recipient.ArtifactIDs) != 0 {
 			return true
 		}
 	}
@@ -61,10 +61,10 @@ func CleanupTerminalIntegrationInboxArtifacts(
 		return err
 	}
 	keys := make([]string, 0, len(plan.Recipients))
-	for key, slot := range plan.Recipients {
-		for _, id := range slot.ArtifactIDs {
+	for key, recipient := range plan.Recipients {
+		for _, id := range recipient.ArtifactIDs {
 			if id == uuid.Nil {
-				return fmt.Errorf("terminal slot %s has an invalid artifact ID", key)
+				return fmt.Errorf("terminal recipient %s has an invalid artifact ID", key)
 			}
 		}
 		keys = append(keys, key)
@@ -72,13 +72,13 @@ func CleanupTerminalIntegrationInboxArtifacts(
 	slices.Sort(keys)
 	var failures []error
 	for _, key := range keys {
-		slot := plan.Recipients[key]
-		for _, id := range slot.ArtifactIDs {
+		recipient := plan.Recipients[key]
+		for _, id := range recipient.ArtifactIDs {
 			if err := ctx.Err(); err != nil {
 				return errors.Join(append(failures, err)...)
 			}
-			if err := artifacts.DeleteUnreferencedPreparedArtifact(ctx, projectID, slot.AgentID, id); err != nil {
-				failures = append(failures, fmt.Errorf("clean terminal slot %s: %w", key, err))
+			if err := artifacts.DeleteUnreferencedPreparedArtifact(ctx, projectID, recipient.AgentID, id); err != nil {
+				failures = append(failures, fmt.Errorf("clean terminal recipient %s: %w", key, err))
 			}
 		}
 	}

@@ -42,7 +42,7 @@ saves a reference to encrypted credentials. Add profiles and a launcher when
 provider events should start agents. Schedules and interaction handlers can be used
 without an event launcher. The shipped thread and PR tools require the conversation
 assigned by their integration when launching an agent.
-There is no separate connection object to create or share. Two integrations configured
+Two integrations configured
 with the same bot remain independent setups, with separate credential updates
 and lifecycle. Avoid overlapping launchers for the same conversation: duplicate
 menus, agents or replies are possible.
@@ -127,7 +127,7 @@ conversation. At most 16 agents can subscribe to the same conversation through o
 integration; adding another returns HTTP 409. Multiple integrations or conversations
 can forward to the same agent.
 Subscriptions belong to the integration: saving, activating or changing an agent config
-never adds or removes them. Source YAML has no `listeners` block.
+never adds or removes them.
 
 The integration and integration-definition catalog expose the optional
 `capabilities.subscription.conversation_schema`. Integrations without this capability
@@ -191,8 +191,7 @@ integration. The destination belongs to the integration-agent context, not the d
 Launcher settings belong to each integration's schema, published in
 `capabilities.settings.input_schema`. Settings use public profile IDs and resolve
 profiles when launching; removing a profile is allowed, and an unavailable profile
-requires updating the launcher. There are no named slots or existing-agent launcher
-options. Use ordinary subscriptions to forward to existing agents. A receive-only
+requires updating the launcher. Use subscriptions to forward to existing agents. A receive-only
 subscription does not prevent launching. True saved launch ownership prevents a
 replacement even after archival; explicit restart is deferred.
 
@@ -296,8 +295,11 @@ Use explicit tool permissions to restrict or disable `set_interaction_handler`
 when the model should not change the selected handler.
 
 Use `{"handler":null,"args":{}}` for dashboard only. Automatic selection starts enabled:
-when the agent receives a batch of inputs, its last new message selects an eligible
-handler or clears the selection if none applies, including dashboard/API messages.
+the last eligible content input admitted to a turn selects its handler or clears
+the selection if none applies, including dashboard/API messages. Internal agent reports
+and messages and ordinary cron instructions leave the selection unchanged. An explicit
+integration origin takes precedence, so a scheduled integration thread selects its
+handler; an origin without an eligible handler, including GitHub, clears the selection.
 Receipt alone does not redirect a running turn. Pass `auto_select: false` to pin your
 choice, or `true` to resume automatic selection; omitting it preserves the current mode.
 The list and setter return that mode. Each interaction captures its destination when

@@ -157,6 +157,23 @@ func NormalizeGitHubIntegrationEvent(
 		metadata.Side, metadata.StartSide = payload.Comment.Side, payload.Comment.StartSide
 		key = fmt.Sprintf("review_comment:%d:created", metadata.CommentID)
 		mentionText = text
+		location := metadata.Path
+		if metadata.Line != nil {
+			location += ":" + strconv.Itoa(*metadata.Line)
+		} else if payload.Comment.OriginalLine != nil {
+			location += fmt.Sprintf(" (original line %d; current line unavailable)", *payload.Comment.OriginalLine)
+		}
+		text = fmt.Sprintf("Inline review comment on %s (comment_id: %d", location, metadata.CommentID)
+		if metadata.Side != "" {
+			text += ", side: " + metadata.Side
+		}
+		if metadata.StartLine != nil {
+			text += fmt.Sprintf(", start_line: %d, start_side: %s", *metadata.StartLine, metadata.StartSide)
+		}
+		if metadata.ReplyToID != 0 {
+			text += fmt.Sprintf(", in_reply_to_id: %d", metadata.ReplyToID)
+		}
+		text += "):\n" + payload.Comment.Body
 	case "pull_request_review":
 		switch payload.Review.State {
 		case "approved", "changes_requested", "commented":

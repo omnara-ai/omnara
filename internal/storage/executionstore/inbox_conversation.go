@@ -13,7 +13,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// ErrInboxRecipientSettled means this slot needs no further provider preparation.
+// ErrInboxRecipientSettled means this recipient needs no further provider preparation.
 // It does not grant authority for other recipients in the same conversation.
 var ErrInboxRecipientSettled = errors.New("inbox recipient is already settled")
 
@@ -29,7 +29,7 @@ func (s *Store) CheckInboxConversationAuthority(
 	if err != nil {
 		return err
 	}
-	raw, err := inboxPlanSlot(snapshot, key)
+	raw, err := inboxPlanRecipient(snapshot, key)
 	if err != nil {
 		return err
 	}
@@ -39,18 +39,18 @@ func (s *Store) CheckInboxConversationAuthority(
 	if json.Unmarshal(raw, &envelope) != nil {
 		return storeerr.ErrInvalidRequest
 	}
-	var launch InboxLaunchSlot
-	var input InboxInputSlot
+	var launch InboxLaunchRecipient
+	var input InboxInputRecipient
 	if envelope.Launch != nil {
-		launch, err = decodeInboxLaunchSlot(snapshot, raw)
+		launch, err = decodeInboxLaunchRecipient(snapshot, raw)
 		if err != nil {
 			return err
 		}
-		if launch.Selection.Address != address {
+		if launch.LaunchClaim.Address != address {
 			return storeerr.ErrUnauthorized
 		}
 	} else {
-		input, _, err = decodeInboxInputSlot(snapshot, raw)
+		input, _, err = decodeInboxInputRecipient(snapshot, raw)
 		if err != nil {
 			return err
 		}
@@ -58,9 +58,9 @@ func (s *Store) CheckInboxConversationAuthority(
 			return storeerr.ErrUnauthorized
 		}
 	}
-	if result, err := resolveInboxSlotOutcome(
+	if result, err := resolveInboxRecipientOutcome(
 		ctx, s.q, snapshot, raw,
-	); err != nil || result.Outcome != InboxSlotPending {
+	); err != nil || result.Outcome != InboxRecipientPending {
 		if err != nil {
 			return err
 		}
@@ -87,7 +87,8 @@ func (s *Store) CheckInboxConversationAuthority(
 	if !sameJSON(snapshot.Plan, locked.Plan) {
 		return storeerr.ErrIdempotencyConflict
 	}
-	if result, err := resolveInboxSlotOutcome(ctx, q, locked, raw); err != nil || result.Outcome != InboxSlotPending {
+	result, err := resolveInboxRecipientOutcome(ctx, q, locked, raw)
+	if err != nil || result.Outcome != InboxRecipientPending {
 		if err != nil {
 			return err
 		}
@@ -117,7 +118,7 @@ func (s *Store) CheckInboxConversationAuthority(
 		}}); err != nil {
 			return err
 		}
-		if result, err := resolveInboxInputOutcome(ctx, q, input); err != nil || result.Outcome != InboxSlotPending {
+		if result, err := resolveInboxInputOutcome(ctx, q, input); err != nil || result.Outcome != InboxRecipientPending {
 			if err != nil {
 				return err
 			}

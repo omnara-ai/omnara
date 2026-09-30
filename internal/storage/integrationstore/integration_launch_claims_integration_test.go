@@ -4,7 +4,6 @@ package integrationstore_test
 
 import (
 	"encoding/json"
-	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"sync"
 	"testing"
 
@@ -12,10 +11,11 @@ import (
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/omnara-ai/omnara/internal/testutil/integrationtest"
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) {
+func TestIntegrationLaunchClaimFreezesEntireRecipientSet(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
 	store := integrationstore.New(f.pool, executionstore.IntegrationAccess{})
@@ -36,15 +36,15 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 	require.NoError(t, err)
 	plan := func(keys ...string) json.RawMessage {
 		t.Helper()
-		slots := map[string]any{}
+		recipients := map[string]any{}
 		for _, key := range keys {
 			id, err := uuid.NewV7()
 			require.NoError(t, err)
-			slots[key] = map[string]any{"agent_id": id,
-				"selection": integrationstore.InboxIntegrationSelection{IntegrationID: integration.ID,
+			recipients[key] = map[string]any{"agent_id": id,
+				"launch_claim": integrationstore.InboxLaunchClaim{IntegrationID: integration.ID,
 					Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"}, LaunchKey: key}}
 		}
-		raw, err := json.Marshal(map[string]any{"message": map[string]any{}, "recipients": slots})
+		raw, err := json.Marshal(map[string]any{"message": map[string]any{}, "recipients": recipients})
 		require.NoError(t, err)
 		return raw
 	}
@@ -74,10 +74,10 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 	winner := -1
 	for i, err := range results {
 		if err == nil {
-			require.Equal(t, -1, winner, "only one receipt may freeze initial selection before media preparation")
+			require.Equal(t, -1, winner, "only one receipt may freeze initial claim before media preparation")
 			winner = i
 		} else {
-			require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+			require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 		}
 	}
 	require.NotEqual(t, -1, winner)
@@ -94,7 +94,7 @@ func TestIntegrationSelectionReservationFreezesEntireRecipientSet(t *testing.T) 
 			return lease.FreezePlan(f.ctx, blockedPlan)
 		},
 	)
-	require.ErrorIs(t, err, integrationstore.ErrIntegrationSelectionReserved)
+	require.ErrorIs(t, err, integrationstore.ErrIntegrationLaunchReserved)
 	f.mutate(t, receipts[winner], func(lease *integrationstore.IntegrationInboxLeaseTx) error {
 		return lease.Fail(f.ctx, "profile b unavailable")
 	})

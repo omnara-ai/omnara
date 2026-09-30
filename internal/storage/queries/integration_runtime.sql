@@ -9,8 +9,22 @@ CROSS JOIN LATERAL (
     FROM integrations integration
     JOIN projects project ON project.id = integration.project_id
     JOIN orgs org ON org.id = project.org_id
+    JOIN secrets secret ON secret.org_id = integration.org_id AND secret.id = integration.credential_secret_id
+        AND secret.deleted_at IS NULL AND secret.management_kind = 'tenant'
     WHERE integration.integration_kind = integration_kinds.integration_kind AND integration.state = 'active' AND integration.deleted_at IS NULL
       AND project.deleted_at IS NULL AND org.deleted_at IS NULL
+      AND ((secret.owner_kind = 'project' AND secret.owner_project_id = integration.project_id)
+           OR EXISTS (SELECT 1 FROM secret_grants grant_row
+               WHERE grant_row.org_id = integration.org_id AND grant_row.secret_id = secret.id
+                 AND grant_row.target_project_id = integration.project_id))
+      AND NOT EXISTS (
+          SELECT 1 FROM integration_runtime runtime
+          WHERE runtime.project_id = integration.project_id AND runtime.integration_id = integration.id
+            AND (runtime.claim_expires_at > statement_timestamp()
+                 OR (runtime.next_attempt_at > statement_timestamp()
+                     AND runtime.setup_revision = integration.setup_revision
+                     AND runtime.credential_version_id = secret.current_version_id))
+      )
       AND (sqlc.narg(after_id)::uuid IS NULL OR integration.id > sqlc.narg(after_id)::uuid)
     ORDER BY integration.id
     LIMIT sqlc.arg(row_limit)

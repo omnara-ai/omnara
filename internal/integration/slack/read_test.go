@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadMessagesUsesBoundedConversationCursor(t *testing.T) {
@@ -44,10 +45,59 @@ func TestReadMessagesUsesBoundedConversationCursor(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, APIResult{}, status)
 			assert.Equal(t, "next", page.NextCursor)
+			order := "newest_first"
+			if thread != "" {
+				order = "oldest_first"
+			}
+			assert.Equal(t, order, page.Order)
 			assert.Len(t, page.Messages, 1)
 			assert.Equal(t, 1, requests)
 		})
 	}
+}
+
+func TestReadThreadFollowsCursorToRecentRepliesOnePageAtATime(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		assert.NoError(t, r.ParseForm())
+		assert.Equal(t, "/conversations.replies", r.URL.Path)
+		assert.Equal(t, "111.000", r.Form.Get("ts"))
+		assert.Equal(t, "15", r.Form.Get("limit"))
+		switch r.Form.Get("cursor") {
+		case "":
+			_, _ = fmt.Fprint(w, `{
+				"ok":true,
+				"messages":[{"text":"root","ts":"111.000"},{"text":"older reply","ts":"111.100"}],
+				"response_metadata":{"next_cursor":"recent-page"}
+			}`)
+		case "recent-page":
+			_, _ = fmt.Fprint(w, `{
+				"ok":true,
+				"messages":[{"text":"recent post","ts":"222.000"}],
+				"response_metadata":{"next_cursor":""}
+			}`)
+		default:
+			t.Errorf("unexpected cursor %q", r.Form.Get("cursor"))
+		}
+	}))
+	defer server.Close()
+	target := MessageTarget{Channel: "C123", ThreadTS: "111.000", BotToken: "secret"}
+	page, result, err := ReadMessages(t.Context(), slackTestClient(server), target, "", 0)
+	require.NoError(t, err)
+	require.Equal(t, APIResult{}, result)
+	require.Equal(t, "oldest_first", page.Order)
+	require.Equal(t, "recent-page", page.NextCursor)
+	require.Equal(t, 1, requests, "read must not crawl the thread automatically")
+	require.Len(t, page.Messages, 2)
+	require.Equal(t, "root", page.Messages[0].Text)
+	page, result, err = ReadMessages(t.Context(), slackTestClient(server), target, page.NextCursor, 0)
+	require.NoError(t, err)
+	require.Equal(t, APIResult{}, result)
+	require.Empty(t, page.NextCursor)
+	require.Len(t, page.Messages, 1)
+	require.Equal(t, "recent post", page.Messages[0].Text)
+	require.Equal(t, 2, requests)
 }
 
 func TestRequestCheckStopsReadbackAtRevocation(t *testing.T) {

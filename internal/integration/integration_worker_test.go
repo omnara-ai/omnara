@@ -26,12 +26,12 @@ import (
 type integrationWorkerConsumerFunc func(
 	context.Context,
 	integrationstore.IntegrationInboxLease,
-) ([]IntegrationSlotAdmission, error)
+) ([]IntegrationRecipientAdmission, error)
 
 func (f integrationWorkerConsumerFunc) Consume(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
-) ([]IntegrationSlotAdmission, error) {
+) ([]IntegrationRecipientAdmission, error) {
 	return f(ctx, lease)
 }
 
@@ -42,6 +42,7 @@ type integrationWorkerTestStore struct {
 	recovered    int
 	ready        bool
 	retried      []integrationstore.IntegrationInboxLease
+	retryErr     error
 	integrations []integrationstore.IntegrationInboxIntegration
 	claimOrder   []uuid.UUID
 	scans        int
@@ -127,7 +128,7 @@ func TestIntegrationInboxWorkerRotatesIntegrationsBeforeRevisitingHotIntegration
 	worker := NewIntegrationInboxWorker(
 		store,
 		integrationWorkerConsumerFunc(
-			func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+			func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 				return nil, nil
 			},
 		),
@@ -164,7 +165,7 @@ func TestIntegrationInboxWorkerAdvancesPastUnavailableIntegrationsAndWraps(t *te
 		}
 	}}
 	worker := NewIntegrationInboxWorker(store, integrationWorkerConsumerFunc(
-		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			return nil, nil
 		},
 	), IntegrationInboxWorkerOptions{})
@@ -191,7 +192,7 @@ func TestIntegrationInboxWorkerBoundsUnavailableIntegrationDiscovery(t *testing.
 				}
 			}}
 			worker := NewIntegrationInboxWorker(store, integrationWorkerConsumerFunc(
-				func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+				func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 					t.Fatal("no ready integration must not invoke consumer")
 					return nil, nil
 				},
@@ -214,7 +215,7 @@ func TestIntegrationInboxWorkerStaleDiscoveryDoesNotSpin(t *testing.T) {
 	worker := NewIntegrationInboxWorker(
 		store,
 		integrationWorkerConsumerFunc(
-			func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+			func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 				t.Fatal("claim race must not invoke the consumer")
 				return nil, nil
 			},
@@ -239,7 +240,7 @@ func TestIntegrationInboxWorkerRecoveryContinuesWhileAllConsumersAreBusy(t *test
 		}
 		started := make(chan struct{}, 1)
 		consumer := integrationWorkerConsumerFunc(
-			func(ctx context.Context, _ integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+			func(ctx context.Context, _ integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 				started <- struct{}{}
 				<-ctx.Done()
 				return nil, ctx.Err()
@@ -281,7 +282,7 @@ func TestIntegrationInboxWorkerSameIntegrationCanUseConcurrentConsumers(t *testi
 		worker := NewIntegrationInboxWorker(
 			store,
 			integrationWorkerConsumerFunc(
-				func(ctx context.Context, _ integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+				func(ctx context.Context, _ integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 					started <- struct{}{}
 					<-ctx.Done()
 					return nil, ctx.Err()
@@ -313,7 +314,7 @@ func (s *integrationWorkerTestStore) WithIntegrationInboxLease(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.retried = append(s.retried, lease)
-	return nil
+	return s.retryErr
 }
 
 func TestIntegrationInboxWorkerBoundedConcurrencyAndShutdown(t *testing.T) {
@@ -322,7 +323,7 @@ func TestIntegrationInboxWorkerBoundedConcurrencyAndShutdown(t *testing.T) {
 	store := &integrationWorkerTestStore{ready: true}
 	started := make(chan integrationstore.IntegrationInboxLease, 4)
 	consumer := integrationWorkerConsumerFunc(
-		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+		func(ctx context.Context, lease integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			started <- lease
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -358,7 +359,7 @@ func TestIntegrationInboxWorkerBoundedConcurrencyAndShutdown(t *testing.T) {
 func TestIntegrationInboxWorkerRecoversWithoutReadyIntegrations(t *testing.T) {
 	store := &integrationWorkerTestStore{}
 	consumer := integrationWorkerConsumerFunc(
-		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
+		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
 			t.Fatal("no receipt was claimed")
 			return nil, nil
 		},
@@ -384,12 +385,12 @@ func TestIntegrationInboxWorkerProvisionsPartialSuccessAndDoesNotRewriteLostLeas
 	store := &integrationWorkerTestStore{ready: true}
 	machine := uuid.New()
 	consumer := integrationWorkerConsumerFunc(
-		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
-			return []IntegrationSlotAdmission{
+		func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
+			return []IntegrationRecipientAdmission{
 				{Launch: &executionstore.LaunchAgentResult{ProvisionMachineIDs: []uuid.UUID{machine}}},
 			}, errors.Join(
 				integrationstore.ErrIntegrationInboxLeaseLost,
-				errors.New("another slot failed"),
+				errors.New("another recipient failed"),
 			)
 		},
 	)
@@ -407,30 +408,37 @@ func TestIntegrationInboxWorkerProvisionsPartialSuccessAndDoesNotRewriteLostLeas
 }
 
 func TestIntegrationInboxWorkerLogsReceiptAndRecoveryOutcome(t *testing.T) {
-	var output bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	transient := errors.New("provider temporarily unavailable")
-	store := &integrationWorkerTestStore{ready: true}
-	worker := NewIntegrationInboxWorker(
-		store,
-		integrationWorkerConsumerFunc(
-			func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationSlotAdmission, error) {
-				return nil, transient
-			},
-		),
-		IntegrationInboxWorkerOptions{Log: logger},
-	)
-	worked, err := worker.RunOnce(t.Context())
-	require.True(t, worked)
-	require.ErrorIs(t, err, transient)
-	var entry map[string]any
-	require.NoError(t, json.Unmarshal(output.Bytes(), &entry))
-	require.Equal(t, "integration inbox admission failed", entry["msg"])
-	require.NotEmpty(t, entry["receipt_id"])
-	require.Equal(t, store.claimOrder[0].String(), entry["integration_id"])
-	require.Equal(t, float64(1), entry["attempt"])
-	require.GreaterOrEqual(t, entry["receipt_age"], float64(2*time.Minute))
-	require.Equal(t, "retry_scheduled", entry["outcome"])
+	for _, tc := range []struct {
+		outcome, level string
+		retryErr       error
+	}{
+		{"retry_scheduled", "WARN", nil},
+		{"lease_lost", "WARN", integrationstore.ErrIntegrationInboxLeaseLost},
+		{"retry_not_recorded", "ERROR", errors.New("database unavailable")},
+	} {
+		t.Run(tc.outcome, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&output, nil))
+			transient := errors.New("provider temporarily unavailable")
+			store := &integrationWorkerTestStore{ready: true, retryErr: tc.retryErr}
+			worker := NewIntegrationInboxWorker(store, integrationWorkerConsumerFunc(
+				func(context.Context, integrationstore.IntegrationInboxLease) ([]IntegrationRecipientAdmission, error) {
+					return nil, transient
+				}), IntegrationInboxWorkerOptions{Log: logger})
+			worked, err := worker.RunOnce(t.Context())
+			require.True(t, worked)
+			require.ErrorIs(t, err, transient)
+			var entry map[string]any
+			require.NoError(t, json.Unmarshal(output.Bytes(), &entry))
+			require.Equal(t, "integration inbox admission failed", entry["msg"])
+			require.NotEmpty(t, entry["receipt_id"])
+			require.Equal(t, store.claimOrder[0].String(), entry["integration_id"])
+			require.Equal(t, float64(1), entry["attempt"])
+			require.GreaterOrEqual(t, entry["receipt_age"], float64(2*time.Minute))
+			require.Equal(t, tc.outcome, entry["outcome"])
+			require.Equal(t, tc.level, entry["level"])
+		})
+	}
 }
 
 func TestIntegrationInboxWorkerContinuesFullRecoveryBatches(t *testing.T) {

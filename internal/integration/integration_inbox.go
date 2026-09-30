@@ -35,17 +35,17 @@ type IntegrationLaunchIntent struct {
 	ProfileID     uuid.UUID `json:"profile_id,omitempty"`
 }
 
-type IntegrationInboxSlot struct {
-	Selection    *integrationstore.InboxIntegrationSelection `json:"selection,omitempty"`
-	AgentID      uuid.UUID                                   `json:"agent_id"`
-	Launch       *executionstore.InboxLaunchPlan             `json:"launch,omitempty"`
-	ArtifactIDs  []uuid.UUID                                 `json:"artifact_ids,omitempty"`
-	Subscription *executionstore.InboxSubscriptionAuthority  `json:"subscription,omitempty"`
+type IntegrationInboxRecipient struct {
+	LaunchClaim  *integrationstore.InboxLaunchClaim         `json:"launch_claim,omitempty"`
+	AgentID      uuid.UUID                                  `json:"agent_id"`
+	Launch       *executionstore.InboxLaunchPlan            `json:"launch,omitempty"`
+	ArtifactIDs  []uuid.UUID                                `json:"artifact_ids,omitempty"`
+	Subscription *executionstore.InboxSubscriptionAuthority `json:"subscription,omitempty"`
 }
 
 type IntegrationInboxPlan struct {
-	Message    *executionstore.InboxMessage    `json:"message,omitempty"`
-	Recipients map[string]IntegrationInboxSlot `json:"recipients"`
+	Message    *executionstore.InboxMessage         `json:"message,omitempty"`
+	Recipients map[string]IntegrationInboxRecipient `json:"recipients"`
 }
 
 type IntegrationExecutionStore interface {
@@ -60,15 +60,15 @@ type IntegrationExecutionStore interface {
 	GetAgentProfile(context.Context, uuid.UUID, uuid.UUID) (executionstore.AgentProfileRecord, error)
 	GetIntegrationInboxOutcomes(
 		context.Context, integrationstore.IntegrationInboxRecord,
-	) (map[string]executionstore.InboxSlotOutcome, error)
+	) (map[string]executionstore.InboxRecipientOutcome, error)
 	CompleteIntegrationInbox(context.Context, integrationstore.IntegrationInboxLease) error
-	AdmitInboxLaunchSlot(
+	AdmitInboxLaunchRecipient(
 		context.Context,
 		integrationstore.IntegrationInboxLease,
 		string,
 		[]artifactstore.PreparedArtifact,
 	) (executionstore.LaunchAgentResult, error)
-	AdmitInboxInputSlot(
+	AdmitInboxInputRecipient(
 		context.Context,
 		integrationstore.IntegrationInboxLease,
 		string,
@@ -77,9 +77,6 @@ type IntegrationExecutionStore interface {
 }
 
 type IntegrationRoutingStore interface {
-	GetIntegrationProfileChoice(
-		context.Context, uuid.UUID, uuid.UUID, uuid.UUID,
-	) (integrationstore.IntegrationProfileChoiceRecord, error)
 	GetIntegrationInbox(context.Context, uuid.UUID, uuid.UUID) (integrationstore.IntegrationInboxRecord, error)
 	GetIntegrationByID(context.Context, uuid.UUID) (integrationstore.IntegrationRecord, error)
 	WithIntegrationInboxLease(
@@ -107,17 +104,17 @@ func NewIntegrationRouter(
 	return &IntegrationRouter{execution: execution, integrations: integrations}
 }
 
-type IntegrationSlotAdmission struct {
-	Slot   string
-	Launch *executionstore.LaunchAgentResult
-	Input  *executionstore.InboxInputResult
+type IntegrationRecipientAdmission struct {
+	Recipient string
+	Launch    *executionstore.LaunchAgentResult
+	Input     *executionstore.InboxInputResult
 }
 
 func (r *IntegrationRouter) Admit(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
 	prepared map[string][]artifactstore.PreparedArtifact,
-) ([]IntegrationSlotAdmission, error) {
+) ([]IntegrationRecipientAdmission, error) {
 	receipt, err := r.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
 		return nil, err
@@ -131,21 +128,21 @@ func (r *IntegrationRouter) Admit(
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
-	results := make([]IntegrationSlotAdmission, 0, len(keys))
+	results := make([]IntegrationRecipientAdmission, 0, len(keys))
 	var failures []error
 	for _, key := range keys {
-		result := IntegrationSlotAdmission{Slot: key}
+		result := IntegrationRecipientAdmission{Recipient: key}
 		if plan.Recipients[key].Launch != nil {
-			value, admitErr := r.execution.AdmitInboxLaunchSlot(ctx, lease, key, prepared[key])
+			value, admitErr := r.execution.AdmitInboxLaunchRecipient(ctx, lease, key, prepared[key])
 			err = admitErr
 			result.Launch = &value
 		} else {
-			value, admitErr := r.execution.AdmitInboxInputSlot(ctx, lease, key, prepared[key])
+			value, admitErr := r.execution.AdmitInboxInputRecipient(ctx, lease, key, prepared[key])
 			err = admitErr
 			result.Input = &value
 		}
 		if err != nil {
-			failures = append(failures, fmt.Errorf("slot %s: %w", key, err))
+			failures = append(failures, fmt.Errorf("recipient %s: %w", key, err))
 			continue
 		}
 		results = append(results, result)
@@ -175,10 +172,11 @@ func decodeIntegrationInboxPlan(raw json.RawMessage) (IntegrationInboxPlan, erro
 	if json.Unmarshal(raw, &plan) != nil || plan.Recipients == nil {
 		return IntegrationInboxPlan{}, fmt.Errorf("receipt has no valid frozen integration plan")
 	}
-	for key, slot := range plan.Recipients {
-		if plan.Message == nil || slot.AgentID == uuid.Nil ||
-			(slot.Selection != nil) != (slot.Launch != nil) || (slot.Launch != nil && slot.Subscription != nil) {
-			return IntegrationInboxPlan{}, fmt.Errorf("invalid integration plan slot %s", key)
+	for key, recipient := range plan.Recipients {
+		if plan.Message == nil || recipient.AgentID == uuid.Nil ||
+			(recipient.LaunchClaim != nil) != (recipient.Launch != nil) ||
+			(recipient.Launch != nil && recipient.Subscription != nil) {
+			return IntegrationInboxPlan{}, fmt.Errorf("invalid integration plan recipient %s", key)
 		}
 	}
 	return plan, nil

@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,7 +41,7 @@ func slackInboxTestIntegration() integrationstore.IntegrationRecord {
 }
 
 func TestSlackInboxRoutesBeforeExpansion(t *testing.T) {
-	for _, routeErr := range []error{nil, integrationstore.ErrIntegrationSelectionReserved} {
+	for _, routeErr := range []error{nil, integrationstore.ErrIntegrationLaunchReserved} {
 		provider := &SlackIntegrationInboxProvider{}
 		called := false
 		expansion, err := provider.ExpandRouted(t.Context(), slackInboxTestIntegration(), slackInboxTestPayload(t,
@@ -208,6 +209,8 @@ func TestSlackInboxFileShareConversationAndMention(t *testing.T) {
 }
 
 type slackInboxTestAccess struct {
+	hasLaunchOwner   bool
+	launchOwnerErr   error
 	choice           integrationstore.IntegrationProfileChoiceRecord
 	mu               sync.Mutex
 	integrationSetup integrationstore.IntegrationRecord
@@ -215,6 +218,119 @@ type slackInboxTestAccess struct {
 	token            string
 	revoked          bool
 	afterRead        func()
+}
+
+func (s *slackInboxTestAccess) HasIntegrationLaunchOwner(
+	_ context.Context, projectID, integrationID uuid.UUID, address integrationstore.ConversationAddress,
+) (bool, error) {
+	if projectID != s.integrationSetup.ProjectID || integrationID != s.integrationSetup.ID || address.Kind != "thread" {
+		return false, storeerr.ErrUnauthorized
+	}
+	return s.hasLaunchOwner, s.launchOwnerErr
+}
+
+func TestSlackInboxOnlyEnrichesNewConversationHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		owner       bool
+		lookupErr   error
+		wantHistory bool
+	}{
+		{"new conversation", false, nil, true},
+		{"existing launch owner", true, nil, false},
+		{"ownership unavailable", false, errors.New("lookup unavailable"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var reads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/auth.test":
+					_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+				case "/users.info":
+					_, _ = w.Write([]byte(`{"ok":true,"user":{"profile":{"display_name":"Alex"}}}`))
+				case "/conversations.info":
+					_, _ = w.Write([]byte(`{"ok":true,"channel":{"name":"reviews"}}`))
+				case "/conversations.replies":
+					reads.Add(1)
+					_, _ = w.Write([]byte(`{"ok":true,"messages":[{"user":"U123","text":"old context","ts":"1.1"}]}`))
+				default:
+					t.Errorf("unexpected method %s", r.URL.Path)
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			}))
+			defer server.Close()
+			setup := slackInboxTestIntegration()
+			access := &slackInboxTestAccess{
+				integrationSetup: setup, version: uuid.New(), hasLaunchOwner: tc.owner, launchOwnerErr: tc.lookupErr,
+			}
+			config := slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}
+			provider := NewSlackIntegrationInboxProvider(config, access, access, nil)
+			event := slack.Event{
+				Type: "app_mention", User: "U123", Channel: "C123", TS: "1.2", ThreadTS: "1.0", Text: "<@UBOT> new question",
+			}
+			expanded, err := provider.Expand(t.Context(), setup, slackInboxTestPayload(t, event))
+			require.NoError(t, err)
+			require.NotNil(t, expanded.Event)
+			require.Contains(t, string(expanded.Event.ContentBlocks), "new question")
+			require.Equal(t, tc.wantHistory, reads.Load() == 1)
+			require.Equal(t, tc.wantHistory, strings.Contains(string(expanded.Event.ContentBlocks), "old context"))
+			if !tc.wantHistory {
+				require.Zero(t, reads.Load())
+				require.NotContains(t, string(expanded.Event.ContentBlocks), "starts a new Slack thread")
+			}
+		})
+	}
+}
+
+func TestSlackFailurePreservesExplicitMessageForScheduledAndChoiceInputs(t *testing.T) {
+	for _, source := range []integrationstore.IntegrationInboxSource{
+		integrationstore.IntegrationInboxSourceScheduled, integrationstore.IntegrationInboxSourceState,
+	} {
+		t.Run(string(source), func(t *testing.T) {
+			setup := slackInboxTestIntegration()
+			access := &slackInboxTestAccess{integrationSetup: setup, version: uuid.New()}
+			receipt := feedbackReceipt(setup, slackInboxTestPayload(t, slack.Event{
+				Type: "message", User: "U123", Channel: "C123", TS: "1.2", ThreadTS: "1.0",
+			}))
+			receipt.Source = source
+			if source == integrationstore.IntegrationInboxSourceScheduled {
+				receipt.Plan = feedbackPlan(t, integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{
+					ChannelID: "C123", ThreadTS: "1.0",
+				}})
+			} else {
+				event, ok, err := NormalizeSlackIntegrationEvent(setup, receipt.Payload)
+				require.NoError(t, err)
+				require.True(t, ok)
+				receipt.SourceStateID = uuid.New()
+				access.choice = feedbackChoice(t, receipt, event)
+			}
+			const message = "This agent is unavailable. Contact its owner."
+			var posts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/auth.test":
+					_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+				case "/chat.postMessage":
+					posts.Add(1)
+					var body map[string]string
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body["text"] != message || body["channel"] != "C123" || body["thread_ts"] != "1.0" {
+						t.Errorf("failure feedback changed explicit message or destination: %v", body)
+					}
+					_, _ = w.Write([]byte(`{"ok":true,"ts":"9.1"}`))
+				default:
+					t.Errorf("unexpected method %s", r.URL.Path)
+				}
+			}))
+			defer server.Close()
+			config := slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}
+			provider := NewSlackIntegrationInboxProvider(config, access, access, nil)
+			require.NoError(t, provider.NotifyInboxFailure(t.Context(), setup, receipt, message))
+			require.EqualValues(t, 1, posts.Load())
+		})
+	}
 }
 
 func (s *slackInboxTestAccess) ReadProjectAvailableSecretPayload(

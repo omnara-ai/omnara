@@ -28,7 +28,7 @@ import {
 } from './github-setup-test-fixture'
 
 it('does not run the connection callback after unmount while configure is pending', async () => {
-  window.history.replaceState(null, '', `/?credentials_secret_ref=${secretId}`)
+  window.history.replaceState(null, '', `/?credential_secret_id=${secretId}`)
   let release!: (response: Response) => void
   const pending = new Promise<Response>((resolve) => {
     release = resolve
@@ -72,7 +72,7 @@ it('keeps a saved callback credential after setup changes and confirms against t
   window.history.replaceState(
     null,
     '',
-    `/?github_setup_error=integration_setup_changed&credentials_secret_ref=${secretId}`,
+    `/?github_setup_error=integration_setup_changed&credential_secret_id=${secretId}`,
   )
   const current = integrationFixture({
     integration_kind: 'github_pr',
@@ -121,7 +121,7 @@ it('resumes a saved credential after approval and connects only on explicit conf
   window.history.replaceState(
     { keep: true },
     '',
-    `/projects/${projectId}/integrations/${integration.id}?filter=kept&github_setup=credentials_saved&credentials_secret_ref=${secretId}#connection`,
+    `/projects/${projectId}/integrations/${integration.id}?filter=kept&github_setup=credentials_saved&credential_secret_id=${secretId}#connection`,
   )
   let approved = false,
     connects = 0
@@ -197,8 +197,8 @@ it('resumes a saved credential after approval and connects only on explicit conf
     credential_secret_id: secretId,
   })
   expect(api.requestsTo('POST', inspectPath).map((request) => request.body)).toEqual([
-    { credentials_secret_ref: secretId, page: 1 },
-    { credentials_secret_ref: secretId, page: 1 },
+    { credential_secret_id: secretId, page: 1 },
+    { credential_secret_id: secretId, page: 1 },
   ])
   expect(api.requestsTo('POST', integrationPath + '/github-setup')).toHaveLength(0)
 })
@@ -269,7 +269,7 @@ it.each([true, false])(
 )
 
 it('retries a failed installation check and discards installations from a replaced credential', async () => {
-  window.history.replaceState(null, '', `/?credentials_secret_ref=${secretId}`)
+  window.history.replaceState(null, '', `/?credential_secret_id=${secretId}`)
   const replacement = `sec_${'b'.repeat(26)}`
   let unavailable = true
   const api = fakeApi([
@@ -324,9 +324,9 @@ it('retries a failed installation check and discards installations from a replac
   expect(document.querySelector<HTMLSelectElement>('#github-installation')?.value).toBe('')
   expect(button('Connect integration').disabled).toBe(true)
   expect(api.requestsTo('POST', inspectPath).map((request) => request.body)).toEqual([
-    { credentials_secret_ref: secretId, page: 1 },
-    { credentials_secret_ref: secretId, page: 1 },
-    { credentials_secret_ref: replacement, page: 1 },
+    { credential_secret_id: secretId, page: 1 },
+    { credential_secret_id: secretId, page: 1 },
+    { credential_secret_id: replacement, page: 1 },
   ])
   expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
 })

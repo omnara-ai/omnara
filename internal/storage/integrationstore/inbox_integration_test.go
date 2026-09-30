@@ -255,7 +255,7 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 	f.accept(t, "crashing")
 	r := f.claim(t)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
-		plan := json.RawMessage(`{"message":{},"recipients":{"slot":{"agent_id":"pinned","artifact_id":"pinned-blob"}}}`)
+		plan := json.RawMessage(`{"message":{},"recipients":{"recipient":{"agent_id":"pinned","artifact_id":"pinned-blob"}}}`)
 		return w.FreezePlan(f.ctx, plan)
 	})
 	original := f.read(t, r.ID)
@@ -289,7 +289,7 @@ func TestInboxCrashRecoveryExhaustsBudgetAndPreservesPlan(t *testing.T) {
 func TestInboxFrozenPlanRetryAndAtomicCompletion(t *testing.T) {
 	t.Parallel()
 	f := newInboxFixture(t)
-	f.accept(t, "slots")
+	f.accept(t, "recipients")
 	r := f.claim(t)
 	plan := json.RawMessage(`{"message":{},"recipients":{"one":{"agent_id":"one"},"two":{"agent_id":"two"}}}`)
 	f.mutate(t, r, func(w *integrationstore.IntegrationInboxLeaseTx) error {
@@ -363,7 +363,7 @@ func TestInboxCompleteRequiresValidFrozenPlan(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, plan string }{
 		{"unplanned", ""},
-		{"invalid slot", `{"slot":null}`},
+		{"invalid recipient", `{"recipient":null}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -249,23 +249,25 @@ type Integration struct {
 }
 
 type IntegrationInbox struct {
-	ID             uuid.UUID
-	ProjectID      uuid.UUID
-	IntegrationID  uuid.UUID
-	ReceiptKey     string
-	Payload        []byte
-	Source         string
-	StateID        *uuid.UUID
-	Plan           *json.RawMessage
-	State          string
-	AttemptCount   int32
-	NextAttemptAt  time.Time
-	ClaimToken     *uuid.UUID
-	ClaimExpiresAt *time.Time
-	LastError      *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CompletedAt    *time.Time
+	ID                uuid.UUID
+	ProjectID         uuid.UUID
+	IntegrationID     uuid.UUID
+	ReceiptKey        string
+	Payload           []byte
+	Source            string
+	SourceStateID     *uuid.UUID
+	ReservedScopeKind *string
+	ReservedScopeRef  *string
+	Plan              *json.RawMessage
+	State             string
+	AttemptCount      int32
+	NextAttemptAt     time.Time
+	ClaimToken        *uuid.UUID
+	ClaimExpiresAt    *time.Time
+	LastError         *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	CompletedAt       *time.Time
 }
 
 type IntegrationState struct {

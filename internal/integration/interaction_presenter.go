@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,7 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"reflect"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,9 +34,6 @@ type InteractionPresenter struct {
 	HTTPClient *http.Client
 	Log        *slog.Logger
 }
-
-const AgentRequestFailureMessage = "I couldn't complete this request. " +
-	"Please try again later or contact this bot's owner."
 
 type InteractionReceipt struct {
 	Provider  string `json:"provider"`
@@ -491,6 +487,36 @@ func InteractionResolvedText(record executionstore.AgentInteractionRecord) strin
 	}
 }
 
+func interactionClosedText(record executionstore.AgentInteractionRecord, limit int) string {
+	status := "Dismissed."
+	if record.State == executionstore.AgentInteractionStateResolved {
+		status = InteractionResolvedText(record)
+	} else if record.ResolvedByInputID != uuid.Nil {
+		status = "Dismissed because a newer message was sent."
+	}
+	form, err := record.Form()
+	if err != nil {
+		return status
+	}
+	parts := []string{form.Title}
+	for _, item := range form.Context {
+		parts = append(parts, item.Label+": "+item.Value)
+	}
+	for _, question := range form.Questions {
+		parts = append(parts, question.Prompt)
+		for _, option := range question.Options {
+			parts = append(parts, "• "+option.Label)
+		}
+	}
+	// Reserve room for the closure status even when the original form is long.
+	summary := []rune(strings.Join(parts, "\n"))
+	available := limit - len([]rune(status)) - len("\n\n")
+	if len(summary) > available {
+		summary = append(summary[:available-3], '.', '.', '.')
+	}
+	return string(summary) + "\n\n" + status
+}
+
 func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore.AgentInteractionRecord) error {
 	if record.State == executionstore.AgentInteractionStateOpen || len(record.PresentationReceipt) == 0 {
 		return nil
@@ -519,10 +545,6 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 		return storeerr.ErrUnauthorized
 	}
 	check := func(ctx context.Context) error { return p.recheck(ctx, access, checkAuthority) }
-	text := "This interaction is closed."
-	if record.State == executionstore.AgentInteractionStateResolved {
-		text = InteractionResolvedText(record)
-	}
 	switch access.integrationSetup.Provider {
 	case integrationdefinition.ProviderSlack:
 		client := slack.WithRequestCheck(p.HTTPClient, check)
@@ -538,7 +560,7 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 			client,
 			target,
 			receipt.MessageID,
-			text,
+			interactionClosedText(record, 3000),
 		)
 		return slackPromptError(result, err)
 	case integrationdefinition.ProviderDiscord:
@@ -557,70 +579,7 @@ func (p InteractionPresenter) Dismiss(ctx context.Context, record executionstore
 		if channel != receipt.ChannelID {
 			return storeerr.ErrUnauthorized
 		}
-		_, err = client.EditMessage(ctx, scope, receipt.MessageID, text, nil)
-		return err
-	}
-	return nil
-}
-
-func (p InteractionPresenter) PostRuntimeMessage(
-	ctx context.Context, projectID, agentID, operationID uuid.UUID, text string,
-) error {
-	destination, err := p.Store.Execution().GetSelectedInteractionDestination(ctx, projectID, agentID)
-	if err != nil {
-		return err
-	}
-	if destination == nil {
-		return nil
-	}
-	access, err := p.access(ctx, projectID, *destination)
-	if err != nil {
-		return err
-	}
-	authority := func(ctx context.Context) error {
-		if err := p.Store.Execution().EnsureRuntimeLockActive(ctx, projectID, agentID, operationID); err != nil {
-			return err
-		}
-		current, err := p.Store.Execution().GetSelectedInteractionDestination(ctx, projectID, agentID)
-		if err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(current, destination) {
-			return storeerr.ErrUnauthorized
-		}
-		return nil
-	}
-	check := func(ctx context.Context) error { return p.recheck(ctx, access, authority) }
-	switch access.integrationSetup.Provider {
-	case integrationdefinition.ProviderSlack:
-		client := slack.WithRequestCheck(p.HTTPClient, check)
-		target, err := access.slackTarget(ctx, client)
-		if err != nil {
-			return err
-		}
-		payload, err := slack.PromptPayload(target, text, nil)
-		if err != nil {
-			return err
-		}
-		_, result, err := slack.PostPromptReceipt(ctx, client, target, payload)
-		return slackPromptError(result, err)
-	case integrationdefinition.ProviderDiscord:
-		client, err := p.discordClient(ctx, access, check)
-		if err != nil {
-			return err
-		}
-		scope, err := DiscordInteractionScope(access.destination)
-		if err != nil {
-			return err
-		}
-		digest := sha256.Sum256([]byte(fmt.Sprint(operationID, text)))
-		runes := []rune(text)
-		if len(runes) > 2000 {
-			text = string(runes[:1999]) + "…"
-		}
-		_, err = client.CreateMessage(ctx, scope, discord.MessageArgs{
-			Content: text, Nonce: base64.RawURLEncoding.EncodeToString(digest[:16]),
-		})
+		_, err = client.EditMessage(ctx, scope, receipt.MessageID, interactionClosedText(record, 2000), nil)
 		return err
 	}
 	return nil

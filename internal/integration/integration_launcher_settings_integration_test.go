@@ -226,7 +226,7 @@ func TestLauncherReusedIntegrationNameReportsUnavailableAndStillForwards(t *test
 			require.NotNil(t, results[0].Input)
 			require.Equal(t, observer.ID, results[0].Input.AgentInput.AgentID)
 			require.Empty(t, f.provider.menus)
-			require.Equal(t, []string{launchCapabilitiesUnavailableMessage}, f.provider.notices)
+			require.Equal(t, []string{launchUnavailableMessage}, f.provider.notices)
 			saved, err := f.store.Execution().GetAgentProfile(t.Context(), f.ids.ProjectID, profile.ID)
 			require.NoError(t, err)
 			require.JSONEq(t, string(pinned.CompiledDefinition), string(saved.CurrentConfig.CompiledDefinition))

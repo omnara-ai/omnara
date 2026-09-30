@@ -39,7 +39,7 @@ func TestGitHubManifestConversionSavesCredentialsAfterBrowserCancellation(t *tes
 	require.NoError(t, err)
 	require.Equal(t, "credentials_saved", location.Query().Get("github_setup"))
 	require.Empty(t, location.Query().Get("github_setup_error"))
-	secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credentials_secret_ref"))
+	secretID, err := publicid.Decode(publicid.KindSecret, location.Query().Get("credential_secret_id"))
 	require.NoError(t, err)
 	secret, err := f.project.Store.Secrets().GetSecret(t.Context(), f.project.OrgUUID, secretID)
 	require.NoError(t, err)

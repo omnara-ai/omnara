@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/jsonschema"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	"github.com/omnara-ai/omnara/internal/toolpermission"
 	"github.com/stretchr/testify/require"
@@ -74,6 +75,7 @@ interaction_handlers:
 	hash := store.config.EffectiveDefinitionHash
 	bundle := buildIntegrationContext(t, NewStore(store, store, store))
 	post := requireToolSpec(t, bundle.ToolSpecs, "int__engineering__post_message")
+	require.Contains(t, post.Description, "No conversation is assigned to this agent; this tool cannot run.")
 	require.Equal(t, toolcatalog.ToolTypeBuiltIn, post.Type)
 	require.Equal(t, toolpermission.ModeAlwaysAsk, post.Permission.Mode)
 	require.NoError(t, jsonschema.Validate(post.InputSchema, []byte(`{"text":"hello"}`)))
@@ -169,4 +171,40 @@ func TestNewStoreUsesIndependentIntegrationMetadataProvider(t *testing.T) {
 		TurnID: testTurnID, OpeningInputIDs: []uuid.UUID{testInputID},
 	})
 	require.ErrorIs(t, err, integrations.integrationDefinitionsErr)
+}
+
+func TestIntegrationToolDescriptionIdentifiesAssignedConversation(t *testing.T) {
+	for _, test := range []struct {
+		kind                integrationdefinition.Kind
+		address             integrationstore.ConversationAddress
+		operation, expected string
+	}{
+		{integrationdefinition.SlackThread,
+			integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:123.456"},
+			"post_message", `{"channel_id":"C123","thread_ts":"123.456"}`},
+		{integrationdefinition.DiscordThread,
+			integrationstore.ConversationAddress{Kind: "thread", Ref: "123456789"},
+			"post_message", `{"thread_id":"123456789"}`},
+		{integrationdefinition.GitHubPR,
+			integrationstore.ConversationAddress{Kind: "pull_request", Ref: "123#42"},
+			"discussion_comment", `{"repository_id":123,"pull_request":42}`},
+	} {
+		t.Run(string(test.kind), func(t *testing.T) {
+			store, id := integrationContextFixture(t, "tools: {int__engineering__read: {}}\n")
+			var compiled agentconfig.Compiled
+			require.NoError(t, json.Unmarshal(store.config.CompiledDefinition, &compiled))
+			compiled.Tools["int__engineering__"+test.operation] = compiled.Tools["int__engineering__read"]
+			store.integrationDefinitions[id] = agentconfig.IntegrationResolution{IntegrationID: id, IntegrationKind: test.kind}
+			store.integrationConversations = map[uuid.UUID]integrationstore.ConversationAddress{id: test.address}
+			specs, err := RuntimeContractToolSpecs(t.Context(), store, testProjectID, testAgentID,
+				agentconfig.RuntimeContract{IntegrationTools: compiled.Tools}, time.Time{})
+			require.NoError(t, err)
+			for _, operation := range []string{"read", test.operation} {
+				spec := requireToolSpec(t, specs, "int__engineering__"+operation)
+				require.Contains(t, spec.Description, "Assigned conversation: "+test.expected)
+				require.Contains(t, spec.Description, "Messages from other subscriptions do not change")
+			}
+			require.Equal(t, 1, store.integrationConversationReads, "one state lookup shared by both tools")
+		})
+	}
 }

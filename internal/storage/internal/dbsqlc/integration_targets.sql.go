@@ -70,6 +70,74 @@ func (q *Queries) GetAgentConversationTarget(ctx context.Context, arg GetAgentCo
 	return i, err
 }
 
+const getAgentIntegrationLaunchOwners = `-- name: GetAgentIntegrationLaunchOwners :many
+SELECT target.id, project.org_id, target.project_id, target.agent_id, target.integration_id, target.scope_ref,
+       target.scope_kind, target.display_name, target.launch_key, target.deleted_at, target.created_at, target.updated_at
+FROM integration_targets target
+JOIN agents agent ON agent.project_id = target.project_id AND agent.id = target.agent_id AND agent.state = 'active'
+JOIN projects project ON project.id = target.project_id AND project.deleted_at IS NULL
+JOIN orgs org ON org.id = project.org_id AND org.deleted_at IS NULL
+JOIN integrations integration ON integration.project_id = target.project_id AND integration.id = target.integration_id
+    AND integration.deleted_at IS NULL AND integration.state = 'active'
+WHERE target.project_id = $1 AND target.agent_id = $2
+  AND target.deleted_at IS NULL AND target.launch_key IS NOT NULL
+ORDER BY target.id
+LIMIT 2
+`
+
+type GetAgentIntegrationLaunchOwnersParams struct {
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+}
+
+type GetAgentIntegrationLaunchOwnersRow struct {
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+	ScopeRef      string
+	ScopeKind     string
+	DisplayName   string
+	LaunchKey     *string
+	DeletedAt     *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) GetAgentIntegrationLaunchOwners(ctx context.Context, arg GetAgentIntegrationLaunchOwnersParams) ([]GetAgentIntegrationLaunchOwnersRow, error) {
+	rows, err := q.db.Query(ctx, getAgentIntegrationLaunchOwners, arg.ProjectID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetAgentIntegrationLaunchOwnersRow{}
+	for rows.Next() {
+		var i GetAgentIntegrationLaunchOwnersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.AgentID,
+			&i.IntegrationID,
+			&i.ScopeRef,
+			&i.ScopeKind,
+			&i.DisplayName,
+			&i.LaunchKey,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getConversationDisplayName = `-- name: GetConversationDisplayName :one
 SELECT display_name
 FROM integration_targets
@@ -99,7 +167,7 @@ func (q *Queries) GetConversationDisplayName(ctx context.Context, arg GetConvers
 	return display_name, err
 }
 
-const getIntegrationSelectionTarget = `-- name: GetIntegrationSelectionTarget :one
+const getIntegrationLaunchOwner = `-- name: GetIntegrationLaunchOwner :one
 SELECT id, project_id, agent_id, integration_id, scope_ref,
        scope_kind, display_name, launch_key,
        deleted_at, created_at, updated_at
@@ -109,7 +177,7 @@ WHERE project_id = $1 AND integration_id = $2
   AND launch_key = $5
 `
 
-type GetIntegrationSelectionTargetParams struct {
+type GetIntegrationLaunchOwnerParams struct {
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
 	Kind          string
@@ -117,7 +185,7 @@ type GetIntegrationSelectionTargetParams struct {
 	LaunchKey     *string
 }
 
-type GetIntegrationSelectionTargetRow struct {
+type GetIntegrationLaunchOwnerRow struct {
 	ID            uuid.UUID
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
@@ -131,15 +199,15 @@ type GetIntegrationSelectionTargetRow struct {
 	UpdatedAt     time.Time
 }
 
-func (q *Queries) GetIntegrationSelectionTarget(ctx context.Context, arg GetIntegrationSelectionTargetParams) (GetIntegrationSelectionTargetRow, error) {
-	row := q.db.QueryRow(ctx, getIntegrationSelectionTarget,
+func (q *Queries) GetIntegrationLaunchOwner(ctx context.Context, arg GetIntegrationLaunchOwnerParams) (GetIntegrationLaunchOwnerRow, error) {
+	row := q.db.QueryRow(ctx, getIntegrationLaunchOwner,
 		arg.ProjectID,
 		arg.IntegrationID,
 		arg.Kind,
 		arg.Ref,
 		arg.LaunchKey,
 	)
-	var i GetIntegrationSelectionTargetRow
+	var i GetIntegrationLaunchOwnerRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
@@ -219,7 +287,7 @@ func (q *Queries) InsertIntegrationConversationTarget(ctx context.Context, arg I
 	return i, err
 }
 
-const listConversationSelections = `-- name: ListConversationSelections :many
+const listConversationLaunchOwners = `-- name: ListConversationLaunchOwners :many
 SELECT id, project_id, agent_id, integration_id, scope_ref,
        scope_kind, display_name, launch_key,
        deleted_at, created_at, updated_at
@@ -230,14 +298,14 @@ WHERE target.project_id = $1 AND target.integration_id = $2
 ORDER BY target.id
 `
 
-type ListConversationSelectionsParams struct {
+type ListConversationLaunchOwnersParams struct {
 	ProjectID     uuid.UUID
 	IntegrationID uuid.UUID
 	Kind          string
 	Ref           string
 }
 
-type ListConversationSelectionsRow struct {
+type ListConversationLaunchOwnersRow struct {
 	ID            uuid.UUID
 	ProjectID     uuid.UUID
 	AgentID       uuid.UUID
@@ -251,9 +319,9 @@ type ListConversationSelectionsRow struct {
 	UpdatedAt     time.Time
 }
 
-// Keep retired selections so a later comment cannot launch a replacement agent.
-func (q *Queries) ListConversationSelections(ctx context.Context, arg ListConversationSelectionsParams) ([]ListConversationSelectionsRow, error) {
-	rows, err := q.db.Query(ctx, listConversationSelections,
+// Keep retired launch owners so a later comment cannot launch a replacement agent.
+func (q *Queries) ListConversationLaunchOwners(ctx context.Context, arg ListConversationLaunchOwnersParams) ([]ListConversationLaunchOwnersRow, error) {
+	rows, err := q.db.Query(ctx, listConversationLaunchOwners,
 		arg.ProjectID,
 		arg.IntegrationID,
 		arg.Kind,
@@ -263,9 +331,9 @@ func (q *Queries) ListConversationSelections(ctx context.Context, arg ListConver
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListConversationSelectionsRow{}
+	items := []ListConversationLaunchOwnersRow{}
 	for rows.Next() {
-		var i ListConversationSelectionsRow
+		var i ListConversationLaunchOwnersRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,

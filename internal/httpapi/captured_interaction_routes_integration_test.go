@@ -282,16 +282,15 @@ func newCapturedHTTPFixtureWithDismiss(
 	origin, err := project.Store.Integrations().
 		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
 			ProjectID: project.ProjectUUID, AgentID: agentUUID, IntegrationID: integration.ID,
-			Address: address,
+			Address: address, LaunchKey: "default",
 		})
 	require.NoError(t, err)
-	selection, err := executionstore.SelectInteractionDestinationForOriginTx(
-		ctx, tx, project.ProjectUUID, agentUUID, origin.ID,
+	changed, err := tx.Exec(ctx, `UPDATE agents
+		SET interaction_target_id=$3, interaction_handler_key='support', interaction_auto_select=true
+		WHERE project_id=$1 AND id=$2`, project.ProjectUUID, agentUUID, origin.ID,
 	)
 	require.NoError(t, err)
-	require.Equal(t, executionstore.InteractionSelection{
-		AutoSelect: true, HandlerKey: "support", IntegrationTargetID: origin.ID,
-	}, selection)
+	require.EqualValues(t, 1, changed.RowsAffected())
 	require.NoError(t, tx.Commit(ctx))
 	requestJSONWithHeaders(
 		t,
@@ -675,10 +674,6 @@ func TestCapturedCallbackRevocationLeavesDashboardAvailable(t *testing.T) {
 					require.NoError(t, err)
 					require.EqualValues(t, 1, changed.RowsAffected())
 				}
-				selected, err := f.project.Store.Execution().GetSelectedInteractionDestination(
-					t.Context(), f.project.ProjectUUID, f.record.AgentID)
-				require.NoError(t, err)
-				require.Nil(t, selected)
 				if provider == "slack" {
 					response := f.slackRequest(t, false)
 					if revoked != "integration" {
@@ -855,8 +850,14 @@ func TestSlackActionsResolvePermissionAsIntegrationActor(t *testing.T) {
 	case update := <-updates:
 		require.Equal(t, "C123", update["channel"])
 		require.Equal(t, "222.333", update["ts"])
-		require.Empty(t, update["blocks"])
-		require.Equal(t, "Approved: run_command", update["text"])
+		require.Equal(t, []any{map[string]any{
+			"type": "section", "text": map[string]any{"type": "plain_text", "text": update["text"]},
+		}}, update["blocks"], "dismissal must replace all controls with literal text")
+		require.Equal(t, "none", update["parse"])
+		require.Equal(t,
+			"Permission requested for run_command\nAllow this tool call?\n• Allow\n• Deny\n\nApproved: run_command",
+			update["text"],
+		)
 	case <-time.After(3 * time.Second):
 		t.Fatal("confirmed prompt was not dismissed")
 	}
@@ -1106,8 +1107,8 @@ func TestCapturedDiscordThreadGuardsPromptAndRuntimeMessage(t *testing.T) {
 				if operation == "prompt" {
 					err = p.Present(t.Context(), f.integration.ProjectID, f.record.AgentID, f.record.ID)
 				} else {
-					err = p.PostRuntimeMessage(t.Context(), f.integration.ProjectID,
-						f.record.AgentID, f.runtimeLockID(t), "status")
+					err = (integrationruntime.RuntimeFailureNotifier{Store: f.project.Store, HTTPClient: f.client}).
+						Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t))
 				}
 				var providerErr *discord.APIError
 				require.ErrorAs(t, err, &providerErr)
@@ -1308,7 +1309,8 @@ func TestCapturedSlackRotatedTokenIdentityBeforeProviderIO(t *testing.T) {
 					require.True(t, found)
 					err = p.Dismiss(t.Context(), closed)
 				case "runtime":
-					err = p.PostRuntimeMessage(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t), "status")
+					err = (integrationruntime.RuntimeFailureNotifier{Store: f.project.Store, HTTPClient: f.client}).
+						Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t))
 				}
 				if identity == "same" {
 					require.NoError(t, err)
@@ -1347,8 +1349,8 @@ func TestCapturedDiscordRuntimeMessageWithoutInteractionKey(t *testing.T) {
 		storeerr.ErrUnauthorized,
 	)
 	require.Zero(t, requests.Load(), "a missing callback key must reject prompts before any provider request")
-	require.NoError(t, p.PostRuntimeMessage(t.Context(), f.integration.ProjectID, f.record.AgentID,
-		f.runtimeLockID(t), integrationruntime.AgentRequestFailureMessage))
+	require.NoError(t, (integrationruntime.RuntimeFailureNotifier{Store: f.project.Store, HTTPClient: f.client}).
+		Notify(t.Context(), f.integration.ProjectID, f.record.AgentID, f.runtimeLockID(t)))
 	require.EqualValues(t, 1, sends.Load(), "plain text needs bot authority, not a callback verification key")
 	payload := <-f.prompts
 	require.Equal(t, integrationruntime.AgentRequestFailureMessage, payload["content"])
@@ -1368,7 +1370,7 @@ func TestCapturedDiscordDismissWithoutInteractionKey(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return true
 			}
-			assert.Equal(t, "This interaction is closed.", payload["content"])
+			assert.Equal(t, "Question\nShip?\n• Yes\n• No\n\nDismissed because a newer message was sent.", payload["content"])
 			assert.Equal(t, []any{}, payload["components"], "dismissal must clear the original buttons")
 			dismissals.Add(1)
 			writeJSON(w, http.StatusOK, map[string]any{

@@ -78,7 +78,7 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 		Digest:      blobstore.ContentDigest(content),
 		SizeBytes:   int64(len(content)),
 	}
-	slot := IntegrationInboxSlot{
+	recipient := IntegrationInboxRecipient{
 		AgentID:     uuid.Must(uuid.NewV7()),
 		ArtifactIDs: []uuid.UUID{id},
 	}
@@ -96,7 +96,7 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 		integrationstore.IntegrationRecord{},
 		nil,
 		message,
-		slot,
+		recipient,
 		cache,
 	)
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 		integrationstore.IntegrationRecord{},
 		nil,
 		message,
-		slot,
+		recipient,
 		nil,
 	)
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestIntegrationConsumerRecoveryChecksFrozenContentBeforeUpload(t *testing.T
 		integrationstore.IntegrationRecord{},
 		nil,
 		message,
-		slot,
+		recipient,
 		map[string]IntegrationInboxFile{},
 	)
 	require.ErrorIs(t, err, storeerr.ErrIdempotencyConflict)

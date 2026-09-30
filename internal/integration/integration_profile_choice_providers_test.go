@@ -24,6 +24,7 @@ func providerProfileChoice(t *testing.T) integrationstore.IntegrationProfileChoi
 	t.Helper()
 	return integrationstore.IntegrationProfileChoiceRecord{
 		ID:        uuid.New(),
+		CreatedAt: time.Date(2026, time.September, 18, 16, 4, 0, 0, time.FixedZone("fixture", 2*60*60)),
 		ExpiresAt: time.Date(2026, time.September, 18, 17, 4, 0, 0, time.FixedZone("fixture", 2*60*60)),
 		Options: []integrationstore.IntegrationProfileChoiceOption{
 			{Key: "support", ProfileID: uuid.New(), Name: "Support"},
@@ -36,15 +37,13 @@ func TestIntegrationProfileChoiceDiscordProviderCreatesThreadAndPostsNativeMenu(
 	t.Parallel()
 	f, provider := newDiscordInboxFixture(t)
 	f.integrationSetup.ProviderConfig = json.RawMessage(`{"public_key":"` + strings.Repeat("a", 64) + `"}`)
-	event, ok, err := NormalizeDiscordIntegrationEvent(
-		f.integrationSetup,
-		discordInboxPayload(t, f.message),
-		f.channels["300"],
-	)
+	f.message.Mentions, f.message.MentionRoles, f.message.Content = nil, []string{"700"}, "<@&700> help"
+	expansion, err := provider.Expand(t.Context(), f.integrationSetup, discordInboxPayload(t, f.message))
 	require.NoError(t, err)
-	require.True(t, ok)
+	require.NotNil(t, expansion.Event)
+	require.True(t, expansion.Event.Event.Mentioned)
 	choice := providerProfileChoice(t)
-	choice.Event, err = json.Marshal(event)
+	choice.Event, err = json.Marshal(expansion.Event)
 	require.NoError(t, err)
 	choice.Address = integrationstore.ConversationAddress{Kind: "thread", Ref: "500"}
 	choiceID, err := publicid.Encode(publicid.KindIntegrationProfileChoice, choice.ID)
@@ -140,6 +139,10 @@ func TestIntegrationProfileChoiceSlackProviderPreservesRetryHint(t *testing.T) {
 					_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
 					return
 				}
+				if r.URL.Path == "/conversations.replies" {
+					_, _ = w.Write([]byte(`{"ok":true,"messages":[]}`))
+					return
+				}
 				path := "/chat.postMessage"
 				if operation == "update" {
 					path = "/chat.update"
@@ -183,6 +186,10 @@ func TestIntegrationProfileChoiceSlackProviderPostsAndClearsNativeMenu(t *testin
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/auth.test" {
 			_, _ = w.Write([]byte(`{"ok":true,"team_id":"T123","user_id":"UBOT","bot_id":"B123"}`))
+			return
+		}
+		if r.URL.Path == "/conversations.replies" {
+			_, _ = w.Write([]byte(`{"ok":true,"messages":[]}`))
 			return
 		}
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
@@ -230,6 +237,7 @@ func TestIntegrationProfileChoiceSlackProviderPostsAndClearsNativeMenu(t *testin
 	require.Equal(t, "2.3", dismissal["ts"])
 	require.Equal(t, "Selected Reviewer.", dismissal["text"])
 	require.Equal(t, []any{}, dismissal["blocks"])
+	choice.MessageChannelID, choice.MessageID = "", ""
 	_, _, err = provider.PresentProfileChoice(t.Context(), integrationSetup, choice,
 		func(context.Context) error { return storeerr.ErrUnauthorized })
 	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
