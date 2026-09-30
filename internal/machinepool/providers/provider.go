@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	Blaxel   = "blaxel"
-	Daytona  = "daytona"
-	Modal    = "modal"
-	Unikraft = "unikraft"
+	Blaxel    = "blaxel"
+	Daytona   = "daytona"
+	Freestyle = "freestyle"
+	Modal     = "modal"
+	Unikraft  = "unikraft"
 )
 
 type RuntimeConfig struct {
@@ -34,6 +35,8 @@ type ProvisionMachineResult struct {
 // and any previously observed resource id is stale; the next retry may observe
 // a different id for the same machine.
 var ErrResourceReplaced = errors.New("provider resource was replaced")
+
+var ErrPermanent = errors.New("permanent provider error")
 
 type WakeMachineInput struct {
 	ProviderResourceID string

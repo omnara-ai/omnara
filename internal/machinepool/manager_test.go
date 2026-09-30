@@ -546,6 +546,28 @@ func TestProvisionMachineWithRetryDiscardsReplacedResource(t *testing.T) {
 	}
 }
 
+func TestProvisionMachineWithRetryStopsOnPermanentError(t *testing.T) {
+	stubProvisionRetryDelays(t)
+	calls := 0
+	result, err := provisionWithRetryForTest(
+		context.Background(),
+		func() (providers.ProvisionMachineResult, error) {
+			calls++
+			return providers.ProvisionMachineResult{ProviderResourceID: "resource-1"},
+				fmt.Errorf("snapshot too large: %w", providers.ErrPermanent)
+		},
+	)
+	if !errors.Is(err, providers.ErrPermanent) {
+		t.Fatalf("provision error = %v, want permanent error", err)
+	}
+	if calls != 1 {
+		t.Fatalf("provision calls = %d, want 1", calls)
+	}
+	if result.ProviderResourceID != "resource-1" {
+		t.Fatalf("provision result = %+v, want observed resource", result)
+	}
+}
+
 func TestProvisionMachineWithRetryRejectsConflictingResources(t *testing.T) {
 	stubProvisionRetryDelays(t)
 	calls := 0
