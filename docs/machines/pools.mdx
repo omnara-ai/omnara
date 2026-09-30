@@ -72,6 +72,8 @@ For a custom pool, store the provider's API key as an org-owned [secret](/organi
 
 The Modal app defaults to `omnara` and is created automatically on first provisioning.
 
+For Tenki, the API key selects the workspace. Omit the image (leave it blank in the dashboard) to use Tenki's Ubuntu base image.
+
 <Tabs>
 <Tab title="API">
   The examples assume the client, `$ORG`/`orgID`, and `$PROJ`/`projectID` setup from the [quickstart](/quickstart).
@@ -97,6 +99,7 @@ Every pool requires `max_total_machines`. Resource requirements then depend on t
 - **Daytona:** CPU and memory maximums are required; defaults are optional because the snapshot defines the machine size.
 - **Modal:** CPU and memory defaults and maximums are required. Omnara expresses CPU in vCPU and converts it to Modal physical cores, where one physical core equals two vCPU.
 - **Freestyle:** CPU and memory defaults and maximums are required. Omnara grows the snapshot VM to the configured size; it rejects snapshots whose CPU or memory already exceed that size.
+- **Tenki:** CPU and memory defaults and maximums are required; memory must be a multiple of 2 MB.
 
 ## Grant a pool to a project
 
@@ -142,13 +145,3 @@ By default, Omnara creates one machine at launch and allows one machine in total
 <Info>
 Full schema and playground: [Create machine pool](/api-reference/endpoints/machine-pools/create-machine-pool) · [Update machine pool](/api-reference/endpoints/machine-pools/update-machine-pool) · [Pool grants](/api-reference/endpoints/machine-pools/create-project-machine-pool-grant).
 </Info>
-
-## Tenki pools
-
-Store your Tenki workspace API key as an organization-owned secret and select **Tenki** when creating a pool. CPU and memory defaults and maximums are required. Leave **Image** empty to use Tenki's Ubuntu base image, or supply a Tenki registry image reference. No region or workspace field is required; the key selects the workspace.
-
-Tenki machines use 1–16 vCPU, 512–65536 MiB of memory in 2 MiB increments, and a 20 GiB root disk by default. Set `disk_size_gb` (5–100) in provider options through the API or configuration file to change disk size. Custom images must support the `tenki` user, `/home/tenki`, `flock`, and the usual daemon installer dependencies. Startup scripts run as `tenki`; use `sudo` for system package installation.
-
-Omnara creates sticky sessions and owns their cleanup. Configure idle deletion and enable runtime protection to reclaim unused machines. Tenki's automatic idle pause is disabled; pause/resume and persistent-volume management are not exposed by this integration. Guest data is lost when the session is terminated. The provider credential remains in Omnara; daemon credentials and machine environment are installed through the authenticated data plane under a private directory in the guest.
-
-Tenki does not deduplicate session creation. Omnara records each machine's creation attempt durably and sends at most one create request. After a lost response, retries discover the session by ownership metadata. If the request never reached Tenki, that machine's provisioning eventually fails instead of risking a duplicate session; launch a replacement machine.

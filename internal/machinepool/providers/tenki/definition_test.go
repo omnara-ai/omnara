@@ -2,13 +2,17 @@ package tenki
 
 import (
 	"encoding/json"
-	"os/exec"
-	"strings"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDefinitionRequiresToken(t *testing.T) {
+	_, err := (Definition{}).NewProvider(nil, providers.RuntimeConfig{})
+	require.ErrorContains(t, err, "auth token is required")
+}
 
 func testPolicy() executionstore.MachinePoolProviderPolicy {
 	return executionstore.MachinePoolProviderPolicy{
@@ -29,24 +33,38 @@ func TestDefinitionDefaultsAndAllowlist(t *testing.T) {
 	options, err := parseProviderOptions(nil)
 	require.NoError(t, err)
 	require.Empty(t, options.Image)
-	require.EqualValues(t, 20, options.DiskSizeGB)
+	require.Zero(t, options.DiskSizeGB)
+	require.EqualValues(t, baseImageDiskSizeGB, options.diskSizeGB())
 	config := testProvisioning()
 	config.ProviderOptions = map[string]json.RawMessage{"image": json.RawMessage(`"workspace/custom"`)}
 	require.ErrorContains(t, d.ValidateMachineProvisioning(policy, config), "not allowed")
-	policy.ProviderConfig = json.RawMessage(`{"allowed_images":["", "workspace/custom"]}`)
+	policy.ProviderConfig = json.RawMessage(`{"allowed_images":["workspace/custom"]}`)
+	require.NoError(t, d.ValidatePool(policy))
 	require.NoError(t, d.ValidateMachineProvisioning(policy, config))
+	require.NoError(t, d.ValidateMachineProvisioning(policy, testProvisioning()))
 }
 
 func TestDefinitionRejectsInvalidResourcesAndOptions(t *testing.T) {
 	for _, mutate := range []func(*executionstore.MachineProvisioningConfig){
-		func(c *executionstore.MachineProvisioningConfig) { c.CPU = new(17) },
-		func(c *executionstore.MachineProvisioningConfig) { c.MemoryMB = new(511) },
+		func(c *executionstore.MachineProvisioningConfig) { c.CPU = new(0) },
 		func(c *executionstore.MachineProvisioningConfig) { c.MemoryMB = new(1025) },
 		func(c *executionstore.MachineProvisioningConfig) {
 			c.ProviderOptions = map[string]json.RawMessage{"region": json.RawMessage(`"us"`)}
 		},
 		func(c *executionstore.MachineProvisioningConfig) {
+			c.ProviderOptions = map[string]json.RawMessage{"image": json.RawMessage(`""`)}
+		},
+		func(c *executionstore.MachineProvisioningConfig) {
+			c.ProviderOptions = map[string]json.RawMessage{"image": json.RawMessage(`null`)}
+		},
+		func(c *executionstore.MachineProvisioningConfig) {
+			c.ProviderOptions = map[string]json.RawMessage{"image": json.RawMessage(`"  "`)}
+		},
+		func(c *executionstore.MachineProvisioningConfig) {
 			c.ProviderOptions = map[string]json.RawMessage{"disk_size_gb": json.RawMessage(`101`)}
+		},
+		func(c *executionstore.MachineProvisioningConfig) {
+			c.ProviderOptions = map[string]json.RawMessage{"disk_size_gb": json.RawMessage(`4`)}
 		},
 		func(c *executionstore.MachineProvisioningConfig) {
 			c.ProviderOptions = map[string]json.RawMessage{"disk_size_gb": json.RawMessage(`"20"`)}
@@ -58,31 +76,11 @@ func TestDefinitionRejectsInvalidResourcesAndOptions(t *testing.T) {
 		require.Error(t, err)
 	}
 	for _, raw := range []string{
-		`{"api_base_url":"http://example.com"}`,
-		`{"api_base_url":"https://user:key@example.com"}`,
-		`{"api_base_url":"https://example.com?key=x"}`,
+		`{"api_base_url":"https://api.tenki.cloud"}`,
 		`{"workspace":"x"}`,
+		`{"allowed_images":[""]}`,
 	} {
 		_, err := parseProviderConfig(json.RawMessage(raw))
 		require.Error(t, err)
 	}
-}
-
-func TestBootstrapShellSyntaxAndEnvironmentQuoting(t *testing.T) {
-	value := "quotes'\"\n$(touch /should-not-exist) `false`"
-	script, err := bootstrapScript(map[string]string{"VALUE": value})
-	require.NoError(t, err)
-	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-n")
-	cmd.Stdin = strings.NewReader(script)
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "%s", output)
-	env, err := environmentScript(map[string]string{"VALUE": value})
-	require.NoError(t, err)
-	cmd = exec.CommandContext(t.Context(), "/bin/sh", "-s")
-	cmd.Stdin = strings.NewReader(env + "printf '%s' \"$VALUE\"")
-	output, err = cmd.CombinedOutput()
-	require.NoError(t, err)
-	require.Equal(t, value, string(output))
-	_, err = environmentScript(map[string]string{"BAD;exit": "x"})
-	require.Error(t, err)
 }

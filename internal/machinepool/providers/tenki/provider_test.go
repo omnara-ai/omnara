@@ -1,96 +1,82 @@
 package tenki
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
-	"sync"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
-type fakeAPI struct {
-	mu        sync.Mutex
-	sessions  []sandbox
-	creates   int
-	createErr error
-	hide      bool
-	getErr    error
-	bootErr   error
-	deletes   int
-	boots     int
+func TestProvisionStartsDaemonFromBootRuntime(t *testing.T) {
+	a := &fakeAPI{}
+	p := testProvider(a)
+	installationID, machineID := uuid.New(), uuid.New()
+	p.AuthorizeCreation()
+	result, err := p.ProvisionMachine(
+		t.Context(), installationID, machineID, testProvisioning(), "machine-token",
+		map[string]string{"USER_KEY": "value", "my-var": "value"},
+	)
+	require.NoError(t, err)
+	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
+	request := a.requests[0]
+	metadata, err := ownershipMetadata(installationID, machineID)
+	require.NoError(t, err)
+	require.Equal(t, metadata, request.Metadata)
+	require.Equal(t, []string{managedTag}, request.Tags)
+	require.True(t, request.Sticky)
+	require.False(t, request.AllowInbound)
+	require.True(t, request.AllowOutbound)
+	require.Equal(t, 2, request.CPUCores)
+	require.Equal(t, 4096, request.MemoryMB)
+	require.EqualValues(t, baseImageDiskSizeGB, request.DiskSizeGB)
+	require.Empty(t, request.RegistryRef)
+	require.Equal(t, providers.ManagedDaemonLauncherArgs(), request.Runtime.Start.Argv)
+	require.Equal(t, "TEMPLATE_RUNTIME_RUN_AT_BOOT", request.Runtime.RunAt)
+	require.Equal(t, "TEMPLATE_RESTART_POLICY_NEVER", request.Runtime.RestartPolicy)
+	require.Equal(t, providers.ManagedBootScriptPayload(), request.Runtime.Env[providers.ManagedBootstrapScriptEnvVar])
+	require.Equal(t, "machine-token", request.Runtime.Env["OMNARA_MACHINE_TOKEN"])
+	require.Equal(t, "value", request.Runtime.Env["USER_KEY"])
+	require.NotContains(t, request.Runtime.Env, "my-var")
 }
 
-func (a *fakeAPI) Create(_ context.Context, request createRequest) (sandbox, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.creates++
-	s := sandbox{
-		ID:         uuid.NewString(),
-		State:      "RUNNING",
-		Metadata:   request.Metadata,
-		CPU:        request.CPU,
-		MemoryMB:   request.MemoryMB,
-		DiskSizeGB: request.Options.DiskSizeGB,
-		Sticky:     true,
+func TestProvisionKeepsCustomImageDiskUnlessSet(t *testing.T) {
+	for _, test := range []struct {
+		options map[string]json.RawMessage
+		disk    int32
+	}{
+		{options: map[string]json.RawMessage{"image": json.RawMessage(`"ws/custom"`)}, disk: 0},
+		{
+			options: map[string]json.RawMessage{
+				"image":        json.RawMessage(`"ws/custom"`),
+				"disk_size_gb": json.RawMessage(`40`),
+			},
+			disk: 40,
+		},
+	} {
+		a := &fakeAPI{}
+		p := testProvider(a)
+		installationID, machineID := uuid.New(), uuid.New()
+		p.AuthorizeCreation()
+		config := testProvisioning()
+		config.ProviderOptions = test.options
+		_, err := p.ProvisionMachine(t.Context(), installationID, machineID, config, "token", nil)
+		require.NoError(t, err)
+		require.Equal(t, "ws/custom", a.requests[0].RegistryRef)
+		require.Equal(t, test.disk, a.requests[0].DiskSizeGB)
 	}
-	a.sessions = append(a.sessions, s)
-	if a.createErr != nil {
-		return sandbox{}, a.createErr
-	}
-	return s, nil
-}
-func (a *fakeAPI) List(context.Context) ([]sandbox, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.hide {
-		return nil, nil
-	}
-	return append([]sandbox(nil), a.sessions...), nil
-}
-func (a *fakeAPI) Get(_ context.Context, id string) (sandbox, bool, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.getErr != nil {
-		return sandbox{}, false, a.getErr
-	}
-	for _, s := range a.sessions {
-		if s.ID == id {
-			return s, true, nil
-		}
-	}
-	return sandbox{}, false, nil
-}
-func (a *fakeAPI) WaitReady(ctx context.Context, id string) (sandbox, error) {
-	s, _, err := a.Get(ctx, id)
-	return s, err
-}
-func (a *fakeAPI) Bootstrap(context.Context, string, map[string]string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.boots++
-	return a.bootErr
-}
-func (a *fakeAPI) Delete(_ context.Context, id string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.deletes++
-	for i := range a.sessions {
-		if a.sessions[i].ID == id {
-			a.sessions[i].State = "TERMINATED"
-		}
-	}
-	return nil
 }
 
-func testProvisioning() executionstore.MachineProvisioningConfig {
-	return executionstore.MachineProvisioningConfig{CPU: new(2), MemoryMB: new(4096)}
-}
-func testProvider(api apiClient) *provider {
-	return &provider{api: api, omnaraAPIURL: "https://omnara.example/api/v1"}
+func TestValidateMachineEnvironmentLimitsBootEnvSize(t *testing.T) {
+	p := testProvider(&fakeAPI{})
+	big := strings.Repeat("x", maxRuntimeEnvBytes)
+	filtered := map[string]string{"lower_Case_1": "x", "my-var": big}
+	require.NoError(t, p.ValidateMachineEnvironment(testProvisioning(), filtered))
+	require.ErrorContains(t, p.ValidateMachineEnvironment(testProvisioning(), map[string]string{"BIG": big}), "tenki env")
 }
 
 func TestLostCreateResponseNeverCreatesDuplicate(t *testing.T) {
@@ -98,21 +84,69 @@ func TestLostCreateResponseNeverCreatesDuplicate(t *testing.T) {
 	a := &fakeAPI{createErr: errors.New("lost response")}
 	installationID, machineID := uuid.New(), uuid.New()
 	p := testProvider(a)
-	p.AuthorizeCreation(installationID, machineID)
+	p.AuthorizeCreation()
 	_, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
 	require.ErrorContains(t, err, "lost response")
 	a.hide = true
+	for range 3 {
+		_, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
+		require.ErrorContains(t, err, "outcome is unknown")
+	}
 	p = testProvider(a)
 	for range 3 {
 		_, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
 		require.ErrorContains(t, err, "outcome is unknown")
 	}
-	require.Equal(t, 1, a.creates)
+	require.Equal(t, 1, len(a.requests))
 	a.hide = false
 	result, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
 	require.NoError(t, err)
 	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
-	require.Equal(t, 1, a.creates)
+	require.Equal(t, 1, len(a.requests))
+}
+
+func TestCreateRejectionsArePermanentExceptTooManyRequests(t *testing.T) {
+	for _, test := range []struct {
+		err       error
+		permanent bool
+		recreates bool
+	}{
+		{err: apiError{StatusCode: http.StatusTooManyRequests, Code: "resource_exhausted"}, recreates: true},
+		{err: apiError{StatusCode: http.StatusBadRequest, Code: "invalid_argument"}, permanent: true},
+		{err: apiError{StatusCode: http.StatusServiceUnavailable, Code: "unavailable"}},
+		{err: apiError{StatusCode: http.StatusRequestTimeout}},
+		{err: errors.New("connection reset")},
+	} {
+		a := &fakeAPI{rejectErr: test.err}
+		p := testProvider(a)
+		installationID, machineID := uuid.New(), uuid.New()
+		p.AuthorizeCreation()
+		_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+		require.ErrorIs(t, err, test.err)
+		require.Equal(t, test.permanent, errors.Is(err, providers.ErrPermanent), "%v", test.err)
+		a.rejectErr = nil
+		_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+		if test.recreates {
+			require.NoError(t, err, "%v", test.err)
+			require.Equal(t, 2, len(a.requests))
+		} else {
+			require.ErrorContains(t, err, "outcome is unknown", "%v", test.err)
+			require.Equal(t, 1, len(a.requests))
+		}
+	}
+}
+
+func TestAuthorizedCreationDoesNotDependOnDiscovery(t *testing.T) {
+	a := &fakeAPI{listErr: errors.New("list unavailable")}
+	p := testProvider(a)
+	installationID, machineID := uuid.New(), uuid.New()
+	p.AuthorizeCreation()
+	result, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+	require.NoError(t, err)
+	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
+	_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+	require.ErrorContains(t, err, "list unavailable")
+	require.Equal(t, 1, len(a.requests))
 }
 
 func TestCreationRequiresDurableAuthorization(t *testing.T) {
@@ -120,96 +154,29 @@ func TestCreationRequiresDurableAuthorization(t *testing.T) {
 	p := testProvider(a)
 	installationID, machineID := uuid.New(), uuid.New()
 	_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
-	require.Error(t, err)
-	require.Zero(t, a.creates)
-	p.AuthorizeCreation(installationID, uuid.New())
-	_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
-	require.Error(t, err)
-	require.Zero(t, a.creates)
+	require.ErrorContains(t, err, "outcome is unknown")
+	require.Zero(t, len(a.requests))
 }
 
-func TestConcurrentProvisioningConsumesCreationOnce(t *testing.T) {
-	a := &fakeAPI{hide: true}
-	p := testProvider(a)
+func TestDeleteVerifiesOwnershipAndSkipsTerminatedSessions(t *testing.T) {
 	installationID, machineID := uuid.New(), uuid.New()
-	p.AuthorizeCreation(installationID, machineID)
-	var wg sync.WaitGroup
-	for range 10 {
-		wg.Go(func() {
-			_, _ = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
-		})
-	}
-	wg.Wait()
-	require.Equal(t, 1, a.creates)
-	p.AuthorizeCreation(installationID, machineID)
-	_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
-	require.Error(t, err)
-	require.Equal(t, 1, a.creates)
-}
-
-func TestBootstrapFailurePreservesResourceID(t *testing.T) {
-	a := &fakeAPI{bootErr: errors.New("bootstrap failed")}
-	p := testProvider(a)
-	installationID, machineID := uuid.New(), uuid.New()
-	p.AuthorizeCreation(installationID, machineID)
-	result, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
-	require.Error(t, err)
-	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
-	a.bootErr = nil
-	_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
-	require.NoError(t, err)
-	require.Equal(t, 1, a.creates)
-}
-
-func TestDeleteVerifiesOwnershipAndPropagatesLookupFailure(t *testing.T) {
-	installationID, machineID := uuid.New(), uuid.New()
-	a := &fakeAPI{sessions: []sandbox{{ID: "foreign", Metadata: map[string]string{}}}}
+	a := &fakeAPI{sessions: []session{
+		{ID: "foreign", State: sessionStateRunning, Metadata: map[string]string{}},
+		ownedSession(t, "terminated", sessionStateTerminated, installationID, machineID),
+		ownedSession(t, "running", sessionStateRunning, installationID, machineID),
+	}}
 	p := testProvider(a)
 	require.Error(t, p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "foreign"))
+	require.NoError(t, p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "terminated"))
 	require.Zero(t, a.deletes)
+	require.NoError(t, p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "missing"))
+	require.Equal(t, 1, a.deletes)
+	require.NoError(t, p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "running"))
+	require.Equal(t, 2, a.deletes)
 	a.getErr = errors.New("permission denied")
 	require.ErrorContains(
 		t,
-		p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "missing"),
+		p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "running"),
 		"permission denied",
 	)
-	a.getErr = nil
-	require.NoError(t, p.DeleteMachine(t.Context(), installationID, machineID, testProvisioning(), "missing"))
-	require.Zero(t, a.deletes)
-}
-
-func TestRuntimeObservationTreatsUncertainResultsConservatively(t *testing.T) {
-	installationID, machineID := uuid.New(), uuid.New()
-	target := providers.RuntimeTarget{
-		InstallationID:     installationID,
-		MachineID:          machineID,
-		ProviderResourceID: "session",
-	}
-	a := &fakeAPI{}
-	p := testProvider(a)
-	bulk, err := p.ObserveRuntimeStates(t.Context(), []providers.RuntimeTarget{target})
-	require.NoError(t, err)
-	require.Equal(t, providers.RuntimeStateUnknown, bulk[0].State)
-	exact, err := p.ObserveRuntimeState(t.Context(), target)
-	require.NoError(t, err)
-	require.Equal(t, providers.RuntimeStateTerminated, exact.State)
-	a.sessions = []sandbox{
-		{
-			ID:       "session",
-			State:    "RUNNING",
-			Metadata: map[string]string{installationLabel: installationID.String(), machineLabel: machineID.String()},
-		},
-	}
-	bulk, err = p.ObserveRuntimeStates(t.Context(), []providers.RuntimeTarget{target, target})
-	require.NoError(t, err)
-	for _, observation := range bulk {
-		require.Equal(t, providers.RuntimeStateUnknown, observation.State)
-	}
-	exact, err = p.ObserveRuntimeState(t.Context(), target)
-	require.NoError(t, err)
-	require.Equal(t, providers.RuntimeStateRunning, exact.State)
-	a.sessions[0].State = "FUTURE_STATE"
-	exact, err = p.ObserveRuntimeState(t.Context(), target)
-	require.NoError(t, err)
-	require.Equal(t, providers.RuntimeStateUnknown, exact.State)
 }

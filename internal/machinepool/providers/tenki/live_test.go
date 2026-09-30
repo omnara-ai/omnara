@@ -2,113 +2,124 @@ package tenki
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	sdk "github.com/LuxorLabs/tenki-sdk-go/sandbox"
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/testutil/providercontract"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTenkiProviderLiveSmoke(t *testing.T) {
 	token := strings.TrimSpace(os.Getenv("TENKI_API_KEY"))
 	if token == "" {
-		if os.Getenv("OMNARA_REQUIRE_TENKI_LIVE") == "1" {
-			t.Fatal("TENKI_API_KEY is required")
-		}
 		t.Skip("TENKI_API_KEY is required")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
-	defer cancel()
-	api := &sdkClient{baseURL: defaultAPIBaseURL, token: token}
+	omnaraPublicURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_URL"))
+	if omnaraPublicURL == "" {
+		omnaraPublicURL = "https://app.omnara.com"
+	}
+	omnaraPublicAPIURL := strings.TrimSpace(os.Getenv("OMNARA_PUBLIC_API_URL"))
+	if omnaraPublicAPIURL == "" {
+		omnaraPublicAPIURL = omnaraPublicURL + "/api/v1"
+	}
+	machineProvider, err := (Definition{}).NewProvider(nil, providers.RuntimeConfig{
+		OmnaraAPIURL:      omnaraPublicAPIURL,
+		ProviderAuthToken: token,
+	})
+	require.NoError(t, err)
+	concreteProvider, ok := machineProvider.(*provider)
+	require.True(t, ok)
+	liveAPI := liveTestAPI{apiClient: concreteProvider.api}
+	concreteProvider.api = liveAPI
 	installationID, machineID := uuid.New(), uuid.New()
+	provisioning := testProvisioning()
+	var resourceID string
 	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		sessions, err := api.List(cleanup)
-		require.NoError(t, err)
-		for _, session := range sessions {
-			if ownedBy(session, installationID, machineID) {
-				require.NoError(t, api.Delete(cleanup, session.ID))
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		id := resourceID
+		if id == "" {
+			var found bool
+			var err error
+			id, found, err = machineProvider.InspectMachine(cleanupCtx, installationID, machineID, provisioning, "")
+			if err != nil {
+				t.Errorf("find live tenki session for cleanup: %v", err)
+				return
+			}
+			if !found {
+				return
 			}
 		}
+		if err := machineProvider.DeleteMachine(cleanupCtx, installationID, machineID, provisioning, id); err != nil {
+			t.Errorf("delete live tenki session: %v", err)
+		}
 	})
-	fault := &lostCreateResponseAPI{apiClient: api, bootstrapErr: errors.New("stop before daemon bootstrap")}
-	p := testProvider(fault)
-	p.AuthorizeCreation(installationID, machineID)
-	result, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "test-token", nil)
-	require.ErrorContains(t, err, "injected lost create response")
-	require.Empty(t, result.ProviderResourceID)
-	require.NotEmpty(t, fault.createdID)
-	p = testProvider(fault)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	concreteProvider.AuthorizeCreation()
+	result, err := machineProvider.ProvisionMachine(ctx, installationID, machineID, provisioning, "live-smoke-token", nil)
+	resourceID = result.ProviderResourceID
+	require.NoError(t, err)
+	require.NotEmpty(t, resourceID)
 	require.Eventually(t, func() bool {
-		result, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "test-token", nil)
-		return errors.Is(err, fault.bootstrapErr)
-	}, 3*time.Minute, time.Second)
-	require.Equal(t, fault.createdID, result.ProviderResourceID)
-	require.Equal(t, 1, fault.creates)
-	ready, found, err := api.Get(ctx, result.ProviderResourceID)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.True(t, ready.Sticky)
-	require.Equal(t, "RUNNING", ready.State)
-	client, err := api.newClient()
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-	session, err := client.Get(ctx, result.ProviderResourceID)
-	require.NoError(t, err)
-	nonce := uuid.NewString()
-	command := "printf '%s' " + shellQuote(nonce) + " > /home/tenki/omnara-live-nonce"
-	execution, err := session.Command([]string{"sh", "-c", command}).Exec(ctx)
-	require.NoError(t, err)
-	require.Zero(t, execution.ExitCode)
-	data, err := session.ReadFile(ctx, "/home/tenki/omnara-live-nonce")
-	require.NoError(t, err)
-	require.Equal(t, nonce, string(data))
-	p = testProvider(api)
-	id, found, err := p.InspectMachine(ctx, installationID, machineID, testProvisioning(), "")
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, fault.createdID, id)
-	observation, err := p.ObserveRuntimeState(
-		ctx,
-		providers.RuntimeTarget{InstallationID: installationID, MachineID: machineID, ProviderResourceID: id},
-	)
-	require.NoError(t, err)
-	require.Equal(t, providers.RuntimeStateRunning, observation.State)
-	require.Error(t, p.DeleteMachine(ctx, uuid.New(), machineID, testProvisioning(), id))
-	require.NoError(t, p.DeleteMachine(ctx, installationID, machineID, testProvisioning(), id))
-	require.Eventually(t, func() bool {
-		current, found, err := api.Get(ctx, id)
-		return err == nil && (!found || current.State == "TERMINATED")
+		adopted, err := machineProvider.ProvisionMachine(
+			ctx, installationID, machineID, provisioning, "live-smoke-token", nil,
+		)
+		return err == nil && adopted.ProviderResourceID == resourceID
 	}, time.Minute, time.Second)
-	require.NoError(t, p.DeleteMachine(ctx, installationID, machineID, testProvisioning(), id))
-	_, err = client.Get(ctx, id)
-	require.True(t, err == nil || errors.Is(err, sdk.ErrSessionNotFound))
-}
+	current, found, err := liveAPI.Get(ctx, resourceID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.True(t, current.Sticky)
+	require.Equal(t, providercontract.LiveResourceValue, current.Metadata[providercontract.LiveResourceLabel])
+	inspected, found, err := machineProvider.InspectMachine(ctx, installationID, machineID, provisioning, "")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, resourceID, inspected)
 
-// The service E2E covers bootstrap; this test stops there to isolate create recovery.
-type lostCreateResponseAPI struct {
-	apiClient
-	createdID    string
-	creates      int
-	bootstrapErr error
-}
-
-func (a *lostCreateResponseAPI) Create(ctx context.Context, request createRequest) (sandbox, error) {
-	a.creates++
-	created, err := a.apiClient.Create(ctx, request)
-	if err != nil {
-		return created, err
+	observer, ok := machineProvider.(providers.RuntimeStateObserver)
+	require.True(t, ok)
+	target := providers.RuntimeTarget{
+		InstallationID:      installationID,
+		MachineID:           machineID,
+		ProviderResourceID:  resourceID,
+		MachineProvisioning: provisioning,
 	}
-	a.createdID = created.ID
-	return sandbox{}, errors.New("injected lost create response")
+	providercontract.WaitForPresentRuntimeObservation(t, ctx, target, func() (providers.RuntimeObservation, error) {
+		return observer.ObserveRuntimeState(ctx, target)
+	})
+	observations, err := observer.ObserveRuntimeStates(ctx, []providers.RuntimeTarget{target})
+	require.NoError(t, err)
+	require.Len(t, observations, 1)
+	providercontract.AssertRuntimeObservation(
+		t, target, observations[0], providers.RuntimeStateRunning, providers.RuntimeStateInactive,
+	)
+	missingTarget := target
+	missingTarget.MachineID = uuid.New()
+	missingTarget.ProviderResourceID = uuid.NewString()
+	missing, err := observer.ObserveRuntimeState(ctx, missingTarget)
+	require.NoError(t, err)
+	providercontract.AssertRuntimeObservation(t, missingTarget, missing, providers.RuntimeStateTerminated)
+
+	require.Error(t, machineProvider.DeleteMachine(ctx, uuid.New(), machineID, provisioning, resourceID))
+	require.NoError(t, machineProvider.DeleteMachine(ctx, installationID, machineID, provisioning, resourceID))
+	require.Eventually(t, func() bool {
+		observation, err := observer.ObserveRuntimeState(ctx, target)
+		return err == nil && observation.State == providers.RuntimeStateTerminated
+	}, time.Minute, time.Second)
+	require.NoError(t, machineProvider.DeleteMachine(ctx, installationID, machineID, provisioning, resourceID))
 }
 
-func (a *lostCreateResponseAPI) Bootstrap(context.Context, string, map[string]string) error {
-	return a.bootstrapErr
+type liveTestAPI struct {
+	apiClient
+}
+
+func (a liveTestAPI) Create(ctx context.Context, request createRequest) (session, error) {
+	request.Metadata[providercontract.LiveResourceLabel] = providercontract.LiveResourceValue
+	return a.apiClient.Create(ctx, request)
 }

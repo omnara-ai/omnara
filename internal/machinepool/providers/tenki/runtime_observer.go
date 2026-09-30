@@ -2,21 +2,24 @@ package tenki
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
+var _ providers.RuntimeStateObserver = (*provider)(nil)
+
 func normalizeRuntimeState(state string) providers.RuntimeState {
 	switch state {
-	case "RUNNING":
+	case sessionStateRunning:
 		return providers.RuntimeStateRunning
-	case "PAUSED", "USER_SHUTDOWN":
+	case sessionStatePaused, sessionStateUserShutdown:
 		return providers.RuntimeStateInactive
-	case "CREATING", "PAUSING", "RESUMING", "TERMINATING":
+	case sessionStateCreating, sessionStatePausing, sessionStateResuming, sessionStateTerminating:
 		return providers.RuntimeStateTransitional
-	case "TERMINATED":
+	case sessionStateTerminated:
 		return providers.RuntimeStateTerminated
 	default:
 		return providers.RuntimeStateUnknown
@@ -39,7 +42,7 @@ func (p *provider) ObserveRuntimeState(
 	}
 	current, found, err := p.api.Get(ctx, target.ProviderResourceID)
 	if err != nil {
-		return observation, err
+		return observation, fmt.Errorf("get tenki session %q for runtime observation: %w", target.ProviderResourceID, err)
 	}
 	if !found {
 		observation.State = providers.RuntimeStateTerminated
@@ -54,33 +57,22 @@ func (p *provider) ObserveRuntimeStates(
 	targets []providers.RuntimeTarget,
 ) ([]providers.RuntimeObservation, error) {
 	result := make([]providers.RuntimeObservation, len(targets))
-	if len(targets) == 0 {
-		return result, nil
-	}
-	sessions, err := p.api.List(ctx)
-	if err != nil {
-		return nil, err
-	}
 	resourceCounts := make(map[string]int)
 	machineCounts := make(map[uuid.UUID]int)
-	matches := make(map[string][]sandbox)
 	for _, target := range targets {
 		resourceCounts[target.ProviderResourceID]++
 		machineCounts[target.MachineID]++
 	}
-	for _, session := range sessions {
-		matches[session.ID] = append(matches[session.ID], session)
-	}
 	for i, target := range targets {
 		result[i] = target.UnknownObservation()
-		if !validRuntimeTarget(target) || resourceCounts[target.ProviderResourceID] != 1 ||
-			machineCounts[target.MachineID] != 1 {
+		if resourceCounts[target.ProviderResourceID] != 1 || machineCounts[target.MachineID] != 1 {
 			continue
 		}
-		found := matches[target.ProviderResourceID]
-		if len(found) == 1 && ownedBy(found[0], target.InstallationID, target.MachineID) {
-			result[i].State = normalizeRuntimeState(found[0].State)
+		observation, err := p.ObserveRuntimeState(ctx, target)
+		if err != nil {
+			return nil, err
 		}
+		result[i] = observation
 	}
 	return result, nil
 }

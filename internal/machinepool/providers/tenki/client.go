@@ -2,189 +2,220 @@ package tenki
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"net/http"
 	"strings"
 
-	sdk "github.com/LuxorLabs/tenki-sdk-go/sandbox"
-	"github.com/omnara-ai/omnara/internal/outboundhttp"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
 
-type sdkClient struct {
-	baseURL string
-	token   string
+const (
+	apiBaseURL   = "https://api.tenki.cloud"
+	servicePath  = "/tenki.sandbox.v1.SandboxService/"
+	listPageSize = 100
+)
+
+const (
+	sessionStateCreating     = "CREATING"
+	sessionStateRunning      = "RUNNING"
+	sessionStatePausing      = "PAUSING"
+	sessionStatePaused       = "PAUSED"
+	sessionStateResuming     = "RESUMING"
+	sessionStateUserShutdown = "USER_SHUTDOWN"
+	sessionStateTerminating  = "TERMINATING"
+	sessionStateTerminated   = "TERMINATED"
+)
+
+type session struct {
+	ID       string            `json:"id"`
+	State    string            `json:"state"`
+	Metadata map[string]string `json:"metadata"`
+	Sticky   bool              `json:"sticky"`
 }
 
-func (c *sdkClient) newClient() (*sdk.Client, error) {
-	client := outboundhttp.NewPublicClient(outboundhttp.PublicClientOptions{DisableResponseHeaderTimeout: true})
-	return sdk.New(
-		sdk.WithBaseURL(c.baseURL),
-		sdk.WithAuthToken(c.token),
-		sdk.WithHTTPClient(client),
-		sdk.WithWarningHandler(func(sdk.SandboxWarning) {}),
-	)
+type apiClient interface {
+	Create(context.Context, createRequest) (session, error)
+	List(context.Context) ([]session, error)
+	Get(context.Context, string) (session, bool, error)
+	Delete(context.Context, string) error
 }
 
-func fromSession(s *sdk.Session) sandbox {
-	if s == nil {
-		return sandbox{}
+type createRequest struct {
+	OwnerID       string            `json:"ownerId"`
+	OwnerType     string            `json:"ownerType"`
+	Name          string            `json:"name"`
+	Metadata      map[string]string `json:"metadata"`
+	Tags          []string          `json:"tags"`
+	AllowInbound  bool              `json:"allowInbound"`
+	AllowOutbound bool              `json:"allowOutbound"`
+	CPUCores      int               `json:"cpuCores"`
+	MemoryMB      int               `json:"memoryMb"`
+	DiskSizeGB    int32             `json:"diskSizeGb,omitempty"`
+	RegistryRef   string            `json:"registryRef,omitempty"`
+	Sticky        bool              `json:"sticky"`
+	Runtime       bootRuntime       `json:"runtime"`
+}
+
+type bootRuntime struct {
+	Env           map[string]string `json:"env"`
+	RunAt         string            `json:"runAt"`
+	Start         startCommand      `json:"start"`
+	RestartPolicy string            `json:"restartPolicy"`
+}
+
+type startCommand struct {
+	Argv []string `json:"argv"`
+}
+
+type sessionResponse struct {
+	Session session `json:"session"`
+}
+
+type restClient struct {
+	baseURL    string
+	apiToken   string
+	httpClient *http.Client
+}
+
+func newRESTClient(baseURL, token string, httpClient *http.Client) *restClient {
+	return &restClient{baseURL: baseURL, apiToken: token, httpClient: httpClient}
+}
+
+func (c *restClient) Create(ctx context.Context, request createRequest) (session, error) {
+	var response sessionResponse
+	if err := c.call(ctx, "CreateSession", request, &response); err != nil {
+		return session{}, err
 	}
-	return sandbox{
-		ID:         s.ID,
-		State:      string(s.State),
-		Metadata:   s.Metadata,
-		CPU:        int(s.CPUCores),
-		MemoryMB:   int(s.MemoryMB),
-		DiskSizeGB: s.DiskSizeGB,
-		Sticky:     s.Sticky,
+	return response.Session.normalized(), nil
+}
+
+func (c *restClient) Get(ctx context.Context, id string) (session, bool, error) {
+	var response sessionResponse
+	err := c.call(ctx, "GetSession", sessionIDRequest{SessionID: id}, &response)
+	if isNotFound(err) {
+		return session{}, false, nil
+	}
+	if err != nil {
+		return session{}, false, err
+	}
+	return response.Session.normalized(), true, nil
+}
+
+func (c *restClient) List(ctx context.Context) ([]session, error) {
+	var sessions []session
+	seenTokens := map[string]struct{}{}
+	token := ""
+	for {
+		var response struct {
+			Sessions      []session `json:"sessions"`
+			NextPageToken string    `json:"nextPageToken"`
+		}
+		err := c.call(ctx, "ListWorkspaceSandboxes", listRequest{
+			PageSize:  listPageSize,
+			PageToken: token,
+			Tags:      []string{managedTag},
+		}, &response)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range response.Sessions {
+			sessions = append(sessions, item.normalized())
+		}
+		if response.NextPageToken == "" {
+			return sessions, nil
+		}
+		if _, repeated := seenTokens[response.NextPageToken]; repeated {
+			return nil, errors.New("tenki session list repeated a page token")
+		}
+		seenTokens[response.NextPageToken] = struct{}{}
+		token = response.NextPageToken
 	}
 }
 
-func (c *sdkClient) Create(ctx context.Context, request createRequest) (sandbox, error) {
-	client, err := c.newClient()
-	if err != nil {
-		return sandbox{}, err
-	}
-	defer func() { _ = client.Close() }()
-	opts := []sdk.CreateOption{
-		sdk.WithName(request.Name),
-		sdk.WithCPUCores(int32(request.CPU)),
-		sdk.WithMemoryMB(int32(request.MemoryMB)),
-		sdk.WithDiskSizeGB(int(request.Options.DiskSizeGB)),
-		sdk.WithMetadata(request.Metadata),
-		sdk.WithTags(managedTag),
-		sdk.WithSticky(),
-		sdk.WithAllowInbound(false),
-		sdk.WithAllowOutbound(true),
-		sdk.WithWaitReady(false),
-	}
-	if request.Options.Image != "" {
-		opts = append(opts, sdk.WithImage(request.Options.Image))
-	}
-	session, err := client.Create(ctx, opts...)
-	return fromSession(session), err
-}
-
-func (c *sdkClient) List(ctx context.Context) ([]sandbox, error) {
-	client, err := c.newClient()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = client.Close() }()
-	sessions, err := client.List(ctx, sdk.WithTagFilter(managedTag), sdk.WithIncludeTerminated(true))
-	if err != nil {
-		return nil, err
-	}
-	result := make([]sandbox, len(sessions))
-	for i, session := range sessions {
-		result[i] = fromSession(session)
-	}
-	return result, nil
-}
-
-func (c *sdkClient) Get(ctx context.Context, id string) (sandbox, bool, error) {
-	client, err := c.newClient()
-	if err != nil {
-		return sandbox{}, false, err
-	}
-	defer func() { _ = client.Close() }()
-	session, err := client.Get(ctx, id)
-	if errors.Is(err, sdk.ErrSessionNotFound) {
-		return sandbox{}, false, nil
-	}
-	if err != nil {
-		return sandbox{}, false, err
-	}
-	return fromSession(session), true, nil
-}
-
-func (c *sdkClient) WaitReady(ctx context.Context, id string) (sandbox, error) {
-	client, err := c.newClient()
-	if err != nil {
-		return sandbox{}, err
-	}
-	defer func() { _ = client.Close() }()
-	session, err := client.Get(ctx, id)
-	if err != nil {
-		return sandbox{}, err
-	}
-	if err := session.WaitReady(ctx, provisioningTimeout); err != nil {
-		return fromSession(session), err
-	}
-	return fromSession(session), nil
-}
-
-func (c *sdkClient) Delete(ctx context.Context, id string) error {
-	client, err := c.newClient()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = client.Close() }()
-	session, err := client.Get(ctx, id)
-	if errors.Is(err, sdk.ErrSessionNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if session.State == sdk.SessionStateTerminated {
-		return nil
-	}
-	err = session.CloseIfOpen(ctx)
-	if errors.Is(err, sdk.ErrSessionNotFound) {
+func (c *restClient) Delete(ctx context.Context, id string) error {
+	err := c.call(ctx, "TerminateSession", sessionIDRequest{SessionID: id}, nil)
+	if isNotFound(err) {
 		return nil
 	}
 	return err
 }
 
-func (c *sdkClient) Bootstrap(ctx context.Context, id string, env map[string]string) error {
-	script, err := bootstrapScript(env)
+type sessionIDRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+type listRequest struct {
+	PageSize  int      `json:"pageSize"`
+	PageToken string   `json:"pageToken,omitempty"`
+	Tags      []string `json:"tags"`
+}
+
+func (c *restClient) call(ctx context.Context, method string, body, out any) error {
+	response, err := providers.DoHTTPResponse(
+		ctx,
+		c.httpClient,
+		providers.Tenki,
+		http.MethodPost,
+		c.baseURL+servicePath+method,
+		map[string]string{
+			"Authorization":            "Bearer " + c.apiToken,
+			"Connect-Protocol-Version": "1",
+		},
+		body,
+	)
 	if err != nil {
 		return err
 	}
-	client, err := c.newClient()
-	if err != nil {
-		return err
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var connectError struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal(response.Body, &connectError)
+		return providers.WithRetryAfter(
+			apiError{StatusCode: response.StatusCode, Code: connectError.Code},
+			response.Header,
+		)
 	}
-	defer func() { _ = client.Close() }()
-	session, err := client.Get(ctx, id)
-	if err != nil {
-		return err
+	if out == nil {
+		return nil
 	}
-	result, err := session.Command([]string{"/bin/sh", "-s"}, sdk.RunOptions{Stdin: strings.NewReader(script)}).
-		Exec(ctx)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("tenki daemon launcher exited with status %d", result.ExitCode)
+	if err := json.Unmarshal(response.Body, out); err != nil {
+		return fmt.Errorf("decode tenki response: %w", err)
 	}
 	return nil
 }
 
-func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+func (s session) normalized() session {
+	s.State = strings.TrimPrefix(s.State, "SESSION_STATE_")
+	return s
+}
 
-func environmentScript(env map[string]string) (string, error) {
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		if key == "" {
-			return "", errors.New("empty environment key")
-		}
-		for i, r := range key {
-			if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (i == 0 || r < '0' || r > '9') {
-				return "", fmt.Errorf("invalid environment key %q", key)
-			}
-		}
-		if strings.ContainsRune(env[key], 0) {
-			return "", fmt.Errorf("environment value for %s contains NUL", key)
-		}
-		keys = append(keys, key)
+type apiError struct {
+	StatusCode int
+	Code       string
+}
+
+func (e apiError) Error() string {
+	if e.Code == "" {
+		return fmt.Sprintf("tenki API returned HTTP %d", e.StatusCode)
 	}
-	sort.Strings(keys)
-	var script strings.Builder
-	for _, key := range keys {
-		fmt.Fprintf(&script, "export %s=%s\n", key, shellQuote(env[key]))
-	}
-	return script.String(), nil
+	return fmt.Sprintf("tenki API returned HTTP %d (%s)", e.StatusCode, e.Code)
+}
+
+func isNotFound(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
+}
+
+func isTooManyRequests(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests
+}
+
+func rejectedBeforeCreate(err error) bool {
+	var apiErr apiError
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 &&
+		apiErr.StatusCode != http.StatusRequestTimeout && apiErr.StatusCode != 499
 }

@@ -30,6 +30,7 @@ import (
 const (
 	MaxResolvedEnvironmentBytes   = 1024 * 1024
 	MaxResolvedEnvironmentEntries = 4096
+	MaxEnvironmentEntryBytes      = 128*1024 - 1
 )
 
 type MachinePoolResources struct {
@@ -415,6 +416,9 @@ func validateMachineEnvironment(environment MachineEnvironment) error {
 	for key, value := range environment.Env {
 		if strings.ContainsRune(value, 0) {
 			return fmt.Errorf("env.%s cannot contain NUL", key)
+		}
+		if len(key)+len("=")+len(value) > MaxEnvironmentEntryBytes {
+			return fmt.Errorf("env.%s must be at most %d bytes including its key", key, MaxEnvironmentEntryBytes)
 		}
 	}
 	if _, err := validateEnvNames("secret_env", environment.SecretEnv); err != nil {

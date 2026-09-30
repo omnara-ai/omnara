@@ -95,11 +95,15 @@ type Provider interface {
 	) (string, bool, error)
 }
 
-// CreationGuardedProvider uses Omnara's durable attempt marker when a provider
-// cannot deduplicate create requests. Retries may adopt resources but must not
-// issue another create, even when the first request's outcome is unknown.
+// CreationGuardedProvider is for providers that cannot deduplicate create
+// requests. The manager authorizes creation only on a machine's first provider
+// attempt; without authorization the provider must adopt instead of creating.
 type CreationGuardedProvider interface {
-	AuthorizeCreation(installationID, machineID uuid.UUID)
+	AuthorizeCreation()
+}
+
+type EnvironmentValidator interface {
+	ValidateMachineEnvironment(executionstore.MachineProvisioningConfig, map[string]string) error
 }
 
 type Definition interface {

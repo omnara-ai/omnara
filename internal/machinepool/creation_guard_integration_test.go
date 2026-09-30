@@ -5,10 +5,10 @@ package machinepool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -17,29 +17,49 @@ import (
 
 type creationGuardDefinition struct {
 	testProviderDefinition
-	instances []*creationGuardCapture
+	instances   []*creationGuardCapture
+	validateErr error
 }
 
 func (d *creationGuardDefinition) NewProvider(
 	json.RawMessage,
 	providers.RuntimeConfig,
 ) (providers.Provider, error) {
-	p := &creationGuardCapture{captureProvider: captureProvider{provisionResourceID: "owned-session"}}
+	p := &creationGuardCapture{
+		captureProvider: captureProvider{provisionResourceID: "owned-session"},
+		validateErr:     d.validateErr,
+	}
 	d.instances = append(d.instances, p)
 	return p, nil
 }
 
 type creationGuardCapture struct {
 	captureProvider
-	authorized bool
+	authorized  bool
+	validateErr error
 }
 
-func (p *creationGuardCapture) AuthorizeCreation(uuid.UUID, uuid.UUID) { p.authorized = true }
+func (p *creationGuardCapture) AuthorizeCreation() { p.authorized = true }
 
-func TestManagerAuthorizesCreationOnlyBeforeFirstDurableAttempt(t *testing.T) {
-	for _, attempted := range []bool{false, true} {
+func (p *creationGuardCapture) ValidateMachineEnvironment(
+	executionstore.MachineProvisioningConfig,
+	map[string]string,
+) error {
+	return p.validateErr
+}
+
+func TestManagerGatesFirstDurableProviderAttempt(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		attempted  bool
+		invalidEnv bool
+	}{
+		{name: "new machine"},
+		{name: "restart after ambiguous create", attempted: true},
+		{name: "invalid environment", invalidEnv: true},
+	} {
 		t.Run(
-			map[bool]string{false: "new machine", true: "restart after ambiguous create"}[attempted],
+			test.name,
 			func(t *testing.T) {
 				ctx := context.Background()
 				pool := openManagerIntegrationDB(t, ctx)
@@ -93,7 +113,7 @@ func TestManagerAuthorizesCreationOnlyBeforeFirstDurableAttempt(t *testing.T) {
 					now,
 				)
 				require.NoError(t, err)
-				if attempted {
+				if test.attempted {
 					_, err := pool.Exec(
 						ctx,
 						"UPDATE machines SET provider_provision_attempted_at=$3 WHERE org_id=$1 AND id=$2",
@@ -104,15 +124,30 @@ func TestManagerAuthorizesCreationOnlyBeforeFirstDurableAttempt(t *testing.T) {
 					require.NoError(t, err)
 				}
 				definition := &creationGuardDefinition{}
+				if test.invalidEnv {
+					definition.validateErr = errors.New("invalid env")
+				}
 				manager := Manager{
 					Execution:    store.Execution(),
 					Identity:     store.Identity(),
 					Catalog:      testProviderCatalog(definition),
 					PublicAPIURL: "https://api.omnara.test/api/v1",
 				}
+				if test.invalidEnv {
+					require.ErrorIs(t, manager.ProvisionMachine(ctx, orgID, machineID), definition.validateErr)
+					require.Len(t, definition.instances, 1)
+					require.False(t, definition.instances[0].authorized)
+					require.Nil(t, definition.instances[0].provisioning)
+					machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
+					require.NoError(t, err)
+					require.Nil(t, machine.ProviderProvisionAttemptedAt)
+					require.Equal(t, executionstore.MachineLifecycleStateDeleted, machine.LifecycleState)
+					require.NotNil(t, machine.DeletedAt)
+					return
+				}
 				require.NoError(t, manager.ProvisionMachine(ctx, orgID, machineID))
 				require.Len(t, definition.instances, 1)
-				require.Equal(t, !attempted, definition.instances[0].authorized)
+				require.Equal(t, !test.attempted, definition.instances[0].authorized)
 				machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
 				require.NoError(t, err)
 				require.NotNil(t, machine.ProviderProvisionAttemptedAt)

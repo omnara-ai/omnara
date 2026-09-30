@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
@@ -12,10 +11,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const defaultAPIBaseURL = "https://api.tenki.cloud"
-
 type providerConfig struct {
-	APIBaseURL    string   `json:"api_base_url,omitempty"`
 	AllowedImages []string `json:"allowed_images,omitempty"`
 }
 
@@ -59,17 +55,16 @@ func (Definition) NewRuntimeProvider(
 	return newProvider(raw, config)
 }
 
-func newProvider(raw json.RawMessage, runtime providers.RuntimeConfig) (*provider, error) {
-	config, err := parseProviderConfig(raw)
-	if err != nil {
+func newProvider(raw json.RawMessage, runtimeConfig providers.RuntimeConfig) (*provider, error) {
+	if _, err := parseProviderConfig(raw); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(runtime.ProviderAuthToken) == "" {
+	if strings.TrimSpace(runtimeConfig.ProviderAuthToken) == "" {
 		return nil, errors.New("tenki provider auth token is required")
 	}
 	return &provider{
-		api:          &sdkClient{baseURL: config.APIBaseURL, token: runtime.ProviderAuthToken},
-		omnaraAPIURL: runtime.OmnaraAPIURL,
+		api:          newRESTClient(apiBaseURL, runtimeConfig.ProviderAuthToken, providers.NewHTTPClient()),
+		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
 	}, nil
 }
 
@@ -81,26 +76,11 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	if err := providers.DecodeStrictJSON(raw, &config); err != nil {
 		return config, fmt.Errorf("decode tenki provider config: %w", err)
 	}
-	config.APIBaseURL = strings.TrimRight(strings.TrimSpace(config.APIBaseURL), "/")
-	if config.APIBaseURL == "" {
-		config.APIBaseURL = defaultAPIBaseURL
-	}
-	u, err := url.Parse(config.APIBaseURL)
-	if err != nil || u.Host == "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
-		u.Fragment != "" {
-		return config, errors.New(
-			"tenki api_base_url must be an absolute HTTPS URL without credentials, query, or fragment",
-		)
-	}
+	var err error
 	config.AllowedImages, err = providers.NormalizeAllowlist(
-		"tenki allowed_images",
+		"tenki provider config allowed_images",
 		config.AllowedImages,
-		func(image string) error {
-			if image == "" {
-				return nil
-			}
-			return providers.ValidateImageRef(image)
-		},
+		providers.ValidateImageRef,
 	)
 	return config, err
 }
@@ -124,7 +104,7 @@ func (d Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy
 		return err
 	}
 	config, err := parseProviderConfig(policy.ProviderConfig)
-	if err != nil {
+	if err != nil || options.Image == "" {
 		return err
 	}
 	return providers.ValidateAllowedValue(
@@ -158,15 +138,15 @@ func (d Definition) ValidateMachineProvisioning(
 	if err != nil {
 		return err
 	}
-	providerConfig, err := parseProviderConfig(policy.ProviderConfig)
-	if err != nil {
+	parsedProviderConfig, err := parseProviderConfig(policy.ProviderConfig)
+	if err != nil || options.Image == "" {
 		return err
 	}
 	return providers.ValidateAllowedValue(
 		"tenki image",
 		"allowed_images",
 		options.Image,
-		providerConfig.AllowedImages,
+		parsedProviderConfig.AllowedImages,
 		defaults.Image,
 	)
 }
@@ -184,38 +164,48 @@ func (d Definition) BuildMachineProvisioningIntent(
 func providerOptionsFromProvisioning(
 	config executionstore.MachineProvisioningConfig,
 ) (providerOptions, error) {
-	if config.CPU == nil || *config.CPU < 1 || *config.CPU > 16 {
-		return providerOptions{}, errors.New("tenki cpu must be between 1 and 16")
+	if config.CPU == nil || *config.CPU <= 0 {
+		return providerOptions{}, errors.New("tenki machine config requires positive cpu")
 	}
-	if config.MemoryMB == nil || *config.MemoryMB < 512 || *config.MemoryMB > 65536 {
-		return providerOptions{}, errors.New("tenki memory_mb must be between 512 and 65536")
+	if config.MemoryMB == nil || *config.MemoryMB <= 0 {
+		return providerOptions{}, errors.New("tenki machine config requires positive memory_mb")
 	}
 	if *config.MemoryMB%2 != 0 {
-		return providerOptions{}, errors.New("tenki memory_mb must be aligned to 2 MiB")
+		return providerOptions{}, errors.New("tenki machine config memory_mb must be a multiple of 2")
 	}
 	return parseProviderOptions(config.ProviderOptions)
 }
 
 func parseProviderOptions(raw map[string]json.RawMessage) (providerOptions, error) {
-	options := providerOptions{DiskSizeGB: 20}
+	var options providerOptions
 	if raw == nil {
 		return options, nil
 	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
-		return options, err
+		return options, fmt.Errorf("encode tenki provider_options: %w", err)
 	}
 	if err := providers.DecodeStrictJSON(encoded, &options); err != nil {
 		return options, fmt.Errorf("decode tenki provider_options: %w", err)
 	}
 	options.Image = strings.TrimSpace(options.Image)
+	if _, ok := raw["image"]; ok && options.Image == "" {
+		return options, errors.New("tenki machine config image must be non-empty; omit it to use the base image")
+	}
 	if options.Image != "" {
 		if err := providers.ValidateImageRef(options.Image); err != nil {
-			return options, fmt.Errorf("tenki image: %w", err)
+			return options, fmt.Errorf("tenki machine config image: %w", err)
 		}
 	}
-	if options.DiskSizeGB < 5 || options.DiskSizeGB > 100 {
-		return options, errors.New("tenki disk_size_gb must be between 5 and 100")
+	if options.DiskSizeGB != 0 && (options.DiskSizeGB < 5 || options.DiskSizeGB > 100) {
+		return options, errors.New("tenki machine config disk_size_gb must be between 5 and 100")
 	}
 	return options, providers.ValidateManagedStartupScript("tenki machine config", options.StartupScript)
+}
+
+func (o providerOptions) diskSizeGB() int32 {
+	if o.DiskSizeGB == 0 && o.Image == "" {
+		return baseImageDiskSizeGB
+	}
+	return o.DiskSizeGB
 }

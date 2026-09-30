@@ -4,79 +4,40 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"maps"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 const (
-	provisioningTimeout = 3 * time.Minute
+	provisioningTimeout = 30 * time.Second
+	baseImageDiskSizeGB = 20
 	installationLabel   = "omnara-installation"
 	machineLabel        = "omnara-machine"
 	managedTag          = "omnara-managed"
+	maxRuntimeEnvBytes  = 128_000
+	runtimeEnvOverhead  = 16
 )
 
-type sandbox struct {
-	ID         string
-	State      string
-	Metadata   map[string]string
-	CPU        int
-	MemoryMB   int
-	DiskSizeGB int32
-	Sticky     bool
-}
-
-type createRequest struct {
-	Name     string
-	Metadata map[string]string
-	CPU      int
-	MemoryMB int
-	Options  providerOptions
-}
-
-type apiClient interface {
-	Create(context.Context, createRequest) (sandbox, error)
-	List(context.Context) ([]sandbox, error)
-	Get(context.Context, string) (sandbox, bool, error)
-	WaitReady(context.Context, string) (sandbox, error)
-	Bootstrap(context.Context, string, map[string]string) error
-	Delete(context.Context, string) error
-}
+var runtimeEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type provider struct {
-	api                apiClient
-	omnaraAPIURL       string
-	creationMu         sync.Mutex
-	creationAuthorized bool
-	creationConsumed   bool
-	installationID     uuid.UUID
-	machineID          uuid.UUID
+	api          apiClient
+	omnaraAPIURL string
+	mayCreate    bool
 }
 
-var _ providers.CreationGuardedProvider = (*provider)(nil)
+var (
+	_ providers.CreationGuardedProvider = (*provider)(nil)
+	_ providers.EnvironmentValidator    = (*provider)(nil)
+)
 
-func (p *provider) AuthorizeCreation(installationID, machineID uuid.UUID) {
-	p.creationMu.Lock()
-	defer p.creationMu.Unlock()
-	if !p.creationAuthorized && !p.creationConsumed {
-		p.creationAuthorized = true
-		p.installationID, p.machineID = installationID, machineID
-	}
-}
-
-func (p *provider) consumeCreation(installationID, machineID uuid.UUID) bool {
-	p.creationMu.Lock()
-	defer p.creationMu.Unlock()
-	if !p.creationAuthorized || p.creationConsumed || p.installationID != installationID ||
-		p.machineID != machineID {
-		return false
-	}
-	p.creationConsumed = true
-	return true
-}
+func (p *provider) AuthorizeCreation() { p.mayCreate = true }
 
 func (*provider) ProvisioningTimeout() time.Duration { return provisioningTimeout }
 
@@ -106,88 +67,149 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return result, err
 	}
-	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, token, options.StartupScript, machineEnv)
+	metadata, err := ownershipMetadata(installationID, machineID)
 	if err != nil {
 		return result, err
 	}
-	current, found, err := p.findOwned(ctx, installationID, machineID)
+	env, err := p.runtimeEnv(options.StartupScript, token, machineEnv)
 	if err != nil {
 		return result, err
 	}
-	if !found {
-		if !p.consumeCreation(installationID, machineID) {
+	var current session
+	if p.mayCreate {
+		p.mayCreate = false
+		current, err = p.api.Create(ctx, createRequest{
+			OwnerID:       "self",
+			OwnerType:     "SERVICE",
+			Name:          name,
+			Metadata:      metadata,
+			Tags:          []string{managedTag},
+			AllowOutbound: true,
+			CPUCores:      *config.CPU,
+			MemoryMB:      *config.MemoryMB,
+			DiskSizeGB:    options.diskSizeGB(),
+			RegistryRef:   options.Image,
+			Sticky:        true,
+			Runtime: bootRuntime{
+				Env:           env,
+				RunAt:         "TEMPLATE_RUNTIME_RUN_AT_BOOT",
+				Start:         startCommand{Argv: providers.ManagedDaemonLauncherArgs()},
+				RestartPolicy: "TEMPLATE_RESTART_POLICY_NEVER",
+			},
+		})
+		if err != nil {
+			p.mayCreate = isTooManyRequests(err)
+			if !p.mayCreate && rejectedBeforeCreate(err) {
+				return result, fmt.Errorf("create tenki session: %w: %w", err, providers.ErrPermanent)
+			}
+			return result, fmt.Errorf("create tenki session: %w", err)
+		}
+	} else {
+		var found bool
+		current, found, err = p.findOwned(ctx, installationID, machineID)
+		if err != nil {
+			return result, err
+		}
+		if !found {
 			return result, errors.New(
 				"tenki create outcome is unknown; waiting to discover the existing session instead of creating a duplicate",
 			)
 		}
-		current, err = p.api.Create(
-			ctx,
-			createRequest{
-				Name:     name,
-				Metadata: map[string]string{installationLabel: installationID.String(), machineLabel: machineID.String()},
-				CPU:      *config.CPU,
-				MemoryMB: *config.MemoryMB,
-				Options:  options,
-			},
-		)
-		if current.ID != "" && ownedBy(current, installationID, machineID) {
-			result.ProviderResourceID = current.ID
-		}
-		if err != nil {
-			return result, fmt.Errorf("create tenki session: %w", err)
-		}
 	}
-	if !ownedBy(current, installationID, machineID) || current.ID == "" {
-		return result, errors.New("tenki session has unexpected ownership or no resource id")
+	if err := validateOwnedSession(current, "", installationID, machineID); err != nil {
+		return result, err
 	}
 	result.ProviderResourceID = current.ID
-	if current.State != "RUNNING" {
-		current, err = p.api.WaitReady(ctx, current.ID)
-		if err != nil {
-			return result, fmt.Errorf("wait for tenki session: %w", err)
-		}
-	}
-	if current.ID != result.ProviderResourceID || !ownedBy(current, installationID, machineID) {
-		return result, errors.New("tenki session identity changed while waiting for readiness")
-	}
-	if current.State != "RUNNING" || !current.Sticky || current.CPU != *config.CPU ||
-		current.MemoryMB != *config.MemoryMB ||
-		current.DiskSizeGB != options.DiskSizeGB {
-		return result, errors.New("tenki session does not match the requested state, resources, or sticky lifetime")
-	}
-	if err := p.api.Bootstrap(ctx, current.ID, env); err != nil {
-		return result, fmt.Errorf("bootstrap tenki daemon: %w", err)
+	if !current.Sticky {
+		return result, errors.New("tenki session is not sticky")
 	}
 	return result, nil
 }
 
-func ownedBy(current sandbox, installationID, machineID uuid.UUID) bool {
-	return installationID != uuid.Nil && machineID != uuid.Nil &&
-		current.Metadata[installationLabel] == installationID.String() &&
-		current.Metadata[machineLabel] == machineID.String()
+func (p *provider) ValidateMachineEnvironment(
+	config executionstore.MachineProvisioningConfig,
+	machineEnv map[string]string,
+) error {
+	options, err := providerOptionsFromProvisioning(config)
+	if err != nil {
+		return err
+	}
+	env, err := p.runtimeEnv(options.StartupScript, "", machineEnv)
+	if err != nil {
+		return err
+	}
+	size := 0
+	for key, value := range env {
+		size += len(key) + len(value) + runtimeEnvOverhead
+	}
+	if size > maxRuntimeEnvBytes {
+		return fmt.Errorf("tenki env and startup_script must total at most about %d bytes", maxRuntimeEnvBytes)
+	}
+	return nil
+}
+
+func (p *provider) runtimeEnv(startupScript, token string, machineEnv map[string]string) (map[string]string, error) {
+	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, token, startupScript, machineEnv)
+	if err != nil {
+		return nil, err
+	}
+	maps.DeleteFunc(env, func(name, _ string) bool { return !runtimeEnvNamePattern.MatchString(name) })
+	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
+	return env, nil
+}
+
+func ownershipMetadata(installationID, machineID uuid.UUID) (map[string]string, error) {
+	installationOwner, err := publicid.Encode(publicid.KindInstallation, installationID)
+	if err != nil {
+		return nil, err
+	}
+	machineOwner, err := publicid.Encode(publicid.KindMachine, machineID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{installationLabel: installationOwner, machineLabel: machineOwner}, nil
+}
+
+func validateOwnedSession(current session, resourceID string, installationID, machineID uuid.UUID) error {
+	switch {
+	case current.ID == "":
+		return errors.New("tenki session is missing its id")
+	case resourceID != "" && current.ID != resourceID:
+		return fmt.Errorf("tenki session %q was returned for resource id %q", current.ID, resourceID)
+	case !ownedBy(current, installationID, machineID):
+		return fmt.Errorf("tenki session %q does not have the expected ownership metadata", current.ID)
+	}
+	return nil
+}
+
+func ownedBy(current session, installationID, machineID uuid.UUID) bool {
+	metadata, err := ownershipMetadata(installationID, machineID)
+	return err == nil &&
+		current.Metadata[installationLabel] == metadata[installationLabel] &&
+		current.Metadata[machineLabel] == metadata[machineLabel]
 }
 
 func (p *provider) findOwned(
 	ctx context.Context,
 	installationID, machineID uuid.UUID,
-) (sandbox, bool, error) {
+) (session, bool, error) {
 	if installationID == uuid.Nil || machineID == uuid.Nil {
-		return sandbox{}, false, errors.New("installation and machine ids are required")
+		return session{}, false, errors.New("installation and machine ids are required")
 	}
 	sessions, err := p.api.List(ctx)
 	if err != nil {
-		return sandbox{}, false, err
+		return session{}, false, err
 	}
-	var found sandbox
+	var found session
 	for _, current := range sessions {
-		if !ownedBy(current, installationID, machineID) || current.State == "TERMINATED" {
+		if !ownedBy(current, installationID, machineID) || current.State == sessionStateTerminated {
 			continue
 		}
 		if current.ID == "" {
-			return sandbox{}, false, errors.New("owned tenki session is missing its id")
+			return session{}, false, errors.New("owned tenki session is missing its id")
 		}
 		if found.ID != "" {
-			return sandbox{}, false, errors.New("multiple tenki sessions have the same Omnara ownership")
+			return session{}, false, errors.New("multiple tenki sessions have the same Omnara ownership")
 		}
 		found = current
 	}
@@ -200,7 +222,7 @@ func (p *provider) InspectMachine(
 	_ executionstore.MachineProvisioningConfig,
 	resourceID string,
 ) (string, bool, error) {
-	var current sandbox
+	var current session
 	var found bool
 	var err error
 	if resourceID == "" {
@@ -211,9 +233,8 @@ func (p *provider) InspectMachine(
 	if err != nil || !found {
 		return "", false, err
 	}
-	if !ownedBy(current, installationID, machineID) || current.ID == "" ||
-		(resourceID != "" && current.ID != resourceID) {
-		return "", false, errors.New("tenki session has unexpected ownership or identity")
+	if err := validateOwnedSession(current, resourceID, installationID, machineID); err != nil {
+		return "", false, err
 	}
 	return current.ID, true, nil
 }
@@ -221,15 +242,23 @@ func (p *provider) InspectMachine(
 func (p *provider) DeleteMachine(
 	ctx context.Context,
 	installationID, machineID uuid.UUID,
-	config executionstore.MachineProvisioningConfig,
+	_ executionstore.MachineProvisioningConfig,
 	resourceID string,
 ) error {
 	if resourceID == "" {
-		return errors.New("tenki deletion requires an observed resource id")
+		return errors.New("provider resource id is required")
 	}
-	id, found, err := p.InspectMachine(ctx, installationID, machineID, config, resourceID)
-	if err != nil || !found {
+	current, found, err := p.api.Get(ctx, resourceID)
+	if err != nil {
 		return err
 	}
-	return p.api.Delete(ctx, id)
+	if found {
+		if err := validateOwnedSession(current, resourceID, installationID, machineID); err != nil {
+			return err
+		}
+		if current.State == sessionStateTerminated || current.State == sessionStateTerminating {
+			return nil
+		}
+	}
+	return p.api.Delete(ctx, resourceID)
 }

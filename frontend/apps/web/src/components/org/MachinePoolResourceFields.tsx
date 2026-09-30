@@ -25,7 +25,6 @@ export function MachinePoolResourceFields({
   onMaxMachinesChange: (value: string) => void
 }) {
   const definition = machinePoolProviderDefinitions[provider]
-  const bounds = definition.resourceBounds
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -49,8 +48,7 @@ export function MachinePoolResourceFields({
                 : 'vCPU / machine'
             }
             type="number"
-            min={bounds?.cpu.min ?? 1}
-            max={bounds?.cpu.max}
+            min="1"
             step="1"
             required
             value={cpu}
@@ -66,15 +64,9 @@ export function MachinePoolResourceFields({
                 : 'Memory (GB) per machine'
             }
             type="number"
-            min={bounds ? bounds.memoryMb.min / 1024 : 0}
-            max={bounds ? bounds.memoryMb.max / 1024 : undefined}
+            min="0"
             step="any"
             required
-            description={
-              bounds
-                ? `${bounds.memoryMb.min / 1024}–${bounds.memoryMb.max / 1024} GB, in ${bounds.memoryMb.step} MiB increments.`
-                : undefined
-            }
             value={memoryGb}
             onValueChange={onMemoryGbChange}
           />

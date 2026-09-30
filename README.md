@@ -156,22 +156,6 @@ Provider-backed live tests are available through the `make test-live-*` targets
 and require the corresponding credentials. CI runs them on every push to `main`;
 to run them on a pull request, add the `live-tests` label.
 
-For Tenki, set `TENKI_API_KEY` to a workspace API key and install `cloudflared`, then run:
-
-```sh
-make db-up
-make test-live-tenki-provider test-live-tenki-e2e
-```
-
-These tests create billable Tenki VMs and delete their own sessions during cleanup.
-The provider test exercises lost-create-response recovery, execution, ownership checks,
-and deletion. The service E2E runs the local API, worker, PostgreSQL, and Redis with a
-branch-built daemon inside Tenki. It verifies registration, environment delivery,
-command output, files, stdin, process control, API/worker recovery, and pool deletion.
-Only model responses are scripted. The test uses a temporary public Cloudflare tunnel
-for the daemon connection and binary download; no model API key is needed.
-CI runs these tests on main pushes and manual runs when `TENKI_API_KEY` is configured.
-
 See [CONTRIBUTING.md](CONTRIBUTING.md) for generated-code workflows and pull
 request expectations.
 
