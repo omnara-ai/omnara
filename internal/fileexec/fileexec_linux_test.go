@@ -33,7 +33,8 @@ func TestFileExecWithoutLandlock(t *testing.T) {
 	}
 }
 
-func TestFileExecConfinement(t *testing.T) {
+func fileExecLauncher(t *testing.T) string {
+	t.Helper()
 	launcher := os.Getenv("OMNARA_TEST_FILE_EXEC")
 	if launcher == "" {
 		launcher = filepath.Join(t.TempDir(), "omnara-file-exec")
@@ -42,6 +43,66 @@ func TestFileExecConfinement(t *testing.T) {
 			t.Fatalf("build file launcher: %s, %v", output, err)
 		}
 	}
+	return launcher
+}
+
+func TestFileExecSeccomp(t *testing.T) {
+	launcher := fileExecLauncher(t)
+	probe := filepath.Join(t.TempDir(), "seccomp-probe")
+	if compiled := os.Getenv("OMNARA_TEST_SECCOMP_PROBE"); compiled != "" {
+		content, err := os.ReadFile(compiled)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(probe, content, 0700); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		build := exec.CommandContext(t.Context(), "cc", "-Wall", "-Wextra", "-Werror",
+			"-o", probe, "testdata/seccomp_probe.c")
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build seccomp probe: %s, %v", output, err)
+		}
+	}
+	for _, mode := range []string{"unrestricted", "confined"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "allowed.txt")
+			const content = "preserved"
+			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			root, err := os.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = root.Close() }()
+			writable, err := os.OpenFile(path, os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = writable.Close() }()
+			args := []string{mode, path, "5"}
+			command := exec.CommandContext(t.Context(), probe, args...)
+			if mode == "confined" {
+				command = exec.CommandContext(t.Context(), launcher, append([]string{"1", probe}, args...)...)
+			}
+			command.ExtraFiles = []*os.File{root, root, writable}
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("seccomp probe: %s, %v", output, err)
+			}
+			if mode == "confined" {
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != content {
+					t.Fatalf("file changed: %q, %v", got, err)
+				}
+			}
+		})
+	}
+}
+
+func TestFileExecConfinement(t *testing.T) {
+	launcher := fileExecLauncher(t)
 	rg, err := exec.LookPath("rg")
 	if err != nil {
 		t.Fatal(err)

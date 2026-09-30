@@ -335,9 +335,13 @@ test-worker-image: ## Test file execution inside the built worker image
 	docker build --target worker -t omnara-worker-test .
 	@set -e; tmp_dir="$$(mktemp -d)"; trap 'rm -rf "$$tmp_dir"' EXIT; \
 		chmod 755 "$$tmp_dir"; \
+		build_image="$$(docker build --target go-base -q .)"; \
+		docker run --rm --network none --mount "type=bind,source=$$tmp_dir,target=/smoke" \
+			"$$build_image" cc -Wall -Wextra -Werror -o /smoke/seccomp-probe internal/fileexec/testdata/seccomp_probe.c; \
 		CGO_ENABLED=0 GOOS=linux GOARCH="$$(docker version --format '{{.Server.Arch}}')" $(GO) test -c -o "$$tmp_dir/file-exec.test" ./internal/fileexec; \
 		docker run --rm --network none --mount "type=bind,source=$$tmp_dir,target=/smoke,readonly" \
 			-e OMNARA_TEST_FILE_EXEC=/usr/local/bin/omnara-file-exec \
+			-e OMNARA_TEST_SECCOMP_PROBE=/smoke/seccomp-probe \
 			-e OMNARA_TEST_FILE_EDIT=/usr/local/bin/omnara-file-edit --entrypoint /smoke/file-exec.test \
 			omnara-worker-test -test.v -test.run '^TestFile(Exec|Edit)' -test.timeout 60s
 
