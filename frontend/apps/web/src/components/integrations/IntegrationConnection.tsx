@@ -44,6 +44,7 @@ export function IntegrationConnection({
             onConnected={onConnected}
             onCancel={onCancel}
             footerAction={footerAction}
+            disabled={disabled}
           />
         ) : (
           <IntegrationSetup
@@ -54,6 +55,7 @@ export function IntegrationConnection({
             onSaved={onConnected}
             onCancel={onCancel}
             footerAction={footerAction}
+            disabled={disabled}
           />
         )}
       </fieldset>

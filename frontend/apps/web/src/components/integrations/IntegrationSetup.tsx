@@ -22,6 +22,7 @@ interface IntegrationSetupProps {
   onSaved: (integration: Integration) => void
   onCancel?: () => void
   footerAction?: ReactNode
+  disabled?: boolean
 }
 
 export function IntegrationSetup(props: IntegrationSetupProps) {
@@ -43,6 +44,7 @@ export function IntegrationSetupForm({
   onSaved,
   onCancel,
   footerAction,
+  disabled = false,
   draft,
   state,
 }: IntegrationSetupProps & {
@@ -111,6 +113,7 @@ export function IntegrationSetupForm({
         setSavedSecret('')
         setNewCredential(false)
       }}
+      disabled={busy || disabled}
     />
   )
   return (

@@ -379,7 +379,7 @@ func TestGitHubReviewAndCommitPolicies(t *testing.T) {
 		}, false, true},
 		{"PR closed", "pull_request", func(p *githubEventPayload) { p.Action = "closed" }, false, false},
 		{"self PR open", "pull_request", func(p *githubEventPayload) { p.Sender.ID = 999 }, false, false},
-		{"other bot PR open", "pull_request", func(p *githubEventPayload) { p.Sender.Type = "Bot" }, true, false},
+		{"other bot PR open", "pull_request", func(p *githubEventPayload) { p.Sender.Type = "Bot" }, false, false},
 		{"invalid commit", "pull_request", func(p *githubEventPayload) {
 			p.Action, p.Before, p.After = "synchronize", "bad", strings.Repeat("b", 40)
 		}, false, true},

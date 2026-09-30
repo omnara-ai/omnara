@@ -11,7 +11,7 @@ import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, enter, waitForUI } from '@/test/secret-editor'
+import { button, choose, enter, waitForUI } from '@/test/secret-editor'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj')
@@ -198,7 +198,7 @@ it('shows a saved GitHub callback credential when another setup already connecte
     expect(button('Check installations')).toBeDefined()
   })
   expect(container.textContent).toContain('Review the current integration setup before connecting')
-  expect(container.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+  expect(container.querySelector('#saved-secret')?.textContent).toBe(secretId)
   act(() => {
     button('Enter App details').click()
   })
@@ -206,9 +206,124 @@ it('shows a saved GitHub callback credential when another setup already connecte
   expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.readOnly).toBe(true)
   expect(container.querySelector<HTMLInputElement>('#provider-account')?.value).toBe('888')
   expect(container.querySelector<HTMLInputElement>('#provider-account')?.readOnly).toBe(true)
-  expect(container.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+  expect(container.querySelector('#saved-secret')?.textContent).toBe(secretId)
   expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(0)
 })
+
+it.each(['guided', 'manual'] as const)(
+  'locks %s GitHub setup dropdowns, including an open menu, while the integration is deleted',
+  async (mode) => {
+    vi.stubGlobal('confirm', () => true)
+    const integration = integrationFixture({ integration_kind: 'github_pr' })
+    const detailPath = `${projectPath}/integrations/${integration.id}`
+    const secret = {
+      id: fakeId('sec'),
+      org_id: orgId,
+      owner: { kind: 'project', project_id: projectId },
+      name: 'Reviewer credentials',
+      kind: 'github_app_credentials',
+      management_kind: 'tenant',
+      metadata: {},
+      current_version_number: 1,
+      payload_keys: [],
+      created_at: integration.created_at,
+      updated_at: integration.updated_at,
+    }
+    let release!: (response: Response) => void
+    const deletion = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    const api = fakeApi([
+      { method: 'GET', path: detailPath, respond: () => Response.json(integration) },
+      { method: 'DELETE', path: detailPath, respond: () => deletion },
+      {
+        method: 'GET',
+        path: `${projectPath}/secrets`,
+        respond: () =>
+          Response.json({
+            data: [{ secret, availability: { source: 'direct', project_id: projectId } }],
+            next_cursor: null,
+          }),
+      },
+      ...['agent-profiles', 'cron-triggers', `integrations/${integration.id}/subscriptions`].map(
+        (suffix) => ({
+          method: 'GET',
+          path: `${projectPath}/${suffix}`,
+          respond: () => Response.json({ data: [], next_cursor: null }),
+        }),
+      ),
+    ])
+    render(
+      api,
+      <IntegrationDetail
+        orgId={orgId}
+        projectId={projectId}
+        integrationId={integration.id}
+        canManage
+      />,
+    )
+    await waitForUI(() => {
+      expect(button('Enter App details')).toBeDefined()
+    })
+    if (mode === 'manual') {
+      act(() => {
+        button('Enter App details').click()
+      })
+      act(() => {
+        container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click()
+      })
+    }
+    const [label, id, idle, choice, submit] =
+      mode === 'guided'
+        ? [
+            'GitHub App owner',
+            '#github-owner',
+            'Personal account',
+            'Organization',
+            'Continue to GitHub',
+          ]
+        : [
+            'Saved credential',
+            '#saved-secret',
+            'Choose a credential',
+            'Reviewer credentials',
+            'Connect integration',
+          ]
+    const trigger = () => container.querySelector<HTMLButtonElement>(id)
+    const option = () =>
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (item) => item.textContent === choice,
+      )
+    await act(async () => {
+      trigger()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await Promise.resolve()
+    })
+    await waitForUI(() => {
+      expect(option()).toBeDefined()
+    })
+    act(() => {
+      button('Delete integration').click()
+    })
+    await waitForUI(() => {
+      expect(trigger()?.disabled).toBe(true)
+    })
+    expect(api.requestsTo('DELETE', detailPath)).toHaveLength(1)
+    expect(option()?.getAttribute('aria-disabled')).toBe('true')
+    act(() => {
+      option()?.click()
+    })
+    expect(trigger()?.textContent).toBe(idle)
+    expect(button(submit).hasAttribute('aria-busy')).toBe(false)
+    act(() => {
+      release(jsonResponse({ code: 'internal_error', error: 'Try again' }, 500))
+    })
+    await waitForUI(() => {
+      expect(trigger()?.disabled).toBe(false)
+    })
+    await choose(label, choice)
+    expect(trigger()?.textContent).toBe(choice)
+  },
+)
 
 it('keeps fresh integration connection controls unavailable to readers', async () => {
   const integration = integrationFixture()

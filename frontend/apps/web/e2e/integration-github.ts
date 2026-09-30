@@ -145,7 +145,8 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await expect(page.getByLabel('GitHub App ID', { exact: true })).toHaveCount(0)
   await page.getByLabel('Integration name', { exact: true }).fill('guided-reviewer')
   await captureGitHubSetup(page, 'personal')
-  await page.getByLabel('GitHub App owner').selectOption('organization')
+  await page.getByRole('combobox', { name: 'GitHub App owner', exact: true }).click()
+  await page.getByRole('option', { name: 'Organization', exact: true }).click()
   await page.getByLabel('Organization name').fill('engineering')
   await captureGitHubSetup(page, 'organization')
   await page.getByRole('button', { name: 'Continue to GitHub', exact: true }).click()
@@ -168,7 +169,8 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await expect(
     page.getByRole('button', { name: 'Connect integration', exact: true }),
   ).toBeDisabled()
-  await page.getByLabel('Installation', { exact: true }).selectOption('222')
+  await page.getByRole('combobox', { name: 'Installation', exact: true }).click()
+  await page.getByRole('option', { name: installation.account, exact: true }).click()
   await expect(
     page.getByRole('link', { name: 'Manage repository access in GitHub' }),
   ).toHaveAttribute('href', installation.settings_url)

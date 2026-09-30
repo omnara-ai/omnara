@@ -592,9 +592,8 @@ it('keeps the reconnect credential selected when its fallback option is replaced
       onCancel={vi.fn()}
     />,
   )
-  const selected = () => container.querySelector<HTMLSelectElement>('#saved-secret')?.value
-  expect(container.textContent).toContain('Current credential')
-  expect(selected()).toBe(secretID)
+  const selected = () => container.querySelector('#saved-secret')?.textContent
+  expect(selected()).toBe('Current credential')
   await act(async () => {
     resolveSecrets(
       Response.json({
@@ -622,9 +621,8 @@ it('keeps the reconnect credential selected when its fallback option is replaced
     await pending
   })
   await waitForUI(() => {
-    expect(container.textContent).toContain('Saved GitHub credential')
+    expect(selected()).toBe('Saved GitHub credential')
   })
-  expect(selected()).toBe(secretID)
   await submit()
   await waitForUI(() => {
     expect(onSaved).toHaveBeenCalled()

@@ -4,6 +4,13 @@ import type { IntegrationKind } from '@omnara/sdk'
 import { Button } from '@/components/ui/button'
 import { CheckboxField, Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 
 import { IntegrationCredentialFields } from './IntegrationFormCredentials'
@@ -20,6 +27,7 @@ export function IntegrationSetupCredentials({
   newCredential,
   onNewCredentialChange,
   onChooseCredentials,
+  disabled,
 }: {
   orgId: string
   projectId: string
@@ -32,6 +40,7 @@ export function IntegrationSetupCredentials({
   newCredential: boolean
   onNewCredentialChange: (value: boolean) => void
   onChooseCredentials: () => void
+  disabled: boolean
 }) {
   return (
     <>
@@ -75,6 +84,7 @@ export function IntegrationSetupCredentials({
               value={selectedSecret}
               onChange={onSelectedSecretChange}
               currentCredentialId={credentialSecretId}
+              disabled={disabled}
             />
           )}
         </>
@@ -90,6 +100,7 @@ export function IntegrationCredentialPicker({
   value,
   onChange,
   currentCredentialId,
+  disabled,
 }: {
   orgId: string
   projectId: string
@@ -97,36 +108,34 @@ export function IntegrationCredentialPicker({
   value: string
   onChange: (value: string) => void
   currentCredentialId?: string
+  disabled: boolean
 }) {
   const secretsQuery = useProjectAvailableSecrets(orgId, projectId, {
     filters: { kind: integrationKind === 'github_pr' ? 'github_app_credentials' : 'generic' },
   })
   const secrets = useInfiniteQueryItems(secretsQuery).map((access) => access.secret)
+  const saved = secrets.find((secret) => secret.id === value)
+  const fallback = value === currentCredentialId ? 'Current credential' : value
   return (
     <Field>
       <FieldLabel htmlFor="saved-secret">Saved credential</FieldLabel>
-      <select
-        id="saved-secret"
-        name="secret"
-        required
-        value={value}
-        onChange={(event) => {
-          onChange(event.target.value)
-        }}
-        className="control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm"
-      >
-        <option value="">Choose a credential</option>
-        {value && !secrets.some((secret) => secret.id === value) && (
-          <option value={value}>
-            {value === currentCredentialId ? 'Current credential' : value}
-          </option>
-        )}
-        {secrets.map((secret) => (
-          <option key={secret.id} value={secret.id}>
-            {secret.name}
-          </option>
-        ))}
-      </select>
+      <Select name="secret" required value={value} disabled={disabled} onValueChange={onChange}>
+        <SelectTrigger id="saved-secret" className="w-full">
+          <SelectValue placeholder="Choose a credential">{saved?.name ?? fallback}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {value && !saved && (
+            <SelectItem value={value} disabled={disabled}>
+              {fallback}
+            </SelectItem>
+          )}
+          {secrets.map((secret) => (
+            <SelectItem key={secret.id} value={secret.id} disabled={disabled}>
+              {secret.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {secretsQuery.isError && (
         <div role="alert">
           Could not load credentials.{' '}

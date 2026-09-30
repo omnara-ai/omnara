@@ -2,11 +2,16 @@ import { type Integration, type IntegrationKind } from '@omnara/sdk'
 
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import { type IntegrationFormValues } from './integrationFormState'
 import { IntegrationProfilePicker } from './IntegrationProfilePicker'
-
-const selectClass = 'border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
 
 interface LauncherFieldsProps {
   orgId: string
@@ -38,8 +43,8 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
             Launch agents from GitHub events
           </label>
           <FieldDescription>
-            Changes apply to future launches. Mention launches and comments that direct agents
-            require repository write access.
+            Changes apply to future launches. PR-open launches, mentions and comments that direct
+            agents require repository write access.
           </FieldDescription>
         </>
       ) : (
@@ -54,17 +59,29 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
           {github && (
             <Field>
               <FieldLabel htmlFor="integration-trigger">Launch when</FieldLabel>
-              <select
-                id="integration-trigger"
-                className={selectClass}
+              <Select
                 value={values.trigger}
-                onChange={(event) => {
-                  onChange({ trigger: event.target.value })
+                disabled={props.disabled}
+                onValueChange={(trigger) => {
+                  onChange({ trigger })
                 }}
               >
-                <option value="pull_request_opened">A pull request is opened</option>
-                <option value="mention">The bot is mentioned on a pull request</option>
-              </select>
+                <SelectTrigger id="integration-trigger" className="w-full">
+                  <SelectValue>
+                    {values.trigger === 'mention'
+                      ? 'The bot is mentioned on a pull request'
+                      : 'A pull request is opened'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pull_request_opened" disabled={props.disabled}>
+                    A pull request is opened
+                  </SelectItem>
+                  <SelectItem value="mention" disabled={props.disabled}>
+                    The bot is mentioned on a pull request
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           )}
           <IntegrationLauncherScopeFields {...props} />
@@ -79,7 +96,7 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
             label={github ? 'Agent profile' : 'Profiles for mentions'}
             description={
               github
-                ? 'Public and fork PRs can trigger PR-open launches, so choose a profile whose tools and secrets are safe for untrusted input.'
+                ? 'Choose a profile whose tools and secrets are appropriate for reviewing untrusted PR content.'
                 : undefined
             }
             disabled={props.disabled}
@@ -96,6 +113,7 @@ function IntegrationLauncherScopeFields({
   integration,
   values,
   onChange,
+  disabled,
 }: LauncherFieldsProps) {
   if (integrationKind === 'discord_thread')
     return (
@@ -119,17 +137,25 @@ function IntegrationLauncherScopeFields({
     <>
       <Field>
         <FieldLabel htmlFor="integration-launch-scope">Respond to mentions in</FieldLabel>
-        <select
-          id="integration-launch-scope"
-          className={selectClass}
-          value={values.scopeKind}
-          onChange={(event) => {
-            onChange({ scopeKind: event.target.value, scopeRef: '' })
+        <Select
+          value={values.scopeKind || 'workspace'}
+          disabled={disabled}
+          onValueChange={(scopeKind) => {
+            onChange({ scopeKind: scopeKind === 'workspace' ? '' : scopeKind, scopeRef: '' })
           }}
         >
-          <option value="">Connected workspace</option>
-          <option value="channel">One channel</option>
-        </select>
+          <SelectTrigger id="integration-launch-scope" className="w-full">
+            <SelectValue>{values.scopeKind ? 'One channel' : 'Connected workspace'}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="workspace" disabled={disabled}>
+              Connected workspace
+            </SelectItem>
+            <SelectItem value="channel" disabled={disabled}>
+              One channel
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </Field>
       {values.scopeKind ? (
         <Field>

@@ -294,6 +294,7 @@ func TestGitHubWriteAccessGatesInputsAndFailureMessages(t *testing.T) {
 		permission string
 		allowed    bool
 	}{
+		{"none", false},
 		{"read", false},
 		{"write", true},
 		{"admin", true},
@@ -314,23 +315,30 @@ func TestGitHubWriteAccessGatesInputsAndFailureMessages(t *testing.T) {
 				require.NoError(t, p.NotifyInboxFailure(t.Context(), f.integration, receipt, inboxFailureMessage))
 				require.Equal(t, tc.allowed, len(f.posts) == 1)
 			}
-			f.requests = nil
 			for _, action := range []string{"opened", "synchronize"} {
+				f.requests = nil
 				event := githubEventFixture("pull_request")
 				event.Action = action
 				event.Before = strings.Repeat("a", 40)
 				event.After = event.PullRequest.Head.SHA
 				expanded, err := p.Expand(t.Context(), f.integration, githubEventJSON(t, event))
 				require.NoError(t, err)
-				require.NotNil(t, expanded.Event, "automatic PR events do not require writer access")
+				if action == "opened" {
+					require.Equal(t, tc.allowed, expanded.Event != nil, "PR launches require writer access")
+					require.NotEmpty(t, f.requests)
+				} else {
+					require.NotNil(t, expanded.Event, "commits on a subscribed PR remain deliverable")
+					require.Empty(t, f.requests)
+				}
 			}
-			require.Empty(t, f.requests)
 		})
 	}
 }
 
 func TestGitHubRoutingPrecedesProviderAccess(t *testing.T) {
-	for _, kind := range []string{"issue_comment", "pull_request_review_comment", "pull_request_review"} {
+	for _, kind := range []string{
+		"issue_comment", "pull_request_review_comment", "pull_request_review", "pull_request",
+	} {
 		t.Run(kind, func(t *testing.T) {
 			raw := githubEventJSON(t, githubEventFixture(kind))
 			provider := GitHubIntegrationInboxProvider{}

@@ -15,7 +15,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { agentConfigModel, fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, enter, waitForUI } from '@/test/secret-editor'
+import { button, choose, enter, waitForUI } from '@/test/secret-editor'
 
 import { IntegrationForm } from './IntegrationForm'
 
@@ -362,25 +362,13 @@ it.each(['saved channel', 'new launcher'] as const)(
         onSaved={onSaved}
       />,
     )
-    function selectScope(value: string) {
-      act(() => {
-        const label = [...container.querySelectorAll('label')].find(
-          (item) => item.textContent === 'Respond to mentions in',
-        )
-        const select = label && document.getElementById(label.htmlFor)
-        if (!(select instanceof HTMLSelectElement))
-          throw new Error('Missing launcher scope selector')
-        select.value = value
-        select.dispatchEvent(new Event('change', { bubbles: true }))
-      })
-    }
     if (scenario === 'new launcher') {
       await chooseProfile('Support')
       expect(container.textContent).toContain('Workspace: T123')
-      selectScope('channel')
+      await choose('Respond to mentions in', 'One channel')
       await enter('Channel ID', 'C456')
     }
-    selectScope('')
+    await choose('Respond to mentions in', 'Connected workspace')
     expect(container.textContent).toContain('Workspace: T123')
     expect(button('Save changes').disabled).toBe(false)
     await submit()

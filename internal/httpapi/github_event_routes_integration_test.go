@@ -192,13 +192,13 @@ func githubHTTPComment(t *testing.T, number int, commentID int64, text string) s
 	})
 }
 
-func githubHTTPPullRequest(t *testing.T, action string) string {
+func githubHTTPPullRequest(t *testing.T, number int, action string) string {
 	t.Helper()
 	repository := map[string]any{"id": 1001, "full_name": "owner/repository"}
 	payload := map[string]any{
 		"action": action, "installation": map[string]any{"id": 456}, "repository": repository,
 		"pull_request": map[string]any{
-			"id": 2001, "number": 42, "title": "Review this change", "body": "Please review",
+			"id": 2000 + number, "number": number, "title": "Review this change", "body": "Please review",
 			"base": map[string]any{"repo": repository}, "head": map[string]any{"sha": strings.Repeat("b", 40)},
 		},
 		"sender": map[string]any{"id": 71, "login": "human", "type": "User"},
@@ -233,7 +233,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				integrationHTTPJSON(t, integration), "", http.StatusOK, authHeaders(f.project.AdminToken))
 			raw, eventType := githubHTTPComment(t, 42, 3001, "@helper please review"), "issue_comment"
 			if trigger == "pull_request_opened" {
-				raw, eventType = githubHTTPPullRequest(t, "opened"), "pull_request"
+				raw, eventType = githubHTTPPullRequest(t, 42, "opened"), "pull_request"
 			}
 			githubHTTPWebhook(t, f.handler, eventType, "initial", "wrong-secret", raw, http.StatusUnauthorized)
 			var receipts int
@@ -268,6 +268,15 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			githubHTTPWebhook(t, f.handler, "pull_request_review", "relabeled", githubJourneyWebhookSecret,
 				raw, http.StatusNoContent)
 			f.consume(t, raw)
+			denied := githubHTTPComment(t, 43, 3000, "@helper please review")
+			if trigger == "pull_request_opened" {
+				denied = githubHTTPPullRequest(t, 43, "opened")
+			}
+			f.senderPermission = "read"
+			githubHTTPWebhook(t, f.handler, eventType, "reader-launch", githubJourneyWebhookSecret,
+				denied, http.StatusNoContent)
+			require.Empty(t, f.consume(t, denied), "read-only contributors cannot launch agents")
+			f.senderPermission = "write"
 			var agents, inputs int
 			require.NoError(t, pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM agents WHERE project_id=$1`, f.project.ProjectUUID).Scan(&agents))
@@ -285,7 +294,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.NotEqual(t, firstInput, results[0].Input.AgentInput.ID)
 			require.Equal(t, executionstore.DeliveryModeSteering, results[0].Input.AgentInput.DeliveryMode)
 			var review map[string]any
-			require.NoError(t, json.Unmarshal([]byte(githubHTTPPullRequest(t, "submitted")), &review))
+			require.NoError(t, json.Unmarshal([]byte(githubHTTPPullRequest(t, 42, "submitted")), &review))
 			review["review"] = map[string]any{
 				"id": 5001, "state": "changes_requested", "body": "Please handle the edge case",
 				"user": map[string]any{"id": 71, "login": "human", "type": "User"},
@@ -297,7 +306,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.Len(t, results, 1)
 			require.Equal(t, agentID, results[0].Input.AgentInput.AgentID)
 			require.Equal(t, executionstore.DeliveryModeSteering, results[0].Input.AgentInput.DeliveryMode)
-			commit := githubHTTPPullRequest(t, "synchronize")
+			commit := githubHTTPPullRequest(t, 42, "synchronize")
 			githubHTTPWebhook(t, f.handler, "pull_request", "commit", githubJourneyWebhookSecret,
 				commit, http.StatusNoContent)
 			results = f.consume(t, commit)

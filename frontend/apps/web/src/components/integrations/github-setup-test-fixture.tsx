@@ -63,14 +63,6 @@ export function click(name: string) {
     button(name).click()
   })
 }
-export function select(id: string, value: string) {
-  act(() => {
-    const element = document.getElementById(id)
-    if (!(element instanceof HTMLSelectElement)) throw new Error('Missing select ' + id)
-    element.value = value
-    element.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-}
 export function credential(id: string, name: string) {
   return {
     id,

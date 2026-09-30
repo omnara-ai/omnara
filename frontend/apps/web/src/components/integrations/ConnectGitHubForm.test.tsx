@@ -5,7 +5,7 @@ import { act } from 'react'
 import { expect, it, vi } from 'vitest'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
-import { button, enter, field, waitForUI } from '@/test/secret-editor'
+import { button, choose, enter, field, waitForUI } from '@/test/secret-editor'
 
 import { ConnectGitHubForm } from './ConnectGitHubForm'
 import {
@@ -22,7 +22,6 @@ import {
   reads,
   render,
   secretId,
-  select,
   verified,
 } from './github-setup-test-fixture'
 
@@ -187,10 +186,10 @@ it.each([false, true])(
       await waitForUI(() => {
         expect(document.querySelector('#github-installation')).not.toBeNull()
       })
-      select('github-installation', '222')
+      await choose('Installation', 'engineering')
     }
     click('Enter App details')
-    expect(document.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+    expect(document.getElementById('saved-secret')?.textContent).toBe(secretId)
     expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false)
     expect(container.querySelector('#private-key')).toBeNull()
     if (inspected) {
@@ -287,13 +286,12 @@ it.each([false, true])(
       })
     })
     render(api, <ConnectGitHubForm orgId={orgId} projectId={projectId} onConnected={vi.fn()} />)
-    expect(container.textContent).toContain('private')
-    expect(document.querySelector<HTMLSelectElement>('#github-owner')?.labels[0]?.textContent).toBe(
+    expect(document.querySelector<HTMLButtonElement>('#github-owner')?.labels[0]?.textContent).toBe(
       'GitHub App owner',
     )
     await enter('Integration name', 'reviewer')
     if (organization) {
-      select('github-owner', 'organization')
+      await choose('GitHub App owner', 'Organization')
       await enter('Organization name', 'engineering')
       click('Enter App details')
       click('Back to guided setup')
@@ -353,7 +351,7 @@ it.each(['registration', 'connection'] as const)(
       await waitForUI(() => {
         expect(document.querySelector('#github-installation')).not.toBeNull()
       })
-      select('github-installation', '222')
+      await choose('Installation', 'engineering')
     }
     click(operation === 'registration' ? 'Continue to GitHub' : 'Connect integration')
     await waitForUI(() => {
@@ -426,10 +424,7 @@ it.each([true, false])(
         if (!checkbox) throw new Error('Missing credential toggle')
         checkbox.click()
       })
-      await waitForUI(() => {
-        expect(document.querySelector(`#saved-secret option[value="${secretId}"]`)).not.toBeNull()
-      })
-      select('saved-secret', secretId)
+      await choose('Saved credential', 'Reviewer credentials')
     }
     click('Create and connect')
     await waitForUI(() => {
@@ -445,7 +440,9 @@ it.each([true, false])(
       expect(button('Back to guided setup').disabled).toBe(false)
     })
     click('Back to guided setup')
-    expect(document.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+    await waitForUI(() => {
+      expect(document.getElementById('saved-secret')?.textContent).toBe('Reviewer credentials')
+    })
     click('Check installations')
     await waitForUI(() => {
       expect(document.querySelector('#github-installation')).not.toBeNull()
@@ -456,7 +453,7 @@ it.each([true, false])(
     expect(field('Installation ID').value).toBe('222')
     if (newCredential)
       expect(container.textContent).toContain('Credentials saved. Retry reuses the saved secret.')
-    else expect(document.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+    else expect(document.getElementById('saved-secret')?.textContent).toBe('Reviewer credentials')
     click('Create and connect')
     await waitForUI(() => {
       expect(onConnected).toHaveBeenCalledOnce()

@@ -50,7 +50,8 @@ func (p GitHubIntegrationInboxProvider) ExpandRouted(
 			return IntegrationInboxExpansion{}, err
 		}
 	}
-	if event.Event.Kind == "discussion_comment" || event.Event.Kind == "review_comment" {
+	switch event.Event.Kind {
+	case "discussion_comment", "review_comment", "pull_request_opened":
 		ctx, cancel := context.WithTimeout(ctx, github.OperationTimeout)
 		defer cancel()
 		client, err := p.requestAccess(ctx, integrationSetup)
@@ -221,7 +222,8 @@ func NormalizeGitHubIntegrationEvent(
 		return IntegrationEvent{}, false, fmt.Errorf("GitHub event lacks durable object or actor identity")
 	}
 	humanInput := kind == "discussion_comment" || kind == "review_comment"
-	if githubSelfEvent(actor, identity) || (humanInput && (actor.Type != "User" || payload.Sender.Type != "User")) {
+	if githubSelfEvent(actor, identity) ||
+		((humanInput || kind == "pull_request_opened") && (actor.Type != "User" || payload.Sender.Type != "User")) {
 		return IntegrationEvent{}, false, nil
 	}
 	if humanInput && actor.ID != payload.Sender.ID {

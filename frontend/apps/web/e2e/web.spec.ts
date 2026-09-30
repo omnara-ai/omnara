@@ -682,8 +682,12 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     await expect(page.getByRole('heading', { name: integrationName, exact: true })).toBeVisible()
     await launch.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(launch.getByLabel('Integration name', { exact: true })).toHaveCount(0)
-    if (integrationKind === 'github_pr')
-      await page.getByLabel('Launch when').selectOption('mention')
+    if (integrationKind === 'github_pr') {
+      await page.getByRole('combobox', { name: 'Launch when', exact: true }).click()
+      await page
+        .getByRole('option', { name: 'The bot is mentioned on a pull request', exact: true })
+        .click()
+    }
     const updated = page.waitForResponse(
       (response) =>
         response.request().method() === 'PUT' &&
@@ -760,7 +764,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     await openIntegrationSetup(page, projectID, integrationKind, `${integrationName}-2`)
     await fillProviderAccount(page, integrationKind)
     await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
-    await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
+    await page.getByRole('combobox', { name: 'Saved credential', exact: true }).click()
+    await page.getByRole('option', { name: `${integrationName}-credentials`, exact: true }).click()
     if (integrationKind === 'discord_thread')
       await page.getByLabel('Public key', { exact: true }).fill('ab'.repeat(32))
     const secondCreation = integrationCreation(page)
@@ -804,7 +809,8 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       ),
     ).toHaveAttribute('readonly', '')
     await page.getByRole('checkbox', { name: 'Create a new credential' }).uncheck()
-    await page.getByLabel('Saved credential', { exact: true }).selectOption(secretID)
+    await page.getByRole('combobox', { name: 'Saved credential', exact: true }).click()
+    await page.getByRole('option', { name: `${integrationName}-credentials`, exact: true }).click()
     const reconfigured = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&

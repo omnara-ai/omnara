@@ -17,6 +17,7 @@ export function ConnectGitHubForm({
   onConnected,
   onCancel,
   footerAction,
+  disabled,
 }: {
   orgId: string
   projectId: string
@@ -24,6 +25,7 @@ export function ConnectGitHubForm({
   onConnected: (integration: Integration) => void
   onCancel?: () => void
   footerAction?: ReactNode
+  disabled?: boolean
 }) {
   const draft = useIntegrationDraft(orgId, projectId, 'github_pr', existing)
   const returned = useGitHubSetupReturn()
@@ -70,6 +72,7 @@ export function ConnectGitHubForm({
           onSaved={onConnected}
           onCancel={onCancel}
           footerAction={footerAction}
+          disabled={disabled}
         />
       </div>
     )
@@ -89,6 +92,7 @@ export function ConnectGitHubForm({
       }}
       onCancel={onCancel}
       footerAction={footerAction}
+      disabled={disabled}
     />
   )
 }

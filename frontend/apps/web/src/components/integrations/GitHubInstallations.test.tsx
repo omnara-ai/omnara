@@ -6,7 +6,7 @@ import { expect, it, vi } from 'vitest'
 
 import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { integration as integrationFixture } from '@/test/fixtures'
-import { button, waitForUI } from '@/test/secret-editor'
+import { button, choose, waitForUI } from '@/test/secret-editor'
 
 import { ConnectGitHubForm } from './ConnectGitHubForm'
 import {
@@ -23,7 +23,6 @@ import {
   reads,
   render,
   secretId,
-  select,
   verified,
 } from './github-setup-test-fixture'
 
@@ -52,7 +51,7 @@ it('does not run the connection callback after unmount while configure is pendin
   await waitForUI(() => {
     expect(document.querySelector('#github-installation')).not.toBeNull()
   })
-  select('github-installation', '222')
+  await choose('Installation', 'engineering')
   click('Connect integration')
   await waitForUI(() => {
     expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(1)
@@ -99,13 +98,13 @@ it('keeps a saved callback credential after setup changes and confirms against t
   expect(container.querySelector('[role="alert"]')?.textContent).toContain(
     'Your credential was saved',
   )
-  expect(document.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+  expect(document.getElementById('saved-secret')?.textContent).toBe(secretId)
   expect(api.requestsTo('POST', inspectPath)).toHaveLength(0)
   click('Check installations')
   await waitForUI(() => {
     expect(document.querySelector('#github-installation')).not.toBeNull()
   })
-  select('github-installation', '222')
+  await choose('Installation', 'engineering')
   click('Connect integration')
   await waitForUI(() => {
     expect(onConnected).toHaveBeenCalledOnce()
@@ -178,14 +177,14 @@ it('resumes a saved credential after approval and connects only on explicit conf
   })
   expect(button('Connect integration').disabled).toBe(true)
   expect(
-    document.querySelector<HTMLSelectElement>('#github-installation')?.labels[0]?.textContent,
+    document.querySelector<HTMLButtonElement>('#github-installation')?.labels[0]?.textContent,
   ).toBe('Installation')
-  select('github-installation', '222')
+  await choose('Installation', 'engineering')
   click('Connect integration')
   await waitForUI(() => {
     expect(container.textContent).toContain('Credential changed')
   })
-  expect(document.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
+  expect(document.getElementById('saved-secret')?.textContent).toBe(secretId)
   click('Connect integration')
   await waitForUI(() => {
     expect(onConnected).toHaveBeenCalledOnce()
@@ -249,21 +248,25 @@ it.each([true, false])(
       expect(button('More installations')).toBeDefined()
     })
     expect(button('Connect integration').disabled).toBe(!hintOnFirstPage)
-    expect(document.querySelector<HTMLSelectElement>('#github-installation')?.value).toBe(
-      hintOnFirstPage ? '222' : '',
+    expect(document.getElementById('github-installation')?.textContent).toBe(
+      hintOnFirstPage ? 'engineering' : 'Choose an installation',
     )
-    if (hintOnFirstPage) select('github-installation', '333')
+    if (hintOnFirstPage) await choose('Installation', 'another-account')
     click('More installations')
     await waitForUI(() => {
       expect(button('Previous installations')).toBeDefined()
     })
-    expect(document.querySelector<HTMLSelectElement>('#github-installation')?.value).toBe('')
+    expect(document.getElementById('github-installation')?.textContent).toBe(
+      'Choose an installation',
+    )
     expect(button('Connect integration').disabled).toBe(true)
     click('Previous installations')
     await waitForUI(() => {
       expect(button('More installations')).toBeDefined()
     })
-    expect(document.querySelector<HTMLSelectElement>('#github-installation')?.value).toBe('')
+    expect(document.getElementById('github-installation')?.textContent).toBe(
+      'Choose an installation',
+    )
     expect(api.requestsTo('POST', integrationPath + '/setup')).toHaveLength(0)
   },
 )
@@ -310,18 +313,15 @@ it('retries a failed installation check and discards installations from a replac
     expect(document.querySelector('#github-installation')).not.toBeNull()
   })
   expect(container.querySelector('[role="alert"]')).toBeNull()
-  select('github-installation', '222')
+  await choose('Installation', 'engineering')
   expect(button('Connect integration').disabled).toBe(false)
-  await waitForUI(() => {
-    expect(document.querySelector(`#saved-secret option[value="${replacement}"]`)).not.toBeNull()
-  })
-  select('saved-secret', replacement)
+  await choose('Saved credential', 'Second')
   expect(document.querySelector('#github-installation')).toBeNull()
   click('Check installations')
   await waitForUI(() => {
     expect(document.querySelector('#github-installation')).not.toBeNull()
   })
-  expect(document.querySelector<HTMLSelectElement>('#github-installation')?.value).toBe('')
+  expect(document.getElementById('github-installation')?.textContent).toBe('Choose an installation')
   expect(button('Connect integration').disabled).toBe(true)
   expect(api.requestsTo('POST', inspectPath).map((request) => request.body)).toEqual([
     { credential_secret_id: secretId, page: 1 },

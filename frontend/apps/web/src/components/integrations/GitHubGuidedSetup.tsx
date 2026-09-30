@@ -10,14 +10,18 @@ import {
   FieldSeparator,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import { IntegrationNameField } from './IntegrationNameField'
 import { IntegrationCredentialPicker } from './IntegrationSetupCredentials'
 import type { GitHubInspection, useGitHubGuidedSetup } from './useGitHubGuidedSetup'
 import type { useIntegrationDraft } from './useIntegrationDraft'
-
-const selectClass =
-  'control-focus rounded-control border-input bg-card h-10 w-full border px-3 text-sm'
 
 export function GitHubGuidedSetup({
   orgId,
@@ -30,6 +34,7 @@ export function GitHubGuidedSetup({
   onUseExistingApp,
   onCancel,
   footerAction,
+  disabled = false,
 }: {
   orgId: string
   projectId: string
@@ -41,8 +46,10 @@ export function GitHubGuidedSetup({
   onUseExistingApp: () => void
   onCancel?: () => void
   footerAction?: ReactNode
+  disabled?: boolean
 }) {
   const { resuming, inspection } = guided
+  const locked = busy || disabled
   return (
     <form
       onSubmit={(event) => {
@@ -76,6 +83,7 @@ export function GitHubGuidedSetup({
               integrationKind="github_pr"
               value={guided.secretId}
               onChange={guided.changeCredential}
+              disabled={locked}
             />
           ) : (
             <GitHubRegistrationOptions
@@ -83,6 +91,7 @@ export function GitHubGuidedSetup({
               organization={guided.organization}
               onOrganizationOwnedChange={guided.setOrganizationOwned}
               onOrganizationChange={guided.setOrganization}
+              disabled={locked}
             />
           )}
           {inspection && (
@@ -91,6 +100,7 @@ export function GitHubGuidedSetup({
               selected={guided.selected}
               onSelect={guided.selectInstallation}
               onInspect={guided.inspectInstallations}
+              disabled={locked}
             />
           )}
         </fieldset>
@@ -152,30 +162,39 @@ function GitHubRegistrationOptions({
   organization,
   onOrganizationOwnedChange,
   onOrganizationChange,
+  disabled,
 }: {
   organizationOwned: boolean
   organization: string
   onOrganizationOwnedChange: (organizationOwned: boolean) => void
   onOrganizationChange: (organization: string) => void
+  disabled: boolean
 }) {
   return (
     <>
       <Field>
         <FieldLabel htmlFor="github-owner">GitHub App owner</FieldLabel>
-        <select
-          id="github-owner"
-          className={selectClass}
+        <Select
           value={organizationOwned ? 'organization' : 'personal'}
-          onChange={(event) => {
-            onOrganizationOwnedChange(event.target.value === 'organization')
+          disabled={disabled}
+          onValueChange={(value) => {
+            onOrganizationOwnedChange(value === 'organization')
           }}
         >
-          <option value="personal">My personal account</option>
-          <option value="organization">An organization</option>
-        </select>
+          <SelectTrigger id="github-owner" className="w-full">
+            <SelectValue>{organizationOwned ? 'Organization' : 'Personal account'}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="personal" disabled={disabled}>
+              Personal account
+            </SelectItem>
+            <SelectItem value="organization" disabled={disabled}>
+              Organization
+            </SelectItem>
+          </SelectContent>
+        </Select>
         <FieldDescription>
-          Your new App is private and installs only on this account. To install it on others, change
-          its visibility in GitHub App settings.
+          Choose the account or organization that owns the repositories you want to review.
         </FieldDescription>
       </Field>
       {organizationOwned && (
@@ -206,11 +225,13 @@ function GitHubInstallationChoice({
   selected,
   onSelect,
   onInspect,
+  disabled,
 }: {
   inspection: GitHubInspection
   selected?: GitHubSetupInstallation
   onSelect: (installationId: string) => void
   onInspect: (page: number) => void
+  disabled: boolean
 }) {
   const nextPage = result.next_page
   return (
@@ -222,22 +243,18 @@ function GitHubInstallationChoice({
       {result.installations.length > 0 ? (
         <Field>
           <FieldLabel htmlFor="github-installation">Installation</FieldLabel>
-          <select
-            id="github-installation"
-            className={selectClass}
-            required
-            value={selected?.id ?? ''}
-            onChange={(event) => {
-              onSelect(event.target.value)
-            }}
-          >
-            <option value="">Choose an installation</option>
-            {result.installations.map((installation) => (
-              <option key={installation.id} value={installation.id}>
-                {installation.account}
-              </option>
-            ))}
-          </select>
+          <Select value={selected?.id ?? ''} required disabled={disabled} onValueChange={onSelect}>
+            <SelectTrigger id="github-installation" className="w-full">
+              <SelectValue placeholder="Choose an installation">{selected?.account}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {result.installations.map((installation) => (
+                <SelectItem key={installation.id} value={installation.id} disabled={disabled}>
+                  {installation.account}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
       ) : (
         <p className="text-muted-foreground">
