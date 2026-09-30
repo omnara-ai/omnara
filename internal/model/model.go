@@ -74,8 +74,33 @@ func APIFormatForClient(client Client) modelprotocol.APIFormat {
 }
 
 func MediaProjectorForClient(client Client) modelcontext.MediaProjector {
-	projector, _ := client.(modelcontext.MediaProjector)
-	return projector
+	projector, ok := client.(modelcontext.MediaProjector)
+	if !ok {
+		return nil
+	}
+	if CapabilitiesForClient(client).AllowsInputModality(modelcontext.InputModalityImage) {
+		return projector
+	}
+	return imagelessMediaProjector{projector: projector}
+}
+
+type imagelessMediaProjector struct {
+	projector modelcontext.MediaProjector
+}
+
+func (p imagelessMediaProjector) ProjectRenderedMedia(bundle modelcontext.Bundle) []modelcontext.RenderedMedia {
+	opening := make(map[modelcontext.MediaOccurrenceRef]bool)
+	for _, occurrence := range modelcontext.ResolvedMediaOccurrences(bundle) {
+		opening[occurrence.Ref] = occurrence.Opening
+	}
+	var rendered []modelcontext.RenderedMedia
+	for _, media := range p.projector.ProjectRenderedMedia(bundle) {
+		if media.Media.Kind == modelcontext.AttachmentKindImage && !opening[media.Occurrence] {
+			continue
+		}
+		rendered = append(rendered, media)
+	}
+	return rendered
 }
 
 func APIVariantForClient(client Client) modelprotocol.APIVariant {

@@ -1,7 +1,13 @@
 package tools
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"regexp"
 	"strings"
 	"testing"
@@ -270,6 +276,75 @@ func TestFileRetrievalRejectsInvalidInputs(t *testing.T) {
 			(offset == nil && *resolved.OffsetLine != 1) || (offset != nil && *resolved.OffsetLine != offset) {
 			t.Fatalf("offset_line = %v: resolved %v, error %v", offset, resolved.OffsetLine, err)
 		}
+	}
+}
+
+func TestIsViewableImageRequiresValidMatchingImage(t *testing.T) {
+	images := testImages(t)
+	for contentType, content := range images {
+		if !isViewableImage(contentType, content) {
+			t.Fatalf("isViewableImage(%q) = false for a valid image", contentType)
+		}
+	}
+	pngContent := images["image/png"]
+	for _, test := range []struct {
+		contentType string
+		content     []byte
+	}{
+		{contentType: "image/png", content: pngContent[:16]},
+		{contentType: "image/png", content: []byte("plain text named .png")},
+		{contentType: "image/jpeg", content: pngContent},
+		{contentType: "application/octet-stream", content: pngContent},
+	} {
+		if isViewableImage(test.contentType, test.content) {
+			t.Fatalf("isViewableImage(%q, %q) = true, want false", test.contentType, test.content)
+		}
+	}
+}
+
+func testImages(t *testing.T) map[string][]byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, 1, 1))
+	var pngContent, jpegContent, gifContent bytes.Buffer
+	if err := png.Encode(&pngContent, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(&jpegContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.Encode(&gifContent, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	webpContent, err := base64.StdEncoding.DecodeString("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string][]byte{
+		"image/png":  pngContent.Bytes(),
+		"image/jpeg": jpegContent.Bytes(),
+		"image/gif":  gifContent.Bytes(),
+		"image/webp": webpContent,
+	}
+}
+
+func TestCompleteImageReadReturnsMetadataAndMediaRef(t *testing.T) {
+	artifactID := uuid.New()
+	result, err := completeImageRead("/artifacts/example", "image/png", 12, artifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 || parts[0]["type"] != "structured_data" || parts[1]["type"] != "media_ref" ||
+		parts[1]["artifact_id"] != artifactID.String() || parts[1]["exclude_from_model_context"] != nil {
+		t.Fatalf("image read parts = %v", parts)
+	}
+	metadata, _ := parts[0]["value"].(map[string]any)
+	if metadata["path"] != "/artifacts/example" || metadata["content_type"] != "image/png" ||
+		metadata["size_bytes"] != float64(12) {
+		t.Fatalf("image read metadata = %v", metadata)
 	}
 }
 

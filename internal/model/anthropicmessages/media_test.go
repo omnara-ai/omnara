@@ -362,6 +362,44 @@ func TestPrepareRejectsOpeningImageAboveAnthropicPerImageLimit(t *testing.T) {
 	}
 }
 
+func TestPrepareOmitsHistoricalImageAboveBedrockPerImageLimit(t *testing.T) {
+	const historicalID = "019b18be-0000-7000-8000-00000000a024"
+	data := bytes.Repeat([]byte("x"), anthropicBedrockImageBase64Limit*3/4+1)
+	bundle := modelcontext.Bundle{
+		Messages: []modelcontext.Message{{Sequence: 1, Role: "user", Content: json.RawMessage(
+			`[{"type":"media_ref","artifact_id":"` + historicalID + `"}]`,
+		)}},
+		ResolvedMedia: map[string]modelcontext.ResolvedMedia{
+			historicalID: {
+				ArtifactID: historicalID,
+				Kind:       modelcontext.AttachmentKindImage,
+				MediaType:  "image/png",
+				Data:       data,
+			},
+		},
+	}
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for _, test := range []struct {
+		variant   modelprotocol.APIVariant
+		wantImage bool
+	}{
+		{variant: modelprotocol.APIVariantDefault, wantImage: true},
+		{variant: modelprotocol.APIVariantBedrock},
+	} {
+		client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test", APIVariant: test.variant}
+		prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+			Context: bundle,
+			Policy:  model.RequestPolicy{MaxOutputTokens: 64},
+		})
+		if err != nil {
+			t.Fatalf("prepare %s: %v", test.variant, err)
+		}
+		if got := strings.Contains(string(prepared.Body), encoded); got != test.wantImage {
+			t.Fatalf("%s request includes the image = %v, want %v", test.variant, got, test.wantImage)
+		}
+	}
+}
+
 func TestPrepareRendersNonResolvedMediaPartsAsText(t *testing.T) {
 	client := Client{EndpointPath: testEndpointPath, ProviderModelSlug: "claude-test"}
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
