@@ -57,6 +57,12 @@ budget; a five-second hard deadline bounds the whole recovery pass. Soft-budget
 exhaustion retries after one second; drained queues return to 30-second polling.
 The lag query has its own one-second deadline and runs at most once per 30 seconds.
 
+When processing confirms that a provider receipt has a content-free plan with no
+recipients, completion discards its raw message payload. The receipt and duplicate-detection
+key remain until normal cleanup. Pending or failed receipts retain their payloads, as do
+receipts with message content in their plan and scheduled receipts whose payload is
+needed to validate retries. This does not filter events before durable intake.
+
 Inbox retention runs concurrently with the other core maintenance tasks. Completed/failed receipts
 become eligible for deletion seven days after finishing, measured by the database
 clock. Locks or cleanup backlogs can delay deletion. Deleting the integration, project or

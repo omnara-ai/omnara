@@ -612,7 +612,7 @@ func (f kernelFixture) admitSlackContentInputTurn(
 	require.NoError(t, err)
 	require.True(t, found)
 	router := integrationruntime.NewIntegrationRouter(f.Store.Execution(), inbox)
-	plan, err := router.Freeze(ctx, receipt.Lease(), &event)
+	plan, _, err := router.Freeze(ctx, receipt.Lease(), &event, nil)
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 1)
 	results, err := router.Admit(ctx, receipt.Lease(), nil)

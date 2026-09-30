@@ -293,7 +293,7 @@ func TestChatProfileChoiceFastClickBeforeOwnerFreeze(t *testing.T) {
 	require.NoError(t, err)
 	owner := f.claim()
 	f.provider.event = &f.event
-	_, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.integrationSetup, *f.provider.event)
+	_, _, err = f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.integrationSetup, *f.provider.event)
 	require.NoError(t, err)
 	require.Len(t, f.provider.menus, 1)
 	f.choose(f.provider.menus[0], "heavy")
@@ -578,7 +578,7 @@ func TestChatProfileChoiceAcceptedSelectionHoldsEarlyReplies(t *testing.T) {
 				require.NoError(t, err)
 				event, err := selectedIntegrationEvent(choice)
 				require.NoError(t, err)
-				_, err = router.Freeze(ctx, selected.Lease(), event)
+				_, _, err = router.Freeze(ctx, selected.Lease(), event, nil)
 				require.NoError(t, err)
 			}
 			_, _, err := f.store.Integrations().AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
@@ -718,7 +718,7 @@ func TestChatProfileChoiceSiblingCannotRestartFailedLaunch(t *testing.T) {
 				require.NoError(t, err)
 				event, err := selectedIntegrationEvent(choice)
 				require.NoError(t, err)
-				_, err = NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), event)
+				_, _, err = NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), event, nil)
 				require.NoError(t, err)
 			}
 			sibling := f.event
@@ -775,7 +775,7 @@ func TestChatProfileChoiceCommittedLaunchSurvivesReceiptFailure(t *testing.T) {
 	require.NoError(t, err)
 	event, err := selectedIntegrationEvent(choice)
 	require.NoError(t, err)
-	plan, err := NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), event)
+	plan, _, err := NewIntegrationRouter(f.store.Execution(), inbox).Freeze(ctx, selected.Lease(), event, nil)
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 1)
 	var agentID uuid.UUID

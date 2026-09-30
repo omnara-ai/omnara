@@ -12,7 +12,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/dbsafe"
 	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -175,18 +174,10 @@ func (s *Store) lockRuntimeAuthority(ctx context.Context, tx pgx.Tx, revision In
 	if integration.Provider != IntegrationProviderDiscord || integration.SetupRevision != revision.SetupRevision {
 		return ErrIntegrationRuntimeLeaseLost
 	}
-	if _, err := secretops.LockReference(ctx, tx, integration.OrgID, integration.CredentialSecretID); err != nil {
-		return err
-	}
-	secret, err := q.GetProjectAvailableSecret(
-		ctx,
-		dbsqlc.GetProjectAvailableSecretParams{
-			OrgID:     integration.OrgID,
-			ProjectID: integration.ProjectID,
-			SecretID:  integration.CredentialSecretID,
-		},
+	secret, err := lockAvailableIntegrationCredential(
+		ctx, tx, integration.OrgID, integration.ProjectID, integration.CredentialSecretID,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, storeerr.ErrNotFound) {
 		return ErrIntegrationRuntimeLeaseLost
 	}
 	if err != nil {

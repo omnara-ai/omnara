@@ -277,7 +277,9 @@ CREATE TABLE integration_inbox (
     reserved_scope_ref text CHECK (octet_length(reserved_scope_ref) BETWEEN 1 AND 2048),
     CHECK ((reserved_scope_kind IS NULL) = (reserved_scope_ref IS NULL)),
     CHECK ((source = 'state' AND source_state_id IS NOT NULL AND payload IS NULL)
-        OR (source IN ('provider', 'scheduled') AND source_state_id IS NULL AND payload IS NOT NULL)),
+        OR (source IN ('provider', 'scheduled') AND source_state_id IS NULL
+            AND (payload IS NOT NULL OR (source = 'provider' AND state = 'completed'
+                AND plan IS NOT NULL AND plan = '{"recipients":{}}'::jsonb)))),
     plan jsonb CHECK (jsonb_typeof(plan) = 'object' AND octet_length(plan::text) <= 12615680),
     state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'processing', 'completed', 'failed')),
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),

@@ -107,8 +107,8 @@ func agentRecordFromListForProjectSQLC(row dbsqlc.ListAgentsForProjectRow) Agent
 			integrationdefinition.Kind(row.IntegrationTargetIntegrationKind),
 		),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
-		ProviderRef:      row.IntegrationTargetProviderRef,
-		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		ScopeRef:         row.IntegrationTargetScopeRef,
+		ScopeKind:        row.IntegrationTargetScopeKind,
 		DisplayName:      row.IntegrationTargetDisplayName,
 	}
 	record.Model = AgentModelDisplay{
@@ -141,8 +141,8 @@ func agentRecordFromListRecentForProjectsSQLC(row dbsqlc.ListRecentAgentsForProj
 			integrationdefinition.Kind(row.IntegrationTargetIntegrationKind),
 		),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
-		ProviderRef:      row.IntegrationTargetProviderRef,
-		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		ScopeRef:         row.IntegrationTargetScopeRef,
+		ScopeKind:        row.IntegrationTargetScopeKind,
 		DisplayName:      row.IntegrationTargetDisplayName,
 	}
 	record.Model = AgentModelDisplay{
@@ -177,8 +177,8 @@ func agentRecordFromListForProjectByCreatedAtDescSQLC(
 			integrationdefinition.Kind(row.IntegrationTargetIntegrationKind),
 		),
 		ProviderTenantID: row.IntegrationTargetProviderTenantID,
-		ProviderRef:      row.IntegrationTargetProviderRef,
-		ProviderRefKind:  row.IntegrationTargetProviderRefKind,
+		ScopeRef:         row.IntegrationTargetScopeRef,
+		ScopeKind:        row.IntegrationTargetScopeKind,
 		DisplayName:      row.IntegrationTargetDisplayName,
 	}
 	record.Model = AgentModelDisplay{

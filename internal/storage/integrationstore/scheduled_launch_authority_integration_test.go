@@ -182,6 +182,25 @@ func TestScheduledReceiptReplayRequiresIdenticalSnapshot(t *testing.T) {
 	launch := scheduledInboxSnapshot(t, f)
 	acceptScheduledInbox(t, f, launch)
 	original := f.claim(t)
+	root := integrationdefinition.Scope{Slack: &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "100.1"}}
+	launchFacts, message := scheduledPlanFacts(t, f, launch, root)
+	plan, err := json.Marshal(map[string]any{
+		"message": message, "recipients": map[string]any{"scheduled": map[string]any{
+			"launch": launchFacts,
+			"launch_claim": integrationstore.InboxLaunchClaim{
+				IntegrationID: f.integrationID, LaunchKey: "scheduled",
+				Address: integrationstore.ConversationAddress{Kind: "thread", Ref: "C123:100.1"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	f.mutate(t, original, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+		if err := work.FreezePlan(f.ctx, plan); err != nil {
+			return err
+		}
+		return work.Complete(f.ctx)
+	})
+	require.Equal(t, original.Payload, f.read(t, original.ID).Payload)
 	for _, changed := range []bool{false, true} {
 		tx := integrationdb.BeginTx(t, f.ctx, f.pool)
 		require.NoError(t, lifecyclelock.EnterActiveProject(f.ctx, tx, f.org, f.project))

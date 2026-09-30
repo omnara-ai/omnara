@@ -10,7 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
-	"github.com/omnara-ai/omnara/internal/storage/internal/secretops"
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -114,21 +113,11 @@ func validateIntegrationCredential(
 	tx pgx.Tx,
 	input ConfigureIntegrationInput,
 ) error {
-	_, err := secretops.LockReference(ctx, tx, input.OrgID, input.CredentialSecretID)
+	credential, err := lockAvailableIntegrationCredential(
+		ctx, tx, input.OrgID, input.ProjectID, input.CredentialSecretID,
+	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return storeerr.ErrNotFound
-		}
-		return fmt.Errorf("validate integration credential: %w", err)
-	}
-	credential, err := dbsqlc.New(tx).GetProjectAvailableSecret(ctx, dbsqlc.GetProjectAvailableSecretParams{
-		OrgID: input.OrgID, ProjectID: input.ProjectID, SecretID: input.CredentialSecretID,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return storeerr.ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("authorize integration credential: %w", err)
+		return err
 	}
 	wantKind, err := IntegrationCredentialKind(input.Provider)
 	if err != nil {

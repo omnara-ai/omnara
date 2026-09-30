@@ -189,6 +189,9 @@ func TestGitHubHTTPDeploymentLostResponseReplayDeduplicates(t *testing.T) {
 	var receipt integrationstore.IntegrationInboxRecord
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT id FROM integration_inbox
 		WHERE integration_id=$1 AND receipt_key='github:issue_comment:lost'`, f.integration.ID).Scan(&receipt.ID))
+	queued, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.integration.ProjectID, receipt.ID)
+	require.NoError(t, err)
+	require.Equal(t, raw, string(queued.Payload), "intake must preserve the message until routing completes")
 	require.Empty(t, f.consume(t, raw), "this integration has no launcher or subscriptions")
 	old.Close()
 	for range 2 {
@@ -198,7 +201,8 @@ func TestGitHubHTTPDeploymentLostResponseReplayDeduplicates(t *testing.T) {
 	}
 	saved, err := f.project.Store.Integrations().GetIntegrationInbox(t.Context(), f.integration.ProjectID, receipt.ID)
 	require.NoError(t, err)
-	require.Equal(t, raw, string(saved.Payload))
+	require.Empty(t, saved.Payload, "the unrouted message is discarded without removing its deduplication record")
+	require.JSONEq(t, `{"recipients":{}}`, string(saved.Plan))
 	require.Equal(t, integrationstore.IntegrationInboxCompleted, saved.State)
 	var count, attempts int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*),sum(attempt_count)

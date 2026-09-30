@@ -77,3 +77,52 @@ func TestInboxRetentionUsesTerminalAgeAndSkipsLockedReceipts(t *testing.T) {
 		})
 	}
 }
+
+func TestInboxCompletionDiscardsOnlyUnroutedProviderPayload(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, plan      string
+		failed, discard bool
+	}{
+		{name: "unrouted", plan: `{"recipients":{}}`, discard: true},
+		{name: "shared message", plan: `{"message":{"text":"context"},"recipients":{}}`},
+		{name: "delivered", plan: `{"message":{},"recipients":{"agent":{}}}`},
+		{name: "failed", plan: `{"recipients":{}}`, failed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newInboxFixture(t)
+			original := f.accept(t, "provider-event")
+			receipt := f.claim(t)
+			f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+				return work.FreezePlan(f.ctx, json.RawMessage(tc.plan))
+			})
+			require.Equal(t, original.Payload, f.read(t, receipt.ID).Payload, "unfinished work retains its source")
+			f.mutate(t, receipt, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+				if tc.failed {
+					return work.Fail(f.ctx, "provider unavailable")
+				}
+				return work.Complete(f.ctx)
+			})
+			finished := f.read(t, receipt.ID)
+			require.JSONEq(t, tc.plan, string(finished.Plan))
+			if tc.discard {
+				require.Empty(t, finished.Payload)
+			} else {
+				require.Equal(t, original.Payload, finished.Payload)
+			}
+			replay, created, err := f.store.AcceptIntegrationReceipt(f.ctx, integrationstore.VerifiedIntegrationReceipt{
+				ProjectID: f.project, IntegrationID: f.integrationID, ReceiptKey: original.ReceiptKey,
+				Payload: []byte(`{"replayed":true}`),
+			})
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, finished, replay)
+			_, claimed, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
+				ProjectID: f.project, IntegrationID: f.integrationID, LeaseDuration: time.Minute,
+			})
+			require.NoError(t, err)
+			require.False(t, claimed, "terminal provider replay cannot reroute the event")
+		})
+	}
+}

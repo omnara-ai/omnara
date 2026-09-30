@@ -71,18 +71,18 @@ func TestSlackShouldFetchRecentContext(t *testing.T) {
 	}{
 		{
 			name:        "new thread mapping fetches",
-			route:       slack.InboundRoute{ProviderRefKind: "thread"},
+			route:       slack.InboundRoute{ScopeKind: "thread"},
 			newlyMapped: true,
 			want:        true,
 		},
 		{
 			name:        "existing thread skips",
-			route:       slack.InboundRoute{ProviderRefKind: "thread"},
+			route:       slack.InboundRoute{ScopeKind: "thread"},
 			newlyMapped: false,
 		},
 		{
 			name:        "new dm skips",
-			route:       slack.InboundRoute{ProviderRefKind: "dm"},
+			route:       slack.InboundRoute{ScopeKind: "dm"},
 			newlyMapped: true,
 		},
 	}

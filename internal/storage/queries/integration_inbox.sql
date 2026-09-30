@@ -15,6 +15,10 @@ SELECT id, project_id, integration_id, receipt_key, payload, source, source_stat
 FROM integration_inbox
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
 
+-- name: GetIntegrationInboxOwner :one
+SELECT integration_id FROM integration_inbox
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id);
+
 -- name: OldestReadyIntegrationInboxLag :one
 SELECT EXTRACT(EPOCH FROM statement_timestamp() - next_attempt_at)::double precision AS lag_seconds
 FROM integration_inbox
@@ -91,6 +95,12 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
   AND claim_expires_at > statement_timestamp();
 
+-- name: CheckIntegrationInboxLease :one
+SELECT id FROM integration_inbox
+WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
+  AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid
+  AND claim_expires_at > statement_timestamp();
+
 -- name: FreezeIntegrationInboxPlan :execrows
 UPDATE integration_inbox
 SET plan = sqlc.arg(plan)::jsonb, updated_at = statement_timestamp()
@@ -102,6 +112,7 @@ WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
 -- name: CompleteIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
 SET state = 'completed', claim_token = NULL, claim_expires_at = NULL,
+    payload = CASE WHEN source = 'provider' AND plan = '{"recipients":{}}'::jsonb THEN NULL ELSE payload END,
     completed_at = statement_timestamp(), last_error = NULL, updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id)
   AND state = 'processing' AND claim_token = sqlc.arg(claim_token)::uuid

@@ -125,7 +125,7 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 	next.Event.Scope.Slack = &integrationdefinition.SlackScope{ChannelID: "C123", ThreadTS: "2.1"}
 	next.SemanticKey = "slack:message:T123:C123:2.1"
 	receipt := capture(integrations[0], "choice-before-edit")
-	decided, err := testIntegrationLaunchWorkflow(
+	decided, _, err := testIntegrationLaunchWorkflow(
 		router,
 	).Decide(ctx, receipt.Lease(), receipt, integrations[0], next)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 		IntegrationKind: integrations[0].IntegrationKind, Settings: settings,
 	})
 	require.NoError(t, err)
-	_, err = router.Freeze(ctx, receipt.Lease(), decided)
+	_, _, err = router.Freeze(ctx, receipt.Lease(), decided, nil)
 	require.ErrorIs(t, err, ErrIntegrationLaunchUnavailable)
 	unchanged, err := inbox.GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestIntegrationRouterOverlappingSlackSetupsLaunchAndContinueIndependently(t
 	) ([]IntegrationRecipientAdmission, error) {
 		attempts++
 		if attempts == 1 {
-			_, err := router.Freeze(ctx, lease, decided)
+			_, _, err := router.Freeze(ctx, lease, decided, nil)
 			return nil, err
 		}
 		if _, err := freezeTestIntegrationEvent(ctx, router, lease, &next); err != nil {
@@ -229,7 +229,7 @@ func TestIntegrationRouterDirectedSettledIntentWithoutSubscription(t *testing.T)
 		}
 		next := capture(key)
 		if directed {
-			plan, err = router.Freeze(ctx, next.Lease(), &nextEvent)
+			plan, _, err = router.Freeze(ctx, next.Lease(), &nextEvent, nil)
 		} else {
 			plan, err = freezeTestIntegrationEvent(ctx, router, next.Lease(), &nextEvent)
 		}

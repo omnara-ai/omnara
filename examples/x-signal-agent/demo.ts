@@ -42,7 +42,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type Integration, type SaveIntegrationRequest } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type Integration, type CreateIntegrationRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -315,7 +315,7 @@ if (slackAppConfigurationToken) {
   }
   // The integration owns its launcher profile. Launching from Slack supplies the
   // namespaced tools, integration-owned thread subscription, and interaction handler to the agent.
-  const body: SaveIntegrationRequest = {
+  const body: CreateIntegrationRequest = {
     name: integrationName,
     integration_kind: 'slack_thread',
     settings: {

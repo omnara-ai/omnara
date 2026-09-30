@@ -142,6 +142,7 @@ it.each(['discord_thread', 'github_pr'] as const)(
       const invite = new URL(link.href)
       expect(invite.searchParams.get('client_id')).toBe('111')
       expect(invite.searchParams.get('scope')).toBe('bot')
+      expect(invite.searchParams.get('integration_type')).toBe('0')
       expect(BigInt(invite.searchParams.get('permissions') ?? '')).toBe(
         [6n, 10n, 11n, 15n, 16n, 35n, 38n].reduce((mask, bit) => mask | (1n << bit), 0n),
       )

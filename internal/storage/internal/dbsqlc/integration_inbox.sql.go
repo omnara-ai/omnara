@@ -12,6 +12,26 @@ import (
 	"github.com/google/uuid"
 )
 
+const checkIntegrationInboxLease = `-- name: CheckIntegrationInboxLease :one
+SELECT id FROM integration_inbox
+WHERE project_id = $1 AND id = $2
+  AND state = 'processing' AND claim_token = $3::uuid
+  AND claim_expires_at > statement_timestamp()
+`
+
+type CheckIntegrationInboxLeaseParams struct {
+	ProjectID  uuid.UUID
+	ID         uuid.UUID
+	ClaimToken uuid.UUID
+}
+
+func (q *Queries) CheckIntegrationInboxLease(ctx context.Context, arg CheckIntegrationInboxLeaseParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, checkIntegrationInboxLease, arg.ProjectID, arg.ID, arg.ClaimToken)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const claimIntegrationInboxReceipt = `-- name: ClaimIntegrationInboxReceipt :one
 WITH candidate AS (
   SELECT ready.id FROM integration_inbox ready
@@ -133,6 +153,7 @@ func (q *Queries) CleanupTerminalIntegrationInboxReceipts(ctx context.Context, a
 const completeIntegrationInboxReceipt = `-- name: CompleteIntegrationInboxReceipt :execrows
 UPDATE integration_inbox
 SET state = 'completed', claim_token = NULL, claim_expires_at = NULL,
+    payload = CASE WHEN source = 'provider' AND plan = '{"recipients":{}}'::jsonb THEN NULL ELSE payload END,
     completed_at = statement_timestamp(), last_error = NULL, updated_at = statement_timestamp()
 WHERE project_id = $1 AND id = $2
   AND state = 'processing' AND claim_token = $3::uuid
@@ -253,6 +274,23 @@ func (q *Queries) FreezeIntegrationInboxPlan(ctx context.Context, arg FreezeInte
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getIntegrationInboxOwner = `-- name: GetIntegrationInboxOwner :one
+SELECT integration_id FROM integration_inbox
+WHERE project_id = $1 AND id = $2
+`
+
+type GetIntegrationInboxOwnerParams struct {
+	ProjectID uuid.UUID
+	ID        uuid.UUID
+}
+
+func (q *Queries) GetIntegrationInboxOwner(ctx context.Context, arg GetIntegrationInboxOwnerParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getIntegrationInboxOwner, arg.ProjectID, arg.ID)
+	var integration_id uuid.UUID
+	err := row.Scan(&integration_id)
+	return integration_id, err
 }
 
 const getIntegrationInboxReceipt = `-- name: GetIntegrationInboxReceipt :one

@@ -51,10 +51,10 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 		ArchivedAt: record.ArchivedAt,
 	}
 	if record.IntegrationTarget.Provider != "" &&
-		record.IntegrationTarget.ProviderRef != "" &&
-		record.IntegrationTarget.ProviderRefKind != "" {
+		record.IntegrationTarget.ScopeRef != "" &&
+		record.IntegrationTarget.ScopeKind != "" {
 		scope, err := integrationdefinition.ParseConversation(
-			record.IntegrationTarget.Provider, record.IntegrationTarget.ProviderRefKind, record.IntegrationTarget.ProviderRef,
+			record.IntegrationTarget.Provider, record.IntegrationTarget.ScopeKind, record.IntegrationTarget.ScopeRef,
 		)
 		if err != nil {
 			return openapi.Agent{}, err
@@ -104,7 +104,7 @@ func publicAgentResponseFromRecord(record executionstore.AgentRecord) (openapi.A
 func integrationTargetProviderURI(target executionstore.IntegrationTargetDisplay) string {
 	switch target.Provider {
 	case integrationstore.IntegrationProviderSlack:
-		return slack.ConversationURI(target.ProviderTenantID, target.ProviderRef)
+		return slack.ConversationURI(target.ProviderTenantID, target.ScopeRef)
 	default:
 		return ""
 	}

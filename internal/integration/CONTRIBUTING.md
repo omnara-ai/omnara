@@ -104,7 +104,11 @@ identity with `publicid.Decode`, never names, metadata or ID prefixes. Receipt a
 not retarget a running turn. The model can select a destination and pin it with `auto_select: false`;
 omitting that option preserves the current mode. Each question or approval captures
 its destination. Callback owner IDs only route the request: verify that
-owner's signature, live setup and captured conversation before resolving it.
+owner's signature, live setup, current project credential access and captured
+conversation before resolving it. Handler and profile-choice mutations hold the
+credential's shared lock through commit and recheck project access after acquiring it.
+Revocation disables external buttons; ordinary credential rotation preserves them.
+Dashboard/API resolution does not depend on integration credentials.
 Presentation failures leave the interaction available through the dashboard/API.
 Notifications use the nonblocking background runner after creation commits, with
 bounded in-memory retries. A full queue or restart can lose the external notification;
@@ -150,7 +154,9 @@ Normalize provider events outside database transactions. Launcher policy decides
 which profiles or agents to select; the router freezes those decisions and config
 identities before provider preparation. Storage atomically commits each recipient's
 agent/input, subscriptions and artifacts. Retry and completion checks read those
-durable records; the inbox does not duplicate their outcomes. Provider and blob I/O never run
+durable records; the inbox does not duplicate their outcomes. Unavailable-launch
+feedback is best effort only after a newly committed matching plan, never during
+retryable decision-making. Provider and blob I/O never run
 under those locks. Preserve semantic event IDs separately from delivery IDs.
 
 Forwarding policy is applied during planning, including prefiltering, launcher

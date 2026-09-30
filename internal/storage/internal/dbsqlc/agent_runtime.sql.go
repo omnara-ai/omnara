@@ -395,8 +395,8 @@ SELECT agent.id,
        agent.subagent_key,
        coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.scope_ref, '') AS integration_target_provider_ref,
-       coalesce(target.scope_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name,
@@ -436,8 +436,8 @@ SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
        interaction_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
        archived_at, parent_agent_id, subagent_key, integration_target_integration_kind,
-       integration_target_provider_tenant_id, integration_target_provider_ref,
-       integration_target_provider_ref_kind,
+       integration_target_provider_tenant_id, integration_target_scope_ref,
+       integration_target_scope_kind,
        integration_target_display_name, model_name,
        model_provider_config_name, sort_key
 FROM listed
@@ -484,8 +484,8 @@ type ListAgentsForProjectRow struct {
 	SubagentKey                       string
 	IntegrationTargetIntegrationKind  string
 	IntegrationTargetProviderTenantID string
-	IntegrationTargetProviderRef      string
-	IntegrationTargetProviderRefKind  string
+	IntegrationTargetScopeRef         string
+	IntegrationTargetScopeKind        string
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
@@ -532,8 +532,8 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 			&i.SubagentKey,
 			&i.IntegrationTargetIntegrationKind,
 			&i.IntegrationTargetProviderTenantID,
-			&i.IntegrationTargetProviderRef,
-			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetScopeRef,
+			&i.IntegrationTargetScopeKind,
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,
@@ -567,8 +567,8 @@ SELECT agent.id,
        agent.subagent_key,
        coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.scope_ref, '') AS integration_target_provider_ref,
-       coalesce(target.scope_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name
@@ -636,8 +636,8 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 	SubagentKey                       string
 	IntegrationTargetIntegrationKind  string
 	IntegrationTargetProviderTenantID string
-	IntegrationTargetProviderRef      string
-	IntegrationTargetProviderRefKind  string
+	IntegrationTargetScopeRef         string
+	IntegrationTargetScopeKind        string
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
@@ -681,8 +681,8 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 			&i.SubagentKey,
 			&i.IntegrationTargetIntegrationKind,
 			&i.IntegrationTargetProviderTenantID,
-			&i.IntegrationTargetProviderRef,
-			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetScopeRef,
+			&i.IntegrationTargetScopeKind,
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,
@@ -715,8 +715,8 @@ SELECT agent.id,
        agent.subagent_key,
        coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.scope_ref, '') AS integration_target_provider_ref,
-       coalesce(target.scope_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name
@@ -769,8 +769,8 @@ type ListRecentAgentsForProjectsRow struct {
 	SubagentKey                       string
 	IntegrationTargetIntegrationKind  string
 	IntegrationTargetProviderTenantID string
-	IntegrationTargetProviderRef      string
-	IntegrationTargetProviderRefKind  string
+	IntegrationTargetScopeRef         string
+	IntegrationTargetScopeKind        string
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
@@ -803,8 +803,8 @@ func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecen
 			&i.SubagentKey,
 			&i.IntegrationTargetIntegrationKind,
 			&i.IntegrationTargetProviderTenantID,
-			&i.IntegrationTargetProviderRef,
-			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetScopeRef,
+			&i.IntegrationTargetScopeKind,
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,

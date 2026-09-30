@@ -239,3 +239,18 @@ func TestIntegrationFailureAdmissionDeniedContactsOwner(t *testing.T) {
 	require.Equal(t, 1, provider.notices)
 	require.Equal(t, launchUnavailableMessage, provider.message)
 }
+
+func TestIntegrationFailureUnauthorizedDoesNotImplyUnavailableProfile(t *testing.T) {
+	t.Parallel()
+	project, integration, receiptID := uuid.New(), uuid.New(), uuid.New()
+	store := &integrationPlanStore{receipt: integrationstore.IntegrationInboxRecord{
+		ID: receiptID, ProjectID: project, IntegrationID: integration, State: integrationstore.IntegrationInboxFailed,
+	}, integrationSetup: integrationstore.IntegrationRecord{ID: integration, ProjectID: project, Provider: "slack"}}
+	provider := &failedInboxProvider{}
+	consumer := NewIntegrationInboxConsumer(
+		nil, store, nil, map[string]IntegrationInboxProvider{"slack": provider}, nil, nil,
+	)
+	require.NoError(t, consumer.FinalizeFailure(t.Context(), project, receiptID, storeerr.ErrUnauthorized))
+	require.Equal(t, 1, provider.notices)
+	require.Equal(t, inboxFailureMessage, provider.message)
+}

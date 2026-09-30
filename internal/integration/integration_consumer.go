@@ -169,6 +169,7 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 		expansion = *expanded
 	}
 	if len(receipt.Plan) == 0 {
+		var feedback *integrationLaunchFeedback
 		if adapter == nil && expanded == nil {
 			return nil, fmt.Errorf("no inbox consumer for provider %s", integrationSetup.Provider)
 		}
@@ -198,14 +199,22 @@ func (c *IntegrationInboxConsumer) consumeEvent(ctx context.Context, lease integ
 				return nil, fmt.Errorf("integration launcher workflow is required")
 			}
 			if expansion.Event != nil {
-				expansion.Event, err = c.launchers.Decide(ctx, lease, receipt, integrationSetup, *expansion.Event)
+				expansion.Event, feedback, err = c.launchers.Decide(ctx, lease, receipt, integrationSetup, *expansion.Event)
 				if err != nil {
 					return nil, err
 				}
 			}
 		}
-		if _, err = c.router.Freeze(ctx, lease, expansion.Event); err != nil {
+		var expected *integrationstore.IntegrationRoutingCandidates
+		if feedback != nil {
+			expected = &feedback.input.Candidates
+		}
+		_, created, err := c.router.Freeze(ctx, lease, expansion.Event, expected)
+		if err != nil {
 			return nil, err
+		}
+		if created && feedback != nil {
+			c.launchers.launchUnavailable(ctx, feedback.input, feedback.cause)
 		}
 		resolvedPayload := receipt.Payload
 		receipt, err = c.inbox.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)

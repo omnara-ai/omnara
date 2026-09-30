@@ -75,7 +75,7 @@ export function IntegrationPortalSetup({
             {url && (
               <Button asChild variant="outline">
                 <a
-                  href={`https://discord.com/oauth2/authorize?client_id=${providerId}&scope=bot&permissions=${discordBotPermissions}&integration_kind=0`}
+                  href={`https://discord.com/oauth2/authorize?client_id=${providerId}&scope=bot&permissions=${discordBotPermissions}&integration_type=0`}
                   target="_blank"
                   rel="noreferrer"
                 >

@@ -334,7 +334,7 @@ func TestIntegrationDiscordEarlyReplyWaitsForLaunchOrAcceptedMenu(t *testing.T) 
 					ctx, store.Integrations(), integration, choice.ID, profileKey, "33", "500", "600",
 				)
 				require.NoError(t, err)
-				_, err = router.Freeze(ctx, root.Lease(), nil)
+				_, _, err = router.Freeze(ctx, root.Lease(), nil, nil)
 				require.NoError(t, err)
 				_, err = router.Admit(ctx, root.Lease(), nil)
 				require.NoError(t, err)
@@ -474,6 +474,7 @@ func TestIntegrationDiscordChannelSubscriptionReceivesRootMentionWithoutLauncher
 			require.NoError(t, err)
 			require.Equal(t, integrationstore.IntegrationInboxCompleted, ignored.State)
 			require.JSONEq(t, `{"recipients":{}}`, string(ignored.Plan), "the empty route decision must be frozen")
+			require.Empty(t, ignored.Payload, "irrelevant content is discarded after routing settles")
 			next := f.message
 			next.ID = "600"
 			receipt := capture("removed-after-freeze", next)

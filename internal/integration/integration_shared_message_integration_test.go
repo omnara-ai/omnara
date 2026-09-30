@@ -60,7 +60,7 @@ func TestIntegrationInboxLargeSingleMessageFanout(t *testing.T) {
 		SemanticKey: "large-message", ContentBlocks: content, Actor: integrationTestActor(t, setup, "U123"),
 	}
 	router := NewIntegrationRouter(store.Execution(), store.Integrations())
-	plan, err := router.Freeze(ctx, receipt.Lease(), &event)
+	plan, _, err := router.Freeze(ctx, receipt.Lease(), &event, nil)
 	require.NoError(t, err)
 	require.Len(t, plan.Recipients, 31)
 	saved, err := store.Integrations().GetIntegrationInbox(ctx, ids.ProjectID, receipt.ID)

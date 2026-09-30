@@ -49,7 +49,9 @@ fixture tests establish neither production readiness nor a fixed completion time
 - Old conversations get no subscriptions or interaction handlers. Old automatic
   prompt destinations are cleared. Plain replies in old threads do not resume
   the previous agent; a fresh mention can launch a new one. Resume old agents
-  through the dashboard/API or explicitly attach a subscription later.
+  through the dashboard/API or explicitly attach a subscription later. These agents
+  also have no automatic runtime failure notices in Slack; failures remain visible
+  in the dashboard/API.
 
 ## API and configuration changes
 
@@ -95,6 +97,8 @@ Slack agents retain their original thread, channel or DM destination. An agent
 without an assigned conversation cannot execute these tools. Handler selection
 uses the assigned conversation with empty arguments. In automatic mode, the last new message admitted
 to a turn selects its eligible handler or clears the selection if none applies.
+Originless inputs from internal agents and ordinary schedules preserve the selection.
+An explicit integration origin takes precedence, including scheduled thread launches.
 The model can pin a choice with `auto_select: false`. Subscriptions never establish sending context.
 Integration schedules use the cron API's `target.settings` for their destination and templates.
 Receive subscriptions belong to integrations: use launch
@@ -318,10 +322,11 @@ and interaction state through the API. Do not extend deadlines with ad hoc SQL.
 ## Failed integration events
 
 Accepted events retry automatically up to eight attempts with exponential delay.
-A terminal failure releases unfinished launch reservations; users can send a new
-mention or message. Already committed agents and inputs remain intact. Failed
-receipts are never requeued and remain for seven days for diagnostics and receipt
-deduplication, then maintenance removes them.
+A terminal failure releases unfinished launch reservations. Already committed agents
+and inputs remain intact. A new mention or message can retry transient failures, but
+a removed subscription must be restored before that conversation can forward messages.
+Failed receipts are never requeued; they become eligible for cleanup after seven days,
+retaining diagnostics and receipt deduplication until cleanup runs.
 
 The worker makes a best-effort failure notice for unfinished human requests when
 provider access still works. Empty or fully admitted plans do not produce an

@@ -26,7 +26,7 @@ func TestAgentSelectedTargetConversation(t *testing.T) {
 			record := executionstore.AgentRecord{
 				ID: uuid.New(), OrgID: uuid.New(), ProjectID: uuid.New(),
 				IntegrationTarget: executionstore.IntegrationTargetDisplay{
-					Provider: tc.provider, ProviderRefKind: tc.kind, ProviderRef: tc.ref, DisplayName: "conversation",
+					Provider: tc.provider, ScopeKind: tc.kind, ScopeRef: tc.ref, DisplayName: "conversation",
 				},
 			}
 			response, err := publicAgentResponseFromRecord(record)

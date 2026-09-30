@@ -11,6 +11,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
+const inboxDeliveryUnavailableMessage = "I couldn't deliver this request to the agent. " +
+	"Please contact the integration owner."
+
 func (c *IntegrationInboxConsumer) FinalizeFailure(
 	ctx context.Context, projectID, receiptID uuid.UUID, cause error,
 ) error {
@@ -35,12 +38,17 @@ func (c *IntegrationInboxConsumer) FinalizeFailure(
 		if err != nil {
 			failures = append(failures, err)
 		} else {
-			for _, outcome := range outcomes {
+			pendingSubscription := false
+			for key, outcome := range outcomes {
 				if outcome == executionstore.InboxRecipientPending {
 					unfinished = true
+					pendingSubscription = pendingSubscription || plan.Recipients[key].Subscription != nil
 				} else if outcome == executionstore.InboxRecipientDelivered {
 					message = "I couldn't deliver this request to every agent. Some agents have already received it."
 				}
+			}
+			if pendingSubscription && message == inboxFailureMessage {
+				message = inboxDeliveryUnavailableMessage
 			}
 		}
 	}

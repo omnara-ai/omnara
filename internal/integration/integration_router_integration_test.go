@@ -136,7 +136,7 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 	require.True(t, found)
 	require.Equal(t, receipt.ID, retry.ID)
 	require.NotEqual(t, receipt.ClaimToken, retry.ClaimToken)
-	recovered, err := router.Freeze(ctx, retry.Lease(), nil)
+	recovered, _, err := router.Freeze(ctx, retry.Lease(), nil, nil)
 	require.NoError(t, err)
 	require.JSONEq(t, string(githubEventJSON(t, plan)), string(githubEventJSON(t, recovered)))
 	uploads := &integrationConsumerUploads{}

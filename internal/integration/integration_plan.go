@@ -37,28 +37,32 @@ type integrationEventCandidates struct {
 	candidates integrationstore.IntegrationRoutingCandidates
 }
 
+// Freeze fences feedback computed before planning with expected candidates.
+// Existing or uncertain commits never count as created.
 func (r *IntegrationRouter) Freeze(
 	ctx context.Context, lease integrationstore.IntegrationInboxLease, event *IntegrationEvent,
-) (IntegrationInboxPlan, error) {
+	expected *integrationstore.IntegrationRoutingCandidates,
+) (IntegrationInboxPlan, bool, error) {
 	receipt, err := r.integrations.GetIntegrationInbox(ctx, lease.ProjectID, lease.ReceiptID)
 	if err != nil {
-		return IntegrationInboxPlan{}, err
+		return IntegrationInboxPlan{}, false, err
 	}
 	if len(receipt.Plan) != 0 {
-		return decodeIntegrationInboxPlan(receipt.Plan)
+		plan, err := decodeIntegrationInboxPlan(receipt.Plan)
+		return plan, false, err
 	}
 	integrationSetup, err := r.integrations.GetIntegrationByID(ctx, receipt.IntegrationID)
 	if err != nil {
-		return IntegrationInboxPlan{}, err
+		return IntegrationInboxPlan{}, false, err
 	}
 	if integrationSetup.ProjectID != lease.ProjectID || integrationSetup.State != integrationstore.IntegrationStateActive {
-		return IntegrationInboxPlan{}, storeerr.ErrUnauthorized
+		return IntegrationInboxPlan{}, false, storeerr.ErrUnauthorized
 	}
 	var request integrationEventCandidates
 	if event != nil {
 		request, err = prepareIntegrationEvent(*event, integrationSetup)
 		if err != nil {
-			return IntegrationInboxPlan{}, err
+			return IntegrationInboxPlan{}, false, err
 		}
 	}
 	var frozen IntegrationInboxPlan
@@ -69,23 +73,27 @@ func (r *IntegrationRouter) Freeze(
 		}
 		if event != nil {
 			request.candidates, err = r.candidatesForEvent(ctx, work, request)
+			if err == nil && expected != nil && !sameIntegrationCandidates(*expected, request.candidates) {
+				return ErrIntegrationRoutingChanged
+			}
 		}
 		return err
 	})
 	if err != nil || frozen.Recipients != nil {
-		return frozen, err
+		return frozen, false, err
 	}
 	plan := IntegrationInboxPlan{Recipients: map[string]IntegrationInboxRecipient{}}
 	if event != nil {
 		plan, err = r.buildIntegrationPlan(ctx, receipt, integrationSetup, request)
 		if err != nil {
-			return IntegrationInboxPlan{}, err
+			return IntegrationInboxPlan{}, false, err
 		}
 	}
 	raw, err := json.Marshal(plan)
 	if err != nil {
-		return IntegrationInboxPlan{}, err
+		return IntegrationInboxPlan{}, false, err
 	}
+	created := false
 	err = r.integrations.WithIntegrationInboxLease(ctx, lease, func(work *integrationstore.IntegrationInboxLeaseTx) error {
 		if existing := work.Receipt().Plan; len(existing) != 0 {
 			frozen, err = decodeIntegrationInboxPlan(existing)
@@ -126,9 +134,10 @@ func (r *IntegrationRouter) Freeze(
 			return err
 		}
 		frozen = plan
+		created = true
 		return nil
 	})
-	return frozen, err
+	return frozen, created && err == nil, err
 }
 
 func prepareIntegrationEvent(

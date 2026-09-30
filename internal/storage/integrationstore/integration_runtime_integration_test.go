@@ -695,6 +695,18 @@ func TestIntegrationRuntimeFencesOwnershipAndCommitsReceiptWithCheckpoint(t *tes
 			err = f.store.CommitIntegrationRuntime(f.ctx, claim.Lease, checkpoint, &receipt)
 			if scenario == "commit" {
 				require.NoError(t, err)
+				accepted, found, err := f.store.ClaimIntegrationInbox(f.ctx, integrationstore.ClaimIntegrationInboxInput{
+					ProjectID: f.project, IntegrationID: integration.ID, LeaseDuration: time.Minute,
+				})
+				require.NoError(t, err)
+				require.True(t, found)
+				f.mutate(t, accepted, func(work *integrationstore.IntegrationInboxLeaseTx) error {
+					if err := work.FreezePlan(f.ctx, json.RawMessage(`{"recipients":{}}`)); err != nil {
+						return err
+					}
+					return work.Complete(f.ctx)
+				})
+				require.Empty(t, f.read(t, accepted.ID).Payload)
 				require.NoError(
 					t,
 					f.store.CommitIntegrationRuntime(f.ctx, claim.Lease, json.RawMessage(`{"sequence":8}`), &receipt),

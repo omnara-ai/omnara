@@ -38,7 +38,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 				ChannelType: "im",
 				TS:          "111.222",
 			},
-			route:       InboundRoute{ProviderRef: "D123", ProviderRefKind: "dm"},
+			route:       InboundRoute{ScopeRef: "D123", ScopeKind: "dm"},
 			wantMessage: "hello",
 			wantHidden:  "<@U123> (Ada) in Slack DM:\n",
 		},
@@ -52,7 +52,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 				ChannelType: "channel",
 				TS:          "111.222",
 			},
-			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
+			route:       InboundRoute{ScopeRef: "C123:111.222", ScopeKind: "thread"},
 			newlyMapped: true,
 			history:     "Recent Slack context:\n<@U999> (Grace): earlier channel note",
 			wantMessage: "<@U_BOT> run",
@@ -73,7 +73,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 				TS:          "222.333",
 				ThreadTS:    "111.222",
 			},
-			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
+			route:       InboundRoute{ScopeRef: "C123:111.222", ScopeKind: "thread"},
 			newlyMapped: true,
 			history:     "Recent Slack context:\n<@U999> (Grace): earlier thread note",
 			wantMessage: "<@U_BOT> use the prior context",
@@ -93,7 +93,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 				TS:          "333.444",
 				ThreadTS:    "111.222",
 			},
-			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread", AppendOnly: true},
+			route:       InboundRoute{ScopeRef: "C123:111.222", ScopeKind: "thread", AppendOnly: true},
 			wantMessage: "one more thing",
 			wantHidden: "This Slack thread may include multiple participants, and not every " +
 				"message is necessarily directed at you. Use your judgment to decide whether to use " +
@@ -110,7 +110,7 @@ func TestModelInputTextPartsIncludeSlackContext(t *testing.T) {
 				ChannelType: "channel",
 				TS:          "111.222",
 			},
-			route:       InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
+			route:       InboundRoute{ScopeRef: "C123:111.222", ScopeKind: "thread"},
 			newlyMapped: true,
 			wantMessage: "<@U_BOT> run",
 			wantHidden: "The agent was mentioned in a Slack channel, so this message starts " +
@@ -149,7 +149,7 @@ func TestModelInputTextPartsRenderSlackNames(t *testing.T) {
 		ChannelType: "channel",
 		TS:          "111.222",
 	}
-	route := InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"}
+	route := InboundRoute{ScopeRef: "C123:111.222", ScopeKind: "thread"}
 	labels := DisplayLabels{
 		Users: map[string]string{
 			"U123":  "Ada",
@@ -223,7 +223,7 @@ func TestInboundEventMetadataSerializesTypedFileResults(t *testing.T) {
 				TS:          "111.222",
 			},
 		},
-		InboundRoute{ProviderRef: "C123:111.222", ProviderRefKind: "thread"},
+		InboundRoute{ScopeRef: "C123:111.222", ScopeKind: "thread"},
 		"fetched",
 		[]EventFileResult{
 			{

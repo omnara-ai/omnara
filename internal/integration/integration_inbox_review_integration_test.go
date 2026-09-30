@@ -55,9 +55,9 @@ func TestIntegrationInboxObserverFollowupWaitsForLaunch(t *testing.T) {
 				var owner integrationstore.IntegrationInboxRecord
 				if scenario.profiles == 1 {
 					owner = accept("mention")
-					event, err := f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.integration, f.event)
+					event, _, err := f.consumer.launchers.Decide(ctx, owner.Lease(), owner, f.integration, f.event)
 					require.NoError(t, err)
-					plan, err := f.consumer.router.Freeze(ctx, owner.Lease(), event)
+					plan, _, err := f.consumer.router.Freeze(ctx, owner.Lease(), event, nil)
 					require.NoError(t, err)
 					require.Len(t, plan.Recipients, 2)
 				} else {
@@ -71,7 +71,7 @@ func TestIntegrationInboxObserverFollowupWaitsForLaunch(t *testing.T) {
 						require.NoError(t, err)
 						event, err := selectedIntegrationEvent(choice)
 						require.NoError(t, err)
-						_, err = f.consumer.router.Freeze(ctx, owner.Lease(), event)
+						_, _, err = f.consumer.router.Freeze(ctx, owner.Lease(), event, nil)
 						require.NoError(t, err)
 					}
 				}

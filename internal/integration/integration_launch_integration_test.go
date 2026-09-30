@@ -50,7 +50,7 @@ func TestIntegrationLaunchWorkflowRejectsUntrustedRecipients(t *testing.T) {
 					return nil, nil
 				},
 			}, nil)
-			result, err := workflow.Decide(ctx, receipt.Lease(), receipt, f.integrationSetup, event)
+			result, _, err := workflow.Decide(ctx, receipt.Lease(), receipt, f.integrationSetup, event)
 			require.Equal(t, 1, calls)
 			if test.foreignLauncher {
 				require.ErrorContains(t, err, "returned an intent for another integration")

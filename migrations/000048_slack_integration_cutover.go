@@ -581,11 +581,7 @@ func migrateSlackAgentTools(ctx context.Context, tx *sql.Tx, integrations map[st
 			}
 		}
 	}
-	_, err = tx.ExecContext(
-		ctx,
-		`UPDATE agents SET interaction_target_id=NULL, interaction_handler_key=NULL WHERE interaction_target_id IS NOT NULL`,
-	)
-	return err
+	return nil
 }
 
 func activateSlackSuccessor(ctx context.Context, tx *sql.Tx, agentID, configID string) error {

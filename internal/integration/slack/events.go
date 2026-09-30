@@ -184,7 +184,7 @@ func FormatRecentContext(messages []HistoryMessage, event Event, labels DisplayL
 }
 
 func ShouldFetchRecentContext(route InboundRoute, newlyMapped bool) bool {
-	return route.ProviderRefKind == "thread" && newlyMapped
+	return route.ScopeKind == "thread" && newlyMapped
 }
 
 func InboundEventMetadata(
@@ -202,7 +202,7 @@ func InboundEventMetadata(
 		"channel":        envelope.Event.Channel,
 		"channel_type":   envelope.Event.ChannelType,
 		"message_ts":     envelope.Event.TS,
-		"provider_ref":   route.ProviderRef,
+		"provider_ref":   route.ScopeRef,
 		"history_status": historyStatus,
 	}
 	if len(files) > 0 {
@@ -304,9 +304,9 @@ func EventCallbackEnvelope(envelope EventsEnvelope) bool {
 }
 
 type InboundRoute struct {
-	ProviderRef     string
-	ProviderRefKind string
-	AppendOnly      bool
+	ScopeRef   string
+	ScopeKind  string
+	AppendOnly bool
 }
 
 func ValidateRuntimeBotAuthorization(identity Identity, envelope EventsEnvelope) bool {
@@ -416,10 +416,10 @@ func ModelInputTextParts(
 }
 
 func routeThreadTS(route InboundRoute) string {
-	if route.ProviderRefKind != "thread" {
+	if route.ScopeKind != "thread" {
 		return ""
 	}
-	_, threadTS, ok := strings.Cut(route.ProviderRef, ":")
+	_, threadTS, ok := strings.Cut(route.ScopeRef, ":")
 	if !ok {
 		return ""
 	}
@@ -440,7 +440,7 @@ func modelVisibleContext(event Event, route InboundRoute, newlyMapped bool) stri
 			return "The agent was mentioned in a Slack channel, so this message starts a new Slack thread for communicating with the agent."
 		}
 		return "This message directly mentioned the agent in a Slack thread that is already attached to this agent."
-	case route.ProviderRefKind == "thread":
+	case route.ScopeKind == "thread":
 		return "This message was routed to a Slack thread attached to this agent."
 	default:
 		return "This message was received from Slack."

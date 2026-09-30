@@ -17,6 +17,11 @@ const launchUnavailableMessage = "The Omnara agent is unavailable. Please contac
 
 var errDiscordProfileChoiceSetup = errors.New("discord profile choices require interaction setup")
 
+type integrationLaunchFeedback struct {
+	input IntegrationLaunchContext
+	cause error
+}
+
 func (w *IntegrationLaunchWorkflow) launchUnavailable(
 	ctx context.Context, input IntegrationLaunchContext, cause error,
 ) {

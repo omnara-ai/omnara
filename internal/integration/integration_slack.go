@@ -287,7 +287,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 	}
 	event := envelope.Event
 	kind, ref, _ := normalized.Event.Scope.Conversation()
-	route := slack.InboundRoute{ProviderRefKind: kind, ProviderRef: ref, AppendOnly: !normalized.Event.Mentioned}
+	route := slack.InboundRoute{ScopeKind: kind, ScopeRef: ref, AppendOnly: !normalized.Event.Mentioned}
 	enrichCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	newConversation := false
@@ -408,7 +408,7 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 		neutral.Text = "Files for the previous Slack message."
 		notice, hidden := slack.ModelInputTextParts(
 			neutral,
-			slack.InboundRoute{ProviderRefKind: kind, ProviderRef: ref, AppendOnly: true},
+			slack.InboundRoute{ScopeKind: kind, ScopeRef: ref, AppendOnly: true},
 			false,
 			"",
 			labels,

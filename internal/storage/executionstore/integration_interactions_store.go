@@ -717,6 +717,11 @@ func lockAuthorizedInteractionDestination(
 	}); err != nil {
 		return AgentInteractionRecord{}, nil, err
 	}
+	if err := integrationstore.LockIntegrationCredentialAccessTx(
+		ctx, tx, projectID, destination.IntegrationID,
+	); err != nil {
+		return AgentInteractionRecord{}, nil, err
+	}
 	if _, err := q.LockAgentInProject(ctx, dbsqlc.LockAgentInProjectParams{
 		ProjectID: projectID, ID: agentID,
 	}); err != nil {

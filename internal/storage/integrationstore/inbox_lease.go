@@ -37,7 +37,7 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 		return nil, inboxInvalid("project, receipt, and claim token are required")
 	}
 	q := dbsqlc.New(tx)
-	row, err := q.GetIntegrationInboxReceipt(ctx, dbsqlc.GetIntegrationInboxReceiptParams{
+	integrationID, err := q.GetIntegrationInboxOwner(ctx, dbsqlc.GetIntegrationInboxOwnerParams{
 		ProjectID: lease.ProjectID, ID: lease.ReceiptID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -46,7 +46,7 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 	if err != nil {
 		return nil, fmt.Errorf("load inbox lease scope: %w", err)
 	}
-	if err := s.enterInboxIntegration(ctx, tx, lease.ProjectID, row.IntegrationID, additional...); err != nil {
+	if err := s.enterInboxIntegration(ctx, tx, lease.ProjectID, integrationID, additional...); err != nil {
 		return nil, err
 	}
 	if _, err := q.LockIntegrationInboxReceipt(ctx, dbsqlc.LockIntegrationInboxReceiptParams{
@@ -59,7 +59,7 @@ func (s *Store) LockIntegrationInboxLeaseTx(
 	}
 	// A separate statement observes time after the lock wait; the transaction's
 	// start time could incorrectly authorize an expired lease.
-	row, err = q.ReadIntegrationInboxLease(ctx, dbsqlc.ReadIntegrationInboxLeaseParams{
+	row, err := q.ReadIntegrationInboxLease(ctx, dbsqlc.ReadIntegrationInboxLeaseParams{
 		ProjectID: lease.ProjectID, ID: lease.ReceiptID, ClaimToken: lease.Token,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -87,7 +87,7 @@ func (w *IntegrationInboxLeaseTx) Receipt() IntegrationInboxRecord {
 }
 
 func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawMessage) error {
-	if err := w.CheckLease(ctx); err != nil {
+	if err := w.refreshLease(ctx); err != nil {
 		return err
 	}
 	recipients, err := inboxRecipients(plan)
@@ -117,7 +117,7 @@ func (w *IntegrationInboxLeaseTx) FreezePlan(ctx context.Context, plan json.RawM
 // must verify every planned outcome in this transaction first; executionstore's
 // CompleteIntegrationInbox owns that settlement invariant.
 func (w *IntegrationInboxLeaseTx) Complete(ctx context.Context) error {
-	if err := w.CheckLease(ctx); err != nil {
+	if err := w.refreshLease(ctx); err != nil {
 		return err
 	}
 	if _, err := inboxRecipients(w.record.Plan); err != nil {
@@ -150,9 +150,21 @@ func (w *IntegrationInboxLeaseTx) Fail(ctx context.Context, reason string) error
 	return inboxLeaseMutation("fail inbox", rows, err)
 }
 
-// CheckLease refreshes the receipt and validates its lease using a fresh database
-// statement. Call it after domain writes to fence expiry during admission lock waits.
+// CheckLease fences expiry after admission lock waits using a fresh database statement.
 func (w *IntegrationInboxLeaseTx) CheckLease(ctx context.Context) error {
+	_, err := w.q.CheckIntegrationInboxLease(ctx, dbsqlc.CheckIntegrationInboxLeaseParams{
+		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrIntegrationInboxLeaseLost
+	}
+	if err != nil {
+		return fmt.Errorf("validate inbox lease: %w", err)
+	}
+	return nil
+}
+
+func (w *IntegrationInboxLeaseTx) refreshLease(ctx context.Context) error {
 	row, err := w.q.ReadIntegrationInboxLease(ctx, dbsqlc.ReadIntegrationInboxLeaseParams{
 		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
 	})

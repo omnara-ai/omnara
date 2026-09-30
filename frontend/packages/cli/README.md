@@ -80,7 +80,7 @@ an update; name and `integration_kind` are supplied on create.
 
 ```sh
 omnara integrations update "$SLACK_INTEGRATION_ID" --body '{
-  "settings": {"launcher": {"profiles": ["aprf_aeaqcaibaeaqcaibaeaqcaibaeaq"]}}
+  "settings": {"launcher": {"profiles": ["aprf_aeaqcaibaeaqcaibaeaqcaibae"]}}
 }'
 omnara integrations profiles "$SLACK_INTEGRATION_ID" --profile-ids "$PROFILE_ID" --profile-ids "$SECOND_PROFILE_ID"
 ```

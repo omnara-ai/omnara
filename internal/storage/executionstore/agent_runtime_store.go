@@ -72,8 +72,8 @@ type AgentModelDisplay struct {
 type IntegrationTargetDisplay struct {
 	Provider         string `json:"provider,omitempty"`
 	ProviderTenantID string `json:"-"`
-	ProviderRef      string `json:"provider_ref,omitempty"`
-	ProviderRefKind  string `json:"provider_ref_kind,omitempty"`
+	ScopeRef         string `json:"scope_ref,omitempty"`
+	ScopeKind        string `json:"scope_kind,omitempty"`
 	DisplayName      string `json:"display_name,omitempty"`
 }
 

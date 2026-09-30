@@ -49,10 +49,10 @@ func (w *IntegrationLaunchWorkflow) Decide(
 	receipt integrationstore.IntegrationInboxRecord,
 	integrationSetup integrationstore.IntegrationRecord,
 	event IntegrationEvent,
-) (*IntegrationEvent, error) {
+) (*IntegrationEvent, *integrationLaunchFeedback, error) {
 	request, err := prepareIntegrationEvent(event, integrationSetup)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	err = w.router.integrations.WithIntegrationInboxLease(ctx, lease,
 		func(work *integrationstore.IntegrationInboxLeaseTx) error {
@@ -63,42 +63,44 @@ func (w *IntegrationLaunchWorkflow) Decide(
 			return nil
 		})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	result := event
 	result.Launches, result.Directed = nil, false
+	var feedback *integrationLaunchFeedback
 	if integration := request.candidates.Launcher; integration != nil {
 		launcher := w.launchers[integration.IntegrationKind]
 		if launcher == nil {
-			return nil, fmt.Errorf("no launcher registered for integration %s", integration.IntegrationKind)
+			return nil, nil, fmt.Errorf("no launcher registered for integration %s", integration.IntegrationKind)
 		}
 		input := IntegrationLaunchContext{Receipt: receipt, Integration: *integration,
 			Event: request.event, Address: request.address, Candidates: request.candidates}
 		intents, err := launcher(ctx, input)
 		if errors.Is(err, ErrIntegrationLaunchUnavailable) {
-			w.launchUnavailable(ctx, input, err)
-			return &result, nil
+			return &result, &integrationLaunchFeedback{input: input, cause: err}, nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, intent := range intents {
 			if intent.IntegrationID != integration.ID {
-				return nil, fmt.Errorf("launcher for integration %s returned an intent for another integration", integration.ID)
+				return nil, nil, fmt.Errorf(
+					"launcher for integration %s returned an intent for another integration", integration.ID,
+				)
 			}
 			if intent.ProfileID != uuid.Nil && !integrationHasLaunchOwner(input) {
 				if _, err := integrationLaunchProfile(ctx, w.router.execution, *integration, intent.ProfileID); err != nil {
 					if errors.Is(err, ErrIntegrationLaunchUnavailable) {
-						w.launchUnavailable(ctx, input, err)
+						feedback = &integrationLaunchFeedback{input: input, cause: err}
 						continue
 					}
-					return nil, err
+					return nil, nil, err
 				}
 			}
 			result.Launches = append(result.Launches, intent)
 		}
 	}
-	return &result, nil
+	return &result, feedback, nil
 }
 
 func integrationLaunchEligible(input IntegrationLaunchContext) bool {

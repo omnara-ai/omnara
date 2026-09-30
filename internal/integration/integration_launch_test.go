@@ -38,12 +38,13 @@ func freezeTestIntegrationEvent(
 		return IntegrationInboxPlan{}, err
 	}
 	if event != nil {
-		event, err = testIntegrationLaunchWorkflow(router).Decide(ctx, lease, receipt, integrationSetup, *event)
+		event, _, err = testIntegrationLaunchWorkflow(router).Decide(ctx, lease, receipt, integrationSetup, *event)
 		if err != nil {
 			return IntegrationInboxPlan{}, err
 		}
 	}
-	return router.Freeze(ctx, lease, event)
+	plan, _, err := router.Freeze(ctx, lease, event, nil)
+	return plan, err
 }
 
 func applyTestIntegrationLaunchPolicy(

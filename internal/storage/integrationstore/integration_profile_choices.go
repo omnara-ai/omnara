@@ -231,6 +231,9 @@ func (s *Store) ChooseIntegrationProfile(
 	input ChooseIntegrationProfileInput,
 ) (IntegrationProfileChoiceRecord, error) {
 	var result IntegrationProfileChoiceRecord
+	if input.ProjectID == uuid.Nil || input.IntegrationID == uuid.Nil || input.ID == uuid.Nil {
+		return result, inboxInvalid("project, integration and choice are required")
+	}
 	if !choiceText(input.Key, 64) || !choiceText(input.ActorID, 2048) ||
 		!choiceText(input.MessageChannelID, 2048) || !choiceText(input.MessageID, 2048) ||
 		input.SourceChoiceRevision <= 0 || input.SourceSetupRevision <= 0 {
@@ -242,7 +245,13 @@ func (s *Store) ChooseIntegrationProfile(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := dbsqlc.New(tx)
-	row, err := s.lockIntegrationProfileChoice(ctx, tx, input.ProjectID, input.IntegrationID, input.ID)
+	if err := s.enterInboxIntegration(ctx, tx, input.ProjectID, input.IntegrationID); err != nil {
+		return result, err
+	}
+	if err := LockIntegrationCredentialAccessTx(ctx, tx, input.ProjectID, input.IntegrationID); err != nil {
+		return result, err
+	}
+	row, err := lockIntegrationProfileChoiceConversation(ctx, tx, input.ProjectID, input.IntegrationID, input.ID)
 	if err != nil {
 		return result, err
 	}
@@ -348,6 +357,12 @@ func (s *Store) lockIntegrationProfileChoice(
 	if err := s.enterInboxIntegration(ctx, tx, projectID, integrationID); err != nil {
 		return IntegrationProfileChoiceRecord{}, err
 	}
+	return lockIntegrationProfileChoiceConversation(ctx, tx, projectID, integrationID, id)
+}
+
+func lockIntegrationProfileChoiceConversation(
+	ctx context.Context, tx pgx.Tx, projectID, integrationID, id uuid.UUID,
+) (IntegrationProfileChoiceRecord, error) {
 	q := dbsqlc.New(tx)
 	row, err := getIntegrationProfileChoice(ctx, q, projectID, integrationID, id)
 	if err != nil {

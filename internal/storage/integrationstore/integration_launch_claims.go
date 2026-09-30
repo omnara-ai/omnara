@@ -52,7 +52,7 @@ func (w *IntegrationInboxLeaseTx) MarkIntegrationPendingLaunch(ctx context.Conte
 	if err := address.Validate(); err != nil {
 		return err
 	}
-	if err := w.CheckLease(ctx); err != nil {
+	if err := w.refreshLease(ctx); err != nil {
 		return err
 	}
 	if w.record.Source != IntegrationInboxSourceProvider {
