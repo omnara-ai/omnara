@@ -638,11 +638,10 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
       )
     }
     if (integrationKind === 'github_pr') {
-      const launcher = launch.getByRole('checkbox', {
-        name: 'Launch agents from GitHub events',
-        exact: true,
-      })
-      await expect(launcher).toBeChecked()
+      await expect(launch.getByRole('checkbox', { name: 'PR opened', exact: true })).toBeChecked()
+      await expect(
+        launch.getByRole('checkbox', { name: 'Bot mentioned', exact: true }),
+      ).toBeChecked()
       await launch.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
     } else {
       await expect(launch.getByRole('checkbox')).toHaveCount(0)
@@ -682,10 +681,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     await launch.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(launch.getByLabel('Integration name', { exact: true })).toHaveCount(0)
     if (integrationKind === 'github_pr') {
-      await page.getByRole('combobox', { name: 'Launch when', exact: true }).click()
-      await page
-        .getByRole('option', { name: 'The bot is mentioned on a pull request', exact: true })
-        .click()
+      await launch.getByRole('checkbox', { name: 'PR opened', exact: true }).uncheck()
     }
     const updated = page.waitForResponse(
       (response) =>

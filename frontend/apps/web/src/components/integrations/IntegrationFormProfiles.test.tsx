@@ -15,7 +15,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { agentConfigModel, fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, choose, enter, waitForUI } from '@/test/secret-editor'
+import { button, choose, enter, field, waitForUI } from '@/test/secret-editor'
 
 import { IntegrationForm } from './IntegrationForm'
 
@@ -133,6 +133,59 @@ const mixedIntegration: Integration = {
     },
   },
 }
+
+it('saves independent GitHub launch triggers and preserves the selected profile', async () => {
+  const integration = integrationFixture({ integration_kind: 'github_pr' })
+  const updatePath = path + '/integrations/' + integration.id
+  const api = fakeApi([
+    ...profileNameRoutes,
+    {
+      method: 'GET',
+      path: path + '/agent-profiles',
+      respond: () => Response.json({ data: [reviews], next_cursor: null }),
+    },
+    {
+      method: 'PUT',
+      path: updatePath,
+      respond: ({ body }) =>
+        Response.json({ ...integration, ...schemas.zUpdateIntegrationRequest.parse(body) }),
+    },
+  ])
+  render(
+    api,
+    <IntegrationForm
+      orgId={orgId}
+      projectId={projectId}
+      integrationKind="github_pr"
+      integration={integration}
+      defaultLauncherEnabled
+      onSaved={vi.fn()}
+    />,
+  )
+  expect(field('PR opened')).toHaveProperty('checked', true)
+  expect(field('Bot mentioned')).toHaveProperty('checked', true)
+  expect(button('Save changes').disabled).toBe(true)
+  await submit()
+  expect(api.requestsTo('PUT', updatePath)).toHaveLength(0)
+  await choose('Agent profile', 'Reviews')
+  for (const [toggle, trigger] of [
+    [null, 'both'],
+    ['PR opened', 'mention'],
+    ['Bot mentioned', null],
+    ['PR opened', 'pull_request_opened'],
+    ['Bot mentioned', 'both'],
+  ] as const) {
+    if (toggle)
+      act(() => {
+        field(toggle).click()
+      })
+    expect(button('Save changes').disabled).toBe(false)
+    await submit()
+    expect(api.requestsTo('PUT', updatePath).at(-1)?.body).toEqual({
+      settings: trigger ? { launcher: { profile: reviews.id, trigger } } : {},
+    })
+  }
+})
 
 it('keeps off-page profiles and retries a failed profile save', async () => {
   let attempts = 0

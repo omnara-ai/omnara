@@ -180,9 +180,8 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await expect(page.getByText('Account connected.', { exact: false })).toBeVisible()
   expect(connects).toBe(1)
   const launch = page.getByRole('region', { name: 'Pull requests', exact: true })
-  await expect(
-    launch.getByRole('checkbox', { name: 'Launch agents from GitHub events', exact: true }),
-  ).toBeChecked()
+  await expect(launch.getByRole('checkbox', { name: 'PR opened', exact: true })).toBeChecked()
+  await expect(launch.getByRole('checkbox', { name: 'Bot mentioned', exact: true })).toBeChecked()
   await expect(launch.getByRole('combobox', { name: 'Agent profile', exact: true })).toBeVisible()
   await captureGitHubSetup(page, 'connected')
 }

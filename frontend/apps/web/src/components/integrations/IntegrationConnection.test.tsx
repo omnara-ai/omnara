@@ -11,7 +11,7 @@ import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, choose, enter, waitForUI } from '@/test/secret-editor'
+import { button, choose, enter, field, waitForUI } from '@/test/secret-editor'
 
 const orgId = fakeId('org'),
   projectId = fakeId('proj')
@@ -149,13 +149,8 @@ it.each([
     expect(container.textContent).toContain('Account connected.')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     if (integrationKind === 'github_pr') {
-      expect(container.querySelector<HTMLInputElement>('input[name="launcher"]')?.checked).toBe(
-        !reconnecting,
-      )
-      if (!reconnecting)
-        expect(container.querySelector('#integration-trigger')?.textContent).toBe(
-          'PR opened or bot mentioned',
-        )
+      expect(field('PR opened')).toHaveProperty('checked', !reconnecting)
+      expect(field('Bot mentioned')).toHaveProperty('checked', !reconnecting)
     }
     if (integrationKind === 'discord_thread') {
       expect(button('Add schedule').disabled).toBe(false)

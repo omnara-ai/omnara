@@ -68,6 +68,8 @@ function IntegrationFormEditor({
   }, [])
   const busy = update.isPending
   const validation = validateIntegrationForm(integrationKind, values, integration)
+  const missingProfile =
+    integrationKind === 'github_pr' && values.launcher && values.profileIds.length === 0
   function change(patch: Partial<IntegrationFormValues>) {
     setValues((previous) => ({ ...previous, ...patch }))
   }
@@ -115,7 +117,7 @@ function IntegrationFormEditor({
             {error}
           </p>
         )}
-        {!error && validation.error && (
+        {!error && validation.error && !missingProfile && (
           <p className="text-muted-foreground text-sm">{validation.error}</p>
         )}
         <div className="flex justify-end gap-2">

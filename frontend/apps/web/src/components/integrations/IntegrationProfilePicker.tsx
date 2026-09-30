@@ -45,7 +45,7 @@ export function IntegrationProfilePicker({
   disabled?: boolean
   single?: boolean
   label?: string
-  description?: string
+  description?: string | null
 }) {
   const displayedProfileCount = profileCount === undefined ? value.length : profileCount
   const search = useTypeaheadSearch()
@@ -103,19 +103,21 @@ export function IntegrationProfilePicker({
           disabled={disabled}
         />
       )}
-      <FieldDescription>
-        {description ??
-          (single ? (
-            'Choose one profile to launch for matching GitHub events.'
-          ) : (
-            <>
-              With one eligible profile, a mention launches it immediately. With multiple eligible
-              profiles, a native menu asks the person to choose just one. Later messages stay with
-              that agent. Up to 16 profiles per setup
-              {displayedProfileCount === null ? '.' : ` (${displayedProfileCount}/16 selected).`}
-            </>
-          ))}
-      </FieldDescription>
+      {description !== null && (
+        <FieldDescription>
+          {description ??
+            (single ? (
+              'Choose one profile to launch for matching GitHub events.'
+            ) : (
+              <>
+                With one eligible profile, a mention launches it immediately. With multiple eligible
+                profiles, a native menu asks the person to choose just one. Later messages stay with
+                that agent. Up to 16 profiles per setup
+                {displayedProfileCount === null ? '.' : ` (${displayedProfileCount}/16 selected).`}
+              </>
+            ))}
+        </FieldDescription>
+      )}
       {loadingNames && (
         <p role="status" className="text-muted-foreground text-sm">
           Loading saved profile names…

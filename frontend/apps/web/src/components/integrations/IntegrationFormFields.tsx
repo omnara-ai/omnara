@@ -1,6 +1,7 @@
 import { type Integration, type IntegrationKind } from '@omnara/sdk'
+import { useId } from 'react'
 
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { CheckboxField, Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -27,26 +28,52 @@ interface LauncherFieldsProps {
 export function IntegrationLauncherFields(props: LauncherFieldsProps) {
   const { values, onChange, integrationKind } = props
   const github = integrationKind === 'github_pr'
+  const id = useId()
+  const opened = values.launcher && values.trigger !== 'mention'
+  const mentioned = values.launcher && values.trigger !== 'pull_request_opened'
+  function setTriggers(nextOpened: boolean, nextMentioned: boolean) {
+    onChange(
+      nextOpened || nextMentioned
+        ? {
+            launcher: true,
+            trigger:
+              nextOpened && nextMentioned ? 'both' : nextOpened ? 'pull_request_opened' : 'mention',
+          }
+        : { launcher: false },
+    )
+  }
   return (
     <Field>
       {github ? (
-        <>
-          <label className="flex gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              name="launcher"
-              checked={values.launcher}
-              onChange={(event) => {
-                onChange({ launcher: event.target.checked })
-              }}
-            />
-            Launch agents from GitHub events
-          </label>
-          <FieldDescription>
-            Changes apply to future launches. PR-open launches, mentions and comments that direct
-            agents require repository write access.
+        <div
+          role="group"
+          aria-labelledby={`${id}-label`}
+          aria-describedby={`${id}-hint`}
+          className="flex flex-col gap-3"
+        >
+          <span id={`${id}-label`} className="type-label">
+            Launch when
+          </span>
+          <CheckboxField
+            label="PR opened"
+            checked={opened}
+            disabled={props.disabled}
+            onChange={(event) => {
+              setTriggers(event.target.checked, mentioned)
+            }}
+          />
+          <CheckboxField
+            label="Bot mentioned"
+            checked={mentioned}
+            disabled={props.disabled}
+            onChange={(event) => {
+              setTriggers(opened, event.target.checked)
+            }}
+          />
+          <FieldDescription id={`${id}-hint`}>
+            Only people with repository write access can launch or steer agents.
           </FieldDescription>
-        </>
+        </div>
       ) : (
         <FieldDescription>
           Choose which profiles people can start by mentioning the bot. Leave the profiles empty to
@@ -56,42 +83,6 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
       )}
       {(!github || values.launcher) && (
         <>
-          {github && (
-            <Field>
-              <FieldLabel htmlFor="integration-trigger">Launch when</FieldLabel>
-              <Select
-                value={values.trigger}
-                disabled={props.disabled}
-                onValueChange={(trigger) => {
-                  onChange({ trigger })
-                }}
-              >
-                <SelectTrigger id="integration-trigger" className="w-full">
-                  <SelectValue>
-                    {values.trigger === 'mention'
-                      ? 'The bot is mentioned on a pull request'
-                      : values.trigger === 'both'
-                        ? 'PR opened or bot mentioned'
-                        : 'A pull request is opened'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="both" disabled={props.disabled}>
-                    PR opened or bot mentioned
-                  </SelectItem>
-                  <SelectItem value="pull_request_opened" disabled={props.disabled}>
-                    A pull request is opened
-                  </SelectItem>
-                  <SelectItem value="mention" disabled={props.disabled}>
-                    The bot is mentioned on a pull request
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <FieldDescription>
-                Each pull request gets one agent; later messages go to that agent.
-              </FieldDescription>
-            </Field>
-          )}
           <IntegrationLauncherScopeFields {...props} />
           <IntegrationProfilePicker
             orgId={props.orgId}
@@ -102,11 +93,7 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
             }}
             single={github}
             label={github ? 'Agent profile' : 'Profiles for mentions'}
-            description={
-              github
-                ? 'Choose a profile whose tools and secrets are appropriate for reviewing untrusted PR content.'
-                : undefined
-            }
+            description={github ? null : undefined}
             disabled={props.disabled}
             profileCount={props.profileCount}
           />
@@ -131,15 +118,10 @@ function IntegrationLauncherScopeFields({
         answer agent questions and approvals without Omnara project membership.
       </FieldDescription>
     )
-  const github = integrationKind === 'github_pr'
-  if (github)
-    return (
-      <FieldDescription>
-        {values.scopeKind === 'repository'
-          ? `Restricted to repository ${values.scopeRef}. This saved restriction is kept when editing profiles or triggers.`
-          : 'Applies to repositories this integration can access. Manage repository access in GitHub.'}
-      </FieldDescription>
-    )
+  if (integrationKind === 'github_pr')
+    return values.scopeKind === 'repository' ? (
+      <FieldDescription>{`Restricted to repository ${values.scopeRef}.`}</FieldDescription>
+    ) : null
   const workspace = integration.provider_tenant_id ?? ''
   return (
     <>

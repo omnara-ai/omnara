@@ -11,7 +11,7 @@ import { fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, integration as integrationFixture, integrationDefinition } from '@/test/fixtures'
 import { renderIntegration } from '@/test/integration-render'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, choose, waitForUI } from '@/test/secret-editor'
+import { button, field, waitForUI } from '@/test/secret-editor'
 
 import { RemoveIntegrationButton } from './IntegrationActions'
 import { IntegrationAdvanced } from './IntegrationAdvanced'
@@ -501,7 +501,12 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
   act(() => {
     button('Edit').click()
   })
-  await choose('Launch when', 'The bot is mentioned on a pull request')
+  act(() => {
+    field('Bot mentioned').click()
+  })
+  act(() => {
+    field('PR opened').click()
+  })
   expect(container.querySelector('#launcher-scope')).toBeNull()
   expect(container.textContent).toContain('Restricted to repository 123')
   const draft = container.querySelector('form')
@@ -514,9 +519,8 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
       'Could not refresh this integration. Your current edits are kept.',
     )
   })
-  expect(container.querySelector('#integration-trigger')?.textContent).toBe(
-    'The bot is mentioned on a pull request',
-  )
+  expect(field('PR opened')).toHaveProperty('checked', false)
+  expect(field('Bot mentioned')).toHaveProperty('checked', true)
   expect(container.querySelector('form')).toBe(draft)
   unavailable = false
   act(() => {
@@ -525,9 +529,8 @@ it('keeps an edit draft mounted through a failed background refresh', async () =
   await waitForUI(() => {
     expect(document.body.textContent).not.toContain('Could not refresh this integration.')
   })
-  expect(container.querySelector('#integration-trigger')?.textContent).toBe(
-    'The bot is mentioned on a pull request',
-  )
+  expect(field('PR opened')).toHaveProperty('checked', false)
+  expect(field('Bot mentioned')).toHaveProperty('checked', true)
 })
 
 it('does not let a delayed GET overwrite a successful integration update', async () => {
