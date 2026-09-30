@@ -6,6 +6,45 @@ mode: "center"
 ---
 
 <Update
+  label="September 30, 2026"
+  rss={{
+    title: "GPT-6, Claude Opus 5.5, and Freestyle sandboxes",
+    description: "New hosted models, Freestyle as a sandbox provider, easier skill creation, image viewing for agents, a reasoning effort selector, and fixes."
+  }}
+>
+
+## GPT-6, Claude Opus 5.5, and Freestyle sandboxes
+
+The hosted catalog now includes GPT-6 Sol and Luna and Claude Opus 5.5, and Freestyle joins the sandbox providers. Also new: easier skill creation, image viewing for agents, and a reasoning effort selector.
+
+### New models
+
+`omnara-openrouter` now includes GPT-6 Sol, GPT-6 Luna, and Claude Opus 5.5, and new agents default to `openai/gpt-6-sol`. GPT-5.6 Sol, GPT-5.6 Luna, and Claude Opus 5 are being retired: agents already using them keep working, and each model is removed once nothing references it. Update saved configs and scripts that name them.
+
+### Freestyle sandboxes
+
+Bring your Freestyle account as a sandbox provider alongside Blaxel, Unikraft Cloud, Daytona, and Modal. See [Machine pools](/machines/pools).
+
+### Create skills faster
+
+Drop a folder, archive, or `SKILL.md` into the Create skill dialog, or write one in the built-in editor. Upload several skills at once and review which are new, which are updated, and which are skipped before anything uploads. Skill uploads from the SDK, CLI, and API now validate correctly. See [Skills](/tools/skills).
+
+### Agents can see images
+
+`read_file` returns PNG, JPEG, GIF, and WebP files to the model as images, so agents can look at screenshots and charts they save from a sandbox. See [Built-in tools](/tools/built-in).
+
+### Reasoning effort and account controls
+
+Pick a reasoning effort next to the model in the agent builder for models that support it. You can also delete your account or an organization from the dashboard.
+
+### Fixes
+
+- MCP errors now return useful status codes instead of generic server errors.
+- The example agents work with the current SDK.
+
+</Update>
+
+<Update
   label="September 24, 2026"
   rss={{
     title: "Agents can now send events to your webhooks",
