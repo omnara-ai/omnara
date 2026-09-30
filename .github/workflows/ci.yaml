@@ -83,8 +83,8 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-tests-${{ matrix.target }}-
 
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep gcc libc6-dev
 
       - run: make ${{ matrix.target }}
 
@@ -255,6 +255,11 @@ jobs:
             ~/.cache/go-build
           key: go-${{ runner.os }}-${{ runner.arch }}-service-e2e-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-${{ runner.os }}-${{ runner.arch }}-service-e2e-
+
+      - name: Install file tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
+          make install-file-edit
 
       - uses: ./.github/actions/setup-test-db
 
