@@ -127,7 +127,7 @@ export {
   useServers,
 } from './domains/mcp-registry'
 export { useMcpServerTools } from './domains/mcp-server-tools'
-export { useMe } from './domains/me'
+export { useDeleteCurrentUser, useMe } from './domains/me'
 export {
   type ModelOption,
   type ModelPricingLookup,
@@ -169,6 +169,7 @@ export {
   type OrgMemberListOptions,
   type OrgMemberListSort,
   useCreateOrganization,
+  useDeleteOrganization,
   useDeleteOrgInvitation,
   useInviteMember,
   useOrgInvitations,

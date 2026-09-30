@@ -8,6 +8,7 @@ import {
   House,
   KeyRound,
   Server,
+  SettingsIcon,
   Sparkles,
   Users,
 } from '@/components/icons'
@@ -29,6 +30,7 @@ const resources = [
   { to: '/secrets' as const, label: 'Secrets', icon: KeyRound },
   { to: '/skills' as const, label: 'Skills', icon: Sparkles },
   { to: '/user/api-tokens' as const, label: 'API Tokens', icon: Fingerprint },
+  { to: '/settings' as const, label: 'Settings', icon: SettingsIcon },
 ]
 
 export function OrganizationNav() {
