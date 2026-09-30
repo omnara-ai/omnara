@@ -41,10 +41,10 @@ function readReturn() {
       : 'Integration setup changed while you were on GitHub. Check your saved credentials or use the existing GitHub App to continue.'
   else if (reason === 'registration_denied')
     error =
-      'GitHub App registration was canceled. Continue to GitHub when ready, or use an existing App.'
+      'GitHub App registration was canceled. Continue to GitHub when ready, or enter an existing App’s details.'
   else if (reason === 'missing_code')
     error =
-      'GitHub did not return a registration code. Check whether the App was created in GitHub; if so, use an existing App to connect it.'
+      'GitHub did not return a registration code. Check whether the App was created in GitHub; if so, enter its App details to connect it.'
   else if (reason)
     error =
       'GitHub setup did not finish. Check your GitHub Apps and saved credentials before continuing.'

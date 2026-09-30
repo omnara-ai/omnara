@@ -189,7 +189,7 @@ it.each([false, true])(
       })
       select('github-installation', '222')
     }
-    click('Use an existing App')
+    click('Enter App details')
     expect(document.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
     expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false)
     expect(container.querySelector('#private-key')).toBeNull()
@@ -294,10 +294,10 @@ it.each([false, true])(
     await enter('Integration name', 'reviewer')
     if (organization) {
       select('github-owner', 'organization')
-      await enter('Organization login', 'engineering')
-      click('Use an existing App')
+      await enter('Organization name', 'engineering')
+      click('Enter App details')
       click('Back to guided setup')
-      expect(field('Organization login').value).toBe('engineering')
+      expect(field('Organization name').value).toBe('engineering')
     }
     click('Continue to GitHub')
     await waitForUI(() => {
@@ -360,13 +360,13 @@ it.each(['registration', 'connection'] as const)(
       expect(api.requestsTo('POST', path)).toHaveLength(1)
     })
     expect(button('Delete integration').closest('fieldset')?.disabled).toBe(true)
-    expect(button('Use an existing App').disabled).toBe(true)
+    expect(button('Enter App details').disabled).toBe(true)
     expect(button('Cancel').disabled).toBe(true)
     act(() => {
       release(jsonResponse({ code: 'unavailable', error: 'Try again' }, 500))
     })
     await waitForUI(() => {
-      expect(button('Use an existing App').disabled).toBe(false)
+      expect(button('Enter App details').disabled).toBe(false)
     })
     expect(button('Delete integration').closest('fieldset')?.disabled).toBe(false)
   },
@@ -413,7 +413,7 @@ it.each([true, false])(
     const onConnected = vi.fn()
     render(api, <ConnectGitHubForm orgId={orgId} projectId={projectId} onConnected={onConnected} />)
     await enter('Integration name', integration.name)
-    click('Use an existing App')
+    click('Enter App details')
     expect(field('Integration name').value).toBe(integration.name)
     await enter('GitHub App ID', '111')
     await enter('Installation ID', '222')
@@ -451,7 +451,7 @@ it.each([true, false])(
       expect(document.querySelector('#github-installation')).not.toBeNull()
     })
     expect(api.requestsTo('POST', projectPath + '/integrations')).toHaveLength(1)
-    click('Use an existing App')
+    click('Enter App details')
     expect(field('GitHub App ID').value).toBe('111')
     expect(field('Installation ID').value).toBe('222')
     if (newCredential)

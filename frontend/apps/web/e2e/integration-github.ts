@@ -146,7 +146,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await page.getByLabel('Integration name', { exact: true }).fill('guided-reviewer')
   await captureGitHubSetup(page, 'personal')
   await page.getByLabel('GitHub App owner').selectOption('organization')
-  await page.getByLabel('Organization login').fill('engineering')
+  await page.getByLabel('Organization name').fill('engineering')
   await captureGitHubSetup(page, 'organization')
   await page.getByRole('button', { name: 'Continue to GitHub', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Check installations', exact: true })).toBeVisible()

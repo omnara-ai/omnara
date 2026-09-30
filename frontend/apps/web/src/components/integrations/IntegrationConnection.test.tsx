@@ -102,10 +102,10 @@ it.each(['discord_thread', 'github_pr'] as const)(
     )
     if (integrationKind === 'github_pr') {
       await waitForUI(() => {
-        expect(button('Use an existing App')).toBeDefined()
+        expect(button('Enter App details')).toBeDefined()
       })
       act(() => {
-        button('Use an existing App').click()
+        button('Enter App details').click()
       })
     }
     await waitForUI(() => {
@@ -200,7 +200,7 @@ it('shows a saved GitHub callback credential when another setup already connecte
   expect(container.textContent).toContain('Review the current integration setup before connecting')
   expect(container.querySelector<HTMLSelectElement>('#saved-secret')?.value).toBe(secretId)
   act(() => {
-    button('Use an existing App').click()
+    button('Enter App details').click()
   })
   expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.value).toBe('999')
   expect(container.querySelector<HTMLInputElement>('#provider-tenant')?.readOnly).toBe(true)

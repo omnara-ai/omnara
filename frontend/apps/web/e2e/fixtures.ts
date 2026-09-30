@@ -131,7 +131,7 @@ export async function openIntegrationSetup(
   await choice.click()
   await expect(page).toHaveURL(`/projects/${projectID}/integrations/new/${integrationKind}`)
   if (integrationKind === 'github_pr')
-    await page.getByRole('button', { name: 'Use an existing App', exact: true }).click()
+    await page.getByRole('button', { name: 'Enter App details', exact: true }).click()
   await page.getByLabel('Integration name', { exact: true }).fill(name)
   await expect(
     page.getByLabel(

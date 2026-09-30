@@ -2,7 +2,13 @@ import type { GitHubSetupInstallation, Integration } from '@omnara/sdk'
 import type { ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldSeparator,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 
 import { IntegrationNameField } from './IntegrationNameField'
@@ -49,26 +55,11 @@ export function GitHubGuidedSetup({
           <h2 className="font-medium">
             {resuming ? 'Connect a saved GitHub App' : 'Create a GitHub App'}
           </h2>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <Button
-              type="button"
-              variant="link"
-              className="h-auto p-0"
-              disabled={busy}
-              onClick={guided.switchCredentialSource}
-            >
-              {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
-            </Button>
-            <Button
-              type="button"
-              variant="link"
-              className="h-auto p-0"
-              disabled={busy}
-              onClick={onUseExistingApp}
-            >
-              Use an existing App
-            </Button>
-          </div>
+          <p className="text-muted-foreground">
+            {resuming
+              ? 'Select a saved credential below, then click Check installations and choose an installation to connect.'
+              : 'Fill in the details below, then click Continue to GitHub to create your App. You’ll return here to connect it.'}
+          </p>
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-5">
           {!existing && (
@@ -125,6 +116,32 @@ export function GitHubGuidedSetup({
             </Button>
           )}
         </fieldset>
+        <FieldSeparator>OR</FieldSeparator>
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <h2 className="font-medium">
+              {resuming ? 'Other setup options' : 'Use an existing GitHub App'}
+            </h2>
+            <p className="text-muted-foreground">
+              {resuming
+                ? 'Create a new App instead, or copy an App’s details from GitHub.'
+                : 'Choose a credential saved in Omnara, or copy the App’s details from GitHub.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={guided.switchCredentialSource}
+            >
+              {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
+            </Button>
+            <Button type="button" variant="outline" disabled={busy} onClick={onUseExistingApp}>
+              Enter App details
+            </Button>
+          </div>
+        </div>
       </FieldGroup>
     </form>
   )
@@ -163,17 +180,21 @@ function GitHubRegistrationOptions({
       </Field>
       {organizationOwned && (
         <Field>
-          <FieldLabel htmlFor="github-organization">Organization login</FieldLabel>
+          <FieldLabel htmlFor="github-organization">Organization name</FieldLabel>
           <Input
             id="github-organization"
             value={organization}
             required
             maxLength={39}
             pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*"
+            placeholder="acme"
             onChange={(event) => {
               onOrganizationChange(event.target.value)
             }}
           />
+          <FieldDescription>
+            Enter just the name from its GitHub URL, like acme for github.com/acme.
+          </FieldDescription>
         </Field>
       )}
     </>
