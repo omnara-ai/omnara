@@ -39,10 +39,18 @@ function render(api: ReturnType<typeof fakeApi>, content: ReactNode) {
   return renderIntegration(root, api, content)
 }
 
-it.each(['discord_thread', 'github_pr'] as const)(
-  'continues a fresh %s integration from a successful configure mutation to profile editing',
-  async (integrationKind) => {
-    const integration = integrationFixture({ integration_kind: integrationKind })
+it.each([
+  { integrationKind: 'discord_thread', reconnecting: false },
+  { integrationKind: 'github_pr', reconnecting: false },
+  { integrationKind: 'github_pr', reconnecting: true },
+] as const)(
+  'continues a $integrationKind connection to profile editing (reconnecting=$reconnecting)',
+  async ({ integrationKind, reconnecting }) => {
+    const integration = integrationFixture({
+      integration_kind: integrationKind,
+      provider_tenant_id: reconnecting ? '111' : '',
+      provider_account_ref: reconnecting ? '222' : '',
+    })
     const setupPath = `${projectPath}/integrations/${integration.id}/setup`
     const api = fakeApi([
       {
@@ -100,7 +108,15 @@ it.each(['discord_thread', 'github_pr'] as const)(
         canManage
       />,
     )
-    if (integrationKind === 'github_pr') {
+    if (reconnecting) {
+      await waitForUI(() => {
+        expect(button('Reconnect account')).toBeDefined()
+      })
+      act(() => {
+        button('Reconnect account').click()
+      })
+    }
+    if (integrationKind === 'github_pr' && !reconnecting) {
       await waitForUI(() => {
         expect(button('Enter App details')).toBeDefined()
       })
@@ -123,7 +139,7 @@ it.each(['discord_thread', 'github_pr'] as const)(
       await enter('Public key', 'ab'.repeat(32))
     }
     act(() => {
-      button('Connect integration').click()
+      button(reconnecting ? 'Reconnect integration' : 'Connect integration').click()
     })
     await waitForUI(() => {
       expect(button('Save changes')).toBeDefined()
@@ -132,6 +148,15 @@ it.each(['discord_thread', 'github_pr'] as const)(
     expect(container.querySelector('#provider-tenant')).toBeNull()
     expect(container.textContent).toContain('Account connected.')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
+    if (integrationKind === 'github_pr') {
+      expect(container.querySelector<HTMLInputElement>('input[name="launcher"]')?.checked).toBe(
+        !reconnecting,
+      )
+      if (!reconnecting)
+        expect(container.querySelector('#integration-trigger')?.textContent).toBe(
+          'PR opened or bot mentioned',
+        )
+    }
     if (integrationKind === 'discord_thread') {
       expect(button('Add schedule').disabled).toBe(false)
       expect(container.querySelector<HTMLInputElement>('#provider-endpoint')?.value).toBe(
@@ -195,7 +220,7 @@ it('shows a saved GitHub callback credential when another setup already connecte
     />,
   )
   await waitForUI(() => {
-    expect(button('Check installations')).toBeDefined()
+    expect(button('Check GitHub access')).toBeDefined()
   })
   expect(container.textContent).toContain('Review the current integration setup before connecting')
   expect(container.querySelector('#saved-secret')?.textContent).toBe(secretId)

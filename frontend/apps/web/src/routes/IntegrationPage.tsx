@@ -113,6 +113,7 @@ function IntegrationSettings({
     canManage &&
     integrationCatalog.some((definition) => definition.integrationKind === integrationKind)
   const draft = integration.state === 'disconnected' && !integration.provider_tenant_id
+  const [initialSetup, setInitialSetup] = useState(draft)
   const [connected, setConnected] = useState(oauth?.kind === 'success')
   const [editing, setEditing] = useState(
     canSetUp && oauth?.kind === 'success' && !integration.settings.launcher,
@@ -146,9 +147,13 @@ function IntegrationSettings({
           integration={integration}
           canEdit={canSetUp}
           editing={editing}
+          initialSetup={connected && initialSetup}
           onEditingChange={(next) => {
             setEditing(next)
-            if (!next) setConnected(false)
+            if (!next) {
+              setConnected(false)
+              setInitialSetup(false)
+            }
           }}
         />
       )}

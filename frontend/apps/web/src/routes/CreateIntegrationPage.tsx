@@ -151,6 +151,7 @@ export function IntegrationCreateSetup({
             projectId={projectId}
             integrationKind={integrationKind}
             integration={savedIntegration}
+            defaultLauncherEnabled={integrationKind === 'github_pr'}
             onSaved={openIntegration}
             onCancel={() => {
               openIntegration(savedIntegration)

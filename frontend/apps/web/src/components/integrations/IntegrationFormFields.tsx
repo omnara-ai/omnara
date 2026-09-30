@@ -70,10 +70,15 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
                   <SelectValue>
                     {values.trigger === 'mention'
                       ? 'The bot is mentioned on a pull request'
-                      : 'A pull request is opened'}
+                      : values.trigger === 'both'
+                        ? 'PR opened or bot mentioned'
+                        : 'A pull request is opened'}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="both" disabled={props.disabled}>
+                    PR opened or bot mentioned
+                  </SelectItem>
                   <SelectItem value="pull_request_opened" disabled={props.disabled}>
                     A pull request is opened
                   </SelectItem>
@@ -82,6 +87,9 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
                   </SelectItem>
                 </SelectContent>
               </Select>
+              <FieldDescription>
+                Each pull request gets one agent; later messages go to that agent.
+              </FieldDescription>
             </Field>
           )}
           <IntegrationLauncherScopeFields {...props} />
@@ -129,7 +137,7 @@ function IntegrationLauncherScopeFields({
       <FieldDescription>
         {values.scopeKind === 'repository'
           ? `Restricted to repository ${values.scopeRef}. This saved restriction is kept when editing profiles or triggers.`
-          : 'Applies to repositories granted to this GitHub installation. Manage repository access in GitHub.'}
+          : 'Applies to repositories this integration can access. Manage repository access in GitHub.'}
       </FieldDescription>
     )
   const workspace = integration.provider_tenant_id ?? ''

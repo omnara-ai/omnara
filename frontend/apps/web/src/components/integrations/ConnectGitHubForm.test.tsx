@@ -182,11 +182,10 @@ it.each([false, true])(
       />,
     )
     if (inspected) {
-      click('Check installations')
+      click('Check GitHub access')
       await waitForUI(() => {
-        expect(document.querySelector('#github-installation')).not.toBeNull()
+        expect(container.textContent).toContain('GitHub account: engineering')
       })
-      await choose('Installation', 'engineering')
     }
     click('Enter App details')
     expect(document.getElementById('saved-secret')?.textContent).toBe(secretId)
@@ -347,11 +346,10 @@ it.each(['registration', 'connection'] as const)(
       />,
     )
     if (operation === 'connection') {
-      click('Check installations')
+      click('Check GitHub access')
       await waitForUI(() => {
-        expect(document.querySelector('#github-installation')).not.toBeNull()
+        expect(container.textContent).toContain('GitHub account: engineering')
       })
-      await choose('Installation', 'engineering')
     }
     click(operation === 'registration' ? 'Continue to GitHub' : 'Connect integration')
     await waitForUI(() => {
@@ -443,9 +441,9 @@ it.each([true, false])(
     await waitForUI(() => {
       expect(document.getElementById('saved-secret')?.textContent).toBe('Reviewer credentials')
     })
-    click('Check installations')
+    click('Check GitHub access')
     await waitForUI(() => {
-      expect(document.querySelector('#github-installation')).not.toBeNull()
+      expect(container.textContent).toContain('GitHub account: engineering')
     })
     expect(api.requestsTo('POST', projectPath + '/integrations')).toHaveLength(1)
     click('Enter App details')

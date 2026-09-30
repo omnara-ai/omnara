@@ -211,7 +211,7 @@ func githubHTTPPullRequest(t *testing.T, number int, action string) string {
 
 func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 	t.Parallel()
-	for _, trigger := range []string{"mention", "pull_request_opened"} {
+	for _, trigger := range []string{"mention", "pull_request_opened", "both"} {
 		t.Run(trigger, func(t *testing.T) {
 			t.Parallel()
 			f := newGitHubHTTPJourney(t, "github-"+strings.ReplaceAll(trigger, "_", "-"))
@@ -232,7 +232,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			requestJSONWithHeaders(t, f.handler, http.MethodPut, f.project.ProjectPath+"/integrations/"+integrationRef,
 				integrationHTTPJSON(t, integration), "", http.StatusOK, authHeaders(f.project.AdminToken))
 			raw, eventType := githubHTTPComment(t, 42, 3001, "@helper please review"), "issue_comment"
-			if trigger == "pull_request_opened" {
+			if trigger != "mention" {
 				raw, eventType = githubHTTPPullRequest(t, 42, "opened"), "pull_request"
 			}
 			githubHTTPWebhook(t, f.handler, eventType, "initial", "wrong-secret", raw, http.StatusUnauthorized)
@@ -269,7 +269,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				raw, http.StatusNoContent)
 			f.consume(t, raw)
 			denied := githubHTTPComment(t, 43, 3000, "@helper please review")
-			if trigger == "pull_request_opened" {
+			if trigger != "mention" {
 				denied = githubHTTPPullRequest(t, 43, "opened")
 			}
 			f.senderPermission = "read"
@@ -284,7 +284,27 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.NoError(t, pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1 AND input_kind='content'`, agentID).Scan(&inputs))
 			require.Equal(t, 1, inputs)
-			followup := githubHTTPComment(t, 42, 3002, "Please include a regression test")
+			if trigger == "both" {
+				mention := githubHTTPComment(t, 43, 3007, "@helper review this contributor's PR")
+				githubHTTPWebhook(t, f.handler, "issue_comment", "writer-launch", githubJourneyWebhookSecret,
+					mention, http.StatusNoContent)
+				manual := f.consume(t, mention)
+				require.Len(t, manual, 1)
+				require.NotNil(t, manual[0].Launch)
+				require.True(t, manual[0].Launch.Created)
+				require.Equal(t, "1001#43", manual[0].Launch.IntegrationTarget.ScopeRef)
+				follow := githubHTTPComment(t, 43, 3008, "@helper please check tests too")
+				githubHTTPWebhook(t, f.handler, "issue_comment", "writer-followup", githubJourneyWebhookSecret,
+					follow, http.StatusNoContent)
+				again := f.consume(t, follow)
+				require.Len(t, again, 1)
+				require.NotNil(t, again[0].Input)
+				require.Equal(t, manual[0].Launch.Agent.ID, again[0].Input.AgentInput.AgentID)
+				require.NoError(t, pool.QueryRow(t.Context(),
+					`SELECT count(*) FROM agents WHERE project_id=$1`, f.project.ProjectUUID).Scan(&agents))
+				require.Equal(t, 2, agents, "one agent per PR, independent of the launch trigger")
+			}
+			followup := githubHTTPComment(t, 42, 3002, "@helper please include a regression test")
 			githubHTTPWebhook(t, f.handler, "issue_comment", "followup", githubJourneyWebhookSecret,
 				followup, http.StatusNoContent)
 			results = f.consume(t, followup)

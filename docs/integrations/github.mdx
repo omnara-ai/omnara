@@ -16,12 +16,13 @@ the GitHub App belongs to your personal account or an organization, then select
 **Continue to GitHub**. Omnara supplies the webhook, event subscriptions and
 required permissions. The registration belongs to you.
 
-After registration, Omnara saves the credentials in your project. Check its
-installations, select **Install in GitHub** if needed, and choose repository
-access on GitHub. Back in Omnara, refresh the installations, select the verified
-account, and choose **Connect integration**. If organization approval is pending, you can
-return later using the saved credential. Nothing launches until you choose an
-agent profile and save the integration's launch settings.
+After registration, Omnara saves the credentials and checks account access automatically.
+Select **Choose repositories on GitHub** to grant access, then return and select
+**I’ve granted access**. Omnara selects a single available account automatically;
+if several are available, choose which one to connect. Select **Connect integration**
+to finish. If organization approval is pending, you can return later using the saved
+credential. Nothing launches until you choose an agent profile and save the
+integration's launch settings.
 
 <Warning>
 PR-open launches, mention launches and comments that steer agents require repository
@@ -202,7 +203,7 @@ submitted reviews and commits from PR synchronization events. PR-open events onl
 trigger launches; they are not forwarded through subscriptions. Use **Stop forwarding**
 on the integration page to remove a subscription.
 
-For PR-open launches, this is the project integration body for
+For PR-open and mention launches, this is the project integration body for
 `POST /orgs/{orgID}/projects/{projectID}/integrations`:
 
 ```json
@@ -211,7 +212,7 @@ For PR-open launches, this is the project integration body for
   "integration_kind": "github_pr",
   "settings": {
     "launcher": {
-      "trigger": "pull_request_opened",
+      "trigger": "both",
       "profile": "aprf_aeaqcaibaeaqcaibaeaqcaibae"
     }
   }
@@ -222,12 +223,16 @@ The launcher derives the PR tools and Git credentials, adding missing capabiliti
 and preserving explicit entries from the profile. It attaches a subscription for
 the triggering PR. An unrestricted launcher applies to repositories granted to this installation. Set
 `launcher.repository_id` to a numeric repository ID string to narrow it. Use
-`trigger: "mention"` for mentions in new human PR comments. GitHub accepts exactly
-one profile. Updates contain only `settings`; name and kind are immutable.
+`trigger: "mention"` for mention-only launches, or `"pull_request_opened"` for
+PR-open-only launches. With `"both"`, either event can start the PR's agent;
+later mentions reach that same agent. New dashboard setups and the SDK's
+`profileIntegrationSetup` helper default to both.
+GitHub accepts exactly one profile. Updates contain only `settings`; name and kind are immutable.
 
 PR-open launches, comments and reviews require a human sender with repository
-write access. Bot-opened PRs never trigger PR-open launches; with a mention launcher,
-a human with write access can mention the bot to start a review. Comment and review
+write access. PRs opened by bots or outside contributors do not auto-launch;
+with mentions enabled, a human with write access can mention the bot to start a review.
+Comment and review
 checks apply even when the launcher is disabled.
 Other comments remain readable as context. Once a PR is subscribed, new commits
 continue to reach its agent.

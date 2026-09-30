@@ -12,6 +12,7 @@ export function IntegrationLaunch({
   integration,
   canEdit,
   editing,
+  initialSetup,
   onEditingChange,
 }: {
   orgId: string
@@ -19,6 +20,7 @@ export function IntegrationLaunch({
   integration: Integration
   canEdit: boolean
   editing: boolean
+  initialSetup: boolean
   onEditingChange: (editing: boolean) => void
 }) {
   const chat = integration.integration_kind !== 'github_pr'
@@ -46,6 +48,7 @@ export function IntegrationLaunch({
           projectId={projectId}
           integrationKind={integration.integration_kind}
           integration={integration}
+          defaultLauncherEnabled={initialSetup && !chat}
           onSaved={() => {
             onEditingChange(false)
           }}

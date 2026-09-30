@@ -48,11 +48,18 @@ function readReturn() {
   else if (reason)
     error =
       'GitHub setup did not finish. Check your GitHub Apps and saved credentials before continuing.'
+  const setupAction = params.get('setup_action')
   return {
     secretId: secret.success ? secret.data : '',
     installationId: installation.success ? installation.data : '',
     error,
     recoverManually,
+    completed:
+      !reason &&
+      secret.success &&
+      (params.get('github_setup') === 'credentials_saved' ||
+        setupAction === 'install' ||
+        setupAction === 'request'),
   }
 }
 

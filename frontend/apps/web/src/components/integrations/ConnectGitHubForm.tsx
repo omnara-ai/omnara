@@ -39,6 +39,7 @@ export function ConnectGitHubForm({
     ensureIntegration: draft.ensureIntegration,
     session,
     installationHint: returned.installationId,
+    returnedFromGitHub: Boolean(existing) && returned.completed,
     onConnected,
   })
   const [manual, setManual] = useState(

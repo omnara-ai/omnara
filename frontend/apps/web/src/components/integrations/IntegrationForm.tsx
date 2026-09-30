@@ -22,6 +22,7 @@ export interface IntegrationFormProps {
   onSaved: (integration: Integration) => void
   onCancel?: () => void
   cancelLabel?: string
+  defaultLauncherEnabled?: boolean
 }
 
 export function IntegrationForm(props: IntegrationFormProps) {
@@ -48,11 +49,14 @@ function IntegrationFormEditor({
   onSaved,
   onCancel,
   cancelLabel = 'Cancel',
+  defaultLauncherEnabled = false,
   stale,
   onReload,
 }: IntegrationFormProps & { stale: boolean; onReload: () => void }) {
   const update = useUpdateIntegration(orgId, projectId)
-  const [values, setValues] = useState(() => integrationFormValues(integrationKind, integration))
+  const [values, setValues] = useState(() =>
+    integrationFormValues(integrationKind, integration, defaultLauncherEnabled),
+  )
   const [error, setError] = useState('')
   const submitting = useRef(false)
   const mounted = useRef(true)

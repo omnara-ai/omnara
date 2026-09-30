@@ -80,7 +80,7 @@ describe('integration-owned launcher settings', () => {
       repositoryId: '123',
     }
     expect(profileIntegrationSetup(input).settings).toEqual({
-      launcher: { profile: first, trigger: 'pull_request_opened', repository_id: '123' },
+      launcher: { profile: first, trigger: 'both', repository_id: '123' },
     })
     expect(profileIntegrationSetup({ ...input, launcher: false }).settings).toEqual({})
     expect(() => profileIntegrationSetup({ ...input, profileIds: [first, second] })).toThrow(

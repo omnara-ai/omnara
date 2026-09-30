@@ -642,8 +642,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
         name: 'Launch agents from GitHub events',
         exact: true,
       })
-      await expect(launcher).not.toBeChecked()
-      await launcher.check()
+      await expect(launcher).toBeChecked()
       await launch.getByRole('combobox', { name: 'Agent profile', exact: true }).click()
     } else {
       await expect(launch.getByRole('checkbox')).toHaveCount(0)
@@ -672,7 +671,7 @@ for (const integrationKind of ['github_pr', 'discord_thread'] as const) {
     const launched = schemas.zIntegration.parse(await (await savedLauncher).json())
     expect(launched.settings.launcher).toEqual(
       integrationKind === 'github_pr'
-        ? { profile: profileId, trigger: 'pull_request_opened' }
+        ? { profile: profileId, trigger: 'both' }
         : { profiles: [profileId] },
     )
     expect(launched.setup_revision).toBe(integration.setup_revision)

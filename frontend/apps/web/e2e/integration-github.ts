@@ -150,27 +150,27 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   await page.getByLabel('Organization name').fill('engineering')
   await captureGitHubSetup(page, 'organization')
   await page.getByRole('button', { name: 'Continue to GitHub', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Check installations', exact: true })).toBeVisible()
+  await expect(
+    page.getByText('The App can’t access any repositories yet', { exact: false }),
+  ).toBeVisible()
   await expect(page).toHaveURL(integrationPath)
   expect(formPosts).toBe(1)
-  expect(inspections).toBe(0)
+  expect(inspections).toBe(1)
   expect(connects).toBe(0)
-  await page.getByRole('button', { name: 'Check installations', exact: true }).click()
-  await expect(page.getByText('No installations on this page.', { exact: false })).toBeVisible()
+  await expect(page.getByLabel('Saved credential', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Delete integration', exact: true })).toHaveCount(0)
   await captureGitHubSetup(page, 'approval-pending')
   const popup = page.waitForEvent('popup')
-  await page.getByRole('link', { name: 'Install in GitHub', exact: true }).click()
+  await page.getByRole('link', { name: 'Choose repositories on GitHub', exact: true }).click()
   const installPage = await popup
   await expect(installPage.getByText('Mock GitHub installation approval')).toBeVisible()
   await installPage.close()
   approved = true
-  await page.getByRole('button', { name: 'Refresh installations', exact: true }).click()
-  await expect(page.getByLabel('Installation', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'I’ve granted access', exact: true }).click()
   await expect(
-    page.getByRole('button', { name: 'Connect integration', exact: true }),
-  ).toBeDisabled()
-  await page.getByRole('combobox', { name: 'Installation', exact: true }).click()
-  await page.getByRole('option', { name: installation.account, exact: true }).click()
+    page.getByText(`GitHub account: ${installation.account}`, { exact: true }),
+  ).toBeVisible()
+  expect(inspections).toBe(2)
   await expect(
     page.getByRole('link', { name: 'Manage repository access in GitHub' }),
   ).toHaveAttribute('href', installation.settings_url)
@@ -182,10 +182,7 @@ export async function exerciseGuidedGitHubSetup(page: Page, projectID: string) {
   const launch = page.getByRole('region', { name: 'Pull requests', exact: true })
   await expect(
     launch.getByRole('checkbox', { name: 'Launch agents from GitHub events', exact: true }),
-  ).not.toBeChecked()
-  await launch
-    .getByRole('checkbox', { name: 'Launch agents from GitHub events', exact: true })
-    .check()
+  ).toBeChecked()
   await expect(launch.getByRole('combobox', { name: 'Agent profile', exact: true })).toBeVisible()
   await captureGitHubSetup(page, 'connected')
 }

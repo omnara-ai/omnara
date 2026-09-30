@@ -51,7 +51,9 @@ function launchMoment(integration: Integration) {
     const launcher = githubIntegrationSettings(integration.settings).launcher
     const where = launcher?.repository_id
       ? `in repository ${launcher.repository_id}`
-      : 'in repositories granted to this installation'
+      : 'in repositories this integration can access'
+    if (launcher?.trigger === 'both')
+      return `When a pull request opens or someone mentions the bot on a pull request ${where}`
     return launcher?.trigger === 'pull_request_opened'
       ? `When a pull request opens ${where}`
       : `When someone mentions the bot on a pull request ${where}`

@@ -103,8 +103,8 @@ func newChatLauncher(provider string) *LauncherDefinition {
 }
 
 var githubSettings = &SettingsDefinition{
-	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}}}}`),
-	Description: "Launch on a PR opening or a mention from someone with repository write access.",
+	InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"launcher":{"type":"object","additionalProperties":false,"required":["profile","trigger"],"properties":{"profile":{"type":"string","pattern":"^aprf_[a-z2-7]{26}$","title":"Profile","x-omnara-control":"agent_profile"},"trigger":{"type":"string","enum":["mention","pull_request_opened","both"],"title":"Start agents"},"repository_id":{"type":"string","pattern":"^[1-9][0-9]*$","title":"Repository ID","description":"Optional: restrict launches to this repository."}}}}}`),
+	Description: "Launch on PR openings, mentions, or both, from someone with repository write access.",
 	ValidateSettings: func(raw json.RawMessage) error {
 		settings, err := ReadGitHubSettings(raw)
 		if err != nil || settings.Launcher == nil {
@@ -157,6 +157,8 @@ func matchesTrigger(event Event, trigger string) bool {
 			(event.Kind == "message" || event.Kind == "discussion_comment" || event.Kind == "review_comment")
 	case "pull_request_opened":
 		return event.Scope.GitHub != nil && event.Kind == "pull_request_opened"
+	case "both":
+		return event.Scope.GitHub != nil && (matchesTrigger(event, "mention") || matchesTrigger(event, "pull_request_opened"))
 	}
 	return false
 }

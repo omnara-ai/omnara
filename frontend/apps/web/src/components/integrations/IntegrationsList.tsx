@@ -1,5 +1,5 @@
 import { useIntegrations } from '@omnara/react'
-import { githubIntegrationSettings } from '@omnara/sdk'
+import { githubIntegrationSettings, type Integration } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
 
 import { Badge } from '@/components/ui/badge'
@@ -70,13 +70,7 @@ export function IntegrationsList({
                       <div className="flex min-w-0 flex-col gap-1">
                         <span className="truncate font-medium">{integration.name}</span>
                         <span className="text-muted-foreground text-sm">
-                          {integration.settings.launcher
-                            ? integration.integration_kind === 'github_pr' &&
-                              githubIntegrationSettings(integration.settings).launcher?.trigger ===
-                                'pull_request_opened'
-                              ? 'Starts agents when a pull request opens'
-                              : 'Starts agents when the bot is mentioned'
-                            : 'No event launcher'}
+                          {launchSummary(integration)}
                         </span>
                       </div>
                     </div>
@@ -108,4 +102,14 @@ export function IntegrationsList({
       )}
     </>
   )
+}
+
+function launchSummary(integration: Integration) {
+  if (!integration.settings.launcher) return 'No event launcher'
+  if (integration.integration_kind === 'github_pr') {
+    const trigger = githubIntegrationSettings(integration.settings).launcher?.trigger
+    if (trigger === 'both') return 'Starts agents on new pull requests or mentions'
+    if (trigger === 'pull_request_opened') return 'Starts agents when a pull request opens'
+  }
+  return 'Starts agents when the bot is mentioned'
 }

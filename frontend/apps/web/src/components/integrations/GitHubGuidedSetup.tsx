@@ -48,7 +48,7 @@ export function GitHubGuidedSetup({
   footerAction?: ReactNode
   disabled?: boolean
 }) {
-  const { resuming, inspection } = guided
+  const { resuming, returned, inspection } = guided
   const locked = busy || disabled
   return (
     <form
@@ -60,12 +60,20 @@ export function GitHubGuidedSetup({
       <FieldGroup className="text-sm">
         <div className="flex flex-col gap-2">
           <h2 className="font-medium">
-            {resuming ? 'Connect a saved GitHub App' : 'Create a GitHub App'}
+            {returned
+              ? 'Connect your GitHub App'
+              : resuming
+                ? 'Connect a saved GitHub App'
+                : 'Create a GitHub App'}
           </h2>
           <p className="text-muted-foreground">
-            {resuming
-              ? 'Select a saved credential below, then click Check installations and choose an installation to connect.'
-              : 'Fill in the details below, then click Continue to GitHub to create your App. You’ll return here to connect it.'}
+            {returned
+              ? inspection?.result.installations.length
+                ? 'Connect a GitHub account below to finish setup.'
+                : 'Choose which repositories your App can access on GitHub.'
+              : resuming
+                ? 'Select a saved credential, then check which GitHub accounts it can access.'
+                : 'Fill in the details below, then click Continue to GitHub to create your App. You’ll return here to connect it.'}
           </p>
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-5">
@@ -76,7 +84,13 @@ export function GitHubGuidedSetup({
               saved={draft.integration}
             />
           )}
-          {resuming ? (
+          {returned ? (
+            !inspection && (
+              <p role="status" className="text-muted-foreground">
+                Checking GitHub access…
+              </p>
+            )
+          ) : resuming ? (
             <IntegrationCredentialPicker
               orgId={orgId}
               projectId={projectId}
@@ -110,48 +124,53 @@ export function GitHubGuidedSetup({
           </p>
         )}
         <fieldset disabled={busy} className="flex flex-wrap items-center justify-end gap-2">
-          {footerAction}
+          {!returned && footerAction}
           {onCancel && (
             <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
               Cancel
             </Button>
           )}
-          {(!inspection || inspection.result.installations.length > 0) && (
+          {((!returned && !inspection) ||
+            (inspection && inspection.result.installations.length > 0)) && (
             <Button type="submit" loading={busy} disabled={busy || !guided.ready}>
               {inspection
                 ? 'Connect integration'
                 : resuming
-                  ? 'Check installations'
+                  ? 'Check GitHub access'
                   : 'Continue to GitHub'}
             </Button>
           )}
         </fieldset>
-        <FieldSeparator>OR</FieldSeparator>
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <h2 className="font-medium">
-              {resuming ? 'Other setup options' : 'Use an existing GitHub App'}
-            </h2>
-            <p className="text-muted-foreground">
-              {resuming
-                ? 'Create a new App instead, or copy an App’s details from GitHub.'
-                : 'Choose a credential saved in Omnara, or copy the App’s details from GitHub.'}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={guided.switchCredentialSource}
-            >
-              {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
-            </Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={onUseExistingApp}>
-              Enter App details
-            </Button>
-          </div>
-        </div>
+        {!returned && (
+          <>
+            <FieldSeparator>OR</FieldSeparator>
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-2">
+                <h2 className="font-medium">
+                  {resuming ? 'Other setup options' : 'Use an existing GitHub App'}
+                </h2>
+                <p className="text-muted-foreground">
+                  {resuming
+                    ? 'Create a new App instead, or copy an App’s details from GitHub.'
+                    : 'Choose a credential saved in Omnara, or copy the App’s details from GitHub.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={guided.switchCredentialSource}
+                >
+                  {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
+                </Button>
+                <Button type="button" variant="outline" disabled={busy} onClick={onUseExistingApp}>
+                  Enter App details
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </FieldGroup>
     </form>
   )
@@ -234,18 +253,30 @@ function GitHubInstallationChoice({
   disabled: boolean
 }) {
   const nextPage = result.next_page
+  const accounts = result.installations.length
+  const sole = page === 1 && !nextPage && accounts === 1
   return (
     <>
       <p>
         GitHub App: <strong>{result.name}</strong>{' '}
         <span className="text-muted-foreground">({result.slug})</span>
       </p>
-      {result.installations.length > 0 ? (
+      {accounts === 0 ? (
+        <p className="text-muted-foreground">
+          {page === 1
+            ? 'The App can’t access any repositories yet. Choose repositories on GitHub, then select I’ve granted access. If an organization owner must approve it, check again once they have.'
+            : 'No more accounts.'}
+        </p>
+      ) : sole && selected ? (
+        <p>
+          GitHub account: <strong>{selected.account}</strong>
+        </p>
+      ) : (
         <Field>
-          <FieldLabel htmlFor="github-installation">Installation</FieldLabel>
+          <FieldLabel htmlFor="github-installation">GitHub account</FieldLabel>
           <Select value={selected?.id ?? ''} required disabled={disabled} onValueChange={onSelect}>
             <SelectTrigger id="github-installation" className="w-full">
-              <SelectValue placeholder="Choose an installation">{selected?.account}</SelectValue>
+              <SelectValue placeholder="Choose an account">{selected?.account}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {result.installations.map((installation) => (
@@ -255,12 +286,10 @@ function GitHubInstallationChoice({
               ))}
             </SelectContent>
           </Select>
+          <FieldDescription>
+            The App can access repositories on these accounts. Choose the one agents should review.
+          </FieldDescription>
         </Field>
-      ) : (
-        <p className="text-muted-foreground">
-          No installations on this page. Install the app in GitHub, or check again after your
-          organization approves it. Your saved credential remains available.
-        </p>
       )}
       {selected && (
         <a
@@ -273,9 +302,9 @@ function GitHubInstallationChoice({
         </a>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button asChild variant={result.installations.length ? 'outline' : 'default'}>
+        <Button asChild variant={accounts ? 'outline' : 'default'}>
           <a href={result.install_url} target="_blank" rel="noreferrer">
-            Install in GitHub
+            {accounts ? 'Add an account on GitHub' : 'Choose repositories on GitHub'}
           </a>
         </Button>
         <Button
@@ -285,7 +314,7 @@ function GitHubInstallationChoice({
             onInspect(page)
           }}
         >
-          Refresh installations
+          {accounts ? 'Refresh accounts' : 'I’ve granted access'}
         </Button>
         {page > 1 && (
           <Button
@@ -295,7 +324,7 @@ function GitHubInstallationChoice({
               onInspect(page - 1)
             }}
           >
-            Previous installations
+            Previous accounts
           </Button>
         )}
         {nextPage && (
@@ -306,7 +335,7 @@ function GitHubInstallationChoice({
               onInspect(nextPage)
             }}
           >
-            More installations
+            More accounts
           </Button>
         )}
       </div>

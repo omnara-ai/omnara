@@ -4,7 +4,7 @@ import {
   useInspectIntegrationGitHubInstallations,
 } from '@omnara/react'
 import type { CreateGitHubSetupRequest, GitHubInstallations, Integration } from '@omnara/sdk'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 
 import { integrationFormError } from './integrationFormState'
 import type { useIntegrationSetupState } from './useIntegrationSetupState'
@@ -20,6 +20,7 @@ export function useGitHubGuidedSetup({
   ensureIntegration,
   session,
   installationHint,
+  returnedFromGitHub,
   onConnected,
 }: {
   orgId: string
@@ -27,11 +28,13 @@ export function useGitHubGuidedSetup({
   ensureIntegration: () => Promise<Integration>
   session: ReturnType<typeof useIntegrationSetupState>
   installationHint: string
+  returnedFromGitHub: boolean
   onConnected: (integration: Integration) => void
 }) {
   const { run, setError } = session
   const secretId = session.savedSecret || session.selectedSecret
   const [resuming, setResuming] = useState(Boolean(secretId))
+  const [returned, setReturned] = useState(returnedFromGitHub && Boolean(secretId))
   const [organizationOwned, setOrganizationOwned] = useState(false)
   const [organization, setOrganization] = useState('')
   const [inspection, setInspection] = useState<GitHubInspection>()
@@ -47,6 +50,15 @@ export function useGitHubGuidedSetup({
     }
   }, [])
   const isMounted = () => mounted.current
+  const checkReturnedAccess = useEffectEvent(() => {
+    if (returned) inspectInstallations()
+  })
+  const returnChecked = useRef(false)
+  useEffect(() => {
+    if (returnChecked.current) return
+    returnChecked.current = true
+    checkReturnedAccess()
+  }, [])
   const inspected = inspection?.result
   const selected = inspected?.installations.find(
     (installation) => installation.id === installationId,
@@ -99,13 +111,21 @@ export function useGitHubGuidedSetup({
           page,
         })
         if (!isMounted()) return
+        const sole =
+          page === 1 && !result.next_page && result.installations.length === 1
+            ? result.installations[0]?.id
+            : undefined
         setInspection({ result, page })
-        if (!result.installations.some((installation) => installation.id === installationId))
-          setInstallationId('')
+        setInstallationId((current) =>
+          result.installations.some((installation) => installation.id === current)
+            ? current
+            : (sole ?? ''),
+        )
       },
       (cause) => {
         clearInspection()
-        return integrationFormError(cause, 'Could not check GitHub installations.')
+        setReturned(false)
+        return integrationFormError(cause, 'Could not check GitHub access.')
       },
     )
   }
@@ -139,12 +159,14 @@ export function useGitHubGuidedSetup({
     session.setSavedSecret('')
     session.setSelectedSecret(id)
     session.setNewCredential(false)
+    setReturned(false)
     clearInspection()
     setError('')
   }
 
   function switchCredentialSource() {
     setResuming(!resuming)
+    setReturned(false)
     clearInspection()
     setError('')
   }
@@ -164,6 +186,7 @@ export function useGitHubGuidedSetup({
   return {
     secretId,
     resuming,
+    returned,
     organizationOwned,
     setOrganizationOwned,
     organization,

@@ -90,9 +90,9 @@ server or channel filter. Both take ordered, distinct public profile IDs: one st
 immediately; several offer a menu selecting exactly one. `integrations profiles`
 preserves the integration's other settings.
 
-GitHub uses `launcher.profile`, `launcher.trigger` (`mention` or `pull_request_opened`),
-and optional `launcher.repository_id`. Mention launches and comments that direct
-agents require repository write access; automatic PR-open launches do not. The definitions catalog
+GitHub uses `launcher.profile`, `launcher.trigger` (`mention`, `pull_request_opened`, or `both`),
+and optional `launcher.repository_id`. PR-open launches, mention launches and comments
+that direct agents require repository write access. The definitions catalog
 publishes each integration's complete settings schema in `capabilities.settings`.
 
 Select tools and interaction handlers independently in agent configurations:

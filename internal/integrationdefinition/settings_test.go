@@ -92,6 +92,35 @@ func TestDefinitionDoesNotRequireProfileSettings(t *testing.T) {
 	require.False(t, definition.MayLaunchWithoutSelection(json.RawMessage(`{"enabled":true}`), Event{}))
 }
 
+func TestGitHubLauncherTriggers(t *testing.T) {
+	definition, _ := Lookup(GitHubPR)
+	for _, trigger := range []string{"mention", "pull_request_opened", "both"} {
+		t.Run(trigger, func(t *testing.T) {
+			settings := testLaunchSettings(GitHubPR, trigger)
+			_, err := ValidateSettings(GitHubPR, settings)
+			require.NoError(t, err)
+			for _, kind := range []string{"discussion_comment", "review_comment", "pull_request_opened", "commit"} {
+				for _, mentioned := range []bool{false, true} {
+					event := Event{Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: kind, Mentioned: mentioned}
+					want := (kind == "pull_request_opened" && trigger != "mention") ||
+						((kind == "discussion_comment" || kind == "review_comment") && mentioned && trigger != "pull_request_opened")
+					require.Equal(t, want, definition.MatchesLaunch(settings, event), "%s mentioned=%t", kind, mentioned)
+				}
+			}
+			var restricted GitHubSettings
+			require.NoError(t, json.Unmarshal(settings, &restricted))
+			restricted.Launcher.RepositoryID = "456"
+			settings, err = json.Marshal(restricted)
+			require.NoError(t, err)
+			for _, kind := range []string{"discussion_comment", "pull_request_opened"} {
+				require.False(t, definition.MatchesLaunch(settings, Event{
+					Scope: Scope{GitHub: &GitHubScope{RepositoryID: 123, PullRequest: 7}}, Kind: kind, Mentioned: true,
+				}))
+			}
+		})
+	}
+}
+
 func TestPendingLaunchPredicateOnlyProtectsSingleProfileChat(t *testing.T) {
 	for _, kind := range []Kind{SlackThread, DiscordThread} {
 		t.Run(string(kind), func(t *testing.T) {

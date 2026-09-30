@@ -21,19 +21,18 @@ export interface IntegrationFormValues {
 export function integrationFormValues(
   integrationKind: IntegrationKind,
   integration: Integration,
+  defaultLauncherEnabled = false,
 ): IntegrationFormValues {
   const github =
     integrationKind === 'github_pr' ? githubIntegrationSettings(integration.settings) : undefined
   const chat =
     integrationKind !== 'github_pr' ? chatIntegrationLauncher(integration.settings) : undefined
   return {
-    launcher: Boolean(integration.settings.launcher),
+    launcher: Boolean(integration.settings.launcher) || defaultLauncherEnabled,
     profileIds: profileIntegrationProfiles(integration),
     scopeKind: github?.launcher?.repository_id ? 'repository' : chat?.channel_id ? 'channel' : '',
     scopeRef: github?.launcher?.repository_id ?? chat?.channel_id ?? '',
-    trigger:
-      github?.launcher?.trigger ??
-      (integrationKind === 'github_pr' ? 'pull_request_opened' : 'mention'),
+    trigger: github?.launcher?.trigger ?? (integrationKind === 'github_pr' ? 'both' : 'mention'),
   }
 }
 
@@ -58,7 +57,7 @@ export function integrationFormRequest(
       integrationKind === 'github_pr' && values.scopeKind === 'repository'
         ? values.scopeRef.trim()
         : undefined,
-    trigger: z.enum(['mention', 'pull_request_opened']).parse(values.trigger),
+    trigger: z.enum(['mention', 'pull_request_opened', 'both']).parse(values.trigger),
   })
   if (enabled && values.scopeKind && !values.scopeRef.trim()) throw new Error('Enter a scope ID.')
   if (

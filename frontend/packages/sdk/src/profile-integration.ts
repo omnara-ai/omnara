@@ -24,7 +24,7 @@ const repositorySchema = z
   .trim()
   .regex(/^[1-9][0-9]*$/, 'Enter a positive repository ID without leading zeros.')
   .refine((id) => BigInt(id) <= 9223372036854775807n, 'The repository ID is too large.')
-const triggerSchema = z.enum(['mention', 'pull_request_opened'])
+const triggerSchema = z.enum(['mention', 'pull_request_opened', 'both'])
 const chatLauncherSchema = z
   .object({ profiles: profilesSchema.min(1), channel_id: channelSchema.optional() })
   .strict()
@@ -86,7 +86,7 @@ export function profileIntegrationSetup(input: {
   launcher?: boolean
   channelId?: string
   repositoryId?: string
-  trigger?: 'mention' | 'pull_request_opened'
+  trigger?: GitHubIntegrationLauncher['trigger']
 }): CreateIntegrationRequest {
   const settings: IntegrationSettings = {}
   if (input.launcher !== false) {
@@ -98,7 +98,7 @@ export function profileIntegrationSetup(input: {
       if (input.channelId) throw new Error('GitHub launchers do not accept a channel.')
       settings.launcher = githubLauncherSchema.parse({
         profile: profiles[0],
-        trigger: input.trigger ?? 'pull_request_opened',
+        trigger: input.trigger ?? 'both',
         repository_id: input.repositoryId === '' ? undefined : input.repositoryId,
       })
     } else {
