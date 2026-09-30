@@ -119,7 +119,7 @@ export function EditModelGrantDialog({
         ...modelGrantUpdateRequest(draft),
       })
     } catch (err) {
-      setStatus(submitError(err, 'Could not update model grant'))
+      setStatus(submitError(err, 'Could not update shared model'))
       return
     }
     setStatus(idle)
@@ -130,7 +130,7 @@ export function EditModelGrantDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Edit model grant</DialogTitle>
+          <DialogTitle>Edit shared model</DialogTitle>
           <DialogDescription>
             Overrides for {item.model.name} in this project. Overrides can only narrow what the
             configured model allows.
@@ -140,7 +140,7 @@ export function EditModelGrantDialog({
           <FieldGroup>
             <FieldDescription>
               Configured-model values are shown as placeholders. Fields left empty inherit from the
-              configured model; values you enter are stored as overrides for this grant.
+              configured model; values you enter are stored as overrides for this project.
             </FieldDescription>
             <div className="grid gap-4 sm:grid-cols-2">
               {MODEL_GRANT_TOKEN_FIELDS.map((field) => {

@@ -103,3 +103,11 @@ func stringValue(value *string) string {
 func agentInputCommandAPIError(err error) apierror.ResponseError {
 	return apierror.ProjectScoped(err)
 }
+
+func valueOrZero[T any](value *T) T {
+	if value == nil {
+		var zero T
+		return zero
+	}
+	return *value
+}

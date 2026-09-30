@@ -3,6 +3,7 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -19,9 +20,15 @@ import { errorMessage } from '@/lib/submit-status'
 export function UsageReportView({
   query,
   emptyMessage = 'No model usage recorded yet.',
+  emptyAction,
+  chart,
 }: {
   query: UseQueryResult<UsageReportData, unknown>
   emptyMessage?: string
+  /** Call to action shown under the empty message when no usage is recorded. */
+  emptyAction?: ReactNode
+  /** Usage over time, shown between the summary and the per-model table when usage exists. */
+  chart?: ReactNode
 }) {
   if (query.isPending) {
     return (
@@ -44,11 +51,19 @@ export function UsageReportView({
   }
   const report = query.data
   if (report.totals.model_calls === 0) {
-    return <p className="text-muted-foreground text-sm">{emptyMessage}</p>
+    return (
+      <Empty className="rounded-xl border">
+        <EmptyHeader>
+          <EmptyDescription>{emptyMessage}</EmptyDescription>
+        </EmptyHeader>
+        {emptyAction && <EmptyContent>{emptyAction}</EmptyContent>}
+      </Empty>
+    )
   }
   return (
     <div className="flex flex-col gap-6">
       <UsageSummaryCards totals={report.totals} />
+      {chart}
       <UsageByModelTable rows={report.by_model} />
     </div>
   )

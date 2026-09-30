@@ -1,7 +1,10 @@
-import { Link, useRouterState } from '@tanstack/react-router'
+import { type LinkProps, useRouterState } from '@tanstack/react-router'
+import type { ComponentType } from 'react'
 
+import { NavExternalLink, type NavItem, NavSection } from '@/components/app-shell/NavSection'
 import {
-  BrainCircuit,
+  Bot,
+  Box,
   ChartBar,
   CreditCard,
   Fingerprint,
@@ -11,56 +14,38 @@ import {
   Sparkles,
   Users,
 } from '@/components/icons'
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from '@/components/ui/sidebar'
 import { useWebConfig } from '@/lib/web-config'
-
-const resources = [
-  { to: '/' as const, label: 'Overview', icon: House },
-  { to: '/members' as const, label: 'Members', icon: Users },
-  { to: '/machines' as const, label: 'Machines', icon: Server },
-  { to: '/models' as const, label: 'Models', icon: BrainCircuit },
-  { to: '/usage' as const, label: 'Usage', icon: ChartBar },
-  { to: '/secrets' as const, label: 'Secrets', icon: KeyRound },
-  { to: '/skills' as const, label: 'Skills', icon: Sparkles },
-  { to: '/user/api-tokens' as const, label: 'API Tokens', icon: Fingerprint },
-]
 
 export function OrganizationNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { data: webConfig } = useWebConfig()
 
+  function item(
+    to: LinkProps['to'] & string,
+    label: string,
+    icon: ComponentType<{ className?: string }>,
+    emphasized = false,
+  ): NavItem {
+    return { id: to, to, label, icon, emphasized, isActive: pathname === to }
+  }
+
   return (
-    <SidebarGroup>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {resources.map((resource) => (
-            <SidebarMenuItem key={resource.to}>
-              <SidebarMenuButton asChild isActive={pathname === resource.to}>
-                <Link to={resource.to}>
-                  <resource.icon />
-                  <span>{resource.label}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-          {webConfig?.billingHref && (
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild>
-                <a href={webConfig.billingHref}>
-                  <CreditCard />
-                  <span>Credits</span>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
+    <NavSection
+      items={[
+        item('/', 'Overview', House, true),
+        item('/agents', 'Agents', Bot, true),
+        item('/usage', 'Usage', ChartBar, true),
+        item('/models', 'Models', Box),
+        item('/machines', 'Machines', Server),
+        item('/secrets', 'Secrets', KeyRound),
+        item('/skills', 'Skills', Sparkles),
+        item('/members', 'Members', Users),
+        item('/user/api-tokens', 'API Tokens', Fingerprint),
+      ]}
+    >
+      {webConfig?.billingHref && (
+        <NavExternalLink href={webConfig.billingHref} label="Credits" icon={CreditCard} />
+      )}
+    </NavSection>
   )
 }

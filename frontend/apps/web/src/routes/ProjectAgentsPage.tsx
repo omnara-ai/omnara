@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 
 import { AgentProfilesSection } from '@/components/agents/AgentProfilesSection'
 import { AgentsSection } from '@/components/agents/AgentsSection'
+import { CreateAgentProfileButton } from '@/components/agents/CreateAgentProfileButton'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SectionTitle } from '@/components/layout/SectionTitle'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
@@ -24,7 +25,7 @@ const headings = {
 } satisfies Record<AgentsTab, { title: string; subtitle: string; guide: Guide }>
 
 export function ProjectAgentsPage() {
-  const search = useSearch({ strict: false })
+  const search = useSearch({ from: '/authenticated/onboarded/projects/$projectId/agents' })
   const tab: AgentsTab = search.tab ?? 'profiles'
   const heading = headings[tab]
   const navigate = useNavigate()
@@ -67,13 +68,17 @@ export function ProjectAgentsPage() {
               orgId={activeOrg.id}
               projectId={projectId}
               canOperate={project?.access.can_operate ?? false}
+              canManage={project?.access.can_manage ?? false}
             />
           ) : (
             <AgentsSection
               orgId={activeOrg.id}
               projectId={projectId}
               canManage={project?.access.can_manage ?? false}
-              emptyMessage="No agents yet. Launch one from a profile, or create one with New agent."
+              emptyMessage="No agents yet. Create an agent profile, then launch agents from it."
+              emptyAction={
+                project?.access.can_manage && <CreateAgentProfileButton projectId={projectId} />
+              }
             />
           )}
         </div>

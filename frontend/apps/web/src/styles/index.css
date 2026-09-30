@@ -273,6 +273,19 @@
     visibility 0.2s;
 }
 
+@theme {
+  --animate-agent-sweep: agent-sweep 2400ms linear infinite;
+
+  @keyframes agent-sweep {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(var(--agent-sweep-distance));
+    }
+  }
+}
+
 @keyframes collapsible-open {
   from {
     height: 0;

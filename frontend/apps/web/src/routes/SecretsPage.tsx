@@ -3,10 +3,8 @@ import { useLocation, useNavigate } from '@tanstack/react-router'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SecretsSection } from '@/components/overview/SecretsSection'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useActiveOrg } from '@/lib/use-active-org'
 
 export function SecretsPage() {
-  const { activeOrg } = useActiveOrg()
   const navigate = useNavigate()
   const ownerParam = useLocation({
     select: (location) => new URLSearchParams(location.searchStr).get('owner'),
@@ -15,12 +13,7 @@ export function SecretsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb
-        items={[
-          { id: 'organization', label: activeOrg.name, to: '/' },
-          { id: 'secrets', label: 'Secrets' },
-        ]}
-      />
+      <PageBreadcrumb items={[{ id: 'secrets', label: 'Secrets' }]} />
       <Tabs
         value={owner}
         onValueChange={(nextOwner) => {

@@ -1,11 +1,13 @@
 import { type ProjectAvailableSecretListSort, useProjectAvailableSecrets } from '@omnara/react'
 import type { ProjectSecretAccess } from '@omnara/sdk'
+import { Link } from '@tanstack/react-router'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { SearchHeader } from '@/components/layout/SearchHeader'
 import { SecretRowActions } from '@/components/secrets/SecretRowActions'
+import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import {
   resourceSortOptions,
@@ -44,14 +46,14 @@ export function ProjectSecretGrantsTable({
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title="Secret grants"
+        title="Shared secrets"
         guide={guides.secrets}
         toolbar={
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
             sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
-            placeholder="Search secret grants by name…"
+            placeholder="Search shared secrets by name…"
             showSearch={showToolbar}
           />
         }
@@ -113,7 +115,12 @@ export function ProjectSecretGrantsTable({
         onRetry={() => {
           void query.refetch()
         }}
-        emptyMessage="No secrets granted. Grant one from the Organization tab on the Secrets page."
+        emptyMessage="No shared secrets. Share one from the Organization tab on the Secrets page."
+        emptyAction={
+          <Button asChild size="sm" variant="outline">
+            <Link to="/secrets">Go to secrets</Link>
+          </Button>
+        }
       />
     </div>
   )

@@ -57,7 +57,7 @@ function secretDraftValid(secret: SecretDraft): boolean {
 }
 
 function submitLabel(state: SecretDialogState): string {
-  if (state.createdSecret) return 'Retry project grants'
+  if (state.createdSecret) return 'Retry sharing'
   return state.secret.kind === 'mcp_oauth' && secretDraftValid(state.secret)
     ? 'Authorize and Create Secret'
     : 'Create secret'

@@ -282,8 +282,8 @@ it('excludes successful bulk creations and retries only the failed selection', a
 })
 
 it.each([
-  { create: true, submitLabel: 'Add model', retryLabel: 'Retry project grants' },
-  { create: false, submitLabel: 'Grant model', retryLabel: 'Grant model' },
+  { create: true, submitLabel: 'Add model', retryLabel: 'Retry sharing' },
+  { create: false, submitLabel: 'Share model', retryLabel: 'Share model' },
 ])(
   '$submitLabel retains successful grants across partial failures',
   async ({ create, submitLabel, retryLabel }) => {
@@ -292,7 +292,7 @@ it.each([
     await selectModelAndProjects(create)
     await clickButton(submitLabel)
 
-    expect(document.body.textContent).toContain('2 project grants failed')
+    expect(document.body.textContent).toContain('Sharing with 2 projects failed')
     for (const remaining of [['Beta', 'Gamma'], ['Gamma']]) {
       await openCombobox('[aria-label="Search projects…"]')
       expect(
@@ -323,7 +323,7 @@ it('keeps unsubmitted drafts but clears a created model when abandoning failed g
   expect(element('#cm-name')).toHaveProperty('value', 'model-one')
   expect(element('[aria-label="Remove Alpha"]')).toBeDefined()
   await clickButton('Add model')
-  expect(button('Retry project grants')).toBeDefined()
+  expect(button('Retry sharing')).toBeDefined()
 
   await clickButton('Close')
   await clickButton('Open')

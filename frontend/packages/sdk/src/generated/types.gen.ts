@@ -3482,7 +3482,6 @@ export type OrgOverviewResponse = {
      */
     referenced_agent_profiles: Array<OrgOverviewAgentProfileReference>;
     today: OrgOverviewToday;
-    usage: OrgOverviewUsage;
 };
 
 export type OrgOverviewAgentProfileReference = {
@@ -3508,86 +3507,66 @@ export type OrgOverviewToday = {
     messages_sent: number;
 };
 
+export type UsageTimeseriesInterval = 'day' | 'week' | 'month';
+
 /**
- * Model usage over the last 30 days in `timezone`, today included, across the readable projects in `projects`.
+ * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
  */
-export type OrgOverviewUsage = {
+export type UsageTimeseriesMetric = 'sum_tokens' | 'sum_input_tokens' | 'sum_output_tokens' | 'sum_cost' | 'count_model_calls';
+
+export type UsageTimeseriesGroupBy = 'model' | 'profile';
+
+export type UsageTimeseries = {
+    metric: UsageTimeseriesMetric;
+    interval: UsageTimeseriesInterval;
+    group_by?: UsageTimeseriesGroupBy;
+    /**
+     * IANA time zone the buckets follow.
+     */
+    timezone: string;
+    /**
+     * Start of each bucket in `timezone`, oldest first, including buckets without usage. The first bucket starts at the beginning of the interval containing `since`, but only usage at or after `since` counts.
+     */
+    bucket_starts: Array<Timestamp>;
+    /**
+     * End of the window; usage at or after this instant is excluded.
+     */
+    until: Timestamp;
+    /**
+     * All usage in the window, regardless of `metric` and `group_by`.
+     */
     totals: UsageTotals;
     /**
-     * Agents, not counting subagents, that made at least one model call.
+     * Agents, not counting subagents, that made at least one model call in the window.
      */
     active_agents: number;
     /**
-     * The configured models with the most tokens, most first, up to eight. Usage from any other model still counts toward every total.
+     * Without `group_by`, a single `all` series. With it, one series per ranked group, most first, then an `other` series when usage remains.
      */
-    models: Array<OrgOverviewUsageModel>;
-    /**
-     * The agent profiles with the most tokens, most first, up to eight. Usage from a subagent counts toward the subagent's own profile.
-     */
-    profiles: Array<OrgOverviewUsageProfile>;
-    /**
-     * One entry per day, oldest first and ending today, including days without usage.
-     */
-    days: Array<OrgOverviewUsageDay>;
+    series: Array<UsageTimeseriesSeries>;
 };
 
-export type OrgOverviewUsageModel = {
-    id: ConfiguredModelId;
+export type UsageTimeseriesSeries = {
     /**
-     * Configured model name, resolved even if the model has since been deleted.
+     * `no_profile` groups usage from agents launched without a profile; `other` folds together every group beyond `group_limit`.
      */
-    name: ResourceName;
-    totals: UsageTotals;
-};
-
-export type OrgOverviewUsageProfile = {
+    kind: 'all' | 'model' | 'profile' | 'no_profile' | 'other';
     /**
-     * Omitted for usage from agents launched without a profile.
+     * Configured model ID for `model` series, agent profile ID for `profile` series.
      */
-    id?: AgentProfileId;
+    id?: string;
     /**
-     * Agent profile name, resolved even if the profile has since been deleted. Omitted along with `id`.
+     * Configured model or agent profile name, resolved even if it has since been deleted. Present with `id`.
      */
     name?: ResourceName;
-    totals: UsageTotals;
-};
-
-export type OrgOverviewUsageDay = {
     /**
-     * Start of the day in `timezone`.
+     * Metric over the whole window.
      */
-    start: Timestamp;
+    total: number;
     /**
-     * All usage in the day, including models and profiles missing from `models` and `profiles`.
+     * Metric in each bucket, aligned with `bucket_starts`.
      */
-    totals: UsageTotals;
-    /**
-     * Tokens in the day for each model in `models` that has any, in `models` order.
-     */
-    models: Array<OrgOverviewUsageDayModel>;
-    /**
-     * Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
-     */
-    profiles: Array<OrgOverviewUsageDayProfile>;
-};
-
-export type OrgOverviewUsageDayModel = {
-    id: ConfiguredModelId;
-    /**
-     * Input plus output tokens.
-     */
-    tokens: number;
-};
-
-export type OrgOverviewUsageDayProfile = {
-    /**
-     * Omitted for usage from agents launched without a profile.
-     */
-    id?: AgentProfileId;
-    /**
-     * Input plus output tokens.
-     */
-    tokens: number;
+    values: Array<number>;
 };
 
 /**
@@ -4679,6 +4658,112 @@ export type DeclineInvitationResponses = {
 
 export type DeclineInvitationResponse = DeclineInvitationResponses[keyof DeclineInvitationResponses];
 
+export type GetUsageTimeseriesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Only tally model calls started at or after this instant. Omit to start from the earliest recorded call.
+         */
+        since?: string;
+        /**
+         * Only tally model calls started before this instant. Must be later than `since` when both are given. Omit to include calls up to now.
+         */
+        until?: string;
+        /**
+         * IANA time zone that decides where each bucket starts.
+         */
+        timezone?: string;
+        /**
+         * Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. The window may span at most 400 buckets.
+         */
+        interval?: UsageTimeseriesInterval;
+        /**
+         * Value plotted in each bucket. Defaults to `sum_tokens`.
+         */
+        metric?: UsageTimeseriesMetric;
+        /**
+         * Break the metric down into one series per group. Omit for a single series.
+         */
+        group_by?: UsageTimeseriesGroupBy;
+        /**
+         * With `group_by`, how many groups get their own series, ranked by the metric. The rest are folded into one `other` series.
+         */
+        group_limit?: number;
+        /**
+         * Only count usage from these organizations.
+         */
+        org_ids?: Array<OrganizationId>;
+        /**
+         * Only count usage from these projects.
+         */
+        project_ids?: Array<ProjectId>;
+        /**
+         * Only count usage from top-level agents launched from these agent profiles.
+         */
+        agent_profile_ids?: Array<AgentProfileId>;
+        /**
+         * With `agent_profile_ids`, also count usage from subagents spawned by those agents.
+         */
+        include_subagents?: boolean;
+    };
+    url: '/usage/timeseries';
+};
+
+export type GetUsageTimeseriesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type GetUsageTimeseriesError = GetUsageTimeseriesErrors[keyof GetUsageTimeseriesErrors];
+
+export type GetUsageTimeseriesResponses = {
+    /**
+     * Usage timeseries.
+     */
+    200: UsageTimeseries;
+};
+
+export type GetUsageTimeseriesResponse = GetUsageTimeseriesResponses[keyof GetUsageTimeseriesResponses];
+
 export type GetOrgOverviewData = {
     body?: never;
     path: {
@@ -4686,7 +4771,7 @@ export type GetOrgOverviewData = {
     };
     query?: {
         /**
-         * IANA time zone that decides where today and each day of `usage` start.
+         * IANA time zone that decides where today starts.
          */
         timezone?: string;
     };
@@ -4822,6 +4907,176 @@ export type GetOrgUsageResponses = {
 };
 
 export type GetOrgUsageResponse = GetOrgUsageResponses[keyof GetOrgUsageResponses];
+
+export type ListOrgAgentsData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        /**
+         * Return only agents launched from this agent profile.
+         */
+        agent_profile_id?: AgentProfileId;
+        /**
+         * Return only subagents spawned by this agent.
+         */
+        parent_agent_id?: AgentId;
+        /**
+         * Include subagents alongside top-level agents. Defaults to false, so only agents without a parent are returned unless parent_agent_id is set.
+         */
+        include_subagents?: boolean;
+        /**
+         * Include archived agents. Defaults to false.
+         */
+        include_archived?: boolean;
+        sort?: ResourceListSort;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/agents';
+};
+
+export type ListOrgAgentsErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgAgentsError = ListOrgAgentsErrors[keyof ListOrgAgentsErrors];
+
+export type ListOrgAgentsResponses = {
+    /**
+     * Agents across the caller's readable projects, newest first.
+     */
+    200: ListAgentsResponse;
+};
+
+export type ListOrgAgentsResponse = ListOrgAgentsResponses[keyof ListOrgAgentsResponses];
+
+export type ListOrgAgentProfilesData = {
+    body?: never;
+    path: {
+        orgID: OrganizationId;
+    };
+    query?: {
+        /**
+         * Case-insensitive glob over the list's logical name. `*` matches zero or more characters, `?` matches one character, and `\` escapes a wildcard.
+         */
+        name?: string;
+        sort?: ResourceListSort;
+        /**
+         * Maximum number of items to return in one page.
+         */
+        limit?: number;
+        /**
+         * Opaque pagination cursor from a previous response's next_cursor. Omit for the first page.
+         */
+        cursor?: string;
+    };
+    url: '/orgs/{orgID}/agent-profiles';
+};
+
+export type ListOrgAgentProfilesErrors = {
+    /**
+     * The request was invalid.
+     */
+    400: Error;
+    /**
+     * Authentication is required or invalid.
+     */
+    401: Error;
+    /**
+     * The authenticated principal is not authorized.
+     */
+    403: Error;
+    /**
+     * The requested resource was not found or is not visible.
+     */
+    404: Error;
+    /**
+     * The service dependency required to satisfy the request is unavailable.
+     */
+    503: Error;
+    /**
+     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
+     */
+    '4XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ClientErrorCode;
+    };
+    /**
+     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
+     */
+    '5XX': {
+        /**
+         * Human-readable error message. Do not match on it programmatically.
+         */
+        error: string;
+        code: ServerErrorCode;
+    };
+};
+
+export type ListOrgAgentProfilesError = ListOrgAgentProfilesErrors[keyof ListOrgAgentProfilesErrors];
+
+export type ListOrgAgentProfilesResponses = {
+    /**
+     * Agent profiles across the caller's readable projects, newest first.
+     */
+    200: ListAgentProfilesResponse;
+};
+
+export type ListOrgAgentProfilesResponse = ListOrgAgentProfilesResponses[keyof ListOrgAgentProfilesResponses];
 
 export type ListVisibleProjectsData = {
     body?: never;

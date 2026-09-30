@@ -24,6 +24,7 @@ export function AgentCardList<TItem>({
   isError,
   onRetry,
   emptyMessage,
+  emptyAction,
 }: {
   items: TItem[]
   getId: (item: TItem) => string
@@ -34,6 +35,8 @@ export function AgentCardList<TItem>({
   isError: boolean
   onRetry: () => void
   emptyMessage: string
+  /** Call to action shown under the empty message when the list is empty and unfiltered. */
+  emptyAction?: ReactNode
 }) {
   if (isPending) {
     return (
@@ -64,6 +67,11 @@ export function AgentCardList<TItem>({
         <EmptyHeader>
           <EmptyDescription>{isFiltered ? 'No results.' : emptyMessage}</EmptyDescription>
         </EmptyHeader>
+        {!isFiltered && emptyAction && (
+          <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+            {emptyAction}
+          </EmptyContent>
+        )}
       </Empty>
     )
   }
@@ -87,6 +95,7 @@ export interface AgentCardExpansion {
 
 export function AgentCard({
   icon,
+  animated,
   title,
   subtitle,
   meta,
@@ -95,6 +104,7 @@ export function AgentCard({
   expansion,
 }: {
   icon: AgentIconSpec
+  animated?: boolean
   title: ReactNode
   subtitle: ReactNode
   meta: ReactNode
@@ -117,7 +127,7 @@ export function AgentCard({
             'bg-card group-hover/card:border-foreground/20 -mx-px -mt-px rounded-xl border transition-colors',
         )}
       >
-        <AgentIcon icon={icon} />
+        <AgentIcon icon={icon} animated={animated} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">{title}</div>
           <div className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">

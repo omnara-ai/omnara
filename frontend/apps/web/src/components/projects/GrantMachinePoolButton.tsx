@@ -7,7 +7,7 @@ import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
 /**
- * Self-contained "Grant pools" trigger and dialog for the current project.
+ * Self-contained "Share pool" trigger and dialog for the current project.
  * Renders nothing when the viewer can't manage project access.
  */
 export function GrantMachinePoolButton({
@@ -30,7 +30,7 @@ export function GrantMachinePoolButton({
           setOpen(true)
         }}
       >
-        Grant pool
+        Share pool
       </Button>
       <GrantMachinePoolDialog
         open={open}

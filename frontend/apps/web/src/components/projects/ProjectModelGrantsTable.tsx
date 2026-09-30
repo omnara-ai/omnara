@@ -48,14 +48,14 @@ export function ProjectModelGrantsTable({
   return (
     <div className="flex flex-col gap-3">
       <SearchHeader
-        title="Model grants"
+        title="Shared models"
         guide={guides.modelProviders}
         toolbar={
           <ResourceListToolbar
             search={list.search}
             onSearchChange={list.setSearch}
             sort={{ value: list.sort, options: createdResourceSortOptions, onChange: list.setSort }}
-            placeholder="Search model grants by name…"
+            placeholder="Search shared models by name…"
             showSearch={showToolbar}
           />
         }
@@ -99,12 +99,12 @@ export function ProjectModelGrantsTable({
             isActions: true,
             cell: (item) => (
               <ResourceRowActions
-                deleteLabel="Delete grant"
+                deleteLabel="Stop sharing"
                 onEdit={() => {
                   setEditing(item)
                 }}
                 onDelete={() => {
-                  if (!window.confirm('Delete this model grant?')) return
+                  if (!window.confirm('Stop sharing this model with the project?')) return
                   deleteGrant.mutate(item.grant.id)
                 }}
               />
@@ -148,7 +148,8 @@ export function ProjectModelGrantsTable({
         onRetry={() => {
           void grantsQuery.refetch()
         }}
-        emptyMessage="No models granted. Grant an organization model so agents in this project can use it."
+        emptyMessage="No shared models. Share an organization model so agents in this project can use it."
+        emptyAction={<GrantModelButton />}
       />
       {editing && (
         <EditModelGrantDialog

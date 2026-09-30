@@ -1,13 +1,9 @@
-import type { DateRange } from 'react-day-picker'
-
 import { FunnelIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import { Calendar } from '@/components/ui/calendar'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -16,17 +12,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  allTimeUsageRange,
-  type UsageDateRange,
-  usageDateRange,
-  usageDateRangeLabel,
-} from '@/components/usage/usage-date-range'
-import {
-  usageProjectFilterLabel,
-  type UsageProjectFilterValue,
-} from '@/components/usage/usage-project-filter'
-import { UsageProjectMenuItems } from '@/components/usage/UsageProjectFilter'
 import type { SortOption } from '@/hooks/use-resource-list'
 
 interface ToggleFilter {
@@ -38,33 +23,22 @@ function keepMenuOpen(event: Event) {
   event.preventDefault()
 }
 
-export const trailingCheckboxItemClass =
+const trailingCheckboxItemClass =
   'pl-2 pr-8 [&>span:first-child]:left-auto [&>span:first-child]:right-2'
 
 export function FiltersMenu<TSort extends string>({
   label = 'Filters',
-  dateRange,
   sort,
   subagents,
   archived,
-  projects,
 }: {
   label?: string
-  dateRange?: { value: UsageDateRange; onChange: (value: UsageDateRange) => void }
   sort?: { value: TSort; options: readonly SortOption<TSort>[]; onChange: (sort: TSort) => void }
   subagents?: ToggleFilter
   archived?: ToggleFilter
-  projects?: {
-    orgId: string
-    value: UsageProjectFilterValue
-    onChange: (value: UsageProjectFilterValue) => void
-  }
 }) {
-  const selectedRange: DateRange | undefined = dateRange?.value.from
-    ? { from: dateRange.value.from, to: dateRange.value.to }
-    : undefined
   const hasToggles = subagents !== undefined || archived !== undefined
-  const hasSubmenus = dateRange !== undefined || projects !== undefined || sort !== undefined
+  const hasSubmenus = sort !== undefined
 
   return (
     <DropdownMenu>
@@ -75,58 +49,6 @@ export function FiltersMenu<TSort extends string>({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {dateRange && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <span className="flex-1">Date range</span>
-              <span className="text-muted-foreground truncate text-xs">
-                {usageDateRangeLabel(dateRange.value)}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="p-0">
-              <Calendar
-                mode="range"
-                numberOfMonths={2}
-                defaultMonth={dateRange.value.from ?? new Date()}
-                selected={selectedRange}
-                onSelect={(range) => {
-                  dateRange.onChange(usageDateRange(range?.from, range?.to))
-                }}
-              />
-              {dateRange.value.from && (
-                <>
-                  <DropdownMenuSeparator className="my-0" />
-                  <div className="p-1">
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        dateRange.onChange(allTimeUsageRange)
-                      }}
-                    >
-                      Clear date range
-                    </DropdownMenuItem>
-                  </div>
-                </>
-              )}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-        {projects && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <span className="flex-1">Projects</span>
-              <span className="text-muted-foreground truncate text-xs">
-                {usageProjectFilterLabel(projects.value)}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-              <UsageProjectMenuItems
-                orgId={projects.orgId}
-                value={projects.value}
-                onChange={projects.onChange}
-              />
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
         {sort && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>

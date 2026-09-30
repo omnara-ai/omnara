@@ -128,7 +128,7 @@ export function CreateMachinePoolDialog({
                 disabled={submitting || (phase.kind === 'form' && !valid)}
                 loading={submitting}
               >
-                {phase.kind === 'retry-grants' ? 'Retry project grants' : 'Create pool'}
+                {phase.kind === 'retry-grants' ? 'Retry sharing' : 'Create pool'}
               </Button>
             </DialogFooter>
           </FieldGroup>

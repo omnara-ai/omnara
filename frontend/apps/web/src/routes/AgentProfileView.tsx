@@ -6,7 +6,7 @@ import {
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useLocation, useNavigate, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import type { AgentConfigMode } from '@/components/agents/agentConfigModeMachine'
 import { AgentIcon } from '@/components/agents/AgentIcon'
@@ -20,15 +20,16 @@ import { DeployAgentProfileDialog } from '@/components/agents/DeployAgentProfile
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
 import { PillTabs } from '@/components/agents/PillTabs'
 import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
-import { DetailList } from '@/components/data-table/DetailList'
 import { FiltersMenu } from '@/components/data-table/FiltersMenu'
 import { TriangleAlert } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
-import { allTimeUsageRange, usageWindowIsActive } from '@/components/usage/usage-date-range'
+import { defaultUsageRange, isDefaultUsageRange } from '@/components/usage/usage-date-range'
+import { UsageDateRangeMenu } from '@/components/usage/UsageDateRangeMenu'
 import { UsageReportView } from '@/components/usage/UsageReport'
+import { UsageTimeseriesPanel } from '@/components/usage/UsageTimeseriesPanel'
 import { profileIcon } from '@/lib/agent-icon'
-import { formatDateTime } from '@/lib/format'
+import { formatCount } from '@/lib/format'
 import { isInsufficientCreditsError } from '@/lib/insufficient-credits'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
@@ -87,20 +88,34 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
     configDirty,
   )
 
+  const launchButton = (label: string) =>
+    canOperate && (
+      <Button
+        size="sm"
+        disabled={launchPending}
+        loading={launchPending}
+        onClick={() => void launch()}
+      >
+        {label}
+      </Button>
+    )
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <header className="flex flex-col gap-4">
         <PageBreadcrumb
           items={[
-            { id: 'organization', label: activeOrg.name, to: '/' },
-            ...(project ? [{ id: 'project', label: project.name }] : []),
             {
               id: 'agents',
               label: 'Agents',
               to: '/projects/$projectId/agents' as const,
               params: { projectId },
             },
-            { id: 'profile', label: profile.name },
+            {
+              id: 'profile',
+              label: profile.name,
+              icon: <AgentIcon icon={profileIcon(profile.id)} className="size-4 rounded-[2px]" />,
+            },
           ]}
         />
         <LaunchAlert error={launchError} />
@@ -114,20 +129,12 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
                 profile={profile}
                 canManage={canManage}
               />
+              <p className="text-muted-foreground text-sm tabular-nums">
+                Version {formatCount(profile.current_generation)}
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {canOperate && (
-              <Button
-                size="sm"
-                disabled={launchPending}
-                loading={launchPending}
-                onClick={() => void launch()}
-              >
-                Launch
-              </Button>
-            )}
-          </div>
+          <div className="flex items-center gap-2">{launchButton('Launch')}</div>
         </div>
         <PillTabs
           value={tab}
@@ -179,10 +186,16 @@ function ProfileView({ profile, projectId }: { profile: AgentProfile; projectId:
           canManage={canManage}
           profileId={profile.id}
           emptyMessage="No agents from this profile yet. Launch one to get started."
+          emptyAction={launchButton('Launch agent')}
         />
       )}
       {tab === 'usage' && (
-        <ProfileUsageTab orgId={activeOrg.id} projectId={projectId} profileId={profile.id} />
+        <ProfileUsageTab
+          orgId={activeOrg.id}
+          projectId={projectId}
+          profileId={profile.id}
+          emptyAction={launchButton('Launch agent')}
+        />
       )}
 
       {canManage && deployOpen && (
@@ -228,34 +241,20 @@ function ConfigurationTab({
   const [preferredMode, setPreferredMode] = useState<AgentConfigMode>('builder')
 
   return (
-    <div className="flex flex-col gap-6">
-      <DetailList
-        items={[
-          { label: 'ID', value: profile.id, mono: true },
-          { label: 'Generation', value: profile.current_generation },
-          {
-            label: 'Model',
-            value: `${profile.current_config.model.provider_config} · ${profile.current_config.model.name}`,
-          },
-          { label: 'Created', value: formatDateTime(profile.created_at) },
-          { label: 'Updated', value: formatDateTime(profile.updated_at) },
-        ]}
-      />
-      <AgentProfileConfigEditor
-        key={`${profile.current_config_id}:${resetNonce}`}
-        orgId={orgId}
-        projectId={projectId}
-        profile={profile}
-        canManage={canManage}
-        preferredMode={preferredMode}
-        onModeChange={setPreferredMode}
-        onDirtyChange={onDirtyChange}
-        onDiscard={() => {
-          setResetNonce((nonce) => nonce + 1)
-        }}
-        onDelete={onDelete}
-      />
-    </div>
+    <AgentProfileConfigEditor
+      key={`${profile.current_config_id}:${resetNonce}`}
+      orgId={orgId}
+      projectId={projectId}
+      profile={profile}
+      canManage={canManage}
+      preferredMode={preferredMode}
+      onModeChange={setPreferredMode}
+      onDirtyChange={onDirtyChange}
+      onDiscard={() => {
+        setResetNonce((nonce) => nonce + 1)
+      }}
+      onDelete={onDelete}
+    />
   )
 }
 
@@ -263,12 +262,14 @@ function ProfileUsageTab({
   orgId,
   projectId,
   profileId,
+  emptyAction,
 }: {
   orgId: string
   projectId: string
   profileId: string
+  emptyAction: ReactNode
 }) {
-  const [range, setRange] = useState(allTimeUsageRange)
+  const [range, setRange] = useState(defaultUsageRange)
   const [includeSubagents, setIncludeSubagents] = useState(false)
   const query = useAgentProfileUsage(orgId, projectId, profileId, {
     ...range.window,
@@ -276,19 +277,29 @@ function ProfileUsageTab({
   })
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <FiltersMenu
-          dateRange={{ value: range, onChange: setRange }}
-          subagents={{ checked: includeSubagents, onChange: setIncludeSubagents }}
-        />
+      <div className="flex justify-end gap-2">
+        <UsageDateRangeMenu value={range} onChange={setRange} />
+        <FiltersMenu subagents={{ checked: includeSubagents, onChange: setIncludeSubagents }} />
       </div>
       <UsageReportView
         query={query}
-        emptyMessage={
-          usageWindowIsActive(range.window)
-            ? 'No model usage from this profile in this time range.'
-            : 'No model usage from this profile yet. Launch an agent to get started.'
+        chart={
+          <UsageTimeseriesPanel
+            filters={{
+              ...range.window,
+              orgIDs: [orgId],
+              projectIDs: [projectId],
+              agentProfileIDs: [profileId],
+              includeSubagents,
+            }}
+          />
         }
+        emptyMessage={
+          !isDefaultUsageRange(range)
+            ? 'No model usage from this profile in this time range.'
+            : 'No model usage from this profile yet. Launch an agent and send it a message to get started.'
+        }
+        emptyAction={isDefaultUsageRange(range) && emptyAction}
       />
     </div>
   )
@@ -317,6 +328,13 @@ function IntegrationsTab({ orgId, projectId, profileId, canManage, onAdd }: Prof
         projectId={projectId}
         profileId={profileId}
         canManage={canManage}
+        emptyAction={
+          canManage && (
+            <Button size="sm" variant="outline" onClick={onAdd}>
+              Add integration
+            </Button>
+          )
+        }
       />
     </div>
   )
@@ -340,8 +358,15 @@ function SchedulesTab({ orgId, projectId, profileId, canManage, onAdd }: Profile
         filters={{ agent_profile_id: profileId }}
         emptyMessage={
           canManage
-            ? 'No schedules yet. Use “Add cron schedule” to launch a new agent from this profile on a recurring cadence.'
+            ? 'No schedules yet. Add a cron schedule to launch a new agent from this profile on a recurring cadence.'
             : 'No schedules yet.'
+        }
+        emptyAction={
+          canManage && (
+            <Button size="sm" variant="outline" onClick={onAdd}>
+              Add cron schedule
+            </Button>
+          )
         }
       />
     </div>

@@ -225,6 +225,7 @@ export function MachinePoolsSection() {
             void query.refetch()
           }}
           emptyMessage="No machine pools yet. Pools provision the machines your agents run on."
+          emptyAction={newPoolButton()}
         />
       </div>
       {canManage && (

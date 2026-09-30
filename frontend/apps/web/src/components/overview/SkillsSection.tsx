@@ -55,6 +55,18 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
   const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
   const [open, setOpen] = useState(false)
 
+  const createSkillButton = () =>
+    canManage ? (
+      <Button
+        size="sm"
+        onClick={() => {
+          setOpen(true)
+        }}
+      >
+        Create skill
+      </Button>
+    ) : undefined
+
   return (
     <>
       <div className="flex flex-col gap-3">
@@ -71,16 +83,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
             />
           }
         >
-          {canManage && (
-            <Button
-              size="sm"
-              onClick={() => {
-                setOpen(true)
-              }}
-            >
-              Create skill
-            </Button>
-          )}
+          {createSkillButton()}
         </SearchHeader>
         <DataTable
           columns={[
@@ -131,6 +134,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
             void query.refetch()
           }}
           emptyMessage="No skills yet. Upload a skill folder or archive, or write a SKILL.md."
+          emptyAction={createSkillButton()}
         />
       </div>
       {canManage && (

@@ -137,6 +137,7 @@ const (
 	operationGetProjectUsage               operationID = "GetProjectUsage"
 	operationGetAgentProfileUsage          operationID = "GetAgentProfileUsage"
 	operationGetAgentUsage                 operationID = "GetAgentUsage"
+	operationGetUsageTimeseries            operationID = "GetUsageTimeseries"
 	operationGetMachinePool                operationID = "GetMachinePool"
 	operationGetModelCatalog               operationID = "GetModelCatalog"
 	operationGetModelProviderConfig        operationID = "GetModelProviderConfig"
@@ -171,6 +172,8 @@ const (
 	operationListModelProviderConfigs      operationID = "ListModelProviderConfigs"
 	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
 	operationListOrgAPIKeys                operationID = "ListOrgAPIKeys"
+	operationListOrgAgents                 operationID = "ListOrgAgents"
+	operationListOrgAgentProfiles          operationID = "ListOrgAgentProfiles"
 	operationListOrgInvitations            operationID = "ListOrgInvitations"
 	operationListOrgMembers                operationID = "ListOrgMembers"
 	operationListSkills                    operationID = "ListSkills"
@@ -276,38 +279,43 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationCreateOrganization:     userPolicy(noScope()),
 	operationListOrganizations:      accountPolicy(noScope()),
 
-	operationCreateProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteProject:              accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteOrganization:         accountPolicy(orgScope(identitystore.OrgActionOwn)),
-	operationListOrgInvitations:         accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationCreateOrgInvitation:        accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteOrgInvitation:        accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationUpdateOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationRemoveOrgMember:            accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListMemberProjectAccess:    accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationUpdateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationCreateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListModelProviderConfigs:   accountPolicy(orgScope(identitystore.OrgActionRead)),
-	operationGetModelProviderConfig:     accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationGetModelCatalog:            accountPolicy(orgScope(identitystore.OrgActionRead)),
-	operationUpdateModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteModelProviderConfig:  accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationCreateConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListConfiguredModels:       accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationUpdateConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationDeleteConfiguredModel:      accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListOrgMembers:             accountPolicy(orgScope(identitystore.OrgActionRead)),
-	operationGetOrgOverview:             accountPolicy(orgScope(identitystore.OrgActionRead)),
-	operationGetOrgUsage:                accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationGetProjectUsage:            accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetAgentProfileUsage:       accountPolicy(projectScope(identitystore.ProjectActionRead)),
-	operationGetAgentUsage:              accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationCreateProject:             accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteProject:             accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteOrganization:        accountPolicy(orgScope(identitystore.OrgActionOwn)),
+	operationListOrgInvitations:        accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateOrgInvitation:       accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteOrgInvitation:       accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationUpdateOrgMember:           accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationRemoveOrgMember:           accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListMemberProjectAccess:   accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateMachine:             accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationConnectBYOMachine:         accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListMachinePools:          accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateMachinePool:         accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetMachinePool:            accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationUpdateMachinePool:         accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteMachinePool:         accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateModelProviderConfig: accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListModelProviderConfigs:  accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetModelProviderConfig:    accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetModelCatalog:           accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationUpdateModelProviderConfig: accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteModelProviderConfig: accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationCreateConfiguredModel:     accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListConfiguredModels:      accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationUpdateConfiguredModel:     accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationDeleteConfiguredModel:     accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationListOrgMembers:            accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgOverview:            accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationListOrgAgents:             accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationListOrgAgentProfiles:      accountPolicy(orgScope(identitystore.OrgActionRead)),
+	operationGetOrgUsage:               accountPolicy(orgScope(identitystore.OrgActionManage)),
+	operationGetProjectUsage:           accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentProfileUsage:      accountPolicy(projectScope(identitystore.ProjectActionRead)),
+	operationGetAgentUsage:             accountPolicy(agentScope(identitystore.AgentActionRead)),
+	operationGetUsageTimeseries: accountPolicy(
+		customScope("readable projects across the principal's orgs, resolved in the handler"),
+	),
 	operationListVisibleProjects:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationListVisibleMachines:        accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateSecret:               accountPolicy(orgScope(identitystore.OrgActionRead)),

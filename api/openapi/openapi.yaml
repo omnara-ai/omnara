@@ -553,6 +553,122 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
+  /usage/timeseries:
+    get:
+      operationId: getUsageTimeseries
+      tags: [Organizations and Projects]
+      summary: Get usage timeseries
+      description: >-
+        Buckets model usage over time for one metric, optionally broken down by
+        configured model or agent profile. Covers every project the caller can
+        read across its organizations; `org_ids`, `project_ids`, and
+        `agent_profile_ids` narrow that scope. Buckets are calendar days, weeks
+        (starting Monday), or months in `timezone`.
+      parameters:
+        - $ref: '#/components/parameters/UsageSince'
+        - $ref: '#/components/parameters/UsageUntil'
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            default: UTC
+            maxLength: 64
+          description: IANA time zone that decides where each bucket starts.
+        - name: interval
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesInterval'
+          description: >-
+            Bucket width. Omit to pick one from the window length: days up to 92
+            days, weeks up to 730 days, months beyond. The window may span at
+            most 400 buckets.
+        - name: metric
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesMetric'
+          description: Value plotted in each bucket. Defaults to `sum_tokens`.
+        - name: group_by
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UsageTimeseriesGroupBy'
+          description: Break the metric down into one series per group. Omit for a single series.
+        - name: group_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 8
+          description: >-
+            With `group_by`, how many groups get their own series, ranked by the
+            metric. The rest are folded into one `other` series.
+        - name: org_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/OrganizationID'
+          description: Only count usage from these organizations.
+        - name: project_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/ProjectID'
+          description: Only count usage from these projects.
+        - name: agent_profile_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: '#/components/schemas/AgentProfileID'
+          description: >-
+            Only count usage from top-level agents launched from these agent
+            profiles.
+        - name: include_subagents
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: >-
+            With `agent_profile_ids`, also count usage from subagents spawned by
+            those agents.
+      responses:
+        '200':
+          description: Usage timeseries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageTimeseries'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/overview:
     parameters:
       - name: orgID
@@ -568,8 +684,7 @@ paths:
       description: >-
         Returns the data backing the web app's overview page: the caller's visible
         projects, the most recently active agents and most recently updated agent
-        profiles, today's activity, and the last 30 days of model usage across the
-        projects the caller can read. Internal to the web app and subject to change
+        profiles, and today's activity. Internal to the web app and subject to change
         without notice.
       parameters:
         - name: timezone
@@ -579,7 +694,7 @@ paths:
             type: string
             default: UTC
             maxLength: 64
-          description: IANA time zone that decides where today and each day of `usage` start.
+          description: IANA time zone that decides where today starts.
       responses:
         '200':
           description: Overview data for the organization.
@@ -628,6 +743,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/agents:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listOrgAgents
+      tags: [Agents]
+      summary: List agents across projects
+      description: >-
+        Lists agents in every project of the organization where the caller can
+        read agents. Each agent carries its project_id. Items are ordered by
+        created_at descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: agent_profile_id
+          in: query
+          description: Return only agents launched from this agent profile.
+          schema:
+            $ref: '#/components/schemas/AgentProfileID'
+        - name: parent_agent_id
+          in: query
+          description: Return only subagents spawned by this agent.
+          schema:
+            $ref: '#/components/schemas/AgentID'
+        - name: include_subagents
+          in: query
+          description: >-
+            Include subagents alongside top-level agents. Defaults to false, so
+            only agents without a parent are returned unless parent_agent_id is set.
+          schema:
+            type: boolean
+        - name: include_archived
+          in: query
+          description: Include archived agents. Defaults to false.
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          schema:
+            $ref: '#/components/schemas/ResourceListSort'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Agents across the caller's readable projects, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '4XX':
+          $ref: '#/components/responses/ClientError'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /orgs/{orgID}/agent-profiles:
+    parameters:
+      - name: orgID
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/OrganizationID'
+    get:
+      operationId: listOrgAgentProfiles
+      tags: [Configs and Profiles]
+      summary: List agent profiles across projects
+      description: >-
+        Lists agent profiles in every project of the organization the caller can
+        read. Each profile carries its project_id. Items are ordered by created_at
+        descending, then id descending.
+      parameters:
+        - $ref: '#/components/parameters/ResourceNameFilter'
+        - name: sort
+          in: query
+          schema:
+            $ref: '#/components/schemas/ResourceListSort'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Agent profiles across the caller's readable projects, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAgentProfilesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -13731,7 +13956,7 @@ components:
     OrgOverviewResponse:
       type: object
       additionalProperties: false
-      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles, today, usage]
+      required: [projects, recent_agents, recent_agent_profiles, referenced_agent_profiles, today]
       properties:
         projects:
           type: array
@@ -13762,8 +13987,6 @@ components:
             $ref: '#/components/schemas/OrgOverviewAgentProfileReference'
         today:
           $ref: '#/components/schemas/OrgOverviewToday'
-        usage:
-          $ref: '#/components/schemas/OrgOverviewUsage'
     OrgOverviewAgentProfileReference:
       type: object
       additionalProperties: false
@@ -13794,113 +14017,103 @@ components:
           format: int64
           minimum: 0
           description: Messages sent to agents today, not counting messages to or from subagents.
-    OrgOverviewUsage:
+    UsageTimeseriesInterval:
+      type: string
+      enum: [day, week, month]
+      x-enum-varnames: [UsageTimeseriesIntervalDay, UsageTimeseriesIntervalWeek, UsageTimeseriesIntervalMonth]
+    UsageTimeseriesMetric:
+      type: string
+      description: >-
+        `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported
+        cost in USD. `count_model_calls` counts model calls that recorded usage.
+      enum: [sum_tokens, sum_input_tokens, sum_output_tokens, sum_cost, count_model_calls]
+      x-enum-varnames:
+        - UsageTimeseriesMetricSumTokens
+        - UsageTimeseriesMetricSumInputTokens
+        - UsageTimeseriesMetricSumOutputTokens
+        - UsageTimeseriesMetricSumCost
+        - UsageTimeseriesMetricCountModelCalls
+    UsageTimeseriesGroupBy:
+      type: string
+      enum: [model, profile]
+      x-enum-varnames: [UsageTimeseriesGroupByModel, UsageTimeseriesGroupByProfile]
+    UsageTimeseries:
       type: object
       additionalProperties: false
-      description: >-
-        Model usage over the last 30 days in `timezone`, today included, across the
-        readable projects in `projects`.
-      required: [totals, active_agents, models, profiles, days]
+      required: [metric, interval, timezone, bucket_starts, until, totals, active_agents, series]
       properties:
+        metric:
+          $ref: '#/components/schemas/UsageTimeseriesMetric'
+        interval:
+          $ref: '#/components/schemas/UsageTimeseriesInterval'
+        group_by:
+          $ref: '#/components/schemas/UsageTimeseriesGroupBy'
+        timezone:
+          type: string
+          description: IANA time zone the buckets follow.
+        bucket_starts:
+          type: array
+          description: >-
+            Start of each bucket in `timezone`, oldest first, including buckets
+            without usage. The first bucket starts at the beginning of the
+            interval containing `since`, but only usage at or after `since` counts.
+          items:
+            $ref: '#/components/schemas/Timestamp'
+        until:
+          $ref: '#/components/schemas/Timestamp'
+          description: End of the window; usage at or after this instant is excluded.
         totals:
           $ref: '#/components/schemas/UsageTotals'
+          description: All usage in the window, regardless of `metric` and `group_by`.
         active_agents:
           type: integer
           format: int64
           minimum: 0
-          description: Agents, not counting subagents, that made at least one model call.
-        models:
+          description: Agents, not counting subagents, that made at least one model call in the window.
+        series:
           type: array
           description: >-
-            The configured models with the most tokens, most first, up to eight.
-            Usage from any other model still counts toward every total.
+            Without `group_by`, a single `all` series. With it, one series per
+            ranked group, most first, then an `other` series when usage remains.
           items:
-            $ref: '#/components/schemas/OrgOverviewUsageModel'
-        profiles:
-          type: array
+            $ref: '#/components/schemas/UsageTimeseriesSeries'
+    UsageTimeseriesSeries:
+      type: object
+      additionalProperties: false
+      required: [kind, total, values]
+      properties:
+        kind:
+          type: string
+          enum: [all, model, profile, no_profile, other]
+          x-enum-varnames:
+            - UsageTimeseriesSeriesKindAll
+            - UsageTimeseriesSeriesKindModel
+            - UsageTimeseriesSeriesKindProfile
+            - UsageTimeseriesSeriesKindNoProfile
+            - UsageTimeseriesSeriesKindOther
           description: >-
-            The agent profiles with the most tokens, most first, up to eight. Usage
-            from a subagent counts toward the subagent's own profile.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageProfile'
-        days:
-          type: array
-          description: One entry per day, oldest first and ending today, including days without usage.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageDay'
-    OrgOverviewUsageModel:
-      type: object
-      additionalProperties: false
-      required: [id, name, totals]
-      properties:
+            `no_profile` groups usage from agents launched without a profile;
+            `other` folds together every group beyond `group_limit`.
         id:
-          $ref: '#/components/schemas/ConfiguredModelID'
-        name:
-          $ref: '#/components/schemas/ResourceName'
-          description: Configured model name, resolved even if the model has since been deleted.
-        totals:
-          $ref: '#/components/schemas/UsageTotals'
-    OrgOverviewUsageProfile:
-      type: object
-      additionalProperties: false
-      required: [totals]
-      properties:
-        id:
-          $ref: '#/components/schemas/AgentProfileID'
-          description: Omitted for usage from agents launched without a profile.
+          type: string
+          description: Configured model ID for `model` series, agent profile ID for `profile` series.
         name:
           $ref: '#/components/schemas/ResourceName'
           description: >-
-            Agent profile name, resolved even if the profile has since been deleted.
-            Omitted along with `id`.
-        totals:
-          $ref: '#/components/schemas/UsageTotals'
-    OrgOverviewUsageDay:
-      type: object
-      additionalProperties: false
-      required: [start, totals, models, profiles]
-      properties:
-        start:
-          $ref: '#/components/schemas/Timestamp'
-          description: Start of the day in `timezone`.
-        totals:
-          $ref: '#/components/schemas/UsageTotals'
-          description: All usage in the day, including models and profiles missing from `models` and `profiles`.
-        models:
-          type: array
-          description: Tokens in the day for each model in `models` that has any, in `models` order.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageDayModel'
-        profiles:
-          type: array
-          description: Tokens in the day for each profile in `profiles` that has any, in `profiles` order.
-          items:
-            $ref: '#/components/schemas/OrgOverviewUsageDayProfile'
-    OrgOverviewUsageDayModel:
-      type: object
-      additionalProperties: false
-      required: [id, tokens]
-      properties:
-        id:
-          $ref: '#/components/schemas/ConfiguredModelID'
-        tokens:
-          type: integer
-          format: int64
+            Configured model or agent profile name, resolved even if it has since
+            been deleted. Present with `id`.
+        total:
+          type: number
+          format: double
           minimum: 0
-          description: Input plus output tokens.
-    OrgOverviewUsageDayProfile:
-      type: object
-      additionalProperties: false
-      required: [tokens]
-      properties:
-        id:
-          $ref: '#/components/schemas/AgentProfileID'
-          description: Omitted for usage from agents launched without a profile.
-        tokens:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Input plus output tokens.
+          description: Metric over the whole window.
+        values:
+          type: array
+          description: Metric in each bucket, aligned with `bucket_starts`.
+          items:
+            type: number
+            format: double
+            minimum: 0
     UsageTokenTotals:
       type: object
       additionalProperties: false

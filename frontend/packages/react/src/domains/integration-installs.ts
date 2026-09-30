@@ -3,6 +3,7 @@ import {
   listAgentsQueryKey,
   listIntegrationInstallsInfiniteOptions,
   listIntegrationInstallsQueryKey,
+  listOrgAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -57,6 +58,9 @@ export function useDeleteIntegrationInstall(orgID: string, projectID: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: listOrgAgentsQueryKey({ path: { orgID }, client }),
         }),
       ])
     },

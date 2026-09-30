@@ -63,10 +63,25 @@ GROUP BY revision.configured_model_id, configured_model.name, revision.provider_
          provider_config.id, provider_config.name
 ORDER BY provider_config.name, configured_model.name, revision.provider_model_slug;
 
--- name: SumModelCallUsageByDay :many
+-- name: SumModelCallUsageByBucket :many
 -- @sqlc-vet-disable configured-models-deleted-at agent-profiles-deleted-at
 -- Usage must still resolve when the configured model or agent profile is soft deleted.
-SELECT width_bucket(context.created_at, sqlc.arg(day_starts)::timestamptz[])::integer AS day_number,
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE sqlc.narg(agent_profile_ids)::uuid[] IS NOT NULL
+    AND agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND agent.agent_profile_id = ANY(sqlc.narg(agent_profile_ids)::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE sqlc.arg(include_profile_subagents)::boolean
+    AND child.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND profile_agents.depth < 64
+)
+SELECT width_bucket(context.created_at, sqlc.arg(bucket_starts)::timestamptz[])::integer AS bucket_number,
        revision.configured_model_id,
        configured_model.name AS configured_model_name,
        agent.agent_profile_id,
@@ -89,26 +104,85 @@ JOIN agents agent ON agent.project_id = context.project_id
   AND agent.id = context.agent_id
 LEFT JOIN agent_profiles profile ON profile.project_id = agent.project_id
   AND profile.id = agent.agent_profile_id
-WHERE context.org_id = sqlc.arg(org_id)
+WHERE context.org_id = ANY(sqlc.arg(org_ids)::uuid[])
   AND context.project_id = ANY(sqlc.arg(project_ids)::uuid[])
-  AND context.created_at >= sqlc.arg(since)::timestamptz
+  AND (sqlc.narg(since)::timestamptz IS NULL OR context.created_at >= sqlc.narg(since)::timestamptz)
+  AND context.created_at < sqlc.arg(until)::timestamptz
+  AND (
+    sqlc.narg(agent_profile_ids)::uuid[] IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL
     OR context.provider_reported_cost_usd IS NOT NULL
   )
-GROUP BY day_number, revision.configured_model_id, configured_model.name, agent.agent_profile_id, profile.name
-ORDER BY day_number, revision.configured_model_id, agent.agent_profile_id;
+GROUP BY bucket_number, revision.configured_model_id, configured_model.name, agent.agent_profile_id, profile.name
+ORDER BY bucket_number, revision.configured_model_id, agent.agent_profile_id;
+
+-- name: FirstModelCallUsageAt :one
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE sqlc.narg(agent_profile_ids)::uuid[] IS NOT NULL
+    AND agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND agent.agent_profile_id = ANY(sqlc.narg(agent_profile_ids)::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE sqlc.arg(include_profile_subagents)::boolean
+    AND child.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND profile_agents.depth < 64
+)
+SELECT context.created_at
+FROM model_call_contexts context
+WHERE context.org_id = ANY(sqlc.arg(org_ids)::uuid[])
+  AND context.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+  AND (sqlc.narg(since)::timestamptz IS NULL OR context.created_at >= sqlc.narg(since)::timestamptz)
+  AND context.created_at < sqlc.arg(until)::timestamptz
+  AND (
+    sqlc.narg(agent_profile_ids)::uuid[] IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
+  AND (
+    context.input_tokens_total IS NOT NULL
+    OR context.output_tokens_total IS NOT NULL
+    OR context.provider_reported_cost_usd IS NOT NULL
+  )
+ORDER BY context.created_at
+LIMIT 1;
 
 -- name: CountAgentsWithModelCalls :one
+WITH RECURSIVE profile_agents AS (
+  SELECT agent.id, 1 AS depth
+  FROM agents agent
+  WHERE sqlc.narg(agent_profile_ids)::uuid[] IS NOT NULL
+    AND agent.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND agent.agent_profile_id = ANY(sqlc.narg(agent_profile_ids)::uuid[])
+    AND agent.parent_agent_id IS NULL
+  UNION ALL
+  SELECT child.id, profile_agents.depth + 1
+  FROM agents child
+  JOIN profile_agents ON child.parent_agent_id = profile_agents.id
+  WHERE sqlc.arg(include_profile_subagents)::boolean
+    AND child.project_id = ANY(sqlc.arg(project_ids)::uuid[])
+    AND profile_agents.depth < 64
+)
 SELECT count(DISTINCT context.agent_id)::bigint AS agent_count
 FROM model_call_contexts context
 JOIN agents agent ON agent.project_id = context.project_id
   AND agent.id = context.agent_id
-WHERE context.org_id = sqlc.arg(org_id)
+WHERE agent.parent_agent_id IS NULL
+  AND context.org_id = ANY(sqlc.arg(org_ids)::uuid[])
   AND context.project_id = ANY(sqlc.arg(project_ids)::uuid[])
-  AND agent.parent_agent_id IS NULL
-  AND context.created_at >= sqlc.arg(since)::timestamptz
+  AND (sqlc.narg(since)::timestamptz IS NULL OR context.created_at >= sqlc.narg(since)::timestamptz)
+  AND context.created_at < sqlc.arg(until)::timestamptz
+  AND (
+    sqlc.narg(agent_profile_ids)::uuid[] IS NULL
+    OR context.agent_id IN (SELECT profile_agents.id FROM profile_agents)
+  )
   AND (
     context.input_tokens_total IS NOT NULL
     OR context.output_tokens_total IS NOT NULL

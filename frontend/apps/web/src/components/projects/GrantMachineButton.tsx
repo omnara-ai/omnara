@@ -7,7 +7,7 @@ import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 
 /**
- * Self-contained "Grant machines" trigger and dialog for the current project.
+ * Self-contained "Share machines" trigger and dialog for the current project.
  * Only BYO machines are grantable individually; pool machines are reached
  * through their pool's grant. Renders nothing when the viewer can't manage
  * project access.
@@ -32,7 +32,7 @@ export function GrantMachineButton({
           setOpen(true)
         }}
       >
-        Grant machines
+        Share machines
       </Button>
       <GrantProjectMachineDialog
         open={open}

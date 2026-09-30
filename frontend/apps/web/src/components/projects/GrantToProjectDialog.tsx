@@ -68,7 +68,7 @@ export function GrantToProjectDialog<TGrant>({
       setState((prev) => ({ ...prev, projectIds: [], status: idle }))
       onOpenChange(false)
     } catch (err) {
-      const status = submitError(err, 'Could not grant access')
+      const status = submitError(err, 'Could not share')
       setState((prev) => ({ ...prev, status }))
     }
   }
@@ -77,7 +77,7 @@ export function GrantToProjectDialog<TGrant>({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85svh] sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Grant to a project</DialogTitle>
+          <DialogTitle>Share with projects</DialogTitle>
           <DialogDescription>Make {resourceName} available to a project.</DialogDescription>
         </DialogHeader>
         <form onSubmit={(event) => void submit(event)}>
@@ -91,7 +91,7 @@ export function GrantToProjectDialog<TGrant>({
               }}
               disabled={isSubmitting}
               excludedProjectIds={excludedProjectIds}
-              description="Add one or more projects to grant access."
+              description="Add one or more projects to share with."
             />
             {options}
             {errorMessage && <p className="text-destructive text-sm">{errorMessage}</p>}
@@ -101,7 +101,7 @@ export function GrantToProjectDialog<TGrant>({
                 disabled={isSubmitting || submitDisabled || state.projectIds.length === 0}
                 loading={isSubmitting}
               >
-                Grant
+                Share
               </Button>
             </DialogFooter>
           </FieldGroup>

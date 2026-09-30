@@ -39,6 +39,7 @@ export function CronTriggersList({
   canManage,
   filters,
   emptyMessage,
+  emptyAction,
   emptyState,
 }: {
   orgId: string
@@ -46,6 +47,7 @@ export function CronTriggersList({
   canManage: boolean
   filters: CronTriggerListFilters
   emptyMessage: string
+  emptyAction?: ReactNode
   emptyState?: ReactNode
 }) {
   const query = useCronTriggers(orgId, projectId, { filters })
@@ -181,8 +183,9 @@ export function CronTriggersList({
         </div>
       ) : (
         (emptyState ?? (
-          <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 items-center justify-center rounded-md border border-dashed px-4 text-sm">
-            {emptyMessage}
+          <div className="border-border bg-background/60 text-muted-foreground flex min-h-16 flex-col items-center justify-center gap-3 rounded-md border border-dashed px-4 py-4 text-center text-sm">
+            <p>{emptyMessage}</p>
+            {emptyAction}
           </div>
         ))
       )}

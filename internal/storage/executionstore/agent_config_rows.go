@@ -106,7 +106,7 @@ func agentProfileRecordFromGetSQLC(row dbsqlc.GetAgentProfileRow) AgentProfileRe
 	}
 }
 
-func agentProfileRecordFromListForProjectSQLC(row dbsqlc.ListAgentProfilesForProjectRow) AgentProfileRecord {
+func agentProfileRecordFromListForProjectsSQLC(row dbsqlc.ListAgentProfilesForProjectsRow) AgentProfileRecord {
 	record := AgentProfileRecord{
 		ID:                row.ID,
 		OrgID:             row.OrgID,

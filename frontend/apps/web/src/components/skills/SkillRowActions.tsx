@@ -40,7 +40,10 @@ export function SkillRowActions({
   if (!canDelete && !canUpdate && !canGrant) return null
 
   async function remove() {
-    if (!window.confirm(isGrant ? 'Remove this skill grant?' : 'Delete this skill?')) return
+    if (
+      !window.confirm(isGrant ? 'Stop sharing this skill with the project?' : 'Delete this skill?')
+    )
+      return
     try {
       if (availability?.source === 'grant') {
         await deleteGrant.mutateAsync({ skillID: skill.id, grantID: availability.grant_id })
@@ -76,7 +79,7 @@ export function SkillRowActions({
                 setGrantOpen(true)
               }}
             >
-              Grant to project
+              Share with project
             </DropdownMenuItem>
           )}
           {canDelete && (
@@ -89,7 +92,7 @@ export function SkillRowActions({
             >
               {isGrant ? (
                 <span className="flex flex-col gap-0.5">
-                  <span>Remove skill grant</span>
+                  <span>Stop sharing skill</span>
                   <span className="text-muted-foreground text-xs font-normal">
                     Removes {projectName ?? 'this project'}&rsquo;s access to this skill
                   </span>

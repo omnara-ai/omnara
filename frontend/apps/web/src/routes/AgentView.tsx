@@ -11,6 +11,7 @@ import {
 import { useMatchRoute, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { type ComponentProps, useRef, useState } from 'react'
 
+import { agentPaneWidth } from '@/components/agents/agent-pane'
 import { AgentComposer } from '@/components/agents/AgentComposer'
 import { AgentConfigPanel, discardConfigEditsPrompt } from '@/components/agents/AgentConfigPanel'
 import { AgentConversation } from '@/components/agents/AgentConversation'
@@ -31,13 +32,14 @@ import { Button } from '@/components/ui/button'
 import { MessageScrollerProvider } from '@/components/ui/message-scroller'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { agentIcon, profileIcon } from '@/lib/agent-icon'
+import { isAgentActive } from '@/lib/agent-status'
 import type { CssVariables } from '@/lib/css'
 import { useActiveOrg } from '@/lib/use-active-org'
 import { useProjectPage } from '@/lib/use-project-page'
 import { cn } from '@/lib/utils'
 
 const agentDetailPollInterval = 5_000
-const agentSidebarStyle: CssVariables = { '--sidebar-width': '20rem' }
+const agentSidebarStyle: CssVariables = { '--sidebar-width': agentPaneWidth }
 
 type AgentViewMode = 'events' | 'chat'
 
@@ -137,8 +139,6 @@ export function AgentView() {
             <div className="flex min-w-0 items-center justify-between gap-2">
               <PageBreadcrumb
                 items={[
-                  { id: 'organization', label: activeOrg.name, to: '/' },
-                  ...(project ? [{ id: 'project', label: project.name }] : []),
                   {
                     id: 'agents',
                     label: 'Agents',
@@ -167,13 +167,14 @@ export function AgentView() {
                     icon: (
                       <AgentIcon
                         icon={agentIcon(agent.agent_profile_id, agent.id)}
+                        animated={isAgentActive(agent)}
                         className="size-4 rounded-[2px]"
                       />
                     ),
                   },
                 ]}
               />
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 <PillTabs
                   value={view}
                   tabs={viewTabs}

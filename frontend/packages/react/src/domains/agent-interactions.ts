@@ -11,6 +11,7 @@ import {
   listAgentInteractionsOptions,
   listAgentInteractionsQueryKey,
   listAgentsQueryKey,
+  listOrgAgentsQueryKey,
 } from '@omnara/sdk/tanstack'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -106,6 +107,9 @@ export function useCancelAgent(orgID: string, projectID: string, agentID: string
           queryKey: listAgentsQueryKey({ path: { orgID, projectID }, client }),
         }),
         queryClient.invalidateQueries({
+          queryKey: listOrgAgentsQueryKey({ path: { orgID }, client }),
+        }),
+        queryClient.invalidateQueries({
           queryKey: openAgentInteractionsQueryKey(client, { orgID, projectID, agentID }),
         }),
         queryClient.invalidateQueries({
@@ -168,10 +172,15 @@ export async function invalidateSubagentList(
   ) {
     return
   }
-  await queryClient.invalidateQueries({
-    queryKey: listAgentsQueryKey({
-      path: { orgID: scope.orgID, projectID: scope.projectID },
-      client,
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: listAgentsQueryKey({
+        path: { orgID: scope.orgID, projectID: scope.projectID },
+        client,
+      }),
     }),
-  })
+    queryClient.invalidateQueries({
+      queryKey: listOrgAgentsQueryKey({ path: { orgID: scope.orgID }, client }),
+    }),
+  ])
 }
