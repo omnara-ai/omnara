@@ -121,7 +121,8 @@ func TestCatalogConfigurableMachineResources(t *testing.T) {
 		provider    string
 		cpu, memory bool
 	}{
-		{"unikraft", true, true}, {"modal", true, true}, {"blaxel", false, true}, {"daytona", false, false},
+		{"unikraft", true, true}, {"modal", true, true}, {"blaxel", false, true},
+		{"daytona", false, false}, {"createos", false, false},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)
