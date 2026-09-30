@@ -250,27 +250,35 @@ describe('DeleteAccountSection', () => {
     expect(window.location.pathname).toBe('/login')
   })
 
-  it('shows why the account cannot be deleted', async () => {
+  it('blocks deletion and names the orgs the user still owns', async () => {
+    const beta = currentUserOrg({ id: 'org_beta', name: 'Beta', role: 'owner' })
+    await render(currentUser([acme, other, beta]), '/account-section', [])
+
+    expect(buttons('Delete account')[0]?.disabled).toBe(true)
+    expect(container.textContent).toContain(
+      'You own Acme and Beta. Delete those organizations from organization settings before deleting your account.',
+    )
+    expect([...container.querySelectorAll('strong')].map((item) => item.textContent)).toEqual([
+      'Acme',
+      'Beta',
+    ])
+  })
+
+  it('keeps the dialog open and shows the API error on failure', async () => {
     window.history.replaceState(null, '', '/account-section')
-    const me = currentUser([acme])
+    const me = currentUser([other])
     await render(me, '/account-section', [
       {
         method: 'DELETE',
         path: '/api/v1/me',
-        respond: () =>
-          jsonResponse(
-            { code: 'conflict', error: 'user is the last owner of an organization' },
-            409,
-          ),
+        respond: () => jsonResponse({ code: 'conflict', error: 'Account is busy' }, 409),
       },
     ])
     await openDialog('Delete account')
     await typeConfirmation(me.user.email)
     await confirm('Delete account')
 
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(
-      'user is the last owner of an organization',
-    )
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe('Account is busy')
     expect(window.location.pathname).toBe('/account-section')
   })
 })

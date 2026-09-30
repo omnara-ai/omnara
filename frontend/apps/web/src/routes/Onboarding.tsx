@@ -129,18 +129,22 @@ export function Onboarding() {
         </Card>
       </div>
 
-      <OnboardingFooter />
+      <OnboardingFooter returnTo={returnTo} />
     </div>
   )
 }
 
-function OnboardingFooter() {
+function OnboardingFooter({ returnTo }: { returnTo: string }) {
   const { status, logout } = useLogout()
   return (
     <footer className="text-muted-foreground flex flex-col items-center gap-1 text-sm">
       <div className="flex items-center gap-4">
         <a
-          href="/user/account"
+          href={
+            returnTo === '/'
+              ? '/user/account'
+              : `/user/account?return_to=${encodeURIComponent(returnTo)}`
+          }
           className="hover:text-foreground underline-offset-4 hover:underline"
         >
           Account settings

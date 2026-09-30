@@ -23,7 +23,7 @@ export function OrganizationSettingsPage() {
             { label: 'Name', value: activeOrg.name },
             { label: 'Organization ID', value: activeOrg.id, mono: true },
             { label: 'Your role', value: <span className="capitalize">{activeOrg.role}</span> },
-            { label: 'Joined', value: formatDateTime(activeOrg.created_at) },
+            { label: 'Created', value: formatDateTime(activeOrg.created_at) },
           ]}
         />
       </section>

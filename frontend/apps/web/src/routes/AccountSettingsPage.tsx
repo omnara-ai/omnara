@@ -8,6 +8,7 @@ import { DetailList } from '@/components/data-table/DetailList'
 import { type Crumb, PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SectionTitle } from '@/components/layout/SectionTitle'
 import { DeleteAccountSection } from '@/components/settings/DeleteAccountSection'
+import { safeReturnTo } from '@/lib/auth-return-to'
 import { useActiveOrg } from '@/lib/use-active-org'
 
 const accountCrumb: Crumb = { id: 'account', label: 'Account' }
@@ -18,9 +19,15 @@ export function AccountSettingsPage() {
   const { data: me } = useMe()
 
   if (me.orgs.length === 0) {
+    // Carry onboarding's return_to (e.g. a CLI device approval) back so it can finish there.
+    const returnTo = safeReturnTo(new URLSearchParams(window.location.search).get('return_to'))
     return (
       <div className="flex min-h-svh flex-col items-center gap-8 p-6 sm:pt-12">
-        <Link to="/onboarding" className="type-card-title flex items-center gap-2 text-base">
+        <Link
+          to="/onboarding"
+          search={returnTo === '/' ? {} : { return_to: returnTo }}
+          className="type-card-title flex items-center gap-2 text-base"
+        >
           <BrandMark />
           Omnara
         </Link>

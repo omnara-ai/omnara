@@ -1,4 +1,5 @@
 import { useDeleteCurrentUser, useMe } from '@omnara/react'
+import type { CurrentUserOrg } from '@omnara/sdk'
 import { useState } from 'react'
 
 import { DangerZone } from '@/components/settings/DangerZone'
@@ -6,11 +7,29 @@ import { TypeToConfirmDialog } from '@/components/settings/TypeToConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { errorMessage } from '@/lib/submit-status'
 
+const listFormat = new Intl.ListFormat('en')
+
+/** "A, B, and C" with each org name bolded. */
+function OrgNameList({ orgs }: { orgs: CurrentUserOrg[] }) {
+  const byId = new Map(orgs.map((org) => [org.id, org]))
+  return listFormat.formatToParts(orgs.map((org) => org.id)).map((part) =>
+    part.type === 'element' ? (
+      <strong key={part.value} className="text-foreground font-medium">
+        {byId.get(part.value)?.name}
+      </strong>
+    ) : (
+      part.value
+    ),
+  )
+}
+
 export function DeleteAccountSection() {
   const { data: me } = useMe()
   const deleteAccount = useDeleteCurrentUser()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // Owners can't be added or transferred, so the server rejects deleting any account that owns an org.
   const ownedOrgs = me.orgs.filter((org) => org.role === 'owner')
+  const ownsOrgs = ownedOrgs.length > 0
   const error = deleteAccount.isError
     ? errorMessage(deleteAccount.error, 'Could not delete your account.')
     : null
@@ -29,12 +48,23 @@ export function DeleteAccountSection() {
     <>
       <DangerZone
         title="Delete account"
-        description="Permanently delete your account, personal secrets and skills, and all of your access tokens and memberships."
+        description={
+          ownsOrgs ? (
+            <>
+              You own <OrgNameList orgs={ownedOrgs} />. Delete{' '}
+              {ownedOrgs.length === 1 ? 'that organization' : 'those organizations'} from
+              organization settings before deleting your account.
+            </>
+          ) : (
+            'Permanently delete your account, personal secrets and skills, and all of your access tokens and memberships.'
+          )
+        }
         action={
           <Button
             type="button"
             variant="destructive"
             size="sm"
+            disabled={ownsOrgs}
             onClick={() => {
               deleteAccount.reset()
               setConfirmOpen(true)
@@ -55,11 +85,7 @@ export function DeleteAccountSection() {
               every organization and project, and deletes your personal secrets and skills. Your
               email is released so it can be used to register again.
             </p>
-            <p>
-              Organizations, and the agents and other resources you created in them, are kept.
-              {ownedOrgs.length > 0 &&
-                ' You cannot delete your account while you are the only owner of an organization: add another owner or delete the organization first.'}
-            </p>
+            <p>Organizations, and the agents and other resources you created in them, are kept.</p>
             <p>This cannot be undone.</p>
           </>
         }
