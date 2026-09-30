@@ -241,6 +241,11 @@ Human discussion/review input steers the agent and cancels open interactions;
 PR opens and synchronization events queue. Bot comments, edits and unrelated
 issue comments do not become agent input.
 
+Omnara adds an 👀 reaction to PR discussion comments and inline review comments
+after accepting them for an agent. This means the input was accepted, not that
+the agent has finished. Reactions are best effort; a failed reaction does not
+prevent the agent from receiving the comment.
+
 The provider events needed for these routes are `pull_request`, `issue_comment`,
 `pull_request_review` and `pull_request_review_comment`. See GitHub's
 [webhook event reference](https://docs.github.com/en/webhooks/webhook-events-and-payloads).

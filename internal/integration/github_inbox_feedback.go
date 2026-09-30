@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/integration/github"
@@ -33,6 +34,32 @@ func NewGitHubIntegrationInboxProvider(config github.Config, secrets GitHubInbox
 ) *GitHubIntegrationInboxProvider {
 	config.Credentials, config.InstallationID = github.Credentials{}, 0
 	return &GitHubIntegrationInboxProvider{config: config, secrets: secrets, integrations: integrations}
+}
+
+func (p GitHubIntegrationInboxProvider) acknowledge(ctx context.Context,
+	integration integrationstore.IntegrationRecord, payload []byte,
+) error {
+	event, ok, err := NormalizeGitHubIntegrationEvent(integration, payload)
+	if err != nil || !ok {
+		return err
+	}
+	var metadata GitHubEventMetadata
+	if err := json.Unmarshal(event.Metadata, &metadata); err != nil {
+		return err
+	}
+	if metadata.EventType != "issue_comment" && metadata.EventType != "pull_request_review_comment" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	client, err := p.requestAccess(ctx, integration)
+	if err != nil {
+		return err
+	}
+	scope := github.Scope{RepositoryID: event.Event.Scope.GitHub.RepositoryID,
+		PullRequest: event.Event.Scope.GitHub.PullRequest}
+	return client.AcknowledgeComment(ctx, scope, metadata.CommentID,
+		metadata.EventType == "pull_request_review_comment")
 }
 
 func (p GitHubIntegrationInboxProvider) NotifyInboxFailure(ctx context.Context,

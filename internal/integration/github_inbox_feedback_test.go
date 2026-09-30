@@ -199,6 +199,29 @@ func TestGitHubNotifyInboxFailureHumanSources(t *testing.T) {
 	}
 }
 
+func TestGitHubAcknowledgementSkipsEventsWithoutComments(t *testing.T) {
+	for _, eventType := range []string{"pull_request", "pull_request_review"} {
+		t.Run(eventType, func(t *testing.T) {
+			p := GitHubIntegrationInboxProvider{}
+			require.NoError(t, p.acknowledge(t.Context(), githubEventIntegration(),
+				githubEventJSON(t, githubEventFixture(eventType))))
+		})
+	}
+}
+
+func TestGitHubAcknowledgementRechecksCredentialAccess(t *testing.T) {
+	f, p := newGitHubFeedbackFixture(t)
+	f.beforePR = func() { f.revoked = true }
+	err := p.acknowledge(t.Context(), f.integration, githubEventJSON(t, githubEventFixture("issue_comment")))
+	require.ErrorIs(t, err, storeerr.ErrUnauthorized)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require.NotEmpty(t, f.requests)
+	for _, request := range f.requests {
+		require.NotContains(t, request, "/reactions")
+	}
+}
+
 func TestGitHubNotifyInboxFailureSkipsUnplannedHumanComments(t *testing.T) {
 	integration := githubEventIntegration()
 	p := GitHubIntegrationInboxProvider{}

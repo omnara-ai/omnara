@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +41,9 @@ type githubHTTPJourney struct {
 	integration      integrationstore.IntegrationRecord
 	secretID         string
 	senderPermission string
+	reactions        *atomic.Int32
+	reactionStatus   int
+	wantReactionPath string
 }
 
 func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHTTPJourney {
@@ -56,7 +60,8 @@ func newGitHubHTTPJourney(t *testing.T, seed string, options ...Option) githubHT
 		})),
 	})
 	integration := githubHTTPJourneyIntegration(t, handler, project, secretID, "456")
-	return githubHTTPJourney{handler, project, integration, secretID, "write"}
+	return githubHTTPJourney{handler: handler, project: project, integration: integration,
+		secretID: secretID, senderPermission: "write", reactions: &atomic.Int32{}, reactionStatus: http.StatusCreated}
 }
 
 func githubHTTPJourneyIntegration(
@@ -147,15 +152,27 @@ func (f githubHTTPJourney) providerConfig(t *testing.T) github.Config {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			assert.Equal(t, map[string]string{"pull_requests": "read", "metadata": "read"}, grant.Permissions)
+			assert.Contains(t, []string{"read", "write"}, grant.Permissions["pull_requests"])
+			assert.Equal(t, "read", grant.Permissions["metadata"])
+			assert.Len(t, grant.Permissions, 2)
 			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 				"token": fmt.Sprint(grant.Repositories[0]), "expires_at": time.Now().Add(time.Hour),
 			}))
 			return
 		}
-		assert.Equal(t, http.MethodGet, r.Method)
 		repositoryID, err := strconv.ParseInt(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), 10, 64)
 		assert.NoError(t, err)
+		if strings.HasSuffix(r.URL.Path, "/reactions") {
+			assert.Equal(t, http.MethodPost, r.Method)
+			if f.wantReactionPath != "" {
+				assert.Equal(t, f.wantReactionPath, r.URL.Path)
+			}
+			f.reactions.Add(1)
+			w.WriteHeader(f.reactionStatus)
+			assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{"id": 9001, "content": "eyes"}))
+			return
+		}
+		assert.Equal(t, http.MethodGet, r.Method)
 		repository := github.Repository{ID: repositoryID, Name: "repository", Owner: github.User{Login: "owner"}}
 		var result any
 		switch {
@@ -262,6 +279,11 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.Len(t, results, 1)
 			require.NotNil(t, results[0].Launch)
 			require.True(t, results[0].Launch.Created)
+			var reactions int32
+			if trigger == "mention" {
+				reactions = 1
+			}
+			require.Equal(t, reactions, f.reactions.Load())
 			agentID := results[0].Launch.Agent.ID
 			firstInput := results[0].Launch.AgentInput.ID
 			require.Equal(t, "1001#42", results[0].Launch.IntegrationTarget.ScopeRef)
@@ -276,6 +298,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			githubHTTPWebhook(t, f.handler, eventType, "reader-launch", githubJourneyWebhookSecret,
 				denied, http.StatusNoContent)
 			require.Empty(t, f.consume(t, denied), "read-only contributors cannot launch agents")
+			require.Equal(t, reactions, f.reactions.Load(), "replay and unauthorized comments are not acknowledged")
 			f.senderPermission = "write"
 			var agents, inputs int
 			require.NoError(t, pool.QueryRow(t.Context(),
@@ -303,11 +326,19 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 				require.NoError(t, pool.QueryRow(t.Context(),
 					`SELECT count(*) FROM agents WHERE project_id=$1`, f.project.ProjectUUID).Scan(&agents))
 				require.Equal(t, 2, agents, "one agent per PR, independent of the launch trigger")
+				reactions += 2
+				require.Equal(t, reactions, f.reactions.Load())
 			}
 			followup := githubHTTPComment(t, 42, 3002, "@helper please include a regression test")
 			githubHTTPWebhook(t, f.handler, "issue_comment", "followup", githubJourneyWebhookSecret,
 				followup, http.StatusNoContent)
+			f.reactionStatus = http.StatusForbidden
+			f.wantReactionPath = "/repos/owner/repository/issues/comments/3002/reactions"
 			results = f.consume(t, followup)
+			f.reactionStatus = http.StatusCreated
+			f.wantReactionPath = ""
+			reactions++
+			require.Equal(t, reactions, f.reactions.Load(), "failed acknowledgment must not fail intake")
 			require.Len(t, results, 1)
 			require.NotNil(t, results[0].Input)
 			require.Equal(t, agentID, results[0].Input.AgentInput.AgentID)
@@ -332,6 +363,23 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			results = f.consume(t, commit)
 			require.Len(t, results, 1)
 			require.Equal(t, executionstore.DeliveryModeQueued, results[0].Input.AgentInput.DeliveryMode)
+			require.Equal(t, reactions, f.reactions.Load(), "full reviews and commits have no comment to acknowledge")
+			delete(review, "review")
+			review["action"] = "created"
+			review["comment"] = map[string]any{
+				"id": 3050, "in_reply_to_id": 3040, "body": "Please explain this suggestion",
+				"user": map[string]any{"id": 71, "login": "human", "type": "User"},
+			}
+			inline := integrationHTTPJSON(t, review)
+			githubHTTPWebhook(t, f.handler, "pull_request_review_comment", "inline", githubJourneyWebhookSecret,
+				inline, http.StatusNoContent)
+			f.wantReactionPath = "/repos/owner/repository/pulls/comments/3050/reactions"
+			results = f.consume(t, inline)
+			f.wantReactionPath = ""
+			require.Len(t, results, 1)
+			require.Equal(t, agentID, results[0].Input.AgentInput.AgentID)
+			reactions++
+			require.Equal(t, reactions, f.reactions.Load())
 			renamed := strings.ReplaceAll(githubHTTPComment(t, 42, 3003, "renamed repository"),
 				"owner/repository", "new-owner/new-name")
 			githubHTTPWebhook(t, f.handler, "issue_comment", "renamed", githubJourneyWebhookSecret,
@@ -358,6 +406,7 @@ func TestGitHubHTTPReceiptConsumerLaunchAndFollowupJourney(t *testing.T) {
 			require.NoError(t, pool.QueryRow(t.Context(),
 				`SELECT count(*) FROM agent_inputs WHERE agent_id=$1`, agentID).Scan(&afterReader))
 			require.Equal(t, inputs, afterReader)
+			require.Equal(t, reactions+1, f.reactions.Load(), "only the renamed-repository comment was also accepted")
 			f.senderPermission = "write"
 		})
 	}
