@@ -729,6 +729,49 @@ func TestPrepareSendsReasoningEffortAsOutputConfig(t *testing.T) {
 	}
 }
 
+func TestPrepareReasoningEffortKeepsOtherAPIVariantOptions(t *testing.T) {
+	client := Client{
+		EndpointPath:      testEndpointPath,
+		ProviderModelSlug: "claude-test",
+		APIVariantOptions: json.RawMessage(`{
+			"metadata":{"user_id":"user-1"},
+			"top_k":5,
+			"service_tier":"auto",
+			"thinking":{"type":"adaptive","display":"summarized"},
+			"output_config":{"effort":"max","format":{"type":"json_schema","schema":{"type":"object"}}}
+		}`),
+	}
+	supportsReasoning := true
+	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
+		Context: modelcontext.Bundle{
+			Messages: []modelcontext.Message{anthropicTextMessage(modelprotocol.RoleUser, "hi")},
+		},
+		Policy: model.RequestPolicy{
+			MaxOutputTokens:   4096,
+			SupportsReasoning: &supportsReasoning,
+			ReasoningEffort:   "low",
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(prepared.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	for key, want := range map[string]string{
+		"metadata":      `{"user_id":"user-1"}`,
+		"top_k":         `5`,
+		"service_tier":  `"auto"`,
+		"thinking":      `{"type":"adaptive","display":"summarized"}`,
+		"output_config": `{"effort":"low","format":{"type":"json_schema","schema":{"type":"object"}}}`,
+	} {
+		if got := string(payload[key]); got != want {
+			t.Fatalf("%s = %s, want %s in %s", key, got, want, prepared.Body)
+		}
+	}
+}
+
 func TestPrepareRejectsNonObjectAPIVariantOutputConfigWithEffort(t *testing.T) {
 	client := Client{
 		EndpointPath:      testEndpointPath,

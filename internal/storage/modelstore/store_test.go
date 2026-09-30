@@ -986,3 +986,33 @@ func TestCapacityIncreasePreservesNarrowedContextOverrides(t *testing.T) {
 		}
 	}
 }
+
+func TestAcceptedReasoningEfforts(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFormat modelprotocol.APIFormat
+		supported []string
+		want      []string
+	}{
+		{
+			name:      "listed efforts win",
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			supported: []string{"low", "high"},
+			want:      []string{"low", "high"},
+		},
+		{
+			name:      "anthropic messages narrows an empty list",
+			apiFormat: modelprotocol.APIFormatAnthropicMessages,
+			want:      []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{
+			name:      "openai responses accepts any effort",
+			apiFormat: modelprotocol.APIFormatOpenAIResponses,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, acceptedReasoningEfforts(tt.apiFormat, tt.supported))
+		})
+	}
+}

@@ -282,25 +282,54 @@ func (s *Store) ListProjectModelGrants(
 	}
 	result.Grants = make([]ProjectModelGrantListRecord, 0, len(rows))
 	for _, row := range rows {
+		grant := ProjectModelGrantRecord{
+			ID:                        row.ID,
+			OrgID:                     row.OrgID,
+			ProjectID:                 row.ProjectID,
+			ConfiguredModelID:         row.ConfiguredModelID,
+			ContextWindowTokens:       storeutil.IntPtr(row.ContextWindowTokens),
+			MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
+			DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
+			DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
+			SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
+			SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
+			DefaultReasoningEffort:    row.DefaultReasoningEffort,
+			SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
+			InputModalities:           nonNilStringSlice(row.InputModalities),
+			OutputModalities:          nonNilStringSlice(row.OutputModalities),
+			CreatedAt:                 row.CreatedAt,
+			UpdatedAt:                 row.UpdatedAt,
+		}
+		revision := ConfiguredModelRevisionRecord{
+			ID:                        row.RevisionID,
+			OrgID:                     row.OrgID,
+			ConfiguredModelID:         row.ConfiguredModelID,
+			ModelProviderConfigID:     row.ModelProviderConfigID,
+			ProviderModelSlug:         row.ProviderModelSlug,
+			ContextWindowTokens:       int(row.RevisionContextWindowTokens),
+			MaxOutputTokens:           storeutil.IntPtr(row.RevisionMaxOutputTokens),
+			DefaultMaxOutputTokens:    storeutil.IntPtr(row.RevisionDefaultMaxOutputTokens),
+			DefaultCacheRetention:     stringFromSQLCText(row.RevisionDefaultCacheRetention),
+			SupportsTools:             row.RevisionSupportsTools,
+			SupportsReasoning:         row.RevisionSupportsReasoning,
+			DefaultReasoningEffort:    row.RevisionDefaultReasoningEffort,
+			SupportedReasoningEfforts: nonNilStringSlice(row.RevisionSupportedReasoningEfforts),
+			InputModalities:           nonNilStringSlice(row.RevisionInputModalities),
+			OutputModalities:          nonNilStringSlice(row.RevisionOutputModalities),
+		}
+		apiFormat := modelprotocol.APIFormat(row.ApiFormat)
+		var effective *ConfiguredModelRevisionRecord
+		if record, err := EffectiveConfiguredModelRevisionForProjectGrant(apiFormat, revision, grant); err == nil {
+			if record.SupportsReasoning {
+				record.SupportedReasoningEfforts = nonNilStringSlice(
+					acceptedReasoningEfforts(apiFormat, record.SupportedReasoningEfforts),
+				)
+			}
+			effective = &record
+		}
 		result.Grants = append(result.Grants, ProjectModelGrantListRecord{
-			Grant: ProjectModelGrantRecord{
-				ID:                        row.ID,
-				OrgID:                     row.OrgID,
-				ProjectID:                 row.ProjectID,
-				ConfiguredModelID:         row.ConfiguredModelID,
-				ContextWindowTokens:       storeutil.IntPtr(row.ContextWindowTokens),
-				MaxOutputTokens:           storeutil.IntPtr(row.MaxOutputTokens),
-				DefaultMaxOutputTokens:    storeutil.IntPtr(row.DefaultMaxOutputTokens),
-				DefaultCacheRetention:     stringFromSQLCText(row.DefaultCacheRetention),
-				SupportsTools:             storeutil.ClonePtr(row.SupportsTools),
-				SupportsReasoning:         storeutil.ClonePtr(row.SupportsReasoning),
-				DefaultReasoningEffort:    row.DefaultReasoningEffort,
-				SupportedReasoningEfforts: nonNilStringSlice(row.SupportedReasoningEfforts),
-				InputModalities:           nonNilStringSlice(row.InputModalities),
-				OutputModalities:          nonNilStringSlice(row.OutputModalities),
-				CreatedAt:                 row.CreatedAt,
-				UpdatedAt:                 row.UpdatedAt,
-			},
+			Grant:     grant,
+			Effective: effective,
 			Model: ConfiguredModelSummaryRecord{
 				ID:                    row.ConfiguredModelID,
 				OrgID:                 row.OrgID,

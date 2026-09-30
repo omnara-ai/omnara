@@ -280,6 +280,11 @@ type ConfiguredModelSummaryRecord struct {
 type ProjectModelGrantListRecord struct {
 	Grant ProjectModelGrantRecord
 	Model ConfiguredModelSummaryRecord
+	// Effective is the model's current revision with the grant applied, or nil
+	// when the grant no longer fits that revision. When reasoning is supported,
+	// SupportedReasoningEfforts lists the efforts an agent config may set, or is
+	// empty when any value is accepted.
+	Effective *ConfiguredModelRevisionRecord
 }
 
 type ListProjectModelGrantsResult struct {

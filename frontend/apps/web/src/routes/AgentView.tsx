@@ -24,7 +24,6 @@ import {
 } from '@/components/agents/AgentSidebar'
 import { hasPendingMcpBuilderOAuthOutcome } from '@/components/agents/pendingMcpBuilderOAuth'
 import { PillTabs } from '@/components/agents/PillTabs'
-import { type AgentEffort, useAgentEffort } from '@/components/agents/useAgentEffort'
 import { SettingsIcon } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { Button } from '@/components/ui/button'
@@ -76,14 +75,6 @@ export function AgentView() {
   const cancelAgent = useCancelAgent(activeOrg.id, projectId, agentId)
   const currentActorId = useCurrentActorId(activeOrg.id, projectId, me.user.id)
   const canOperate = project?.access.can_operate ?? false
-  const canManage = project?.access.can_manage ?? false
-  const effort = useAgentEffort({
-    orgId: activeOrg.id,
-    projectId,
-    agent,
-    config: agentConfig,
-    canManage,
-  })
   const [configOpen, setConfigOpen] = useState(hasPendingMcpBuilderOAuthOutcome)
   const configDirty = useRef(false)
   const canSendNow =
@@ -177,7 +168,7 @@ export function AgentView() {
                 orgId={activeOrg.id}
                 projectId={projectId}
                 agent={agent}
-                canManage={canManage}
+                canManage={project?.access.can_manage ?? false}
                 onDirtyChange={(dirty) => {
                   configDirty.current = dirty
                 }}
@@ -211,7 +202,6 @@ export function AgentView() {
             composer={view === 'chat'}
             chat={chat}
             model={agentConfig?.model}
-            effort={effort}
             canOperate={canOperate}
             canSendNow={canSendNow}
             orgID={activeOrg.id}
@@ -230,7 +220,7 @@ export function AgentView() {
         machineIds={data.machine_ids}
         mcpConnections={data.mcp_connections}
         profile={profile}
-        canManage={canManage}
+        canManage={project?.access.can_manage ?? false}
       />
     </SidebarProvider>
   )
@@ -242,7 +232,6 @@ function AgentDock({
   composer,
   chat,
   model,
-  effort,
   canOperate,
   canSendNow,
   orgID,
@@ -257,7 +246,6 @@ function AgentDock({
   composer: boolean
   chat: ReturnType<typeof useAgentChat>
   model: ComponentProps<typeof AgentComposer>['model']
-  effort: AgentEffort | null
   canOperate: boolean
   canSendNow: boolean
   orgID: string
@@ -298,7 +286,6 @@ function AgentDock({
           <AgentComposer
             chat={chat}
             model={model}
-            effort={effort}
             cancelPending={cancelPending}
             cancelError={cancelError}
             onCancel={onCancel}

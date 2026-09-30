@@ -1,5 +1,5 @@
 import type { ToolPermissionSelection } from '@omnara/sdk'
-import { type Document, isAlias, isMap, isScalar, parseDocument, visit } from 'yaml'
+import { type Document, isAlias, isScalar, visit } from 'yaml'
 import { z } from 'zod'
 
 import type { BasicSubagent } from '@/components/agents/agentConfigSubagents'
@@ -136,7 +136,14 @@ export type SubagentEntry = z.infer<typeof subagentEntry>
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: optionalText,
-  model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
+  model: z
+    .looseObject({
+      provider_config: optionalText,
+      name: optionalText,
+      reasoning: z.strictObject({ effort: z.string() }).optional(),
+    })
+    .nullable()
+    .optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
   skills: z.array(z.string()).optional(),
@@ -152,16 +159,6 @@ const basicDocument = z.looseObject({
   max_subagents: positiveCount,
   max_depth: positiveCount,
 })
-
-export function parseSourceDocument(source: string): Document | null {
-  try {
-    const doc = parseDocument(source)
-    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
-    return doc
-  } catch {
-    return null
-  }
-}
 
 export function extractBasicConfig(document: Document): BasicConfig | null {
   const sharedYaml = { found: false }
@@ -197,6 +194,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     instruction: normalizeMultiline(doc.instruction ?? ''),
     providerConfig: doc.model?.provider_config ?? '',
     modelName: doc.model?.name ?? '',
+    reasoningEffort: doc.model?.reasoning?.effort ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     mcpServers: Object.entries(doc.mcp ?? {}).map(([name, entry]) => mcpServerDraft(name, entry)),

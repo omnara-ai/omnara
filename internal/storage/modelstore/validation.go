@@ -878,6 +878,19 @@ func validateEffectiveModelOptions(apiFormat modelprotocol.APIFormat, input conf
 
 var anthropicMessagesReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
+// acceptedReasoningEfforts returns the efforts an agent config may set for a
+// model listing supported. An empty list accepts any effort the API format
+// allows, so anthropic-messages still narrows it; nil means any value.
+func acceptedReasoningEfforts(apiFormat modelprotocol.APIFormat, supported []string) []string {
+	if len(supported) > 0 {
+		return append([]string(nil), supported...)
+	}
+	if apiFormat == modelprotocol.APIFormatAnthropicMessages {
+		return append([]string(nil), anthropicMessagesReasoningEfforts...)
+	}
+	return nil
+}
+
 func configuredModelOptionsFromRevision(input ConfiguredModelRevisionRecord) configuredModelOptions {
 	return configuredModelOptions{
 		ContextWindowTokens:       input.ContextWindowTokens,

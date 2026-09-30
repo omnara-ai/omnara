@@ -1419,6 +1419,17 @@ WITH listed AS (
        provider_config.name AS provider_config_name,
        revision.provider_model_slug,
        configured_model.created_at AS model_created_at, configured_model.updated_at AS model_updated_at,
+       provider_config.api_format,
+       revision.id AS revision_id, revision.context_window_tokens AS revision_context_window_tokens,
+       revision.max_output_tokens AS revision_max_output_tokens,
+       revision.default_max_output_tokens AS revision_default_max_output_tokens,
+       revision.default_cache_retention AS revision_default_cache_retention,
+       revision.supports_tools AS revision_supports_tools,
+       revision.supports_reasoning AS revision_supports_reasoning,
+       revision.default_reasoning_effort AS revision_default_reasoning_effort,
+       revision.supported_reasoning_efforts AS revision_supported_reasoning_efforts,
+       revision.input_modalities AS revision_input_modalities,
+       revision.output_modalities AS revision_output_modalities,
        CASE $6::text WHEN 'name' THEN lower(configured_model.name) WHEN 'created_at' THEN to_char(g.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') WHEN 'updated_at' THEN to_char(g.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') END::text AS sort_key, false AS sort_is_null
  FROM project_model_grants g
  JOIN configured_models configured_model ON configured_model.org_id = g.org_id
@@ -1441,6 +1452,11 @@ SELECT id, org_id, project_id, configured_model_id,
  created_at, updated_at,
  model_name, model_provider_config_id, provider_config_name, provider_model_slug,
  model_created_at, model_updated_at,
+ api_format, revision_id, revision_context_window_tokens, revision_max_output_tokens,
+ revision_default_max_output_tokens, revision_default_cache_retention,
+ revision_supports_tools, revision_supports_reasoning,
+ revision_default_reasoning_effort, revision_supported_reasoning_efforts,
+ revision_input_modalities, revision_output_modalities,
  sort_key, sort_is_null
 FROM listed WHERE $1::boolean = false
  OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
@@ -1463,30 +1479,42 @@ type ListProjectModelGrantsParams struct {
 }
 
 type ListProjectModelGrantsRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	ConfiguredModelID         uuid.UUID
-	ContextWindowTokens       *int32
-	MaxOutputTokens           *int32
-	DefaultMaxOutputTokens    *int32
-	DefaultCacheRetention     *string
-	SupportsTools             *bool
-	SupportsReasoning         *bool
-	DefaultReasoningEffort    string
-	SupportedReasoningEfforts []string
-	InputModalities           []string
-	OutputModalities          []string
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-	ModelName                 string
-	ModelProviderConfigID     uuid.UUID
-	ProviderConfigName        string
-	ProviderModelSlug         string
-	ModelCreatedAt            time.Time
-	ModelUpdatedAt            time.Time
-	SortKey                   string
-	SortIsNull                bool
+	ID                                uuid.UUID
+	OrgID                             uuid.UUID
+	ProjectID                         uuid.UUID
+	ConfiguredModelID                 uuid.UUID
+	ContextWindowTokens               *int32
+	MaxOutputTokens                   *int32
+	DefaultMaxOutputTokens            *int32
+	DefaultCacheRetention             *string
+	SupportsTools                     *bool
+	SupportsReasoning                 *bool
+	DefaultReasoningEffort            string
+	SupportedReasoningEfforts         []string
+	InputModalities                   []string
+	OutputModalities                  []string
+	CreatedAt                         time.Time
+	UpdatedAt                         time.Time
+	ModelName                         string
+	ModelProviderConfigID             uuid.UUID
+	ProviderConfigName                string
+	ProviderModelSlug                 string
+	ModelCreatedAt                    time.Time
+	ModelUpdatedAt                    time.Time
+	ApiFormat                         string
+	RevisionID                        uuid.UUID
+	RevisionContextWindowTokens       int32
+	RevisionMaxOutputTokens           *int32
+	RevisionDefaultMaxOutputTokens    *int32
+	RevisionDefaultCacheRetention     *string
+	RevisionSupportsTools             bool
+	RevisionSupportsReasoning         bool
+	RevisionDefaultReasoningEffort    string
+	RevisionSupportedReasoningEfforts []string
+	RevisionInputModalities           []string
+	RevisionOutputModalities          []string
+	SortKey                           string
+	SortIsNull                        bool
 }
 
 func (q *Queries) ListProjectModelGrants(ctx context.Context, arg ListProjectModelGrantsParams) ([]ListProjectModelGrantsRow, error) {
@@ -1531,6 +1559,18 @@ func (q *Queries) ListProjectModelGrants(ctx context.Context, arg ListProjectMod
 			&i.ProviderModelSlug,
 			&i.ModelCreatedAt,
 			&i.ModelUpdatedAt,
+			&i.ApiFormat,
+			&i.RevisionID,
+			&i.RevisionContextWindowTokens,
+			&i.RevisionMaxOutputTokens,
+			&i.RevisionDefaultMaxOutputTokens,
+			&i.RevisionDefaultCacheRetention,
+			&i.RevisionSupportsTools,
+			&i.RevisionSupportsReasoning,
+			&i.RevisionDefaultReasoningEffort,
+			&i.RevisionSupportedReasoningEfforts,
+			&i.RevisionInputModalities,
+			&i.RevisionOutputModalities,
 			&i.SortKey,
 			&i.SortIsNull,
 		); err != nil {

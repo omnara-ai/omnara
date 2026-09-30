@@ -20,6 +20,7 @@ const fullConfig: BasicConfig = {
   instruction: 'You are a research assistant.\n\nCite sources.',
   providerConfig: 'anthropic',
   modelName: 'claude-sonnet-5',
+  reasoningEffort: 'high',
   machineSources: [
     {
       id: 'source-1',
@@ -546,6 +547,34 @@ mcp:
 })
 
 describe('createBasicConfigSession apply', () => {
+  it('writes and clears the model reasoning effort', () => {
+    const source = `instruction: Help.
+model:
+  provider_config: anthropic
+  name: claude-sonnet-5
+  cache_retention: long
+`
+    const draft = mustDeserialize(source)
+    expect(draft.reasoningEffort).toBe('')
+
+    const withEffort = applyToSource(source, { ...draft, reasoningEffort: 'high' })
+    expect(parse(withEffort)).toMatchObject({
+      model: {
+        provider_config: 'anthropic',
+        name: 'claude-sonnet-5',
+        cache_retention: 'long',
+        reasoning: { effort: 'high' },
+      },
+    })
+    expect(mustDeserialize(withEffort).reasoningEffort).toBe('high')
+
+    const cleared = applyToSource(withEffort, {
+      ...mustDeserialize(withEffort),
+      reasoningEffort: '',
+    })
+    expect(parse(cleared)).toEqual(parse(source))
+  })
+
   it('keeps an empty source empty for an untouched form', () => {
     const emptyConfig: BasicConfig = {
       eventWebhookEvents: ['tool_call_update'],
@@ -554,6 +583,7 @@ describe('createBasicConfigSession apply', () => {
       instruction: '',
       providerConfig: '',
       modelName: '',
+      reasoningEffort: '',
       machineSources: [],
       tools: [],
       mcpServers: [],

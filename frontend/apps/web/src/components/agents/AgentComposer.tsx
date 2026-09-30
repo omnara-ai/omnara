@@ -1,18 +1,10 @@
 import type { UseAgentChatResult } from '@omnara/react'
 import type { AgentConfigModel } from '@omnara/sdk'
 import { useMessageScroller } from '@shadcn/react/message-scroller'
-import { Brain } from 'lucide-react'
 import { type ChangeEvent, type KeyboardEvent, type SyntheticEvent, useRef, useState } from 'react'
 
 import { File, FilePlus, SendHorizontal, Square, Upload, X } from '@/components/icons'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
   attachmentSize,
@@ -22,7 +14,6 @@ import {
   type SelectedAgentAttachment,
 } from '@/lib/agent-attachments'
 
-import type { AgentEffort } from './useAgentEffort'
 import { useWindowFileDrop } from './useWindowFileDrop'
 
 function attachmentSelectionError(
@@ -128,39 +119,9 @@ function SelectedAttachment({
   )
 }
 
-function effortLabel(effort: string): string {
-  if (effort === '') return 'Default'
-  if (effort === 'xhigh') return 'Extra High'
-  return effort.charAt(0).toUpperCase() + effort.slice(1)
-}
-
-function EffortSelect({ effort }: { effort: AgentEffort }) {
-  return (
-    <Select value={effort.value} disabled={!effort.editable} onValueChange={effort.change}>
-      <SelectTrigger
-        size="sm"
-        aria-label="Reasoning effort"
-        title="Reasoning effort"
-        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground h-10 gap-1.5 rounded-full border-0 bg-transparent px-3 shadow-none"
-      >
-        <Brain className="size-4" />
-        <SelectValue placeholder="Effort">{effortLabel(effort.value)}</SelectValue>
-      </SelectTrigger>
-      <SelectContent align="end">
-        {effort.options.map((option) => (
-          <SelectItem key={option} value={option}>
-            {effortLabel(option)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
 export function AgentComposer({
   chat,
   model,
-  effort,
   onCancel,
   cancelPending,
   cancelError,
@@ -169,7 +130,6 @@ export function AgentComposer({
 }: {
   chat: UseAgentChatResult
   model?: AgentConfigModel
-  effort: AgentEffort | null
   onCancel: () => Promise<void>
   cancelPending: boolean
   cancelError?: Error | null
@@ -281,7 +241,6 @@ export function AgentComposer({
       <ComposerNotice message={chat.error?.message} />
       <ComposerNotice message={cancelError?.message} />
       <ComposerNotice message={attachmentError} role="alert" />
-      <ComposerNotice message={effort?.error} role="alert" />
       <input
         ref={inputRef}
         type="file"
@@ -322,7 +281,6 @@ export function AgentComposer({
           onClick={() => inputRef.current?.click()}
         />
         <div className="flex min-w-0 items-center gap-1">
-          {effort && <EffortSelect effort={effort} />}
           {working && (
             <Button
               type="button"

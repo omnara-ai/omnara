@@ -5,6 +5,7 @@ import {
   type ConfiguredModelSummary,
   createOmnaraClient,
   type ModelProviderConfig,
+  type ProjectModelGrantEffectiveReasoning,
 } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -17,7 +18,10 @@ import { act, createContext, type ReactNode, useContext } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
-import { AgentConfigModelField } from '@/components/agents/AgentConfigModelField'
+import {
+  AgentConfigModelField,
+  type ModelSelection,
+} from '@/components/agents/AgentConfigModelField'
 import { ActiveOrgContext } from '@/lib/active-org-context'
 import { type FakeApi, fakeApi, jsonResponse, neverResponds } from '@/test/fake-api'
 import { currentUserOrg, fakeId } from '@/test/fixtures'
@@ -54,8 +58,26 @@ function configuredModel(id: string, name: string): ConfiguredModelSummary {
 const pricedModel = configuredModel(fakeId('mdl'), 'openai/gpt-5.6-sol')
 const unpricedModel = configuredModel(`mdl_${'b'.repeat(26)}`, 'x-ai/grok-5')
 
+const noReasoning: ProjectModelGrantEffectiveReasoning = {
+  supports_reasoning: false,
+  default_reasoning_effort: '',
+  supported_reasoning_efforts: [],
+}
+
+const reasoningByModel = new Map<string, ProjectModelGrantEffectiveReasoning>([
+  [
+    pricedModel.id,
+    {
+      supports_reasoning: true,
+      default_reasoning_effort: 'medium',
+      supported_reasoning_efforts: ['low', 'medium', 'high'],
+    },
+  ],
+])
+
 function modelGrant(model: ConfiguredModelSummary) {
   return {
+    effective_reasoning: reasoningByModel.get(model.id) ?? noReasoning,
     grant: {
       id: model.id.replace('mdl_', 'pmog_'),
       org_id: activeOrg.id,
@@ -175,15 +197,27 @@ afterEach(() => {
   container.remove()
 })
 
-async function renderField(model: ConfiguredModelSummary) {
+async function renderField(
+  model: ConfiguredModelSummary,
+  {
+    reasoningEffort = '',
+    onChange = () => undefined,
+    onUnavailableChange,
+  }: {
+    reasoningEffort?: string
+    onChange?: (selection: ModelSelection) => void
+    onUnavailableChange?: (unavailable: boolean) => void
+  } = {},
+) {
   await act(async () => {
     root.render(
       <Providers>
         <AgentConfigModelField
           orgId={activeOrg.id}
           projectId={projectId}
-          value={{ providerConfig: model.provider_config, modelName: model.name }}
-          onChange={() => undefined}
+          value={{ providerConfig: model.provider_config, modelName: model.name, reasoningEffort }}
+          onChange={onChange}
+          onUnavailableChange={onUnavailableChange}
         />
       </Providers>,
     )
@@ -222,4 +256,42 @@ it('switches to an unpriced model after a browser translator rewrites the pricin
     'x-ai/grok-5 · omnara-openrouter',
   )
   expect(container.textContent).toContain('— per 1M tokens')
+})
+
+function effortTrigger() {
+  const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Reasoning effort"]')
+  if (trigger === null) throw new Error('reasoning effort trigger missing')
+  return trigger
+}
+
+it('offers reasoning effort next to a model that supports reasoning', async () => {
+  await renderField(pricedModel)
+
+  await vi.waitFor(() => {
+    expect(effortTrigger().disabled).toBe(false)
+  })
+  expect(effortTrigger().textContent).toContain('Default')
+})
+
+it('disables reasoning effort for a model without reasoning', async () => {
+  await renderField(unpricedModel)
+
+  await vi.waitFor(() => {
+    expect(container.querySelector('#agent-config-model')?.textContent).toBe(
+      'x-ai/grok-5 · omnara-openrouter',
+    )
+  })
+  expect(effortTrigger().disabled).toBe(true)
+})
+
+it('blocks an effort the selected model does not support', async () => {
+  const onUnavailableChange = vi.fn()
+  await renderField(pricedModel, { reasoningEffort: 'max', onUnavailableChange })
+
+  await vi.waitFor(() => {
+    expect(onUnavailableChange).toHaveBeenLastCalledWith(true)
+  })
+  expect(container.textContent).toContain('doesn’t support the “max” reasoning effort')
+  expect(effortTrigger().getAttribute('aria-invalid')).toBe('true')
+  expect(effortTrigger().disabled).toBe(false)
 })

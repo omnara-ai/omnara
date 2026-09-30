@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Document, isNode, type Node } from 'yaml'
+import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 
 import {
   extractBasicConfig,
   type MachineEntry,
   normalizeMultiline,
-  parseSourceDocument,
   type PoolEntry,
   type ToolEntry,
 } from '@/components/agents/agentConfigBasicExtract'
@@ -82,6 +81,7 @@ export interface BasicConfig {
   instruction: string
   providerConfig: string
   modelName: string
+  reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
   mcpServers: BasicMcpServer[]
@@ -117,6 +117,7 @@ export const emptyBasicConfig: BasicConfig = {
   instruction: '',
   providerConfig: '',
   modelName: '',
+  reasoningEffort: '',
   machineSources: [],
   tools: [],
   mcpServers: [],
@@ -183,7 +184,11 @@ export function useAgentBuilderForm(
       setDraft(config ?? emptyBasicConfig)
     },
     instruction: draft.instruction,
-    model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
+    model: {
+      providerConfig: draft.providerConfig,
+      modelName: draft.modelName,
+      reasoningEffort: draft.reasoningEffort,
+    },
     machineSources: draft.machineSources,
     tools: draft.tools,
     skillIds: draft.skillIds,
@@ -198,7 +203,11 @@ export function useAgentBuilderForm(
       patch({ instruction })
     },
     setModel: (model: ModelSelection) => {
-      patch({ providerConfig: model.providerConfig, modelName: model.modelName })
+      patch({
+        providerConfig: model.providerConfig,
+        modelName: model.modelName,
+        reasoningEffort: model.reasoningEffort,
+      })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
       patch({ machineSources })
@@ -279,6 +288,16 @@ function machineSourceValid(source: BasicMachineSource) {
   )
 }
 
+function parseSourceDocument(source: string): Document | null {
+  try {
+    const doc = parseDocument(source)
+    if (doc.errors.length > 0 || doc.contents == null || !isMap(doc.contents)) return null
+    return doc
+  } catch {
+    return null
+  }
+}
+
 type WireValue = string | number | boolean | null | undefined | WireValue[] | WireObject
 
 interface WireObject {
@@ -320,6 +339,11 @@ function applyToDocument(
   const modelName = normalizeResourceName(config.modelName)
   if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
     set(['model', 'name'], modelName)
+  const reasoningEffort = config.reasoningEffort.trim()
+  if (reasoningEffort !== (baseline?.reasoningEffort ?? '')) {
+    if (reasoningEffort === '') del(['model', 'reasoning'])
+    else set(['model', 'reasoning', 'effort'], reasoningEffort)
+  }
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(
