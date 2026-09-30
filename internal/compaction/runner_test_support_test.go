@@ -10,7 +10,6 @@ import (
 	agentevents "github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
-	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
@@ -18,19 +17,17 @@ import (
 )
 
 type fakeStore struct {
-	events                     []executionstore.CompactionSourceEventRecord
-	atomicGroups               []executionstore.CompactionAtomicGroupRecord
-	priorCheckpoint            *executionstore.ContextCheckpointRecord
-	agentConfig                executionstore.AgentConfigRecord
-	consecutiveCheckpointCount int
+	events               []executionstore.CompactionSourceEventRecord
+	atomicGroups         []executionstore.CompactionAtomicGroupRecord
+	priorCheckpoint      *executionstore.ContextCheckpointRecord
+	agentConfig          executionstore.AgentConfigRecord
+	compactionRetryCount int
+	parentRecoveryKind   executionstore.ModelCallRecoveryKind
 
-	claimInputs          []executionstore.ClaimCompactionModelCallInput
-	claimResults         []executionstore.ModelCallClaim
-	nextClaimInputs      []executionstore.ClaimNextModelCallContextInput
-	nextClaimResults     []executionstore.ModelCallClaim
 	claims               []executionstore.ModelCallClaim
 	retryFailures        []executionstore.RecordRecoverableModelCallFailureInput
 	terminalFailures     []executionstore.RecordTerminalCompactionFailureInput
+	resumedFailures      []executionstore.RecordCompactionFailureAndResumeNormalInput
 	replacements         []executionstore.ReplaceCompactionSourceInput
 	replacementPreempted bool
 	publishInputs        []executionstore.PublishContextCheckpointInput
@@ -93,22 +90,15 @@ func (s *fakeStore) GetLatestApplicableContextCheckpoint(
 	return *s.priorCheckpoint, true, nil
 }
 
-func (s *fakeStore) GetContextCheckpointByProducerContext(
-	_ context.Context,
-	_, _, modelCallContextID uuid.UUID,
-) (executionstore.ContextCheckpointRecord, bool, error) {
-	if s.published != nil && s.published.ProducerModelCallContextID == modelCallContextID {
-		return *s.published, true, nil
-	}
-	return executionstore.ContextCheckpointRecord{}, false, nil
-}
-
-func (s *fakeStore) CountConsecutiveContextCheckpointLineage(
+func (s *fakeStore) GetModelCallRecoveryState(
 	_ context.Context,
 	_, _ uuid.UUID,
-	_ int64,
-) (int, error) {
-	return s.consecutiveCheckpointCount, nil
+	_ uuid.UUID,
+) (executionstore.ModelCallRecoveryState, error) {
+	return executionstore.ModelCallRecoveryState{
+		CompactionRetryCount: max(s.compactionRetryCount, len(s.retryFailures)),
+		ParentRecoveryKind:   s.parentRecoveryKind,
+	}, nil
 }
 
 func (s *fakeStore) GetProviderReplaySuppressionCutoff(
@@ -120,87 +110,39 @@ func (s *fakeStore) GetProviderReplaySuppressionCutoff(
 	return 0, nil
 }
 
-func (s *fakeStore) ClaimCompactionModelCall(
-	_ context.Context,
-	input executionstore.ClaimCompactionModelCallInput,
-) (executionstore.ModelCallClaim, error) {
-	s.claimInputs = append(s.claimInputs, input)
-	if len(s.claimResults) > 0 {
-		result := s.claimResults[0]
-		s.claimResults = s.claimResults[1:]
-		s.claims = append(s.claims, result)
-		return result, nil
-	}
-	index := len(s.claimInputs)
-	claim := newCompactionClaim(input, index, s.now())
+func (s *fakeStore) addStartedClaim(input RunInput) executionstore.ModelCallClaim {
+	claim := newCompactionClaim(input, len(s.claims)+1, s.now())
 	s.claims = append(s.claims, claim)
-	return claim, nil
+	return claim
 }
 
 func newCompactionClaim(
-	input executionstore.ClaimCompactionModelCallInput,
+	input RunInput,
 	index int,
 	now time.Time,
 ) executionstore.ModelCallClaim {
-	end := input.SourceEventSequenceEnd
+	end := input.Plan.EventSequenceEnd
 	return executionstore.ModelCallClaim{
 		Created: true,
 		Claimed: true,
 		Context: executionstore.ModelCallContextRecord{
-			ID:                        testIDN(100 + index),
-			OrgID:                     testIDN(500),
-			ProjectID:                 input.ProjectID,
-			AgentID:                   input.AgentID,
-			OperationKind:             executionstore.ModelCallOperationCompaction,
-			AttemptNumber:             1,
-			AgentConfigID:             testIDN(501),
-			ConfiguredModelRevisionID: testIDN(601),
-			InputEventSequence:        input.InputEventSequence,
-			SourceEventSequenceEnd:    &end,
-			RuntimeLockID:             input.RuntimeLockID,
-			State:                     executionstore.ModelCallContextStarted,
-			CreatedAt:                 now,
+			ID:                             testIDN(100 + index),
+			OrgID:                          testIDN(500),
+			ProjectID:                      input.Plan.ProjectID,
+			AgentID:                        input.Plan.AgentID,
+			OperationKind:                  executionstore.ModelCallOperationCompaction,
+			ParentNormalModelCallContextID: input.ParentModelCallContextID,
+			ReplacesCheckpointID:           input.Plan.ReplacesCheckpointID,
+			AttemptNumber:                  1,
+			AgentConfigID:                  testIDN(501),
+			ConfiguredModelRevisionID:      testIDN(601),
+			InputEventSequence:             input.Plan.InputEventSequence,
+			SourceEventSequenceEnd:         &end,
+			RuntimeLockID:                  input.RuntimeLockID,
+			State:                          executionstore.ModelCallContextStarted,
+			CreatedAt:                      now,
 		},
 	}
-}
-
-func (s *fakeStore) ClaimNextModelCallContext(
-	_ context.Context,
-	input executionstore.ClaimNextModelCallContextInput,
-) (executionstore.ModelCallClaim, error) {
-	s.nextClaimInputs = append(s.nextClaimInputs, input)
-	if len(s.nextClaimResults) > 0 {
-		result := s.nextClaimResults[0]
-		s.nextClaimResults = s.nextClaimResults[1:]
-		s.claims = append(s.claims, result)
-		return result, nil
-	}
-	predecessor, found := s.contextByID(input.PredecessorModelCallContextID)
-	if !found || predecessor.RecoveryKind != executionstore.ModelCallRecoveryRetry ||
-		predecessor.RetryAt == nil || predecessor.RetryAt.After(s.now()) {
-		return executionstore.ModelCallClaim{Context: predecessor}, nil
-	}
-	next := predecessor
-	next.ID = testIDN(300 + len(s.nextClaimInputs))
-	next.AttemptNumber++
-	next.RuntimeLockID = input.RuntimeLockID
-	next.State = executionstore.ModelCallContextStarted
-	next.RecoveryKind = ""
-	next.APIFormat = ""
-	next.APIVariant = ""
-	next.ProviderRequestID = ""
-	next.ProviderResponseID = ""
-	next.ErrorKind = ""
-	next.ErrorCode = ""
-	next.ErrorMessage = ""
-	next.ErrorDetails = nil
-	next.RetryAt = nil
-	next.Usage = modelenvelope.Usage{}
-	next.CreatedAt = s.now()
-	next.CompletedAt = nil
-	claim := executionstore.ModelCallClaim{Context: next, Created: true, Claimed: true}
-	s.claims = append(s.claims, claim)
-	return claim, nil
 }
 
 func (s *fakeStore) RecordRetryableModelCallFailure(
@@ -219,6 +161,11 @@ func (s *fakeStore) RecordRetryableModelCallFailure(
 	contextRecord.ErrorCode = input.ErrorCode
 	contextRecord.ErrorMessage = input.ErrorMessage
 	contextRecord.RetryAt = &retryAt
+	for i := range s.claims {
+		if s.claims[i].Context.ID == contextRecord.ID {
+			s.claims[i].Context = contextRecord
+		}
+	}
 	return contextRecord, nil
 }
 
@@ -230,6 +177,17 @@ func (s *fakeStore) RecordTerminalCompactionFailure(
 	return nil
 }
 
+func (s *fakeStore) RecordCompactionFailureAndResumeNormal(
+	_ context.Context,
+	input executionstore.RecordCompactionFailureAndResumeNormalInput,
+) (executionstore.ModelCallContextRecord, error) {
+	s.resumedFailures = append(s.resumedFailures, input)
+	record, _ := s.contextByID(input.ModelCallContextID)
+	record.State = executionstore.ModelCallContextFailed
+	record.RecoveryKind = executionstore.ModelCallRecoveryResumeNormal
+	return record, nil
+}
+
 func (s *fakeStore) ReplaceCompactionSource(
 	_ context.Context,
 	input executionstore.ReplaceCompactionSourceInput,
@@ -239,21 +197,25 @@ func (s *fakeStore) ReplaceCompactionSource(
 		return executionstore.ReplaceCompactionSourceResult{BoundaryPreempted: true}, nil
 	}
 	end := input.NextSourceEventSequenceEnd
+	previous, _ := s.contextByID(input.ModelCallContextID)
 	claim := executionstore.ModelCallClaim{
 		Context: executionstore.ModelCallContextRecord{
-			ID:                        testIDN(700 + len(s.replacements)),
-			OrgID:                     testIDN(500),
-			ProjectID:                 input.ProjectID,
-			AgentID:                   input.AgentID,
-			OperationKind:             executionstore.ModelCallOperationCompaction,
-			AttemptNumber:             1,
-			AgentConfigID:             testIDN(501),
-			ConfiguredModelRevisionID: testIDN(601),
-			InputEventSequence:        s.claims[0].Context.InputEventSequence,
-			SourceEventSequenceEnd:    &end,
-			RuntimeLockID:             input.RuntimeLockID,
-			State:                     executionstore.ModelCallContextStarted,
-			CreatedAt:                 s.now(),
+			ID:                             testIDN(700 + len(s.replacements)),
+			OrgID:                          testIDN(500),
+			ProjectID:                      input.ProjectID,
+			AgentID:                        input.AgentID,
+			OperationKind:                  executionstore.ModelCallOperationCompaction,
+			ParentNormalModelCallContextID: previous.ParentNormalModelCallContextID,
+			ReplacesCheckpointID:           previous.ReplacesCheckpointID,
+			AttemptNumber:                  1,
+			AgentConfigID:                  testIDN(501),
+			ConfiguredModelRevisionID:      testIDN(601),
+			InputEventSequence:             s.claims[0].Context.InputEventSequence,
+			SourceEventSequenceEnd:         &end,
+			SourceExcerptBytes:             input.NextSourceExcerptBytes,
+			RuntimeLockID:                  input.RuntimeLockID,
+			State:                          executionstore.ModelCallContextStarted,
+			CreatedAt:                      s.now(),
 		},
 		Created: true,
 		Claimed: true,
@@ -282,19 +244,6 @@ func (b *fakeContextBuilder) Build(
 	return modelcontext.Bundle{ContextCheckpoint: input.CheckpointOverride}, nil
 }
 
-type fakeProgressiveCheckpointPolicy struct {
-	inputs   []ProgressiveCheckpointInput
-	decision ProgressiveCheckpointDecision
-	err      error
-}
-
-func (p *fakeProgressiveCheckpointPolicy) Evaluate(
-	input ProgressiveCheckpointInput,
-) (ProgressiveCheckpointDecision, error) {
-	p.inputs = append(p.inputs, input)
-	return p.decision, p.err
-}
-
 func (s *fakeStore) PublishContextCheckpoint(
 	_ context.Context,
 	input executionstore.PublishContextCheckpointInput,
@@ -307,17 +256,21 @@ func (s *fakeStore) PublishContextCheckpoint(
 			return executionstore.ContextCheckpointRecord{}, err
 		}
 	}
-	claim := s.claimInputs[len(s.claimInputs)-1]
+	claim, _ := s.contextByID(input.ModelCallContextID)
 	record := executionstore.ContextCheckpointRecord{
 		ID:                             testIDN(900 + len(s.publishInputs)),
 		ProjectID:                      input.ProjectID,
 		AgentID:                        input.AgentID,
-		SummarizedThroughEventSequence: claim.SourceEventSequenceEnd,
+		SummarizedThroughEventSequence: *claim.SourceEventSequenceEnd,
 		ProducerModelCallContextID:     input.ModelCallContextID,
 		CheckpointEventID:              testIDN(950 + len(s.publishInputs)),
 		CheckpointEventSequence:        claim.InputEventSequence + 1,
 		Summary:                        input.Summary,
 		CreatedAt:                      s.now(),
+		HasOmittedHistory:              claim.SourceExcerptBytes != nil,
+	}
+	if s.priorCheckpoint != nil && s.priorCheckpoint.HasOmittedHistory {
+		record.HasOmittedHistory = true
 	}
 	s.published = &record
 	return record, nil
@@ -355,6 +308,7 @@ type summaryModel struct {
 	prepareErrs                 []error
 	requests                    []model.Request
 	results                     []summaryResult
+	respond                     func(model.Request) (model.Response, error)
 }
 
 func (m *summaryModel) RequestedProviderModelSlug() string {
@@ -420,6 +374,9 @@ func (m *summaryModel) Prepare(
 
 func (m *summaryModel) Respond(_ context.Context, input model.Request) (model.Response, error) {
 	m.requests = append(m.requests, input)
+	if m.respond != nil {
+		return m.respond(input)
+	}
 	if len(m.results) > 0 {
 		result := m.results[0]
 		m.results = m.results[1:]
@@ -494,17 +451,6 @@ func runInput(plan Plan) RunInput {
 		OpeningEventSequence:     plan.InputEventSequence,
 		RuntimeLockID:            testRuntimeLockID,
 		ParentModelCallContextID: testIDN(799),
-	}
-}
-
-func compactionClaimInput(input RunInput, _ time.Time) executionstore.ClaimCompactionModelCallInput {
-	return executionstore.ClaimCompactionModelCallInput{
-		ProjectID:              input.Plan.ProjectID,
-		AgentID:                input.Plan.AgentID,
-		RuntimeLockID:          input.RuntimeLockID,
-		InputEventSequence:     input.Plan.InputEventSequence,
-		SourceEventSequenceEnd: input.Plan.EventSequenceEnd,
-		ParentContextID:        input.ParentModelCallContextID,
 	}
 }
 

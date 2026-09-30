@@ -97,7 +97,7 @@ live_runtime AS MATERIALIZED (
 ),
 latest_compaction AS MATERIALIZED (
   SELECT dependency.id, dependency.state, dependency.recovery_kind,
-         dependency.input_event_sequence, dependency.source_event_sequence_end
+         dependency.input_event_sequence, dependency.source_event_sequence_end, dependency.source_excerpt_bytes
   FROM model_call_contexts dependency
   JOIN model_call_contexts parent ON parent.project_id = dependency.project_id
     AND parent.agent_id = dependency.agent_id
@@ -105,9 +105,9 @@ latest_compaction AS MATERIALIZED (
   JOIN active_agent agent ON agent.project_id = parent.project_id
     AND agent.id = parent.agent_id
   WHERE dependency.operation_kind = 'compaction'
-    AND dependency.input_event_sequence = parent.input_event_sequence
+    AND dependency.parent_normal_model_call_context_id = parent.id
   ORDER BY dependency.source_event_sequence_end ASC,
-           dependency.attempt_number DESC
+           dependency.source_excerpt_bytes ASC NULLS LAST, dependency.attempt_number DESC
   LIMIT 1
 ),
 blocked AS MATERIALIZED (
@@ -120,14 +120,17 @@ blocked AS MATERIALIZED (
   WHERE context.id = sqlc.arg(parent_model_call_context_id)
     AND context.operation_kind = 'normal'
     AND context.state = 'failed'
-    AND context.recovery_kind = 'compact'
+    AND context.recovery_kind IN ('compact', 'compact_optional')
     AND (
       latest.id IS NULL
       OR (
         latest.state = 'failed'
         AND latest.recovery_kind = 'reduce_compaction_source'
         AND latest.input_event_sequence = context.input_event_sequence
-        AND sqlc.arg(source_event_sequence_end)::bigint < latest.source_event_sequence_end
+        AND (sqlc.arg(source_event_sequence_end)::bigint < latest.source_event_sequence_end
+          OR (sqlc.arg(source_event_sequence_end)::bigint = latest.source_event_sequence_end
+            AND sqlc.narg(source_excerpt_bytes)::integer IS NOT NULL
+            AND (latest.source_excerpt_bytes IS NULL OR sqlc.narg(source_excerpt_bytes)::integer < latest.source_excerpt_bytes)))
       )
     )
 ),
@@ -144,7 +147,8 @@ selected_model AS MATERIALIZED (
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, parent_normal_model_call_context_id, source_excerpt_bytes,
+  replaces_checkpoint_id, runtime_lock_id, state, created_at
 )
 SELECT active_agent.org_id,
        active_agent.project_id,
@@ -155,6 +159,9 @@ SELECT active_agent.org_id,
        selected_model.configured_model_revision_id,
        blocked.input_event_sequence,
        sqlc.arg(source_event_sequence_end),
+       blocked.id,
+       sqlc.narg(source_excerpt_bytes)::integer,
+       sqlc.narg(replaces_checkpoint_id)::uuid,
        live_runtime.id,
        'started',
        statement_timestamp()
@@ -180,6 +187,9 @@ FROM model_call_contexts context
 WHERE context.project_id = sqlc.arg(project_id)
   AND context.agent_id = sqlc.arg(agent_id)
   AND context.operation_kind = 'compaction'
+  AND context.parent_normal_model_call_context_id = sqlc.arg(parent_normal_model_call_context_id)
+  AND context.source_excerpt_bytes IS NOT DISTINCT FROM sqlc.narg(source_excerpt_bytes)::integer
+  AND context.replaces_checkpoint_id IS NOT DISTINCT FROM sqlc.narg(replaces_checkpoint_id)::uuid
   AND context.input_event_sequence = sqlc.arg(input_event_sequence)
   AND context.source_event_sequence_end = sqlc.arg(source_event_sequence_end)
 ORDER BY context.attempt_number DESC
@@ -189,7 +199,14 @@ LIMIT 1;
 SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
-  context.source_event_sequence_end,
+  context.source_event_sequence_end, context.parent_normal_model_call_context_id,
+  context.source_excerpt_bytes, context.recovery_max_output_tokens, context.replaces_checkpoint_id,
+  context.recovery_checkpoint_id, context.recovery_checkpoint_retained_bytes,
+  context.optional_input_target_tokens,
+  context.optional_compaction_outcome,
+  context.request_input_version, context.request_input_route_fingerprint,
+  context.request_input_static_fingerprint, context.request_input_prefix_fingerprint,
+  context.request_input_item_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
@@ -274,20 +291,34 @@ predecessor AS MATERIALIZED (
   SELECT context.id, context.org_id, context.project_id, context.agent_id,
          context.operation_kind, context.attempt_number,
          context.agent_config_id, context.input_event_sequence,
-         context.source_event_sequence_end
+         context.source_event_sequence_end, context.parent_normal_model_call_context_id,
+         context.source_excerpt_bytes, context.replaces_checkpoint_id
   FROM model_call_contexts context
   JOIN agent_scope agent ON agent.project_id = context.project_id
     AND agent.id = context.agent_id
   WHERE context.id = sqlc.arg(predecessor_model_call_context_id)
     AND context.state = 'failed'
-    AND context.recovery_kind = 'retry'
-    AND context.retry_at <= statement_timestamp()
-    AND context.attempt_number <= sqlc.arg(max_retries)::integer
-    AND EXISTS (
-      SELECT 1
-      FROM agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
-      WHERE continuable.model_call_context_id = context.id
-        AND NOT continuable.has_later_semantic_event
+    AND (
+      (context.recovery_kind IN ('retry', 'restore_output')
+        AND context.retry_at <= statement_timestamp()
+        AND model_call_transient_retry_count(context.id) <= sqlc.arg(max_retries)::integer
+        AND EXISTS (
+          SELECT 1 FROM agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
+          WHERE continuable.model_call_context_id = context.id AND NOT continuable.has_later_semantic_event
+        ))
+      OR (context.operation_kind = 'normal' AND context.recovery_kind IN ('compact', 'compact_optional')
+        AND NOT EXISTS (SELECT 1 FROM model_call_contexts newer
+          WHERE newer.agent_id = context.agent_id AND newer.operation_kind = 'normal'
+            AND newer.input_event_sequence = context.input_event_sequence
+            AND newer.attempt_number > context.attempt_number)
+        AND EXISTS (
+          SELECT 1 FROM model_call_contexts child
+          JOIN agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
+            ON continuable.model_call_context_id = child.id
+          WHERE child.parent_normal_model_call_context_id = context.id
+            AND child.state = 'failed' AND child.recovery_kind = 'resume_normal'
+            AND NOT continuable.has_later_semantic_event
+        ))
     )
 ),
 selected_model AS MATERIALIZED (
@@ -311,7 +342,8 @@ live_runtime AS MATERIALIZED (
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, parent_normal_model_call_context_id, source_excerpt_bytes,
+  replaces_checkpoint_id, runtime_lock_id, state, created_at
 )
 SELECT predecessor.org_id,
        predecessor.project_id,
@@ -322,6 +354,9 @@ SELECT predecessor.org_id,
        selected_model.configured_model_revision_id,
        predecessor.input_event_sequence,
        predecessor.source_event_sequence_end,
+       predecessor.parent_normal_model_call_context_id,
+       predecessor.source_excerpt_bytes,
+       predecessor.replaces_checkpoint_id,
        live_runtime.id,
        'started',
        statement_timestamp()
@@ -382,6 +417,16 @@ SET state = sqlc.arg(to_state),
     reasoning_output_tokens = sqlc.narg(reasoning_output_tokens)::integer,
     provider_reported_cost_usd = sqlc.narg(provider_reported_cost_usd)::text::numeric,
     provider_metadata = sqlc.arg(provider_metadata),
+    recovery_max_output_tokens = sqlc.narg(recovery_max_output_tokens)::integer,
+    recovery_checkpoint_id = sqlc.narg(recovery_checkpoint_id)::uuid,
+    recovery_checkpoint_retained_bytes = sqlc.narg(recovery_checkpoint_retained_bytes)::integer,
+    optional_input_target_tokens = sqlc.narg(optional_input_target_tokens)::integer,
+    optional_compaction_outcome = sqlc.narg(optional_compaction_outcome)::text,
+    request_input_version = sqlc.narg(request_input_version)::integer,
+    request_input_route_fingerprint = sqlc.narg(request_input_route_fingerprint)::text,
+    request_input_static_fingerprint = sqlc.narg(request_input_static_fingerprint)::text,
+    request_input_prefix_fingerprint = sqlc.narg(request_input_prefix_fingerprint)::text,
+    request_input_item_count = sqlc.narg(request_input_item_count)::integer,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
@@ -491,3 +536,130 @@ FROM agent_model_call_opening_content_inputs(
   sqlc.arg(input_event_sequence)
 ) AS opening(input_id, event_sequence)
 ORDER BY opening.event_sequence;
+
+-- name: GetModelCallRecoveryState :one
+WITH current AS MATERIALIZED (
+  SELECT context.id, context.agent_id, context.operation_kind, context.input_event_sequence,
+         context.parent_normal_model_call_context_id, context.configured_model_revision_id,
+         context.agent_config_id, context.created_at
+  FROM model_call_contexts context
+  WHERE context.project_id = sqlc.arg(project_id) AND context.agent_id = sqlc.arg(agent_id)
+    AND context.id = sqlc.arg(model_call_context_id)
+), latest_optional AS MATERIALIZED (
+  SELECT prior.id, prior.optional_input_target_tokens, prior.completed_at
+  FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
+  WHERE prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
+    AND prior.configured_model_revision_id = current.configured_model_revision_id
+    AND prior.agent_config_id = current.agent_config_id
+    AND prior.created_at < current.created_at
+  ORDER BY prior.created_at DESC, prior.id DESC LIMIT 1
+), latest_optional_child AS MATERIALIZED (
+  SELECT child.state, child.optional_compaction_outcome
+  FROM model_call_contexts child JOIN latest_optional ON child.parent_normal_model_call_context_id = latest_optional.id
+  ORDER BY child.created_at DESC, child.id DESC LIMIT 1
+), latest_observed_normal AS MATERIALIZED (
+  SELECT measured.input_tokens_total
+  FROM model_call_contexts measured
+  JOIN current ON measured.agent_id = current.agent_id
+    AND measured.configured_model_revision_id = current.configured_model_revision_id
+    AND measured.agent_config_id = current.agent_config_id
+  JOIN latest_optional ON measured.created_at > latest_optional.completed_at
+  WHERE measured.operation_kind = 'normal' AND measured.state = 'succeeded'
+    AND measured.created_at < current.created_at
+  ORDER BY measured.created_at DESC, measured.id DESC LIMIT 1
+), latest_checkpoint AS MATERIALIZED (
+  SELECT event.sequence, checkpoint.id, checkpoint.summarized_through_event_sequence
+  FROM agent_events event JOIN current ON event.agent_id = current.agent_id
+  JOIN context_checkpoints checkpoint ON checkpoint.id = event.context_checkpoint_id AND checkpoint.agent_id = event.agent_id
+  WHERE event.event_kind = 'context_checkpoint' AND event.sequence <= current.input_event_sequence
+  ORDER BY event.sequence DESC LIMIT 1
+), checkpoint_projection AS MATERIALIZED (
+  SELECT prior.recovery_checkpoint_id, prior.recovery_checkpoint_retained_bytes
+  FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
+  JOIN latest_checkpoint ON latest_checkpoint.id = prior.recovery_checkpoint_id
+  WHERE prior.configured_model_revision_id = current.configured_model_revision_id
+    AND prior.agent_config_id = current.agent_config_id
+    AND prior.created_at < current.created_at
+  ORDER BY prior.recovery_checkpoint_retained_bytes LIMIT 1
+), restore_episode AS MATERIALIZED (
+  SELECT model_call_productive_frontier(current.id)::bigint AS sequence FROM current
+), output_episode AS MATERIALIZED (
+  SELECT coalesce(max(event.sequence), 0)::bigint AS sequence
+  FROM agent_events event JOIN current ON event.agent_id = current.agent_id
+  LEFT JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
+  LEFT JOIN context_checkpoints checkpoint ON checkpoint.agent_id = event.agent_id
+    AND checkpoint.id = event.context_checkpoint_id
+  LEFT JOIN model_call_contexts checkpoint_producer ON checkpoint_producer.agent_id = checkpoint.agent_id
+    AND checkpoint_producer.id = checkpoint.producer_model_call_context_id
+  WHERE event.sequence <= current.input_event_sequence
+    AND (event.event_kind IN ('agent_input', 'tool_result')
+      OR (event.event_kind = 'context_checkpoint' AND checkpoint_producer.replaces_checkpoint_id IS NOT NULL)
+      OR (event.event_kind = 'model_output' AND (output.stop_reason <> 'max_tokens'
+        OR EXISTS (SELECT 1 FROM tool_calls call WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id))))
+)
+SELECT CASE WHEN current.operation_kind = 'normal' THEN model_call_transient_retry_count(current.id) ELSE 0 END::bigint AS normal_retry_count,
+       CASE WHEN current.operation_kind = 'compaction' THEN model_call_transient_retry_count(current.id) ELSE 0 END::bigint AS compaction_retry_count,
+       coalesce(parent.recovery_kind, '')::text AS parent_recovery_kind,
+       EXISTS (
+         SELECT 1 FROM model_call_contexts restored CROSS JOIN restore_episode
+         WHERE restored.agent_id = current.agent_id AND restored.agent_config_id = current.agent_config_id
+           AND restored.configured_model_revision_id = current.configured_model_revision_id
+           AND restored.recovery_kind = 'restore_output'
+           AND restored.input_event_sequence >= restore_episode.sequence
+           AND restored.created_at < current.created_at
+       )::boolean AS output_allowance_restored,
+       checkpoint_projection.recovery_checkpoint_id,
+       checkpoint_projection.recovery_checkpoint_retained_bytes,
+       EXISTS (
+         SELECT 1 FROM model_call_contexts prior
+         JOIN context_checkpoints replaced ON replaced.id = prior.replaces_checkpoint_id
+           AND replaced.agent_id = prior.agent_id
+         JOIN latest_checkpoint ON latest_checkpoint.summarized_through_event_sequence = replaced.summarized_through_event_sequence
+         WHERE prior.agent_id = current.agent_id AND prior.agent_config_id = current.agent_config_id
+           AND prior.configured_model_revision_id = current.configured_model_revision_id
+           AND prior.created_at < current.created_at
+       )::boolean AS checkpoint_recompression_attempted,
+       latest_optional.id AS last_optional_context_id,
+       coalesce(latest_optional.optional_input_target_tokens, 0)::integer AS last_optional_input_target_tokens,
+       coalesce(latest_optional_child.state = 'succeeded'
+         OR latest_optional_child.optional_compaction_outcome = 'ineffective',
+         false)::boolean AS last_optional_compaction_needs_headroom,
+       EXISTS (
+         SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+           AND prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
+           AND prior.input_event_sequence = current.input_event_sequence AND prior.created_at < current.created_at
+       )::boolean AS optional_compaction_attempted_at_frontier,
+       coalesce(latest_observed_normal.input_tokens_total, 0)::integer AS latest_observed_normal_input_tokens,
+       (SELECT count(*) FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+          AND prior.operation_kind = 'normal' AND prior.input_event_sequence = current.input_event_sequence
+          AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional')::bigint AS provider_attempt_count,
+       (SELECT coalesce(min(prior.recovery_max_output_tokens), 0)::integer FROM model_call_contexts prior CROSS JOIN output_episode
+        WHERE prior.agent_id = current.agent_id AND prior.operation_kind = 'normal'
+          AND prior.configured_model_revision_id = current.configured_model_revision_id
+          AND prior.input_event_sequence >= output_episode.sequence AND prior.created_at < current.created_at) AS recovery_max_output_tokens,
+       (latest_checkpoint.sequence IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+            AND prior.operation_kind = 'normal' AND prior.input_event_sequence >= latest_checkpoint.sequence
+            AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional'
+       ))::boolean AS checkpoint_needs_normal_attempt
+FROM current
+LEFT JOIN model_call_contexts parent ON parent.id = current.parent_normal_model_call_context_id
+LEFT JOIN latest_optional ON true
+LEFT JOIN latest_optional_child ON true
+LEFT JOIN latest_observed_normal ON true
+LEFT JOIN latest_checkpoint ON true
+LEFT JOIN checkpoint_projection ON true;
+
+-- name: HasObservedInputHeadroomSince :one
+SELECT EXISTS (
+  SELECT 1 FROM model_call_contexts optional
+  JOIN model_call_contexts measured ON measured.agent_id = optional.agent_id AND measured.project_id = optional.project_id
+    AND measured.agent_config_id = optional.agent_config_id
+  WHERE optional.project_id = sqlc.arg(project_id) AND optional.agent_id = sqlc.arg(agent_id)
+    AND optional.id = sqlc.arg(after_optional_context_id) AND optional.recovery_kind = 'compact_optional'
+    AND optional.configured_model_revision_id = sqlc.arg(configured_model_revision_id)
+    AND measured.operation_kind = 'normal' AND measured.state = 'succeeded'
+    AND measured.created_at > optional.completed_at
+    AND measured.configured_model_revision_id = sqlc.arg(configured_model_revision_id)
+    AND measured.input_tokens_total > 0 AND measured.input_tokens_total <= sqlc.arg(max_input_tokens)::integer
+)::boolean;

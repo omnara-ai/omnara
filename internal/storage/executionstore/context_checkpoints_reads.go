@@ -12,6 +12,7 @@ import (
 )
 
 type ContextCheckpointRecord struct {
+	HasOmittedHistory              bool      `json:"has_omitted_history"`
 	ID                             uuid.UUID `json:"id"`
 	ProjectID                      uuid.UUID `json:"project_id"`
 	AgentID                        uuid.UUID `json:"agent_id"`
@@ -21,28 +22,6 @@ type ContextCheckpointRecord struct {
 	CheckpointEventSequence        int64     `json:"checkpoint_event_sequence"`
 	Summary                        string    `json:"summary"`
 	CreatedAt                      time.Time `json:"created_at"`
-}
-
-func (s *Store) CountConsecutiveContextCheckpointLineage(
-	ctx context.Context,
-	projectID, agentID uuid.UUID,
-	inputEventSequence int64,
-) (int, error) {
-	if projectID == uuid.Nil || agentID == uuid.Nil || inputEventSequence <= 0 {
-		return 0, errors.New("project, agent, and positive event sequence are required")
-	}
-	count, err := s.q.CountConsecutiveContextCheckpointLineage(
-		ctx,
-		dbsqlc.CountConsecutiveContextCheckpointLineageParams{
-			ProjectID:          projectID,
-			AgentID:            agentID,
-			InputEventSequence: inputEventSequence,
-		},
-	)
-	if err != nil {
-		return 0, fmt.Errorf("count consecutive context checkpoint lineage: %w", err)
-	}
-	return int(count), nil
 }
 
 func (s *Store) GetContextCheckpoint(

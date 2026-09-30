@@ -2,6 +2,9 @@ package modelprovider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -203,7 +206,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 			err,
 		)
 	}
-	customHeaders, err := ProviderHeaders(ctx, r.Secrets, providerConfig)
+	customHeaders, headerVersions, err := resolveProviderHeaders(ctx, r.Secrets, providerConfig)
 	if errors.Is(err, storeerr.ErrInvalidModelProviderConfig) {
 		return model.ResolvedClient{}, resolverError(
 			model.ErrorKindInvalidRequest,
@@ -220,6 +223,12 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	}
 	if headers := r.routeHeadersForProviderConfig(providerConfig); len(headers) > 0 {
 		auth = route.Chain{route.Headers(headers), auth}
+	}
+	inputScope, err := providerInputIdentityScope(
+		providerConfig, credential.CurrentVersionID, headerVersions,
+	)
+	if err != nil {
+		return model.ResolvedClient{}, err
 	}
 	capabilities := capabilitiesForRevision(effectiveRevision)
 	if providerConfig.APIFormat == modelprotocol.APIFormatAnthropicMessages &&
@@ -242,6 +251,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	case modelprotocol.APIFormatOpenAIResponses:
 		resolved.Client = openairesponses.Client{
 			ModelProviderConfigID: providerConfig.ID.String(),
+			InputIdentityScope:    inputScope,
 			Auth:                  auth,
 			BaseURL:               providerConfig.BaseURL,
 			EndpointPath:          providerConfig.EndpointPath,
@@ -256,6 +266,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	case modelprotocol.APIFormatOpenAIChatCompletions:
 		resolved.Client = openaichatcompletions.Client{
 			ModelProviderConfigID: providerConfig.ID.String(),
+			InputIdentityScope:    inputScope,
 			Auth:                  auth,
 			BaseURL:               providerConfig.BaseURL,
 			EndpointPath:          providerConfig.EndpointPath,
@@ -270,6 +281,7 @@ func (r Resolver) Resolve(ctx context.Context, selection model.Selection) (model
 	case modelprotocol.APIFormatAnthropicMessages:
 		resolved.Client = anthropicmessages.Client{
 			ModelProviderConfigID: providerConfig.ID.String(),
+			InputIdentityScope:    inputScope,
 			Auth:                  auth,
 			BaseURL:               providerConfig.BaseURL,
 			EndpointPath:          providerConfig.EndpointPath,
@@ -306,34 +318,71 @@ func ProviderHeaders(
 	secretStore *secretstore.Store,
 	providerConfig modelstore.ModelProviderConfigRecord,
 ) (map[string]string, error) {
-	parsed, err := modelstore.ModelProviderHeadersFromColumns(
-		providerConfig.Headers,
-		providerConfig.SecretHeaders,
-	)
+	headers, _, err := resolveProviderHeaders(ctx, secretStore, providerConfig)
+	return headers, err
+}
+
+func resolveProviderHeaders(
+	ctx context.Context,
+	secretStore *secretstore.Store,
+	providerConfig modelstore.ModelProviderConfigRecord,
+) (map[string]string, map[string]uuid.UUID, error) {
+	parsed, err := modelstore.ModelProviderHeadersFromColumns(providerConfig.Headers, providerConfig.SecretHeaders)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	headers := parsed.Headers
+	versions := make(map[string]uuid.UUID, len(parsed.SecretHeaders))
 	for name, secretID := range parsed.SecretHeaders {
 		secret, err := secretStore.ReadOrgOwnedSecretPayload(ctx, secretstore.ReadOrgOwnedSecretPayloadInput{
-			OrgID:          providerConfig.OrgID,
-			SecretID:       secretID,
-			ManagementKind: providerConfig.ManagementKind,
-			Kind:           secrets.KindGeneric,
+			OrgID: providerConfig.OrgID, SecretID: secretID,
+			ManagementKind: providerConfig.ManagementKind, Kind: secrets.KindGeneric,
 		})
 		if storeerr.IsNotFound(err) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read secret for header %s: %w", name, err)
+			return nil, nil, fmt.Errorf("read secret for header %s: %w", name, err)
 		}
 		value := secret.Payload[secrets.KeyValue]
 		if err := modelstore.ValidateModelProviderHeaderValue("secret_headers."+name, value); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		headers[name] = value
+		versions[name] = secret.CurrentVersionID
 	}
-	return headers, nil
+	return headers, versions, nil
+}
+
+func providerInputIdentityScope(
+	config modelstore.ModelProviderConfigRecord,
+	credentialVersion uuid.UUID,
+	headerVersions map[string]uuid.UUID,
+) (string, error) {
+	// Upstream selection can change between requests without a config change.
+	if config.APIVariant == modelprotocol.APIVariantOpenRouter {
+		return "", nil
+	}
+	body, err := json.Marshal(struct {
+		ProviderID                          uuid.UUID
+		APIFormat                           modelprotocol.APIFormat
+		APIVariant                          modelprotocol.APIVariant
+		BaseURL, EndpointPath, AuthKind     string
+		AuthOptions, Headers, SecretHeaders json.RawMessage
+		CredentialID, CredentialVersion     uuid.UUID
+		HeaderVersions                      map[string]uuid.UUID
+	}{
+		ProviderID: config.ID, APIFormat: config.APIFormat, APIVariant: config.APIVariant,
+		BaseURL: config.BaseURL, EndpointPath: config.EndpointPath, AuthKind: config.AuthKind,
+		AuthOptions: config.AuthOptions, Headers: config.Headers, SecretHeaders: config.SecretHeaders,
+		CredentialID: config.CredentialSecretID, CredentialVersion: credentialVersion,
+		HeaderVersions: headerVersions,
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func (r Resolver) routeHeadersForProviderConfig(

@@ -450,6 +450,13 @@ SELECT event.id,
        coalesce(revision.provider_model_slug, '') AS requested_provider_model_slug,
        coalesce(context.api_format, '') AS api_format,
        coalesce(context.api_variant, '') AS api_variant,
+       coalesce(output.served_provider_model_slug, '') AS served_provider_model_slug,
+       context.input_tokens_total, context.uncached_input_tokens,
+       context.cache_read_input_tokens, context.cache_write_input_tokens,
+       context.output_tokens_total, context.reasoning_output_tokens,
+       context.request_input_version, context.request_input_route_fingerprint,
+       context.request_input_static_fingerprint, context.request_input_prefix_fingerprint,
+       context.request_input_item_count,
        output.provider_replay,
        coalesce(output.stop_reason, '') AS stop_reason,
        CASE
@@ -509,7 +516,11 @@ WHERE scoped_agent.project_id = $1
 GROUP BY event.id, event.sequence, event.created_at, event.event_kind,
   event.model_output_id, output.model_call_context_id, revision.model_provider_config_id,
   revision.provider_model_slug, context.api_format, context.api_variant,
-  output.provider_replay, output.stop_reason, input.input_kind
+  output.provider_replay, output.stop_reason, output.served_provider_model_slug, input.input_kind,
+  context.input_tokens_total, context.uncached_input_tokens, context.cache_read_input_tokens,
+  context.cache_write_input_tokens, context.output_tokens_total, context.reasoning_output_tokens,
+  context.request_input_version, context.request_input_route_fingerprint,
+  context.request_input_static_fingerprint, context.request_input_prefix_fingerprint, context.request_input_item_count
 ORDER BY event.sequence ASC
 LIMIT $5
 `
@@ -523,20 +534,32 @@ type ListContextEventsParams struct {
 }
 
 type ListContextEventsRow struct {
-	ID                         uuid.UUID
-	AgentInputID               *uuid.UUID
-	Sequence                   int64
-	CreatedAt                  time.Time
-	EventKind                  string
-	ModelOutputID              *uuid.UUID
-	ModelCallContextID         *uuid.UUID
-	ModelProviderConfigID      *uuid.UUID
-	RequestedProviderModelSlug string
-	ApiFormat                  string
-	ApiVariant                 string
-	ProviderReplay             *json.RawMessage
-	StopReason                 string
-	ContentParts               json.RawMessage
+	ID                            uuid.UUID
+	AgentInputID                  *uuid.UUID
+	Sequence                      int64
+	CreatedAt                     time.Time
+	EventKind                     string
+	ModelOutputID                 *uuid.UUID
+	ModelCallContextID            *uuid.UUID
+	ModelProviderConfigID         *uuid.UUID
+	RequestedProviderModelSlug    string
+	ApiFormat                     string
+	ApiVariant                    string
+	ServedProviderModelSlug       string
+	InputTokensTotal              *int32
+	UncachedInputTokens           *int32
+	CacheReadInputTokens          *int32
+	CacheWriteInputTokens         *int32
+	OutputTokensTotal             *int32
+	ReasoningOutputTokens         *int32
+	RequestInputVersion           *int32
+	RequestInputRouteFingerprint  *string
+	RequestInputStaticFingerprint *string
+	RequestInputPrefixFingerprint *string
+	RequestInputItemCount         *int32
+	ProviderReplay                *json.RawMessage
+	StopReason                    string
+	ContentParts                  json.RawMessage
 }
 
 func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsParams) ([]ListContextEventsRow, error) {
@@ -566,6 +589,18 @@ func (q *Queries) ListContextEvents(ctx context.Context, arg ListContextEventsPa
 			&i.RequestedProviderModelSlug,
 			&i.ApiFormat,
 			&i.ApiVariant,
+			&i.ServedProviderModelSlug,
+			&i.InputTokensTotal,
+			&i.UncachedInputTokens,
+			&i.CacheReadInputTokens,
+			&i.CacheWriteInputTokens,
+			&i.OutputTokensTotal,
+			&i.ReasoningOutputTokens,
+			&i.RequestInputVersion,
+			&i.RequestInputRouteFingerprint,
+			&i.RequestInputStaticFingerprint,
+			&i.RequestInputPrefixFingerprint,
+			&i.RequestInputItemCount,
 			&i.ProviderReplay,
 			&i.StopReason,
 			&i.ContentParts,

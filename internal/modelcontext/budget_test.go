@@ -146,8 +146,19 @@ func TestEstimatePreparedRequestExcludesDeferredToolsUntilReferenced(t *testing.
 func TestEstimatePreparedRequestDoesNotInferAbsentMedia(t *testing.T) {
 	body := budgetFixtureJSON(t, map[string]any{"input": "small textual fallback"})
 	withNoRenderedMedia := EstimatePreparedRequest(body, nil)
-	if want := len(body)/4 + 1; withNoRenderedMedia != want {
+	if want := (len(body) + 3) / 4; withNoRenderedMedia != want {
 		t.Fatalf("estimate = %d, want body-only estimate %d", withNoRenderedMedia, want)
+	}
+}
+
+func TestEstimatePreparedRequestAccountsForDenseScripts(t *testing.T) {
+	for _, text := range []string{"你好世界", "안녕하세요", "こんにちは", "カタカナ"} {
+		t.Run(text, func(t *testing.T) {
+			body := budgetFixtureJSON(t, map[string]string{"input": strings.Repeat(text, 1_000)})
+			if got, minimum := EstimatePreparedRequest(body, nil), len([]rune(text))*1_000; got < minimum {
+				t.Fatalf("estimate = %d, want at least %d for dense text", got, minimum)
+			}
+		})
 	}
 }
 

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/compaction"
 	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/modelretry"
@@ -17,15 +19,18 @@ import (
 const (
 	contextMaintenanceErrorCodeInputBudgetExceeded = "configured_input_budget_exceeded"
 	contextMaintenanceErrorCodeCannotCompact       = "context_cannot_be_compacted"
+	optionalCompactionRearmHeadroomPercent         = 75
 )
 
 type contextMaintenanceTrigger struct {
-	Kind      model.ErrorKind
-	Code      string
-	Message   string
-	Details   json.RawMessage
-	RequestID string
-	Cause     error
+	Optional                  bool
+	OptionalInputTargetTokens int
+	Kind                      model.ErrorKind
+	Code                      string
+	Message                   string
+	Details                   json.RawMessage
+	RequestID                 string
+	Cause                     error
 }
 
 type normalCallFailureEvidence struct {
@@ -65,6 +70,7 @@ func collectNormalCallFailureEvidence(
 
 func localInputBudgetTrigger(
 	assessment model.InputBudgetAssessment,
+	workingInputTarget int,
 	source string,
 ) (contextMaintenanceTrigger, error) {
 	details, err := marshalJSON(map[string]any{
@@ -80,11 +86,12 @@ func localInputBudgetTrigger(
 		assessment.UsableInputTokens,
 	)
 	return contextMaintenanceTrigger{
-		Kind:    model.ErrorKindContextWindow,
-		Code:    contextMaintenanceErrorCodeInputBudgetExceeded,
-		Message: message,
-		Details: details,
-		Cause:   errors.New(message),
+		OptionalInputTargetTokens: workingInputTarget,
+		Kind:                      model.ErrorKindContextWindow,
+		Code:                      contextMaintenanceErrorCodeInputBudgetExceeded,
+		Message:                   message,
+		Details:                   details,
+		Cause:                     errors.New(message),
 	}, nil
 }
 
@@ -112,6 +119,7 @@ func (e AgentExecutor) enterContextMaintenance(
 	trigger contextMaintenanceTrigger,
 	providerRequestStarted bool,
 	response model.Response,
+	maxOutputTokens int,
 ) (modelStep, error) {
 	plan, ok, err := e.planCompactionForContext(
 		ctx,
@@ -122,33 +130,139 @@ func (e AgentExecutor) enterContextMaintenance(
 	if err != nil {
 		return modelStep{}, errors.Join(trigger.Cause, err)
 	}
-	if !ok {
-		details, marshalErr := marshalJSON(map[string]any{
-			"source": modelErrorSourceForClient(resolved.Client),
-			"compaction_trigger": map[string]any{
-				"kind":    trigger.Kind,
-				"code":    trigger.Code,
-				"message": trigger.Message,
-				"details": trigger.Details,
-			},
-		})
-		if marshalErr != nil {
-			return modelStep{}, errors.Join(trigger.Cause, marshalErr)
-		}
-		trigger.Kind = model.ErrorKindContextWindow
-		trigger.Code = contextMaintenanceErrorCodeCannotCompact
-		trigger.Message = "The current model input is too large and has no closed event prefix that can be compacted safely."
-		trigger.Details = details
-		return e.recordTerminalContextMaintenanceFailure(
-			ctx,
-			input,
-			claim,
-			resolved,
-			trigger,
-			providerRequestStarted,
-			response,
+	if ok && plan.ReplacesCheckpointID == uuid.Nil {
+		return e.enterPlannedContextMaintenance(
+			ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
 		)
 	}
+	recovery, err := e.Store.Execution().GetModelCallRecoveryState(
+		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
+	)
+	if err != nil {
+		return modelStep{}, err
+	}
+	if trigger.Kind == model.ErrorKindContextWindow && !recovery.OutputAllowanceRestored {
+		if step, reduced, reduceErr := e.retryWithSmallerOutputAllowance(
+			ctx, input, claim, resolved, trigger, response, maxOutputTokens,
+		); reduceErr != nil || reduced {
+			return step, reduceErr
+		}
+	}
+	if ok {
+		if !recovery.CheckpointRecompressionAttempted && recovery.RecoveryCheckpointRetainedBytes == nil {
+			return e.enterPlannedContextMaintenance(
+				ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
+			)
+		}
+		if step, reduced, reduceErr := e.retryWithCheckpointExcerpt(
+			ctx, input, claim, resolved, trigger, response, plan.ReplacesCheckpointID, recovery,
+		); reduceErr != nil || reduced {
+			return step, reduceErr
+		}
+	}
+	details, marshalErr := marshalJSON(map[string]any{
+		"source": modelErrorSourceForClient(resolved.Client),
+		"compaction_trigger": map[string]any{
+			"kind":    trigger.Kind,
+			"code":    trigger.Code,
+			"message": trigger.Message,
+			"details": trigger.Details,
+		},
+	})
+	if marshalErr != nil {
+		return modelStep{}, errors.Join(trigger.Cause, marshalErr)
+	}
+	trigger.Code = contextMaintenanceErrorCodeCannotCompact
+	trigger.Message = "The current model input remains too large after the available safe context reductions."
+	trigger.Details = details
+	return e.recordTerminalContextMaintenanceFailure(
+		ctx, input, claim, resolved, trigger, providerRequestStarted, response,
+	)
+}
+
+func (e AgentExecutor) restoreOutputAllowance(
+	ctx context.Context,
+	input ModelWorkExecution,
+	step modelStep,
+	cause error,
+) (modelStep, error) {
+	evidence := modelretry.EvidenceFor(cause)
+	failure := collectNormalCallFailureEvidence(step.Resolved, evidence.RequestID, true, step.Response)
+	record, err := e.Store.Execution().RecordRetryableModelCallFailure(ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID: input.ProjectID, AgentID: input.AgentID,
+			ModelCallContextID: step.Context.ID, RuntimeLockID: input.RuntimeLockID,
+			RecoveryKind: executionstore.ModelCallRecoveryRestoreOutput,
+			APIFormat:    failure.APIFormat, APIVariant: failure.APIVariant,
+			ProviderRequestID: failure.ProviderRequestID, ProviderResponseID: failure.ProviderResponseID,
+			ErrorKind: evidence.Kind, ErrorCode: evidence.Code, ErrorMessage: evidence.Message,
+			ErrorDetails: evidence.Details, Usage: failure.Usage,
+			ProviderReportedCostUSD: failure.ProviderReportedCostUSD, ProviderMetadata: failure.ProviderMetadata,
+		},
+	)
+	if err != nil {
+		return modelStep{}, errors.Join(cause, err)
+	}
+	return modelStep{State: modelStepWaiting, Context: record, Resolved: step.Resolved}, nil
+}
+
+func (e AgentExecutor) retryWithCheckpointExcerpt(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	trigger contextMaintenanceTrigger,
+	response model.Response,
+	checkpointID uuid.UUID,
+	recovery executionstore.ModelCallRecoveryState,
+) (modelStep, bool, error) {
+	checkpoint, found, err := e.Store.Execution().GetContextCheckpoint(
+		ctx, input.ProjectID, input.AgentID, checkpointID,
+	)
+	if err != nil || !found {
+		return modelStep{}, false, err
+	}
+	if checkpoint.SummarizedThroughEventSequence >= input.OpeningEventSequence {
+		return modelStep{}, false, nil
+	}
+	next, reduced, err := modelcontext.NextCheckpointExcerptBytes(
+		checkpoint.Summary, recovery.RecoveryCheckpointRetainedBytes,
+	)
+	if err != nil || !reduced {
+		return modelStep{}, false, err
+	}
+	evidence := collectNormalCallFailureEvidence(resolved, trigger.RequestID, true, response)
+	record, err := e.Store.Execution().RecordRetryableModelCallFailure(
+		ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID: input.ProjectID, AgentID: input.AgentID,
+			ModelCallContextID: claim.Context.ID, RuntimeLockID: input.RuntimeLockID,
+			RecoveryKind: executionstore.ModelCallRecoveryRetry,
+			APIFormat:    evidence.APIFormat, APIVariant: evidence.APIVariant,
+			ProviderRequestID: evidence.ProviderRequestID, ProviderResponseID: evidence.ProviderResponseID,
+			ErrorKind: trigger.Kind, ErrorCode: trigger.Code,
+			ErrorMessage: trigger.Message, ErrorDetails: trigger.Details,
+			Usage: evidence.Usage, ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
+			ProviderMetadata:     evidence.ProviderMetadata,
+			RecoveryCheckpointID: checkpointID, RecoveryCheckpointRetainedBytes: &next,
+		},
+	)
+	if err != nil {
+		return modelStep{}, false, errors.Join(trigger.Cause, err)
+	}
+	return modelStep{State: modelStepWaiting, Context: record, Resolved: resolved}, true, nil
+}
+
+func (e AgentExecutor) enterPlannedContextMaintenance(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	trigger contextMaintenanceTrigger,
+	providerRequestStarted bool,
+	response model.Response,
+	plan compaction.Plan,
+) (modelStep, error) {
 
 	evidence := collectNormalCallFailureEvidence(
 		resolved,
@@ -174,12 +288,17 @@ func (e AgentExecutor) enterContextMaintenance(
 		ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
 		ProviderMetadata:        evidence.ProviderMetadata,
 	}
+	if trigger.Optional {
+		failure.RecoveryKind = executionstore.ModelCallRecoveryCompactOptional
+		failure.OptionalInputTargetTokens = new(trigger.OptionalInputTargetTokens)
+	}
 	handoff, err := e.Store.Execution().RecordModelCallFailureAndClaimCompaction(
 		ctx,
 		executionstore.RecordModelCallFailureAndClaimCompactionInput{
 			ParentContextID:        claim.Context.ID,
 			Failure:                failure,
 			SourceEventSequenceEnd: plan.EventSequenceEnd,
+			ReplacesCheckpointID:   plan.ReplacesCheckpointID,
 		},
 	)
 	if err != nil {
@@ -203,6 +322,76 @@ func (e AgentExecutor) enterContextMaintenance(
 		Context:  handoff.ParentContext,
 		Resolved: resolved,
 	}, nil
+}
+
+func (e AgentExecutor) shouldAttemptOptionalCompaction(
+	ctx context.Context,
+	call executionstore.ModelCallContextRecord,
+	prepared model.PreparedRequest,
+	workingInputTarget int,
+	recovery executionstore.ModelCallRecoveryState,
+) (bool, error) {
+	if !prepared.InputBudget.OverBudget() || workingInputTarget <= 0 ||
+		recovery.OptionalCompactionAttemptedAtFrontier ||
+		recovery.CheckpointNeedsNormalAttempt || recovery.ProviderAttemptCount > 0 {
+		return false, nil
+	}
+	if recovery.LastOptionalContextID == uuid.Nil ||
+		recovery.LastOptionalInputTargetTokens != workingInputTarget {
+		return true, nil
+	}
+	hasMeasuredPressure := prepared.HasMeasuredInputPrefix && prepared.RequestInputIdentity != nil
+	if !hasMeasuredPressure && recovery.LatestObservedNormalInputTokens < workingInputTarget {
+		return false, nil
+	}
+	if !recovery.LastOptionalCompactionNeedsHeadroom {
+		return true, nil
+	}
+	return e.Store.Execution().HasObservedInputHeadroomSince(
+		ctx, call.ProjectID, call.AgentID, recovery.LastOptionalContextID,
+		call.ConfiguredModelRevisionID,
+		workingInputTarget*optionalCompactionRearmHeadroomPercent/100,
+	)
+}
+
+func (e AgentExecutor) retryWithSmallerOutputAllowance(
+	ctx context.Context,
+	input ModelWorkExecution,
+	claim executionstore.ModelCallClaim,
+	resolved model.ResolvedClient,
+	trigger contextMaintenanceTrigger,
+	response model.Response,
+	maxOutputTokens int,
+) (modelStep, bool, error) {
+	limits, err := model.OutputTokenLimitsForClient(resolved.Client, modelErrorSourceForClient(resolved.Client))
+	if err != nil {
+		return modelStep{}, false, err
+	}
+	minimum := max(1, limits.Minimum)
+	if maxOutputTokens <= minimum {
+		return modelStep{}, false, nil
+	}
+	nextAllowance := max(minimum, maxOutputTokens/2)
+	evidence := collectNormalCallFailureEvidence(resolved, trigger.RequestID, true, response)
+	contextRecord, err := e.Store.Execution().RecordRetryableModelCallFailure(
+		ctx,
+		executionstore.RecordRecoverableModelCallFailureInput{
+			ProjectID: input.ProjectID, AgentID: input.AgentID,
+			ModelCallContextID: claim.Context.ID, RuntimeLockID: input.RuntimeLockID,
+			RecoveryKind: executionstore.ModelCallRecoveryRetry,
+			APIFormat:    evidence.APIFormat, APIVariant: evidence.APIVariant,
+			ProviderRequestID: evidence.ProviderRequestID, ProviderResponseID: evidence.ProviderResponseID,
+			ErrorKind: trigger.Kind, ErrorCode: trigger.Code,
+			ErrorMessage: trigger.Message, ErrorDetails: trigger.Details,
+			Usage: evidence.Usage, ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
+			ProviderMetadata:        evidence.ProviderMetadata,
+			RecoveryMaxOutputTokens: &nextAllowance,
+		},
+	)
+	if err != nil {
+		return modelStep{}, false, errors.Join(trigger.Cause, err)
+	}
+	return modelStep{State: modelStepWaiting, Context: contextRecord, Resolved: resolved}, true, nil
 }
 
 func (e AgentExecutor) recordTerminalContextMaintenanceFailure(

@@ -50,17 +50,24 @@ RETURNING id
 	}
 	insertStartedCompaction := func(revisionID uuid.UUID, frontier int64) uuid.UUID {
 		t.Helper()
+		parentID := insertStarted(revisionID, frontier)
+		if _, err := fixture.Store.pool.Exec(ctx, `
+UPDATE model_call_contexts SET state = 'failed', recovery_kind = 'compact',
+    error_kind = 'context_window', error_message = 'test parent overflow', completed_at = statement_timestamp()
+WHERE id = $1`, parentID); err != nil {
+			t.Fatalf("finish compaction parent: %v", err)
+		}
 		var contextID uuid.UUID
 		if err := fixture.Store.pool.QueryRow(ctx, `
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, runtime_lock_id, state, created_at, parent_normal_model_call_context_id
 )
-VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp())
+VALUES ($1, $2, $3, 'compaction', 1, $4, $5, $6, 1, $7, 'started', statement_timestamp(), $8)
 RETURNING id
 `, testOrgID, testProjectID, fixture.AgentID, agent.CurrentConfigID,
-			revisionID, frontier, fixture.Lock.ID).Scan(&contextID); err != nil {
+			revisionID, frontier, fixture.Lock.ID, parentID).Scan(&contextID); err != nil {
 			t.Fatalf("insert compaction call at frontier %d: %v", frontier, err)
 		}
 		return contextID

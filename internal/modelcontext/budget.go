@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -44,7 +46,24 @@ func DefaultSafetyMarginTokens(contextTokens int) int {
 // and drops deferred tool definitions that no tool_reference has loaded into context.
 func EstimatePreparedRequest(body json.RawMessage, media []RenderedMedia) int {
 	projected := projectPreparedRequest(body, media)
-	return len(projected)/4 + 1 + renderedMediaTokenEstimate(media)
+	return estimateSerializedTextTokens(projected) + renderedMediaTokenEstimate(media)
+}
+
+func estimateSerializedTextTokens(value []byte) int {
+	denseBytes, denseRunes := 0, 0
+	for index := 0; index < len(value); {
+		if value[index] < utf8.RuneSelf {
+			index++
+			continue
+		}
+		r, size := utf8.DecodeRune(value[index:])
+		if unicode.In(r, unicode.Han, unicode.Hangul, unicode.Hiragana, unicode.Katakana) {
+			denseBytes += size
+			denseRunes++
+		}
+		index += size
+	}
+	return (len(value)-denseBytes+3)/4 + denseRunes
 }
 
 func projectPreparedRequest(body json.RawMessage, media []RenderedMedia) json.RawMessage {

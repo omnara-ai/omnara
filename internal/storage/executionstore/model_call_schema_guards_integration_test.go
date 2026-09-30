@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestConcurrentNormalModelCallClaimsHaveOneSender(t *testing.T) {
@@ -181,6 +182,17 @@ WHERE id = $1
 	)
 }
 
+func TestModelCallContextOutputRecoveryRequiresRetryKind(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "output_recovery_retry_guard")
+	_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
+SET state='failed',recovery_kind=NULL,recovery_max_output_tokens=1024,
+error_kind='context_window',error_message='provider context overflow',completed_at=statement_timestamp()
+WHERE id=$1`, claim.Context.ID)
+	assertPgConstraint(t, err, "23514", "model_call_contexts_recovery_output")
+}
+
 func TestModelCallContextIdentityIndexesRejectDuplicateLogicalContexts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -211,50 +223,50 @@ WHERE id = $1`, normal.Context.ID)
 		frontier,
 		compactionFixture.Now.Add(4*time.Second),
 	)
-	_, err = compactionFixture.Store.pool.Exec(ctx, `
+	duplicateTx, err := compactionFixture.Store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := duplicateTx.Exec(ctx, `
+UPDATE model_call_contexts
+SET state='canceled', error_kind='canceled', error_message='test duplicate identity',
+    completed_at=statement_timestamp()
+WHERE id=$1`, compaction.Context.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = duplicateTx.Exec(ctx, `
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind,
   attempt_number,
   agent_config_id, configured_model_revision_id,
-  input_event_sequence, source_event_sequence_end,
+  input_event_sequence, source_event_sequence_end, parent_normal_model_call_context_id,
   runtime_lock_id, state, created_at
 )
 SELECT org_id, project_id, agent_id, operation_kind,
        attempt_number,
        agent_config_id, configured_model_revision_id,
-       input_event_sequence, source_event_sequence_end,
+       input_event_sequence, source_event_sequence_end, parent_normal_model_call_context_id,
        runtime_lock_id, 'started',
        created_at + interval '1 second'
 FROM model_call_contexts
 WHERE id = $1`, compaction.Context.ID)
+	_ = duplicateTx.Rollback(ctx)
 	assertPgConstraint(t, err, "23505", "model_call_contexts_compaction_identity_idx")
-	parent, found, err := compactionFixture.Store.Execution().GetNormalModelCallContextForFrontier(
-		ctx,
-		testProjectID,
-		compactionFixture.AgentID,
-		compaction.Context.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load compaction parent: found=%v err=%v", found, err)
-	}
 
-	replayed, err := compactionFixture.Store.Execution().ClaimCompactionModelCall(
-		ctx,
-		executionstore.ClaimCompactionModelCallInput{
-			ProjectID:              testProjectID,
-			AgentID:                compactionFixture.AgentID,
-			RuntimeLockID:          compactionFixture.Lock.ID,
-			InputEventSequence:     compaction.Context.InputEventSequence,
+	_, err = compactionFixture.Store.Execution().RecordModelCallFailureAndClaimCompaction(
+		ctx, executionstore.RecordModelCallFailureAndClaimCompactionInput{
+			ParentContextID:        compaction.Context.ParentNormalModelCallContextID,
 			SourceEventSequenceEnd: *compaction.Context.SourceEventSequenceEnd,
-			ParentContextID:        parent.ID,
+			Failure: executionstore.RecordRecoverableModelCallFailureInput{
+				ProjectID: testProjectID, AgentID: compactionFixture.AgentID, RuntimeLockID: compactionFixture.Lock.ID,
+				ModelCallContextID: compaction.Context.ParentNormalModelCallContextID,
+				RecoveryKind:       executionstore.ModelCallRecoveryCompact,
+				ErrorKind:          modelprotocol.ErrorKindContextWindow, ErrorMessage: "duplicate handoff",
+			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("re-find compaction identity: %v", err)
-	}
-	if replayed.Context.ID != compaction.Context.ID || replayed.Created || replayed.Claimed ||
-		replayed.Context.State != executionstore.ModelCallContextStarted {
-		t.Fatalf("replayed compaction claim = %+v, want existing context without send authority", replayed)
+	if !errors.Is(err, storeerr.ErrStateTransitionConflict) {
+		t.Fatalf("duplicate compaction handoff = %v, want state transition conflict", err)
 	}
 }
 

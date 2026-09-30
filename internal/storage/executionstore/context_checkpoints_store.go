@@ -76,29 +76,26 @@ func (s *Store) PublishContextCheckpoint(
 		contextRow.SourceEventSequenceEnd == nil {
 		return ContextCheckpointRecord{}, storeerr.ErrStateTransitionConflict
 	}
-	sourceStart, err := compactionSourceStartTx(ctx, q, contextRow)
+	prior, err := priorCompactionCheckpointTx(ctx, q, contextRow)
 	if err != nil {
 		return ContextCheckpointRecord{}, err
 	}
-	if err := validateClosedCheckpointRangeTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		sourceStart,
-		*contextRow.SourceEventSequenceEnd,
-	); err != nil {
-		return ContextCheckpointRecord{}, err
-	}
-	if err := validateCheckpointDoesNotCutOpenAuthoritiesTx(
-		ctx,
-		tx,
-		input.ProjectID,
-		input.AgentID,
-		sourceStart,
-		*contextRow.SourceEventSequenceEnd,
-	); err != nil {
-		return ContextCheckpointRecord{}, err
+	if contextRow.ReplacesCheckpointID != uuid.Nil {
+		if len(input.Summary) > len(prior.Summary)*9/10 {
+			return ContextCheckpointRecord{}, storeerr.ErrStateTransitionConflict
+		}
+	} else {
+		sourceStart := prior.SummarizedThroughEventSequence + 1
+		if err := validateClosedCheckpointRangeTx(
+			ctx, tx, input.ProjectID, input.AgentID, sourceStart, *contextRow.SourceEventSequenceEnd,
+		); err != nil {
+			return ContextCheckpointRecord{}, err
+		}
+		if err := validateCheckpointDoesNotCutOpenAuthoritiesTx(
+			ctx, tx, input.ProjectID, input.AgentID, sourceStart, *contextRow.SourceEventSequenceEnd,
+		); err != nil {
+			return ContextCheckpointRecord{}, err
+		}
 	}
 
 	checkpointID, err := uuid.NewV7()
@@ -204,8 +201,20 @@ func compactionSourceStartTx(
 	q *dbsqlc.Queries,
 	contextRow ModelCallContextRecord,
 ) (int64, error) {
+	checkpoint, err := priorCompactionCheckpointTx(ctx, q, contextRow)
+	if err != nil {
+		return 0, err
+	}
+	return checkpoint.SummarizedThroughEventSequence + 1, nil
+}
+
+func priorCompactionCheckpointTx(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	contextRow ModelCallContextRecord,
+) (dbsqlc.GetLatestApplicableContextCheckpointRow, error) {
 	if contextRow.OperationKind != ModelCallOperationCompaction {
-		return 0, storeerr.ErrStateTransitionConflict
+		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, storeerr.ErrStateTransitionConflict
 	}
 	checkpoint, err := q.GetLatestApplicableContextCheckpoint(
 		ctx,
@@ -215,13 +224,18 @@ func compactionSourceStartTx(
 			MaxEventSequence: contextRow.InputEventSequence,
 		},
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 1, nil
+	if errors.Is(err, pgx.ErrNoRows) && contextRow.ReplacesCheckpointID == uuid.Nil {
+		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("load prior compaction checkpoint: %w", err)
+		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, fmt.Errorf("load prior compaction checkpoint: %w", err)
 	}
-	return checkpoint.SummarizedThroughEventSequence + 1, nil
+	if contextRow.ReplacesCheckpointID != uuid.Nil &&
+		(checkpoint.ID != contextRow.ReplacesCheckpointID || contextRow.SourceEventSequenceEnd == nil ||
+			checkpoint.SummarizedThroughEventSequence != *contextRow.SourceEventSequenceEnd) {
+		return dbsqlc.GetLatestApplicableContextCheckpointRow{}, storeerr.ErrStateTransitionConflict
+	}
+	return checkpoint, nil
 }
 
 func validatePublishContextCheckpointInput(input PublishContextCheckpointInput) error {

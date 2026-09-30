@@ -22,11 +22,14 @@ func TestProviderImageTokenEstimates(t *testing.T) {
 			got:  AnthropicImageTokenEstimate("claude-sonnet-4-6", media),
 			want: 1_369,
 		},
-		{name: "openai original patches", got: OpenAIImageTokenEstimate("gpt-5.6", media), want: 1_024},
-		{name: "openai bounded patches", got: OpenAIImageTokenEstimate("gpt-5-mini", media), want: 1_659},
-		{name: "openai unmultiplied GPT-5.2 patches", got: OpenAIImageTokenEstimate("gpt-5.2", media), want: 1_024},
+		{name: "openai original patches", got: OpenAIImageTokenEstimate("gpt-5.6-sol", media), want: 1_229},
+		{name: "openai bounded patches", got: OpenAIImageTokenEstimate("gpt-5-mini", media), want: 1_229},
+		{name: "openai nano multiplier", got: OpenAIImageTokenEstimate("gpt-5-nano", media), want: 1_536},
+		{name: "openai GPT-6 original patches", got: OpenAIImageTokenEstimate("gpt-6-astra", media), want: 1_229},
+		{name: "openai GPT-5.2 patches", got: OpenAIImageTokenEstimate("gpt-5.2", media), want: 1_229},
 		{name: "openai unmultiplied Codex patches", got: OpenAIImageTokenEstimate("gpt-5.3-codex", media), want: 1_024},
 		{name: "openai GPT-5 snapshot tiles", got: OpenAIImageTokenEstimate("gpt-5-2025-08-07", media), want: 630},
+		{name: "openai GPT-5.1 tiles", got: OpenAIImageTokenEstimate("gpt-5.1", media), want: 630},
 		{name: "openai expensive tiles", got: OpenAIImageTokenEstimate("gpt-4o-mini", media), want: 25_501},
 	}
 	for _, test := range tests {
@@ -130,42 +133,98 @@ func TestOpenAIImageTokenEstimateMatchesDocumentedPatchExamples(t *testing.T) {
 			providerModelSlug: "gpt-5.6",
 			width:             1_800,
 			height:            2_400,
-			want:              4_275,
+			want:              5_130,
 		},
 		{
 			name:              "finite patch model resizes within budget",
 			providerModelSlug: "gpt-5.2",
 			width:             1_800,
 			height:            2_400,
-			want:              1_452,
+			want:              3_687,
 		},
 		{
 			name:              "finite patch model long edge",
 			providerModelSlug: "gpt-5.2",
 			width:             100,
 			height:            3_000,
-			want:              192,
+			want:              231,
 		},
 		{
 			name:              "original detail model long edge",
 			providerModelSlug: "gpt-5.5",
 			width:             100,
 			height:            7_000,
-			want:              564,
+			want:              677,
 		},
 		{
 			name:              "GPT-5.4 patch budget",
 			providerModelSlug: "gpt-5.4",
 			width:             2_048,
 			height:            2_048,
-			want:              2_500,
+			want:              3_000,
 		},
 		{
 			name:              "GPT-5.5 original patch budget",
 			providerModelSlug: "gpt-5.5",
 			width:             4_096,
 			height:            4_096,
-			want:              10_000,
+			want:              12_000,
+		},
+		{
+			name:              "GPT-5.4 mini shares auto detail budget",
+			providerModelSlug: "openai/gpt-5.4-mini",
+			width:             2_048,
+			height:            2_048,
+			want:              3_000,
+		},
+		{
+			name:              "GPT-5.4 nano shares auto detail budget",
+			providerModelSlug: "gpt-5.4-nano",
+			width:             2_048,
+			height:            2_048,
+			want:              3_000,
+		},
+		{
+			name:              "GPT-4.1 mini exceeds legacy 1536 patch cap",
+			providerModelSlug: "gpt-4.1-mini-2025-04-14",
+			width:             2_048,
+			height:            2_048,
+			want:              6_636,
+		},
+		{
+			name:              "patch resize rounds final dimensions down",
+			providerModelSlug: "gpt-5.4",
+			width:             1_536,
+			height:            2_305,
+			want:              2_880,
+		},
+		{
+			name:              "tile model does not enlarge a tiny image",
+			providerModelSlug: "gpt-4o",
+			width:             32,
+			height:            32,
+			want:              255,
+		},
+		{
+			name:              "tile model keeps narrow image within maximum edge",
+			providerModelSlug: "gpt-4o",
+			width:             100,
+			height:            3_000,
+			want:              765,
+		},
+		{
+			name:              "original detail scales to dimension limit",
+			providerModelSlug: "gpt-5.6-sol",
+			width:             131_070,
+			height:            64,
+			want:              2_458,
+		},
+		{
+			name:              "original detail does not cap rejected image patches",
+			providerModelSlug: "gpt-5.6-sol",
+			width:             6_400,
+			height:            6_400,
+			want:              48_000,
 		},
 	}
 	for _, test := range tests {
@@ -235,8 +294,8 @@ func TestOpenAICompatibleFallbacksUseLargestImageEstimate(t *testing.T) {
 		[]string{"anthropic/claude-sonnet-4.6", "openai/gpt-5.6"},
 		media,
 	)
-	if got != 8_160 {
-		t.Fatalf("fallback estimate = %d, want 8160", got)
+	if got != 9_792 {
+		t.Fatalf("fallback estimate = %d, want 9792", got)
 	}
 }
 

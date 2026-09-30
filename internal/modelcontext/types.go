@@ -100,15 +100,18 @@ func (m RenderedMedia) InputModality() string {
 }
 
 type Message struct {
-	ID                   string                               `json:"-"`
-	AgentInputID         string                               `json:"-"`
-	ModelCallContextID   string                               `json:"-"`
-	Role                 modelprotocol.MessageRole            `json:"role"`
-	Sequence             int64                                `json:"sequence,omitempty"`
-	Content              json.RawMessage                      `json:"content"`
-	ProviderReplay       json.RawMessage                      `json:"-"`
-	ProviderReplaySource modelenvelope.ProviderReplayIdentity `json:"-"`
-	StopReason           modelenvelope.StopReason             `json:"-"`
+	RequestInputIdentity    *modelenvelope.RequestInputIdentity  `json:"-"`
+	Usage                   modelenvelope.Usage                  `json:"-"`
+	ServedProviderModelSlug string                               `json:"-"`
+	ID                      string                               `json:"-"`
+	AgentInputID            string                               `json:"-"`
+	ModelCallContextID      string                               `json:"-"`
+	Role                    modelprotocol.MessageRole            `json:"role"`
+	Sequence                int64                                `json:"sequence,omitempty"`
+	Content                 json.RawMessage                      `json:"content"`
+	ProviderReplay          json.RawMessage                      `json:"-"`
+	ProviderReplaySource    modelenvelope.ProviderReplayIdentity `json:"-"`
+	StopReason              modelenvelope.StopReason             `json:"-"`
 }
 
 type ToolSpec struct {

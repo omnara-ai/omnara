@@ -12,6 +12,16 @@ import (
 func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCallContextRecord {
 	providerMetadata := providerMetadataFromSQLC(row.ProviderMetadata)
 	return ModelCallContextRecord{
+		ParentNormalModelCallContextID:  storeutil.IDFromPtr(row.ParentNormalModelCallContextID),
+		ReplacesCheckpointID:            storeutil.IDFromPtr(row.ReplacesCheckpointID),
+		SourceExcerptBytes:              intFromInt32Ptr(row.SourceExcerptBytes),
+		RecoveryMaxOutputTokens:         intFromInt32Ptr(row.RecoveryMaxOutputTokens),
+		RecoveryCheckpointID:            storeutil.IDFromPtr(row.RecoveryCheckpointID),
+		RecoveryCheckpointRetainedBytes: intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
+		OptionalInputTargetTokens:       intFromInt32Ptr(row.OptionalInputTargetTokens),
+		OptionalCompactionOutcome:       OptionalCompactionOutcome(stringFromSQLCText(row.OptionalCompactionOutcome)),
+		RequestInputIdentity: requestInputIdentityFromColumns(row.RequestInputVersion, row.RequestInputRouteFingerprint,
+			row.RequestInputStaticFingerprint, row.RequestInputPrefixFingerprint, row.RequestInputItemCount),
 		ID:                        row.ID,
 		OrgID:                     row.OrgID,
 		ProjectID:                 row.ProjectID,
@@ -55,4 +65,32 @@ func providerMetadataFromSQLC(raw json.RawMessage) modelenvelope.ProviderMetadat
 		return modelenvelope.ProviderMetadata{}
 	}
 	return metadata
+}
+
+func intFromInt32Ptr(value *int32) *int {
+	if value == nil {
+		return nil
+	}
+	converted := int(*value)
+	return &converted
+}
+
+func int32FromIntPtr(value *int) *int32 {
+	if value == nil {
+		return nil
+	}
+	converted := int32(*value)
+	return &converted
+}
+
+func requestInputIdentityFromColumns(
+	version *int32,
+	route, static, prefix *string,
+	count *int32,
+) *modelenvelope.RequestInputIdentity {
+	if version == nil {
+		return nil
+	}
+	return &modelenvelope.RequestInputIdentity{Version: int(*version), RouteFingerprint: *route,
+		StaticFingerprint: *static, PrefixFingerprint: *prefix, ItemCount: int(*count)}
 }

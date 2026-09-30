@@ -57,7 +57,35 @@ func recoverRuntimeModelCallContextTx(
 	if err != nil {
 		return fmt.Errorf("marshal runtime recovery error: %w", err)
 	}
-	if contextRecord.AttemptNumber > MaxModelCallRetriesPerOperation {
+	recovery, err := getModelCallRecoveryStateTx(ctx, qtx, projectID, agentID, contextRecord.ID)
+	if err != nil {
+		return err
+	}
+	retryCount := recovery.NormalRetryCount
+	if contextRecord.OperationKind == ModelCallOperationCompaction {
+		retryCount = recovery.CompactionRetryCount
+	}
+	if contextRecord.OperationKind == ModelCallOperationCompaction &&
+		(recovery.ParentRecoveryKind == ModelCallRecoveryCompactOptional ||
+			(contextRecord.ReplacesCheckpointID != uuid.Nil && retryCount >= MaxModelCallRetriesPerOperation)) {
+		var outcome OptionalCompactionOutcome
+		if recovery.ParentRecoveryKind == ModelCallRecoveryCompactOptional {
+			outcome = OptionalCompactionInterrupted
+		}
+		_, err := recordCompactionFailureAndResumeNormalTx(ctx, qtx, RecordCompactionFailureAndResumeNormalInput{
+			Outcome:            outcome,
+			ProjectID:          projectID,
+			AgentID:            agentID,
+			RuntimeLockID:      runtimeLockID,
+			ModelCallContextID: contextRecord.ID,
+			ErrorKind:          modelprotocol.ErrorKindRuntime,
+			ErrorCode:          evidence.Code,
+			ErrorMessage:       evidence.Message,
+			ErrorDetails:       details,
+		}, modelCallContextRuntimeTeardown)
+		return err
+	}
+	if retryCount >= MaxModelCallRetriesPerOperation {
 		return terminalizeExhaustedRuntimeModelCallContextTx(
 			ctx,
 			txNotifications,
@@ -83,7 +111,7 @@ func recoverRuntimeModelCallContextTx(
 			ErrorMessage:  evidence.Message,
 			ErrorDetails:  details,
 			RetryDelayMicroseconds: retryBackoff(
-				contextRecord.AttemptNumber,
+				retryCount+1,
 				contextRecord.ID.String(),
 			).Microseconds(),
 		},

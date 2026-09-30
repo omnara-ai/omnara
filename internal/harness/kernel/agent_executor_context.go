@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
@@ -34,13 +35,17 @@ const (
 )
 
 type modelStep struct {
-	State               modelStepState
-	Context             executionstore.ModelCallContextRecord
-	Bundle              modelcontext.Bundle
-	Envelope            modelenvelope.ResponseEnvelope
-	Response            model.Response
-	Resolved            model.ResolvedClient
-	StreamedToolCallIDs map[string]uuid.UUID
+	State                   modelStepState
+	Context                 executionstore.ModelCallContextRecord
+	Bundle                  modelcontext.Bundle
+	Envelope                modelenvelope.ResponseEnvelope
+	Response                model.Response
+	Resolved                model.ResolvedClient
+	StreamedToolCallIDs     map[string]uuid.UUID
+	RequestInputIdentity    *modelenvelope.RequestInputIdentity
+	MaxOutputTokens         int
+	ReducedOutputAllowance  bool
+	OutputAllowanceRestored bool
 }
 
 func (e AgentExecutor) executeModelStep(
@@ -105,7 +110,8 @@ func (e AgentExecutor) executeModelStep(
 		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
-			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry {
+			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry &&
+			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRestoreOutput {
 			state = modelStepDone
 		}
 		return modelStep{State: state, Context: claim.Context}, nil
@@ -239,13 +245,44 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
+	recovery, err := e.Store.Execution().GetModelCallRecoveryState(
+		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
+	)
+	if err != nil {
+		return modelStep{}, err
+	}
+	if recovery.RecoveryCheckpointRetainedBytes != nil {
+		bundle, err = modelcontext.ApplyCheckpointExcerpt(
+			bundle, recovery.RecoveryCheckpointID, *recovery.RecoveryCheckpointRetainedBytes,
+		)
+		if err != nil {
+			return e.recordNormalPreSendFailure(ctx, input, claim, resolved, err, modelretry.PreSendFailure{
+				Code:    preSendErrorCodeBuildModelContextFailed,
+				Message: "Omnara could not apply the saved checkpoint recovery projection.",
+			})
+		}
+	}
+	workingInputTarget, err := model.WorkingInputTargetTokens(client, policy, modelErrorSourceForClient(client))
+	if err != nil {
+		return e.recordNormalPreSendFailure(ctx, input, claim, resolved, err, modelretry.PreSendFailure{
+			Code: preSendErrorCodePrepareModelRequestFailed, Message: "Omnara could not determine the model input target.",
+		})
+	}
+	configuredOutputAllowance := policy.MaxOutputTokens
+	if recovery.RecoveryMaxOutputTokens != nil && !recovery.OutputAllowanceRestored {
+		if policy.MaxOutputTokens == 0 || *recovery.RecoveryMaxOutputTokens < policy.MaxOutputTokens {
+			policy.MaxOutputTokens = *recovery.RecoveryMaxOutputTokens
+		}
+	}
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
 		model.PrepareForSendInput{
-			Context:     bundle,
-			Policy:      policy,
-			ErrorSource: modelErrorSourceForClient(client),
+			Context:                 bundle,
+			Policy:                  policy,
+			ErrorSource:             modelErrorSourceForClient(client),
+			AllowUncertainInput:     true,
+			PreserveOutputAllowance: recovery.OutputAllowanceRestored,
 		},
 	)
 	if err != nil {
@@ -257,29 +294,35 @@ func (e AgentExecutor) executeModelStep(
 			},
 		)
 	}
-	if prepared.InputBudget.OverBudget() {
+	optionalMaintenance, err := e.shouldAttemptOptionalCompaction(
+		ctx, claim.Context, prepared, workingInputTarget, recovery,
+	)
+	if err != nil {
+		return modelStep{}, err
+	}
+	if optionalMaintenance {
 		trigger, triggerErr := localInputBudgetTrigger(
 			prepared.InputBudget,
+			workingInputTarget,
 			modelErrorSourceForClient(client),
 		)
 		if triggerErr != nil {
 			return modelStep{}, triggerErr
 		}
-		return e.enterContextMaintenance(
-			ctx,
-			input,
-			claim,
-			resolved,
-			trigger,
-			false,
-			model.Response{},
-		)
+		plan, ok, planErr := e.planCompactionForContext(ctx, claim.Context, client, input)
+		if planErr != nil {
+			return modelStep{}, planErr
+		}
+		if ok && plan.ReplacesCheckpointID == uuid.Nil {
+			trigger.Optional = true
+			return e.enterPlannedContextMaintenance(ctx, input, claim, resolved, trigger, false, model.Response{}, plan)
+		}
 	}
 	request := model.Request{
 		ProviderRequest: prepared.Body,
 	}
 	var streamSink *harnessStreamSink
-	if claim.Context.AttemptNumber == 1 {
+	if recovery.ProviderAttemptCount == 0 {
 		if streamSink = e.streamSinkForCall(
 			context.WithoutCancel(ctx),
 			input.AgentID,
@@ -306,6 +349,7 @@ func (e AgentExecutor) executeModelStep(
 			policy,
 			err,
 			response,
+			prepared.MaxOutputTokens,
 		)
 	}
 	envelope, err := model.NewResponseEnvelopeForStorage(
@@ -325,13 +369,23 @@ func (e AgentExecutor) executeModelStep(
 			response,
 		)
 	}
+	for _, part := range response.Content {
+		if part.ToolCallError != "" {
+			prepared.RequestInputIdentity = nil
+			break
+		}
+	}
 	step := modelStep{
-		Context:             claim.Context,
-		Bundle:              bundle,
-		Envelope:            envelope,
-		Response:            response,
-		Resolved:            resolved,
-		StreamedToolCallIDs: streamSink.ToolCallIDs(),
+		Context:                 claim.Context,
+		Bundle:                  bundle,
+		Envelope:                envelope,
+		Response:                response,
+		Resolved:                resolved,
+		StreamedToolCallIDs:     streamSink.ToolCallIDs(),
+		RequestInputIdentity:    prepared.RequestInputIdentity,
+		MaxOutputTokens:         prepared.MaxOutputTokens,
+		ReducedOutputAllowance:  prepared.MaxOutputTokens > 0 && configuredOutputAllowance > prepared.MaxOutputTokens,
+		OutputAllowanceRestored: recovery.OutputAllowanceRestored,
 	}
 	return e.finishModelResponse(ctx, input, step)
 }
@@ -345,8 +399,28 @@ func (e AgentExecutor) finishModelResponse(
 	errorSource := modelErrorSourceForClient(client)
 	calls := model.ToolCallsFromEnvelope(step.Envelope)
 	reason := step.Envelope.Normalized.StopReason
-	if cause := invalidModelResponse(errorSource, reason, calls); cause != nil {
-		return e.recordNormalFailure(
+	cause := invalidModelResponse(errorSource, reason, calls)
+	if cause == nil && (step.ReducedOutputAllowance || step.OutputAllowanceRestored) &&
+		reason == model.StopReasonMaxTokens && len(calls) == 0 {
+		visibleProgress := false
+		for _, part := range step.Envelope.Normalized.Content {
+			if part.Type == modelenvelope.ResponsePartTypeText && strings.TrimSpace(part.Text) != "" {
+				visibleProgress = true
+				break
+			}
+		}
+		if !visibleProgress {
+			cause = model.ProviderError{
+				Kind: model.ErrorKindTransient, Source: errorSource, Code: "output_recovery_no_progress",
+				Message: "The model exhausted its output allowance without producing text or a tool call.",
+			}
+			if !step.OutputAllowanceRestored {
+				return e.restoreOutputAllowance(ctx, input, step, cause)
+			}
+		}
+	}
+	if cause != nil {
+		return e.recordNormalFailureForAttempt(
 			ctx,
 			input,
 			executionstore.ModelCallClaim{Context: step.Context, Claimed: true},
@@ -354,6 +428,8 @@ func (e AgentExecutor) finishModelResponse(
 			cause,
 			true,
 			step.Response,
+			modelretry.Attempt{Number: step.Context.AttemptNumber},
+			step.MaxOutputTokens,
 		)
 	}
 	if len(calls) > 0 {
@@ -371,12 +447,13 @@ func (e AgentExecutor) recordSuccessfulModelOutput(
 	_, err := e.Store.Execution().RecordModelOutputAndCompleteContext(
 		ctx,
 		executionstore.RecordModelOutputAndCompleteContextInput{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			RuntimeLockID:      input.RuntimeLockID,
-			ModelCallContextID: step.Context.ID,
-			ProviderRequestID:  step.Response.ProviderRequestID,
-			ProviderResponse:   step.Envelope,
+			ProjectID:            input.ProjectID,
+			AgentID:              input.AgentID,
+			RuntimeLockID:        input.RuntimeLockID,
+			ModelCallContextID:   step.Context.ID,
+			ProviderRequestID:    step.Response.ProviderRequestID,
+			ProviderResponse:     step.Envelope,
+			RequestInputIdentity: step.RequestInputIdentity,
 		},
 	)
 	if err != nil {
@@ -404,6 +481,7 @@ func (e AgentExecutor) recordNormalFailure(
 		providerRequestStarted,
 		response,
 		modelretry.Attempt{Number: claim.Context.AttemptNumber},
+		0,
 	)
 }
 
@@ -415,6 +493,7 @@ func (e AgentExecutor) recordNormalProviderFailure(
 	policy model.RequestPolicy,
 	cause error,
 	response model.Response,
+	maxOutputTokens int,
 ) (modelStep, error) {
 	return e.recordNormalFailureForAttempt(
 		ctx,
@@ -429,6 +508,7 @@ func (e AgentExecutor) recordNormalProviderFailure(
 			ProviderReplayCutoffCanAdvance: policy.ProviderReplayCutoffEventSequence <
 				claim.Context.InputEventSequence,
 		},
+		maxOutputTokens,
 	)
 }
 
@@ -441,6 +521,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 	providerRequestStarted bool,
 	response model.Response,
 	attempt modelretry.Attempt,
+	maxOutputTokens int,
 ) (modelStep, error) {
 	if trigger, ok := providerInputFailureTrigger(cause); ok {
 		return e.enterContextMaintenance(
@@ -451,8 +532,16 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			trigger,
 			providerRequestStarted,
 			response,
+			maxOutputTokens,
 		)
 	}
+	recovery, err := e.Store.Execution().GetModelCallRecoveryState(
+		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
+	)
+	if err != nil {
+		return modelStep{}, err
+	}
+	attempt.Number = recovery.NormalRetryCount + 1
 	now := e.now()
 	evidence, decision := modelretry.Decide(
 		cause,
@@ -496,7 +585,7 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 		}
 		return modelStep{State: modelStepWaiting, Context: contextRecord, Resolved: resolved}, nil
 	}
-	_, err := e.Store.Execution().RecordModelCallErrorAndCompleteContext(
+	_, err = e.Store.Execution().RecordModelCallErrorAndCompleteContext(
 		ctx,
 		executionstore.RecordModelCallErrorAndCompleteContextInput{
 			ProjectID:               input.ProjectID,

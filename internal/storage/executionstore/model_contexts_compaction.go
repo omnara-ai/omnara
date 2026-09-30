@@ -23,7 +23,7 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			"parent model context and a valid compaction source range are required",
 		)
 	}
-	if failure.RecoveryKind != ModelCallRecoveryCompact {
+	if failure.RecoveryKind != ModelCallRecoveryCompact && failure.RecoveryKind != ModelCallRecoveryCompactOptional {
 		return TriggeredCompactionHandoff{}, errors.New("compaction recovery is required")
 	}
 	if err := validateRecoverableModelCallFailure(failure); err != nil {
@@ -99,28 +99,31 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			checkpointErr,
 		)
 	}
-	if input.SourceEventSequenceEnd <= summarizedThrough {
+	if !compactionSourceMatchesCheckpoint(
+		input.SourceEventSequenceEnd, input.ReplacesCheckpointID, checkpoint.ID, summarizedThrough,
+	) {
 		return TriggeredCompactionHandoff{}, storeerr.ErrStateTransitionConflict
 	}
 
 	parentContext, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
-		ProjectID:               failure.ProjectID,
-		AgentID:                 failure.AgentID,
-		ModelCallContextID:      failure.ModelCallContextID,
-		RuntimeLockID:           failure.RuntimeLockID,
-		ToState:                 ModelCallContextFailed,
-		RecoveryKind:            ModelCallRecoveryCompact,
-		APIFormat:               failure.APIFormat,
-		APIVariant:              failure.APIVariant,
-		ProviderRequestID:       failure.ProviderRequestID,
-		ProviderResponseID:      failure.ProviderResponseID,
-		ErrorKind:               failure.ErrorKind,
-		ErrorCode:               failure.ErrorCode,
-		ErrorMessage:            failure.ErrorMessage,
-		ErrorDetails:            failure.ErrorDetails,
-		Usage:                   failure.Usage,
-		ProviderReportedCostUSD: failure.ProviderReportedCostUSD,
-		ProviderMetadata:        failure.ProviderMetadata,
+		ProjectID:                 failure.ProjectID,
+		AgentID:                   failure.AgentID,
+		ModelCallContextID:        failure.ModelCallContextID,
+		RuntimeLockID:             failure.RuntimeLockID,
+		ToState:                   ModelCallContextFailed,
+		RecoveryKind:              failure.RecoveryKind,
+		OptionalInputTargetTokens: failure.OptionalInputTargetTokens,
+		APIFormat:                 failure.APIFormat,
+		APIVariant:                failure.APIVariant,
+		ProviderRequestID:         failure.ProviderRequestID,
+		ProviderResponseID:        failure.ProviderResponseID,
+		ErrorKind:                 failure.ErrorKind,
+		ErrorCode:                 failure.ErrorCode,
+		ErrorMessage:              failure.ErrorMessage,
+		ErrorDetails:              failure.ErrorDetails,
+		Usage:                     failure.Usage,
+		ProviderReportedCostUSD:   failure.ProviderReportedCostUSD,
+		ProviderMetadata:          failure.ProviderMetadata,
 	})
 	if err != nil {
 		return TriggeredCompactionHandoff{}, err
@@ -152,7 +155,8 @@ func (s *Store) RecordModelCallFailureAndClaimCompaction(
 			BoundaryPreempted: true,
 		}, nil
 	}
-	compactionClaimTx, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
+	compactionClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
+		ReplacesCheckpointID:   input.ReplacesCheckpointID,
 		ProjectID:              failure.ProjectID,
 		AgentID:                failure.AgentID,
 		RuntimeLockID:          failure.RuntimeLockID,
@@ -265,14 +269,18 @@ func (s *Store) ReplaceCompactionSource(
 		contextRow.State != ModelCallContextStarted ||
 		contextRow.RuntimeLockID != input.RuntimeLockID ||
 		contextRow.SourceEventSequenceEnd == nil ||
-		input.NextSourceEventSequenceEnd >= *contextRow.SourceEventSequenceEnd {
+		!compactionSourceProjectionAdvances(contextRow, input.NextSourceEventSequenceEnd, input.NextSourceExcerptBytes) {
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	sourceStart, err := compactionSourceStartTx(ctx, q, contextRow)
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
 	}
-	if input.NextSourceEventSequenceEnd < sourceStart {
+	if contextRow.ReplacesCheckpointID == uuid.Nil && input.NextSourceEventSequenceEnd < sourceStart {
+		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
+	}
+	if contextRow.ReplacesCheckpointID != uuid.Nil &&
+		input.NextSourceEventSequenceEnd != *contextRow.SourceEventSequenceEnd {
 		return ReplaceCompactionSourceResult{}, storeerr.ErrStateTransitionConflict
 	}
 	if _, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -321,24 +329,15 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{BoundaryPreempted: true}, nil
 	}
 
-	parentID, err := q.GetNormalModelCallContextByIdentity(
-		ctx,
-		dbsqlc.GetNormalModelCallContextByIdentityParams{
-			ProjectID:          contextRow.ProjectID,
-			AgentID:            contextRow.AgentID,
-			InputEventSequence: contextRow.InputEventSequence,
-		},
-	)
-	if err != nil {
-		return ReplaceCompactionSourceResult{}, fmt.Errorf("load parent normal context for replacement compaction: %w", err)
-	}
-	nextClaimTx, err := claimCompactionContextTx(ctx, q, ClaimCompactionModelCallInput{
+	nextClaimTx, err := claimCompactionContextTx(ctx, q, claimCompactionContextInput{
+		ReplacesCheckpointID:   contextRow.ReplacesCheckpointID,
 		ProjectID:              contextRow.ProjectID,
 		AgentID:                contextRow.AgentID,
 		RuntimeLockID:          input.RuntimeLockID,
 		InputEventSequence:     contextRow.InputEventSequence,
 		SourceEventSequenceEnd: input.NextSourceEventSequenceEnd,
-		ParentContextID:        parentID,
+		ParentContextID:        contextRow.ParentNormalModelCallContextID,
+		SourceExcerptBytes:     input.NextSourceExcerptBytes,
 	})
 	if err != nil {
 		return ReplaceCompactionSourceResult{}, err
@@ -369,4 +368,23 @@ func (s *Store) ReplaceCompactionSource(
 		return ReplaceCompactionSourceResult{}, err
 	}
 	return ReplaceCompactionSourceResult{CompactionCall: nextClaim}, nil
+}
+
+func compactionSourceMatchesCheckpoint(sourceEnd int64, replacesID, priorID uuid.UUID, priorEnd int64) bool {
+	if replacesID == uuid.Nil {
+		return sourceEnd > priorEnd
+	}
+	return replacesID == priorID && sourceEnd == priorEnd
+}
+
+func compactionSourceProjectionAdvances(current ModelCallContextRecord, nextEnd int64, nextExcerpt *int) bool {
+	if current.SourceEventSequenceEnd == nil ||
+		(nextExcerpt != nil && (*nextExcerpt <= 0 || int64(*nextExcerpt) > 2147483647)) {
+		return false
+	}
+	if nextEnd < *current.SourceEventSequenceEnd {
+		return true
+	}
+	return nextEnd == *current.SourceEventSequenceEnd && nextExcerpt != nil &&
+		(current.SourceExcerptBytes == nil || *nextExcerpt < *current.SourceExcerptBytes)
 }

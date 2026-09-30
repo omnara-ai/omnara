@@ -11,9 +11,10 @@ import (
 )
 
 type wireClientConfig struct {
-	capabilities model.Capabilities
-	httpClient   *http.Client
-	idleTimeout  time.Duration
+	inputIdentityScope string
+	capabilities       model.Capabilities
+	httpClient         *http.Client
+	idleTimeout        time.Duration
 }
 
 func adapterWireClients(config wireClientConfig) []struct {
@@ -28,36 +29,39 @@ func adapterWireClients(config wireClientConfig) []struct {
 			"chat",
 			"max_completion_tokens",
 			openaichatcompletions.Client{
-				EndpointPath:      "/chat/completions",
-				ProviderModelSlug: "test-model",
-				ModelCapabilities: config.capabilities,
-				BaseURL:           "https://example.test",
-				HTTPClient:        config.httpClient,
-				IdleTimeout:       config.idleTimeout,
+				InputIdentityScope: config.inputIdentityScope,
+				EndpointPath:       "/chat/completions",
+				ProviderModelSlug:  "test-model",
+				ModelCapabilities:  config.capabilities,
+				BaseURL:            "https://example.test",
+				HTTPClient:         config.httpClient,
+				IdleTimeout:        config.idleTimeout,
 			},
 		},
 		{
 			"responses",
 			"max_output_tokens",
 			openairesponses.Client{
-				EndpointPath:      "/responses",
-				ProviderModelSlug: "test-model",
-				ModelCapabilities: config.capabilities,
-				BaseURL:           "https://example.test",
-				HTTPClient:        config.httpClient,
-				IdleTimeout:       config.idleTimeout,
+				InputIdentityScope: config.inputIdentityScope,
+				EndpointPath:       "/responses",
+				ProviderModelSlug:  "test-model",
+				ModelCapabilities:  config.capabilities,
+				BaseURL:            "https://example.test",
+				HTTPClient:         config.httpClient,
+				IdleTimeout:        config.idleTimeout,
 			},
 		},
 		{
 			"anthropic",
 			"max_tokens",
 			anthropicmessages.Client{
-				EndpointPath:      "/messages",
-				ProviderModelSlug: "test-model",
-				ModelCapabilities: config.capabilities,
-				BaseURL:           "https://example.test",
-				HTTPClient:        config.httpClient,
-				IdleTimeout:       config.idleTimeout,
+				InputIdentityScope: config.inputIdentityScope,
+				EndpointPath:       "/messages",
+				ProviderModelSlug:  "test-model",
+				ModelCapabilities:  config.capabilities,
+				BaseURL:            "https://example.test",
+				HTTPClient:         config.httpClient,
+				IdleTimeout:        config.idleTimeout,
 			},
 		},
 	}

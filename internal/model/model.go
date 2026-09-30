@@ -136,10 +136,14 @@ type PrepareInput struct {
 type PreparedRequest struct {
 	// Body is the exact JSON byte sequence authorized by Prepare and passed to
 	// the provider transport. Respond must not rebuild or mutate it.
-	Body               json.RawMessage
-	InputTokenEstimate int
-	InputBudget        InputBudgetAssessment
-	MaxOutputTokens    int
+	Body                   json.RawMessage
+	InputTokenEstimate     int
+	InputBudget            InputBudgetAssessment
+	MaxOutputTokens        int
+	InputRouteFingerprint  string
+	RenderedMedia          []modelcontext.RenderedMedia
+	RequestInputIdentity   *modelenvelope.RequestInputIdentity
+	HasMeasuredInputPrefix bool
 }
 
 type PrepareForSendInput struct {
@@ -148,6 +152,8 @@ type PrepareForSendInput struct {
 	ErrorSource string
 	// ReserveFullOutputAllowance preserves the complete summary allowance during compaction.
 	ReserveFullOutputAllowance bool
+	PreserveOutputAllowance    bool
+	AllowUncertainInput        bool
 }
 
 type InputBudgetAssessment struct {
@@ -187,8 +193,7 @@ func PrepareForSend(
 		return PreparedRequest{}, err
 	}
 	capabilities := CapabilitiesForClient(client)
-	window := modelWindowForRequest(capabilities, input.Policy)
-	window.OutputReserveTokens = max(window.OutputReserveTokens, limits.Minimum)
+	window := workingInputWindow(capabilities, input.Policy, limits)
 	if input.ReserveFullOutputAllowance {
 		window.OutputReserveTokens = input.Policy.MaxOutputTokens
 	}
@@ -203,8 +208,19 @@ func PrepareForSend(
 	if err != nil {
 		return PreparedRequest{}, err
 	}
+	applyRequestInputMeasurement(&prepared, client, input.Context)
 	usable := window.UsableInputTokens()
-	if !input.ReserveFullOutputAllowance && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
+	allowOutputReduction := !input.ReserveFullOutputAllowance && !input.PreserveOutputAllowance
+	if input.AllowUncertainInput && allowOutputReduction &&
+		prepared.InputTokenEstimate > usable && input.Policy.MaxOutputTokens > window.OutputReserveTokens {
+		input.Policy.MaxOutputTokens = window.OutputReserveTokens
+		prepared, err = prepareRequest(ctx, client, input)
+		if err != nil {
+			return PreparedRequest{}, err
+		}
+		applyRequestInputMeasurement(&prepared, client, input.Context)
+	}
+	if allowOutputReduction && input.Policy.MaxOutputTokens > 0 && prepared.InputTokenEstimate <= usable {
 		remaining := capabilities.ContextWindowTokens - window.SafetyMarginTokens - prepared.InputTokenEstimate
 		if remaining < input.Policy.MaxOutputTokens {
 			// The reduced allowance leaves exactly this much room for input. Check
@@ -215,6 +231,7 @@ func PrepareForSend(
 			if err != nil {
 				return PreparedRequest{}, err
 			}
+			applyRequestInputMeasurement(&prepared, client, input.Context)
 		}
 	}
 	prepared.MaxOutputTokens = input.Policy.MaxOutputTokens
@@ -391,4 +408,23 @@ func modelWindowForRequest(capabilities Capabilities, policy RequestPolicy) mode
 
 func UsableInputTokensForRequest(capabilities Capabilities, policy RequestPolicy) int {
 	return modelWindowForRequest(capabilities, policy).UsableInputTokens()
+}
+
+func WorkingInputTargetTokens(client Client, policy RequestPolicy, errorSource string) (int, error) {
+	limits, err := OutputTokenLimitsForClient(client, errorSource)
+	if err != nil {
+		return 0, err
+	}
+	if err := limits.Validate(policy.MaxOutputTokens, errorSource); err != nil {
+		return 0, err
+	}
+	return workingInputWindow(CapabilitiesForClient(client), policy, limits).UsableInputTokens(), nil
+}
+
+func workingInputWindow(
+	capabilities Capabilities, policy RequestPolicy, limits OutputTokenLimits,
+) modelcontext.ModelWindow {
+	window := modelWindowForRequest(capabilities, policy)
+	window.OutputReserveTokens = max(window.OutputReserveTokens, limits.Minimum)
+	return window
 }
