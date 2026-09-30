@@ -46,12 +46,29 @@ export function GitHubGuidedSetup({
     >
       <FieldGroup className="text-sm">
         <div className="flex flex-col gap-2">
-          <h2 className="font-medium">Connect GitHub</h2>
-          <p className="text-muted-foreground">
-            {resuming
-              ? 'Check your GitHub App’s installations, then connect an account.'
-              : 'Create a GitHub App you own, then connect it to this integration.'}
-          </p>
+          <h2 className="font-medium">
+            {resuming ? 'Connect a saved GitHub App' : 'Create a GitHub App'}
+          </h2>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0"
+              disabled={busy}
+              onClick={guided.switchCredentialSource}
+            >
+              {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0"
+              disabled={busy}
+              onClick={onUseExistingApp}
+            >
+              Use an existing App
+            </Button>
+          </div>
         </div>
         <fieldset disabled={busy} className="flex flex-col gap-5">
           {!existing && (
@@ -108,26 +125,6 @@ export function GitHubGuidedSetup({
             </Button>
           )}
         </fieldset>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            variant="link"
-            className="px-0"
-            disabled={busy}
-            onClick={guided.switchCredentialSource}
-          >
-            {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
-          </Button>
-          <Button
-            type="button"
-            variant="link"
-            className="px-0"
-            disabled={busy}
-            onClick={onUseExistingApp}
-          >
-            Use an existing App
-          </Button>
-        </div>
       </FieldGroup>
     </form>
   )
@@ -159,6 +156,10 @@ function GitHubRegistrationOptions({
           <option value="personal">My personal account</option>
           <option value="organization">An organization</option>
         </select>
+        <FieldDescription>
+          Your new App is private and installs only on this account. To install it on others, change
+          its visibility in GitHub App settings.
+        </FieldDescription>
       </Field>
       {organizationOwned && (
         <Field>
@@ -175,10 +176,6 @@ function GitHubRegistrationOptions({
           />
         </Field>
       )}
-      <FieldDescription>
-        Your new GitHub App is private and installs on its owning account. To install it on other
-        accounts, change its visibility in GitHub App settings.
-      </FieldDescription>
     </>
   )
 }

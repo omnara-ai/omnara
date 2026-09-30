@@ -38,8 +38,8 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
             Launch agents from GitHub events
           </label>
           <FieldDescription>
-            Choose when to launch and which profile to use. Changes apply to future launches.
-            Mention launches and comments that direct agents require repository write access.
+            Changes apply to future launches. Mention launches and comments that direct agents
+            require repository write access.
           </FieldDescription>
         </>
       ) : (
@@ -77,6 +77,11 @@ export function IntegrationLauncherFields(props: LauncherFieldsProps) {
             }}
             single={github}
             label={github ? 'Agent profile' : 'Profiles for mentions'}
+            description={
+              github
+                ? 'Public and fork PRs can trigger PR-open launches, so choose a profile whose tools and secrets are safe for untrusted input.'
+                : undefined
+            }
             disabled={props.disabled}
             profileCount={props.profileCount}
           />
