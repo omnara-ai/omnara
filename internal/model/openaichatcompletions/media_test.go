@@ -205,6 +205,47 @@ func TestProjectRenderedMediaIncludesToolResultImages(t *testing.T) {
 	}
 }
 
+func TestProjectRenderedMediaOmitsHistoricalImagesAboveClaudeLimit(t *testing.T) {
+	const maxClaudeImageBytes = claudeImageBase64Limit * 3 / 4
+	openRouterGPTWithClaudeFallback := Client{
+		ProviderModelSlug: "openai/gpt-6-sol",
+		APIVariant:        modelprotocol.APIVariantOpenRouter,
+		APIVariantOptions: json.RawMessage(`{"models":["anthropic/claude-fable-5.1"]}`),
+	}
+	for _, test := range []struct {
+		client    Client
+		sizeBytes int64
+		want      int
+	}{
+		{client: Client{ProviderModelSlug: "anthropic/claude-fable-5.1"}, sizeBytes: maxClaudeImageBytes, want: 1},
+		{client: Client{ProviderModelSlug: "anthropic/claude-fable-5.1"}, sizeBytes: maxClaudeImageBytes + 1},
+		{client: Client{ProviderModelSlug: "us.anthropic.claude-opus-5-5"}, sizeBytes: maxClaudeImageBytes + 1},
+		{client: openRouterGPTWithClaudeFallback, sizeBytes: maxClaudeImageBytes + 1},
+		{client: Client{ProviderModelSlug: "openai/gpt-6-sol"}, sizeBytes: maxClaudeImageBytes + 1, want: 1},
+	} {
+		resolved := mediaTestResolved()
+		image := resolved[mediaTestImageID]
+		image.SizeBytes = test.sizeBytes
+		resolved[mediaTestImageID] = image
+		rendered := test.client.ProjectRenderedMedia(modelcontext.Bundle{
+			ToolResults: []modelcontext.ToolResultRef{{
+				Name:                "read_file",
+				SourceEventSequence: 1,
+				ContentParts: json.RawMessage(
+					`[{"type":"media_ref","artifact_id":"` + mediaTestImageID + `"}]`,
+				),
+			}},
+			ResolvedMedia: resolved,
+		})
+		if len(rendered) != test.want {
+			t.Fatalf(
+				"%s with a %d-byte image rendered %d images, want %d",
+				test.client.ProviderModelSlug, test.sizeBytes, len(rendered), test.want,
+			)
+		}
+	}
+}
+
 func TestToolResultOutputOmitsResolvedImageFromText(t *testing.T) {
 	content := json.RawMessage(`[
 		{"type":"text","text":"before image"},

@@ -26,11 +26,11 @@ interact with each agent.
 1. Create your agent
 ```yaml agent.yaml
 instruction: |
-  You are a coding agent running gpt-5.6-sol. Use the tools
+  You are a coding agent running gpt-6-sol. Use the tools
   you have available to solve coding problems for the user.
 model:
   provider_config: omnara-openrouter
-  name: openai/gpt-5.6-sol
+  name: openai/gpt-6-sol
 # ...
 # add more tools, sandboxes, mcps
 ```
@@ -57,7 +57,7 @@ $ open https://app.omnara.com/projects/[$PROJECT_ID]/agents/[$AGENT_ID]
   atomically to Postgres. Agents recover automatically from crashes, restarts,
   and temporary machine disconnects.
 - <ins><strong>Machines</strong></ins>. Use sandboxes from Blaxel, Daytona, Modal,
-  or Unikraft (more coming soon), or connect your own laptop or VM. An agent
+  Unikraft, or Freestyle (more coming soon), or connect your own laptop or VM. An agent
   can run with no machines or use several at once. These can be sandboxes, your own
   machines, or both. You can add or remove machines while the agent is running.
 - <ins><strong>Models</strong></ins>. Bring your own API keys and use any model

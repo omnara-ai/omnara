@@ -107,6 +107,36 @@ func TestSleepUntilWakeConsumesBufferedTransitionSignal(t *testing.T) {
 	}
 }
 
+type asleepProbeSleepPlatform struct {
+	client *Client
+	asleep *bool
+}
+
+func (p asleepProbeSleepPlatform) allowSleep() error {
+	*p.asleep = p.client.Asleep()
+	return nil
+}
+
+func (asleepProbeSleepPlatform) preventSleep() error { return nil }
+
+func TestSleepUntilWakeReportsAsleepOnlyWhileWaiting(t *testing.T) {
+	client := New(Config{
+		APIURL:       "https://api.test",
+		MachineToken: "token",
+		SleepAfter:   daemonprotocol.MinimumSleepAfter,
+	}, nil, nil)
+	asleepWhileWaiting := false
+	client.sleepPlatform = asleepProbeSleepPlatform{client: &client, asleep: &asleepWhileWaiting}
+
+	client.signalWake()
+	if err := client.sleepUntilWake(context.Background()); err != nil {
+		t.Fatalf("sleep until wake: %v", err)
+	}
+	if !asleepWhileWaiting || client.Asleep() {
+		t.Fatalf("asleep while waiting = %t, after wake = %t", asleepWhileWaiting, client.Asleep())
+	}
+}
+
 func TestSleepUntilWakeStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	client := New(Config{

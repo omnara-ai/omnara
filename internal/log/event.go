@@ -26,6 +26,8 @@ type Event struct {
 	beforeDone []func(Finalizer)
 	dbQueries  []DBQueryTraceRecord
 	httpReqs   []HTTPRequestTraceRecord
+
+	requestCanceled func() bool
 }
 
 // Finalizer is the handle that beforeDone callbacks receive. It exposes

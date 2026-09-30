@@ -176,7 +176,7 @@ export function CreateConfiguredModelDialog({
                     id="cm-name"
                     required
                     value={field.state.value}
-                    placeholder="gpt-5.5"
+                    placeholder="gpt-6-sol"
                     onChange={(event) => {
                       field.handleChange(event.target.value)
                     }}

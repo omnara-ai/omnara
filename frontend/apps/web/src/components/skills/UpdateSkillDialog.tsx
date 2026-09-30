@@ -1,9 +1,9 @@
 import { useSkill, useUpdateSkill } from '@omnara/react'
 import type { Skill } from '@omnara/sdk'
-import { CatchBoundary } from '@tanstack/react-router'
-import { lazy, Suspense, type SyntheticEvent, useId, useState } from 'react'
+import { type SyntheticEvent, useState } from 'react'
 
-import { SkillArchivePicker } from '@/components/skills/SkillArchivePicker'
+import { LazySkillMdEditor } from '@/components/skills/LazySkillMdEditor'
+import { SkillSourcePicker } from '@/components/skills/SkillSourcePicker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,31 +13,157 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Spinner } from '@/components/ui/spinner'
+import { Field, FieldDescription, FieldGroup } from '@/components/ui/field'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  bundleSource,
+  checkSkillMd,
+  readSkillSource,
+  type SkillBundle,
+  type SkillMdProblem,
+  type SkillSource,
+  skillSourceName,
+} from '@/lib/skill-bundles'
 import { errorMessage } from '@/lib/submit-status'
 
-const LazySkillMdEditor = lazy(async () => {
-  const module = await import('@/components/skills/SkillMdEditor')
-  return { default: module.SkillMdEditor }
-})
+type PickedArchive = { ok: true; archive: File } | { ok: false; message: string }
 
-function SkillMdEditorFallback() {
+async function pickArchive(
+  source: SkillSource,
+  skillName: string,
+  readSource: (source: SkillSource) => Promise<SkillBundle[]>,
+): Promise<PickedArchive> {
+  const name = skillSourceName(source)
+  const bundled = await readSkillSource(source, readSource)
+  if (!bundled.ok) return bundled
+  const [only, ...rest] = bundled.bundles
+  if (!only) return { ok: false, message: `No SKILL.md found in ${name}.` }
+  if (rest.length > 0) {
+    return {
+      ok: false,
+      message: `${name} contains ${bundled.bundles.length} skills. Choose a single skill.`,
+    }
+  }
+  if (only.problem !== undefined) return { ok: false, message: only.problem }
+  if (only.label !== skillName) {
+    return { ok: false, message: `SKILL.md frontmatter \`name\` must stay \`${skillName}\`.` }
+  }
+  return { ok: true, archive: only.archive }
+}
+
+function archiveBody(archive: File | undefined) {
+  return archive ? { archive } : undefined
+}
+
+function skillMdBody(draftMd: string | undefined, currentMd: string) {
+  return draftMd !== undefined && draftMd !== currentMd ? { skill_md: draftMd } : undefined
+}
+
+function useArchivePick(
+  skillName: string,
+  readSource: (source: SkillSource) => Promise<SkillBundle[]>,
+) {
+  const [archive, setArchive] = useState<File>()
+  const [pickedName, setPickedName] = useState<string>()
+  const [sourceError, setSourceError] = useState<string>()
+  const [preparing, setPreparing] = useState(false)
+
+  function reset() {
+    setArchive(undefined)
+    setPickedName(undefined)
+    setSourceError(undefined)
+  }
+
+  async function select(source: SkillSource) {
+    reset()
+    setPickedName(skillSourceName(source))
+    setPreparing(true)
+    const picked = await pickArchive(source, skillName, readSource).finally(() => {
+      setPreparing(false)
+    })
+    if (picked.ok) {
+      setArchive(picked.archive)
+      return
+    }
+    setPickedName(undefined)
+    setSourceError(picked.message)
+  }
+
+  return { archive, pickedName, sourceError, preparing, reset, select }
+}
+
+function CurrentSkillMdField({
+  skillId,
+  loading,
+  failed,
+  value,
+  readOnly,
+  problem,
+  onChange,
+}: {
+  skillId: string
+  loading: boolean
+  failed: boolean
+  value: string
+  readOnly: boolean
+  problem: SkillMdProblem | undefined
+  onChange: (value: string) => void
+}) {
   return (
-    <div
-      className="border-input bg-card type-code rounded-control flex h-[65vh] items-center justify-center overflow-hidden border"
-      role="status"
-      aria-live="polite"
-    >
-      <Spinner className="text-muted-foreground size-6" />
-      <span className="sr-only">Loading SKILL.md editor</span>
-    </div>
+    <Field>
+      {loading ? (
+        <p className="text-muted-foreground text-sm">Loading SKILL.md…</p>
+      ) : failed ? (
+        <p className="text-destructive text-sm">Could not load SKILL.md.</p>
+      ) : (
+        <LazySkillMdEditor
+          id={skillId}
+          className="h-[65vh]"
+          value={value}
+          readOnly={readOnly}
+          problem={problem}
+          onChange={onChange}
+        />
+      )}
+      <FieldDescription>All other files in the skill are kept unchanged.</FieldDescription>
+    </Field>
   )
 }
 
-function SkillMdEditorError() {
-  return <p className="text-destructive text-sm">Could not load the SKILL.md editor.</p>
+function SkillUploadField({
+  skillName,
+  pickedName,
+  picked,
+  preparing,
+  sourceError,
+  disabled,
+  onSelect,
+}: {
+  skillName: string
+  pickedName: string | undefined
+  picked: boolean
+  preparing: boolean
+  sourceError: string | undefined
+  disabled: boolean
+  onSelect: (source: SkillSource) => void
+}) {
+  return (
+    <Field>
+      <SkillSourcePicker
+        selectedName={pickedName}
+        summary={picked ? skillName : 'A .zip, .tar.gz, or folder containing SKILL.md'}
+        busy={preparing}
+        disabled={disabled}
+        onSelect={onSelect}
+      />
+      {sourceError && (
+        <p role="alert" className="text-destructive whitespace-pre-wrap text-sm">
+          {sourceError}
+        </p>
+      )}
+      <FieldDescription>The upload replaces all of the skill&rsquo;s files.</FieldDescription>
+    </Field>
+  )
 }
 
 export function UpdateSkillDialog({
@@ -45,27 +171,33 @@ export function UpdateSkillDialog({
   onOpenChange,
   orgId,
   skill,
+  readSource = bundleSource,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orgId: string
   skill: Skill
+  readSource?: (source: SkillSource) => Promise<SkillBundle[]>
 }) {
-  const archiveInputId = useId()
   const updateSkill = useUpdateSkill(orgId)
   const detail = useSkill(orgId, skill.id, open)
+  const pick = useArchivePick(skill.name, readSource)
   const [tab, setTab] = useState('skill-md')
-  const [archive, setArchive] = useState<File>()
   const [draftMd, setDraftMd] = useState<string>()
+  const busy = pick.preparing || updateSkill.isPending
   const currentMd = detail.data?.skill_md ?? ''
   const editorValue = draftMd ?? currentMd
+  const draftCheck = checkSkillMd(editorValue, skill.name)
+  const body = tab === 'upload' ? archiveBody(pick.archive) : skillMdBody(draftMd, currentMd)
+  const canSave = tab === 'upload' || (detail.isSuccess && draftCheck.ok)
   const uploadError = updateSkill.isError
     ? errorMessage(updateSkill.error, 'Could not update skill')
     : null
 
   function handleOpenChange(nextOpen: boolean) {
+    if (pick.preparing) return
     if (!nextOpen) {
-      setArchive(undefined)
+      pick.reset()
       setDraftMd(undefined)
       setTab('skill-md')
       updateSkill.reset()
@@ -75,16 +207,7 @@ export function UpdateSkillDialog({
 
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (updateSkill.isPending) return
-    const body =
-      tab === 'skill-md'
-        ? draftMd !== undefined && draftMd !== currentMd
-          ? { skill_md: draftMd }
-          : undefined
-        : archive
-          ? { archive }
-          : undefined
-    if (!body) return
+    if (busy || !body || !canSave) return
     updateSkill.mutate(
       { skillID: skill.id, body },
       {
@@ -94,11 +217,6 @@ export function UpdateSkillDialog({
       },
     )
   }
-
-  const canSave =
-    tab === 'skill-md'
-      ? detail.isSuccess && draftMd !== undefined && draftMd !== currentMd && draftMd.length > 0
-      : archive !== undefined
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -119,58 +237,42 @@ export function UpdateSkillDialog({
             <Tabs
               value={tab}
               onValueChange={(nextTab) => {
+                if (pick.preparing) return
                 setTab(nextTab)
                 updateSkill.reset()
               }}
             >
               <TabsList aria-label="Edit mode">
                 <TabsTrigger value="skill-md">SKILL.md</TabsTrigger>
-                <TabsTrigger value="archive">Upload archive</TabsTrigger>
+                <TabsTrigger value="upload">Upload</TabsTrigger>
               </TabsList>
               <TabsContent value="skill-md">
-                <Field>
-                  {detail.isPending ? (
-                    <p className="text-muted-foreground text-sm">Loading SKILL.md…</p>
-                  ) : detail.isError ? (
-                    <p className="text-destructive text-sm">Could not load SKILL.md.</p>
-                  ) : (
-                    <CatchBoundary getResetKey={() => skill.id} errorComponent={SkillMdEditorError}>
-                      <Suspense fallback={<SkillMdEditorFallback />}>
-                        <LazySkillMdEditor
-                          id={skill.id}
-                          className="h-[65vh]"
-                          value={editorValue}
-                          readOnly={updateSkill.isPending}
-                          onChange={(nextValue) => {
-                            setDraftMd(nextValue)
-                            updateSkill.reset()
-                          }}
-                        />
-                      </Suspense>
-                    </CatchBoundary>
-                  )}
-                  <FieldDescription>
-                    All other files in the skill are kept unchanged.
-                  </FieldDescription>
-                </Field>
+                <CurrentSkillMdField
+                  skillId={skill.id}
+                  loading={detail.isPending}
+                  failed={detail.isError}
+                  value={editorValue}
+                  readOnly={updateSkill.isPending}
+                  problem={draftCheck.ok ? undefined : draftCheck.problem}
+                  onChange={(nextValue) => {
+                    setDraftMd(nextValue)
+                    updateSkill.reset()
+                  }}
+                />
               </TabsContent>
-              <TabsContent value="archive">
-                <Field>
-                  <FieldLabel htmlFor={archiveInputId}>Skill archive</FieldLabel>
-                  <SkillArchivePicker
-                    id={archiveInputId}
-                    file={archive}
-                    disabled={updateSkill.isPending}
-                    onSelect={(file) => {
-                      setArchive(file)
-                      updateSkill.reset()
-                    }}
-                  />
-                  <FieldDescription>
-                    A .zip or .tar.gz archive containing SKILL.md replaces all of the skill&rsquo;s
-                    files.
-                  </FieldDescription>
-                </Field>
+              <TabsContent value="upload">
+                <SkillUploadField
+                  skillName={skill.name}
+                  pickedName={pick.pickedName}
+                  picked={pick.archive !== undefined}
+                  preparing={pick.preparing}
+                  sourceError={pick.sourceError}
+                  disabled={busy}
+                  onSelect={(source) => {
+                    updateSkill.reset()
+                    void pick.select(source)
+                  }}
+                />
               </TabsContent>
             </Tabs>
             {uploadError && (
@@ -179,11 +281,7 @@ export function UpdateSkillDialog({
               </p>
             )}
             <DialogFooter>
-              <Button
-                type="submit"
-                disabled={!canSave || updateSkill.isPending}
-                loading={updateSkill.isPending}
-              >
+              <Button type="submit" disabled={!body || !canSave || busy} loading={busy}>
                 Save
               </Button>
             </DialogFooter>

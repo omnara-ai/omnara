@@ -5,6 +5,7 @@ import (
 	"maps"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
 	"github.com/omnara-ai/omnara/internal/model/openaichatcompletions"
@@ -46,6 +47,57 @@ func TestProviderClientsExposeRuntimeMediaProjection(t *testing.T) {
 			projected := projector.ProjectRenderedMedia(bundle)
 			if len(projected) != 1 || projected[0].Media.ArtifactID != artifactID {
 				t.Fatalf("projected media = %+v, want artifact %s", projected, artifactID)
+			}
+		})
+	}
+}
+
+func TestMediaProjectorOmitsHistoricalImagesForTextOnlyModels(t *testing.T) {
+	const artifactID = "019b18be-0000-7000-8000-00000000c021"
+	mediaRef := json.RawMessage(`[{"type":"media_ref","artifact_id":"` + artifactID + `"}]`)
+	resolved := map[string]modelcontext.ResolvedMedia{
+		artifactID: {
+			ArtifactID: artifactID,
+			Kind:       modelcontext.AttachmentKindImage,
+			MediaType:  "image/png",
+			SizeBytes:  16,
+			Data:       []byte("image"),
+		},
+	}
+	textOnly := model.Capabilities{InputModalities: []string{modelcontext.InputModalityText}}
+	clients := map[string]model.Client{
+		"anthropic messages": anthropicmessages.Client{ModelCapabilities: textOnly},
+		"openai chat":        openaichatcompletions.Client{ModelCapabilities: textOnly},
+		"openai responses":   openairesponses.Client{ModelCapabilities: textOnly},
+	}
+	openingInputID := uuid.New()
+	for name, client := range clients {
+		t.Run(name, func(t *testing.T) {
+			projector := model.MediaProjectorForClient(client)
+			historical := projector.ProjectRenderedMedia(modelcontext.Bundle{
+				Messages: []modelcontext.Message{{Sequence: 1, Role: modelprotocol.RoleUser, Content: mediaRef}},
+				ToolResults: []modelcontext.ToolResultRef{{
+					Name:                "read_file",
+					SourceEventSequence: 2,
+					ContentParts:        mediaRef,
+				}},
+				ResolvedMedia: resolved,
+			})
+			if len(historical) != 0 {
+				t.Fatalf("projected media = %+v, want historical images omitted", historical)
+			}
+			opening := projector.ProjectRenderedMedia(modelcontext.Bundle{
+				OpeningInputIDs: []uuid.UUID{openingInputID},
+				Messages: []modelcontext.Message{{
+					AgentInputID: openingInputID.String(),
+					Sequence:     1,
+					Role:         modelprotocol.RoleUser,
+					Content:      mediaRef,
+				}},
+				ResolvedMedia: resolved,
+			})
+			if len(opening) != 1 || opening[0].Media.ArtifactID != artifactID {
+				t.Fatalf("projected media = %+v, want the opening image kept", opening)
 			}
 		})
 	}

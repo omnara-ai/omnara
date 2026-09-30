@@ -14,6 +14,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/httpapi/apierror"
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
 	"github.com/omnara-ai/omnara/internal/httpapi/publicevents"
+	logpkg "github.com/omnara-ai/omnara/internal/log"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
@@ -788,12 +789,12 @@ func (s *Server) streamAgentEvents(
 		return
 	}
 	defer reconciliation.unregister()
-	streamCtx, cancelStream := context.WithCancel(r.Context())
+	streamCtx, cancelStream := context.WithCancelCause(r.Context())
 	//nolint:contextcheck // server shutdown must also cancel this request-derived stream context
-	stopCloseWatch := context.AfterFunc(reconciliation.closeContext(), cancelStream)
+	stopCloseWatch := context.AfterFunc(reconciliation.closeContext(), func() { cancelStream(logpkg.ErrSSEShutdown) })
 	defer func() {
 		stopCloseWatch()
-		cancelStream()
+		cancelStream(nil)
 	}()
 	subagents := newSubagentStreamSubscriptions(s, project.ID, agent.ID, toolCallUpdates)
 	defer subagents.close()

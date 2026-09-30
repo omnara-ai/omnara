@@ -108,7 +108,7 @@ func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *tes
 		require.Zero(t, state.NormalRetryCount)
 		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 			checkpointProjectionFailure(fixture, current, checkpoint.ID, *state.RecoveryCheckpointRetainedBytes))
-		require.ErrorContains(t, err, "retained bytes must decrease")
+		assertPgErrorMessage(t, err, "23514", "recovery checkpoint retained bytes must decrease")
 		failure = checkpointProjectionFailure(fixture, current, checkpoint.ID, retained)
 		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, failure)
 		require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestCheckpointProjectionCarriesAcrossTurnsAndResetsForModelRevision(t *test
 	require.Equal(t, new(0), state.RecoveryCheckpointRetainedBytes)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		checkpointProjectionFailure(fixture, current, checkpoint.ID, 128))
-	require.ErrorContains(t, err, "retained bytes must decrease")
+	assertPgErrorMessage(t, err, "23514", "recovery checkpoint retained bytes must decrease")
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		executionstore.RecordRecoverableModelCallFailureInput{
 			ProjectID: testProjectID, AgentID: fixture.AgentID, RuntimeLockID: fixture.Lock.ID,
@@ -364,7 +364,7 @@ WHERE id=$1`, current.ID, tc.checkpoint, tc.retained, tc.kind, tc.format)
 	next := insertProjectionNormalContext(t, protected, opening.Context.ID, uuid.Nil, uuid.Nil)
 	_, err = protected.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		checkpointProjectionFailure(protected, next, protectedCheckpoint.ID, 128))
-	require.ErrorContains(t, err, "reduce the latest applicable checkpoint")
+	assertPgErrorMessage(t, err, "23514", "recovery projection must reduce the latest applicable checkpoint")
 }
 
 func TestCheckpointProjectionResetsWhenAgentConfigurationChanges(t *testing.T) {
@@ -408,7 +408,7 @@ func TestCheckpointProjectionResetsWhenCheckpointAdvances(t *testing.T) {
 	require.Equal(t, uuid.Nil, state.RecoveryCheckpointID)
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		checkpointProjectionFailure(fixture, next, checkpoint.ID, 0))
-	require.ErrorContains(t, err, "latest applicable checkpoint")
+	assertPgErrorMessage(t, err, "23514", "recovery projection must reduce the latest applicable checkpoint")
 	_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 		checkpointProjectionFailure(fixture, next, updated.ID, 512))
 	require.NoError(t, err)

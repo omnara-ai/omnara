@@ -3,6 +3,7 @@ import '@/components/agents/monacoEnvironment'
 import type * as Monaco from 'monaco-editor'
 import { use, useEffect, useEffectEvent, useRef } from 'react'
 
+import type { SkillMdProblem } from '@/lib/skill-bundles'
 import { cn } from '@/lib/utils'
 import { editorAppearance } from '@/styles/editor'
 
@@ -16,12 +17,14 @@ export function SkillMdEditor({
   value,
   onChange,
   readOnly = false,
+  problem,
   className,
 }: {
   id: string
   value: string
   onChange: (value: string) => void
   readOnly?: boolean
+  problem?: SkillMdProblem
   className?: string
 }) {
   const monaco = use(monacoPromise)
@@ -89,6 +92,29 @@ export function SkillMdEditor({
   useEffect(() => {
     editorRef.current?.updateOptions({ readOnly })
   }, [readOnly])
+
+  const problemMessage = problem?.message
+  const problemStart = problem?.startLine
+  const problemEnd = problem?.endLine
+  useEffect(() => {
+    const model = modelRef.current
+    if (!model) return
+    if (problemMessage === undefined || problemStart === undefined || problemEnd === undefined) {
+      monaco.editor.setModelMarkers(model, 'skill-md', [])
+      return
+    }
+    const endLineNumber = Math.min(problemEnd, model.getLineCount())
+    monaco.editor.setModelMarkers(model, 'skill-md', [
+      {
+        severity: monaco.MarkerSeverity.Error,
+        message: problemMessage,
+        startLineNumber: Math.min(problemStart, endLineNumber),
+        startColumn: 1,
+        endLineNumber,
+        endColumn: model.getLineMaxColumn(endLineNumber),
+      },
+    ])
+  }, [monaco, problemMessage, problemStart, problemEnd, value])
 
   return (
     <div

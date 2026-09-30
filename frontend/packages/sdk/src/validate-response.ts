@@ -22,9 +22,7 @@ function samePath(a: readonly PropertyKey[], b: readonly PropertyKey[]): boolean
 }
 
 function isUnknownEnumIssue(issue: Issue): boolean {
-  if (issue.code === 'invalid_value') {
-    return issue.values.length > 1 && isStringInput(issue)
-  }
+  if (issue.code === 'invalid_value') return isStringInput(issue)
   if (issue.code !== 'invalid_union') return false
   if (issue.errors.length === 0) return hasStringDiscriminator(issue)
   if (issue.errors.some((arm) => arm.every(isUnknownEnumIssue))) {

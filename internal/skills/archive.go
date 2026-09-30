@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -593,7 +594,7 @@ func parseSkillMdFrontmatter(body string) (string, string, error) {
 	if err := ValidateName(parsed.Name); err != nil {
 		return "", "", fmt.Errorf("SKILL.md frontmatter `name` %q %w", parsed.Name, err)
 	}
-	if len(parsed.Description) > MaxSkillDescriptionChars {
+	if utf8.RuneCountInString(parsed.Description) > MaxSkillDescriptionChars {
 		return "", "", fmt.Errorf("SKILL.md frontmatter `description` exceeds %d characters", MaxSkillDescriptionChars)
 	}
 	return parsed.Name, parsed.Description, nil

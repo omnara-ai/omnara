@@ -25,7 +25,7 @@ instruction: |
   Run read-only commands freely; ask before anything destructive.
 model:
   provider_config: openai-prod
-  name: gpt-5.6
+  name: gpt-6-sol
   reasoning:
     effort: high
 tools:
@@ -88,7 +88,7 @@ max_depth: 2
 ```yaml
 model:
   provider_config: openai-prod
-  name: gpt-5.6
+  name: gpt-6-sol
   cache_retention: short
   reasoning:
     effort: high
@@ -213,7 +213,7 @@ subagents:
     description: Read-only codebase investigation.
     model:
       provider_config: openai-prod
-      name: gpt-5.6-mini
+      name: gpt-6-luna
     instruction:
       append: Report findings as a bullet list.
     max_instances: 4

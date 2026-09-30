@@ -427,6 +427,72 @@ func TestMCPOAuthStartValidation(t *testing.T) {
 		)
 	}
 
+	registrationRejected := newMCPOAuthFakeServer(
+		t,
+		mcpOAuthFakeConfig{RequireAuth: true, PKCE: true, DCR: true, RegistrationStatus: http.StatusBadRequest},
+	)
+	rec = doMCPOAuthRequest(
+		t,
+		handler,
+		http.MethodPost,
+		startPath,
+		`{"owner":{"kind":"org"},"mcp_url":"`+registrationRejected.URL+`/mcp","name":"reg-rejected"}`,
+		authHeaders(project.AdminToken),
+	)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf(
+			"registration rejected status = %d, want 422 body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_client_metadata") {
+		t.Fatalf("registration rejected body = %s, want upstream error code", rec.Body.String())
+	}
+
+	registrationDown := newMCPOAuthFakeServer(
+		t,
+		mcpOAuthFakeConfig{RequireAuth: true, PKCE: true, DCR: true, RegistrationStatus: http.StatusServiceUnavailable},
+	)
+	rec = doMCPOAuthRequest(
+		t,
+		handler,
+		http.MethodPost,
+		startPath,
+		`{"owner":{"kind":"org"},"mcp_url":"`+registrationDown.URL+`/mcp","name":"reg-down"}`,
+		authHeaders(project.AdminToken),
+	)
+	if rec.Code != http.StatusFailedDependency {
+		t.Fatalf(
+			"registration unavailable status = %d, want 424 body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"upstream_unavailable"`) {
+		t.Fatalf("registration unavailable body = %s, want upstream_unavailable", rec.Body.String())
+	}
+
+	mcpDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(mcpDown.Close)
+	rec = doMCPOAuthRequest(
+		t,
+		handler,
+		http.MethodPost,
+		startPath,
+		`{"owner":{"kind":"org"},"mcp_url":"`+mcpDown.URL+`/mcp","name":"mcp-down"}`,
+		authHeaders(project.AdminToken),
+	)
+	if rec.Code != http.StatusFailedDependency {
+		t.Fatalf(
+			"mcp server unavailable status = %d, want 424 body=%s",
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
 	start := startMCPOAuthFlow(
 		t,
 		handler,
@@ -620,10 +686,11 @@ func TestMCPOAuthClientMetadataDocument(t *testing.T) {
 }
 
 type mcpOAuthFakeConfig struct {
-	RequireAuth   bool
-	PKCE          bool
-	DCR           bool
-	CIMDSupported bool
+	RequireAuth        bool
+	PKCE               bool
+	DCR                bool
+	CIMDSupported      bool
+	RegistrationStatus int
 }
 
 type mcpOAuthFakeServer struct {
@@ -697,6 +764,12 @@ func newMCPOAuthFakeServer(
 		},
 	)
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.RegistrationStatus != 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(cfg.RegistrationStatus)
+			_, _ = w.Write([]byte(`{"error":"invalid_client_metadata","error_description":"redirect_uris not allowed"}`))
+			return
+		}
 		var registration map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&registration); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

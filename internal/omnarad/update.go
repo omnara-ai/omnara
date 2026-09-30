@@ -157,7 +157,7 @@ func runDaemonService(
 
 	updates := make(chan daemonUpdate, 1)
 	startPoller := func() {
-		go pollDaemonUpdates(runCtx, clientConfig.OmnaraHome, executable, version, updates, reporter, log)
+		go pollDaemonUpdates(runCtx, clientConfig.OmnaraHome, executable, version, updates, reporter, client.Asleep, log)
 	}
 	if version != daemonversion.Development && !noUpdate {
 		startPoller()
@@ -314,6 +314,7 @@ func pollDaemonUpdates(
 	currentVersion string,
 	updates chan<- daemonUpdate,
 	reporter *updateFailureReporter,
+	asleep func() bool,
 	log *slog.Logger,
 ) {
 	initial := true
@@ -331,6 +332,9 @@ func pollDaemonUpdates(
 			timer.Stop()
 			return
 		case <-timer.C:
+		}
+		if asleep() {
+			continue
 		}
 		status, update, err := discoverDaemonUpdate(ctx, home, executable, currentVersion)
 		if err != nil {
@@ -491,6 +495,7 @@ func downloadPublicRelease(ctx context.Context, rawURL string, maxBytes int64, d
 	}
 	transport := defaultTransport.Clone()
 	transport.DialContext = (&net.Dialer{Timeout: updateConnectTimeout, KeepAlive: 30 * time.Second}).DialContext
+	transport.DisableKeepAlives = true
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   updateDownloadTimeout,

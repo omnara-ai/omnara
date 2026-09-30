@@ -3,14 +3,18 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
+	"github.com/omnara-ai/omnara/internal/mcp"
 	"github.com/omnara-ai/omnara/internal/resourcemeta"
 	"github.com/omnara-ai/omnara/internal/secrets"
+	"github.com/omnara-ai/omnara/internal/ssrf"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 )
 
@@ -27,6 +31,41 @@ func TestStartMCPOAuthRejectsInvalidProspectiveSecretName(t *testing.T) {
 	}
 	if apiErr == nil || apiErr.Code != openapi.ErrorCodeInvalidRequest {
 		t.Fatalf("start MCP OAuth error = %+v, want invalid_request", apiErr)
+	}
+}
+
+func TestMCPUpstreamFailureMapsErrorOrigins(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		err        error
+		wantCode   openapi.ErrorCode
+		wantStatus int
+	}{
+		{
+			name:       "blocked address",
+			err:        fmt.Errorf("dial: %w", ssrf.ErrBlockedAddress),
+			wantCode:   openapi.ErrorCodeInvalidRequest,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "transient upstream failure",
+			err:        &mcp.HTTPError{Status: http.StatusServiceUnavailable},
+			wantCode:   openapi.ErrorCodeUpstreamUnavailable,
+			wantStatus: http.StatusFailedDependency,
+		},
+		{
+			name:       "rejected by upstream",
+			err:        errors.New("registration rejected"),
+			wantCode:   openapi.ErrorCodeUnprocessable,
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := mcpUpstreamFailure(tt.err, "transient: ", "rejected: ")
+			if apiErr.Code != tt.wantCode || apiErr.Status != tt.wantStatus {
+				t.Fatalf("code=%q status=%d, want %q %d", apiErr.Code, apiErr.Status, tt.wantCode, tt.wantStatus)
+			}
+		})
 	}
 }
 

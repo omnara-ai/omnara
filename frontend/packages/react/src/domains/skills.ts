@@ -1,9 +1,9 @@
 import {
-  type CreateSkillRequest,
   type ListProjectAvailableSkillsData,
   type ListSkillGrantsData,
   type ListSkillsData,
   sdk,
+  type Skill,
   type SkillOwnerInput,
 } from '@omnara/sdk'
 import {
@@ -23,6 +23,7 @@ import {
 
 import { useOmnaraClient } from '../omnara-client'
 import {
+  exactNameGlob,
   type ListFilters,
   type ListSort,
   type PaginatedListOptions,
@@ -76,6 +77,23 @@ export function useSkill(orgID: string, skillID: string, enabled = true) {
   })
 }
 
+export function useSkillNameLookup(orgID: string, owner: SkillOwnerScope) {
+  const client = useOmnaraClient()
+  return async (names: string[]): Promise<ReadonlyMap<string, Skill>> => {
+    const matches = await Promise.all(
+      [...new Set(names)].map(async (name) => {
+        const { data: page } = await sdk.listSkills({
+          path: { orgID },
+          query: { ...ownerFilterQuery(owner), name: exactNameGlob(name) },
+          client,
+        })
+        return page.data.filter((skill) => skill.name === name)
+      }),
+    )
+    return new Map(matches.flat().map((skill) => [skill.name, skill]))
+  }
+}
+
 export function useProjectAvailableSkills(
   orgID: string,
   projectID: string,
@@ -127,29 +145,40 @@ function invalidateSkillLists(queryClient: QueryClient, orgID: string) {
   })
 }
 
-export function useCreateSkill(orgID: string) {
+export type SkillUpload =
+  | { phase: 'uploading' }
+  | { phase: 'created'; skill: Skill }
+  | { phase: 'failed'; error: unknown }
+
+export interface CreateSkillsRequest {
+  owner: SkillOwnerInput
+  archives: readonly File[]
+  onProgress?: (index: number, upload: SkillUpload) => void
+}
+
+export function useCreateSkills(orgID: string) {
   const client = useOmnaraClient()
   const queryClient = useQueryClient()
+  async function createSkill(owner: SkillOwnerInput, archive: File): Promise<SkillUpload> {
+    try {
+      const { data } = await sdk.createSkill({ path: { orgID }, body: { owner, archive }, client })
+      return { phase: 'created', skill: data }
+    } catch (error) {
+      return { phase: 'failed', error }
+    }
+  }
   return useMutation({
-    mutationFn: async (body: CreateSkillRequest) => {
-      const { data } = await sdk.createSkill({
-        path: { orgID },
-        body,
-        client,
-        bodySerializer: () => {
-          const form = new FormData()
-          form.append('owner', new Blob([JSON.stringify(body.owner)], { type: 'application/json' }))
-          form.append(
-            'archive',
-            body.archive,
-            body.archive instanceof File ? body.archive.name : 'skill.zip',
-          )
-          return form
-        },
-      })
-      return data
+    mutationFn: async ({ owner, archives, onProgress }: CreateSkillsRequest) => {
+      const uploads: SkillUpload[] = []
+      for (const [index, archive] of archives.entries()) {
+        onProgress?.(index, { phase: 'uploading' })
+        const upload = await createSkill(owner, archive)
+        onProgress?.(index, upload)
+        uploads.push(upload)
+      }
+      return uploads
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await invalidateSkillLists(queryClient, orgID)
     },
   })
@@ -162,24 +191,7 @@ export function useUpdateSkill(orgID: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ skillID, body }: { skillID: string; body: UpdateSkillUpload }) => {
-      const { data } = await sdk.updateSkill({
-        path: { orgID, skillID },
-        body,
-        client,
-        bodySerializer: () => {
-          const form = new FormData()
-          if ('archive' in body) {
-            form.append(
-              'archive',
-              body.archive,
-              body.archive instanceof File ? body.archive.name : 'skill.zip',
-            )
-          } else {
-            form.append('skill_md', body.skill_md)
-          }
-          return form
-        },
-      })
+      const { data } = await sdk.updateSkill({ path: { orgID, skillID }, body, client })
       return data
     },
     onSuccess: async (_data, { skillID }) => {

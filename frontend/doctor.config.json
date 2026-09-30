@@ -15,6 +15,10 @@
         "rules": ["react-doctor/no-event-handler"]
       },
       {
+        "files": ["src/domains/skills.ts"],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
         // Vitest loads happy-dom through @vitest-environment control comments.
         "files": ["package.json"],
         "rules": ["deslop/unused-dev-dependency"]

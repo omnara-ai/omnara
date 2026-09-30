@@ -10,6 +10,7 @@ import (
 	"github.com/omnara-ai/omnara/internal/secrets"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
@@ -21,14 +22,15 @@ type Access interface {
 }
 
 type Store struct {
-	pool             *pgxpool.Pool
+	pool             *storeutil.Pool
 	q                *dbsqlc.Queries
 	secretKeyWrapper secrets.KeyWrapper
 	access           Access
 }
 
 func New(pool *pgxpool.Pool, keyWrapper secrets.KeyWrapper, access Access) *Store {
-	return &Store{pool: pool, q: dbsqlc.New(pool), secretKeyWrapper: keyWrapper, access: access}
+	db := storeutil.WrapPool(pool)
+	return &Store{pool: db, q: dbsqlc.New(db), secretKeyWrapper: keyWrapper, access: access}
 }
 
 type ProjectRecord struct {

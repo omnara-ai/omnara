@@ -82,3 +82,4 @@ Compiled format transitions are owned by migrations: PATCH /orgs/{orgID}/project
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agent-profiles/{agentProfileID}/config removed the optional property `current_config/compiler_version` from the response with the `200` status
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agents removed the optional property `agent_config/compiler_version` from the response with the `201` status
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the optional property `agent_config/compiler_version` from the response with the `200` status
+MCP discovery errors are client-facing 422s: POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools the response property `auth` became optional for the status `422`

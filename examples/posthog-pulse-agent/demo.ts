@@ -61,16 +61,22 @@ const client = createOmnaraClient({
 // %% [markdown]
 // ## 1. Where it lives
 //
-// Every account has a default org and a default project; the agent lives in
-// the first of each. It needs no machine: its only tools are the PostHog MCP
-// server (hosted by PostHog) and Slack delivery, so there is nothing to
-// provision.
+// Every org starts with a project named Default. We look it up first, since
+// that's where the agent is created. It needs no machine: its only tools are
+// the PostHog MCP server (hosted by PostHog) and Slack delivery, so there is
+// nothing to provision.
 
 // %%
 const { data: me } = await sdk.getCurrentUser({ client })
-const org = me.orgs[0]
-const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: org.id } })
-const project = projects.data[0]
+const orgProjects = await Promise.all(
+  me.orgs.map(async (org) => {
+    const { data: projects } = await sdk.listVisibleProjects({ client, path: { orgID: org.id } })
+    return projects.data.map((project) => ({ org, project }))
+  }),
+)
+const found = orgProjects.flat().find(({ project }) => project.name === 'Default')
+if (!found) throw new Error('no project named Default is visible in any of your orgs')
+const { org, project } = found
 const path = { orgID: org.id, projectID: project.id }
 
 console.log('org:    ', org.name, org.id)
@@ -171,7 +177,7 @@ settings. Query and read tools only.
 `,
   model: {
     provider_config: 'omnara-openrouter', // default model provider config in your org
-    name: 'openai/gpt-5.6-sol', // configured model name on that provider config
+    name: 'openai/gpt-6-sol', // configured model name on that provider config
   },
   mcp: {
     posthog: {
@@ -242,34 +248,17 @@ console.log('console:', `https://app.omnara.com/projects/${project.id}/agents/${
 console.log()
 
 // Print events until the agent's turn ends — a model output whose stop
-// reason is anything but a tool call. If the stream drops, reconnect from
-// the last seen sequence.
-let after = 0
-for (let done = false; !done; ) {
-  const { stream } = await openAgentEventStream({
-    client,
-    path: agentPath,
-    query: { after_sequence: after },
-  })
-  try {
-    for await (const frame of stream) {
-      if (!('event_kind' in frame)) continue
-      after = Math.max(after, frame.sequence)
-      if (frame.event_kind === 'model_output') {
-        for (const block of frame.content_blocks) {
-          if (block.type === 'text' && block.text.trim()) console.log('\nagent:', block.text)
-          else if (block.type === 'tool_call') console.log('\ntool:', block.name)
-        }
-        if (frame.stop_reason !== 'tool_use') {
-          done = true // the turn ended: pulse delivered
-          break
-        }
-      } else if (frame.event_kind === 'tool_result') {
-        console.log('  ->', frame.outcome)
-      }
+// reason is anything but a tool call. The stream reconnects on its own.
+for await (const frame of openAgentEventStream({ client, path: agentPath, query: { after_sequence: 0 } })) {
+  if (!('event_kind' in frame)) continue
+  if (frame.event_kind === 'model_output') {
+    for (const block of frame.content_blocks) {
+      if (block.type === 'text' && block.text.trim()) console.log('\nagent:', block.text)
+      else if (block.type === 'tool_call') console.log('\ntool:', block.name)
     }
-  } catch {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    if (frame.stop_reason !== 'tool_use') break // the turn ended: pulse delivered
+  } else if (frame.event_kind === 'tool_result') {
+    console.log('  ->', frame.outcome)
   }
 }
 
