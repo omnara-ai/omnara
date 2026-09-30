@@ -68,7 +68,7 @@ const (
 		"(e.g. curl) on the machine where the service runs instead."
 	readFileToolDescription = "Read a text or image file in Omnara's virtual filesystem. " +
 		"Currently supports /artifacts/<artifact_id>; no machine is required. " +
-		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs are ignored for images. " +
+		"PNG, JPEG, GIF, and WebP images are returned for you to view; paging inputs don't apply to images. " +
 		"Reads text by lines by default; supply offset_char or limit_chars to read by character. " +
 		"For large files, call again with the next position returned in the result."
 	searchFilesToolDescription = "Search text inside files in Omnara's virtual filesystem using a regular expression. " +

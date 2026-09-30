@@ -189,7 +189,7 @@ Downloads return their terminal process result when they finish quickly. If a do
 
 ### `read_file`
 
-Reads a UTF-8 text file at `/artifacts/<artifact_id>`. The artifact must contain no NUL bytes and be at most 48 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, and `size_bytes` instead of paging fields; paging inputs are ignored.
+Reads a UTF-8 text file at `/artifacts/<artifact_id>`. The artifact must contain no NUL bytes and be at most 48 MiB. Readability is determined from the file's bytes, regardless of its declared content type. PNG, JPEG, GIF, and WebP images are returned for the model to view, with `path`, `content_type`, and `size_bytes` instead of paging fields; paging inputs are still validated but don't apply to images.
 
 | Input | Type | Notes |
 | --- | --- | --- |
