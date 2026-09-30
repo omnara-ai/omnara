@@ -14,6 +14,9 @@ export default defineConfig({
       definitions: true,
       $resolvers: {
         string: (ctx) => {
+          if (ctx.schema.format === 'binary') {
+            return ctx.chain.current.attr('instanceof').call('Blob')
+          }
           const normalize = ctx.schema['x-omnara-unicode-normalization'] === 'NFC'
           if (!normalize && ctx.schema['x-omnara-unicode-length'] !== true) return
 

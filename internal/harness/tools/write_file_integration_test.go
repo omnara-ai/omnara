@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/model"
@@ -159,7 +160,7 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 	if _, err := write(map[string]any{"path": "/memory/engineering/empty.txt", "content": ""}); err != nil {
 		t.Fatal(err)
 	}
-	private, err := memories.Create(ctx, scope, "private", "", false)
+	private, err := memories.Create(ctx, scope, "private", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +176,8 @@ func TestWriteMemoryWithoutMachine(t *testing.T) {
 		t.Fatalf("read-only attachment write: %v", err)
 	}
 	call.Turn.AgentID = agent.ID
-	readOnly := true
-	if _, err := memories.Update(ctx, scope, store.ID, nil, &readOnly); err != nil {
+	agentAccess := agentconfig.MemoryStoreAccessReadOnly
+	if _, err := memories.Update(ctx, scope, store.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := write(map[string]any{

@@ -339,7 +339,7 @@ type MemoryStore struct {
 	ProjectID   uuid.UUID
 	Name        string
 	Description string
-	ReadOnly    bool
+	AgentAccess string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time

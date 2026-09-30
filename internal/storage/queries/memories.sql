@@ -1,24 +1,24 @@
 -- name: CreateMemoryStore :one
-INSERT INTO memory_stores(id, project_id, name, description, read_only)
-VALUES (sqlc.arg(id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(description), sqlc.arg(read_only))
-RETURNING id, project_id, name, description, read_only, created_at, updated_at, deleted_at;
+INSERT INTO memory_stores(id, project_id, name, description, agent_access)
+VALUES (sqlc.arg(id), sqlc.arg(project_id), sqlc.arg(name), sqlc.arg(description), sqlc.arg(agent_access))
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at;
 
 -- name: GetMemoryStore :one
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL;
 
 -- name: GetMemoryStoreByName :one
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND name = sqlc.arg(name)
   AND deleted_at IS NULL;
 
 -- name: LockMemoryStore :one
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
@@ -28,15 +28,15 @@ FOR UPDATE;
 -- name: UpdateMemoryStore :one
 UPDATE memory_stores
 SET description = sqlc.arg(description),
-    read_only = sqlc.arg(read_only),
+    agent_access = sqlc.arg(agent_access),
     updated_at = statement_timestamp()
 WHERE project_id = sqlc.arg(project_id)
   AND id = sqlc.arg(id)
   AND deleted_at IS NULL
-RETURNING id, project_id, name, description, read_only, created_at, updated_at, deleted_at;
+RETURNING id, project_id, name, description, agent_access, created_at, updated_at, deleted_at;
 
 -- name: ListMemoryStores :many
-SELECT id, project_id, name, description, read_only, created_at, updated_at, deleted_at
+SELECT id, project_id, name, description, agent_access, created_at, updated_at, deleted_at
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL
@@ -50,17 +50,6 @@ SELECT count(*)
 FROM memory_stores
 WHERE project_id = sqlc.arg(project_id)
   AND deleted_at IS NULL;
-
--- name: MemoryStoreHasActiveReferences :one
-SELECT EXISTS (
-    SELECT 1
-    FROM agents a
-    JOIN agent_configs c ON c.project_id = a.project_id AND c.id = a.current_config_id
-    WHERE a.project_id = sqlc.arg(project_id)
-      AND a.state = 'active'
-      AND c.compiled_definition->'memory_stores' @>
-          jsonb_build_array(jsonb_build_object('id', sqlc.arg(id)::uuid))
-);
 
 -- name: DeleteMemoryStore :exec
 UPDATE memory_stores
@@ -92,7 +81,7 @@ WHERE project_id = ANY(sqlc.arg(project_ids)::uuid[])
   AND deleted_at IS NULL;
 
 -- name: ListAttachedMemoryStores :many
-SELECT s.id, s.name, s.description, s.read_only, p.org_id
+SELECT s.id, s.name, s.description, s.agent_access, p.org_id
 FROM memory_stores s
 JOIN projects p ON p.id = s.project_id
 WHERE s.project_id = sqlc.arg(project_id)

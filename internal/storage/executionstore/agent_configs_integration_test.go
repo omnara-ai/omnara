@@ -65,7 +65,7 @@ func TestCreateAgentConfigMemoryStoreIDs(t *testing.T) {
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
 	var attachments []agentconfig.MemoryStoreCompiled
 	for _, name := range []string{"first", "second"} {
-		memory, err := store.Memories().Create(ctx, scope, name, "", false)
+		memory, err := store.Memories().Create(ctx, scope, name, "", agentconfig.MemoryStoreAccessReadWrite)
 		require.NoError(t, err)
 		attachments = append(attachments, agentconfig.MemoryStoreCompiled{
 			ID: memory.ID, Access: agentconfig.MemoryStoreAccessReadOnly,

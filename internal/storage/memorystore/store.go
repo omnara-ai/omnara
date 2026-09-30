@@ -50,7 +50,7 @@ type Record struct {
 	ProjectID   uuid.UUID
 	Name        string
 	Description string
-	ReadOnly    bool
+	AgentAccess agentconfig.MemoryStoreAccess
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -58,7 +58,7 @@ type Record struct {
 func record(r dbsqlc.MemoryStore) Record {
 	return Record{
 		ID: r.ID, ProjectID: r.ProjectID, Name: r.Name, Description: r.Description,
-		ReadOnly: r.ReadOnly, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		AgentAccess: agentconfig.MemoryStoreAccess(r.AgentAccess), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
 }
 
@@ -107,7 +107,12 @@ func validateDescription(description string) error {
 	return nil
 }
 
-func (s *Store) Create(ctx context.Context, scope Scope, name, description string, readOnly bool) (Record, error) {
+func (s *Store) Create(
+	ctx context.Context,
+	scope Scope,
+	name, description string,
+	agentAccess agentconfig.MemoryStoreAccess,
+) (Record, error) {
 	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", err)
 	}
@@ -116,6 +121,9 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 	}
 	if err := validateDescription(description); err != nil {
 		return Record{}, storeerr.InvalidRequest(err)
+	}
+	if !agentAccess.Valid() {
+		return Record{}, storeerr.InvalidRequest(errors.New("invalid memory store agent access"))
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -149,7 +157,7 @@ func (s *Store) Create(ctx context.Context, scope Scope, name, description strin
 		ProjectID:   scope.ProjectID,
 		Name:        name,
 		Description: description,
-		ReadOnly:    readOnly,
+		AgentAccess: string(agentAccess),
 	})
 	if err != nil {
 		return Record{}, fmt.Errorf("create memory store: %w", mapped(err))
@@ -174,7 +182,7 @@ func (s *Store) Get(ctx context.Context, scope Scope, id uuid.UUID) (Record, err
 func (s *Store) Resolve(ctx context.Context, projectID uuid.UUID, name string) (Record, error) {
 	r, err := s.q.GetMemoryStoreByName(ctx, dbsqlc.GetMemoryStoreByNameParams{ProjectID: projectID, Name: name})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Record{}, storeerr.ErrNotFound
+		return Record{}, fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
 	}
 	if err != nil {
 		return Record{}, fmt.Errorf("get memory store: %w", mapped(err))
@@ -225,7 +233,7 @@ func (s *Store) Update(
 	scope Scope,
 	id uuid.UUID,
 	description *string,
-	readOnly *bool,
+	agentAccess *agentconfig.MemoryStoreAccess,
 ) (Record, error) {
 	if err := authorize(ctx, s.q, scope, true); err != nil {
 		return Record{}, fmt.Errorf("update memory store: %w", err)
@@ -249,14 +257,17 @@ func (s *Store) Update(
 		}
 		r.Description = *description
 	}
-	if readOnly != nil {
-		r.ReadOnly = *readOnly
+	if agentAccess != nil {
+		if !agentAccess.Valid() {
+			return Record{}, storeerr.InvalidRequest(errors.New("invalid memory store agent access"))
+		}
+		r.AgentAccess = string(*agentAccess)
 	}
 	r, err = q.UpdateMemoryStore(ctx, dbsqlc.UpdateMemoryStoreParams{
 		ProjectID:   scope.ProjectID,
 		ID:          id,
 		Description: r.Description,
-		ReadOnly:    r.ReadOnly,
+		AgentAccess: r.AgentAccess,
 	})
 	if err != nil {
 		return Record{}, fmt.Errorf("update memory store: %w", err)
@@ -309,7 +320,7 @@ func (s *Store) authorizeAttachment(
 			return nil
 		}
 	}
-	return storeerr.ErrNotFound
+	return fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
 }
 
 func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
@@ -341,16 +352,6 @@ func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
 	_, err = q.LockMemoryStore(ctx, dbsqlc.LockMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
 	if err != nil {
 		return fmt.Errorf("delete memory store: %w", mapped(err))
-	}
-	used, err := q.MemoryStoreHasActiveReferences(ctx, dbsqlc.MemoryStoreHasActiveReferencesParams{
-		ProjectID: scope.ProjectID,
-		ID:        id,
-	})
-	if err != nil {
-		return fmt.Errorf("delete memory store: %w", err)
-	}
-	if used {
-		return fmt.Errorf("store is used by an active agent: %w", storeerr.ErrConflict)
 	}
 	if err = q.DeleteMemoryStore(ctx, dbsqlc.DeleteMemoryStoreParams{ProjectID: scope.ProjectID, ID: id}); err != nil {
 		return fmt.Errorf("delete memory store: %w", err)

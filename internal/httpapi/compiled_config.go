@@ -133,7 +133,7 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 			return openapi.CompiledAgentConfig{}, err
 		}
 		response.MemoryStores = append(response.MemoryStores, openapi.CompiledMemoryStore{
-			Id: id, Access: openapi.CompiledMemoryStoreAccess(store.Access),
+			Id: id, Access: openapi.MemoryStoreAccess(store.Access),
 		})
 	}
 	response.Subagents = make(map[string]openapi.CompiledSubagent, len(compiled.Subagents))

@@ -213,6 +213,7 @@ Reads a UTF-8 text file at `/artifacts/<artifact_id>` or `/memory/<store-name>/<
 | `limit_lines` | integer | 1–200; default 100 |
 | `offset_char` | integer | ≥ 0; default 0 in character mode; counts Unicode code points |
 | `limit_chars` | integer | 1–4096; default 512 in character mode |
+| `expected_digest` | string | Optional digest precondition; use the first page's digest when continuing a memory read. Unnecessary for immutable artifacts. A mismatch returns a conflict; restart the read. |
 
 Reading defaults to line mode. Supplying either character input selects character mode; do not combine line and character inputs. Each text response contains at most 4 KiB of file text, together with `size_bytes`, `content_type`, the whole-file `digest`, and `has_more`.
 

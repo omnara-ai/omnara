@@ -105,7 +105,7 @@ function MemoryStores({
             {
               id: 'access',
               header: 'Agent access',
-              cell: (store) => (store.read_only ? 'Read-only' : 'Read & write'),
+              cell: (store) => (store.agent_access === 'read_only' ? 'Read-only' : 'Read & write'),
             },
             {
               id: 'updated',

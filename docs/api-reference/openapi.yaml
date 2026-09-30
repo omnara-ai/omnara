@@ -8960,6 +8960,9 @@ components:
             $ref: '#/components/schemas/SkillGrantListItem'
         next_cursor:
           type: [string, "null"]
+    MemoryStoreAccess:
+      type: string
+      enum: [read_only, read_write]
     MemoryStore:
       type: object
       additionalProperties: false
@@ -8967,7 +8970,7 @@ components:
         - id
         - name
         - description
-        - read_only
+        - agent_access
         - created_at
         - updated_at
       properties:
@@ -8979,8 +8982,8 @@ components:
           type: string
           maxLength: 1024
           x-omnara-unicode-length: true
-        read_only:
-          type: boolean
+        agent_access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
         created_at:
           type: string
           format: date-time
@@ -8999,8 +9002,9 @@ components:
           type: string
           maxLength: 1024
           x-omnara-unicode-length: true
-        read_only:
-          type: boolean
+        agent_access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
+          default: read_write
     UpdateMemoryStore:
       type: object
       additionalProperties: false
@@ -9009,8 +9013,8 @@ components:
           type: string
           maxLength: 1024
           x-omnara-unicode-length: true
-        read_only:
-          type: boolean
+        agent_access:
+          $ref: "#/components/schemas/MemoryStoreAccess"
     MemoryStoreList:
       type: object
       additionalProperties: false
@@ -10008,8 +10012,7 @@ components:
           x-go-type-import:
             path: github.com/omnara-ai/omnara/internal/publicid
         access:
-          type: string
-          enum: [read_only, read_write]
+          $ref: "#/components/schemas/MemoryStoreAccess"
     CompiledSubagent:
       oneOf:
         - $ref: '#/components/schemas/CompiledSelfSubagent'

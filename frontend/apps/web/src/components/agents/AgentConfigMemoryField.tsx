@@ -25,7 +25,7 @@ const StoreCombobox = createResourceCombobox<MemoryStore>({
     <span className="flex min-w-0 flex-col gap-0.5">
       <span className="font-medium">
         {store.name}
-        {store.read_only ? ' · Read-only' : ''}
+        {store.agent_access === 'read_only' ? ' · Read-only' : ''}
       </span>
       <span className="text-muted-foreground line-clamp-2 text-xs">{store.description}</span>
     </span>
@@ -100,10 +100,7 @@ export function AgentConfigMemoryField({
               query={query}
               onValueChange={(store) => {
                 if (store) {
-                  onChange([
-                    ...stores,
-                    { name: store.name, access: store.read_only ? 'read_only' : 'read_write' },
-                  ])
+                  onChange([...stores, { name: store.name, access: store.agent_access }])
                   setAdding(false)
                 }
               }}
@@ -155,7 +152,7 @@ function MemoryAttachment({
                 ? 'Could not load store.'
                 : 'Store is no longer available.'}
         </p>
-        {store?.read_only && (
+        {store?.agent_access === 'read_only' && (
           <p className="text-muted-foreground mt-1 text-xs">
             This store is read-only for agents, regardless of attachment access.
           </p>

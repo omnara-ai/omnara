@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/authz"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/identitystore"
@@ -28,7 +29,7 @@ func TestMemoryDirectoryAndDeleteConfinement(t *testing.T) {
 	store := newIntegrationStore(pool, WithMemoryFilesystem(files))
 	admin := createSecretTestUser(t, ctx, store, "Memory Manager", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	memory, err := store.Memories().Create(ctx, scope, "notes", "", false)
+	memory, err := store.Memories().Create(ctx, scope, "notes", "", agentconfig.MemoryStoreAccessReadWrite)
 	require.NoError(t, err)
 	input := memorystore.WriteInput{Scope: scope, StoreID: memory.ID, Path: "nested/note.txt", Content: []byte("initial")}
 	result, err := store.Memories().Write(ctx, input)

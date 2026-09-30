@@ -46,7 +46,7 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 			ID:   admin.ID,
 		},
 	}
-	resource, err := store.Memories().Create(ctx, scope, "engineering", "", false)
+	resource, err := store.Memories().Create(ctx, scope, "engineering", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +126,8 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("empty file: %q %v", empty, err)
 	}
-	readOnly := true
-	if _, err = store.Memories().Update(ctx, scope, resource.ID, nil, &readOnly); err != nil {
+	agentAccess := agentconfig.MemoryStoreAccessReadOnly
+	if _, err = store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
 	input.Path = "managed.md"
@@ -148,7 +148,7 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 	if _, _, err = store.Memories().Read(ctx, scope, resource.ID, "empty.md"); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("deleted store readable: %v", err)
 	}
-	replacement, err := store.Memories().Create(ctx, scope, "engineering", "", false)
+	replacement, err := store.Memories().Create(ctx, scope, "engineering", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil || replacement.ID == resource.ID {
 		t.Fatalf("store identity reused: %+v %v", replacement, err)
 	}
@@ -162,7 +162,9 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Listing Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	resource, err := store.Memories().Create(ctx, scope, "engineering", "Shared notes", false)
+	resource, err := store.Memories().Create(
+		ctx, scope, "engineering", "Shared notes", agentconfig.MemoryStoreAccessReadWrite,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,8 +308,8 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		}); !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment wrote: %v", err)
 	}
-	if err = store.Memories().Delete(ctx, scope, resource.ID); !errors.Is(err, storeerr.ErrConflict) {
-		t.Fatalf("deleted active attachment: %v", err)
+	if err = store.Memories().Delete(ctx, scope, resource.ID); err != nil {
+		t.Fatalf("delete active attachment: %v", err)
 	}
 	if _, err = store.Memories().Resolve(ctx, testProjectID, "missing"); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("missing store resolution: %v", err)
@@ -329,11 +331,13 @@ func TestMemoryQuotasAndProjectDeletion(t *testing.T) {
 		"max_active_memory_stores_per_project": 1,
 		"max_memories_per_store":               1,
 	})
-	resource, err := store.Memories().Create(ctx, scope, "team", "", false)
+	resource, err := store.Memories().Create(ctx, scope, "team", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.Memories().Create(ctx, scope, "extra", "", false); !errors.Is(err, storeerr.ErrConflict) {
+	if _, err = store.Memories().Create(
+		ctx, scope, "extra", "", agentconfig.MemoryStoreAccessReadWrite,
+	); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("store quota: %v", err)
 	}
 	results := make(chan memorystore.WriteInput, 2)
@@ -384,9 +388,19 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Access Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	resource, err := store.Memories().Create(ctx, scope, "engineering", "", true)
+	resource, err := store.Memories().Create(ctx, scope, "engineering", "", agentconfig.MemoryStoreAccessReadOnly)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, access := range []agentconfig.MemoryStoreAccess{"", "write"} {
+		_, err := store.Memories().Create(ctx, scope, "invalid", "", access)
+		if !errors.Is(err, storeerr.ErrInvalidRequest) {
+			t.Fatalf("create with invalid access %q: %v", access, err)
+		}
+		_, err = store.Memories().Update(ctx, scope, resource.ID, nil, &access)
+		if !errors.Is(err, storeerr.ErrInvalidRequest) {
+			t.Fatalf("update with invalid access %q: %v", access, err)
+		}
 	}
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, testAgentConfigYAML())
 	createConfig := func(access string) (executionstore.AgentConfigRecord, error) {
@@ -413,8 +427,8 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	if _, err := createConfig("read_only"); err != nil {
 		t.Fatalf("read-only attachment: %v", err)
 	}
-	readOnly := false
-	if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &readOnly); err != nil {
+	agentAccess := agentconfig.MemoryStoreAccessReadWrite
+	if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
 	config, err := createConfig("read_write")
@@ -426,8 +440,8 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	readOnly = true
-	if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &readOnly); err != nil {
+	agentAccess = agentconfig.MemoryStoreAccessReadOnly
+	if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 		t.Fatal(err)
 	}
 	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
@@ -444,6 +458,10 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 		Scope: agentScope, StoreID: resource.ID, Path: "blocked.md", Content: []byte("blocked"),
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("existing config bypassed read-only store: %v", err)
+	}
+	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 10)
+	if err != nil || len(listed.Entries) != 1 || listed.Entries[0].Access != "read_only" {
+		t.Fatalf("read-only store effective access: %+v %v", listed, err)
 	}
 	var base agentconfig.Compiled
 	if err := json.Unmarshal(config.CompiledDefinition, &base); err != nil {
@@ -486,7 +504,9 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 	stores := make(map[string]memorystore.Record)
 	source := testAgentConfigYAML() + "\nmemory_stores:\n"
 	for _, name := range []string{"z", "a-b", "a", "unattached"} {
-		record, err := store.Memories().Create(ctx, scope, name, "Notes for "+name, false)
+		record, err := store.Memories().Create(
+			ctx, scope, name, "Notes for "+name, agentconfig.MemoryStoreAccessReadWrite,
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -616,7 +636,9 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 	}
 	otherScope := scope
 	otherScope.ProjectID = otherProjectID
-	foreign, err := store.Memories().Create(ctx, otherScope, "a", "Other project's notes", false)
+	foreign, err := store.Memories().Create(
+		ctx, otherScope, "a", "Other project's notes", agentconfig.MemoryStoreAccessReadWrite,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -894,7 +916,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			store := newIntegrationStore(pool, WithMemoryFilesystem(files))
 			admin := createSecretTestUser(t, ctx, store, "Memory Race Admin", "admin")
 			scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-			resource, err := store.Memories().Create(ctx, scope, "race", "", false)
+			resource, err := store.Memories().Create(ctx, scope, "race", "", agentconfig.MemoryStoreAccessReadWrite)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -971,8 +993,8 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 			deleted := make(chan error, 1)
 			switch operation {
 			case "read_only":
-				readOnly := true
-				if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &readOnly); err != nil {
+				agentAccess := agentconfig.MemoryStoreAccessReadOnly
+				if _, err := store.Memories().Update(ctx, scope, resource.ID, nil, &agentAccess); err != nil {
 					t.Fatal(err)
 				}
 			case "store_delete":
@@ -1039,7 +1061,7 @@ func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
 	}
 }
 
-func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
+func TestMemoryStoreDeletionWithActiveAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -1047,11 +1069,13 @@ func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
 	store, _ := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Profile Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
-	resource, err := store.Memories().Create(ctx, scope, "engineering", "Shared notes", false)
+	resource, err := store.Memories().Create(
+		ctx, scope, "engineering", "Shared notes", agentconfig.MemoryStoreAccessReadWrite,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: engineering\n    access: read_only\n"
+	source := testAgentConfigYAML() + "\nmemory_stores:\n  - name: engineering\n    access: read_write\n"
 	configuredModel := ensureTestConfiguredModelForSource(t, ctx, store, source)
 	compiled, err := agentconfig.Compile(agentconfig.SourceFormatYAML, []byte(source), agentconfig.CompileOptions{
 		ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
@@ -1084,8 +1108,30 @@ func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
 	if _, err := store.Execution().GetAgentProfile(ctx, testProjectID, profile.ID); err != nil {
 		t.Fatalf("before delete: %v", err)
 	}
+	agent, err := store.Execution().CreateAgentFixture(ctx, executionstore.AgentFixtureInput{
+		ProjectID: testProjectID, CurrentConfigID: config.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentScope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, AgentID: agent.ID}
+	if _, err := store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: agentScope, StoreID: resource.ID, Path: "note.md", Content: []byte("original"),
+	}); err != nil {
+		t.Fatalf("agent write before deletion: %v", err)
+	}
+	if _, body, err := store.Memories().Read(
+		ctx, agentScope, resource.ID, "note.md",
+	); err != nil || string(body) != "original" {
+		t.Fatalf("agent read before deletion: %q %v", body, err)
+	}
 	if err := store.Memories().Delete(ctx, scope, resource.ID); err != nil {
 		t.Fatalf("delete: %v", err)
+	}
+	if _, err := store.Execution().CreateAgentConfig(
+		ctx, changeInputFromRecord(config),
+	); !errors.Is(err, storeerr.ErrNotFound) {
+		t.Fatalf("saved config accepted a deleted store: %v", err)
 	}
 	if _, err := store.Execution().LaunchAgent(ctx, executionstore.LaunchAgentInput{
 		ProjectID: testProjectID, ProfileID: profile.ID, AgentConfigID: config.ID, LaunchedBy: userPrincipal(admin.ID),
@@ -1099,5 +1145,41 @@ func TestMemoryStoreDeletionPreservesProfileManagement(t *testing.T) {
 		ProjectID: testProjectID, ProfileID: profile.ID, Name: "renamed-memory-profile",
 	}); err != nil {
 		t.Errorf("existing profile rename after deleting referenced store: %v", err)
+	}
+	replacement, err := store.Memories().Create(ctx, scope, resource.Name, "", agentconfig.MemoryStoreAccessReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: scope, StoreID: replacement.ID, Path: "note.md", Content: []byte("replacement"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uuid.UUID{resource.ID, replacement.ID} {
+		if _, _, err := store.Memories().Read(ctx, agentScope, id, "note.md"); !errors.Is(err, storeerr.ErrNotFound) ||
+			err.Error() != "memory store is unavailable: not found" {
+			t.Fatalf("agent read store %s after deletion: %v", id, err)
+		}
+		if _, err := store.Memories().Write(ctx, memorystore.WriteInput{
+			Scope: agentScope, StoreID: id, Path: "new.md", Content: []byte("blocked"),
+		}); !errors.Is(err, storeerr.ErrNotFound) || err.Error() != "memory store is unavailable: not found" {
+			t.Fatalf("agent wrote store %s after deletion: %v", id, err)
+		}
+	}
+	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 100)
+	if err != nil || len(listed.Entries) != 0 {
+		t.Fatalf("deleted attachment listed stores: %+v %v", listed, err)
+	}
+	detached := mustCreateAgentConfigFromYAML(t, ctx, store, testAgentConfigYAML())
+	if _, err := store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: changeInputFromRecord(detached),
+		AgentID:                agent.ID, ExpectedCurrentConfigID: config.ID,
+		ActorType: identitystore.PrincipalTypeUser, ActorID: admin.ID,
+	}); err != nil {
+		t.Fatalf("detach deleted store: %v", err)
+	}
+	attachments, err := store.Memories().LoadAgentAttachments(ctx, testProjectID, agent.ID)
+	if err != nil || len(attachments) != 0 {
+		t.Fatalf("agent retained deleted attachment: %+v %v", attachments, err)
 	}
 }

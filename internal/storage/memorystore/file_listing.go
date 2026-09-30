@@ -59,7 +59,7 @@ func (s *Store) ListFiles(
 			entry.Type, entry.SizeBytes = listing.FileTypeFile, &size
 		} else if store, ok := view.store(strings.TrimPrefix(name, "memory/")); ok {
 			mode := access[store.ID]
-			if store.ReadOnly {
+			if store.AgentAccess != string(agentconfig.MemoryStoreAccessReadWrite) {
 				mode = agentconfig.MemoryStoreAccessReadOnly
 			}
 			entry.Description, entry.Access = store.Description, string(mode)

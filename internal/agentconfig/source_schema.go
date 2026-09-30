@@ -54,6 +54,10 @@ const (
 	MemoryStoreAccessReadWrite MemoryStoreAccess = "read_write"
 )
 
+func (access MemoryStoreAccess) Valid() bool {
+	return access == MemoryStoreAccessReadOnly || access == MemoryStoreAccessReadWrite
+}
+
 type MemoryStoreSource struct {
 	Name   string            `json:"name"`
 	Access MemoryStoreAccess `json:"access"`

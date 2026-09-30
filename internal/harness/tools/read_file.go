@@ -15,21 +15,24 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/artifactstore"
 	"github.com/omnara-ai/omnara/internal/storage/memorystore"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
 	_ "golang.org/x/image/webp"
 )
 
 type readFileRequest struct {
-	Path       string `json:"path"`
-	OffsetLine *int   `json:"offset_line,omitempty"`
-	LimitLines *int   `json:"limit_lines,omitempty"`
-	OffsetChar *int   `json:"offset_char,omitempty"`
-	LimitChars *int   `json:"limit_chars,omitempty"`
+	Path           string  `json:"path"`
+	OffsetLine     *int    `json:"offset_line,omitempty"`
+	LimitLines     *int    `json:"limit_lines,omitempty"`
+	OffsetChar     *int    `json:"offset_char,omitempty"`
+	LimitChars     *int    `json:"limit_chars,omitempty"`
+	ExpectedDigest *string `json:"expected_digest,omitempty"`
 }
 
 func validateReadFileInput(raw json.RawMessage) error {
@@ -44,6 +47,11 @@ func resolveReadFileRequest(raw json.RawMessage) (readFileRequest, error) {
 	}
 	if err := validateFilePath(input.Path); err != nil {
 		return readFileRequest{}, err
+	}
+	if input.ExpectedDigest != nil {
+		if err := daemonprotocol.ValidateFileDigest(*input.ExpectedDigest); err != nil {
+			return readFileRequest{}, err
+		}
 	}
 	charMode := input.OffsetChar != nil || input.LimitChars != nil
 	lineMode := input.OffsetLine != nil || input.LimitLines != nil
@@ -92,6 +100,7 @@ func runReadFileAsync(
 	}
 	var content []byte
 	var digest, contentType string
+	var artifactID uuid.UUID
 	if strings.HasPrefix(input.Path, memorystore.Root+"/") {
 		digest, content, err = call.Executor.readMemoryFile(ctx, call.Turn, input.Path)
 		if err != nil {
@@ -99,7 +108,7 @@ func runReadFileAsync(
 		}
 		contentType = http.DetectContentType(content)
 	} else {
-		artifactID, err := resolveArtifactPath(input.Path)
+		artifactID, err = resolveArtifactPath(input.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -108,10 +117,13 @@ func runReadFileAsync(
 		if err != nil {
 			return nil, err
 		}
-		if isViewableImage(record.ContentType, content) {
-			return completeImageRead(input.Path, record.ContentType, record.Digest, len(content), artifactID)
-		}
 		digest, contentType = record.Digest, record.ContentType
+	}
+	if input.ExpectedDigest != nil && *input.ExpectedDigest != digest {
+		return nil, fmt.Errorf("file digest mismatch; restart the read: %w", storeerr.ErrConflict)
+	}
+	if artifactID != uuid.Nil && isViewableImage(contentType, content) {
+		return completeImageRead(input.Path, contentType, digest, len(content), artifactID)
 	}
 	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
 		return nil, errors.New(

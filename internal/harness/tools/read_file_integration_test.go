@@ -4,11 +4,13 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/blobstore"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/publicid"
@@ -140,6 +142,30 @@ func TestFileRetrievalWithoutMachine(t *testing.T) {
 	) {
 		t.Fatalf("image read result = %s", content)
 	}
+	for _, file := range []struct{ path, digest string }{
+		{path, artifact.Digest},
+		{"/artifacts/" + imagePublicID, image.Digest},
+	} {
+		for _, digest := range []string{file.digest, blobstore.ContentDigest([]byte("different content"))} {
+			call.Call = model.ToolCall{
+				Name:  toolcatalog.ToolNameReadFile,
+				Input: json.RawMessage(`{"path":"` + file.path + `","expected_digest":"` + digest + `"}`),
+			}
+			result, err := runReadFileAsync(ctx, call)
+			if digest != file.digest {
+				if !errors.Is(err, storeerr.ErrConflict) || result != nil {
+					t.Fatalf("mismatched digest for %s returned %v, %v", file.path, result, err)
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatalf("matching digest for %s: %v", file.path, err)
+			}
+			if content := asyncCompletionContent(t, result); !strings.Contains(string(content), digest) {
+				t.Fatalf("read result = %s", content)
+			}
+		}
+	}
 	call.Turn.AgentID = uuid.New()
 	if _, _, err := loadArtifactContent(ctx, call, artifact.ID); err == nil {
 		t.Fatal("cross-agent access accepted")
@@ -270,7 +296,7 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 			}
 		}
 	}
-	private, err := fixture.Store.Memories().Create(ctx, scope, "private", "", false)
+	private, err := fixture.Store.Memories().Create(ctx, scope, "private", "", agentconfig.MemoryStoreAccessReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,17 +307,91 @@ func TestReadMemoryWithoutMachine(t *testing.T) {
 	}
 	for _, name := range []string{"private", "unknown"} {
 		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt"}`)
-		if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+		if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) ||
+			err.Error() != "memory store is unavailable: not found" {
 			t.Fatalf("%s store read: %v", name, err)
 		}
 		call.Call.Input = json.RawMessage(`{"path":"/memory/` + name + `/secret.txt","content":"replacement"}`)
-		if _, err := runWriteFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+		if _, err := runWriteFileAsync(ctx, call); !storeerr.IsNotFound(err) ||
+			err.Error() != "memory store is unavailable: not found" {
 			t.Fatalf("%s store write: %v", name, err)
 		}
+	}
+	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/missing.txt"}`)
+	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) || err.Error() != storeerr.ErrNotFound.Error() {
+		t.Fatalf("missing file read: %v", err)
 	}
 	call.Call.Input = json.RawMessage(`{"path":"/memory/engineering/nested/0.txt"}`)
 	call.Turn.ProjectID = uuid.New()
 	if _, err := runReadFileAsync(ctx, call); !storeerr.IsNotFound(err) {
 		t.Fatalf("cross-project store read: %v", err)
+	}
+}
+
+func TestReadMemoryExpectedDigest(t *testing.T) {
+	ctx := t.Context()
+	fixture := newIntegrationToolFixtureWithOptions(t, ctx, "memory-read-digest", toolFixtureOptions{withMemory: true})
+	scope := memorystore.Scope{
+		OrgID: toolsTestOrgID, ProjectID: toolsTestProjectID, Principal: toolsTestUserPrincipal(fixture.User.ID),
+	}
+	store, err := fixture.Store.Memories().Resolve(ctx, toolsTestProjectID, "engineering")
+	if err != nil {
+		t.Fatal(err)
+	}
+	written, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: scope, StoreID: store.ID, Path: "notes.txt", Content: []byte("first\nsecond\nlast\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := fixture.Store.Memories().Write(ctx, memorystore.WriteInput{
+		Scope: scope, StoreID: store.ID, Path: "notes.txt", Content: []byte("first\nsecond\nchanged\n"),
+		ExpectedDigest: &written.Digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, paging := range []string{`"offset_line":2,"limit_lines":1`, `"offset_char":6,"limit_chars":7`} {
+		for _, test := range []struct {
+			name     string
+			digest   string
+			conflict bool
+		}{
+			{name: "matching", digest: updated.Digest},
+			{name: "stale", digest: written.Digest, conflict: true},
+			{name: "omitted"},
+		} {
+			t.Run(paging+"/"+test.name, func(t *testing.T) {
+				input := `{"path":"/memory/engineering/notes.txt",` + paging
+				if test.digest != "" {
+					input += `,"expected_digest":"` + test.digest + `"`
+				}
+				result, err := runReadFileAsync(ctx, asyncToolContext{
+					Executor: Executor{Store: fixture.Store}, Turn: fixture.turn(),
+					Call: model.ToolCall{Name: toolcatalog.ToolNameReadFile, Input: json.RawMessage(input + `}`)},
+				})
+				if test.conflict {
+					if !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "restart the read") || result != nil {
+						t.Fatalf("stale read returned %v, %v", result, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				var parts []struct {
+					Value struct {
+						Content string `json:"content"`
+						Digest  string `json:"digest"`
+					} `json:"value"`
+				}
+				if err := json.Unmarshal(asyncCompletionContent(t, result), &parts); err != nil {
+					t.Fatal(err)
+				}
+				if len(parts) != 1 || parts[0].Value.Content != "second\n" || parts[0].Value.Digest != updated.Digest {
+					t.Fatalf("unexpected memory page: %+v", parts)
+				}
+			})
+		}
 	}
 }
