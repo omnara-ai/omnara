@@ -102,8 +102,7 @@ func TestCreateOSProvisionMachineCreatesSandboxAndStartsDaemon(t *testing.T) {
 		t.Fatalf("create name = %q, want %q", api.createRequest.Name, name)
 	}
 	if api.createRequest.Shape != "s-1vcpu-1gb" ||
-		api.createRequest.RootFS != "devbox:1" ||
-		api.createRequest.Region != "us" {
+		api.createRequest.RootFS != "devbox:1" {
 		t.Fatalf("create request = %+v, want the provisioning options", api.createRequest)
 	}
 	wantEnv := []string{
@@ -559,7 +558,7 @@ func TestCreateOSProvisioningTimeoutIsBounded(t *testing.T) {
 	}
 }
 
-func TestCreateOSProvisionMachineAdoptsTheRegionCreateOSPicked(t *testing.T) {
+func TestCreateOSProvisionMachineLetsCreateOSPickTheRegion(t *testing.T) {
 	api := newFakeAPI()
 	api.created = sandbox{
 		ID:     "sb-123",
@@ -572,7 +571,7 @@ func TestCreateOSProvisionMachineAdoptsTheRegionCreateOSPicked(t *testing.T) {
 		context.Background(),
 		uuid.New(),
 		uuid.New(),
-		testMachineProvisioning(t, "s-1vcpu-1gb", "devbox:1", "", ""),
+		testMachineProvisioning(t, "s-1vcpu-1gb", "devbox:1", "legacy-region", ""),
 		"machine-token",
 		nil,
 	)
@@ -584,30 +583,5 @@ func TestCreateOSProvisionMachineAdoptsTheRegionCreateOSPicked(t *testing.T) {
 	}
 	if api.createRequest.RootFS != "devbox:1" {
 		t.Fatalf("create rootfs = %q, want devbox:1", api.createRequest.RootFS)
-	}
-	if api.createRequest.Region != "" {
-		t.Fatalf("create region = %q, want it left to CreateOS", api.createRequest.Region)
-	}
-}
-
-func TestCreateOSProvisionMachineStillChecksARequestedRegion(t *testing.T) {
-	api := newFakeAPI()
-	api.created = sandbox{
-		ID:     "sb-123",
-		Status: sandboxStatusRunning,
-		Shape:  "s-1vcpu-1gb",
-		RootFS: "devbox:1",
-		Region: "eu",
-	}
-	_, err := newTestProvider(api).ProvisionMachine(
-		context.Background(),
-		uuid.New(),
-		uuid.New(),
-		testMachineProvisioning(t, "s-1vcpu-1gb", "devbox:1", "us", ""),
-		"machine-token",
-		nil,
-	)
-	if err == nil {
-		t.Fatal("provision machine accepted a sandbox in the wrong region")
 	}
 }

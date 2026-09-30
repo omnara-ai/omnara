@@ -18,6 +18,7 @@ interface MachinePoolProviderDefinition {
     placeholder: string
     defaultValue: string
     required: boolean
+    hidden?: boolean
   }
   scope?: {
     key: string
@@ -249,9 +250,10 @@ const createos: MachinePoolProviderDefinition = {
   location: {
     key: 'region',
     label: 'Region',
-    placeholder: 'Leave empty to let CreateOS choose',
+    placeholder: '',
     defaultValue: '',
     required: false,
+    hidden: true,
   },
   credential: {
     label: 'CreateOS API token',

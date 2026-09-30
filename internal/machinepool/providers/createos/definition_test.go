@@ -53,7 +53,6 @@ func TestCreateOSProviderOptionsRequireAShape(t *testing.T) {
 		"no shape":        testOptions(t, "", "devbox:1", "us", ""),
 		"invalid shape":   testOptions(t, "Not A Shape", "devbox:1", "us", ""),
 		"wildcard rootfs": testOptions(t, "s-1vcpu-1gb", "*", "us", ""),
-		"invalid region":  testOptions(t, "s-1vcpu-1gb", "devbox:1", "Not A Region", ""),
 	} {
 		if _, err := parseProviderOptions(options); err == nil {
 			t.Errorf("%s: parse provider options accepted %v", name, options)
@@ -66,7 +65,7 @@ func TestCreateOSProviderOptionsTrimValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse provider options: %v", err)
 	}
-	if options.Shape != "s-1vcpu-1gb" || options.RootFS != "devbox:1" || options.Region != "us" {
+	if options.Shape != "s-1vcpu-1gb" || options.RootFS != "devbox:1" {
 		t.Fatalf("provider options = %+v, want trimmed values", options)
 	}
 }
@@ -77,8 +76,8 @@ func TestCreateOSProviderOptionsRequireARootFS(t *testing.T) {
 	}
 }
 
-func TestCreateOSProviderOptionsAllowAnEmptyRegion(t *testing.T) {
-	if _, err := parseProviderOptions(testOptions(t, "s-1vcpu-1gb", "devbox:1", "", "")); err != nil {
+func TestCreateOSProviderOptionsIgnoreLegacyRegion(t *testing.T) {
+	if _, err := parseProviderOptions(testOptions(t, "s-1vcpu-1gb", "devbox:1", "Not A Region", "")); err != nil {
 		t.Fatalf("parse provider options: %v", err)
 	}
 }
@@ -87,7 +86,7 @@ func TestCreateOSValidatePoolEnforcesAllowlists(t *testing.T) {
 	config := mustRawJSON(t, map[string]any{
 		"allowed_shapes":   []string{"s-1vcpu-1gb"},
 		"allowed_rootfses": []string{"devbox:1"},
-		"allowed_regions":  []string{"us"},
+		"allowed_regions":  []string{"legacy-value"},
 	})
 	definition := Definition{}
 	if err := definition.ValidatePool(testPoolPolicy(t, config, "s-1vcpu-1gb", "devbox:1", "us")); err != nil {
@@ -96,7 +95,6 @@ func TestCreateOSValidatePoolEnforcesAllowlists(t *testing.T) {
 	for name, policy := range map[string]executionstore.MachinePoolProviderPolicy{
 		"shape":  testPoolPolicy(t, config, "s-4vcpu-8gb", "devbox:1", "us"),
 		"rootfs": testPoolPolicy(t, config, "s-1vcpu-1gb", "ubuntu:24.04", "us"),
-		"region": testPoolPolicy(t, config, "s-1vcpu-1gb", "devbox:1", "eu"),
 	} {
 		if err := definition.ValidatePool(policy); err == nil {
 			t.Errorf("validate pool accepted a %s outside the allowlist", name)
@@ -136,8 +134,8 @@ func TestCreateOSBuildMachineProvisioningIntentLeavesResourcesToTheProvider(t *t
 	if intent.CPU != nil || intent.MemoryMB != nil {
 		t.Fatalf("intent = %+v, want the shape to decide cpu and memory", intent)
 	}
-	if len(intent.ProviderOptions) != len(provisioning.ProviderOptions) {
-		t.Fatalf("intent provider options = %v, want them carried through", intent.ProviderOptions)
+	if _, ok := intent.ProviderOptions["region"]; ok {
+		t.Fatalf("intent provider options = %v, want legacy region removed", intent.ProviderOptions)
 	}
 }
 
@@ -208,17 +206,17 @@ func TestCreateOSResolveMachineProviderOptionsLayersOverrides(t *testing.T) {
 		map[string]json.RawMessage{"shape": mustRawJSON(t, "s-2vcpu-4gb")},
 		map[string]json.RawMessage{"rootfs": mustRawJSON(t, "devbox:1")},
 	)
-	var shape, region, rootfs string
+	var shape, rootfs string
 	if err := json.Unmarshal(options["shape"], &shape); err != nil {
 		t.Fatalf("decode shape: %v", err)
 	}
-	if err := json.Unmarshal(options["region"], &region); err != nil {
-		t.Fatalf("decode region: %v", err)
+	if _, ok := options["region"]; ok {
+		t.Fatalf("resolved options = %v, want legacy region removed", options)
 	}
 	if err := json.Unmarshal(options["rootfs"], &rootfs); err != nil {
 		t.Fatalf("decode rootfs: %v", err)
 	}
-	if shape != "s-2vcpu-4gb" || region != "us" || rootfs != "devbox:1" {
-		t.Fatalf("resolved options = shape %q region %q rootfs %q", shape, region, rootfs)
+	if shape != "s-2vcpu-4gb" || rootfs != "devbox:1" {
+		t.Fatalf("resolved options = shape %q rootfs %q", shape, rootfs)
 	}
 }

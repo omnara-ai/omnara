@@ -15,16 +15,16 @@ import (
 const defaultAPIBaseURL = "https://api.sb.createos.sh"
 
 type providerConfig struct {
-	APIBaseURL      string   `json:"api_base_url,omitempty"`
-	AllowedShapes   []string `json:"allowed_shapes,omitempty"`
-	AllowedRootFSes []string `json:"allowed_rootfses,omitempty"`
-	AllowedRegions  []string `json:"allowed_regions,omitempty"`
+	APIBaseURL           string   `json:"api_base_url,omitempty"`
+	AllowedShapes        []string `json:"allowed_shapes,omitempty"`
+	AllowedRootFSes      []string `json:"allowed_rootfses,omitempty"`
+	LegacyAllowedRegions []string `json:"allowed_regions,omitempty"`
 }
 
 type providerOptions struct {
 	Shape         string `json:"shape"`
 	RootFS        string `json:"rootfs"`
-	Region        string `json:"region"`
+	LegacyRegion  string `json:"region"`
 	StartupScript string `json:"startup_script"`
 }
 
@@ -82,7 +82,9 @@ func newProvider(raw json.RawMessage, runtime providers.RuntimeConfig) (*provide
 func (Definition) ResolveMachineProviderOptions(
 	defaults, project, agent map[string]json.RawMessage,
 ) map[string]json.RawMessage {
-	return provideroptions.Merge(defaults, project, agent)
+	options := provideroptions.Merge(defaults, project, agent)
+	delete(options, "region")
+	return options
 }
 
 func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
@@ -138,6 +140,8 @@ func (definition Definition) BuildMachineProvisioningIntent(
 	}
 	provisioning.CPU = nil
 	provisioning.MemoryMB = nil
+	provisioning.ProviderOptions = provideroptions.Merge(provisioning.ProviderOptions, nil, nil)
+	delete(provisioning.ProviderOptions, "region")
 	return provisioning, nil
 }
 
@@ -148,7 +152,6 @@ func validateAllowedOptions(options, defaults providerOptions, config providerCo
 	}{
 		{"createos shape", "allowed_shapes", options.Shape, defaults.Shape, config.AllowedShapes},
 		{"createos rootfs", "allowed_rootfses", options.RootFS, defaults.RootFS, config.AllowedRootFSes},
-		{"createos region", "allowed_regions", options.Region, defaults.Region, config.AllowedRegions},
 	}
 	for _, check := range checks {
 		if err := providers.ValidateAllowedValue(
@@ -197,12 +200,7 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	if err != nil {
 		return providerConfig{}, err
 	}
-	config.AllowedRegions, err = providers.NormalizeAllowlist(
-		"createos provider config allowed_regions",
-		config.AllowedRegions,
-		providers.ValidateDNSLabel,
-	)
-	return config, err
+	return config, nil
 }
 
 func parseProviderOptions(raw map[string]json.RawMessage) (providerOptions, error) {
@@ -219,17 +217,11 @@ func parseProviderOptions(raw map[string]json.RawMessage) (providerOptions, erro
 	}
 	options.Shape = strings.TrimSpace(options.Shape)
 	options.RootFS = strings.TrimSpace(options.RootFS)
-	options.Region = strings.TrimSpace(options.Region)
 	if err := providers.ValidateDNSLabel(options.Shape); err != nil {
 		return providerOptions{}, fmt.Errorf("createos machine config shape: %w", err)
 	}
 	if err := providers.ValidateImageRef(options.RootFS); err != nil {
 		return providerOptions{}, fmt.Errorf("createos machine config rootfs: %w", err)
-	}
-	if options.Region != "" {
-		if err := providers.ValidateDNSLabel(options.Region); err != nil {
-			return providerOptions{}, fmt.Errorf("createos machine config region: %w", err)
-		}
 	}
 	if err := providers.ValidateManagedStartupScript("createos machine config", options.StartupScript); err != nil {
 		return providerOptions{}, err
