@@ -29,6 +29,7 @@ func TestProviderProvisionCreatesResizesAndStartsManagedDaemon(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		map[string]string{"APP_ENV": "production"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision freestyle VM: %v", err)
@@ -114,6 +115,7 @@ func TestProviderProvisionEnablesSleep(t *testing.T) {
 		provisioning,
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision sleeping freestyle VM: %v", err)
@@ -174,6 +176,7 @@ func TestProviderProvisionAdoptsOwnedVMAfterAmbiguousCreate(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil || result.ProviderResourceID != existing.ID {
 		t.Fatalf("adopt existing VM = %+v, error %v", result, err)
@@ -195,6 +198,7 @@ func TestProviderProvisionRejectsForeignVMBeforeMutation(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "expected ownership metadata") {
 		t.Fatalf("foreign VM error = %v", err)
@@ -215,6 +219,7 @@ func TestProviderProvisionRejectsOversizedSnapshotPermanently(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	)
 	if !errors.Is(err, providers.ErrPermanent) {
 		t.Fatalf("oversized snapshot error = %v, want permanent error", err)
@@ -239,6 +244,7 @@ func TestProviderProvisionStartsPausedVM(t *testing.T) {
 		testProvisioning(t),
 		"machine-token",
 		nil,
+		true,
 	); err != nil {
 		t.Fatalf("provision paused VM: %v", err)
 	}
@@ -270,6 +276,7 @@ func TestProviderProvisionReportsFailedDaemonInstall(t *testing.T) {
 				testProvisioning(t),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("daemon install error = %v, want %q", err, test.want)

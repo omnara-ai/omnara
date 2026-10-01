@@ -122,6 +122,10 @@ func (p *provider) PrepareProvisioning(
 	return executionstore.MachineResourceFacts{CPU: &cpu, MemoryMB: &memoryMB}, nil
 }
 
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (p *provider) ProvisionMachine(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -129,6 +133,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {

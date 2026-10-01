@@ -83,6 +83,42 @@ describe('machine pool names', () => {
   )
 })
 
+describe('Tenki machine pools', () => {
+  it('creates a base-image pool without provider options', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'tenki' as const,
+      name: 'tenki-pool',
+      image: '',
+      secretId: 'sec_tenki',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'tenki',
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a custom image while preserving disk size when editing', () => {
+    const pool = machinePool({
+      provider: 'tenki',
+      default_machine_provider_options: { image: 'workspace/custom', disk_size_gb: 40 },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Tenki pool form')
+    expect(values.location).toBe('')
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: '',
+      location: 'stale-region',
+    })
+    expect(request.default_machine_provider_options).toEqual({ disk_size_gb: 40 })
+  })
+})
+
 describe('Modal machine pools', () => {
   it.each(['agents', '', '  '])(
     'creates a pool with app %j and automatic region placement',

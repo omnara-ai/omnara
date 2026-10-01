@@ -85,6 +85,7 @@ func TestUnikraftProviderLiveSmoke(t *testing.T) {
 		machineProvisioning,
 		"live-smoke-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision live unikraft instance: %v", err)

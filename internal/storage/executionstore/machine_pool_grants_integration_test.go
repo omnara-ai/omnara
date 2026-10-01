@@ -951,6 +951,40 @@ tools:
 	}
 }
 
+func TestResolveEnvironmentSecretsRejectsOversizedSecretEntry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	seedMigratedDB(t, ctx, pool)
+	store := newIntegrationStore(pool)
+	user := createSecretTestUser(t, ctx, store, "oversized-secret-env-admin", "admin")
+	secret, _, err := store.Secrets().CreateSecret(ctx, secretstore.CreateSecretInput{
+		OrgID:     testOrgID,
+		OwnerKind: secretstore.SecretOwnerOrg,
+		Name:      "oversized-env",
+		Material:  secrets.GenericMaterial{Value: strings.Repeat("x", secrets.MaxPayloadValueBytes)},
+		Actor:     userPrincipal(user.ID),
+	})
+	if err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	name := strings.Repeat("N", executionstore.MaxEnvironmentEntryBytes-secrets.MaxPayloadValueBytes)
+	secretEnv, err := json.Marshal(map[string]uuid.UUID{name: secret.ID})
+	if err != nil {
+		t.Fatalf("marshal secret env: %v", err)
+	}
+	if _, err := store.Execution().ResolveEnvironmentSecrets(
+		ctx,
+		testOrgID,
+		uuid.Nil,
+		json.RawMessage(`{}`),
+		secretEnv,
+	); !errors.Is(err, storeerr.ErrPermanentEnvironment) ||
+		!strings.Contains(err.Error(), "must be at most 131071 bytes including its key") {
+		t.Fatalf("resolve oversized secret entry error = %v", err)
+	}
+}
+
 func TestMachinePoolSecretEnvValidatesAndMaterializes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

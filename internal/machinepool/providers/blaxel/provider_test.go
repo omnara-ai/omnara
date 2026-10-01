@@ -30,6 +30,7 @@ func TestBlaxelProviderProvisionCreatesSandboxAndDaemon(t *testing.T) {
 		machineProvisioning,
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
@@ -89,6 +90,7 @@ func TestBlaxelProviderProvisionEnablesSleepWithInitialAwakeProcess(t *testing.T
 		testMachineProvisioning(t, map[string]any{"sleep_after_ms": 45000}),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision sleeping blaxel machine: %v", err)
@@ -169,6 +171,7 @@ func TestBlaxelProviderProvisionIncludesMachineEnv(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
@@ -197,6 +200,7 @@ func TestBlaxelProviderProvisionRunsStartupScriptBeforeDaemon(t *testing.T) {
 		testMachineProvisioning(t, map[string]any{"startup_script": startupScript}),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision blaxel machine: %v", err)
@@ -240,6 +244,7 @@ func TestBlaxelProviderProvisionRetryConvergesOnExistingSandbox(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"retry-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision existing blaxel machine: %v", err)
@@ -267,6 +272,7 @@ func TestBlaxelProviderProvisionRejectsMissingCreateConflict(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "create conflicted but the sandbox is not usable") {
 		t.Fatalf("provision error = %v, want unusable conflict error", err)
@@ -294,6 +300,7 @@ func TestBlaxelProviderProvisionReturnsDaemonStartError(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if !errors.Is(err, startErr) {
 		t.Fatalf("provision error = %v, want %v", err, startErr)
@@ -315,6 +322,7 @@ func TestBlaxelProviderProvisionRejectsNonRunningDaemonProcess(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), `started with status "completed"`) {
 		t.Fatalf("provision error = %v, want non-running daemon process error", err)
@@ -383,6 +391,7 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if !errors.Is(err, providers.ErrResourceReplaced) {
 				t.Fatalf("first provision after %s conflict error = %v", status, err)
@@ -404,6 +413,7 @@ func TestBlaxelProviderProvisionReplacesUnusableSandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err != nil {
 				t.Fatalf("retry provision after %s conflict: %v", status, err)
@@ -459,6 +469,7 @@ func TestBlaxelProviderProvisionRejectsNonReadySandbox(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err == nil || !strings.Contains(err.Error(), "not ready") {
 				t.Fatalf("provision error = %v, want non-ready sandbox error", err)
@@ -500,6 +511,7 @@ func TestBlaxelProviderProvisionRejectsNameCollision(t *testing.T) {
 				testMachineProvisioning(t, nil),
 				"machine-token",
 				nil,
+				true,
 			)
 			if err == nil || !strings.Contains(err.Error(), "ownership label") {
 				t.Fatalf("provision collision error = %v", err)

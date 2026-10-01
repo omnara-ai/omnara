@@ -367,6 +367,7 @@ func (p provisionRetryProvider) ProvisionMachine(
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
+	bool,
 ) (providers.ProvisionMachineResult, error) {
 	return p.provision()
 }
@@ -380,6 +381,10 @@ func (provisionRetryProvider) PrepareProvisioning(
 	executionstore.MachineProvisioningConfig,
 ) (executionstore.MachineResourceFacts, error) {
 	return executionstore.MachineResourceFacts{}, errors.New("not implemented")
+}
+
+func (provisionRetryProvider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
 }
 
 func (provisionRetryProvider) InspectMachine(
@@ -414,6 +419,7 @@ func provisionWithRetryForTest(
 		executionstore.MachineProvisioningConfig{},
 		"",
 		nil,
+		true,
 	)
 }
 

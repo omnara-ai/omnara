@@ -5,6 +5,7 @@ import { providerOptionStrings } from '@/lib/provider-options'
 interface MachinePoolProviderDefinition {
   label: string
   resource: {
+    optional?: boolean
     key: string
     label: string
     placeholder: string
@@ -60,7 +61,10 @@ export function machinePoolCoreProviderOptions(
   location: string,
 ) {
   const definition = machinePoolProviderDefinitions[provider]
-  const options = { [definition.resource.key]: resource.trim() }
+  const options: Record<string, string> = {}
+  if (!definition.resource.optional || resource.trim() !== '') {
+    options[definition.resource.key] = resource.trim()
+  }
   if (definition.location && (definition.location.required || location.trim() !== '')) {
     options[definition.location.key] = location.trim()
   }
@@ -179,12 +183,27 @@ const freestyle: MachinePoolProviderDefinition = {
   },
 }
 
+const tenki: MachinePoolProviderDefinition = {
+  label: 'Tenki',
+  resource: {
+    key: 'image',
+    label: 'Image',
+    placeholder: 'Tenki base image',
+    optional: true,
+    description:
+      'Leave empty to use the Tenki base image, or enter a Tenki registry image reference.',
+    descriptionHref: 'https://tenki.cloud/docs/sandbox/templates',
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
   daytona,
   modal,
   freestyle,
+  tenki,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

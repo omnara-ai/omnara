@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -808,9 +809,14 @@ func TestStartProcessRejectsOversizedLiteralEnvironment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newProcessDaemonFixture(t, ctx, "oversized_literal_environment")
-	envOverlay, err := json.Marshal(map[string]string{
-		"VALUE": strings.Repeat("x", executionstore.MaxResolvedEnvironmentBytes),
-	})
+	values := map[string]string{}
+	for index := range executionstore.MaxResolvedEnvironmentBytes/executionstore.MaxEnvironmentEntryBytes + 1 {
+		values[fmt.Sprintf("VALUE_%d", index)] = strings.Repeat(
+			"x",
+			executionstore.MaxEnvironmentEntryBytes-len("VALUE_0="),
+		)
+	}
+	envOverlay, err := json.Marshal(values)
 	if err != nil {
 		t.Fatalf("marshal oversized environment: %v", err)
 	}

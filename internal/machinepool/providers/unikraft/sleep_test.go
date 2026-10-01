@@ -50,6 +50,7 @@ func TestProvisionWithSleepEnabled(t *testing.T) {
 		testMachineProvisioning(t, sleepEnabledOverride(45_000)),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision sleep-enabled machine: %v", err)
@@ -108,6 +109,7 @@ func TestProvisionWithSleepDisabledOmitsSleepSurface(t *testing.T) {
 		testMachineProvisioning(t, nil),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision sleep-disabled machine: %v", err)
@@ -157,6 +159,7 @@ func TestProvisionSleepRecoversSandboxURLForExistingInstance(t *testing.T) {
 		testMachineProvisioning(t, sleepEnabledOverride(30_000)),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision existing sleep-enabled machine: %v", err)
@@ -188,6 +191,7 @@ func TestProvisionSleepFailsWithoutFQDN(t *testing.T) {
 		testMachineProvisioning(t, sleepEnabledOverride(30_000)),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "fqdn") {
 		t.Fatalf("missing fqdn error = %v", err)
@@ -250,6 +254,7 @@ func TestProvisionSleepRecoversSandboxURLAfterCreateError(t *testing.T) {
 		testMachineProvisioning(t, sleepEnabledOverride(30_000)),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision after create error: %v", err)
