@@ -70,21 +70,12 @@ func TestProvisionKeepsCustomImageDiskUnlessSet(t *testing.T) {
 	}
 }
 
-func TestProvisionRejectsOversizedBootEnvBeforeCreate(t *testing.T) {
-	a := &fakeAPI{}
+func TestValidateMachineEnvironmentLimitsBootEnvSize(t *testing.T) {
+	p := testProvider(&fakeAPI{})
 	big := strings.Repeat("x", maxRuntimeEnvBytes)
-	installationID, machineID := uuid.New(), uuid.New()
-	_, err := testProvider(a).ProvisionMachine(
-		t.Context(), installationID, machineID, testProvisioning(), "token", map[string]string{"BIG": big}, true,
-	)
-	require.ErrorIs(t, err, providers.ErrPermanent)
-	require.ErrorContains(t, err, "tenki env")
-	require.Empty(t, a.requests)
 	filtered := map[string]string{"lower_Case_1": "x", "my-var": big}
-	_, err = testProvider(a).ProvisionMachine(
-		t.Context(), installationID, machineID, testProvisioning(), "token", filtered, true,
-	)
-	require.NoError(t, err)
+	require.NoError(t, p.ValidateMachineEnvironment(testProvisioning(), filtered))
+	require.ErrorContains(t, p.ValidateMachineEnvironment(testProvisioning(), map[string]string{"BIG": big}), "tenki env")
 }
 
 func TestLostCreateResponseNeverCreatesDuplicate(t *testing.T) {

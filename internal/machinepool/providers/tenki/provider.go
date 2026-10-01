@@ -32,6 +32,8 @@ type provider struct {
 	createAttempted bool
 }
 
+var _ providers.EnvironmentValidator = (*provider)(nil)
+
 func (*provider) ProvisioningTimeout() time.Duration { return provisioningTimeout }
 
 func (*provider) PrepareProvisioning(
@@ -120,6 +122,28 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
+func (p *provider) ValidateMachineEnvironment(
+	config executionstore.MachineProvisioningConfig,
+	machineEnv map[string]string,
+) error {
+	options, err := providerOptionsFromProvisioning(config)
+	if err != nil {
+		return err
+	}
+	env, err := p.runtimeEnv(options.StartupScript, "", machineEnv)
+	if err != nil {
+		return err
+	}
+	size := 0
+	for key, value := range env {
+		size += len(key) + len(value) + runtimeEnvOverhead
+	}
+	if size > maxRuntimeEnvBytes {
+		return fmt.Errorf("tenki env and startup_script must total at most about %d bytes", maxRuntimeEnvBytes)
+	}
+	return nil
+}
+
 func (p *provider) runtimeEnv(startupScript, token string, machineEnv map[string]string) (map[string]string, error) {
 	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, token, startupScript, machineEnv)
 	if err != nil {
@@ -127,17 +151,6 @@ func (p *provider) runtimeEnv(startupScript, token string, machineEnv map[string
 	}
 	maps.DeleteFunc(env, func(name, _ string) bool { return !runtimeEnvNamePattern.MatchString(name) })
 	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
-	size := 0
-	for key, value := range env {
-		size += len(key) + len(value) + runtimeEnvOverhead
-	}
-	if size > maxRuntimeEnvBytes {
-		return nil, fmt.Errorf(
-			"tenki env and startup_script must total at most about %d bytes: %w",
-			maxRuntimeEnvBytes,
-			providers.ErrPermanent,
-		)
-	}
 	return env, nil
 }
 

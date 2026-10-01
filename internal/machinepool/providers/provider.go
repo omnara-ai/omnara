@@ -98,6 +98,10 @@ type Provider interface {
 	) (string, bool, error)
 }
 
+type EnvironmentValidator interface {
+	ValidateMachineEnvironment(executionstore.MachineProvisioningConfig, map[string]string) error
+}
+
 type Definition interface {
 	ResourcePolicy() MachineResourcePolicy
 	NewProvider(json.RawMessage, RuntimeConfig) (Provider, error)

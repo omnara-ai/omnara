@@ -5,6 +5,7 @@ package machinepool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,11 +16,13 @@ import (
 
 func TestManagerPassesFirstProvisionAttempt(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		attempted bool
+		name       string
+		attempted  bool
+		invalidEnv bool
 	}{
 		{name: "new machine"},
 		{name: "restart after ambiguous create", attempted: true},
+		{name: "invalid environment", invalidEnv: true},
 	} {
 		t.Run(
 			test.name,
@@ -87,11 +90,24 @@ func TestManagerPassesFirstProvisionAttempt(t *testing.T) {
 					require.NoError(t, err)
 				}
 				definition := &testProviderDefinition{provider: &captureProvider{provisionResourceID: "owned-session"}}
+				if test.invalidEnv {
+					definition.provider.validateEnvErr = errors.New("invalid env")
+				}
 				manager := Manager{
 					Execution:    store.Execution(),
 					Identity:     store.Identity(),
 					Catalog:      testProviderCatalog(definition),
 					PublicAPIURL: "https://api.omnara.test/api/v1",
+				}
+				if test.invalidEnv {
+					require.ErrorIs(t, manager.ProvisionMachine(ctx, orgID, machineID), definition.provider.validateEnvErr)
+					require.Nil(t, definition.provider.provisioning)
+					machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
+					require.NoError(t, err)
+					require.Nil(t, machine.ProviderProvisionAttemptedAt)
+					require.Equal(t, executionstore.MachineLifecycleStateDeleted, machine.LifecycleState)
+					require.NotNil(t, machine.DeletedAt)
+					return
 				}
 				require.NoError(t, manager.ProvisionMachine(ctx, orgID, machineID))
 				require.Equal(t, !test.attempted, definition.provider.firstAttempt)

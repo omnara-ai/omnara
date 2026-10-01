@@ -2266,6 +2266,7 @@ type captureProvider struct {
 	machineToken          string
 	firstAttempt          bool
 	provisionErr          error
+	validateEnvErr        error
 	prepare               func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error)
 	installationID        uuid.UUID
 	machineID             uuid.UUID
@@ -2317,6 +2318,13 @@ func (p *captureProvider) ProvisionMachine(
 	return providers.ProvisionMachineResult{
 		ProviderResourceID: p.provisionResourceID,
 	}, p.provisionErr
+}
+
+func (p *captureProvider) ValidateMachineEnvironment(
+	executionstore.MachineProvisioningConfig,
+	map[string]string,
+) error {
+	return p.validateEnvErr
 }
 
 func (p *captureProvider) WakeMachine(
