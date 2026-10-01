@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -130,16 +129,12 @@ func runUploadFile(
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
-	if err != nil {
-		return nil, fmt.Errorf("encode tool call id: %w", err)
-	}
 	authorization, err := fileTransferAuthorizationInput(binding.ID, call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorization,
-		fileTransferProcessInput("upload", toolCallID, resolved.Source, resolved.Path))
+		fileTransferProcessInput("upload", resolved.Source))
 }
 
 func runDownloadFile(
@@ -154,16 +149,12 @@ func runDownloadFile(
 	if err != nil {
 		return processToolMachineResolutionError(err)
 	}
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, call.ToolCallID)
-	if err != nil {
-		return nil, fmt.Errorf("encode tool call id: %w", err)
-	}
 	authorization, err := fileTransferAuthorizationInput(binding.ID, call.Call.Input)
 	if err != nil {
 		return nil, err
 	}
 	return startProcessTool(ctx, call, binding, authorization,
-		fileTransferProcessInput("download", toolCallID, resolved.Destination, resolved.Path))
+		fileTransferProcessInput("download", resolved.Destination))
 }
 
 func uploadFilePermissionChallenge(
@@ -234,30 +225,17 @@ func fileTransferAuthorizationInput(bindingID uuid.UUID, input json.RawMessage) 
 }
 
 func fileTransferProcessInput(
-	direction, toolCallID, localPath, remotePath string,
+	direction, localPath string,
 ) executionstore.CreateProcessInput {
 	timeoutSeconds := fileUploadProcessTimeoutSeconds
 	if direction == "download" {
 		timeoutSeconds = fileDownloadProcessTimeoutSeconds
 	}
-	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(localPath))
-	var command string
-	switch {
-	case strings.HasPrefix(remotePath, memorystore.Root+"/"):
-		command = fmt.Sprintf(
-			`"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer %s %s %s`,
-			direction, toolCallID, encodedPath,
-		)
-	case direction == "upload":
-		command = fmt.Sprintf(`"$OMNARA_HOME/bin/omnarad" __omnara_upload_artifact %s %s`, toolCallID, encodedPath)
-	default:
-		command = fmt.Sprintf(
-			`"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact %s %s %s`,
-			toolCallID, strings.TrimPrefix(remotePath, toolcatalog.ArtifactVFSRoot+"/"), encodedPath,
-		)
-	}
 	return executionstore.CreateProcessInput{
-		IOMode: processcmd.IOModePipe, Command: command, ShellSelector: processcmd.ShellDefault,
+		FileTransfer: &processcmd.FileTransfer{
+			Direction: direction, LocalPath: localPath,
+		},
+		IOMode:        processcmd.IOModePipe,
 		InitialWaitMS: processaction.MaxWaitMilliseconds, TimeoutSeconds: timeoutSeconds,
 	}
 }

@@ -60,8 +60,7 @@ func newOpenAPIRequestValidator() (middleware, error) {
 					writeOpenAPIRequestError(w, r, err)
 					return
 				}
-				if route.Operation.OperationID == string(operationUploadDaemonArtifact) ||
-					route.Operation.OperationID == string(operationUploadDaemonFile) ||
+				if route.Operation.OperationID == string(operationUploadDaemonFile) ||
 					route.Operation.OperationID == string(operationWriteMemoryFile) {
 					next.ServeHTTP(w, r)
 					return

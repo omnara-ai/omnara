@@ -1,14 +1,17 @@
 package executionstore
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBindToolCallsUsesProviderEnvelopeAsCanonicalSource(t *testing.T) {
@@ -182,96 +185,101 @@ func TestStartedProcessToolResultKeepsProcessFactsAuthoritative(t *testing.T) {
 	}
 }
 
-func TestUploadMemoryToolResult(t *testing.T) {
+func TestFileTransferToolResultContentParts(t *testing.T) {
 	const path = "/memory/team/notes.md"
 	digest := "sha256:" + strings.Repeat("a", 64)
-	metadata := `{"path":"` + path + `","digest":"` + digest + `"}`
-	for _, test := range []struct {
-		name      string
-		output    string
-		truncated bool
-		wantOK    bool
-	}{
-		{name: "metadata", output: metadata + "\n", wantOK: true},
-		{name: "missing output"},
-		{name: "invalid JSON", output: "upload failed"},
-		{name: "missing digest", output: `{"path":"` + path + `"}`},
-		{name: "invalid digest", output: `{"path":"` + path + `","digest":"invalid"}`},
-		{name: "wrong path", output: strings.Replace(metadata, "notes.md", "other.md", 1)},
-		{name: "truncated output", output: metadata, truncated: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			observed := map[string]any{
-				"process_id": "prc_test", "output": test.output, "truncated": test.truncated,
-				"cursor": 0, "next_cursor": len(test.output), "state": "exited", "done": true,
+	for _, direction := range []string{"upload", "download"} {
+		t.Run(direction, func(t *testing.T) {
+			metadata := `{"digest":"` + digest + `"}`
+			if direction == "upload" {
+				metadata = `{"path":"` + path + `","digest":"` + digest + `"}`
 			}
-			result, err := json.Marshal(observed)
-			if err != nil {
-				t.Fatal(err)
-			}
-			outcome, got, err := uploadMemoryToolResult(json.RawMessage(`{"path":"`+path+`"}`), result)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if test.wantOK {
-				if outcome != ToolResultOutcomeSucceeded || string(got) != metadata {
-					t.Fatalf("result = %s %s, want success %s", outcome, got, metadata)
-				}
-				return
-			}
-			observed["error"] = "upload completed without valid file metadata"
-			want, err := json.Marshal(observed)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if outcome != ToolResultOutcomeFailed || string(got) != string(want) {
-				t.Fatalf("result = %s %s, want failure %s", outcome, got, want)
+			for _, tc := range []struct {
+				name, metadata, output string
+				wantOK                 bool
+			}{
+				{name: "metadata without output", metadata: metadata, wantOK: true},
+				{name: "metadata with warnings", metadata: metadata, output: "warning on stderr\n", wantOK: true},
+				{name: "missing metadata", output: metadata},
+				{name: "null metadata", metadata: "null", output: metadata},
+				{name: "invalid metadata", metadata: `"not metadata"`, output: metadata},
+				{name: "missing digest", metadata: `{"path":"` + path + `"}`},
+				{name: "invalid digest", metadata: strings.Replace(metadata, digest, "invalid", 1)},
+				{name: "error on success", metadata: `{"error":{"code":"file_transfer_failed","error":"missing file"}}`},
+				{name: "wrong path", metadata: `{"path":"/memory/team/other.md","digest":"` + digest + `"}`},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					observed := map[string]any{"output": tc.output, "truncated": true, "state": "exited", "done": true}
+					if tc.metadata != "" {
+						observed["file_transfer"] = json.RawMessage(tc.metadata)
+					}
+					result, err := json.Marshal(observed)
+					require.NoError(t, err)
+					exitCode := 0
+					process := ProcessRecord{
+						State: ProcessStateExited, ExitCode: &exitCode,
+						FileTransfer: &processcmd.FileTransfer{Direction: direction},
+					}
+					outcome, got, err := fileTransferToolResultContentParts(
+						context.Background(), nil, process, json.RawMessage(`{"path":"`+path+`"}`), result,
+					)
+					require.NoError(t, err)
+					if tc.wantOK {
+						require.Equal(t, ToolResultOutcomeSucceeded, outcome)
+						require.JSONEq(t, `[{"type":"structured_data","value":`+metadata+`}]`, string(got))
+					} else {
+						delete(observed, "file_transfer")
+						observed["error"] = direction + " completed without valid file metadata"
+						want, err := json.Marshal(observed)
+						require.NoError(t, err)
+						require.Equal(t, ToolResultOutcomeFailed, outcome)
+						require.JSONEq(t, `[{"type":"structured_data","value":`+string(want)+`}]`, string(got))
+					}
+				})
 			}
 		})
 	}
 }
 
-func TestIsUploadArtifactToolCall(t *testing.T) {
-	tests := []struct {
-		name string
-		call ToolCallRecord
-		want bool
+func TestFileTransferFailureResult(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	failure := `{"code":"file_content_conflict","error":"file changed","current_digest":"` + digest + `"}`
+	for _, tc := range []struct {
+		name, reason, metadata string
+		state                  ProcessState
+		exitCode               int
+		wantError              bool
 	}{
-		{
-			name: "removed legacy tool",
-			call: ToolCallRecord{Type: toolcatalog.ToolTypeBuiltIn, Name: "upload_artifact"},
-		},
-		{
-			name: "vfs artifact",
-			call: ToolCallRecord{
-				Type:  toolcatalog.ToolTypeBuiltIn,
-				Name:  toolcatalog.ToolNameUploadFile,
-				Input: json.RawMessage(`{"path":"/artifacts","source":"report.pdf"}`),
-			},
-			want: true,
-		},
-		{
-			name: "future vfs resource",
-			call: ToolCallRecord{
-				Type:  toolcatalog.ToolTypeBuiltIn,
-				Name:  toolcatalog.ToolNameUploadFile,
-				Input: json.RawMessage(`{"path":"/memory/notes.md","source":"notes.md"}`),
-			},
-		},
-		{
-			name: "custom collision",
-			call: ToolCallRecord{
-				Type:  toolcatalog.ToolTypeCustom,
-				Name:  toolcatalog.ToolNameUploadFile,
-				Input: json.RawMessage(`{"path":"/artifacts"}`),
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := isUploadArtifactToolCall(test.call); got != test.want {
-				t.Fatalf("isUploadArtifactToolCall() = %t, want %t", got, test.want)
+		{name: "api failure", state: ProcessStateFailed, reason: "nonzero_exit", exitCode: 1,
+			metadata: failure, wantError: true},
+		{name: "local failure", state: ProcessStateFailed, reason: "nonzero_exit", exitCode: 1,
+			metadata: `{"code":"file_transfer_failed","error":"missing file"}`, wantError: true},
+		{name: "exited nonzero", state: ProcessStateExited, exitCode: 1, metadata: failure, wantError: true},
+		{name: "timeout wins", state: ProcessStateFailed, reason: "timeout", exitCode: 1, metadata: failure},
+		{name: "signal wins", state: ProcessStateFailed, reason: "signal", exitCode: -1, metadata: failure},
+		{name: "invalid error", state: ProcessStateFailed, reason: "nonzero_exit", exitCode: 1, metadata: `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			process := ProcessRecord{
+				State: tc.state, StateReasonCode: tc.reason, ExitCode: &tc.exitCode,
+				FileTransfer: &processcmd.FileTransfer{Direction: "upload"},
 			}
+			result := `{"output":"diagnostics", "file_transfer":{"error":` + tc.metadata + `}}`
+			outcome, got, err := fileTransferToolResultContentParts(
+				context.Background(), nil, process, json.RawMessage(`{"path":"/memory/team/note.md"}`), json.RawMessage(result),
+			)
+			require.NoError(t, err)
+			require.Equal(t, ToolResultOutcomeFailed, outcome)
+			want := result
+			if tc.wantError {
+				var fields map[string]any
+				require.NoError(t, json.Unmarshal([]byte(tc.metadata), &fields))
+				fields["output"] = "diagnostics"
+				body, err := json.Marshal(fields)
+				require.NoError(t, err)
+				want = string(body)
+			}
+			require.JSONEq(t, `[{"type":"structured_data","value":`+want+`}]`, string(got))
 		})
 	}
 }

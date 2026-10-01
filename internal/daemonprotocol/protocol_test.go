@@ -9,9 +9,49 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 var protocolTestDaemonInstanceID = uuid.MustParse("00000000-0000-4000-8000-000000000001")
+
+func TestFileTransferOffer(t *testing.T) {
+	offer := ProcessOffer{
+		ProcessID: "prc_transfer", IOMode: processcmd.IOModePipe,
+		FileTransfer: &processcmd.FileTransfer{
+			Direction: "upload", LocalPath: "a file;$(false).md",
+		},
+	}
+	body, err := json.Marshal(Message{Type: MessageProcessOffer, ProcessOffer: &offer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var message Message
+	if err := json.Unmarshal(body, &message); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(&offer, message.ProcessOffer); diff != "" {
+		t.Fatal(diff)
+	}
+	for _, invalid := range []string{`"upload"`, `[]`} {
+		body := []byte(`{"command":"echo unexpected","file_transfer":` + invalid + `}`)
+		var offer ProcessOffer
+		if err := json.Unmarshal(body, &offer); err == nil {
+			t.Fatalf("accepted invalid transfer: %s", body)
+		}
+	}
+	for _, shell := range []string{
+		`{"command":"echo shell","shell_selector":"sh","future_field":true}`,
+		`{"command":"echo shell","shell_selector":"sh","file_transfer":null}`,
+	} {
+		var offer ProcessOffer
+		if err := json.Unmarshal([]byte(shell), &offer); err != nil {
+			t.Fatal(err)
+		}
+		if offer.FileTransfer != nil || offer.Command != "echo shell" {
+			t.Fatalf("unexpected shell offer: %+v", offer)
+		}
+	}
+}
 
 func TestProcessTerminalSourceTimeContract(t *testing.T) {
 	startedAt := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
@@ -327,6 +367,41 @@ func TestMessageEnvelopeRoundTripsEveryMessageType(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt) {
 				t.Fatalf("round trip mismatch\nwant: %#v\n got: %#v\njson: %s", tt, got, body)
+			}
+		})
+	}
+}
+
+func TestFileTransferResultErrorValidation(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, tc := range []struct {
+		name      string
+		result    FileTransferResult
+		wantValid bool
+	}{
+		{name: "api error", result: FileTransferResult{Error: &FileTransferError{
+			Code: "not_found", Message: "missing",
+		}}, wantValid: true},
+		{name: "conflict", result: FileTransferResult{Error: &FileTransferError{
+			Code: "file_content_conflict", Message: "file changed", CurrentDigest: digest,
+		}}, wantValid: true},
+		{name: "missing code", result: FileTransferResult{Error: &FileTransferError{Message: "missing"}}},
+		{name: "missing message", result: FileTransferResult{Error: &FileTransferError{Code: "not_found"}}},
+		{name: "invalid current digest", result: FileTransferResult{Error: &FileTransferError{
+			Code: "file_content_conflict", Message: "file changed", CurrentDigest: "invalid",
+		}}},
+		{name: "success digest with error", result: FileTransferResult{Digest: digest, Error: &FileTransferError{
+			Code: "not_found", Message: "missing",
+		}}},
+		{name: "success path with error", result: FileTransferResult{Path: "/memory/team/note.md", Error: &FileTransferError{
+			Code: "not_found", Message: "missing",
+		}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, direction := range []string{"upload", "download"} {
+				if err := tc.result.Validate(direction); (err == nil) != tc.wantValid {
+					t.Fatalf("Validate(%s) = %v, want valid %t", direction, err, tc.wantValid)
+				}
 			}
 		})
 	}

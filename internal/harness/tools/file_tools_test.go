@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -187,67 +186,22 @@ func TestFileTransferApprovalPinsBindingAndInput(t *testing.T) {
 	}
 }
 
-func TestUploadFileArtifactProcessInput(t *testing.T) {
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, uuid.New())
-	if err != nil {
-		t.Fatalf("encode tool call id: %v", err)
-	}
-	path := "screenshots/a file.png"
-	input := fileTransferProcessInput("upload", toolCallID, path, "/artifacts")
-	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
-	wantCommand := `"$OMNARA_HOME/bin/omnarad" __omnara_upload_artifact ` + toolCallID + " " + encodedPath
-	if input.Command != wantCommand ||
-		input.ShellSelector != processcmd.ShellDefault ||
-		input.IOMode != processcmd.IOModePipe ||
-		input.Cwd != "" ||
-		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
-		input.TimeoutSeconds != 30 {
-		t.Fatalf("upload process input = %+v, want command %q", input, wantCommand)
-	}
-}
-
-func TestDownloadFileArtifactProcessInput(t *testing.T) {
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, uuid.New())
-	if err != nil {
-		t.Fatalf("encode tool call id: %v", err)
-	}
-	path := "downloads/a file.pdf"
-	artifactID := "art_aaaaaaaaaaaaaaaaaaaaaaaaae"
-	input := fileTransferProcessInput("download", toolCallID, path, "/artifacts/"+artifactID)
-	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
-	wantCommand := `"$OMNARA_HOME/bin/omnarad" __omnara_download_artifact ` +
-		toolCallID + " " + artifactID + " " + encodedPath
-	if input.Command != wantCommand ||
-		input.ShellSelector != processcmd.ShellDefault ||
-		input.IOMode != processcmd.IOModePipe ||
-		input.Cwd != "" ||
-		input.InitialWaitMS != processaction.MaxWaitMilliseconds ||
-		input.TimeoutSeconds != 120 {
-		t.Fatalf("download process input = %+v, want command %q", input, wantCommand)
-	}
-}
-
-func TestMemoryTransferProcessInput(t *testing.T) {
-	toolCallID, err := publicid.Encode(publicid.KindToolCall, uuid.New())
-	if err != nil {
-		t.Fatal(err)
-	}
-	localPath := "notes/a file.md"
-	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(localPath))
-	for _, tt := range []struct {
-		direction      string
-		timeoutSeconds int
+func TestFileTransferProcessInput(t *testing.T) {
+	localPath := "notes/a file;$(false).md"
+	for _, tc := range []struct {
+		direction string
+		timeout   int
 	}{
-		{direction: "upload", timeoutSeconds: 30},
-		{direction: "download", timeoutSeconds: 120},
+		{"upload", 30},
+		{"download", 120},
 	} {
-		input := fileTransferProcessInput(
-			tt.direction, toolCallID, localPath, "/memory/team/file.md",
-		)
-		want := `"$OMNARA_HOME/bin/omnarad" __omnara_file_transfer ` + tt.direction +
-			" " + toolCallID + " " + encodedPath
-		if input.Command != want || input.TimeoutSeconds != tt.timeoutSeconds {
-			t.Fatalf("%s process input = %+v, want command %q", tt.direction, input, want)
+		input := fileTransferProcessInput(tc.direction, localPath)
+		want := processcmd.FileTransfer{Direction: tc.direction, LocalPath: localPath}
+		if input.FileTransfer == nil || *input.FileTransfer != want ||
+			input.Command != "" || input.ShellSelector != "" ||
+			input.IOMode != processcmd.IOModePipe || input.Cwd != "" ||
+			input.InitialWaitMS != processaction.MaxWaitMilliseconds || input.TimeoutSeconds != tc.timeout {
+			t.Fatalf("%s process input = %+v", tc.direction, input)
 		}
 	}
 }

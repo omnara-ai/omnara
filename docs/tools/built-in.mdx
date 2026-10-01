@@ -199,9 +199,9 @@ A memory upload requires write access and returns its `path` and `digest`. Omit 
 
 Use `download_file` to copy a file stored in Omnara to an attached machine. Downloads support `/artifacts/<artifact_id>` and `/memory/<store-name>/<file-path>`; provide `machine_id` when the agent has more than one machine.
 
-Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads include the file's `digest` in the process output; use it when uploading an edited memory file.
+Set `path` to the stored file's path and `destination` to the exact machine file path. Relative and `~`-relative destinations are supported, the parent directory must already exist, and an existing destination is replaced atomically. Downloads return the file's `digest` on completion; use it when uploading an edited memory file.
 
-Downloads return their terminal process result when they finish quickly. If a download is still running after the initial wait, the result includes a `process_id` that can be inspected or stopped with the process tools. The download process has a 120-second execution timeout.
+The download process has a 120-second execution timeout.
 
 ### `read_file`
 

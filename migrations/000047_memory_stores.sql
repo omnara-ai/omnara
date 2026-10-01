@@ -66,3 +66,13 @@ FROM orgs
 CROSS JOIN default_resource_limits AS defaults
 LEFT JOIN org_resource_limit_overrides AS overrides ON overrides.org_id = orgs.id
 WHERE orgs.deleted_at IS NULL;
+
+ALTER TABLE processes
+    ADD COLUMN file_transfer jsonb,
+    DROP CONSTRAINT processes_command_check,
+    DROP CONSTRAINT processes_shell_selector_check,
+    ADD CONSTRAINT processes_execution_check CHECK (
+        (file_transfer IS NULL AND command <> '' AND shell_selector <> '')
+        OR (file_transfer IS NOT NULL AND jsonb_typeof(file_transfer) = 'object'
+            AND command = '' AND shell_selector = '' AND io_mode = 'pipe')
+    );

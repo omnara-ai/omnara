@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 type Actor struct {
@@ -429,6 +430,7 @@ type Process struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	LastActivityAt        time.Time
+	FileTransfer          *processcmd.FileTransfer
 }
 
 type ProcessAction struct {

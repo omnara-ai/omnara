@@ -79,9 +79,8 @@ const (
 		"Returns paths and metadata without file contents, with next_cursor to continue listing."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
 		"Returns path and digest."
-	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest. " +
-		"Use process_id with the process tools if the transfer is still running."
-	toolSearchToolDescription = "Search the tools that are declared but not loaded into this conversation, " +
+	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest."
+	toolSearchToolDescription   = "Search the tools that are declared but not loaded into this conversation, " +
 		"and load the matches so they can be called as soon as the search returns. " +
 		"Deferred tools are not callable until a search returns them."
 	toolSearchPatternDescription = "A Python-style regular expression matched case-insensitively against each " +
