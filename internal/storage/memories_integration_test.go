@@ -159,7 +159,7 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
-	store, _ := newMemoryIntegrationStore(t, ctx, pool)
+	store, files := newMemoryIntegrationStore(t, ctx, pool)
 	admin := createSecretTestUser(t, ctx, store, "Memory Listing Admin", "admin")
 	scope := memorystore.Scope{OrgID: testOrgID, ProjectID: testProjectID, Principal: userPrincipal(admin.ID)}
 	resource, err := store.Memories().Create(
@@ -241,8 +241,8 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	}
 	artifactPath := "/artifacts/" + artifactID
 	for _, pattern := range []string{"/artifacts/*", artifactPath} {
-		result, listErr := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 1)
-		if listErr != nil || result.Truncated || len(result.Entries) != 1 || result.Entries[0].Path != artifactPath {
+		result, listErr := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 1, listing.Cursor{})
+		if listErr != nil || !result.Next.Set || len(result.Entries) != 1 || result.Entries[0].Path != artifactPath {
 			t.Fatalf("artifact listing %s: %+v %v", pattern, result, listErr)
 		}
 		entry := result.Entries[0]
@@ -250,8 +250,8 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 			t.Fatalf("artifact metadata: %+v", entry)
 		}
 	}
-	result, err := store.ListFiles(ctx, testProjectID, agent.ID, "/**", 100)
-	if err != nil || result.Truncated {
+	result, err := store.ListFiles(ctx, testProjectID, agent.ID, "/**", 100, listing.Cursor{})
+	if err != nil || result.Next.Set {
 		t.Fatalf("combined listing: %+v %v", result, err)
 	}
 	var paths []string
@@ -267,16 +267,30 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 	if !slices.Equal(paths, wantPaths) {
 		t.Fatalf("combined listing paths = %v, want %v", paths, wantPaths)
 	}
-	stores, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 1)
+	stores, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 1, listing.Cursor{})
 	if err != nil || len(stores.Entries) != 1 || stores.Entries[0].Access != "read_only" {
 		t.Fatalf("store listing: %+v %v", stores, err)
 	}
-	first, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 2)
-	if err != nil || !first.Truncated || len(first.Entries) != 2 {
+	first, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/engineering/**/*.md", 2, listing.Cursor{})
+	if err != nil || !first.Next.Set || len(first.Entries) != 2 {
 		t.Fatalf("first page: %+v %v", first, err)
 	}
 	if _, _, err = store.Memories().Read(ctx, agentScope, resource.ID, "a.md"); err != nil {
 		t.Fatal(err)
+	}
+	for _, limit := range []int{1, 2, 3, 5} {
+		paged, err := collectFileListing(ctx, store, agent.ID, "/**", limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, entry := range paged {
+			got = append(got, entry.Path)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, wantPaths) {
+			t.Fatalf("combined pages with limit %d: %v", limit, got)
+		}
 	}
 	for _, test := range []struct {
 		path string
@@ -308,6 +322,30 @@ func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
 		}); !errors.Is(err, storeerr.ErrConflict) || !strings.Contains(err.Error(), "attachment is read-only") {
 		t.Fatalf("read-only attachment wrote: %v", err)
 	}
+	t.Run("resource budget", func(t *testing.T) {
+		root, err := files.OpenStore(memoryFilesystemRef(t, scope, resource))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = root.Close() }()
+		if err := root.Mkdir("wide", 0700); err != nil {
+			t.Fatal(err)
+		}
+		for i := range 10001 {
+			if err := root.Mkdir(fmt.Sprintf("wide/%05d", i), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pattern := "/memory/engineering/**/*.md"
+		partial, err := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 100, listing.Cursor{})
+		if err != nil || len(partial.Entries) != 3 || !partial.Next.Set {
+			t.Fatalf("discarded partial page: %+v, %v", partial, err)
+		}
+		stalled, err := store.ListFiles(ctx, testProjectID, agent.ID, pattern, 100, partial.Next)
+		if !errors.Is(err, memorystore.ErrFileTraversalLimit) || stalled.Next.Set {
+			t.Fatalf("resource limit reported completion or repeated a cursor: %+v, %v", stalled, err)
+		}
+	})
 	if err = store.Memories().Delete(ctx, scope, resource.ID); err != nil {
 		t.Fatalf("delete active attachment: %v", err)
 	}
@@ -459,7 +497,7 @@ func TestMemoryConfigAllowsReadWriteAttachmentToReadOnlyStore(t *testing.T) {
 	}); !errors.Is(err, storeerr.ErrConflict) {
 		t.Fatalf("existing config bypassed read-only store: %v", err)
 	}
-	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 10)
+	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 10, listing.Cursor{})
 	if err != nil || len(listed.Entries) != 1 || listed.Entries[0].Access != "read_only" {
 		t.Fatalf("read-only store effective access: %+v %v", listed, err)
 	}
@@ -599,7 +637,7 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 		t.Fatal(err)
 	}
 	listCtx, cancel := context.WithTimeout(ctx, time.Second)
-	result, listErr := listStore.ListFiles(listCtx, testProjectID, agent.ID, "/memory/a/root.md", 1)
+	result, listErr := listStore.ListFiles(listCtx, testProjectID, agent.ID, "/memory/a/root.md", 1, listing.Cursor{})
 	cancel()
 	_ = lock.Close()
 	if listErr != nil || len(result.Entries) != 1 {
@@ -607,15 +645,15 @@ func TestListFilesScopedFilesystem(t *testing.T) {
 	}
 	for _, test := range []struct {
 		pattern, want string
-		truncated     bool
+		hasNext       bool
 	}{
 		{"/memory/?", "/memory/a", true},
-		{"/memory/*z", "/memory/z", false},
-		{"/memory/*/last.md", "/memory/z/last.md", false},
+		{"/memory/*z", "/memory/z", true},
+		{"/memory/*/last.md", "/memory/z/last.md", true},
 	} {
-		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 1)
+		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 1, listing.Cursor{})
 		if err != nil || len(result.Entries) != 1 ||
-			result.Entries[0].Path != test.want || result.Truncated != test.truncated {
+			result.Entries[0].Path != test.want || result.Next.Set != test.hasNext {
 			t.Fatalf("limited listing %s: %+v %v", test.pattern, result, err)
 		}
 	}
@@ -663,7 +701,7 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 		}
 	}
 	if _, err := listStore.ListFiles(
-		ctx, otherProjectID, agent.ID, "/memory/**", 100,
+		ctx, otherProjectID, agent.ID, "/memory/**", 100, listing.Cursor{},
 	); !errors.Is(err, storeerr.ErrNotFound) {
 		t.Fatalf("cross-project agent listing: %v", err)
 	}
@@ -680,8 +718,8 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 			"/memory/a/dir/a.txt", "/memory/a/folder.md/child.txt", "/memory/z/last.txt",
 		}},
 	} {
-		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 100)
-		if err != nil || result.Truncated {
+		result, err := listStore.ListFiles(ctx, testProjectID, agent.ID, test.pattern, 100, listing.Cursor{})
+		if err != nil || result.Next.Set {
 			t.Fatalf("multi-store listing %s: %+v %v", test.pattern, result, err)
 		}
 		var paths []string
@@ -716,9 +754,17 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 					want = append(want, entry)
 				}
 			}
-			result, listErr := listStore.ListFiles(ctx, testProjectID, agent.ID, pattern, 100)
-			if result.Truncated {
-				t.Fatal("unexpected truncation")
+			result, listErr := listStore.ListFiles(ctx, testProjectID, agent.ID, pattern, 100, listing.Cursor{})
+			if result.Next.Set {
+				t.Fatal("unexpected continuation")
+			}
+			for _, limit := range []int{1, 2, 5} {
+				paged, err := collectFileListing(ctx, listStore, agent.ID, pattern, limit)
+				if err != nil || !slices.EqualFunc(paged, result.Entries, func(a, b listing.FileEntry) bool {
+					return a.Path == b.Path && a.Type == b.Type
+				}) {
+					t.Fatalf("pagination with limit %d: got %+v, want %+v: %v", limit, paged, result.Entries, err)
+				}
 			}
 			got := result.Entries
 			slices.SortFunc(got, func(a, b listing.FileEntry) int { return strings.Compare(a.Path, b.Path) })
@@ -741,7 +787,7 @@ VALUES ($1, $2, 'Other Project', 'memory-listing-other-project', statement_times
 	}
 }
 
-func TestListFilesArtifactNamesAndTruncation(t *testing.T) {
+func TestListFilesArtifactNamesAndPagination(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -798,10 +844,19 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 			if len(entries) != len(test.matches) {
 				t.Fatalf("got %d entries, want %d", len(entries), len(test.matches))
 			}
+			for _, limit := range []int{1, 2, 3} {
+				paged, err := collectFileListing(ctx, store, agentID, test.pattern, limit)
+				if err != nil || !slices.EqualFunc(paged, entries, func(a, b listing.FileEntry) bool {
+					return a.Path == b.Path
+				}) {
+					t.Fatalf("artifact pages with limit %d: %+v, %v", limit, paged, err)
+				}
+			}
 			for i, n := range test.matches {
 				entry := entries[i]
 				if entry.Path != artifactPaths[n] || entry.Filename != filenames[n] || entry.Type != listing.FileTypeFile ||
-					entry.Digest != "test-digest" || entry.SizeBytes == nil || *entry.SizeBytes != 4 {
+					entry.Digest != "test-digest" || entry.SizeBytes == nil || *entry.SizeBytes != 4 ||
+					entry.ContentType != "application/octet-stream" || entry.CreatedAt == nil || entry.CreatedAt.IsZero() {
 					t.Fatalf("entry %d: %+v", i, entry)
 				}
 			}
@@ -822,11 +877,11 @@ VALUES($1,'application/pdf','report.pdf',statement_timestamp())`, otherAgentID)
 	if !slices.Equal(gotPaths, wantPaths) {
 		t.Fatalf("combined listing: %v, want %v", gotPaths, wantPaths)
 	}
-	first, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", 1)
-	if err != nil || !first.Truncated || len(first.Entries) != 1 || first.Entries[0].Path != newestFirst[0] {
-		t.Fatalf("truncated artifacts: %+v %v", first, err)
+	first, err := store.ListFiles(ctx, testProjectID, agentID, "/artifacts/*", 1, listing.Cursor{})
+	if err != nil || !first.Next.Set || len(first.Entries) != 1 || first.Entries[0].Path != newestFirst[0] {
+		t.Fatalf("first artifact page: %+v %v", first, err)
 	}
-	other, err := store.ListFiles(ctx, testProjectID, otherAgentID, "/artifacts/*", 100)
+	other, err := store.ListFiles(ctx, testProjectID, otherAgentID, "/artifacts/*", 100, listing.Cursor{})
 	if err != nil || len(other.Entries) != 1 || other.Entries[0].Path == first.Entries[0].Path {
 		t.Fatalf("artifact scope: %+v %v", other, err)
 	}
@@ -891,11 +946,23 @@ func collectFileListing(
 	pattern string,
 	limit int,
 ) ([]listing.FileEntry, error) {
-	result, err := store.ListFiles(ctx, testProjectID, agentID, pattern, limit)
-	if err == nil && result.Truncated {
-		err = errors.New("unexpected truncation")
+	var entries []listing.FileEntry
+	var after listing.Cursor
+	for {
+		result, err := store.ListFiles(ctx, testProjectID, agentID, pattern, limit, after)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, result.Entries...)
+		if !result.Next.Set {
+			return entries, nil
+		}
+		if len(result.Entries) == 0 || result.Next == after {
+			return nil, errors.New("listing cursor did not advance")
+		}
+		after = result.Next
 	}
-	return result.Entries, err
+
 }
 
 func TestMemoryWaitingUploadRechecksPolicyAndDeletion(t *testing.T) {
@@ -1166,7 +1233,7 @@ func TestMemoryStoreDeletionWithActiveAgent(t *testing.T) {
 			t.Fatalf("agent wrote store %s after deletion: %v", id, err)
 		}
 	}
-	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 100)
+	listed, err := store.ListFiles(ctx, testProjectID, agent.ID, "/memory/*", 100, listing.Cursor{})
 	if err != nil || len(listed.Entries) != 0 {
 		t.Fatalf("deleted attachment listed stores: %+v %v", listed, err)
 	}

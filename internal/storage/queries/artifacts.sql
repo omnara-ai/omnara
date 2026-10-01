@@ -45,17 +45,19 @@ JOIN agents agent ON agent.id = artifact.agent_id
 WHERE agent.project_id = sqlc.arg(project_id) AND artifact.agent_id = sqlc.arg(agent_id) AND artifact.id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: ListAgentArtifacts :many
-(SELECT a.id, a.filename, a.digest, a.size_bytes
+(SELECT a.id, a.filename, a.digest, a.size_bytes, a.content_type, a.created_at
  FROM artifacts a
  WHERE a.agent_id = sqlc.arg(agent_id)
    AND a.id = sqlc.narg(artifact_id)::uuid
+   AND sqlc.narg(after_id)::uuid IS NULL
 )
 UNION ALL
-(SELECT a.id, a.filename, a.digest, a.size_bytes
+(SELECT a.id, a.filename, a.digest, a.size_bytes, a.content_type, a.created_at
  FROM artifacts a
  WHERE sqlc.narg(artifact_id)::uuid IS NULL
    AND a.agent_id = sqlc.arg(agent_id)
    AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ sqlc.arg(pattern)::text
+   AND a.id < coalesce(sqlc.narg(after_id)::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)
  ORDER BY a.id DESC
  LIMIT sqlc.arg(row_limit))
 ORDER BY id DESC

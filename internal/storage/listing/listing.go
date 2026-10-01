@@ -61,16 +61,18 @@ const (
 )
 
 type FileEntry struct {
-	Path        string   `json:"path"`
-	Type        FileType `json:"type"`
-	Filename    string   `json:"filename,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Access      string   `json:"access,omitempty"`
-	Digest      string   `json:"digest,omitempty"`
-	SizeBytes   *int64   `json:"size_bytes,omitempty"`
+	Path        string     `json:"path"`
+	Type        FileType   `json:"type"`
+	Filename    string     `json:"filename,omitempty"`
+	Description string     `json:"description,omitempty"`
+	Access      string     `json:"access,omitempty"`
+	Digest      string     `json:"digest,omitempty"`
+	SizeBytes   *int64     `json:"size_bytes,omitempty"`
+	ContentType string     `json:"content_type,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
 }
 
 type FileListResult struct {
-	Entries   []FileEntry `json:"entries"`
-	Truncated bool        `json:"truncated"`
+	Entries []FileEntry
+	Next    Cursor
 }

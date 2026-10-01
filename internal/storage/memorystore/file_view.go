@@ -28,7 +28,7 @@ func memoryGlobPattern(pattern string) string {
 	return strings.Join(parts, "/")
 }
 
-var errFileTraversalLimit = errors.New("memory listing traversal limit reached")
+var ErrFileTraversalLimit = errors.New("file listing resource limit reached; narrow the pattern and retry")
 
 type storeFS struct {
 	globFS
@@ -36,6 +36,7 @@ type storeFS struct {
 	projectID uuid.UUID
 	stores    []dbsqlc.ListAttachedMemoryStoresRow
 	opened    string
+	after     string
 }
 
 func (v *storeFS) Close() error {
@@ -118,6 +119,9 @@ func (v *storeFS) Open(name string) (fs.File, error) {
 }
 
 func (v *storeFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if name != "." && v.finished(name) {
+		return nil, nil
+	}
 	if err := v.checkCanceled(); err != nil {
 		return nil, err
 	}
@@ -127,6 +131,9 @@ func (v *storeFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name == "memory" {
 		entries := make([]fs.DirEntry, 0, len(v.stores))
 		for _, store := range v.stores {
+			if v.finished(name + "/" + store.Name) {
+				continue
+			}
 			entries = append(entries, fs.FileInfoToDirEntry(&storeDirectory{name: store.Name}))
 		}
 		return entries, nil
@@ -141,7 +148,21 @@ func (v *storeFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 		return nil, err
 	}
-	return v.globFS.ReadDir(relative)
+	entries, err := v.globFS.ReadDir(relative)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(entries, func(entry fs.DirEntry) bool {
+		return v.finished(name + "/" + entry.Name())
+	}), nil
+}
+
+func (v *storeFS) finished(name string) bool {
+	return compareFilePaths(name, v.after) < 0 && !strings.HasPrefix(v.after, name+"/")
+}
+
+func compareFilePaths(a, b string) int {
+	return slices.Compare(strings.Split(a, "/"), strings.Split(b, "/"))
 }
 
 type storeDirectory struct {
@@ -211,7 +232,7 @@ func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		return nil, err
 	}
 	if *g.remaining <= 0 {
-		return nil, errFileTraversalLimit
+		return nil, ErrFileTraversalLimit
 	}
 	file, err := g.Open(name)
 	if err != nil {
@@ -230,19 +251,17 @@ func (g globFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		return nil, err
 	}
 	if len(entries) > *g.remaining {
-		entries = entries[:*g.remaining]
-		*g.remaining = -1
-	} else {
-		*g.remaining -= len(entries)
+		return nil, ErrFileTraversalLimit
 	}
+	*g.remaining -= len(entries)
 	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return entries, nil
 }
 
 func globFiles(
-	ctx context.Context, fsys fs.FS, pattern string, remaining *int, visit func(string, fs.DirEntry) error,
+	ctx context.Context, fsys fs.FS, pattern string, visit func(string, fs.DirEntry) error,
 ) error {
-	err := doublestar.GlobWalk(fsys, pattern, func(name string, entry fs.DirEntry) error {
+	return doublestar.GlobWalk(fsys, pattern, func(name string, entry fs.DirEntry) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -251,11 +270,4 @@ func globFiles(
 		}
 		return visit(name, entry)
 	}, doublestar.WithFailOnIOErrors(), doublestar.WithNoFollow())
-	if err != nil {
-		return err
-	}
-	if *remaining < 0 {
-		return errFileTraversalLimit
-	}
-	return nil
 }

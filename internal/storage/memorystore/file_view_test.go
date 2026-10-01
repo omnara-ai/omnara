@@ -56,7 +56,7 @@ func TestGlobFilesystem(t *testing.T) {
 			remaining := 100
 			var got []string
 			filesystem := globFS{root: root, checkCanceled: t.Context().Err, remaining: &remaining}
-			err := globFiles(t.Context(), filesystem, test.pattern, &remaining, func(name string, _ fs.DirEntry) error {
+			err := globFiles(t.Context(), filesystem, test.pattern, func(name string, _ fs.DirEntry) error {
 				got = append(got, name)
 				return nil
 			})
@@ -78,18 +78,22 @@ func TestGlobFilesystem(t *testing.T) {
 		}
 	}
 	if err := globFiles(
-		t.Context(), filesystem, "dir/deep/note.md", &remaining, func(string, fs.DirEntry) error { return nil },
+		t.Context(), filesystem, "dir/deep/note.md", func(string, fs.DirEntry) error { return nil },
 	); err != nil {
 		t.Fatalf("literal path walked tree: %v", err)
 	}
 	remaining = 2
 	if err := globFiles(
-		t.Context(), filesystem, "**/*.absent", &remaining, func(string, fs.DirEntry) error {
+		t.Context(), filesystem, "**/*.absent", func(string, fs.DirEntry) error {
 			t.Fatal("unexpected match")
 			return nil
 		},
-	); !errors.Is(err, errFileTraversalLimit) {
+	); !errors.Is(err, ErrFileTraversalLimit) {
 		t.Fatalf("nonmatching traversal did not stop: %v", err)
+	}
+	remaining = 2
+	if entries, err := filesystem.ReadDir("."); len(entries) != 0 || !errors.Is(err, ErrFileTraversalLimit) {
+		t.Fatalf("returned an incomplete directory: %v, %v", entries, err)
 	}
 	if err := os.Symlink("dir", filepath.Join(base, "link")); err != nil {
 		t.Fatal(err)
@@ -99,13 +103,13 @@ func TestGlobFilesystem(t *testing.T) {
 	}
 	for _, pattern := range []string{"link/deep/*", "escape/**"} {
 		remaining = 100
-		err := globFiles(t.Context(), filesystem, pattern, &remaining, func(string, fs.DirEntry) error { return nil })
+		err := globFiles(t.Context(), filesystem, pattern, func(string, fs.DirEntry) error { return nil })
 		if !errors.Is(err, storeerr.ErrConflict) {
 			t.Fatalf("symlink prefix %s: %v", pattern, err)
 		}
 	}
 	remaining = 100
-	err = globFiles(t.Context(), filesystem, "**", &remaining, func(name string, _ fs.DirEntry) error {
+	err = globFiles(t.Context(), filesystem, "**", func(name string, _ fs.DirEntry) error {
 		if strings.HasPrefix(name, "link") || strings.HasPrefix(name, "escape") {
 			t.Fatalf("followed symlink %s", name)
 		}
@@ -170,13 +174,27 @@ func TestStoreFilesystem(t *testing.T) {
 			}
 			return nil
 		}
-		err := globFiles(t.Context(), &view, memoryGlobPattern(pattern), &remaining, visit)
+		err := globFiles(t.Context(), &view, memoryGlobPattern(pattern), visit)
 		slices.Sort(paths)
 		slices.Sort(expected)
 		if err != nil || !slices.Equal(paths, expected) || remaining != 94 {
 			t.Fatalf("pattern %s: paths=%v remaining=%d err=%v", pattern, paths, remaining, err)
 		}
 	}
+	view.after = "memory/b/nested"
+	remaining = 3
+	var resumed []string
+	err = globFiles(t.Context(), &view, "memory/**", func(name string, _ fs.DirEntry) error {
+		if compareFilePaths(name, view.after) > 0 {
+			resumed = append(resumed, name)
+		}
+		return nil
+	})
+	if err != nil || !slices.Equal(resumed, []string{"memory/b/nested/note.md", "memory/b/note.md", "memory/empty"}) {
+		t.Fatalf("resume inside directory: %v, %v", resumed, err)
+	}
+	view.after = ""
+	remaining = 100
 	root, err := view.openStore(view.stores[0])
 	if err != nil {
 		t.Fatal(err)

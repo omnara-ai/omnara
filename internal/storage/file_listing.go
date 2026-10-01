@@ -23,6 +23,7 @@ func (s *Store) ListFiles(
 	projectID, agentID uuid.UUID,
 	pattern string,
 	limit int,
+	after listing.Cursor,
 ) (listing.FileListResult, error) {
 	matcher, err := CompileFilePattern(pattern)
 	if err != nil {
@@ -34,14 +35,28 @@ func (s *Store) ListFiles(
 	if limit < 1 || limit > 100 {
 		return listing.FileListResult{}, storeerr.InvalidRequest(errors.New("limit must be between 1 and 100"))
 	}
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	attachments, err := s.memories.LoadAgentAttachments(ctx, projectID, agentID)
 	if err != nil {
 		return listing.FileListResult{}, fmt.Errorf("load file listing scope: %w", err)
 	}
-	entries := make([]listing.FileEntry, 0, limit+1)
-	truncated := false
+	result := listing.FileListResult{Entries: make([]listing.FileEntry, 0, limit)}
+	finish := func(err error) (listing.FileListResult, error) {
+		if parent.Err() != nil {
+			return listing.FileListResult{}, parent.Err()
+		}
+		limited := errors.Is(err, memorystore.ErrFileTraversalLimit) ||
+			(errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded))
+		if err != nil && (!limited || len(result.Entries) == 0) {
+			return listing.FileListResult{}, err
+		}
+		if limited || len(result.Entries) == limit {
+			result.Next = after
+		}
+		return result, nil
+	}
 	prefix := pattern
 	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
 		prefix = prefix[:i]
@@ -52,10 +67,11 @@ func (s *Store) ListFiles(
 	relevant := func(root string) bool {
 		return strings.HasPrefix(root, prefix) || strings.HasPrefix(prefix, root+"/")
 	}
-	if matcher.MatchString("/artifacts") {
-		entries = append(entries, listing.FileEntry{Path: "/artifacts", Type: listing.FileTypeDirectory})
+	if after.Key == "" && matcher.MatchString("/artifacts") {
+		result.Entries = append(result.Entries, listing.FileEntry{Path: "/artifacts", Type: listing.FileTypeDirectory})
+		after = listing.Cursor{Set: true, Key: "/artifacts"}
 	}
-	if len(entries) <= limit && relevant("/artifacts") && descend {
+	if len(result.Entries) < limit && after.Key < memorystore.Root && relevant("/artifacts") && descend {
 		var artifactID *uuid.UUID
 		if prefix == pattern {
 			id, decodeErr := publicid.Decode(publicid.KindArtifact, strings.TrimPrefix(pattern, "/artifacts/"))
@@ -63,29 +79,34 @@ func (s *Store) ListFiles(
 				artifactID = &id
 			}
 		}
-		files, err := s.artifacts.ListFiles(ctx, agentID, artifactID, matcher.String(), limit+1-len(entries))
+		files, last, err := s.artifacts.ListFiles(
+			ctx, agentID, artifactID, matcher.String(), limit-len(result.Entries), after,
+		)
 		if err != nil {
-			return listing.FileListResult{}, err
+			return finish(err)
 		}
-		entries = append(entries, files...)
+		result.Entries = append(result.Entries, files...)
+		after = last
 	}
-	if len(entries) <= limit && matcher.MatchString(memorystore.Root) {
-		entries = append(entries, listing.FileEntry{Path: memorystore.Root, Type: listing.FileTypeDirectory})
+	if len(result.Entries) < limit && after.Key < memorystore.Root && matcher.MatchString(memorystore.Root) {
+		result.Entries = append(result.Entries, listing.FileEntry{Path: memorystore.Root, Type: listing.FileTypeDirectory})
+		after = listing.Cursor{Set: true, Key: memorystore.Root}
 	}
-	if len(entries) <= limit && relevant(memorystore.Root) && descend {
-		result, err := s.memories.ListFiles(ctx, projectID, attachments, pattern, matcher, limit-len(entries))
-		if err != nil {
-			return listing.FileListResult{}, err
+	if len(result.Entries) < limit && relevant(memorystore.Root) && descend {
+		memoryAfter := ""
+		if strings.HasPrefix(after.Key, memorystore.Root) {
+			memoryAfter = after.Key
 		}
-		entries = append(entries, result.Entries...)
-		truncated = result.Truncated
+		files, err := s.memories.ListFiles(
+			ctx, projectID, attachments, pattern, matcher, limit-len(result.Entries), memoryAfter,
+		)
+		result.Entries = append(result.Entries, files...)
+		if len(files) != 0 {
+			after = listing.Cursor{Set: true, Key: files[len(files)-1].Path}
+		}
+		return finish(err)
 	}
-
-	if len(entries) > limit {
-		truncated = true
-		entries = entries[:limit]
-	}
-	return listing.FileListResult{Entries: entries, Truncated: truncated}, nil
+	return finish(nil)
 }
 
 func CompileFilePattern(pattern string) (*regexp.Regexp, error) {
