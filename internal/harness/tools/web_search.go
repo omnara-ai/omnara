@@ -5,10 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/events"
+	"github.com/omnara-ai/omnara/internal/storage"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/omnara-ai/omnara/internal/textutil"
 	"github.com/omnara-ai/omnara/internal/webaccess"
+	"github.com/omnara-ai/omnara/internal/webaccess/telemlineage"
 )
 
 const (
@@ -117,12 +125,18 @@ func runWebSearch(
 			errors.New(message),
 		)
 	}
-	response, err := call.Executor.WebSearch.Search(ctx, webaccess.SearchRequest{
+	request := webaccess.SearchRequest{
 		Query:      resolved.Query,
 		NumResults: resolved.NumResults,
 		Recency:    resolved.Recency,
 		Domains:    resolved.Domains,
-	})
+	}
+	// Only Telem links searches by agent lineage, so other providers skip the
+	// store reads.
+	if _, telem := call.Executor.WebSearch.(webaccess.TelemProvider); telem {
+		request.Lineage = webSearchLineage(ctx, call)
+	}
+	response, err := call.Executor.WebSearch.Search(ctx, request)
 	if err != nil {
 		if providerErr, ok := webaccess.AsProviderError(err); ok {
 			return failWebTool(
@@ -144,6 +158,202 @@ func runWebSearch(
 		return nil, err
 	}
 	return completeAsynchronously(content), nil
+}
+
+// webSearchLineage is best effort: the search runs with whatever lineage
+// loads, down to the ids the call already has.
+func webSearchLineage(ctx context.Context, call asyncToolContext) telemlineage.Lineage {
+	self := telemlineage.Call{
+		AgentID:            call.Turn.AgentID,
+		ModelCallContextID: call.Turn.ModelCallContextID,
+		ToolCallID:         call.ToolCallID,
+	}
+	if call.Executor.Store == nil {
+		return telemlineage.Lineage{Call: self}
+	}
+	return loadWebSearchLineage(ctx, call.Executor.Store, call.Turn.ProjectID, self, call.Executor.logger())
+}
+
+// loadWebSearchLineage completes the call's own ids, the agent's goal and the
+// chain of parent spawn_agent calls. Each part degrades on its own: a failure
+// drops only that part and is logged.
+func loadWebSearchLineage(
+	ctx context.Context,
+	store *storage.Store,
+	projectID uuid.UUID,
+	self telemlineage.Call,
+	log *slog.Logger,
+) telemlineage.Lineage {
+	warn := func(part string, err error) {
+		log.Warn("load web search lineage", "part", part, "agent_id", self.AgentID, "error", err)
+	}
+	lineage := telemlineage.Lineage{Call: self}
+	if call, err := completeLineageCall(ctx, store, projectID, self); err != nil {
+		warn("call", err)
+	} else {
+		lineage.Call = call
+	}
+	goal, err := lineageGoal(ctx, store, projectID, self.AgentID)
+	if err != nil {
+		warn("goal", err)
+	}
+	lineage.Goal = goal
+	ancestors, err := lineageAncestors(ctx, store, projectID, self.AgentID)
+	if err != nil {
+		warn("ancestors", err)
+	}
+	lineage.Ancestors = ancestors
+	return lineage
+}
+
+// lineageAncestors walks up the agent tree through each parent's spawn_agent
+// call and returns the chain root first.
+func lineageAncestors(
+	ctx context.Context,
+	store *storage.Store,
+	projectID, agentID uuid.UUID,
+) ([]telemlineage.Call, error) {
+	var ancestors []telemlineage.Call
+	for range agentconfig.MaxSubagentDepth {
+		agent, err := store.Execution().GetAgentInProject(ctx, projectID, agentID)
+		if err != nil {
+			return nil, fmt.Errorf("get agent: %w", err)
+		}
+		if agent.ParentAgentID == uuid.Nil {
+			break
+		}
+		spawnID, err := spawnToolCallID(agent)
+		if err != nil {
+			return nil, err
+		}
+		spawn, err := completeLineageCall(ctx, store, projectID, telemlineage.Call{
+			AgentID:    agent.ParentAgentID,
+			ToolCallID: spawnID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ancestors = append(ancestors, spawn)
+		agentID = agent.ParentAgentID
+	}
+	slices.Reverse(ancestors)
+	return ancestors, nil
+}
+
+const (
+	lineageGoalMaxRunes = 1000
+	lineageGoalPageSize = 20
+)
+
+// lineageGoal is the agent's task: the spawn_agent task for a subagent, and
+// the text of the first message a top-level agent received.
+func lineageGoal(ctx context.Context, store *storage.Store, projectID, agentID uuid.UUID) (string, error) {
+	agent, err := store.Execution().GetAgentInProject(ctx, projectID, agentID)
+	if err != nil {
+		return "", fmt.Errorf("get agent: %w", err)
+	}
+	var goal string
+	if agent.ParentAgentID != uuid.Nil {
+		spawnID, err := spawnToolCallID(agent)
+		if err != nil {
+			return "", err
+		}
+		spawn, err := store.Execution().GetToolCall(ctx, projectID, agent.ParentAgentID, spawnID)
+		if err != nil {
+			return "", fmt.Errorf("get spawn tool call: %w", err)
+		}
+		request, err := resolveSpawnAgentRequest(spawn.Input)
+		if err != nil {
+			return "", err
+		}
+		goal = request.Task
+	} else {
+		var after int64
+		for {
+			page, err := store.Execution().ListAgentEventsForRead(ctx, projectID, agentID, after, lineageGoalPageSize)
+			if err != nil {
+				return "", fmt.Errorf("list agent events: %w", err)
+			}
+			text, resolved := firstContentInputText(page)
+			if resolved {
+				goal = text
+				break
+			}
+			if len(page) < lineageGoalPageSize {
+				break
+			}
+			after = page[len(page)-1].Sequence
+		}
+	}
+	return textutil.TruncateRunes(strings.TrimSpace(goal), lineageGoalMaxRunes), nil
+}
+
+// firstContentInputText returns the text of the first content input among
+// events in sequence order, and whether one was found. A first message
+// without text, such as a file alone, gives no goal: later events are never
+// read, so a follow-up message cannot become the goal.
+func firstContentInputText(records []executionstore.AgentEventReadRecord) (string, bool) {
+	for _, event := range records {
+		if event.EventKind != string(events.KindAgentInput) || event.InputKind != "content" {
+			continue
+		}
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(event.ContentBlocks, &blocks) != nil {
+			return "", true
+		}
+		var texts []string
+		for _, block := range blocks {
+			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, block.Text)
+			}
+		}
+		return strings.TrimSpace(strings.Join(texts, "\n")), true
+	}
+	return "", false
+}
+
+func spawnToolCallID(agent executionstore.AgentRecord) (uuid.UUID, error) {
+	id, err := uuid.Parse(strings.TrimPrefix(agent.IdempotencyKey, spawnIdempotencyKeyPrefix))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("subagent %s has no spawn tool call: %w", agent.ID, err)
+	}
+	return id, nil
+}
+
+// completeLineageCall fills the tool call's model call, creation time and
+// context window (the latest compaction checkpoint).
+func completeLineageCall(
+	ctx context.Context,
+	store *storage.Store,
+	projectID uuid.UUID,
+	call telemlineage.Call,
+) (telemlineage.Call, error) {
+	record, err := store.Execution().GetToolCall(ctx, projectID, call.AgentID, call.ToolCallID)
+	if err != nil {
+		return telemlineage.Call{}, fmt.Errorf("get tool call: %w", err)
+	}
+	call.ModelCallContextID = record.ModelCallContextID
+	call.CreatedAt = record.CreatedAt
+	modelCall, found, err := store.Execution().GetModelCallContext(ctx, projectID, call.AgentID, call.ModelCallContextID)
+	if err != nil {
+		return telemlineage.Call{}, fmt.Errorf("get model call context: %w", err)
+	}
+	if !found {
+		return telemlineage.Call{}, fmt.Errorf("model call context %s not found", call.ModelCallContextID)
+	}
+	checkpoint, found, err := store.Execution().GetLatestApplicableContextCheckpoint(
+		ctx, projectID, call.AgentID, modelCall.InputEventSequence,
+	)
+	if err != nil {
+		return telemlineage.Call{}, fmt.Errorf("get context checkpoint: %w", err)
+	}
+	if found {
+		call.WindowID = checkpoint.ID
+	}
+	return call, nil
 }
 
 func webSearchToolResultContent(

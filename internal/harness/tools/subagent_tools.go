@@ -250,7 +250,7 @@ func spawnAgent(ctx context.Context, call transactionalToolContext) (transaction
 			Name:                    &name,
 			Message:                 input.Task,
 			MessageActor:            actor,
-			IdempotencyKey:          "spawn:" + call.ToolCallID.String(),
+			IdempotencyKey:          spawnIdempotencyKeyPrefix + call.ToolCallID.String(),
 			ArchiveAfterIdleMinutes: subagent.ArchiveAfterIdleMinutes,
 			Subagent: &executionstore.SubagentLaunch{
 				ParentAgentID: parent.ID,
@@ -445,6 +445,10 @@ func readAgentTurnEvents(
 	}
 	return completeInTransaction(content), nil
 }
+
+// spawnIdempotencyKeyPrefix starts a subagent's idempotency key, followed by
+// the id of the parent's spawn_agent tool call.
+const spawnIdempotencyKeyPrefix = "spawn:"
 
 const (
 	readAgentDefaultTurnLimit  int32 = 10
