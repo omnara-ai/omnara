@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1312,5 +1313,76 @@ func TestValidateWorkerRejectsInvalidEventWebhookPerOrgConcurrency(t *testing.T)
 				t.Fatalf("expected invalid per-org event webhook concurrency error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateWorkerWebSearchProvider(t *testing.T) {
+	cases := []struct {
+		provider, telemKey string
+		wantErr            bool
+	}{
+		{provider: "", wantErr: false},
+		{provider: "exa", wantErr: false},
+		{provider: "telem", telemKey: "tlm_test", wantErr: false},
+		{provider: "telem", wantErr: true},
+		{provider: "bing", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider+"/"+tc.telemKey, func(t *testing.T) {
+			t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+			t.Setenv("OMNARA_WEB_SEARCH_PROVIDER", tc.provider)
+			t.Setenv("TELEM_API_KEY", tc.telemKey)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if err := cfg.ValidateWorker(); (err != nil) != tc.wantErr {
+				t.Fatalf("validate worker error = %v, want error %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadTelemProviderLists(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("TELEM_PROVIDERS_INCLUDE", "exa, tavily")
+	t.Setenv("TELEM_PROVIDERS_EXCLUDE", "you")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.WebSearchProvider != "exa" {
+		t.Fatalf("default web search provider = %q, want exa", cfg.WebSearchProvider)
+	}
+	if !slices.Equal(cfg.TelemProvidersInclude, []string{"exa", "tavily"}) ||
+		!slices.Equal(cfg.TelemProvidersExclude, []string{"you"}) {
+		t.Fatalf("telem providers = %v / %v", cfg.TelemProvidersInclude, cfg.TelemProvidersExclude)
+	}
+}
+
+func TestLoadTelemAutoRouting(t *testing.T) {
+	t.Setenv("OMNARA_ALLOW_INSECURE_DEV_DEFAULTS", "1")
+	t.Setenv("OMNARA_WEB_SEARCH_PROVIDER", "telem")
+	t.Setenv("TELEM_API_KEY", "tlm_test")
+	cases := []struct {
+		env, want string
+		wantErr   bool
+	}{
+		{env: "", want: "accuracy"},
+		{env: "accuracy", want: "accuracy"},
+		{env: "off", want: ""},
+		{env: "fastest", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Setenv("TELEM_AUTO_ROUTING", tc.env)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("TELEM_AUTO_ROUTING=%q: load config: %v", tc.env, err)
+		}
+		err = cfg.ValidateWorker()
+		if (err != nil) != tc.wantErr || (!tc.wantErr && cfg.TelemAutoRouting != tc.want) {
+			t.Fatalf("TELEM_AUTO_ROUTING=%q: mode %q, error %v; want mode %q, error %v",
+				tc.env, cfg.TelemAutoRouting, err, tc.want, tc.wantErr)
+		}
 	}
 }
