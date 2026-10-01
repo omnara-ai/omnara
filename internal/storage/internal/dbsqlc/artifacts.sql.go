@@ -172,17 +172,19 @@ func (q *Queries) InsertArtifact(ctx context.Context, arg InsertArtifactParams) 
 }
 
 const listAgentArtifacts = `-- name: ListAgentArtifacts :many
-(SELECT a.id, a.filename, a.digest, a.size_bytes
+(SELECT a.id, a.filename, a.digest, a.size_bytes, a.content_type, a.created_at
  FROM artifacts a
  WHERE a.agent_id = $2
    AND a.id = $3::uuid
+   AND $4::uuid IS NULL
 )
 UNION ALL
-(SELECT a.id, a.filename, a.digest, a.size_bytes
+(SELECT a.id, a.filename, a.digest, a.size_bytes, a.content_type, a.created_at
  FROM artifacts a
  WHERE $3::uuid IS NULL
    AND a.agent_id = $2
-   AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ $4::text
+   AND ('/artifacts/' || regexp_replace(coalesce(a.filename, ''), '^.*[/\\]', '')) COLLATE "C" ~ $5::text
+   AND a.id < coalesce($4::uuid, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)
  ORDER BY a.id DESC
  LIMIT $1)
 ORDER BY id DESC
@@ -193,14 +195,17 @@ type ListAgentArtifactsParams struct {
 	RowLimit   int32
 	AgentID    uuid.UUID
 	ArtifactID *uuid.UUID
+	AfterID    *uuid.UUID
 	Pattern    string
 }
 
 type ListAgentArtifactsRow struct {
-	ID        uuid.UUID
-	Filename  *string
-	Digest    *string
-	SizeBytes *int64
+	ID          uuid.UUID
+	Filename    *string
+	Digest      *string
+	SizeBytes   *int64
+	ContentType string
+	CreatedAt   time.Time
 }
 
 func (q *Queries) ListAgentArtifacts(ctx context.Context, arg ListAgentArtifactsParams) ([]ListAgentArtifactsRow, error) {
@@ -208,6 +213,7 @@ func (q *Queries) ListAgentArtifacts(ctx context.Context, arg ListAgentArtifacts
 		arg.RowLimit,
 		arg.AgentID,
 		arg.ArtifactID,
+		arg.AfterID,
 		arg.Pattern,
 	)
 	if err != nil {
@@ -222,6 +228,8 @@ func (q *Queries) ListAgentArtifacts(ctx context.Context, arg ListAgentArtifacts
 			&i.Filename,
 			&i.Digest,
 			&i.SizeBytes,
+			&i.ContentType,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

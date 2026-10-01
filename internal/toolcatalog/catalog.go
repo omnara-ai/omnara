@@ -76,7 +76,7 @@ const (
 		"Returns matching lines with context, matching file paths, or counts. " +
 		"Narrow the query when truncated. Use read_file to read more around a match."
 	listFilesToolDescription = "List files and directories in Omnara matching a glob. " +
-		"Returns paths and metadata without file contents; narrow the pattern when truncated."
+		"Returns paths and metadata without file contents, with next_cursor to continue listing."
 	uploadFileToolDescription = "Copy a file from an attached machine into Omnara. " +
 		"Returns path and digest."
 	downloadFileToolDescription = "Copy a file stored in Omnara to an attached machine. Returns the file digest. " +
@@ -277,6 +277,10 @@ func buildDefaultCatalog() (Catalog, error) {
 				"description": "Absolute path pattern: /* lists /artifacts and /memory, /memory/* lists attached stores, " +
 					"/artifacts/*.pdf matches artifact filenames, and /memory/<store>/**/*.md matches notes recursively. " +
 					"* matches within a segment, ** spans directory levels, and ? matches one character.",
+			},
+			"cursor": map[string]any{
+				"type": "string", "maxLength": ListFilesMaxCursorLength,
+				"description": "next_cursor from the previous result. Keep the same pattern; omit to start listing.",
 			},
 			"limit": map[string]any{
 				"type":        "integer",

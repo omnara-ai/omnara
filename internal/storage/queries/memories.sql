@@ -87,6 +87,7 @@ JOIN projects p ON p.id = s.project_id
 WHERE s.project_id = sqlc.arg(project_id)
   AND s.id = ANY(sqlc.arg(store_ids)::uuid[])
   AND s.deleted_at IS NULL
+  AND s.name >= sqlc.arg(from_name)::text COLLATE "C"
   AND (sqlc.arg(store_name)::text = '' OR s.name = sqlc.arg(store_name))
   AND s.name >= sqlc.arg(store_prefix)::text COLLATE "C"
   AND s.name < (sqlc.arg(store_prefix)::text || '{') COLLATE "C"

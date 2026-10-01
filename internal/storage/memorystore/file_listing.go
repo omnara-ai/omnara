@@ -29,21 +29,24 @@ func (s *Store) ListFiles(
 	pattern string,
 	matcher *regexp.Regexp,
 	limit int,
-) (listing.FileListResult, error) {
-	rows, access, err := s.listAttachedStores(ctx, projectID, attachments, pattern, limit+1)
+	after string,
+) ([]listing.FileEntry, error) {
+	from, _, _ := strings.Cut(strings.TrimPrefix(after, Root+"/"), "/")
+	rows, access, err := s.listAttachedStores(ctx, projectID, attachments, pattern, from, limit+1)
 	if err != nil {
-		return listing.FileListResult{}, err
+		return nil, err
 	}
 	remaining := memoryListingTraversalLimit
 	view := storeFS{
 		globFS: globFS{checkCanceled: ctx.Err, remaining: &remaining},
 		files:  s.files, projectID: projectID, stores: rows,
+		after: strings.TrimPrefix(after, "/"),
 	}
 	defer func() { _ = view.Close() }()
-	entries := make([]listing.FileEntry, 0, limit+1)
-	err = globFiles(ctx, &view, memoryGlobPattern(pattern), &remaining, func(name string, item fs.DirEntry) error {
+	entries := make([]listing.FileEntry, 0, limit)
+	err = globFiles(ctx, &view, memoryGlobPattern(pattern), func(name string, item fs.DirEntry) error {
 		full := "/" + name
-		if name == "memory" || !matcher.MatchString(full) {
+		if compareFilePaths(full, after) <= 0 || name == "memory" || !matcher.MatchString(full) {
 			return nil
 		}
 		entry := listing.FileEntry{Path: full, Type: listing.FileTypeDirectory}
@@ -65,16 +68,15 @@ func (s *Store) ListFiles(
 			entry.Description, entry.Access = store.Description, string(mode)
 		}
 		entries = append(entries, entry)
-		if len(entries) > limit {
+		if len(entries) == limit {
 			return errFileListFull
 		}
 		return nil
 	})
-	truncated := errors.Is(err, errFileListFull) || errors.Is(err, errFileTraversalLimit)
-	if err != nil && !truncated {
-		return listing.FileListResult{}, fmt.Errorf("list memory files: %w", err)
+	if err != nil && !errors.Is(err, errFileListFull) {
+		return entries, fmt.Errorf("list memory files: %w", err)
 	}
-	return listing.FileListResult{Entries: entries[:min(len(entries), limit)], Truncated: truncated}, nil
+	return entries, nil
 }
 
 func (s *Store) listAttachedStores(
@@ -82,6 +84,7 @@ func (s *Store) listAttachedStores(
 	projectID uuid.UUID,
 	attachments []agentconfig.MemoryStoreCompiled,
 	pattern string,
+	from string,
 	limit int,
 ) ([]dbsqlc.ListAttachedMemoryStoresRow, map[uuid.UUID]agentconfig.MemoryStoreAccess, error) {
 	ids := make([]uuid.UUID, 0, len(attachments))
@@ -94,7 +97,7 @@ func (s *Store) listAttachedStores(
 	if i := strings.IndexAny(prefix, "*?"); i >= 0 {
 		prefix = prefix[:i]
 	}
-	params := dbsqlc.ListAttachedMemoryStoresParams{ProjectID: projectID, StoreIds: ids}
+	params := dbsqlc.ListAttachedMemoryStoresParams{ProjectID: projectID, StoreIds: ids, FromName: from}
 	if rest, ok := strings.CutPrefix(prefix, Root+"/"); ok {
 		name, _, complete := strings.Cut(rest, "/")
 		params.StorePrefix = name
@@ -128,7 +131,7 @@ func (s *Store) VisitSearchStores(
 		return nil
 	}
 	storePattern = memoryGlobEscaper.Replace(storePattern)
-	stores, _, err := s.listAttachedStores(ctx, projectID, attachments, pattern, 0)
+	stores, _, err := s.listAttachedStores(ctx, projectID, attachments, pattern, "", 0)
 	if err != nil {
 		return err
 	}
