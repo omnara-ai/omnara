@@ -52,27 +52,36 @@ On Omnara's hosted service, your organization's default pool runs on Blaxel and 
   <Step title="Create the pool">
     On the **Machines** page, click **New pool** and choose **Blaxel**. Enter the workspace name, credential, image, region, memory, and capacity limits. Blaxel keeps each machine's files in memory, so give each machine at least 4 GB for coding work.
 
-    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
   </Step>
 </Steps>
 
-## Configuration reference
+## API fields
 
-`provider_config`:
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
 
-| Key | Required | Description |
-| --- | --- | --- |
-| `workspace` | Yes | Blaxel workspace name. |
-| `allowed_images` | No | [Allowlist](/machines/providers/overview#allowlists) for `image`. |
-| `allowed_regions` | No | [Allowlist](/machines/providers/overview#allowlists) for `region`. |
+```jsonc
+{
+  "name": "blaxel-pool",
+  "provider": "blaxel",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "workspace": "acme-main"
+  },
+  "default_machine_provider_options": {
+    "image": "sandbox/omnara-agent:latest",
+    "region": "us-pdx-1",
+    "sleep_after_ms": 300000 // optional
+  },
+  "default_machine_memory_mb": 4096,
+  "max_machine_memory_mb": 8192,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
 
-`default_machine_provider_options`:
-
-| Key | Required | Description |
-| --- | --- | --- |
-| `image` | Yes | Blaxel image, such as `sandbox/omnara-agent:latest`. |
-| `region` | Yes | `us-pdx-1`, `us-was-1`, `eu-lon-1`, or `eu-fra-1`. |
-| `startup_script` | No | Shell script that runs on each new machine before the daemon starts. |
-| `sleep_after_ms` | No | How long a machine must be idle before it [sleeps](/machines/providers/overview#sleep-when-idle). |
-
-Pools require a default memory size and memory maximums, and must not set any CPU fields.
+- `workspace` is your Blaxel workspace name.
+- `region` is `us-pdx-1`, `us-was-1`, `eu-lon-1`, or `eu-fra-1`.
+- `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake.
+- Blaxel pools set memory only, so don't send any CPU fields.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_images` and `allowed_regions` in `provider_config` are [allowlists](/machines/providers/overview#allowlists).

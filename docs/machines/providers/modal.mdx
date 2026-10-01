@@ -38,27 +38,38 @@ icon: "/logo/providers/modal.svg"
 
     Environment variable names can use only letters, digits, and underscores and can't start with a digit. Modal rejects other names, so machines that use them fail to start.
 
-    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard uses the `main` environment; to use another, create it in Modal and set `environment` through the API.
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard uses the `main` environment; to use another, create it in Modal and set `environment` through the API.
   </Step>
 </Steps>
 
-## Configuration reference
+## API fields
 
-`provider_config`:
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
 
-| Key | Required | Description |
-| --- | --- | --- |
-| `app` | No | Modal app that holds the pool's sandboxes. Defaults to `omnara`, which Omnara creates on first use. |
-| `environment` | No | Modal environment. Defaults to `main`. Other environments must already exist. |
-| `allowed_images` | No | [Allowlist](/machines/providers/overview#allowlists) for `image`. |
-| `allowed_regions` | No | [Allowlist](/machines/providers/overview#allowlists) for `region`. |
+```jsonc
+{
+  "name": "modal-pool",
+  "provider": "modal",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "provider_config": {
+    "app": "omnara", // optional
+    "environment": "main" // optional
+  },
+  "default_machine_provider_options": {
+    "image": "buildpack-deps:24.04-curl"
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
 
-`default_machine_provider_options`:
-
-| Key | Required | Description |
-| --- | --- | --- |
-| `image` | Yes | Public `linux/amd64` registry image. |
-| `region` | No | A Modal region, such as `us` or `eu-west`. Omit for automatic placement. |
-| `startup_script` | No | Shell script that runs on each new machine before the daemon starts. |
-
-Pools require CPU and memory defaults and maximums. CPU is in vCPU, and Omnara converts it to Modal's physical cores at two vCPU per core.
+- `app` defaults to `omnara`, which Omnara creates on first use. `environment` defaults to `main`, and other environments must already exist.
+- `image` is a public `linux/amd64` registry image.
+- `region` is a Modal region, such as `us` or `eu-west`. Omit it for automatic placement.
+- CPU is in vCPU. Omnara converts it to Modal's physical cores at two vCPU per core.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_images` and `allowed_regions` in `provider_config` are [allowlists](/machines/providers/overview#allowlists).

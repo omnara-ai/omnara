@@ -33,7 +33,7 @@ icon: "/logo/providers/freestyle.svg"
   <Step title="Create the pool">
     On the **Machines** page, click **New pool** and choose **Freestyle**. Enter the credential, snapshot, CPU and memory, and capacity limits. Set the minimum CPU and memory to the snapshot's size, so agents can't request a machine smaller than the snapshot.
 
-    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
 
     The daemon runs as a systemd service and comes back on its own after a reboot, and the startup script runs again whenever the service starts, so make it safe to rerun.
 
@@ -41,20 +41,32 @@ icon: "/logo/providers/freestyle.svg"
   </Step>
 </Steps>
 
-## Configuration reference
+## API fields
 
-`provider_config`:
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
 
-| Key | Required | Description |
-| --- | --- | --- |
-| `allowed_snapshots` | No | [Allowlist](/machines/providers/overview#allowlists) for `snapshot`. |
+```jsonc
+{
+  "name": "freestyle-pool",
+  "provider": "freestyle",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "snapshot": "freestyle/ubuntu-sm",
+    "sleep_after_ms": 300000 // optional
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "min_machine_cpu": 2, // optional
+  "min_machine_memory_mb": 4096, // optional
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 40,
+  "max_total_memory_mb": 81920,
+  "max_total_machines": 10
+}
+```
 
-`default_machine_provider_options`:
-
-| Key | Required | Description |
-| --- | --- | --- |
-| `snapshot` | Yes | Snapshot ID, your snapshot's slug, or a public snapshot such as `freestyle/ubuntu-sm`. |
-| `startup_script` | No | Shell script that runs before the daemon starts, including after a reboot. |
-| `sleep_after_ms` | No | How long a machine must be idle before it [sleeps](/machines/providers/overview#sleep-when-idle). |
-
-Pools require CPU and memory defaults and maximums.
+- `snapshot` is a snapshot ID, your snapshot's slug, or a public snapshot such as `freestyle/ubuntu-sm`.
+- The minimums match the snapshot's size, so agents can't request a machine smaller than the snapshot.
+- `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake.
+- Optional: `startup_script` in `default_machine_provider_options` runs before the daemon starts, including after a reboot, and `allowed_snapshots` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).

@@ -32,24 +32,33 @@ icon: "/logo/providers/tenki.png"
 
     Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the startup script. The environment and startup script together must stay under about 128 KB.
 
-    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard can't set the disk size, so set `disk_size_gb` through the API.
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't set the disk size, so set `disk_size_gb` through the API.
   </Step>
 </Steps>
 
-## Configuration reference
+## API fields
 
-`provider_config`:
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
 
-| Key | Required | Description |
-| --- | --- | --- |
-| `allowed_images` | No | [Allowlist](/machines/providers/overview#allowlists) for `image`. |
+```jsonc
+{
+  "name": "tenki-pool",
+  "provider": "tenki",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "disk_size_gb": 40 // optional
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 8192,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
 
-`default_machine_provider_options`:
-
-| Key | Required | Description |
-| --- | --- | --- |
-| `image` | No | Tenki image reference. Omit to use Tenki's base image. |
-| `disk_size_gb` | No | Disk size from 5 to 100 GB. Defaults to 20 for the base image and to the template's size for custom images. |
-| `startup_script` | No | Shell script that runs on each new machine before the daemon starts. |
-
-Pools require CPU and memory defaults and maximums. Memory must be a multiple of 2 MB.
+- `image` is optional. Omit it, as here, to use Tenki's base image, or set a Tenki image reference such as `acme/agent-box:v1`.
+- `disk_size_gb` ranges from 5 to 100. It defaults to 20 for the base image and to the template's size for custom images.
+- Memory must be a multiple of 2 MB.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_images` in `provider_config` is an [allowlist](/machines/providers/overview#allowlists).
