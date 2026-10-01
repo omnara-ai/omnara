@@ -80,7 +80,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ARKER_API_KEY: ${{ secrets.ARKER_API_KEY }}
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
@@ -109,8 +108,7 @@ jobs:
             configured=true
           fi
           if { [ -n "$BL_API_KEY" ] && [ -n "$BL_WORKSPACE" ]; } || \
-             [ -n "$ARKER_API_KEY" ] || [ -n "$DAYTONA_API_KEY" ] || \
-             [ -n "$UNIKRAFT_API_KEY" ]; then
+             [ -n "$DAYTONA_API_KEY" ] || [ -n "$UNIKRAFT_API_KEY" ]; then
             echo "sandboxes=true" >> "$GITHUB_OUTPUT"
             configured=true
           else
@@ -167,12 +165,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
-      # Each provider's live tests need that provider's own credentials. Without
-      # ARKER_API_KEY the Arker tests skip and the rest still run.
       - run: make test-live-sandbox-providers
         if: steps.secrets.outputs.sandboxes == 'true'
         env:
-          ARKER_API_KEY: ${{ secrets.ARKER_API_KEY }}
           BL_API_KEY: ${{ secrets.BL_API_KEY }}
           BL_WORKSPACE: ${{ secrets.BL_WORKSPACE }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}

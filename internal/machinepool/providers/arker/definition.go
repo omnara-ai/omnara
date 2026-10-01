@@ -7,24 +7,23 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
 type providerConfig struct {
-	BaseURL          string   `json:"base_url,omitempty"`
-	ControlBaseURL   string   `json:"control_base_url,omitempty"`
-	AllowedSources   []string `json:"allowed_sources,omitempty"`
-	AllowedProviders []string `json:"allowed_providers,omitempty"`
-	AllowedRegions   []string `json:"allowed_regions,omitempty"`
+	APIBaseURL     string   `json:"api_base_url,omitempty"`
+	AllowedSources []string `json:"allowed_sources,omitempty"`
+	AllowedRegions []string `json:"allowed_regions,omitempty"`
 }
 
 type providerOptions struct {
 	Source        string `json:"source"`
-	Provider      string `json:"provider"`
 	Region        string `json:"region"`
 	StartupScript string `json:"startup_script"`
+	SleepAfterMS  int    `json:"sleep_after_ms"`
 }
 
 type Definition struct{}
@@ -60,6 +59,24 @@ func (Definition) NewRuntimeProvider(
 	return newProvider(raw, runtimeConfig)
 }
 
+func newProvider(
+	raw json.RawMessage,
+	runtimeConfig providers.RuntimeConfig,
+) (*provider, error) {
+	config, err := parseProviderConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(runtimeConfig.ProviderAuthToken) == "" {
+		return nil, errors.New("arker provider auth token is required")
+	}
+	return &provider{
+		apiToken:     runtimeConfig.ProviderAuthToken,
+		apiBaseURL:   config.APIBaseURL,
+		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
+	}, nil
+}
+
 func (Definition) ResolveMachineProviderOptions(
 	defaultOptions map[string]json.RawMessage,
 	projectOptions map[string]json.RawMessage,
@@ -68,11 +85,11 @@ func (Definition) ResolveMachineProviderOptions(
 	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
-func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
+func (definition Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
 	if err := providers.ValidateMachinePoolResourcePolicy(
 		providers.Arker,
 		policy,
-		Definition{}.ResourcePolicy(),
+		definition.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
@@ -82,9 +99,6 @@ func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) 
 	}
 	config, err := parseProviderConfig(policy.ProviderConfig)
 	if err != nil {
-		return err
-	}
-	if err := validatePlacement(config, defaultOptions); err != nil {
 		return err
 	}
 	return validateAgainstAllowlists(config, defaultOptions, defaultOptions)
@@ -100,7 +114,7 @@ func (definition Definition) ValidateMachineProvisioning(
 	if err := providers.ValidateMachineProvisioningResourcePolicy(
 		providers.Arker,
 		machineProvisioning,
-		Definition{}.ResourcePolicy(),
+		definition.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
@@ -116,9 +130,6 @@ func (definition Definition) ValidateMachineProvisioning(
 	if err != nil {
 		return err
 	}
-	if err := validatePlacement(config, machineOptions); err != nil {
-		return err
-	}
 	return validateAgainstAllowlists(config, machineOptions, defaultOptions)
 }
 
@@ -132,20 +143,6 @@ func (definition Definition) BuildMachineProvisioningIntent(
 	return machineProvisioning, nil
 }
 
-func validatePlacement(config providerConfig, options providerOptions) error {
-	switch {
-	case config.BaseURL != "" && options.Provider != "":
-		return errors.New(
-			"arker provider config base_url and machine config provider/region are mutually exclusive",
-		)
-	case config.BaseURL == "" && options.Provider == "":
-		return errors.New(
-			"arker requires a placement: set base_url in the provider config, or provider and region in provider_options",
-		)
-	}
-	return nil
-}
-
 func validateAgainstAllowlists(
 	config providerConfig,
 	options providerOptions,
@@ -157,18 +154,6 @@ func validateAgainstAllowlists(
 		options.Source,
 		config.AllowedSources,
 		defaultOptions.Source,
-	); err != nil {
-		return err
-	}
-	if options.Provider == "" {
-		return nil
-	}
-	if err := providers.ValidateAllowedValue(
-		"arker placement provider",
-		"allowed_providers",
-		options.Provider,
-		config.AllowedProviders,
-		defaultOptions.Provider,
 	); err != nil {
 		return err
 	}
@@ -189,27 +174,17 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	if err := providers.DecodeStrictJSON(raw, &config); err != nil {
 		return providerConfig{}, fmt.Errorf("decode arker provider config: %w", err)
 	}
+	config.APIBaseURL = strings.TrimSpace(config.APIBaseURL)
 	var err error
-	if config.BaseURL, err = normalizeOptionalURL("arker base_url", config.BaseURL); err != nil {
-		return providerConfig{}, err
-	}
-	if config.ControlBaseURL, err = normalizeOptionalURL(
-		"arker control_base_url",
-		config.ControlBaseURL,
-	); err != nil {
-		return providerConfig{}, err
+	if config.APIBaseURL != "" {
+		if config.APIBaseURL, err = normalizeAPIBaseURL(config.APIBaseURL); err != nil {
+			return providerConfig{}, err
+		}
 	}
 	if config.AllowedSources, err = providers.NormalizeAllowlist(
 		"arker provider config allowed_sources",
 		config.AllowedSources,
 		validateIdentifier,
-	); err != nil {
-		return providerConfig{}, err
-	}
-	if config.AllowedProviders, err = providers.NormalizeAllowlist(
-		"arker provider config allowed_providers",
-		config.AllowedProviders,
-		providers.ValidateDNSLabel,
 	); err != nil {
 		return providerConfig{}, err
 	}
@@ -239,40 +214,29 @@ func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOption
 	if rawOptions == nil {
 		return providerOptions{}, errors.New("arker machine config requires provider_options")
 	}
+	raw, err := json.Marshal(rawOptions)
+	if err != nil {
+		return providerOptions{}, fmt.Errorf("encode arker provider_options: %w", err)
+	}
 	var options providerOptions
-	if err := providers.DecodeStringOptions(
-		rawOptions,
-		"arker provider_options",
-		map[string]*string{
-			"source":         &options.Source,
-			"provider":       &options.Provider,
-			"region":         &options.Region,
-			"startup_script": &options.StartupScript,
-		},
-	); err != nil {
-		return providerOptions{}, err
+	if err := providers.DecodeStrictJSON(raw, &options); err != nil {
+		return providerOptions{}, fmt.Errorf("decode arker provider_options: %w", err)
 	}
 	options.Source = strings.TrimSpace(options.Source)
 	if err := validateIdentifier(options.Source); err != nil {
 		return providerOptions{}, fmt.Errorf("arker machine config source: %w", err)
 	}
-	options.Provider = strings.TrimSpace(options.Provider)
 	options.Region = strings.TrimSpace(options.Region)
-	if (options.Provider == "") != (options.Region == "") {
-		return providerOptions{}, errors.New(
-			"arker machine config provider and region must be set together",
-		)
-	}
-	if options.Provider != "" {
-		if err := providers.ValidateDNSLabel(options.Provider); err != nil {
-			return providerOptions{}, fmt.Errorf("arker machine config provider: %w", err)
-		}
-		if err := providers.ValidateDNSLabel(options.Region); err != nil {
-			return providerOptions{}, fmt.Errorf("arker machine config region: %w", err)
-		}
+	if err := providers.ValidateDNSLabel(options.Region); err != nil {
+		return providerOptions{}, fmt.Errorf("arker machine config region: %w", err)
 	}
 	if err := providers.ValidateManagedStartupScript("arker machine config", options.StartupScript); err != nil {
 		return providerOptions{}, err
+	}
+	if options.SleepAfterMS != 0 {
+		if _, err := daemonprotocol.SleepAfterDuration(options.SleepAfterMS); err != nil {
+			return providerOptions{}, fmt.Errorf("arker machine config sleep_after_ms %w", err)
+		}
 	}
 	return options, nil
 }
@@ -290,20 +254,25 @@ func validateIdentifier(value string) error {
 	return nil
 }
 
-func normalizeOptionalURL(what, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", nil
-	}
-	parsed, err := url.Parse(strings.TrimRight(value, "/"))
+func normalizeAPIBaseURL(baseURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimRight(baseURL, "/"))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%s must be an absolute URL", what)
+		return "", errors.New("arker api base url must be an absolute URL")
 	}
 	if !providers.IsHTTPS(parsed) {
-		return "", fmt.Errorf("%s must use https", what)
+		return "", errors.New("arker api base url must use https")
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("%s must not include query or fragment", what)
+		return "", errors.New("arker api base url must not include query or fragment")
 	}
 	return parsed.String(), nil
+}
+
+func existingMachineRegion(machineProvisioning executionstore.MachineProvisioningConfig) (string, error) {
+	var region string
+	if err := json.Unmarshal(machineProvisioning.ProviderOptions["region"], &region); err != nil ||
+		providers.ValidateDNSLabel(strings.TrimSpace(region)) != nil {
+		return "", errors.New("arker stored machine config requires a valid region")
+	}
+	return strings.TrimSpace(region), nil
 }

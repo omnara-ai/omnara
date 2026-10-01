@@ -2,128 +2,60 @@ package arker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
-	"math"
-	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	arkersdk "github.com/ArkerHQ/arker-sdk/go"
-
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
 const (
 	provisioningTimeout = time.Minute
-	daemonPollInterval  = 500 * time.Millisecond
-	// How long to wait for a canceled daemon to actually leave the session.
-	cancelConfirmTimeout = 10 * time.Second
-	wakeTimeout          = 15 * time.Second
-
-	bootPath = "/tmp/omnara-boot.sh"
-
-	daemonCommand = "exec /bin/sh " + bootPath
-
-	daemonSessionIdx = 1
-	// Waking must not queue behind a user run on session 0, nor interrupt the
-	// daemon on session 1.
-	wakeSessionIdx = 2
+	wakeSessionIdx      = 1
 )
 
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var (
+	daemonLauncherCommand = providers.ManagedDaemonLauncherArgs()[2]
+	envNamePattern        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
 
 var errNotThisMachine = errors.New("arker vm does not belong to this machine")
 
-//nolint:misspell // "cancelled" is the wire value.
-var terminalRunStates = map[string]bool{"completed": true, "failed": true, "cancelled": true}
-
-// A run is only started once it reports `running`; `pending` is queued behind
-// an earlier run on the session.
-const runStateRunning = "running"
-
-// The boot script installs omnarad before exec'ing it, which outlasts the
-// settle window. Derived from provisioningTimeout so the inner wait cannot
-// outlive the deadline the manager already applies to ProvisionMachine, which
-// would surface as a cancellation instead of the state the daemon was stuck in.
-// Variable so tests do not pay it.
-//
-// A CEILING, not the budget: it is measured from when polling starts, while the
-// manager's deadline has been running since Fork. Everything before the first
-// poll -- the fork, canceling a stale daemon, writing the boot script -- eats
-// into the same minute, so on a slow call this ceiling alone would still let the
-// outer deadline fire first and report a bare cancellation. waitForDaemon takes
-// the smaller of this and what the context actually has left, so the caller is
-// told the run state the daemon was stuck in rather than that time ran out.
-const defaultDaemonStartTimeout = provisioningTimeout - 5*time.Second
-
-// Reserved out of the remaining context so the wait ends, and reports, just
-// before the manager gives up on it.
-const daemonDeadlineMargin = 2 * time.Second
-
-var daemonStartTimeout = defaultDaemonStartTimeout
-
-const defaultDaemonSettleWindow = 3 * time.Second
-
-var daemonSettleWindow = defaultDaemonSettleWindow
-
 var (
 	_ providers.Provider        = (*provider)(nil)
-	_ providers.MachineWaker    = (*provider)(nil)
 	_ providers.RuntimeProvider = (*provider)(nil)
+	_ providers.MachineWaker    = (*provider)(nil)
 )
 
 type provider struct {
-	apiKey         string
-	baseURL        string
-	controlBaseURL string
-	omnaraAPIURL   string
+	api          *restClient
+	apiToken     string
+	apiBaseURL   string
+	omnaraAPIURL string
 }
 
-func newProvider(
-	raw json.RawMessage,
-	runtimeConfig providers.RuntimeConfig,
-) (*provider, error) {
-	config, err := parseProviderConfig(raw)
-	if err != nil {
-		return nil, err
+func (p *provider) regionBaseURL(region string) string {
+	if p.apiBaseURL != "" {
+		return p.apiBaseURL
 	}
-	if strings.TrimSpace(runtimeConfig.ProviderAuthToken) == "" {
-		return nil, errors.New("arker provider auth token is required")
-	}
-	return &provider{
-		apiKey:         runtimeConfig.ProviderAuthToken,
-		baseURL:        config.BaseURL,
-		controlBaseURL: config.ControlBaseURL,
-		omnaraAPIURL:   runtimeConfig.OmnaraAPIURL,
-	}, nil
+	return "https://" + region + ".arker.ai/api"
 }
 
-func (p *provider) client(options providerOptions) (*arkersdk.Client, error) {
-	return p.clientFor(arkersdk.Options{
-		BaseURL:  p.baseURL,
-		Provider: options.Provider,
-		Region:   options.Region,
-	})
-}
-
-func (p *provider) clientFor(opts arkersdk.Options) (*arkersdk.Client, error) {
-	if opts.BaseURL == "" && opts.Provider == "" {
-		return nil, errors.New(
-			"arker machine has no placement: set base_url in the provider config, or provider and region in provider_options",
-		)
+func (p *provider) apiFor(baseURL string) *restClient {
+	if p.api != nil {
+		return p.api
 	}
-	opts.APIKey = p.apiKey
-	opts.ControlBaseURL = p.controlBaseURL
-	return arkersdk.New(opts)
+	return &restClient{
+		baseURL:    baseURL,
+		apiToken:   p.apiToken,
+		httpClient: providers.NewHTTPClient(),
+	}
 }
 
 func (*provider) ProvisioningTimeout() time.Duration {
@@ -143,8 +75,8 @@ func (*provider) PrepareProvisioning(
 	}, nil
 }
 
-func provisionKey(allocationName string) string {
-	return allocationName
+func (*provider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
 }
 
 func (p *provider) ProvisionMachine(
@@ -154,6 +86,7 @@ func (p *provider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	_ bool,
 ) (providers.ProvisionMachineResult, error) {
 	options, err := providerOptionsFromProvisioning(machineProvisioning)
 	if err != nil {
@@ -172,240 +105,101 @@ func (p *provider) ProvisionMachine(
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-	client, err := p.client(options)
+	maps.DeleteFunc(env, func(name, _ string) bool { return !envNamePattern.MatchString(name) })
+	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
+	command := daemonLauncherCommand
+	if options.SleepAfterMS > 0 {
+		env[daemonprotocol.SleepAfterEnvVar] = strconv.Itoa(options.SleepAfterMS)
+		env[daemonprotocol.WakeListenAddrEnvVar] = ":" +
+			strconv.Itoa(daemonprotocol.WakeListenerPort)
+		env[daemonprotocol.SleepPlatformEnvVar] = daemonprotocol.SleepPlatformArker
+		command = sleepBootCommand
+	}
+	baseURL := p.regionBaseURL(options.Region)
+	api := p.apiFor(baseURL)
+	target, err := api.Fork(ctx, forkRequest{
+		SourceVMName: options.Source,
+		Name:         name,
+		Resources: resources{
+			VCPU:      *machineProvisioning.CPU,
+			MemoryMiB: *machineProvisioning.MemoryMB,
+		},
+	}, name)
 	if err != nil {
 		return providers.ProvisionMachineResult{}, err
 	}
-
-	vm, err := client.Fork(ctx, arkersdk.ForkRequest{
-		SourceVMName:   options.Source,
-		Name:           name,
-		Description:    "omnara pool machine",
-		IdempotencyKey: provisionKey(name),
-		Resources: &arkersdk.Resources{
-			VCPU:      machineProvisioning.CPU,
-			MemoryMiB: machineProvisioning.MemoryMB,
-		},
-	})
-	if err != nil {
-		return providers.ProvisionMachineResult{}, classifyError(err)
+	if target.ID == "" {
+		return providers.ProvisionMachineResult{}, errors.New("arker fork response is missing vm id")
 	}
-	if vm == nil || strings.TrimSpace(vm.ID) == "" {
-		return providers.ProvisionMachineResult{}, errors.New("arker fork returned no vm id")
+	if target.Name != name {
+		return providers.ProvisionMachineResult{}, fmt.Errorf("%w: %s", errNotThisMachine, target.ID)
 	}
-	result := providers.ProvisionMachineResult{
-		ProviderResourceID: vm.ID,
-		SandboxURL:         vm.BaseURL(),
-	}
-	// WakeMachineInput carries only the id and the stored sandbox URL -- not the
-	// machine's provisioning -- so a machine recorded without an endpoint can
-	// never be woken: there is nothing left to rebuild a client from. Fail the
-	// provision here instead, while still returning the id so cleanup can delete
-	// the VM that Arker did create.
-	if strings.TrimSpace(result.SandboxURL) == "" {
-		return result, fmt.Errorf("arker fork returned vm %s without a sandbox url", vm.ID)
-	}
-	if vm.Info == nil {
-		return result, fmt.Errorf("arker fork returned vm %s without its record", vm.ID)
-	}
-	if vm.Info.Name != name {
-		return result, fmt.Errorf(
-			"arker vm %s is named %q and does not belong to machine %q",
-			vm.ID,
-			vm.Info.Name,
-			name,
-		)
-	}
-	if err := startDaemon(ctx, vm, env); err != nil {
+	result := providers.ProvisionMachineResult{ProviderResourceID: target.ID}
+	if err := ensureDaemon(ctx, api, target.ID, command, env); err != nil {
 		return result, err
+	}
+	if options.SleepAfterMS > 0 {
+		result.SandboxURL = baseURL
 	}
 	return result, nil
 }
 
-// ProvisionMachine is required to be idempotent, and the manager retries it.
-// Starting a second daemon unconditionally is what broke that: session 1 runs
-// one command at a time, so the retry's run sat `pending` behind a first daemon
-// that was already healthy, and the provision failed on a VM with nothing wrong
-// with it.
-//
-// Cancel rather than adopt. Adopting an in-flight boot leaves the guest running
-// the token the FIRST attempt wrote, while the manager has since issued a new
-// one, so the pool can mark a machine provisioned whose omnarad never
-// authenticates. Canceling and restarting costs one boot and guarantees the
-// daemon that survives is the one holding current credentials -- and there is
-// still exactly one at the end, which is what idempotent has to mean here.
-func cancelStaleDaemons(ctx context.Context, vm *arkersdk.VM) error {
-	listed, err := vm.ListRuns(ctx, arkersdk.ListRunsOptions{Limit: 100})
+func ensureDaemon(
+	ctx context.Context,
+	api *restClient,
+	vmID string,
+	command string,
+	env map[string]string,
+) error {
+	runs, err := api.ListRuns(ctx, vmID)
 	if err != nil {
-		return fmt.Errorf("list runs on arker vm %s: %w", vm.ID, classifyError(err))
+		return err
 	}
-	if listed == nil {
-		return nil
+	for _, existing := range runs {
+		if existing.Command == command && runLive(existing.State) {
+			return nil
+		}
 	}
-	for _, run := range listed.Runs {
-		if run.Command != daemonCommand || terminalRunStates[run.State] {
-			continue
-		}
-		if _, err := vm.CancelRun(ctx, run.RunID); err != nil && !arkersdk.IsNotFound(err) {
-			return fmt.Errorf(
-				"cancel stale omnara daemon %s on arker vm %s: %w",
-				run.RunID,
-				vm.ID,
-				classifyError(err),
-			)
-		}
-		if err := awaitRunTerminal(ctx, vm, run.RunID); err != nil {
-			return err
-		}
+	sessionID, err := api.CreateSession(ctx, vmID, env)
+	if err != nil {
+		return err
+	}
+	if sessionID == "" {
+		return errors.New("arker session response is missing session id")
+	}
+	started, err := api.StartRun(ctx, vmID, runRequest{Command: command, SessionID: sessionID})
+	if err != nil {
+		return err
+	}
+	if started.State != "" && !runLive(started.State) {
+		return fmt.Errorf("arker daemon run is %s instead of running", started.State)
 	}
 	return nil
 }
 
-// A cancel that returned is not the same as a session that is free, and the
-// session takes one run at a time. Starting the replacement while the old run
-// still holds it leaves the new daemon `pending` behind a run we already gave
-// up on, and waitForDaemon then fails a VM that is otherwise fine.
-//
-// Not merely belt and braces: a CancelRun answering 404 is treated as success
-// above -- the usual meaning is that the run is already gone -- but a 404 can
-// also come back while the run is still going, and then nothing has been
-// canceled at all. Confirming the state is what tells those apart.
-func awaitRunTerminal(ctx context.Context, vm *arkersdk.VM, runID string) error {
-	deadline := time.Now().Add(cancelConfirmTimeout)
-	for {
-		record, err := vm.GetRun(ctx, runID)
-		if err != nil {
-			if arkersdk.IsNotFound(err) {
-				return nil
-			}
-			return fmt.Errorf(
-				"confirm stale omnara daemon %s on arker vm %s: %w",
-				runID,
-				vm.ID,
-				classifyError(err),
-			)
-		}
-		if terminalRunStates[record.State] {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf(
-				"stale omnara daemon %s on arker vm %s is still %s after cancel; "+
-					"a new daemon would queue behind it",
-				runID,
-				vm.ID,
-				record.State,
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(daemonPollInterval):
-		}
-	}
+func runLive(state string) bool {
+	return state == "pending" || state == "running"
 }
 
-func startDaemon(ctx context.Context, vm *arkersdk.VM, env map[string]string) error {
-	script, err := bootScript(env)
-	if err != nil {
-		return err
+func (p *provider) WakeMachine(
+	ctx context.Context,
+	input providers.WakeMachineInput,
+) error {
+	if input.SandboxURL == "" {
+		return errors.New("arker sandbox url is required")
 	}
-	if err := cancelStaleDaemons(ctx, vm); err != nil {
-		return err
-	}
-	if err := vm.WriteFile(ctx, bootPath, []byte(script)); err != nil {
-		return fmt.Errorf("write omnara boot script to arker vm %s: %w", vm.ID, classifyError(err))
-	}
-	started, err := vm.Run(ctx, arkersdk.RunRequest{
-		Command:          daemonCommand,
-		SessionIdx:       arkersdk.Ptr(daemonSessionIdx),
-		TimeToBackground: arkersdk.Ptr(0),
+	sessionIdx := wakeSessionIdx
+	started, err := p.apiFor(input.SandboxURL).StartRun(ctx, input.ProviderResourceID, runRequest{
+		Command:    wakeCommand,
+		SessionIdx: &sessionIdx,
 	})
 	if err != nil {
-		return fmt.Errorf("start omnara daemon on arker vm %s: %w", vm.ID, classifyError(err))
+		return err
 	}
-	if started.RunID == "" {
-		return fmt.Errorf("arker vm %s returned no run id for the omnara daemon", vm.ID)
+	if started.State != "" && !runLive(started.State) {
+		return fmt.Errorf("arker wake run is %s instead of running", started.State)
 	}
-	return waitForDaemon(ctx, vm, started.RunID)
-}
-
-func bootScript(env map[string]string) (string, error) {
-	var out strings.Builder
-	out.WriteString("rm -f \"$0\"\n")
-	for _, name := range slices.Sorted(maps.Keys(env)) {
-		if !envName.MatchString(name) {
-			return "", fmt.Errorf("machine env name %q is not a shell identifier", name)
-		}
-		out.WriteString("export ")
-		out.WriteString(name)
-		out.WriteString("='")
-		out.WriteString(strings.ReplaceAll(env[name], "'", `'\''`))
-		out.WriteString("'\n")
-	}
-	out.WriteString("\n")
-	out.WriteString(providers.ManagedBootScript())
-	return out.String(), nil
-}
-
-func waitForDaemon(ctx context.Context, vm *arkersdk.VM, runID string) error {
-	started := time.Now()
-	deadline := started.Add(daemonSettleWindow)
-	hardDeadline := started.Add(daemonStartTimeout)
-	if ctxDeadline, ok := ctx.Deadline(); ok {
-		if reserved := ctxDeadline.Add(-daemonDeadlineMargin); reserved.Before(hardDeadline) {
-			hardDeadline = reserved
-		}
-	}
-	// Never before the settle window. Success is only concluded once the daemon
-	// has held `running` through it, so a hard deadline inside that window would
-	// fail a boot that is doing nothing wrong -- reporting a healthy daemon as
-	// stuck, which is the opposite of what bounding the wait was for. If the
-	// context really cannot afford the settle, ctx.Done() ends the wait and says
-	// so honestly rather than blaming the daemon.
-	if hardDeadline.Before(deadline) {
-		hardDeadline = deadline
-	}
-	for {
-		record, err := vm.GetRun(ctx, runID)
-		if err != nil {
-			return fmt.Errorf("check omnara daemon on arker vm %s: %w", vm.ID, classifyError(err))
-		}
-		if terminalRunStates[record.State] {
-			return fmt.Errorf(
-				"omnara daemon on arker vm %s is %s instead of running (exit %s)",
-				vm.ID,
-				record.State,
-				exitText(record.ExitCode),
-			)
-		}
-		if record.State == runStateRunning && !time.Now().Before(deadline) {
-			return nil
-		}
-		if !time.Now().Before(hardDeadline) {
-			// The elapsed time, not the ceiling: the context may have cut
-			// the wait short, and reporting a budget that was never spent
-			// sends whoever reads this looking for the wrong thing.
-			return fmt.Errorf(
-				"omnara daemon on arker vm %s is still %s after %s",
-				vm.ID,
-				record.State,
-				time.Since(started).Round(time.Second),
-			)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(daemonPollInterval):
-		}
-	}
-}
-
-func exitText(code *int) string {
-	if code == nil {
-		return "none"
-	}
-	return strconv.Itoa(*code)
+	return nil
 }
 
 func (p *provider) InspectMachine(
@@ -415,42 +209,40 @@ func (p *provider) InspectMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) (string, bool, error) {
+	target, found, err := p.inspectVM(ctx, installationID, machineID, machineProvisioning, providerResourceID)
+	return target.ID, found, err
+}
+
+func (p *provider) inspectVM(
+	ctx context.Context,
+	installationID uuid.UUID,
+	machineID uuid.UUID,
+	machineProvisioning executionstore.MachineProvisioningConfig,
+	providerResourceID string,
+) (vm, bool, error) {
+	region, err := existingMachineRegion(machineProvisioning)
+	if err != nil {
+		return vm{}, false, err
+	}
 	expectedName, err := providers.MachineAllocationName(installationID, machineID)
 	if err != nil {
-		return "", false, err
+		return vm{}, false, err
 	}
-	// GET /v1/vms/{id} resolves a name as well as an id, so a machine whose id
-	// was never recorded is still reachable by the name it was allocated. The
-	// ownership check below rejects anything the name resolved to unexpectedly.
-	lookup := strings.TrimSpace(providerResourceID)
+	lookup := providerResourceID
 	if lookup == "" {
 		lookup = expectedName
 	}
-	client, err := p.clientForMachine(machineProvisioning)
-	if err != nil {
-		return "", false, err
+	target, found, err := p.apiFor(p.regionBaseURL(region)).GetVM(ctx, lookup)
+	if err != nil || !found {
+		return vm{}, false, err
 	}
-	vm, found, err := client.GetVM(ctx, lookup)
-	if err != nil {
-		return "", false, classifyError(err)
+	if target.Name != expectedName {
+		return vm{}, false, fmt.Errorf("%w: %s", errNotThisMachine, lookup)
 	}
-	if !found {
-		return "", false, nil
+	if target.ID == "" {
+		return vm{}, false, fmt.Errorf("arker vm %s is missing its id", lookup)
 	}
-	if vm.Info == nil || vm.Info.Name != expectedName {
-		return "", false, fmt.Errorf(
-			"arker vm %s does not belong to machine %q: %w",
-			lookup,
-			expectedName,
-			errNotThisMachine,
-		)
-	}
-	// Info.VMID, not vm.ID: Refresh does not rewrite the handle, so vm.ID is
-	// still the lookup — a name when the id was missing.
-	if vm.Info.VMID == "" {
-		return "", false, fmt.Errorf("arker vm %s returned no id", lookup)
-	}
-	return vm.Info.VMID, true, nil
+	return target, true, nil
 }
 
 func (p *provider) DeleteMachine(
@@ -460,75 +252,25 @@ func (p *provider) DeleteMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	providerResourceID string,
 ) error {
-	if strings.TrimSpace(providerResourceID) == "" {
+	if providerResourceID == "" {
 		return errors.New("provider resource id is required")
 	}
-	client, err := p.clientForMachine(machineProvisioning)
+	resourceID, found, err := p.InspectMachine(
+		ctx,
+		installationID,
+		machineID,
+		machineProvisioning,
+		providerResourceID,
+	)
+	if err == nil && !found {
+		resourceID, found, err = p.InspectMachine(ctx, installationID, machineID, machineProvisioning, "")
+	}
+	if err != nil || !found {
+		return err
+	}
+	region, err := existingMachineRegion(machineProvisioning)
 	if err != nil {
 		return err
 	}
-	if err := client.VM(providerResourceID).Delete(ctx); err != nil &&
-		!arkersdk.IsNotFound(err) {
-		return classifyError(err)
-	}
-	return nil
-}
-
-func (p *provider) WakeMachine(ctx context.Context, input providers.WakeMachineInput) error {
-	if strings.TrimSpace(input.ProviderResourceID) == "" {
-		return errors.New("provider resource id is required")
-	}
-	baseURL := strings.TrimSpace(input.SandboxURL)
-	if baseURL == "" {
-		baseURL = p.baseURL
-	}
-	client, err := p.clientFor(arkersdk.Options{BaseURL: baseURL})
-	if err != nil {
-		return err
-	}
-	wakeCtx, cancel := context.WithTimeout(ctx, wakeTimeout)
-	defer cancel()
-	if _, err := client.VM(input.ProviderResourceID).Run(wakeCtx, arkersdk.RunRequest{
-		Command:          "true",
-		SessionIdx:       arkersdk.Ptr(wakeSessionIdx),
-		TimeToBackground: arkersdk.Ptr(0),
-	}); err != nil {
-		return classifyError(err)
-	}
-	return nil
-}
-
-func (p *provider) clientForMachine(
-	machineProvisioning executionstore.MachineProvisioningConfig,
-) (*arkersdk.Client, error) {
-	options, err := parseProviderOptions(machineProvisioning.ProviderOptions)
-	if err != nil {
-		return nil, err
-	}
-	return p.client(options)
-}
-
-func classifyError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var apiErr *arkersdk.Error
-	if errors.As(err, &apiErr) {
-		if apiErr.StatusCode != http.StatusTooManyRequests &&
-			apiErr.StatusCode < http.StatusInternalServerError {
-			return err
-		}
-		err = fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
-		if apiErr.RetryAfter == nil {
-			return err
-		}
-		header := http.Header{}
-		header.Set("Retry-After", strconv.Itoa(int(math.Ceil(*apiErr.RetryAfter))))
-		return providers.WithRetryAfter(err, header)
-	}
-	var unknown *arkersdk.UnknownOutcomeError
-	if errors.As(err, &unknown) {
-		return fmt.Errorf("%w: %w", storeerr.ErrMachineProviderUnavailable, err)
-	}
-	return err
+	return p.apiFor(p.regionBaseURL(region)).DeleteVM(ctx, resourceID)
 }

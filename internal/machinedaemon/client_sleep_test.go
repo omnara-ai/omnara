@@ -30,14 +30,18 @@ func TestSleepPlatformSelection(t *testing.T) {
 	if err := platform.preventSleep(); err != nil {
 		t.Fatalf("noop prevent sleep: %v", err)
 	}
+	arker, err := newSleepPlatform(daemonprotocol.SleepPlatformArker)
+	if err != nil || arker != (controlFileSleepPlatform{controlPath: daemonprotocol.ArkerAwakeControlFilePath}) {
+		t.Fatalf("arker sleep platform = %#v, %v", arker, err)
+	}
 }
 
-func TestUnikraftSleepPlatformWritesCounter(t *testing.T) {
+func TestControlFileSleepPlatformWritesCounter(t *testing.T) {
 	controlPath := filepath.Join(t.TempDir(), "scale_to_zero_disable")
 	if err := os.WriteFile(controlPath, []byte("=1"), 0o600); err != nil {
 		t.Fatalf("seed control file: %v", err)
 	}
-	platform := unikraftSleepPlatform{controlPath: controlPath}
+	platform := controlFileSleepPlatform{controlPath: controlPath}
 	if err := platform.allowSleep(); err != nil {
 		t.Fatalf("allow sleep: %v", err)
 	}
@@ -51,7 +55,7 @@ func TestUnikraftSleepPlatformWritesCounter(t *testing.T) {
 		t.Fatalf("prevent sleep wrote %q, want =1", data)
 	}
 
-	missing := unikraftSleepPlatform{controlPath: filepath.Join(t.TempDir(), "missing", "control")}
+	missing := controlFileSleepPlatform{controlPath: filepath.Join(t.TempDir(), "missing", "control")}
 	if err := missing.preventSleep(); err == nil {
 		t.Fatal("missing control file must fail closed")
 	}

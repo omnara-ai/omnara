@@ -20,8 +20,8 @@ import (
 
 func TestDefaultCatalogProviders(t *testing.T) {
 	catalog := DefaultCatalog()
-	if len(catalog.definitions) != 6 {
-		t.Fatalf("default catalog providers = %d, want 6", len(catalog.definitions))
+	if len(catalog.definitions) != 7 {
+		t.Fatalf("default catalog providers = %d, want 7", len(catalog.definitions))
 	}
 	for _, test := range []struct {
 		name       string
@@ -126,7 +126,7 @@ func TestCatalogConfigurableMachineResources(t *testing.T) {
 		cpu, memory bool
 	}{
 		{"unikraft", true, true}, {"modal", true, true}, {"freestyle", true, true}, {"tenki", true, true},
-		{"blaxel", false, true}, {"daytona", false, false},
+		{"arker", true, true}, {"blaxel", false, true}, {"daytona", false, false},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
 			got, err := DefaultCatalog().ConfigurableMachineResources(test.provider)

@@ -17,8 +17,12 @@ func newSleepPlatform(name string) (sleepPlatform, error) {
 	case "":
 		return noopSleepPlatform{}, nil
 	case daemonprotocol.SleepPlatformUnikraft:
-		return unikraftSleepPlatform{
+		return controlFileSleepPlatform{
 			controlPath: daemonprotocol.UnikraftScaleToZeroControlFilePath,
+		}, nil
+	case daemonprotocol.SleepPlatformArker:
+		return controlFileSleepPlatform{
+			controlPath: daemonprotocol.ArkerAwakeControlFilePath,
 		}, nil
 	case daemonprotocol.SleepPlatformBlaxel:
 		return newBlaxelSleepPlatform()
@@ -32,16 +36,16 @@ type noopSleepPlatform struct{}
 func (noopSleepPlatform) allowSleep() error   { return nil }
 func (noopSleepPlatform) preventSleep() error { return nil }
 
-type unikraftSleepPlatform struct {
+type controlFileSleepPlatform struct {
 	controlPath string
 }
 
-func (p unikraftSleepPlatform) allowSleep() error   { return p.write("=0") }
-func (p unikraftSleepPlatform) preventSleep() error { return p.write("=1") }
+func (p controlFileSleepPlatform) allowSleep() error   { return p.write("=0") }
+func (p controlFileSleepPlatform) preventSleep() error { return p.write("=1") }
 
-func (p unikraftSleepPlatform) write(value string) error {
+func (p controlFileSleepPlatform) write(value string) error {
 	if err := os.WriteFile(p.controlPath, []byte(value), 0); err != nil {
-		return fmt.Errorf("write unikraft scale-to-zero control %s: %w", p.controlPath, err)
+		return fmt.Errorf("write sleep control file %s: %w", p.controlPath, err)
 	}
 	return nil
 }

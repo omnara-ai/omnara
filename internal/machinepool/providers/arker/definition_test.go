@@ -10,7 +10,7 @@ import (
 
 func TestArkerValidatePoolAcceptsAWellFormedPool(t *testing.T) {
 	err := Definition{}.ValidatePool(testPolicy(
-		json.RawMessage(`{"allowed_sources":["ubuntu-base"],"allowed_providers":["aws"],"allowed_regions":["us-west-2"]}`),
+		json.RawMessage(`{"allowed_sources":["ubuntu-base"],"allowed_regions":["aws-us-west-2"]}`),
 		testOptions(),
 	))
 	if err != nil {
@@ -28,69 +28,48 @@ func TestArkerValidatePoolRejectsADisallowedSource(t *testing.T) {
 	}
 }
 
-func TestArkerValidatePoolRejectsAPlacementThatIsNotADNSLabel(t *testing.T) {
-	for _, hostile := range []string{
-		"attacker.example.com/",
-		"attacker.example.com#",
-		"UPPER",
-		"has_underscore",
-	} {
+func TestArkerValidateMachineProvisioningRejectsADisallowedRegion(t *testing.T) {
+	options := testOptions()
+	options["region"] = json.RawMessage(`"gcp-us-central1"`)
+	err := Definition{}.ValidateMachineProvisioning(
+		testPolicy(json.RawMessage(`{}`), testOptions()),
+		testProvisioning(options),
+	)
+	if err == nil || !strings.Contains(err.Error(), "allowed_regions") {
+		t.Fatalf("disallowed region error = %v", err)
+	}
+}
+
+func TestArkerRequiresARegionThatIsADNSLabel(t *testing.T) {
+	for _, region := range []string{"", "attacker.example.com/", "attacker.example.com#", "UPPER", "has_underscore"} {
 		options := testOptions()
-		options["provider"] = json.RawMessage(`"` + hostile + `"`)
+		options["region"] = json.RawMessage(`"` + region + `"`)
 		if _, err := parseProviderOptions(options); err == nil {
-			t.Fatalf("provider %q was accepted and would be spliced into the api hostname", hostile)
+			t.Fatalf("region %q was accepted", region)
 		}
 	}
-	config := json.RawMessage(`{"allowed_providers":["attacker.example.com/"]}`)
-	if _, err := parseProviderConfig(config); err == nil {
-		t.Fatal("an allowlist entry that is not a DNS label was accepted")
-	}
-}
-
-func TestArkerProviderAndRegionMustBeSetTogether(t *testing.T) {
 	options := testOptions()
 	delete(options, "region")
-	if _, err := parseProviderOptions(options); err == nil ||
-		!strings.Contains(err.Error(), "together") {
-		t.Fatalf("provider without region error = %v", err)
-	}
-}
-
-func TestArkerValidatePoolRejectsBothBaseURLAndPlacement(t *testing.T) {
-	err := Definition{}.ValidatePool(testPolicy(
-		json.RawMessage(`{"base_url":"https://aws-us-west-2.arker.ai/api"}`),
-		testOptions(),
-	))
-	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Fatalf("base_url with placement error = %v", err)
-	}
-}
-
-func TestArkerValidatePoolRequiresAPlacement(t *testing.T) {
-	options := testOptions()
-	delete(options, "provider")
-	delete(options, "region")
-	err := Definition{}.ValidatePool(testPolicy(json.RawMessage(`{}`), options))
-	if err == nil || !strings.Contains(err.Error(), "placement") {
-		t.Fatalf("missing placement error = %v", err)
-	}
-}
-
-func TestArkerRejectsUnknownProviderOptions(t *testing.T) {
-	options := testOptions()
-	options["surprise"] = json.RawMessage(`"value"`)
 	if _, err := parseProviderOptions(options); err == nil {
-		t.Fatal("an unknown provider option must be rejected, not ignored")
+		t.Fatal("a missing region was accepted")
 	}
-	if _, err := parseProviderConfig(json.RawMessage(`{"surprise":true}`)); err == nil {
-		t.Fatal("an unknown provider config key must be rejected, not ignored")
+}
+
+func TestArkerRejectsUnknownProviderOptionsAndConfig(t *testing.T) {
+	options := testOptions()
+	options["provider"] = json.RawMessage(`"aws"`)
+	if _, err := parseProviderOptions(options); err == nil {
+		t.Fatal("an unknown provider option must be rejected")
+	}
+	if _, err := parseProviderConfig(json.RawMessage(`{"base_url":"https://arker.example/api"}`)); err == nil {
+		t.Fatal("an unknown provider config key must be rejected")
 	}
 }
 
 func TestArkerProviderConfigRejectsPlainHTTP(t *testing.T) {
-	_, err := parseProviderConfig(json.RawMessage(`{"base_url":"http://arker.example/api"}`))
+	_, err := parseProviderConfig(json.RawMessage(`{"api_base_url":"http://arker.example/api"}`))
 	if err == nil || !strings.Contains(err.Error(), "https") {
-		t.Fatalf("plain http base_url error = %v", err)
+		t.Fatalf("plain http api_base_url error = %v", err)
 	}
 }
 
@@ -113,26 +92,5 @@ func TestArkerNewProviderRequiresAnAuthToken(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "auth token") {
 		t.Fatalf("missing auth token error = %v", err)
-	}
-}
-
-func TestArkerClientRequiresAPlacement(t *testing.T) {
-	machineProvider, err := Definition{}.NewProvider(
-		json.RawMessage(`{}`),
-		providers.RuntimeConfig{
-			OmnaraAPIURL:      "https://omnara.example",
-			ProviderAuthToken: "ark_test",
-		},
-	)
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-	concrete, ok := machineProvider.(*provider)
-	if !ok {
-		t.Fatalf("provider has an unexpected implementation %T", machineProvider)
-	}
-	if _, err := concrete.client(providerOptions{}); err == nil ||
-		!strings.Contains(err.Error(), "placement") {
-		t.Fatalf("missing placement error = %v", err)
 	}
 }
