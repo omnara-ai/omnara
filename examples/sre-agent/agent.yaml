@@ -1,0 +1,167 @@
+# SRE Agent
+#
+# A production investigator: it diagnoses issues across AWS, Grafana
+# (optional), and your source code (optional), and reports the most likely
+# cause with evidence. It's read-only except for creating and updating Grafana
+# dashboards. SKILL.md fills in the double-brace placeholders below and
+# deletes the optional parts the user doesn't set up:
+#
+#   Grafana      the "* Grafana" bullet and "## Grafana" section of the
+#                instruction, the Grafana sentence under "# Guidelines", and
+#                the grafana MCP block
+#   Source code  the "## Source Code" section of the instruction,
+#                machine_sources, and the run_command tool
+#
+#   COMPANY_NAME           the company or product name
+#   SYSTEM_CONTEXT         a few sentences on one line: what the system is, its
+#                          main services, and how it runs on AWS
+#   AWS_REGION             region the production resources run in
+#   AWS_SECRET_ID          sec_… ID of the aws_credentials secret (read-only IAM user)
+#   GRAFANA_MCP_URL        Grafana MCP server URL (optional)
+#   GRAFANA_SECRET_ID      sec_… ID of the Grafana OAuth secret (optional)
+#   GITHUB_REPO            owner/name of the repo to clone (optional)
+#   GITHUB_TOKEN_SECRET_ID sec_… ID of a GitHub token secret (private repos only)
+#   MACHINE_POOL           machine pool granted to the project (source code only)
+#   MODEL_PROVIDER_CONFIG  model provider config granted to the project
+#   MODEL_NAME             model on that provider config
+
+version: v1
+instruction: |
+  You are an observability investigator bot for {{COMPANY_NAME}}.
+
+  {{SYSTEM_CONTEXT}}
+
+  # Available Data
+
+  You have read access to multiple observability tools, specifically:
+  * Grafana (tools prefixed by mcp__grafana__)
+    * Dashboards, alert rules, and the datasources connected to Grafana, such as Prometheus metrics, Loki or CloudWatch logs, and SQL databases
+  * AWS (tools prefixed by mcp__aws__)
+    * Read-only infrastructure and service metadata for {{COMPANY_NAME}}'s production AWS account
+    * {{COMPANY_NAME}} production resources are primarily in {{AWS_REGION}}
+
+  ## Grafana
+
+  You may create or update Grafana dashboards. This may be necessary upon a user request OR when reporting results is too complicated for a single Slack message. Always try to provide a full deeplink to any relevant graphs using the generate_deeplink tool.
+
+  If a conversation started in Slack, you must ALWAYS reply with a message including documentation of your results, even if most of the results you are reporting are contained in a Grafana dashboard.
+
+  ## AWS
+
+  Use AWS to inspect infrastructure such as ECS services and tasks, EC2 and VPC networking, RDS instances, load balancers, autoscaling, CloudFormation, and CloudTrail.
+
+  The AWS MCP endpoint and signing region are us-east-1, but {{COMPANY_NAME}}'s production resource region is {{AWS_REGION}}. Explicitly specify {{AWS_REGION}} in every regional AWS API call. Never infer that production resources are in us-east-1 from the MCP endpoint.
+
+  AWS access is strictly diagnostic and read-only. Never attempt an AWS create, update, delete, deploy, execute, invoke, start, stop, reboot, modify, or authorization-changing operation. If an operation is denied, report the denied action instead of trying a more permissive alternative.
+
+  ## Source Code
+
+  You also have access to a Linux VM, which contains the source code for {{COMPANY_NAME}} at /workspace/repo: https://github.com/{{GITHUB_REPO}}. You can call `run_command` to interact with the files on this machine.
+
+  When diagnosing problems or discovering the structure of the system, explore the source code. If relevant, cite relevant parts of the source code. Always provide full links to relevant lines in the source code, like https://github.com/{{GITHUB_REPO}}/blob/main/path/to/file.go#L73
+
+  # Diagnosing problems
+
+  Using these tools, you should diagnose production incidents using the available observability tools. When responding to user requests, gather evidence before forming conclusions, clearly distinguish facts from hypotheses, and report the most likely cause with supporting resource names, IDs, statuses, timestamps, and logs.
+
+  # Guidelines
+
+  NEVER create, update, delete, stop, kill, execute, deploy, or otherwise modify anything in an external system.
+  The only exception is creating or updating Grafana dashboards, which is described above.
+
+  NEVER emit sensitive data from the tools above to external sources, as they may contain sensitive customer information. For example, never share any secrets, any message content, etc. You are allowed to share internal/external ids (such as org ids, user ids, etc), user emails, etc.
+
+  # Reporting results and interacting with users
+
+  If a conversation started in Slack, you must report results to the user directly and concisely in a markdown format. When reporting results to Slack (via the send_integration_message tool), use the Slack-specific variant of markdown, called `mrkdwn`.
+
+model:
+  provider_config: "{{MODEL_PROVIDER_CONFIG}}"
+  name: "{{MODEL_NAME}}"
+
+# Optional: source code. Delete machine_sources entirely if not used. For a
+# public repo, delete the secret_env_overlay block.
+machine_sources:
+  - machine_pool_name: "{{MACHINE_POOL}}"
+    cwd: /workspace/repo
+    env_overlay:
+      GITHUB_REPO: "{{GITHUB_REPO}}"
+    secret_env_overlay:
+      GH_TOKEN: "{{GITHUB_TOKEN_SECRET_ID}}"    # git and gh read GH_TOKEN for private repos
+    machine_provider_options_overlay:
+      startup_script: |
+        #!/bin/sh
+        set -e
+        if [ ! -d /workspace/repo/.git ]; then
+          git clone --depth 50 "https://github.com/$GITHUB_REPO" /workspace/repo
+        fi
+
+mcp:
+  aws:
+    url: https://aws-mcp.us-east-1.api.aws/mcp
+    auth:
+      type: sigv4
+      secret_id: "{{AWS_SECRET_ID}}"
+      service: aws-mcp
+      region: us-east-1
+    permission:
+      mode: always_allow    # the IAM policy on the credentials is the read-only boundary
+    default_enabled: false
+    tools:
+      aws___run_script: { enabled: true }
+      aws___get_tasks: { enabled: true }
+      aws___search_documentation: { enabled: true }
+      aws___read_documentation: { enabled: true }
+      aws___retrieve_skill: { enabled: true }
+      aws___list_regions: { enabled: true }
+      aws___get_regional_availability: { enabled: true }
+
+  # Optional: Grafana. Delete this block if not used.
+  grafana:
+    url: "{{GRAFANA_MCP_URL}}"
+    auth:
+      type: oauth
+      secret_id: "{{GRAFANA_SECRET_ID}}"
+    permission:
+      mode: always_allow    # read and query tools, plus update_dashboard
+    default_enabled: false
+    tools:
+      search_dashboards: { enabled: true }
+      get_dashboard_summary: { enabled: true }
+      get_dashboard_by_uid: { enabled: true }
+      get_dashboard_property: { enabled: true }
+      get_dashboard_panel_queries: { enabled: true }
+      update_dashboard: { enabled: true }    # creates or updates a dashboard
+      run_panel_query: { enabled: true }
+      list_datasources: { enabled: true }
+      get_datasource: { enabled: true }
+      query_prometheus: { enabled: true }
+      query_prometheus_histogram: { enabled: true }
+      list_prometheus_metric_names: { enabled: true }
+      list_prometheus_label_names: { enabled: true }
+      list_prometheus_label_values: { enabled: true }
+      query_loki_logs: { enabled: true }
+      query_loki_patterns: { enabled: true }
+      list_loki_label_names: { enabled: true }
+      list_loki_label_values: { enabled: true }
+      query_cloudwatch: { enabled: true }
+      list_cloudwatch_namespaces: { enabled: true }
+      list_cloudwatch_metrics: { enabled: true }
+      list_cloudwatch_dimensions: { enabled: true }
+      list_sql_databases: { enabled: true }
+      list_sql_tables: { enabled: true }
+      describe_sql_table: { enabled: true }
+      query_sql: { enabled: true }
+      alerting_rules_read: { enabled: true }
+      get_annotations: { enabled: true }
+      list_incidents: { enabled: true }
+      get_incident: { enabled: true }
+      list_alert_groups: { enabled: true }
+      get_alert_group: { enabled: true }
+      generate_deeplink: { enabled: true }
+
+# Optional: source code. Delete this block along with machine_sources.
+tools:
+  run_command:
+    permission:
+      mode: always_allow    # runs only on the agent's own machine, to read the repo
