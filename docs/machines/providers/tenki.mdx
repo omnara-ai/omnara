@@ -1,0 +1,55 @@
+---
+title: Tenki
+description: Full Linux computers for your AI agents, running in under a second
+icon: "/logo/providers/tenki.png"
+---
+
+[Tenki Sandbox](https://tenki.cloud/products/sandbox) gives your AI agents full Linux computers: hardware-isolated Ubuntu 24.04 VMs, each with its own kernel. Connect your Tenki workspace with a custom pool.
+
+## Why Tenki
+
+- **A real Linux computer.** Each machine runs systemd, and agents get passwordless `sudo`, so they can install Docker or any other package they need.
+- **Start with your tools installed.** Tenki's base image comes with Claude Code, Codex, and opencode, plus Python, Node.js, Bun, `git`, `gh`, and build tools. Or define your environment once in a [Tenki template](https://tenki.cloud/docs/sandbox/templates) and launch from it every time.
+- **Your custom image, running in under a second.** Each machine's disk mounts straight from Tenki's storage cluster, so nothing is copied before boot.
+- **Owned end to end.** Tenki runs its own compute, storage, switches, power, and uplink, so it controls the whole path from request to running machine.
+- **Long-running agents.** Tenki keeps each machine running, with no time limit, until Omnara deletes it.
+
+## Set up a Tenki pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Tenki dashboard](https://app.tenki.cloud), open **Tenki Sandbox**, go to **API Keys**, and click **Create API Key**. The key selects the workspace.
+
+    Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose an image">
+    Leave the image empty to use Tenki's Ubuntu base image with a 20 GB disk.
+
+    For your own tools, build a [Tenki template](https://tenki.cloud/docs/sandbox/templates) with the Tenki CLI and use the image reference it prints, such as `acme/agent-box:v1`. Leave `runtime` out of the template, since Omnara supplies its own start command. Custom images keep the template's disk size unless the pool sets `disk_size_gb`.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Tenki**. Enter the credential, image (or leave it empty), CPU and memory, and capacity limits.
+
+    Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the startup script. The environment and startup script together must stay under about 128 KB.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard can't set the disk size, so set `disk_size_gb` through the API.
+  </Step>
+</Steps>
+
+## Configuration reference
+
+`provider_config`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `allowed_images` | No | [Allowlist](/machines/providers/overview#allowlists) for `image`. |
+
+`default_machine_provider_options`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `image` | No | Tenki image reference. Omit to use Tenki's base image. |
+| `disk_size_gb` | No | Disk size from 5 to 100 GB. Defaults to 20 for the base image and to the template's size for custom images. |
+| `startup_script` | No | Shell script that runs on each new machine before the daemon starts. |
+
+Pools require CPU and memory defaults and maximums. Memory must be a multiple of 2 MB.

@@ -1,0 +1,57 @@
+---
+title: Unikraft Cloud
+description: The millisecond compute layer, with VM-grade isolation and scale to zero
+icon: "/logo/providers/unikraft.png"
+---
+
+[Unikraft Cloud](https://unikraft.com) is the millisecond compute layer for sandboxes and AI agents, with VM-grade isolation and scale to zero. Connect your Unikraft Cloud account with a custom pool.
+
+## Why Unikraft Cloud
+
+- **Scale to zero in milliseconds.** Agents often wait on a model, a tool, or a person. With [sleep](/machines/providers/overview#sleep-when-idle) on, Unikraft Cloud snapshots an idle machine, scales it to zero in under 10 ms, and resumes it in milliseconds with its memory, files, and running processes intact.
+- **The security of VMs, the tools you love.** Each machine is its own hardware-isolated microVM, and you define it with a Dockerfile, just like a container.
+- **Built for scale.** Unikraft Cloud packs up to 100,000 instances onto a single server and handles millions of microVMs, so it keeps up with fleets of agents.
+- **Your cloud, your way.** Unikraft's enterprise plan deploys Unikraft Cloud on-premises, in your own cloud account, or on dedicated hosts. Point a pool at your deployment with `api_base_url`.
+
+## Set up a Unikraft pool
+
+<Steps>
+  <Step title="Create an API token">
+    Sign up for [Unikraft Cloud](https://console.unikraft.cloud) and create an API token in the console. The token has full access to your account. Store it as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Build an image">
+    Start from the Omnara repository's [example image](https://github.com/omnara-ai/omnara/tree/main/examples/unikraft-machine), which packages the daemon. Building it needs Go, Docker, and the [Unikraft CLI](https://unikraft.com/docs/cli), signed in with `unikraft login`.
+
+    Add your agents' tools to the example's `Dockerfile` rather than a startup script, since startup scripts have limited space on Unikraft. Then build and push the image from the repository root with your image name and an `omnarad` release version:
+
+    ```bash
+    ./examples/unikraft-machine/build.sh acme/omnara-machine:v1 0.1.0
+    ```
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Unikraft**. Enter the credential, image, metro, CPU and memory, and capacity limits. Files that agents write are kept in memory, so size memory to fit their repositories and dependencies.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+  </Step>
+</Steps>
+
+## Configuration reference
+
+`provider_config`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `api_base_url` | No | HTTPS base URL of a custom Unikraft Cloud API, without a path. It replaces the per-metro API for every metro in the pool. |
+| `allowed_images` | No | [Allowlist](/machines/providers/overview#allowlists) for `image`. |
+| `allowed_metros` | No | [Allowlist](/machines/providers/overview#allowlists) for `metro`. |
+
+`default_machine_provider_options`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `image` | Yes | Image in Unikraft's registry, such as `acme/omnara-machine:v1`. |
+| `metro` | Yes | `fra`, `sfo`, `dal`, `was`, or `sin`. |
+| `startup_script` | No | Short shell script that runs on each new machine before the daemon starts. |
+| `sleep_after_ms` | No | How long a machine must be idle before it [sleeps](/machines/providers/overview#sleep-when-idle). |
+
+Pools require CPU and memory defaults and maximums.

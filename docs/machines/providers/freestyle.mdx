@@ -1,0 +1,60 @@
+---
+title: Freestyle
+description: Full Linux VMs for AI agents, ready in about 65 ms
+icon: "/logo/providers/freestyle.svg"
+---
+
+[Freestyle](https://www.freestyle.sh) gives agents real VMs: full Linux machines built for complex tasks that run for hours, days, or weeks. Each machine is an Ubuntu 24.04 VM with its own kernel. Connect your Freestyle account with a custom pool.
+
+## Why Freestyle
+
+- **Instant startup.** A full Linux machine, ready in about 65 ms.
+- **Pause with your state intact.** With [sleep](/machines/providers/overview#sleep-when-idle) on, Freestyle pauses idle VMs and resumes them exactly where they left off, memory and running processes included.
+- **Power for your hardest workloads.** Every VM runs a full Linux kernel with FUSE and eBPF, plus systemd, and nested virtualization runs Docker and even other VMs inside it. Freestyle's Ubuntu snapshots come with Node.js, Python, Claude Code, Codex, and common developer tools preinstalled.
+- **Machines that start ready.** Snapshot an entire machine, memory and running processes included, and every new machine boots from that state.
+- **One machine for the whole job.** Freestyle sets no default limit on how long a VM runs, so files, packages, and build caches stay on the machine from one turn to the next.
+
+## Set up a Freestyle pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Freestyle dashboard](https://dash.freestyle.sh), open **API tokens** and create a key, or run `npx freestyle@latest tokens create omnara`. Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose or build a snapshot">
+    Freestyle's `freestyle/ubuntu-sm` (2 vCPU, 4 GiB, 16 GB disk) and `freestyle/ubuntu` (4 vCPU, 8 GiB, 32 GB disk) work as is. To add your own tools, build a snapshot from an Ubuntu base snapshot with a setup script:
+
+    ```bash
+    npx freestyle@latest snapshot create --base freestyle/ubuntu-sm --script ./setup.sh --slug my-agent-box
+    ```
+
+    - Machines start at the snapshot's size, and Omnara grows CPU and memory to the requested size. The disk keeps the snapshot's size.
+    - Don't snapshot a VM that has run the Omnara daemon. Machines created from it keep the old machine's identity and credentials and never come online.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Freestyle**. Enter the credential, snapshot, CPU and memory, and capacity limits. Set the minimum CPU and memory to the snapshot's size, so agents can't request a machine smaller than the snapshot.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields in the [configuration reference](#configuration-reference). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+
+    The daemon runs as a systemd service and comes back on its own after a reboot, and the startup script runs again whenever the service starts, so make it safe to rerun.
+
+    For a self-hosted Omnara deployment, `OMNARA_PUBLIC_API_URL` must be reachable from the public internet, because Omnara only lets Freestyle machines reach public addresses.
+  </Step>
+</Steps>
+
+## Configuration reference
+
+`provider_config`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `allowed_snapshots` | No | [Allowlist](/machines/providers/overview#allowlists) for `snapshot`. |
+
+`default_machine_provider_options`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `snapshot` | Yes | Snapshot ID, your snapshot's slug, or a public snapshot such as `freestyle/ubuntu-sm`. |
+| `startup_script` | No | Shell script that runs before the daemon starts, including after a reboot. |
+| `sleep_after_ms` | No | How long a machine must be idle before it [sleeps](/machines/providers/overview#sleep-when-idle). |
+
+Pools require CPU and memory defaults and maximums.
