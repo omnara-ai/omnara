@@ -4,6 +4,7 @@ import type { ComponentType, ReactNode } from 'react'
 import {
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -21,11 +22,24 @@ export interface NavItem {
   emphasized?: boolean
 }
 
-export function NavSection({ items, children }: { items: NavItem[]; children?: ReactNode }) {
+export function NavSection({
+  label,
+  items,
+  children,
+}: {
+  label?: string
+  items: NavItem[]
+  children?: ReactNode
+}) {
   return (
-    <SidebarGroup>
+    <SidebarGroup className="px-2 py-1">
+      {label && (
+        <SidebarGroupLabel className="text-sidebar-foreground/55 h-8 px-2.5 text-sm font-normal">
+          {label}
+        </SidebarGroupLabel>
+      )}
       <SidebarGroupContent>
-        <SidebarMenu>
+        <SidebarMenu className="gap-1">
           {items.map((item) => (
             <SidebarMenuItem key={item.id}>
               <SidebarMenuButton

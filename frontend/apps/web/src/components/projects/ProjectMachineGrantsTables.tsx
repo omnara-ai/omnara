@@ -91,6 +91,7 @@ export function ProjectMachineGrantsTables({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Shared machine pools"
+          description="List of machine pools accessible to agents in your current project"
           guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
@@ -227,6 +228,7 @@ export function ProjectMachineGrantsTables({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Shared machines"
+          description="List of machines accessible to agents in your current project"
           guide={guides.machines}
           toolbar={
             <ResourceListToolbar

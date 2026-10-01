@@ -24,7 +24,7 @@ export function PendingInvitationsNav() {
   return (
     <SidebarGroup className="pb-0">
       <SidebarGroupContent>
-        <SidebarMenu>
+        <SidebarMenu className="gap-1">
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === '/invitations'}>
               <Link to="/invitations" aria-label={`Pending invitations, ${pendingCountLabel}`}>

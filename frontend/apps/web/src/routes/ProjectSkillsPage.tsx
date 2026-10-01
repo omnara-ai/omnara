@@ -1,8 +1,9 @@
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 
 import { SkillsSection } from '@/components/overview/SkillsSection'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { ProjectSkillGrantsTable } from '@/components/projects/ProjectSkillGrantsTable'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function ProjectSkillsPage() {
@@ -11,6 +12,20 @@ export function ProjectSkillsPage() {
     select: (search) => search.tab ?? 'project',
   })
   const navigate = useNavigate({ from: '/projects/$projectId/skills' })
+
+  const sourceTabs = (
+    <>
+      <Button asChild size="sm" variant="ghost">
+        <Link to="/skills" search={{ owner: 'organization' }}>
+          Organization skills
+        </Link>
+      </Button>
+      <TabsList aria-label="Skill source">
+        <TabsTrigger value="project">Project</TabsTrigger>
+        <TabsTrigger value="shared">Shared</TabsTrigger>
+      </TabsList>
+    </>
+  )
 
   return (
     <ProjectPageFrame title="Skills">
@@ -22,12 +37,9 @@ export function ProjectSkillsPage() {
           }}
           className="gap-6"
         >
-          <TabsList aria-label="Skill source">
-            <TabsTrigger value="project">Project</TabsTrigger>
-            <TabsTrigger value="shared">Shared</TabsTrigger>
-          </TabsList>
           <TabsContent value="project">
             <SkillsSection
+              actions={sourceTabs}
               owner={{ kind: 'project', project_id: projectId }}
               canRead={project?.access.can_read ?? false}
               canManage={project?.access.can_manage ?? false}
@@ -36,14 +48,18 @@ export function ProjectSkillsPage() {
           <TabsContent value="shared">
             {project?.access.can_manage_access ? (
               <ProjectSkillGrantsTable
+                actions={sourceTabs}
                 orgId={activeOrg.id}
                 projectId={projectId}
                 projectName={project.name}
               />
             ) : (
-              <p className="text-muted-foreground text-sm">
-                You don&rsquo;t have permission to view shared skills in this project.
-              </p>
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-end">{sourceTabs}</div>
+                <p className="text-muted-foreground text-sm">
+                  You don&rsquo;t have permission to view shared skills in this project.
+                </p>
+              </div>
             )}
           </TabsContent>
         </Tabs>

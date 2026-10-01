@@ -11,6 +11,13 @@ export function SecretsPage() {
   })
   const owner = ownerParam === 'organization' ? 'organization' : 'user'
 
+  const ownerTabs = (
+    <TabsList aria-label="Secret owner">
+      <TabsTrigger value="user">User</TabsTrigger>
+      <TabsTrigger value="organization">Organization</TabsTrigger>
+    </TabsList>
+  )
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <PageBreadcrumb items={[{ id: 'secrets', label: 'Secrets' }]} />
@@ -23,15 +30,11 @@ export function SecretsPage() {
         }}
         className="gap-6"
       >
-        <TabsList aria-label="Secret owner">
-          <TabsTrigger value="user">User</TabsTrigger>
-          <TabsTrigger value="organization">Organization</TabsTrigger>
-        </TabsList>
         <TabsContent value="user">
-          <SecretsSection owner={{ kind: 'user' }} />
+          <SecretsSection owner={{ kind: 'user' }} actions={ownerTabs} />
         </TabsContent>
         <TabsContent value="organization">
-          <SecretsSection />
+          <SecretsSection actions={ownerTabs} />
         </TabsContent>
       </Tabs>
     </div>

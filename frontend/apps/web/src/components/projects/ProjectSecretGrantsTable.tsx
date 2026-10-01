@@ -1,6 +1,7 @@
 import { type ProjectAvailableSecretListSort, useProjectAvailableSecrets } from '@omnara/react'
 import type { ProjectSecretAccess } from '@omnara/sdk'
 import { Link } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
@@ -30,10 +31,13 @@ export function ProjectSecretGrantsTable({
   orgId,
   projectId,
   projectName,
+  actions,
 }: {
   orgId: string
   projectId: string
   projectName: string
+  /** Header controls, e.g. tabs. */
+  actions?: ReactNode
 }) {
   const list = useResourceList<ProjectAvailableSecretListSort>('-updated_at')
   const query = useProjectAvailableSecrets(orgId, projectId, {
@@ -47,6 +51,7 @@ export function ProjectSecretGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Shared secrets"
+        description="List of secrets accessible to agents in your current project"
         guide={guides.secrets}
         toolbar={
           <ResourceListToolbar
@@ -57,7 +62,9 @@ export function ProjectSecretGrantsTable({
             showSearch={showToolbar}
           />
         }
-      />
+      >
+        {actions}
+      </SearchHeader>
       <DataTable
         columns={[
           {

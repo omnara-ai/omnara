@@ -55,6 +55,7 @@ export function MachinesSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machines"
+          description="Manage or connect to a single machine instance"
           guide={guides.machines}
           toolbar={
             <ResourceListToolbar

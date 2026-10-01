@@ -2,7 +2,6 @@ import type { ModelUsageTotals, UsageReport as UsageReportData, UsageTotals } fr
 import type { UseQueryResult } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -14,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ReportedCost } from '@/components/usage/ReportedCost'
+import { type UsageStat, UsageStats, UsageStatsSkeleton } from '@/components/usage/UsageStats'
 import { formatCount } from '@/lib/format'
 import { errorMessage } from '@/lib/submit-status'
 
@@ -33,11 +33,8 @@ export function UsageReportView({
   if (query.isPending) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }, (_, index) => (
-            <Skeleton key={index} className="h-20" />
-          ))}
-        </div>
+        <Skeleton className="h-56 sm:h-72" />
+        <UsageStatsSkeleton />
         <Skeleton className="h-40" />
       </div>
     )
@@ -62,15 +59,15 @@ export function UsageReportView({
   }
   return (
     <div className="flex flex-col gap-6">
-      <UsageSummaryCards totals={report.totals} />
       {chart}
+      <UsageStats stats={usageSummaryStats(report.totals)} />
       <UsageByModelTable rows={report.by_model} />
     </div>
   )
 }
 
-function UsageSummaryCards({ totals }: { totals: UsageTotals }) {
-  const cards: { label: string; value: ReactNode }[] = [
+function usageSummaryStats(totals: UsageTotals): UsageStat[] {
+  return [
     {
       label: 'Provider-reported cost',
       value: <ReportedCost modelCalls={totals.model_calls} cost={totals.cost} />,
@@ -79,22 +76,6 @@ function UsageSummaryCards({ totals }: { totals: UsageTotals }) {
     { label: 'Output tokens', value: formatCount(totals.tokens.output_tokens_total) },
     { label: 'Model calls', value: formatCount(totals.model_calls) },
   ]
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {cards.map((card) => (
-        <Card key={card.label} className="gap-2 py-4">
-          <CardHeader className="px-4">
-            <CardTitle className="text-muted-foreground text-xs font-medium">
-              {card.label}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 text-2xl font-semibold tabular-nums">
-            {card.value}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  )
 }
 
 function UsageByModelTable({ rows }: { rows: ModelUsageTotals[] }) {

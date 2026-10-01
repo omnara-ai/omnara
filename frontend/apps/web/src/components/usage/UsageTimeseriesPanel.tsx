@@ -12,6 +12,7 @@ import {
   usageMeasureMetrics,
 } from '@/components/usage/usage-chart-data'
 import { UsageChart } from '@/components/usage/UsageChart'
+import { UsageStatsSkeleton } from '@/components/usage/UsageStats'
 import { errorMessage } from '@/lib/submit-status'
 
 export type UsageTimeseriesScope = Omit<
@@ -53,9 +54,9 @@ export function UsageTimeseriesPanel({
 
   if (query.isPending) {
     return (
-      <div className="flex flex-col gap-6">
-        {summary && <Skeleton className="h-9 w-2/3" />}
+      <div className="flex flex-col gap-4">
         <Skeleton className="h-56 sm:h-72" />
+        {summary && <UsageStatsSkeleton />}
       </div>
     )
   }
@@ -69,8 +70,7 @@ export function UsageTimeseriesPanel({
   const timeseries = query.data
   const measureLabel = measures.find((option) => option.value === measure)?.label ?? measure
   return (
-    <div className="flex flex-col gap-6">
-      {summary?.(timeseries)}
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4">
         {showControls && (
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -93,6 +93,7 @@ export function UsageTimeseriesPanel({
           label={`${measureLabel} per ${timeseries.interval} by ${breakdown}`}
         />
       </div>
+      {summary?.(timeseries)}
     </div>
   )
 }

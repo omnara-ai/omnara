@@ -49,6 +49,7 @@ export function ProjectModelGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Shared models"
+        description="List of models accessible to your current project"
         guide={guides.modelProviders}
         toolbar={
           <ResourceListToolbar
@@ -61,7 +62,14 @@ export function ProjectModelGrantsTable({
         }
       >
         <Button asChild size="sm" variant="ghost">
-          <Link to="/models">Organization models</Link>
+          <Link to="/models" hash="model-providers">
+            Model providers
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant="ghost">
+          <Link to="/models" hash="configured-models">
+            Organization models
+          </Link>
         </Button>
         <GrantModelButton />
       </SearchHeader>
