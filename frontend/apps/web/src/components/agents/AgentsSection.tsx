@@ -109,7 +109,7 @@ export function OrgAgentsSection({
   const controls = useAgentListControls()
   const query = useOrgAgents(orgId, { filters: controls.filters, sort: controls.list.sort })
   const paged = usePagedQuery(query, controls.resetKey)
-  const projects = useProjectDirectory(orgId)
+  const { projects } = useProjectDirectory(orgId)
   return (
     <AgentList
       orgId={orgId}

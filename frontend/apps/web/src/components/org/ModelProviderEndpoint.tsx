@@ -18,15 +18,13 @@ import {
   bedrockAuthOption,
   bedrockAuthOptions,
   type CreateModelProviderFormValues,
-  modelProviderOption,
 } from './CreateModelProviderDialogState'
 
 type EndpointChange = (patch: Partial<CreateModelProviderFormValues>) => void
 
 /**
- * Endpoint settings shown under Advanced. Presets show the endpoint they configure, with a
- * way to start a custom endpoint from it; Bedrock shows its region, API, and auth.
- * A custom endpoint's required fields live in the main form instead.
+ * Endpoint settings shown under Advanced: Bedrock's region, API, and auth, or the base URL
+ * and API format for every other provider, prefilled with the provider's own endpoint.
  */
 export function ModelProviderEndpointSettings({
   values,
@@ -35,30 +33,10 @@ export function ModelProviderEndpointSettings({
   values: CreateModelProviderFormValues
   onChange: EndpointChange
 }) {
-  if (values.provider === 'custom') return null
-  if (values.provider === 'bedrock')
+  if (values.provider === 'bedrock') {
     return <BedrockProviderFields values={values} onChange={onChange} />
-  const preset = modelProviderOption(values.provider).endpoint
-  if (!preset) return null
-  return (
-    <Field>
-      <FieldLabel>Endpoint</FieldLabel>
-      <div className="bg-muted/40 flex min-h-10 items-center gap-3 rounded-md border py-1.5 pl-3 pr-1.5">
-        <span className="min-w-0 flex-1 truncate font-mono text-xs">
-          {preset.baseUrl} · {preset.apiFormat}
-        </span>
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 shrink-0 rounded-md px-2.5 py-1 text-sm outline-none focus-visible:ring-2"
-          onClick={() => {
-            onChange({ provider: 'custom', baseUrl: preset.baseUrl, apiFormat: preset.apiFormat })
-          }}
-        >
-          Use a custom endpoint
-        </button>
-      </div>
-    </Field>
-  )
+  }
+  return <CustomProviderFields values={values} onChange={onChange} />
 }
 
 function BedrockProviderFields({
@@ -146,7 +124,7 @@ function BedrockProviderFields({
   )
 }
 
-export function CustomProviderFields({
+function CustomProviderFields({
   values,
   onChange,
 }: {

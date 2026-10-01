@@ -16,31 +16,7 @@ import {
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useActiveOrg } from '@/lib/use-active-org'
 
-const scopedSections = ['agents', 'usage', 'models', 'machines', 'secrets', 'skills'] as const
-type ScopedSection = (typeof scopedSections)[number]
-
-const projectPaths = {
-  agents: '/projects/$projectId/agents',
-  usage: '/projects/$projectId/usage',
-  models: '/projects/$projectId/models',
-  machines: '/projects/$projectId/machines',
-  secrets: '/projects/$projectId/secrets',
-  skills: '/projects/$projectId/skills',
-} as const satisfies Record<ScopedSection, string>
-
-const organizationPaths = {
-  agents: '/agents',
-  usage: '/usage',
-  models: '/models',
-  machines: '/machines',
-  secrets: '/secrets',
-  skills: '/skills',
-} as const satisfies Record<ScopedSection, string>
-
-function currentSection(pathname: string) {
-  const segment = pathname.replace(/^\/projects\/[^/]+/, '').split('/')[1]
-  return scopedSections.find((section) => section === segment)
-}
+import { currentSection, organizationPaths, projectPaths } from './scoped-sections'
 
 export function ProjectSwitcher() {
   const { activeOrg } = useActiveOrg()

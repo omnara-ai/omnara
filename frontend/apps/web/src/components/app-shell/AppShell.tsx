@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <SidebarHeader className="h-12 shrink-0 justify-center border-b py-0">
           <OrgSwitcher />
         </SidebarHeader>
-        <SidebarContent>
+        <SidebarContent className="pt-2">
           <PendingInvitationsNav />
           <ScopedNav />
         </SidebarContent>
@@ -90,7 +90,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div ref={setBreadcrumbSlot} className="flex min-w-0 justify-end md:justify-center" />
         </header>
         <BreadcrumbSlotContext value={breadcrumbSlot}>
-          <div className="relative min-h-0 flex-1 overflow-auto p-4 sm:p-6">{children}</div>
+          <div className="relative min-h-0 flex-1 overflow-auto p-4 pt-6 sm:p-6 sm:pt-9">
+            {children}
+          </div>
         </BreadcrumbSlotContext>
       </SidebarInset>
     </SidebarProvider>

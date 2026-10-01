@@ -32,10 +32,11 @@ import {
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   type CreateModelProviderFormValues,
+  modelProviderEndpointDefaults,
   modelProviderOption,
   providerSecretName,
 } from './CreateModelProviderDialogState'
-import { CustomProviderFields, ModelProviderEndpointSettings } from './ModelProviderEndpoint'
+import { ModelProviderEndpointSettings } from './ModelProviderEndpoint'
 import { ModelProviderTypeSelect } from './ModelProviderTypeSelect'
 
 type DialogPhase =
@@ -55,10 +56,27 @@ function modelProviderRequest(
     headers: recordFromTextRows(values.headerRows),
     secret_headers: recordFromSecretRows(values.secretHeaderRows),
   }
-  if (values.provider === 'custom') {
-    return { ...common, api_format: values.apiFormat, base_url: values.baseUrl.trim() }
+  if (values.provider !== 'bedrock') {
+    const preset = modelProviderOption(values.provider).endpoint
+    const baseUrl = values.baseUrl.trim()
+    // An untouched preset endpoint stays a preset; an edited one is sent explicitly.
+    if (
+      values.provider !== 'custom' &&
+      preset?.baseUrl === baseUrl &&
+      preset.apiFormat === values.apiFormat
+    ) {
+      return { ...common, preset: values.provider }
+    }
+    const request: CreateModelProviderConfigRequest = {
+      ...common,
+      api_format: values.apiFormat,
+      base_url: baseUrl,
+    }
+    if (values.provider === 'openrouter' && values.apiFormat === 'openai-chat-completions') {
+      request.api_variant = 'openrouter'
+    }
+    return request
   }
-  if (values.provider !== 'bedrock') return { ...common, preset: values.provider }
 
   const api = bedrockAPIOption(values.bedrockAPI)
   const region = values.region.trim()
@@ -113,6 +131,7 @@ export function CreateModelProviderDialog({
     createModelProviderFormDefaults,
   )
   const [status, setStatus] = useState<SubmitStatus>(idle)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const providerSubmissionGeneration = useRef(0)
 
   function handleOpenChange(nextOpen: boolean) {
@@ -122,6 +141,7 @@ export function CreateModelProviderDialog({
       setPhase({ step: 'provider' })
       setValues(createModelProviderFormDefaults)
       setStatus(idle)
+      setAdvancedOpen(false)
     }
     onOpenChange(nextOpen)
   }
@@ -172,7 +192,13 @@ export function CreateModelProviderDialog({
                 <ModelProviderTypeSelect
                   value={values.provider}
                   onValueChange={(nextProvider) => {
-                    setValues((prev) => ({ ...prev, provider: nextProvider, secretId: '' }))
+                    setValues((prev) => ({
+                      ...prev,
+                      ...modelProviderEndpointDefaults(nextProvider),
+                      provider: nextProvider,
+                      secretId: '',
+                    }))
+                    if (nextProvider === 'custom') setAdvancedOpen(true)
                   }}
                 />
                 <div className="grid items-start gap-4 sm:grid-cols-2">
@@ -207,15 +233,11 @@ export function CreateModelProviderDialog({
                     kind={credential.kind}
                   />
                 </div>
-                {values.provider === 'custom' && (
-                  <CustomProviderFields
-                    values={values}
-                    onChange={(patch) => {
-                      setValues((prev) => ({ ...prev, ...patch }))
-                    }}
-                  />
-                )}
-                <OverridesCollapsible title="Advanced">
+                <OverridesCollapsible
+                  title="Advanced"
+                  open={advancedOpen}
+                  onOpenChange={setAdvancedOpen}
+                >
                   <FieldGroup>
                     <ModelProviderEndpointSettings
                       values={values}

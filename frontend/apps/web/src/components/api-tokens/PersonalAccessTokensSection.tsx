@@ -1,16 +1,17 @@
 import { usePersonalAccessTokens } from '@omnara/react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { CreatePersonalAccessTokenDialog } from '@/components/api-tokens/CreatePersonalAccessTokenDialog'
 import { PersonalAccessTokenRowActions } from '@/components/api-tokens/PersonalAccessTokenRowActions'
 import { DataTable } from '@/components/data-table/DataTable'
-import { SectionTitle } from '@/components/layout/SectionTitle'
+import { SearchHeader } from '@/components/layout/SearchHeader'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 
-export function PersonalAccessTokensSection() {
+/** `actions` are extra header controls shown before the create button, e.g. tabs. */
+export function PersonalAccessTokensSection({ actions }: { actions?: ReactNode } = {}) {
   const query = usePersonalAccessTokens()
   const paged = usePagedQuery(query)
   const [createOpen, setCreateOpen] = useState(false)
@@ -27,10 +28,10 @@ export function PersonalAccessTokensSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionTitle title="Personal access tokens" guide={guides.apiTokens} />
+      <SearchHeader title="Personal access tokens" guide={guides.apiTokens}>
+        {actions}
         {createButton}
-      </div>
+      </SearchHeader>
       <DataTable
         columns={[
           {

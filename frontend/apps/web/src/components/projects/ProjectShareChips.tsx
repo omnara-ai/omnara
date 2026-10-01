@@ -15,17 +15,23 @@ export function ProjectShareChips({
   value,
   onChange,
   disabled = false,
+  excludedProjectIds = [],
   isProjectEligible,
 }: {
   orgId: string
   value: string[]
   onChange: (projectIds: string[]) => void
   disabled?: boolean
+  /** Projects never offered, e.g. the one that already owns the resource. */
+  excludedProjectIds?: string[]
   isProjectEligible: (project: VisibleProject) => boolean
 }) {
-  const directory = useProjectDirectory(orgId)
+  const { projects: directory } = useProjectDirectory(orgId)
   const available = [...directory.values()].filter(
-    (project) => isProjectEligible(project) && !value.includes(project.id),
+    (project) =>
+      isProjectEligible(project) &&
+      !value.includes(project.id) &&
+      !excludedProjectIds.includes(project.id),
   )
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm">

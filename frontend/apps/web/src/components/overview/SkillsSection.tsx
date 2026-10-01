@@ -86,6 +86,7 @@ function SkillsList({
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Skills"
+          description="Configure reusable instructions and scripts your agents can load."
           guide={guides.skills}
           toolbar={
             <ResourceListToolbar

@@ -1,17 +1,12 @@
 import { useProjects } from '@omnara/react'
-import { useEffect } from 'react'
 
-import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
+import { useCompleteInfiniteQueryItems } from '@/hooks/use-complete-infinite-query-items'
 
+/**
+ * Every project the viewer can see, keyed by id. The map stays empty until all pages have
+ * loaded, so a missing project means no access rather than a page that hasn't arrived yet.
+ */
 export function useProjectDirectory(orgId: string) {
-  const query = useProjects(orgId)
-  const projects = useInfiniteQueryItems(query)
-  const { fetchNextPage, hasNextPage, isFetchingNextPage } = query
-
-  useEffect(() => {
-    if (!hasNextPage || isFetchingNextPage) return
-    void fetchNextPage()
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
-
-  return new Map(projects.map((project) => [project.id, project]))
+  const { items, isComplete } = useCompleteInfiniteQueryItems(useProjects(orgId), true)
+  return { projects: new Map(items.map((project) => [project.id, project])), isComplete }
 }

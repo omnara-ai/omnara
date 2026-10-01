@@ -35,16 +35,23 @@ export function OrgAgentsPage() {
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SectionTitle title={heading.title} guide={heading.guide} />
-          <PillTabs
-            value={tab}
-            onValueChange={(value) => {
-              void navigate({ to: '/agents', search: value === 'profiles' ? {} : { tab: value } })
-            }}
-            tabs={[
-              { value: 'profiles', label: 'Profiles' },
-              { value: 'instances', label: 'Instances' },
-            ]}
-          />
+          <div className="flex items-center gap-2">
+            <PillTabs
+              value={tab}
+              onValueChange={(value) => {
+                void navigate({ to: '/agents', search: value === 'profiles' ? {} : { tab: value } })
+              }}
+              tabs={[
+                { value: 'profiles', label: 'Profiles' },
+                { value: 'instances', label: 'Instances' },
+              ]}
+            />
+            <OrgCreateAgentProfileButton
+              orgId={activeOrg.id}
+              label="New agent"
+              offerNewProject={false}
+            />
+          </div>
         </div>
         {tab === 'profiles' ? (
           <OrgAgentProfilesSection orgId={activeOrg.id} />

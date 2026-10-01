@@ -1,16 +1,17 @@
 import { useOrgApiKeys } from '@omnara/react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { CreateOrgApiKeyDialog } from '@/components/api-tokens/CreateOrgApiKeyDialog'
 import { OrgApiKeyDetailPanel } from '@/components/api-tokens/OrgApiKeyDetailPanel'
 import { DataTable } from '@/components/data-table/DataTable'
-import { SectionTitle } from '@/components/layout/SectionTitle'
+import { SearchHeader } from '@/components/layout/SearchHeader'
 import { Button } from '@/components/ui/button'
 import { usePagedQuery } from '@/hooks/use-paged-query'
 import { guides } from '@/lib/docs'
 import { formatDateTime } from '@/lib/format'
 
-export function OrgApiKeysSection({ orgId }: { orgId: string }) {
+/** `actions` are extra header controls shown before the create button, e.g. tabs. */
+export function OrgApiKeysSection({ orgId, actions }: { orgId: string; actions?: ReactNode }) {
   const query = useOrgApiKeys(orgId)
   const paged = usePagedQuery(query, orgId)
   const [createOpen, setCreateOpen] = useState(false)
@@ -27,10 +28,10 @@ export function OrgApiKeysSection({ orgId }: { orgId: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionTitle title="Organization API tokens" guide={guides.apiTokens} />
+      <SearchHeader title="Organization API tokens" guide={guides.apiTokens}>
+        {actions}
         {createButton}
-      </div>
+      </SearchHeader>
       <DataTable
         columns={[
           {

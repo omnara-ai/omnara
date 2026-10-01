@@ -42,6 +42,7 @@ export function ProjectSkillGrantsTable({
     <div className="flex flex-col gap-3">
       <SearchHeader
         title="Shared skills"
+        description="List of skills accessible to agents in your current project"
         guide={guides.skills}
         toolbar={
           <ResourceListToolbar

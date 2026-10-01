@@ -586,16 +586,26 @@ it('creates a preset provider and continues straight into the model picker', asy
   expect(button('Skip for now')).toBeDefined()
 })
 
-it('edits a preset endpoint as a custom endpoint starting from the preset', async () => {
-  await render(
-    providerApi(),
-    <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />,
-  )
+it('edits a preset endpoint under Advanced without switching provider', async () => {
+  const api = providerApi()
+  await render(api, <CreateModelProviderDialog open onOpenChange={vi.fn()} orgId={orgId} />)
   await clickButton('Advanced')
-  expect(document.body.textContent).toContain('https://api.openai.com/v1 · openai-responses')
-  await clickButton('Use a custom endpoint')
 
-  expect(element('#mp-provider').textContent).toContain('Custom endpoint')
   expect(element('#mp-base-url')).toHaveProperty('value', 'https://api.openai.com/v1')
   expect(element('#mp-api-format').textContent).toContain('OpenAI Responses')
+  await type('#mp-base-url', 'https://llm-proxy.example.com/v1')
+  expect(element('#mp-provider').textContent).toContain('OpenAI')
+  expect(button('Advanced').getAttribute('aria-expanded')).toBe('true')
+
+  await type('#mp-name', 'proxied-openai')
+  await selectOption('[aria-label="Search secrets…"]', 'openai-api-key')
+  await clickButton('Add provider')
+  expect(api.requestsTo('POST', providersPath).map((request) => request.body)).toEqual([
+    {
+      name: 'proxied-openai',
+      credential_secret_id: credentialSecret.id,
+      api_format: 'openai-responses',
+      base_url: 'https://llm-proxy.example.com/v1',
+    },
+  ])
 })

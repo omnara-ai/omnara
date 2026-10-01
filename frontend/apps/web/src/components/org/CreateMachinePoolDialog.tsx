@@ -2,6 +2,7 @@ import { useCreateMachinePool, useGrantMachinePoolToProject, useSecret } from '@
 import type { MachinePool } from '@omnara/sdk'
 import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
+import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
 import { ProjectShareChips } from '@/components/projects/ProjectShareChips'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,10 +12,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { FieldGroup } from '@/components/ui/field'
 import { collectGrantFailures, type RetryGrantsPhase } from '@/lib/grant-failures'
 import { errorMessage } from '@/lib/submit-status'
 
-import { MachinePoolAdvancedSection } from './MachinePoolAdvancedSection'
+import { MachinePoolEnvironmentFields, MachinePoolLimitFields } from './MachinePoolAdvancedSection'
 import { MachinePoolCapacityFields } from './MachinePoolCapacityFields'
 import { MachinePoolCreateStep, type MachinePoolCreateStepStatus } from './MachinePoolCreateStep'
 import {
@@ -40,12 +42,13 @@ import {
   MachinePoolScopeField,
   MachinePoolStartupScriptField,
 } from './MachinePoolFields'
+import { machinePoolProviderDefinitions } from './machinePoolProviders'
 
 const stepTitles: Record<MachinePoolCreateStepId, string> = {
   provider: 'Provider',
-  pool: 'Pool',
+  image: 'Image',
   capacity: 'Capacity',
-  startup: 'Startup script',
+  environment: 'Environment',
 }
 
 const lastStep = machinePoolCreateSteps.length - 1
@@ -165,8 +168,7 @@ export function CreateMachinePoolDialog({
   const summaries: Record<MachinePoolCreateStepId, ReactNode> = {
     provider: (
       <>
-        {machinePoolProviderLabel(values.provider)}
-        {values.providerScope.trim() && ` · ${values.providerScope.trim()}`}
+        {values.name} · {machinePoolProviderLabel(values.provider)}
         {secret.data && (
           <>
             {' · '}
@@ -175,9 +177,14 @@ export function CreateMachinePoolDialog({
         )}
       </>
     ),
-    pool: (
+    image: (
       <>
-        {values.name} · <span className="font-mono">{values.image.trim()}</span>
+        {values.image.trim() ? (
+          <span className="font-mono">{values.image.trim()}</span>
+        ) : (
+          `Default ${machinePoolProviderDefinitions[values.provider].resource.label.toLowerCase()}`
+        )}
+        {values.providerScope.trim() && ` · ${values.providerScope.trim()}`}
       </>
     ),
     capacity: (
@@ -186,14 +193,17 @@ export function CreateMachinePoolDialog({
         up to {values.maxMachines} × {machinePoolMachineSizeLabel(values)}
       </>
     ),
-    startup: values.startupScript.trim() ? 'Script added' : 'No script',
+    environment: environmentSummary(values),
   }
 
   const stepFields: Record<MachinePoolCreateStepId, ReactNode> = {
     provider: (
       <>
-        <MachinePoolProviderField values={values} setValue={setValue} />
-        <MachinePoolScopeField values={values} setValue={setValue} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MachinePoolNameField values={values} setValue={setValue} />
+          <MachinePoolProviderField values={values} setValue={setValue} />
+        </div>
+        <MachinePoolDescriptionField values={values} setValue={setValue} />
         <MachinePoolCredentialField
           orgId={orgId}
           enabled={open}
@@ -202,20 +212,26 @@ export function CreateMachinePoolDialog({
         />
       </>
     ),
-    pool: (
+    image: (
       <>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <MachinePoolNameField values={values} setValue={setValue} />
-          <MachinePoolDescriptionField values={values} setValue={setValue} />
-        </div>
         <MachinePoolImageField values={values} setValue={setValue} />
+        <MachinePoolScopeField values={values} setValue={setValue} />
       </>
     ),
-    capacity: <MachinePoolCapacityFields values={values} setValue={setValue} />,
-    startup: (
+    capacity: (
       <>
-        <MachinePoolStartupScriptField label="Script" values={values} setValue={setValue} />
-        <MachinePoolAdvancedSection
+        <MachinePoolCapacityFields values={values} setValue={setValue} />
+        <OverridesCollapsible title="Advanced">
+          <FieldGroup>
+            <MachinePoolLimitFields clusterManaged={false} values={values} setValue={setValue} />
+          </FieldGroup>
+        </OverridesCollapsible>
+      </>
+    ),
+    environment: (
+      <>
+        <MachinePoolStartupScriptField label="Startup script" values={values} setValue={setValue} />
+        <MachinePoolEnvironmentFields
           orgId={orgId}
           enabled={open}
           clusterManaged={false}
@@ -234,7 +250,15 @@ export function CreateMachinePoolDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85svh] sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[85svh] sm:max-w-2xl"
+        onOpenAutoFocus={(event) => {
+          const field = stepsRef.current?.querySelector<HTMLElement>(stepFieldSelector)
+          if (!field) return
+          event.preventDefault()
+          field.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>New machine pool</DialogTitle>
           <DialogDescription>Pools provision the machines your agents run on.</DialogDescription>
@@ -249,7 +273,7 @@ export function CreateMachinePoolDialog({
                 status={stepStatus(index)}
                 summary={summaries[step]}
                 open={index === current && !collapsed}
-                optional={step === 'startup'}
+                optional={step === 'environment'}
                 onOpenChange={(nextOpen) => {
                   if (index === current) setCollapsed(!nextOpen)
                   else if (nextOpen) goToStep(index)
@@ -301,4 +325,15 @@ export function CreateMachinePoolDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** What step 4 adds to each machine, e.g. "Startup script · 2 variables". */
+function environmentSummary(values: MachinePoolFormValues) {
+  const variables = values.envRows.length + values.secretEnvRows.length
+  const parts = [
+    values.startupScript.trim() && 'Startup script',
+    values.cwd.trim(),
+    variables > 0 && `${String(variables)} ${variables === 1 ? 'variable' : 'variables'}`,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : 'Defaults'
 }

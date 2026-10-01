@@ -1,7 +1,7 @@
 /** @vitest-environment happy-dom */
 
 import { OmnaraClientProvider } from '@omnara/react'
-import { createOmnaraClient, type Skill } from '@omnara/sdk'
+import { createOmnaraClient, type Skill, type VisibleProject } from '@omnara/sdk'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BlobWriter, TextReader, ZipWriter } from '@zip.js/zip.js'
 import { act } from 'react'
@@ -13,7 +13,7 @@ import { bundleSource, type SkillSource } from '@/lib/skill-bundles'
 import { jsonResponse } from '@/test/fake-api'
 import { fakeId } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, field } from '@/test/secret-editor'
+import { button, field, waitForUI } from '@/test/secret-editor'
 
 const orgId = fakeId('org')
 
@@ -90,14 +90,37 @@ afterEach(() => {
   restore()
 })
 
-async function render(existing: Skill[] = [], attachedSkills: Skill[] = []) {
+async function render(
+  existing: Skill[] = [],
+  attachedSkills: Skill[] = [],
+  projects: VisibleProject[] = [],
+) {
   const uploads = arrivals<Upload>()
   const created = arrivals<string[]>()
   const lookups: string[] = []
+  const grants: unknown[] = []
   const client = createOmnaraClient({ baseUrl: 'https://omnara.test/api/v1' })
   client.setConfig({
     fetch: async (input, init) => {
       const request = new Request(input, init)
+      const path = new URL(request.url).pathname
+      if (request.method === 'GET' && path.endsWith('/projects')) {
+        return jsonResponse({ data: projects, next_cursor: null })
+      }
+      if (request.method === 'POST' && path.endsWith('/grants')) {
+        const body: unknown = await request.json()
+        grants.push(body)
+        return jsonResponse(
+          {
+            id: fakeId('skg'),
+            org_id: orgId,
+            skill_id: path.split('/').at(-2) ?? '',
+            target_project_id: projects[0]?.id ?? '',
+            created_at: '2026-09-28T00:00:00Z',
+          },
+          201,
+        )
+      }
       if (request.method === 'GET') {
         const name = new URL(request.url).searchParams.get('name') ?? ''
         lookups.push(name)
@@ -134,7 +157,7 @@ async function render(existing: Skill[] = [], attachedSkills: Skill[] = []) {
     )
     await Promise.resolve()
   })
-  return { uploads, created, lookups, existing, onOpenChange }
+  return { uploads, created, lookups, grants, existing, onOpenChange }
 }
 
 async function settle(action: () => void) {
@@ -271,6 +294,38 @@ it('uploads a single new skill straight from the picker', async () => {
   expect(solo.archiveName).toBe('solo.zip')
   solo.respond(jsonResponse(skill('solo'), 201))
   expect(await ctx.created.at(0)).toEqual(['solo'])
+  expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
+})
+
+it('shares a new skill with the projects picked in the footer', async () => {
+  const project = {
+    id: fakeId('proj'),
+    org_id: orgId,
+    name: 'cli-agent',
+    access: { can_read: true, can_manage: true, can_manage_access: true, can_operate: true },
+    created_at: '2026-09-28T00:00:00Z',
+    updated_at: '2026-09-28T00:00:00Z',
+  }
+  const ctx = await render([], [], [project])
+  await chooseArchive(await skillZip({ 'solo/SKILL.md': skillMd('solo') }, 'solo.zip'))
+  await settle(() => {
+    button('Project').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+  })
+  await settle(() => {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (candidate) => candidate.textContent === 'cli-agent',
+    )
+    item?.click()
+  })
+  expect(button('Remove cli-agent')).toBeDefined()
+
+  submit()
+  const solo = await ctx.uploads.at(0)
+  solo.respond(jsonResponse(skill('solo'), 201))
+  expect(await ctx.created.at(0)).toEqual(['solo'])
+  await waitForUI(() => {
+    expect(ctx.grants).toEqual([{ target_project_id: project.id }])
+  })
   expect(ctx.onOpenChange).toHaveBeenCalledWith(false)
 })
 
