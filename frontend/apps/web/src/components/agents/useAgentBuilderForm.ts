@@ -1,3 +1,4 @@
+import { type ConfigIntegrationCapabilitySource } from '@omnara/sdk'
 import { useState } from 'react'
 import { Document, isMap, isNode, type Node, parseDocument } from 'yaml'
 
@@ -84,6 +85,7 @@ export interface BasicConfig {
   reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
+  interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
   mcpServers: BasicMcpServer[]
   eventWebhookEvents: string[]
   eventWebhookUrl: string
@@ -120,6 +122,7 @@ export const emptyBasicConfig: BasicConfig = {
   reasoningEffort: '',
   machineSources: [],
   tools: [],
+  interactionHandlers: {},
   mcpServers: [],
   eventWebhookEvents: ['tool_call_update'],
   eventWebhookUrl: '',
@@ -179,6 +182,7 @@ export function useAgentBuilderForm(
     resolvedTools: tools.data?.tools,
     toolsPending: tools.isPending,
     toolsError: tools.isError,
+    toolsErrorMessage: tools.errorMessage,
     retryTools: () => void tools.refetch(),
     reset: (config: BasicConfig | null) => {
       setDraft(config ?? emptyBasicConfig)
@@ -191,6 +195,7 @@ export function useAgentBuilderForm(
     },
     machineSources: draft.machineSources,
     tools: draft.tools,
+    interactionHandlers: draft.interactionHandlers,
     skillIds: draft.skillIds,
     mcpServers: draft.mcpServers,
     eventWebhookEvents: draft.eventWebhookEvents,
@@ -353,6 +358,13 @@ function applyToDocument(
     set,
     del,
   )
+  applyNamedEntries(
+    'interaction_handlers',
+    Object.entries(config.interactionHandlers),
+    baseline == null ? null : Object.entries(baseline.interactionHandlers),
+    set,
+    del,
+  )
   applySkills(config.skillIds, baseline?.skillIds ?? null, set, del)
   applyNamedEntries(
     'subagents',
@@ -511,7 +523,7 @@ function applySourceOverlays(wire: PoolEntry | MachineEntry, source: BasicMachin
 }
 
 export function toolWire(tool: BasicTool): ToolEntry {
-  const wire: ToolEntry = { type: 'built_in' }
+  const wire: ToolEntry = tool.name.startsWith('int__') ? {} : { type: 'built_in' }
   if (tool.enabled === false) wire.enabled = false
   if (tool.permission != null) wire.permission = permissionWire(tool.permission)
   if (tool.deferred) wire.deferred = true

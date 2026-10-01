@@ -44,7 +44,6 @@ export {
   useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
-  useCreateSlackSetup,
   useDeleteAgentProfile,
   useRenameAgentProfile,
   useUpdateAgentProfile,
@@ -71,12 +70,25 @@ export {
   useUpdateCronTrigger,
 } from './domains/cron-triggers'
 export {
-  type IntegrationInstallListFilters,
-  type IntegrationInstallListOptions,
-  type IntegrationInstallListSort,
-  useDeleteIntegrationInstall,
-  useIntegrationInstalls,
-} from './domains/integration-installs'
+  useCreateIntegrationSubscription,
+  useDeleteIntegrationSubscription,
+  useIntegrationSubscriptions,
+} from './domains/integration-subscriptions'
+export {
+  useConfigureIntegration,
+  useCreateIntegration,
+  useCreateIntegrationGitHubSetup,
+  useCreateIntegrationOAuthSetup,
+  useCreateIntegrationSlackSetup,
+  useDeleteIntegration,
+  useDisconnectIntegration,
+  useInspectIntegrationGitHubInstallations,
+  useIntegration,
+  useIntegrationDefinitions,
+  useIntegrationOAuthCompletion,
+  useIntegrations,
+  useUpdateIntegration,
+} from './domains/integrations'
 export {
   useAcceptInvitation,
   useDeclineInvitation,

@@ -85,28 +85,6 @@ func TestCompleteOAuthIncludesSlackErrorOnHTTPFailure(t *testing.T) {
 	}
 }
 
-func TestValidActionResponseURL(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want bool
-	}{
-		{"slack", "https://hooks.slack.com/actions/T123/123/secret", true},
-		{"govslack", "https://hooks.slack-gov.com/actions/T123/123/secret", true},
-		{"http", "http://hooks.slack.com/actions/T123/123/secret", false},
-		{"wrong path", "https://hooks.slack.com/services/T123/123/secret", false},
-		{"lookalike host", "https://hooks.slack.com.evil.test/actions/T123/123/secret", false},
-		{"localhost", "https://localhost/actions/T123/123/secret", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ValidActionResponseURL(tt.raw); got != tt.want {
-				t.Fatalf("ValidActionResponseURL(%q) = %v, want %v", tt.raw, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPostMessageClassifiesNon2XXSlackError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -125,8 +103,8 @@ func TestPostMessageClassifiesNon2XXSlackError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostMessage: %v", err)
 	}
-	if !result.PermanentFailure || result.Code != "integration_disabled" {
-		t.Fatalf("PostMessage result = %+v, want integration_disabled", result)
+	if !result.PermanentFailure || result.Code != "integration_disconnected" {
+		t.Fatalf("PostMessage result = %+v, want integration_disconnected", result)
 	}
 }
 

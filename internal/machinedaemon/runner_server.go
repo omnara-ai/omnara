@@ -1705,6 +1705,12 @@ func prepareLocalRunner(
 		os.Getenv("PATH"),
 		assignment.Env,
 	)
+	if assignment.GitCredentials {
+		if assignment.GitCredentialHelper == nil {
+			return preparedRunnerWithStartFailure(runner, errors.New("git credential helper is unavailable"))
+		}
+		command.Env = gitCredentialEnvironment(command.Env, assignment.ID, assignment.GitCredentialHelper)
+	}
 	runner.cmd = command
 	return runner, nil
 }

@@ -345,6 +345,20 @@ func loadAgentConfigTx(
 	return agentConfigRecordFromSQLC(row), nil
 }
 
+func validateSavedAgentConfigModelContractTx(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	config AgentConfigRecord,
+) error {
+	return lockAndValidateAgentConfigModelContractTx(ctx, qtx, CreateAgentConfigInput{
+		OrgID:                   config.OrgID,
+		ProjectID:               config.ProjectID,
+		ConfiguredModelID:       config.ConfiguredModelID,
+		CompiledDefinition:      config.CompiledDefinition,
+		EffectiveDefinitionHash: config.EffectiveDefinitionHash,
+	})
+}
+
 func lockAgentConfigModelForUseTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,

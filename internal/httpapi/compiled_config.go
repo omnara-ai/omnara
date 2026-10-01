@@ -79,9 +79,36 @@ func publicCompiledDefinition(raw json.RawMessage) (openapi.CompiledAgentConfig,
 	}
 	response.Tools = make(map[string]openapi.CompiledTool, len(compiled.Tools))
 	for name, tool := range compiled.Tools {
-		response.Tools[name] = openapi.CompiledTool{
+		projected := openapi.CompiledTool{
 			Enabled: tool.Enabled, Type: openapi.CompiledToolType(tool.Type), Permission: tool.Permission,
 			Deferred: tool.Deferred, Description: tool.Description, InputSchema: tool.InputSchema,
+		}
+		if tool.IntegrationID != uuid.Nil {
+			projected.IntegrationId, err = publicCompiledID(publicid.KindIntegration, tool.IntegrationID)
+			if err != nil {
+				return openapi.CompiledAgentConfig{}, err
+			}
+		}
+		response.Tools[name] = projected
+	}
+	response.InteractionHandlers = make(
+		map[string]openapi.CompiledIntegrationCapability,
+		len(compiled.InteractionHandlers),
+	)
+	for name, capability := range compiled.InteractionHandlers {
+		integrationID, err := publicCompiledID(publicid.KindIntegration, capability.IntegrationID)
+		if err != nil {
+			return openapi.CompiledAgentConfig{}, err
+		}
+		response.InteractionHandlers[name] = openapi.CompiledIntegrationCapability{IntegrationId: integrationID}
+	}
+	if credentials := compiled.GitCredentials; credentials != nil {
+		integrationID, err := publicCompiledID(publicid.KindIntegration, credentials.IntegrationID)
+		if err != nil {
+			return openapi.CompiledAgentConfig{}, err
+		}
+		response.GitCredentials = &openapi.CompiledGitCredentials{
+			Integration: credentials.Integration, IntegrationId: integrationID,
 		}
 	}
 	response.Mcp = make(map[string]openapi.CompiledMCPServer, len(compiled.MCP))

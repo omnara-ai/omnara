@@ -12,32 +12,22 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
 )
 
-type InstallBinding struct {
-	OrgID          uuid.UUID
-	ProjectID      uuid.UUID
-	AgentProfileID uuid.UUID
-	AgentID        uuid.UUID
-}
-
 type Access interface {
-	ValidateInstallBinding(context.Context, pgx.Tx, InstallBinding) error
-	ClearInstallTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
+	ClearIntegrationTargetsFromAgents(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) error
 }
 
 type Store struct {
-	pool               *storeutil.Pool
-	q                  *dbsqlc.Queries
-	access             Access
-	targetRefGenerator func(string) (string, error)
+	pool   *storeutil.Pool
+	q      *dbsqlc.Queries
+	access Access
 }
 
 func New(pool *pgxpool.Pool, access Access) *Store {
 	db := storeutil.WrapPool(pool)
 	return &Store{
-		pool:               db,
-		q:                  dbsqlc.New(db),
-		access:             access,
-		targetRefGenerator: newIntegrationTargetRef,
+		pool:   db,
+		q:      dbsqlc.New(db),
+		access: access,
 	}
 }
 

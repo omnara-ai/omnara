@@ -122,7 +122,7 @@ func TestPublicActorPutUpsertsExternalActor(t *testing.T) {
 	}
 }
 
-func TestPublicActorPutRejectsOversizedAttributes(t *testing.T) {
+func TestPublicActorPutRejectsInvalidAttributes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
@@ -134,6 +134,9 @@ func TestPublicActorPutRejectsOversizedAttributes(t *testing.T) {
 		`{"provider_user_id":"cust-1","display_name":"` + strings.Repeat("d", executionstore.MaxActorDisplayNameLength+1) + `"}`,
 		`{"provider_user_id":""}`,
 		`{"provider_tenant_id":"","provider_user_id":"cust-1"}`,
+		`{"provider_tenant_id":"crm\u0000","provider_user_id":"cust-1"}`,
+		`{"provider_user_id":"cust\u0000"}`,
+		`{"provider_user_id":"cust-1","display_name":"Ada\u0000"}`,
 	} {
 		requestJSONWithHeaders(
 			t,
@@ -156,7 +159,7 @@ func TestPublicActorPutRejectsProviderField(t *testing.T) {
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
 	project := bootstrapPublicHTTPProject(t, handler, "actor-put-provider")
-	for _, provider := range []string{"omnara", "slack", "external", ""} {
+	for _, provider := range []string{"omnara", "integration", "external", ""} {
 		requestJSONWithHeaders(
 			t,
 			handler,

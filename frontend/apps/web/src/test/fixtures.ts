@@ -2,6 +2,8 @@ import type {
   AgentConfigModel,
   CurrentUser,
   CurrentUserOrg,
+  Integration,
+  IntegrationDefinition,
   MachinePool,
   OrgInvitation,
   ProjectMachinePoolGrant,
@@ -115,6 +117,108 @@ export function orgInvitation(overrides: Partial<OrgInvitation> = {}): OrgInvita
     email: 'person@example.com',
     org_role: 'member',
     created_at: timestamp,
+    ...overrides,
+  }
+}
+
+export function integrationDefinition(
+  integrationKind: IntegrationDefinition['integration_kind'] = 'slack_thread',
+): IntegrationDefinition {
+  const capability = {
+    input_schema: { type: 'object', properties: {} },
+  }
+  const definition: IntegrationDefinition = {
+    integration_kind: integrationKind,
+    capabilities: {
+      tools:
+        integrationKind === 'github_pr'
+          ? {
+              read: capability,
+              discussion_comment: capability,
+              review_comment: capability,
+              reply: capability,
+            }
+          : { read: capability, post_message: capability },
+      subscription: {
+        conversation_schema: { type: 'object', properties: {} },
+      },
+    },
+  }
+  if (integrationKind !== 'github_pr') {
+    definition.capabilities.interaction_handler = capability
+    definition.capabilities.schedule = {
+      description: 'Start a fresh agent in a new channel thread on each run.',
+      input_schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'agent_profile_id',
+          'channel_id',
+          'opening_message_template',
+          'message_template',
+        ],
+        'x-omnara-field-order': [
+          'agent_profile_id',
+          'channel_id',
+          'opening_message_template',
+          'message_template',
+        ],
+        properties: {
+          message_template: {
+            type: 'string',
+            title: 'Task instructions',
+            minLength: 1,
+            description: 'The initial task for each new agent.',
+            'x-omnara-control': 'textarea',
+          },
+          channel_id: {
+            type: 'string',
+            title: 'Channel ID',
+            pattern: integrationKind === 'slack_thread' ? '^[CG][A-Z0-9]+$' : '^[1-9][0-9]*$',
+            description:
+              integrationKind === 'slack_thread'
+                ? 'Use a Slack channel ID beginning with C or G.'
+                : 'Use a Discord text or announcement channel ID.',
+          },
+          agent_profile_id: {
+            type: 'string',
+            title: 'Agent profile',
+            pattern: '^aprf_[a-z0-9]{26}$',
+            description: 'Choose a profile for future runs.',
+            'x-omnara-control': 'agent_profile',
+          },
+          opening_message_template: {
+            type: 'string',
+            title: 'Opening message',
+            minLength: 1,
+            maxLength: 2000,
+            default: '{{.trigger.name}} — {{.trigger.local_date}}',
+            description:
+              'Posted before the agent starts. {{.trigger.local_date}} uses the schedule’s timezone.',
+            'x-omnara-control': 'textarea',
+          },
+        },
+      },
+    }
+  }
+  return definition
+}
+
+export function integration(overrides: Partial<Integration> = {}): Integration {
+  const definition = integrationDefinition(overrides.integration_kind)
+  return {
+    id: fakeId('itg'),
+    project_id: fakeId('proj'),
+    name: 'engineering',
+    integration_kind: definition.integration_kind,
+    state: 'disconnected',
+    setup_revision: 1,
+    settings: {},
+    provider_agent_display_name: '',
+    provider_config: {},
+    capabilities: definition.capabilities,
+    created_at: timestamp,
+    updated_at: timestamp,
     ...overrides,
   }
 }

@@ -187,7 +187,7 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 			p.executor.submitBackgroundTool(
 				p.turn,
 				p.call,
-				p.handler.Background,
+				p.handler,
 				p.toolCallID,
 				execution.CommandResult,
 			)
@@ -199,7 +199,7 @@ func (p toolPhasePipeline) advanceAfterTransaction(
 			p.executor.submitBackgroundTool(
 				p.turn,
 				p.call,
-				p.handler.Background,
+				p.handler,
 				p.toolCallID,
 				execution.CommandResult,
 			)
@@ -245,24 +245,32 @@ func transactionResultStartsBackground(result transactionalPhaseResult) bool {
 func (e Executor) submitBackgroundTool(
 	turn Turn,
 	call model.ToolCall,
-	handler backgroundToolHandler,
+	handler toolHandler,
 	toolCallID uuid.UUID,
 	commandResult any,
 ) {
-	if handler == nil || e.BackgroundRunner == nil {
+	if handler.Background == nil || e.BackgroundRunner == nil {
 		return
 	}
-	e.BackgroundRunner.Submit(call.Name, func(ctx context.Context) error {
+	task := func(ctx context.Context) error {
 		executionCtx, cancel := context.WithTimeout(ctx, backgroundExecutionTimeout)
 		defer cancel()
-		return handler(executionCtx, backgroundToolContext{
+		return handler.Background(executionCtx, backgroundToolContext{
 			Executor:      e,
 			Turn:          turn,
 			Call:          call,
 			ToolCallID:    toolCallID,
 			CommandResult: commandResult,
 		})
-	})
+	}
+	if handler.BackgroundBestEffort {
+		if !e.BackgroundRunner.TrySubmit(call.Name, task) {
+			e.logger().Warn("best-effort background tool dropped",
+				"tool", call.Name, "tool_call_id", toolCallID, "agent_id", turn.AgentID)
+		}
+		return
+	}
+	e.BackgroundRunner.Submit(call.Name, task)
 }
 
 func successfulToolCallCompletion(
@@ -377,6 +385,8 @@ func retryableAsyncToolPersistenceError(ctx context.Context, err error) bool {
 		!errors.Is(err, storeerr.ErrStateTransitionConflict) &&
 		!errors.Is(err, storeerr.ErrIdempotencyConflict) &&
 		!errors.Is(err, storeerr.ErrInvalidToolCallDisposition) &&
+		!errors.Is(err, storeerr.ErrUnauthorized) &&
+		!errors.Is(err, storeerr.ErrConflict) &&
 		!errors.Is(err, storeerr.ErrNotFound) &&
 		!errors.Is(err, storeerr.ErrInvalidRequest)
 }
@@ -474,32 +484,6 @@ func (e Executor) executeAsyncTool(
 		); err != nil {
 			return err
 		}
-	case awaitDurableAsync:
-		if err := retryAsyncToolPersistence(
-			completionCtx,
-			func(ctx context.Context) error {
-				return e.Store.Execution().ReleaseToolCallRuntimeOwnership(
-					ctx,
-					executionstore.ReleaseToolCallRuntimeOwnershipInput{
-						ProjectID:     call.Turn.ProjectID,
-						AgentID:       call.Turn.AgentID,
-						ToolCallID:    call.ToolCallID,
-						RuntimeLockID: call.Turn.RuntimeLockID,
-					},
-				)
-			},
-		); err != nil {
-			if errors.Is(err, storeerr.ErrInvalidToolCallDisposition) {
-				return e.completeAsyncToolFailure(
-					completionCtx,
-					call.Turn,
-					call.ToolCallID,
-					toolResultContent{},
-					err,
-				)
-			}
-			return err
-		}
 	case failAsync:
 		if result.cause == nil {
 			return e.completeAsyncToolFailure(
@@ -537,7 +521,7 @@ func (e Executor) executeAsyncTool(
 	e.submitBackgroundTool(
 		call.Turn,
 		call.Call,
-		handler.Background,
+		handler,
 		call.ToolCallID,
 		nil,
 	)
@@ -545,9 +529,10 @@ func (e Executor) executeAsyncTool(
 }
 
 type toolHandler struct {
-	Transactional transactionalToolHandler
-	Async         asyncToolHandler
-	Background    backgroundToolHandler
+	Transactional        transactionalToolHandler
+	Async                asyncToolHandler
+	Background           backgroundToolHandler
+	BackgroundBestEffort bool
 }
 
 type transactionalToolContext struct {
@@ -649,16 +634,13 @@ type completeAsync struct {
 	content toolResultContent
 }
 
-type awaitDurableAsync struct{}
-
 type failAsync struct {
 	content toolResultContent
 	cause   error
 }
 
-func (completeAsync) asyncPhaseResult()     {}
-func (awaitDurableAsync) asyncPhaseResult() {}
-func (failAsync) asyncPhaseResult()         {}
+func (completeAsync) asyncPhaseResult() {}
+func (failAsync) asyncPhaseResult()     {}
 
 func completeAsynchronously(content toolResultContent) asyncPhaseResult {
 	if !content.isSet {
@@ -667,10 +649,6 @@ func completeAsynchronously(content toolResultContent) asyncPhaseResult {
 		}
 	}
 	return completeAsync{content: content}
-}
-
-func awaitDurableAsynchronously() asyncPhaseResult {
-	return awaitDurableAsync{}
 }
 
 func failAsynchronously(content toolResultContent, cause error) asyncPhaseResult {

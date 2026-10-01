@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
@@ -79,7 +78,7 @@ func CreateQuestionForToolCall(input CreateQuestionInteractionInput) ToolCallCom
 		if err != nil {
 			return nil, err
 		}
-		return record, tx.startToolCall(ctx, true)
+		return record, tx.startToolCall(ctx, false)
 	})
 }
 
@@ -123,22 +122,6 @@ func DeletePoolMachineForToolCall(
 			return nil, err
 		}
 		if _, err := tx.completeToolCall(ctx, toolCompletion); err != nil {
-			return nil, err
-		}
-		return record, nil
-	})
-}
-
-func SetIntegrationTargetForToolCall(
-	integrationTargetID uuid.UUID,
-	completion ToolCallCompletionInput,
-) ToolCallCommand {
-	return toolCallCommandFunc(func(ctx context.Context, tx *toolCallTransaction) (any, error) {
-		record, err := tx.setAgentIntegrationTarget(ctx, integrationTargetID)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.completeToolCall(ctx, completion); err != nil {
 			return nil, err
 		}
 		return record, nil

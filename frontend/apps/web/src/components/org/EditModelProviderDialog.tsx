@@ -1,6 +1,6 @@
 import { useUpdateModelProvider } from '@omnara/react'
 import { type ModelProviderConfig } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
 import { KeyValueEditor } from '@/components/key-value/KeyValueEditor'
 import {
@@ -50,6 +50,7 @@ export function EditModelProviderDialog({
   orgId: string
   provider: ModelProviderConfig
 }) {
+  const idPrefix = useId()
   const mutation = useUpdateModelProvider(orgId)
   const [state, setState] = useState<EditModelProviderState>({
     baseUrl: provider.base_url,
@@ -102,8 +103,9 @@ export function EditModelProviderDialog({
         <form onSubmit={(event) => void submit(event)}>
           <FieldGroup>
             <Field>
-              <FieldLabel>Base URL</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-base-url`}>Base URL</FieldLabel>
               <Input
+                id={`${idPrefix}-base-url`}
                 value={state.baseUrl}
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, baseUrl: event.target.value }))
@@ -111,8 +113,9 @@ export function EditModelProviderDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Endpoint path</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-endpoint-path`}>Endpoint path</FieldLabel>
               <Input
+                id={`${idPrefix}-endpoint-path`}
                 value={state.endpointPath}
                 onChange={(event) => {
                   setState((prev) => ({ ...prev, endpointPath: event.target.value }))
@@ -120,8 +123,9 @@ export function EditModelProviderDialog({
               />
             </Field>
             <Field>
-              <FieldLabel>Total request timeout (ms)</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-timeout`}>Total request timeout (ms)</FieldLabel>
               <Input
+                id={`${idPrefix}-timeout`}
                 type="number"
                 min="1"
                 max="2147483647"
@@ -137,8 +141,9 @@ export function EditModelProviderDialog({
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel>Idle timeout (ms)</FieldLabel>
+              <FieldLabel htmlFor={`${idPrefix}-idle-timeout`}>Idle timeout (ms)</FieldLabel>
               <Input
+                id={`${idPrefix}-idle-timeout`}
                 type="number"
                 min="1"
                 max="2147483647"
@@ -155,8 +160,9 @@ export function EditModelProviderDialog({
             </Field>
             {provider.auth_kind === 'sigv4' && (
               <Field>
-                <FieldLabel>AWS signing region</FieldLabel>
+                <FieldLabel htmlFor={`${idPrefix}-region`}>AWS signing region</FieldLabel>
                 <Input
+                  id={`${idPrefix}-region`}
                   required
                   autoCapitalize="none"
                   autoCorrect="off"

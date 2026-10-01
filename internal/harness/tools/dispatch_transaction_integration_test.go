@@ -69,7 +69,6 @@ func TestTransactionalToolDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 	result, err := (Executor{
 		Store: storage.NewStore(pool),
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).Dispatch(ctx, turn, call)
 	if err != nil {
 		t.Fatalf("dispatch transactional tool with one database connection: %v", err)
@@ -140,7 +139,6 @@ func TestSpawnAgentDispatchUsesOneDatabaseConnection(t *testing.T) {
 	}
 	result, err := (Executor{
 		Store: storage.NewStore(pool),
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).Dispatch(ctx, turn, call)
 	if err != nil {
 		t.Fatalf("dispatch spawn_agent with one database connection: %v", err)
@@ -177,10 +175,7 @@ func TestSpawnAgentDispatchReturnsUnsupportedModelToolFailure(t *testing.T) {
 	turn.Tools["spawn_agent"] = ToolSpec{
 		Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAllow),
 	}
-	result, err := (Executor{
-		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}).Dispatch(ctx, turn, call)
+	result, err := (Executor{Store: fixture.Store}).Dispatch(ctx, turn, call)
 	require.NoError(t, err)
 	require.Equal(t, DispatchCompleted, result.Disposition)
 	require.Contains(t, string(result.ContentParts), `"error_code":"spawn_agent_failed"`)
@@ -394,7 +389,6 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 	executor := Executor{
 		Store:            fixture.Store,
 		BackgroundRunner: backgroundRunner,
-		Now:              func() time.Time { return fixture.Now.Add(30 * time.Second) },
 	}
 	turn := fixture.turn()
 
@@ -491,28 +485,29 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 		toolHandler{
 			Transactional: func(
 				_ context.Context,
-				call transactionalToolContext,
+				_ transactionalToolContext,
 			) (transactionalPhaseResult, error) {
-				return createDispatchTestInteraction(call)
+				return continueAsync(), nil
 			},
 			Async: func(
 				ctx context.Context,
 				call asyncToolContext,
 			) (asyncPhaseResult, error) {
-				var interactions int
+				var running bool
 				if err := fixture.Pool.QueryRow(
 					ctx,
-					`SELECT count(*) FROM agent_interactions WHERE tool_call_id = $1`,
+					`SELECT state = 'running' AND runtime_lock_id = $2 FROM tool_calls WHERE id = $1`,
 					call.ToolCallID,
-				).Scan(&interactions); err != nil {
+					call.Turn.RuntimeLockID,
+				).Scan(&running); err != nil {
 					return nil, err
 				}
-				if interactions != 1 {
+				if !running {
 					return nil, errors.New(
 						"transactional phase was not committed before async execution",
 					)
 				}
-				return awaitDurableAsynchronously(), nil
+				return completeAsynchronously(dispatchTestStructuredResult(`{"value":"combined"}`)), nil
 			},
 			Background: func(
 				ctx context.Context,
@@ -521,7 +516,7 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 				var released bool
 				if err := fixture.Pool.QueryRow(
 					ctx,
-					`SELECT state = 'waiting' AND runtime_lock_id IS NULL
+					`SELECT state = 'completed' AND runtime_lock_id IS NULL
 					 FROM tool_calls
 					 WHERE id = $1`,
 					call.ToolCallID,
@@ -542,10 +537,10 @@ func TestToolHandlerPhaseOrdering(t *testing.T) {
 	select {
 	case <-backgroundStarted:
 	case <-time.After(5 * time.Second):
-		t.Fatal("background phase did not start after async durable handoff")
+		t.Fatal("background phase did not start after async completion")
 	}
-	assertDispatchTestToolState(t, ctx, fixture, combined.ID, "waiting", false)
-	assertDispatchTestInteractionCount(t, ctx, fixture, combined.ID, 1)
+	assertDispatchTestToolState(t, ctx, fixture, combined.ID, "completed", false)
+	assertDispatchTestResultCount(t, ctx, fixture, combined.ID, 1)
 }
 
 func TestCompletedAsyncAdmitsBackgroundBeforeReleasingCapacity(t *testing.T) {
@@ -575,7 +570,6 @@ func TestCompletedAsyncAdmitsBackgroundBeforeReleasingCapacity(t *testing.T) {
 	result, err := (Executor{
 		Store:            fixture.Store,
 		BackgroundRunner: runner,
-		Now:              func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).dispatchToolHandler(
 		WithAsyncExecutionScope(ctx, scope),
 		fixture.turn(),
@@ -828,60 +822,6 @@ func TestTransactionalPanicRollsBackAndReleasesReservedAsyncCapacity(t *testing.
 	}
 }
 
-func TestUnownedAsyncHandoffFailsOnce(t *testing.T) {
-	ctx := context.Background()
-	fixture := newIntegrationToolFixture(t, ctx, "unowned-async-handoff")
-	call := fixture.recordToolCall(
-		t,
-		ctx,
-		"call_unowned_async_handoff",
-		"list_processes",
-		`{}`,
-		fixture.Now.Add(20*time.Second),
-	)
-	toolCallID := fixture.toolCallID(t, ctx, call.ID)
-	if _, err := fixture.Store.Execution().ExecuteToolCall(
-		ctx,
-		executionstore.ExecuteToolCallInput{
-			ProjectID:     toolsTestProjectID,
-			AgentID:       fixture.Agent.ID,
-			ToolCallID:    toolCallID,
-			RuntimeLockID: fixture.Lock.ID,
-		},
-		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
-			return executionstore.StartToolCallAsync(), nil
-		},
-	); err != nil {
-		t.Fatalf("start async execution: %v", err)
-	}
-
-	err := (Executor{
-		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
-	}).executeAsyncTool(
-		ctx,
-		asyncToolContext{
-			Executor:   Executor{Store: fixture.Store},
-			Turn:       fixture.turn(),
-			Call:       call,
-			ToolCallID: toolCallID,
-		},
-		toolHandler{
-			Async: func(
-				context.Context,
-				asyncToolContext,
-			) (asyncPhaseResult, error) {
-				return awaitDurableAsynchronously(), nil
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("execute unowned async handoff: %v", err)
-	}
-	assertDispatchTestToolState(t, ctx, fixture, call.ID, "completed", false)
-	assertDispatchTestResultCount(t, ctx, fixture, call.ID, 1)
-}
-
 func TestRuntimeToolCanBeRequeuedBeforeAsyncWorkBegins(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "runtime-tool-requeue")
@@ -916,7 +856,6 @@ func TestRuntimeToolCanBeRequeuedBeforeAsyncWorkBegins(t *testing.T) {
 	handlerCalled := false
 	executor := Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}
 	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
@@ -968,7 +907,6 @@ func TestAsyncSuccessRemainsAuthoritativeWhenExecutionContextEnds(t *testing.T) 
 	scope := NewAsyncExecutionScope(nil)
 	result, err := (Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).dispatchToolHandler(
 		WithAsyncExecutionScope(ctx, scope),
 		fixture.turn(),
@@ -1013,7 +951,7 @@ func TestAsyncSuccessRemainsAuthoritativeWhenExecutionContextEnds(t *testing.T) 
 	)
 }
 
-func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
+func TestDurableQuestionSkipsAsyncFailure(t *testing.T) {
 	ctx := context.Background()
 	fixture := newIntegrationToolFixture(t, ctx, "async-failure-interaction")
 	backgroundStarted := make(chan struct{}, 1)
@@ -1038,7 +976,6 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 		Executor{
 			Store:            fixture.Store,
 			BackgroundRunner: backgroundRunner,
-			Now:              func() time.Time { return fixture.Now.Add(22 * time.Second) },
 		},
 		fixture.turn(),
 		call,
@@ -1054,6 +991,7 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 				context.Context,
 				asyncToolContext,
 			) (asyncPhaseResult, error) {
+				t.Error("a durably waiting question must not enter the async phase")
 				return failAsynchronously(
 					dispatchTestStructuredResult(`{"code":"delivery_failed"}`),
 					errors.New("delivery failed"),
@@ -1068,8 +1006,8 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 			},
 		},
 	)
-	assertDispatchTestToolState(t, ctx, fixture, call.ID, "completed", false)
-	assertDispatchTestToolOutcome(t, ctx, fixture, call.ID, "failed")
+	assertDispatchTestToolState(t, ctx, fixture, call.ID, "waiting", false)
+	assertDispatchTestResultCount(t, ctx, fixture, call.ID, 0)
 	interaction, found, err := fixture.Store.Execution().GetAgentInteractionByToolCallKind(
 		ctx,
 		toolsTestProjectID,
@@ -1080,13 +1018,13 @@ func TestAsyncFailureCancelsTransactionalInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list interactions after async failure: %v", err)
 	}
-	if !found || interaction.State != executionstore.AgentInteractionStateCanceled {
-		t.Fatalf("interaction after async failure = %+v found=%v, want canceled", interaction, found)
+	if !found || interaction.State != executionstore.AgentInteractionStateOpen {
+		t.Fatalf("durable question = %+v found=%v, want open", interaction, found)
 	}
 	select {
 	case <-backgroundStarted:
-		t.Fatal("background phase started after async failure")
 	default:
+		t.Fatal("background phase did not start after durable wait committed")
 	}
 }
 
@@ -1104,7 +1042,6 @@ func TestAsyncPanicFailsOnlyItsToolAndReleasesCapacity(t *testing.T) {
 	scope := NewAsyncExecutionScope(NewAsyncExecutionLimiter(1))
 	result, err := (Executor{
 		Store: fixture.Store,
-		Now:   func() time.Time { return fixture.Now.Add(21 * time.Second) },
 	}).dispatchToolHandler(
 		WithAsyncExecutionScope(ctx, scope),
 		fixture.turn(),
@@ -1331,8 +1268,8 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			turn.Tools = map[string]ToolSpec{name: {Permission: toolpermission.DefaultSelection(toolpermission.ModeAlwaysAsk)}}
 			wakes := 0
 			executor := Executor{
-				Store:            fixture.Store,
-				Now:              func() time.Time { return fixture.Now.Add(21 * time.Second) },
+				Store: fixture.Store,
+
 				BackgroundRunner: backgroundRunnerFunc(func(string, func(context.Context) error) bool { wakes++; return true }),
 			}
 			if err := executor.PrepareToolCallPermission(ctx, turn, call); err != nil {

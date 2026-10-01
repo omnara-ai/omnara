@@ -101,11 +101,12 @@ skills:
 	if err := executor.ExecuteModelWork(ctx, input); err != nil {
 		t.Fatalf("execute skill-enabled model work: %v", err)
 	}
-	if modelClient.preparedCount() != 1 ||
-		len(modelClient.prepared[0].ToolSpecs) != 3 ||
-		modelClient.prepared[0].ToolSpecs[2].Name != toolcatalog.ToolNameSkill {
-		t.Fatalf("skill-enabled prompt tools = %+v, want skill", modelClient.prepared)
+	if modelClient.preparedCount() != 1 {
+		t.Fatalf("expected one skill-enabled model prepare, got %d", modelClient.preparedCount())
 	}
+	requireKernelToolNames(t, modelClient.prepared[0].ToolSpecs,
+		toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		toolcatalog.ToolNameSkill)
 	scope := executeNextToolWork(t, ctx, fixture, executor, input)
 	<-scope.Done()
 	if err := scope.Err(); err != nil {

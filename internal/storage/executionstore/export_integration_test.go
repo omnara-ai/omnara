@@ -285,10 +285,6 @@ func IntegrationModelCallOpeningInputSet(
 	return modelCallOpeningInputSet(ctx, qtx, projectID, agentID, turnID, inputEventSequence)
 }
 
-func IntegrationLoadAgentTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (AgentRecord, error) {
-	return loadAgentTx(ctx, tx, id)
-}
-
 func IntegrationParseAgentInputContentBlocks(
 	contentBlocks json.RawMessage,
 ) ([]CreateContentBlockInput, error) {
@@ -300,11 +296,10 @@ func IntegrationCreateAgentContentInputTx(
 	txNotifications *notifications.TxNotifications,
 	tx pgx.Tx,
 	qtx *dbsqlc.Queries,
-	agent AgentRecord,
 	input CreateAgentContentInputInput,
 	contentBlocks []CreateContentBlockInput,
 ) (IntegrationCreateAgentContentInputTxResult, error) {
-	result, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, agent, input, contentBlocks)
+	result, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, input, contentBlocks)
 	return IntegrationCreateAgentContentInputTxResult{
 		AgentInput:             result.agentInput,
 		ContentBlocks:          result.contentBlocks,
@@ -409,14 +404,6 @@ func IntegrationReapExpiredAgentRuntimeLockTx(
 		runtimeLockID,
 		retryBackoff,
 	)
-}
-
-func IntegrationSetAgentIntegrationTarget(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	projectID, agentID, integrationTargetID uuid.UUID,
-) (AgentRecord, error) {
-	return setAgentIntegrationTarget(ctx, qtx, projectID, agentID, integrationTargetID)
 }
 
 func IntegrationUpsertActorIdentityTx(
@@ -557,11 +544,10 @@ func IntegrationAgentMachineBindingRecordFromSQLC(
 func IntegrationResolveActorTx(
 	ctx context.Context,
 	qtx *dbsqlc.Queries,
-	projectID, agentID uuid.UUID,
+	projectID uuid.UUID,
 	params *ActorParams,
-	integrationTargetID uuid.UUID,
 ) (uuid.UUID, error) {
-	return resolveActorTx(ctx, qtx, projectID, agentID, params, integrationTargetID)
+	return resolveActorTx(ctx, qtx, projectID, params)
 }
 
 func IntegrationGetToolCallTx(

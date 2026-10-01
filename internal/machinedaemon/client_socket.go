@@ -663,7 +663,8 @@ func (t *daemonSocketTransport) offerProcess(
 	offer daemonprotocol.ProcessOffer,
 ) {
 	assignment := ProcessAssignment{
-		ID: offer.ProcessID,
+		ID:             offer.ProcessID,
+		GitCredentials: offer.GitCredentials,
 		Process: Process{
 			Command:       offer.Command,
 			ShellSelector: offer.ShellSelector,

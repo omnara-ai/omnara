@@ -593,6 +593,9 @@ func admitLockedAgentInputsAndOpenTurnTx(
 		admittedInputs = append(admittedInputs, agentInput)
 		admittedEvents = append(admittedEvents, event)
 	}
+	if err := selectAdmittedInteractionDestinationTx(ctx, tx, input.ProjectID, input.AgentID, admittedInputs); err != nil {
+		return AdmittedAgentInputTurn{}, fmt.Errorf("select admitted input interaction destination: %w", err)
+	}
 	sequence, err := qtx.NextTurnSequence(
 		ctx,
 		dbsqlc.NextTurnSequenceParams{ProjectID: input.ProjectID, AgentID: input.AgentID},

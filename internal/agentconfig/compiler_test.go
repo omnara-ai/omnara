@@ -177,27 +177,24 @@ func TestDefaultCatalogRunCommandSchemaMatchesModelFacingContract(t *testing.T) 
 	}
 }
 
-func TestIntegrationSendPermissionIsAlwaysAllowOnly(t *testing.T) {
-	catalog, err := toolcatalog.Default()
-	if err != nil {
-		t.Fatalf("default tool catalog: %v", err)
-	}
-	entry, ok := catalog.Lookup("send_integration_message")
-	if !ok {
-		t.Fatal("send_integration_message catalog entry missing")
-	}
-	if len(entry.PermissionModes) != 1 ||
-		entry.PermissionModes[0].Name != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("send_integration_message permission modes = %+v", entry.PermissionModes)
-	}
-	_, err = Compile(SourceFormatYAML, []byte(validAgentSource(`
-tools:
-  send_integration_message:
-    permission:
-      mode: always_ask
-`)), CompileOptions{})
-	if err == nil {
-		t.Fatal("expected always_ask send_integration_message permission to be rejected")
+func TestIntegrationSendPreservesConfiguredPermissionPolicy(t *testing.T) {
+	opts, _ := integrationTestOptions(t)
+	for _, mode := range []string{
+		toolpermission.ModeAlwaysAllow,
+		toolpermission.ModeAlwaysAsk,
+		toolpermission.ModeAlwaysDeny,
+	} {
+		result, err := Compile(
+			SourceFormatYAML,
+			[]byte(validAgentSource("tools:\n  int__engineering-team__post_message:\n    permission:\n      mode: "+mode+"\n")),
+			opts,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Compiled.Tools["int__engineering-team__post_message"].Permission.Mode != mode {
+			t.Fatal("integration tool changed explicit permission")
+		}
 	}
 }
 
@@ -1343,7 +1340,7 @@ tools:
 		t.Fatalf("runtime contract: %v", err)
 	}
 	if len(contract.Tools) != 3 {
-		t.Fatalf("runtime tools = %+v, want custom tool and two retrieval tools", contract.Tools)
+		t.Fatalf("runtime tools = %+v, want custom tool and retrieval tools", contract.Tools)
 	}
 	runtimeTool := contract.Tools[0]
 	if runtimeTool.Name != "lookup_customer" || runtimeTool.Type != toolcatalog.ToolTypeCustom ||
@@ -1660,7 +1657,8 @@ model:
 	if model.ConfiguredModelID != publicidTestID(90) {
 		t.Fatalf("compiled model did not persist resolved configured model: %+v", model)
 	}
-	if model.ContextWindowTokens == nil || *model.ContextWindowTokens != 100000 || model.DefaultMaxOutputTokens == nil ||
+	if model.ContextWindowTokens == nil || *model.ContextWindowTokens != 100000 ||
+		model.DefaultMaxOutputTokens == nil ||
 		*model.DefaultMaxOutputTokens != 16000 ||
 		model.CacheRetention != "short" ||
 		model.Reasoning == nil ||
@@ -2108,13 +2106,6 @@ tools:
 	}
 	if !found {
 		t.Fatal("search_files missing")
-	}
-	implicit, err := (RuntimeContract{}).WithImplicitBuiltInTool(toolcatalog.ToolNameSendIntegrationMessage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(implicit.Tools) != 1 || implicit.Tools[0].Name != toolcatalog.ToolNameSendIntegrationMessage {
-		t.Fatal("late implicit tool must not add retrieval tools")
 	}
 }
 

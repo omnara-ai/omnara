@@ -67,6 +67,8 @@ type Config struct {
 	WorkerEventWebhookConcurrency     int
 	EventWebhookPerOrgConcurrency     int
 	WorkerCapacity                    int
+	WorkerInboxCapacity               int
+	WorkerDiscordCapacity             int
 	WorkerAsyncToolCapacity           int
 	WorkerBackgroundToolCapacity      int
 	DaemonSocketFallbackDrainInterval time.Duration
@@ -215,6 +217,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workerInboxCapacity, err := getenvInt("OMNARA_WORKER_INBOX_CAPACITY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	workerDiscordCapacity, err := getenvInt("OMNARA_WORKER_DISCORD_CAPACITY", 1024)
+	if err != nil {
+		return Config{}, err
+	}
 	workerAsyncToolCapacity, err := getenvInt("OMNARA_WORKER_ASYNC_TOOL_CAPACITY", 32)
 	if err != nil {
 		return Config{}, err
@@ -256,6 +266,8 @@ func Load() (Config, error) {
 		WorkerEventWebhookConcurrency:     workerEventWebhookConcurrency,
 		EventWebhookPerOrgConcurrency:     eventWebhookPerOrgConcurrency,
 		WorkerCapacity:                    workerCapacity,
+		WorkerInboxCapacity:               workerInboxCapacity,
+		WorkerDiscordCapacity:             workerDiscordCapacity,
 		WorkerAsyncToolCapacity:           workerAsyncToolCapacity,
 		WorkerBackgroundToolCapacity:      workerBackgroundToolCapacity,
 		DaemonSocketFallbackDrainInterval: defaultDaemonSocketFallbackDrainInterval,
@@ -601,6 +613,12 @@ func (cfg Config) ValidateWorker() error {
 	}
 	if cfg.WorkerCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_CAPACITY must be positive")
+	}
+	if cfg.WorkerInboxCapacity < 1 || cfg.WorkerInboxCapacity > 100 {
+		return fmt.Errorf("OMNARA_WORKER_INBOX_CAPACITY must be between 1 and 100")
+	}
+	if cfg.WorkerDiscordCapacity <= 0 {
+		return fmt.Errorf("OMNARA_WORKER_DISCORD_CAPACITY must be positive")
 	}
 	if cfg.WorkerAsyncToolCapacity <= 0 {
 		return fmt.Errorf("OMNARA_WORKER_ASYNC_TOOL_CAPACITY must be positive")

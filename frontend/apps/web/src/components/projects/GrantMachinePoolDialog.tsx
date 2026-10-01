@@ -4,7 +4,7 @@ import {
   useProjectMachinePoolGrants,
 } from '@omnara/react'
 import { type MachinePool } from '@omnara/sdk'
-import { type SyntheticEvent, useState } from 'react'
+import { type SyntheticEvent, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -55,6 +55,7 @@ export function GrantMachinePoolDialog({
   projectId: string
   onGranted?: (pool: MachinePool) => void
 }) {
+  const inputId = useId()
   const createGrant = useCreateProjectMachinePoolGrant(orgId, projectId)
   const [selected, setSelected] = useState<SelectedPool | null>(null)
   const [status, setStatus] = useState<SubmitStatus>(idle)
@@ -96,8 +97,9 @@ export function GrantMachinePoolDialog({
         <form onSubmit={(event) => void submit(event)}>
           <FieldGroup>
             <Field>
-              <FieldLabel>Machine pool</FieldLabel>
+              <FieldLabel htmlFor={inputId}>Machine pool</FieldLabel>
               <MachinePoolCombobox
+                id={inputId}
                 items={pools}
                 value={selected?.pool ?? null}
                 onValueChange={(pool) => {

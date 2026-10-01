@@ -561,6 +561,66 @@ func (q *Queries) GetDaemonArtifactProcessScope(ctx context.Context, arg GetDaem
 	return i, err
 }
 
+const getDaemonGitCredentialsScope = `-- name: GetDaemonGitCredentialsScope :one
+SELECT process.project_id, process.agent_id,
+       coalesce((original_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS original_integration_id,
+       coalesce((current_config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS current_integration_id
+FROM processes process
+JOIN orgs org ON org.id = process.org_id AND org.deleted_at IS NULL
+JOIN projects project ON project.org_id = process.org_id AND project.id = process.project_id
+  AND project.deleted_at IS NULL
+JOIN machines machine ON machine.org_id = process.org_id AND machine.id = process.machine_id
+  AND machine.deleted_at IS NULL AND machine.lifecycle_state = 'active'
+JOIN agents agent ON agent.org_id = process.org_id AND agent.project_id = process.project_id
+  AND agent.id = process.agent_id AND agent.state = 'active'
+JOIN agent_machine_bindings binding ON binding.org_id = process.org_id
+  AND binding.project_id = process.project_id AND binding.agent_id = process.agent_id
+  AND binding.id = process.agent_machine_binding_id AND binding.machine_id = process.machine_id
+  AND binding.state = 'attached'
+JOIN project_machine_grants pmgrant ON pmgrant.org_id = process.org_id
+  AND pmgrant.project_id = process.project_id AND pmgrant.machine_id = process.machine_id
+JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
+  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_call_contexts context ON context.project_id = process.project_id
+  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
+JOIN agent_configs original_config ON original_config.project_id = process.project_id
+  AND original_config.id = context.agent_config_id
+JOIN agent_configs current_config ON current_config.project_id = process.project_id
+  AND current_config.id = agent.current_config_id
+WHERE process.org_id = $1
+  AND process.machine_id = $2
+  AND process.id = $3
+  AND process.execution_granted_at IS NOT NULL
+  AND process.state IN ('starting', 'running')
+`
+
+type GetDaemonGitCredentialsScopeParams struct {
+	OrgID     uuid.UUID
+	MachineID uuid.UUID
+	ProcessID uuid.UUID
+}
+
+type GetDaemonGitCredentialsScopeRow struct {
+	ProjectID             uuid.UUID
+	AgentID               uuid.UUID
+	OriginalIntegrationID uuid.UUID
+	CurrentIntegrationID  uuid.UUID
+}
+
+func (q *Queries) GetDaemonGitCredentialsScope(ctx context.Context, arg GetDaemonGitCredentialsScopeParams) (GetDaemonGitCredentialsScopeRow, error) {
+	row := q.db.QueryRow(ctx, getDaemonGitCredentialsScope, arg.OrgID, arg.MachineID, arg.ProcessID)
+	var i GetDaemonGitCredentialsScopeRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.AgentID,
+		&i.OriginalIntegrationID,
+		&i.CurrentIntegrationID,
+	)
+	return i, err
+}
+
 const getDaemonProcessForMachineReport = `-- name: GetDaemonProcessForMachineReport :one
 SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
 FROM processes process
@@ -1136,7 +1196,15 @@ WITH runtime AS MATERIALIZED (
     AND runtime.machine_id = $2
     AND runtime.daemon_token_id = $6::uuid
 )
-SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id, process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at, process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env, process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state, process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at, process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at, process.last_activity_at
+SELECT process.id, process.org_id, process.project_id, process.agent_id, process.tool_call_id,
+       process.runtime_lock_id, process.agent_machine_binding_id, process.machine_id, process.execution_granted_at,
+       process.io_mode, process.command, process.shell_selector, process.cwd, process.env, process.secret_env,
+       process.timeout_seconds, process.initial_wait_ms, process.default_output_cursor, process.state,
+       process.state_reason_code, process.state_reason_message, process.source_started_at, process.source_ended_at,
+       process.state_changed_at, process.exit_code, process.exit_signal, process.created_at, process.updated_at,
+       process.last_activity_at,
+       coalesce((config.compiled_definition->'git_credentials'->>'integration_id')::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS git_credentials_integration_id
 FROM processes process
 JOIN runtime ON runtime.org_id = process.org_id
   AND runtime.machine_id = process.machine_id
@@ -1147,6 +1215,11 @@ JOIN agent_machine_bindings binding ON binding.project_id = process.project_id
   AND binding.state = 'attached'
 JOIN project_machine_grants pmgrant ON pmgrant.project_id = binding.project_id
   AND pmgrant.machine_id = binding.machine_id
+JOIN tool_call_read_projection tool_call ON tool_call.project_id = process.project_id
+  AND tool_call.agent_id = process.agent_id AND tool_call.id = process.tool_call_id
+JOIN model_call_contexts context ON context.project_id = process.project_id
+  AND context.agent_id = process.agent_id AND context.id = tool_call.model_call_context_id
+JOIN agent_configs config ON config.project_id = process.project_id AND config.id = context.agent_config_id
 WHERE process.org_id = $1
   AND process.machine_id = $2
   AND process.state = 'queued'
@@ -1164,7 +1237,40 @@ type ListDaemonProcessOffersParams struct {
 	DaemonTokenID       uuid.UUID
 }
 
-func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonProcessOffersParams) ([]Process, error) {
+type ListDaemonProcessOffersRow struct {
+	ID                          uuid.UUID
+	OrgID                       uuid.UUID
+	ProjectID                   uuid.UUID
+	AgentID                     uuid.UUID
+	ToolCallID                  uuid.UUID
+	RuntimeLockID               uuid.UUID
+	AgentMachineBindingID       uuid.UUID
+	MachineID                   uuid.UUID
+	ExecutionGrantedAt          *time.Time
+	IoMode                      string
+	Command                     string
+	ShellSelector               string
+	Cwd                         string
+	Env                         json.RawMessage
+	SecretEnv                   json.RawMessage
+	TimeoutSeconds              int32
+	InitialWaitMs               int32
+	DefaultOutputCursor         int64
+	State                       string
+	StateReasonCode             *string
+	StateReasonMessage          string
+	SourceStartedAt             *time.Time
+	SourceEndedAt               *time.Time
+	StateChangedAt              time.Time
+	ExitCode                    *int32
+	ExitSignal                  string
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	LastActivityAt              time.Time
+	GitCredentialsIntegrationID uuid.UUID
+}
+
+func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonProcessOffersParams) ([]ListDaemonProcessOffersRow, error) {
 	rows, err := q.db.Query(ctx, listDaemonProcessOffers,
 		arg.OrgID,
 		arg.MachineID,
@@ -1177,9 +1283,9 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Process{}
+	items := []ListDaemonProcessOffersRow{}
 	for rows.Next() {
-		var i Process
+		var i ListDaemonProcessOffersRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -1210,6 +1316,7 @@ func (q *Queries) ListDaemonProcessOffers(ctx context.Context, arg ListDaemonPro
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastActivityAt,
+			&i.GitCredentialsIntegrationID,
 		); err != nil {
 			return nil, err
 		}

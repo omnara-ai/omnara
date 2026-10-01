@@ -1013,7 +1013,8 @@ WHERE tool_call.project_id = $1
 	if err := pool.QueryRow(
 		ctx,
 		`SELECT count(*) FROM agent_wakeups wake JOIN agents agent ON agent.id = wake.agent_id WHERE agent.project_id = $1 AND wake.agent_id = $2`,
-		project.ProjectUUID, agentID,
+		project.ProjectUUID,
+		agentID,
 	).
 		Scan(&wakeups); err != nil {
 		t.Fatalf("query delete wakeups: %v", err)
@@ -1670,14 +1671,14 @@ func TestPermissionApprovalUniquePerToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
+func TestAgentInteractionListsAndResolvesListProcessesPermission(
 	t *testing.T,
 ) {
 	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	handler := newIntegrationServer(pool)
-	project := bootstrapPublicHTTPProject(t, handler, "interaction-set-target")
+	project := bootstrapPublicHTTPProject(t, handler, "interaction-list-processes")
 	store := newIntegrationStore(pool)
 	now := time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
 	agentID, interactionID := createHTTPInteractionAuthority(
@@ -1689,9 +1690,9 @@ func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
 		project.ProjectUUID,
 		now,
 		"permission",
-		"set_integration_target",
+		"list_processes",
 		json.RawMessage(
-			`{"tool_name":"set_integration_target","input":{"target_ref":"slack-abcd"}}`,
+			`{"tool_name":"list_processes","input":{}}`,
 		),
 	)
 	agentPublicID := testPublicID(t, publicid.KindAgent, agentID)
@@ -1713,15 +1714,15 @@ func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
 	)
 	data, ok := listed["data"].([]any)
 	if !ok || len(data) != 1 {
-		t.Fatalf("expected one set-target permission interaction, got %+v", listed)
+		t.Fatalf("expected one list-processes permission interaction, got %+v", listed)
 	}
 	item, ok := data[0].(map[string]any)
 	if !ok || item["id"] != interactionPublicID {
-		t.Fatalf("unexpected set-target permission interaction: %+v", data[0])
+		t.Fatalf("unexpected list-processes permission interaction: %+v", data[0])
 	}
 	request, ok := item["request"].(map[string]any)
-	if !ok || request["title"] != "Permission requested for set_integration_target" {
-		t.Fatalf("unexpected set-target permission request: %+v", item["request"])
+	if !ok || request["title"] != "Permission requested for list_processes" {
+		t.Fatalf("unexpected list-processes permission request: %+v", item["request"])
 	}
 	if _, exposed := request["authorization"]; exposed {
 		t.Fatalf("public permission request exposed internal authorization: %+v", request)
@@ -1737,7 +1738,7 @@ func TestAgentInteractionListsAndResolvesSetIntegrationTargetPermission(
 		authHeaders(project.AdminToken),
 	)
 	if resolved["id"] != interactionPublicID || resolved["state"] != "resolved" {
-		t.Fatalf("unexpected resolved set-target permission: %+v", resolved)
+		t.Fatalf("unexpected resolved list-processes permission: %+v", resolved)
 	}
 }
 
@@ -2239,16 +2240,8 @@ func createHTTPInteractionForAgent(
 	if !ok {
 		t.Fatalf("question command returned %T", execution.CommandResult)
 	}
-	if err := store.Execution().ReleaseToolCallRuntimeOwnership(
-		ctx,
-		executionstore.ReleaseToolCallRuntimeOwnershipInput{
-			ProjectID:     projectID,
-			AgentID:       agentID,
-			ToolCallID:    calls[0].ID,
-			RuntimeLockID: runtime.ID,
-		},
-	); err != nil {
-		t.Fatalf("release question tool call: %v", err)
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting {
+		t.Fatal("question must commit into durable waiting")
 	}
 	return interaction.ID
 }

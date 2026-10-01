@@ -229,7 +229,7 @@ func uploadFileContent(
 
 func filePreShareResult(result APIResult) APIResult {
 	if result.ProviderCode == "missing_scope" {
-		result.Message = "Slack integration must be reauthorized with files:write before it can send artifacts."
+		result.Message = "Slack app must be reauthorized with files:write before it can send artifacts."
 	}
 	if result.DeliveryUnknown {
 		result.Code = "transient_failure"
@@ -638,13 +638,7 @@ func apiResultRetryable(result APIResult) bool {
 }
 
 func apiResultError(action string, result APIResult) error {
-	if result.Message != "" {
-		return fmt.Errorf("%s: %s", action, result.Message)
-	}
-	if result.Code != "" {
-		return fmt.Errorf("%s: %s", action, result.Code)
-	}
-	return fmt.Errorf("%s failed", action)
+	return fmt.Errorf("%s: %w", action, &APIError{Result: result})
 }
 
 func apiResultReason(result APIResult, fallback string) string {

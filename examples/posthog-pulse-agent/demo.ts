@@ -45,7 +45,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type Integration, type CreateIntegrationRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -166,11 +166,11 @@ Report. A short pulse, not a data dump:
   going silent, a spike concentrated in one event). If nothing moved, say
   "steady day" — never invent a story, and never pad the report.
 
-Deliver. When this conversation is driven through an integration such as
-Slack, send the pulse with send_integration_message — the external user
-only sees messages sent that way. Otherwise present it directly in the
-conversation. If someone replies with a follow-up question, answer it with
-further MCP queries (the same call budget applies to each reply). You are
+Deliver. When a Slack integration provides an int__<integration-name>__post_message tool,
+use that tool to send the pulse to the conversation that launched you.
+The external user only sees messages sent with that tool. Otherwise present
+the pulse directly in the conversation. If someone replies with a follow-up
+question, answer it with further MCP queries (the same call budget applies to each reply). You are
 strictly read-only: never call MCP tools that create, update, or delete
 anything in PostHog — no dashboards, insights, feature flags, surveys, or
 settings. Query and read tools only.
@@ -191,10 +191,6 @@ settings. Query and read tools only.
       auth: { type: 'bearer', secret_id: secretId },
       permission: { mode: 'always_allow' }, // cron runs are headless; the exposed tool surface is read-only by construction
     },
-  },
-  tools: {
-    send_integration_message: { permission: { mode: 'always_allow' } },
-    set_integration_target: {},
   },
 }
 
@@ -275,21 +271,52 @@ console.log('\nDone. The agent stays available — message it from the console o
 //    to install the Slack app.
 // 3. Invite the bot to a channel and mention it.
 //
-// Daily pulses then land in Slack, and thread replies become instructions —
-// "why did signups spike?" in the thread gets answered with fresh PostHog
-// queries.
 
 // %%
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
 
 if (slackAppConfigurationToken) {
-  const { data: slack } = await sdk.createSlackSetup({
-    client,
-    path: { ...path, agentProfileID: profile.id },
-    body: { app_name: 'PostHog Pulse', app_configuration_token: slackAppConfigurationToken },
-  })
-  console.log('open this URL to install the Slack app:')
-  console.log(slack.oauth_url)
+  const integrationName = 'posthog-pulse-agent'
+  let existingIntegration: Integration | undefined
+  let cursor: string | undefined
+  do {
+    const { data: integrations } = await sdk.listIntegrations({ client, path, query: { cursor } })
+    existingIntegration = integrations.data.find((integration) => integration.name === integrationName)
+    cursor = integrations.next_cursor ?? undefined
+  } while (!existingIntegration && cursor)
+
+  if (existingIntegration && existingIntegration.integration_kind !== 'slack_thread') {
+    throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
+  }
+  const body: CreateIntegrationRequest = {
+    name: integrationName,
+    integration_kind: 'slack_thread',
+    settings: {
+      ...existingIntegration?.settings,
+      launcher: { profiles: [profile.id] },
+    },
+  }
+  const { data: integration } = existingIntegration
+    ? await sdk.updateIntegration({
+        client,
+        path: { ...path, integrationID: existingIntegration.id },
+        body: { settings: body.settings },
+      })
+    : await sdk.createIntegration({ client, path, body })
+
+  if (integration.state === 'active') {
+    console.log('Slack integration already connected:', integration.name, integration.id)
+  } else if (integration.provider_account_ref) {
+    console.log('Reconnect this Slack integration in the project Integrations page:', integration.name, integration.id)
+  } else {
+    const { data: slack } = await sdk.createIntegrationSlackSetup({
+      client,
+      path: { ...path, integrationID: integration.id },
+      body: { app_name: 'PostHog Pulse', app_configuration_token: slackAppConfigurationToken },
+    })
+    console.log('open this URL to install the Slack app:')
+    console.log(slack.oauth_url)
+  }
 } else {
   console.log('skipped — set SLACK_APP_CONFIGURATION_TOKEN in .env to connect Slack')
 }

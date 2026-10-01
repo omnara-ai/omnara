@@ -130,6 +130,9 @@ func shouldOffloadToolResult(toolType, name string) bool {
 	case toolcatalog.ToolTypeMCP, toolcatalog.ToolTypeCustom:
 		return true
 	case toolcatalog.ToolTypeBuiltIn:
+		if toolcatalog.UsesIntegrationToolNamespace(name) {
+			return true
+		}
 		switch name {
 		case toolcatalog.ToolNameWebFetch, toolcatalog.ToolNameWebSearch, toolcatalog.ToolNameSkill:
 			return true

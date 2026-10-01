@@ -409,7 +409,7 @@ func notifyParentAgentTx(
 	if err != nil {
 		return err
 	}
-	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, parent, CreateAgentContentInputInput{
+	if _, err := createAgentContentInputTx(ctx, txNotifications, tx, qtx, CreateAgentContentInputInput{
 		ProjectID:        parent.ProjectID,
 		AgentID:          parent.ID,
 		Actor:            actor,
@@ -572,20 +572,22 @@ func (s *Store) ListAgentInteractions(
 	for _, row := range rows {
 		result.Interactions = append(result.Interactions, AgentTreeInteraction{
 			AgentInteractionRecord: agentInteractionRecordFromSQLC(dbsqlc.AgentInteractionReadProjection{
-				ID:                 row.ID,
-				ProjectID:          row.ProjectID,
-				AgentID:            row.AgentID,
-				TurnID:             row.TurnID,
-				ModelCallContextID: row.ModelCallContextID,
-				ToolCallID:         row.ToolCallID,
-				ProviderCallID:     row.ProviderCallID,
-				InteractionKind:    row.InteractionKind,
-				State:              row.State,
-				Request:            row.Request,
-				Resolution:         row.Resolution,
-				ResolvedByInputID:  row.ResolvedByInputID,
-				CreatedAt:          row.CreatedAt,
-				ResolvedAt:         row.ResolvedAt,
+				ID:                  row.ID,
+				ProjectID:           row.ProjectID,
+				AgentID:             row.AgentID,
+				TurnID:              row.TurnID,
+				ModelCallContextID:  row.ModelCallContextID,
+				ToolCallID:          row.ToolCallID,
+				ProviderCallID:      row.ProviderCallID,
+				InteractionKind:     row.InteractionKind,
+				State:               row.State,
+				Request:             row.Request,
+				Resolution:          row.Resolution,
+				ResolvedByInputID:   row.ResolvedByInputID,
+				CreatedAt:           row.CreatedAt,
+				ResolvedAt:          row.ResolvedAt,
+				Destination:         row.Destination,
+				PresentationReceipt: row.PresentationReceipt,
 			}),
 			AgentName:   row.AgentName,
 			SubagentKey: row.SubagentKey,
@@ -654,7 +656,7 @@ func (t *toolCallTransaction) sendSubagentMessage(ctx context.Context, input Sen
 	if err != nil {
 		return fmt.Errorf("marshal parent message metadata: %w", err)
 	}
-	if _, err := createAgentContentInputTx(ctx, t.notifications, t.tx, t.q, child, CreateAgentContentInputInput{
+	if _, err := createAgentContentInputTx(ctx, t.notifications, t.tx, t.q, CreateAgentContentInputInput{
 		ProjectID:              child.ProjectID,
 		AgentID:                child.ID,
 		Actor:                  actor,
@@ -760,7 +762,7 @@ func (t *toolCallTransaction) cancelSubagent(ctx context.Context, child AgentRec
 	if err != nil {
 		return err
 	}
-	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, child.ID, actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, t.q, child.ProjectID, actor)
 	if err != nil {
 		return err
 	}

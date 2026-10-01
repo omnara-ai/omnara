@@ -11,7 +11,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/publicid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
-	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/skillstore"
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
@@ -106,14 +105,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
-	integrationTargets, err := b.Store.ListIntegrationTargets(ctx, input.ProjectID, input.AgentID)
-	if err != nil {
-		return Bundle{}, err
-	}
-	contract, err = WithImplicitIntegrationMessageTool(contract, integrationTargets)
-	if err != nil {
-		return Bundle{}, err
-	}
 	toolSpecs, err := RuntimeContractToolSpecs(
 		ctx,
 		b.Store,
@@ -158,20 +149,6 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
-	if IntegrationTargetContextEnabled(toolSpecs) {
-		bundle.IntegrationTargets = make([]IntegrationTargetRef, 0, len(integrationTargets))
-		for _, target := range integrationTargets {
-			bundle.IntegrationTargets = append(bundle.IntegrationTargets, IntegrationTargetRef{
-				TargetRef:       target.TargetRef,
-				DurableID:       target.ID.String(),
-				Provider:        target.Provider,
-				ProviderRefKind: target.ProviderRefKind,
-				Label:           integrationTargetLabel(target),
-				InstallState:    string(target.InstallState),
-				IsCurrent:       target.IsCurrent,
-			})
-		}
-	}
 	for _, toolCall := range toolCalls {
 		parts := toolCall.ResultContentParts
 		if len(parts) == 0 {
@@ -207,46 +184,9 @@ func (b Builder) Build(ctx context.Context, input BuildInput) (Bundle, error) {
 	return bundle, nil
 }
 
-func integrationTargetLabel(target integrationstore.IntegrationTargetSummary) string {
-	switch target.ProviderRefKind {
-	case "dm":
-		return target.Provider + " dm " + target.ProviderRef
-	case "thread":
-		if target.Provider == integrationstore.IntegrationProviderSlack {
-			if label, ok := slackThreadLabel(target); ok {
-				return label
-			}
-		}
-		return target.Provider + " thread " + target.ProviderRef
-	default:
-		return target.Provider + " " + target.ProviderRefKind + " " + target.ProviderRef
-	}
-}
-
-func slackThreadLabel(target integrationstore.IntegrationTargetSummary) (string, bool) {
-	channelID, threadTS, ok := strings.Cut(target.ProviderRef, ":")
-	if !ok || channelID == "" || threadTS == "" {
-		return "", false
-	}
-	label := target.Provider + " thread " + threadTS + " in " + channelID
-	if name := strings.TrimSpace(target.DisplayName); name != "" {
-		label += " (#" + strings.TrimPrefix(name, "#") + ")"
-	}
-	return label, true
-}
-
 func HasTool(specs []ToolSpec, name string) bool {
 	for _, spec := range specs {
 		if spec.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func HasAnyTool(specs []ToolSpec, names ...string) bool {
-	for _, name := range names {
-		if HasTool(specs, name) {
 			return true
 		}
 	}
@@ -268,6 +208,12 @@ func defaultSystemPromptForContract(
 	}
 	if catalog := skillCatalogBlock(skills); catalog != "" {
 		parts = append(parts, catalog)
+	}
+	if len(contract.IntegrationTools) > 0 {
+		parts = append(
+			parts,
+			"Use the integration tools to communicate with external participants. Ordinary assistant text stays in Omnara.",
+		)
 	}
 	return strings.Join(parts, "\n\n")
 }

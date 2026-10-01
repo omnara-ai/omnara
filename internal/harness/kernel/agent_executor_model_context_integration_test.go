@@ -15,7 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/agentconfig"
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
+	integrationruntime "github.com/omnara-ai/omnara/internal/integration"
+	"github.com/omnara-ai/omnara/internal/integrationdefinition"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelprovider"
 	"github.com/omnara-ai/omnara/internal/secrets"
@@ -23,9 +24,9 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
 	"github.com/omnara-ai/omnara/internal/storage/modelstore"
 	"github.com/omnara-ai/omnara/internal/storage/secretstore"
-	"github.com/omnara-ai/omnara/internal/testutil/storagetest"
 	"github.com/omnara-ai/omnara/internal/toolcatalog"
-	"github.com/omnara-ai/omnara/internal/toolpermission"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentExecutorReloadsCompiledModelOverridesFromModelContext(t *testing.T) {
@@ -60,7 +61,14 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	turn := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(2*time.Millisecond))
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		launch.Agent.ID,
+		kernelTestUserID,
+		"hello",
+		now.Add(2*time.Millisecond),
+	)
 	snapshot, err := fixture.Store.Execution().CaptureAgentConfigForEventWatermark(
 		ctx,
 		kernelTestProjectID,
@@ -70,14 +78,15 @@ model:
 	if err != nil {
 		t.Fatalf("capture agent config: %v", err)
 	}
-	modelClaim, err := fixture.Store.Execution().ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
-		ProjectID:          kernelTestProjectID,
-		AgentID:            launch.Agent.ID,
-		RuntimeLockID:      turn.RuntimeLockID,
-		OpeningInputIDs:    turn.InputIDs,
-		AgentConfigID:      snapshot.AgentConfig.ID,
-		InputEventSequence: turn.OpeningEventSequence,
-	})
+	modelClaim, err := fixture.Store.Execution().
+		ClaimNormalModelCall(ctx, executionstore.ClaimNormalModelCallInput{
+			ProjectID:          kernelTestProjectID,
+			AgentID:            launch.Agent.ID,
+			RuntimeLockID:      turn.RuntimeLockID,
+			OpeningInputIDs:    turn.InputIDs,
+			AgentConfigID:      snapshot.AgentConfig.ID,
+			InputEventSequence: turn.OpeningEventSequence,
+		})
 	if err != nil {
 		t.Fatalf("claim model call context: %v", err)
 	}
@@ -107,12 +116,12 @@ model:
 	}
 }
 
-func TestAgentExecutorReloadsImplicitIntegrationToolFromModelContext(t *testing.T) {
+func TestAgentExecutorTargetDoesNotImplicitlyGrantMessagingTools(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
 	sourceYAML := `
-instruction: Send messages through the connected integration.
+instruction: Send messages through the connected integrations.
 model:
   provider_config: openai-prod
   name: implicit-integration-tool-model
@@ -124,19 +133,6 @@ model:
 		"kernel-implicit-integration-tool-agent",
 		sourceYAML,
 	)
-	launch, err := fixture.Store.Execution().LaunchAgent(
-		ctx,
-		executionstore.LaunchAgentInput{
-			ProjectID:      kernelTestProjectID,
-			ProfileID:      profile.ID,
-			AgentConfigID:  profile.CurrentConfigID,
-			LaunchedBy:     kernelTestUserPrincipal(kernelTestUserID),
-			IdempotencyKey: "kernel-implicit-integration-tool-agent",
-		},
-	)
-	if err != nil {
-		t.Fatalf("launch agent: %v", err)
-	}
 	secret, _, err := fixture.Store.Secrets().CreateSecret(
 		ctx,
 		secretstore.CreateSecretInput{
@@ -156,38 +152,56 @@ model:
 	if err != nil {
 		t.Fatalf("create integration credential secret: %v", err)
 	}
-	install, err := fixture.Store.Integrations().UpsertIntegrationInstall(
+	integration, err := fixture.Store.Integrations().
+		CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
+			Name: "implicit", IntegrationKind: integrationdefinition.SlackThread,
+		})
+	require.NoError(t, err)
+	install, err := fixture.Store.Integrations().
+		ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
+			OrgID:                 kernelTestOrgID,
+			ProjectID:             kernelTestProjectID,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
+			InstalledByUserID:     kernelTestUserID,
+			Provider:              integrationstore.IntegrationProviderSlack,
+			ProviderTenantID:      "T_IMPLICIT_TOOL",
+			ProviderAccountRef:    "A_IMPLICIT_TOOL",
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   secret.CurrentVersionID,
+			OAuthFlowID:           uuid.Must(uuid.NewV7()),
+			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
+		})
+	require.NoError(t, err)
+	actor, err := executionstore.IntegrationActorParams(install, "U_FIXTURE", nil)
+	require.NoError(t, err)
+	launch, err := fixture.Store.Execution().LaunchAgent(
 		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID:              kernelTestOrgID,
-			ProjectID:          kernelTestProjectID,
-			AgentProfileID:     profile.ID,
-			InstalledByUserID:  kernelTestUserID,
-			Provider:           integrationstore.IntegrationProviderSlack,
-			IntegrationKind:    slack.IntegrationKindAgentProfile,
-			ConnectionMode:     slack.ConnectionModeWebhook,
-			State:              integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID:   "T_IMPLICIT_TOOL",
-			ProviderAccountRef: "A_IMPLICIT_TOOL",
-			CredentialSecretID: secret.ID,
-			ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B_IMPLICIT_TOOL"}`),
+		executionstore.LaunchAgentInput{
+			ProjectID:      kernelTestProjectID,
+			ProfileID:      profile.ID,
+			AgentConfigID:  profile.CurrentConfigID,
+			LaunchedBy:     kernelTestUserPrincipal(kernelTestUserID),
+			IdempotencyKey: "kernel-implicit-integration-tool-agent",
+			InitialInput: &executionstore.LaunchInitialInput{
+				ContentBlocks:    json.RawMessage(`[{"type":"text","text":"hello"}]`),
+				SemanticEventKey: "kernel-origin",
+				Actor:            &actor,
+				Origin: &executionstore.AgentInputOrigin{
+					IntegrationID: install.ID,
+					Address: integrationstore.ConversationAddress{
+						Kind: "thread",
+						Ref:  "CIMPLICITTOOL:1.0",
+					},
+				},
+			},
 		},
 	)
 	if err != nil {
-		t.Fatalf("create integration install: %v", err)
+		t.Fatalf("launch agent: %v", err)
 	}
-	if _, err := fixture.Store.Integrations().CreateIntegrationTarget(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID:            kernelTestProjectID,
-			AgentID:              launch.Agent.ID,
-			IntegrationInstallID: install.ID,
-			ProviderRef:          "C_IMPLICIT_TOOL:1.0",
-			ProviderRefKind:      "thread",
-		},
-	); err != nil {
-		t.Fatalf("create integration target: %v", err)
-	}
+	require.NotEqual(t, uuid.Nil, launch.IntegrationTarget.ID)
 	specs, err := (AgentExecutor{Store: fixture.Store}).modelContextToolRuntime(
 		ctx,
 		kernelTestProjectID,
@@ -198,11 +212,22 @@ model:
 	if err != nil {
 		t.Fatalf("reload model context tool runtime: %v", err)
 	}
-	if len(specs) != 1 ||
-		specs[0].Name != toolcatalog.ToolNameSendIntegrationMessage ||
-		specs[0].Permission.Mode != toolpermission.ModeAlwaysAllow {
-		t.Fatalf("reloaded tool specs = %+v, want implicit send_integration_message", specs)
+	for _, spec := range specs {
+		require.False(
+			t,
+			toolcatalog.UsesIntegrationToolNamespace(spec.Name),
+			"attribution must not grant integration tools",
+		)
 	}
+	selection, err := fixture.Store.Execution().
+		GetInteractionSelection(ctx, kernelTestProjectID, launch.Agent.ID)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		executionstore.InteractionSelection{AutoSelect: true},
+		selection,
+		"an origin without a handler remains dashboard only",
+	)
 }
 
 func TestAgentExecutorRecordsErrorWhenModelGrantUnavailableBeforeContextCreation(t *testing.T) {
@@ -235,16 +260,16 @@ model:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	botToken := attachKernelSlackTarget(
+	handler := attachKernelSlackHandler(
 		t,
 		ctx,
 		fixture,
 		launch.Agent.ID,
-		profile.ID,
 		"unavailable-grant",
-		"C_UNAVAILABLE_GRANT:1.0",
+		"CUNAVAILABLEGRANT:1.0",
 	)
-	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
+	config, found, err := fixture.Store.Execution().
+		GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
 	if err != nil {
 		t.Fatalf("load agent config: %v", err)
 	}
@@ -269,7 +294,13 @@ model:
 	); err != nil {
 		t.Fatalf("revoke model grant: %v", err)
 	}
-	turn := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(3*time.Millisecond))
+	turn := fixture.admitSlackContentInputTurn(
+		t,
+		ctx,
+		handler,
+		"hello",
+		now.Add(3*time.Millisecond),
+	)
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "unavailable-grant-model",
 		responses: []model.Response{
@@ -289,7 +320,7 @@ model:
 	postedPath := ""
 	postedAuthorization := ""
 	var postedDecodeErr error
-	integrationHTTPClient := &http.Client{Transport: kernelSlackRoundTripFunc(
+	integrationHTTPClient := kernelSlackRuntimeHTTPClient(t, "unavailable-grant",
 		func(req *http.Request) (*http.Response, error) {
 			postCount++
 			postedPath = req.URL.Path
@@ -299,12 +330,12 @@ model:
 				StatusCode: http.StatusOK,
 				Header:     make(http.Header),
 				Body: io.NopCloser(strings.NewReader(
-					`{"ok":true,"channel":"C_UNAVAILABLE_GRANT","ts":"2.0"}`,
+					`{"ok":true,"channel":"CUNAVAILABLEGRANT","ts":"2.0"}`,
 				)),
 				Request: req,
 			}, nil
 		},
-	)}
+	)
 	executor := AgentExecutor{
 		Store:         fixture.Store,
 		ModelResolver: liveTestModelResolver(fixture.Store, modelClient),
@@ -312,6 +343,9 @@ model:
 			Store:                 fixture.Store,
 			IntegrationHTTPClient: integrationHTTPClient,
 		},
+		OnModelFailure: integrationruntime.RuntimeFailureNotifier{
+			Store: fixture.Store, HTTPClient: integrationHTTPClient,
+		}.Notify,
 		Now: func() time.Time { return now.Add(4 * time.Millisecond) },
 	}
 	err = executor.ExecuteModelWork(ctx, turn)
@@ -319,7 +353,10 @@ model:
 		t.Fatalf("execute turn after model grant unavailable: %v", err)
 	}
 	if len(modelClient.responses) != 1 {
-		t.Fatalf("model responded after unavailable grant; remaining responses=%d", len(modelClient.responses))
+		t.Fatalf(
+			"model responded after unavailable grant; remaining responses=%d",
+			len(modelClient.responses),
+		)
 	}
 	if postedDecodeErr != nil {
 		t.Fatalf("decode Slack runtime message: %v", postedDecodeErr)
@@ -330,12 +367,12 @@ model:
 	if postedPath != "/api/chat.postMessage" {
 		t.Fatalf("Slack runtime message path = %q", postedPath)
 	}
-	if postedAuthorization != "Bearer "+botToken {
+	if postedAuthorization != "Bearer "+handler.botToken {
 		t.Fatalf("Slack runtime message authorization = %q", postedAuthorization)
 	}
-	if postedMessage.Channel != "C_UNAVAILABLE_GRANT" ||
+	if postedMessage.Channel != "CUNAVAILABLEGRANT" ||
 		postedMessage.ThreadTS != "1.0" ||
-		postedMessage.Text != slack.AgentRequestFailureMessage {
+		postedMessage.Text != integrationruntime.AgentRequestFailureMessage {
 		t.Fatalf("Slack runtime message = %+v", postedMessage)
 	}
 	assertDurableModelErrorForKernelTest(
@@ -375,13 +412,44 @@ func (f kernelSlackRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, 
 	return f(req)
 }
 
-func attachKernelSlackTarget(
+func kernelSlackRuntimeHTTPClient(
+	t *testing.T,
+	identifier string,
+	postMessage kernelSlackRoundTripFunc,
+) *http.Client {
+	t.Helper()
+	identity, err := json.Marshal(map[string]any{
+		"ok": true, "team_id": "T_" + identifier,
+		"user_id": "B_KERNEL_TEST", "bot_id": "BOT_KERNEL_TEST",
+	})
+	require.NoError(t, err)
+	return &http.Client{Transport: kernelSlackRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		assert.Equal(t, "Bearer xoxb-"+identifier, req.Header.Get("Authorization"))
+		if req.URL.Path != "/api/auth.test" {
+			return postMessage(req)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(string(identity))),
+			Request:    req,
+		}, nil
+	})}
+}
+
+type kernelSlackHandler struct {
+	botToken    string
+	integration integrationstore.IntegrationRecord
+	target      integrationstore.IntegrationTargetRecord
+}
+
+func attachKernelSlackHandler(
 	t *testing.T,
 	ctx context.Context,
 	fixture kernelFixture,
-	agentID, agentProfileID uuid.UUID,
+	agentID uuid.UUID,
 	identifier, providerRef string,
-) string {
+) kernelSlackHandler {
 	t.Helper()
 	botToken := "xoxb-" + identifier
 	secret, _, err := fixture.Store.Secrets().CreateSecret(
@@ -403,49 +471,172 @@ func attachKernelSlackTarget(
 	if err != nil {
 		t.Fatalf("create integration credential secret: %v", err)
 	}
-	install, err := fixture.Store.Integrations().UpsertIntegrationInstall(
-		ctx,
-		integrationstore.UpsertIntegrationInstallInput{
-			OrgID:              kernelTestOrgID,
-			ProjectID:          kernelTestProjectID,
-			AgentProfileID:     agentProfileID,
-			InstalledByUserID:  kernelTestUserID,
-			Provider:           integrationstore.IntegrationProviderSlack,
-			IntegrationKind:    slack.IntegrationKindAgentProfile,
-			ConnectionMode:     slack.ConnectionModeWebhook,
-			State:              integrationstore.IntegrationInstallStateActive,
-			ProviderTenantID:   "T_" + identifier,
-			ProviderAccountRef: "A_" + identifier,
-			CredentialSecretID: secret.ID,
-			ProviderIdentity:   json.RawMessage(`{"bot_user_id":"B_KERNEL_TEST"}`),
+	const handlerKey = "runtime-notifications"
+	integration, err := fixture.Store.Integrations().
+		CreateIntegration(ctx, integrationstore.SaveIntegrationInput{
+			OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID,
+			Name: handlerKey, IntegrationKind: integrationdefinition.SlackThread,
+		})
+	require.NoError(t, err)
+	install, err := fixture.Store.Integrations().
+		ConfigureIntegration(ctx, integrationstore.ConfigureIntegrationInput{
+			OrgID:                 kernelTestOrgID,
+			ProjectID:             kernelTestProjectID,
+			IntegrationID:         integration.ID,
+			ExpectedSetupRevision: integration.SetupRevision,
+			InstalledByUserID:     kernelTestUserID,
+			Provider:              integrationstore.IntegrationProviderSlack,
+			ProviderTenantID:      "T_" + identifier,
+			ProviderAccountRef:    "A_" + identifier,
+			CredentialSecretID:    secret.ID,
+			CredentialVersionID:   secret.CurrentVersionID,
+			OAuthFlowID:           uuid.Must(uuid.NewV7()),
+			ProviderIdentity:      json.RawMessage(`{"bot_user_id":"B_KERNEL_TEST"}`),
+		})
+	require.NoError(t, err)
+	config := fixture.currentAgentConfig(t, ctx, agentID)
+	source, err := agentconfig.ParseSource(
+		agentconfig.SourceFormat(config.SourceFormat),
+		[]byte(config.Source),
+	)
+	require.NoError(t, err)
+	integrationID := install.ID
+	_, _, found := strings.Cut(providerRef, ":")
+	require.True(t, found, "runtime-message fixture requires a Slack thread")
+	if source.InteractionHandlers == nil {
+		source.InteractionHandlers = make(map[string]agentconfig.AgentConfigIntegrationCapabilitySource)
+	}
+	source.InteractionHandlers[handlerKey] = agentconfig.AgentConfigIntegrationCapabilitySource{}
+	raw, err := json.Marshal(source)
+	require.NoError(t, err)
+	configuredModel := currentConfiguredModelForKernelConfig(t, ctx, fixture.Store, config)
+	compiled, err := agentconfig.Compile(
+		agentconfig.SourceFormatJSON,
+		raw,
+		agentconfig.CompileOptions{
+			ResolveModelSelection: func(string, string) (agentconfig.ResolvedModelSelection, error) {
+				return resolvedKernelAgentConfigModel(configuredModel), nil
+			},
+			ResolveIntegrationName: func(name string) (agentconfig.IntegrationResolution, error) {
+				require.Equal(t, install.Name, name)
+				return agentconfig.IntegrationResolution{
+					IntegrationID:   integrationID,
+					IntegrationKind: install.IntegrationKind,
+				}, nil
+			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("create integration install: %v", err)
-	}
-	target, err := fixture.Store.Integrations().CreateIntegrationTarget(
-		ctx,
-		integrationstore.CreateIntegrationTargetInput{
-			ProjectID:            kernelTestProjectID,
-			AgentID:              agentID,
-			IntegrationInstallID: install.ID,
-			ProviderRef:          providerRef,
-			ProviderRefKind:      "thread",
+	require.NoError(t, err)
+	_, err = fixture.Store.Execution().ChangeAgentConfig(ctx, executionstore.ChangeAgentConfigInput{
+		CreateAgentConfigInput: executionstore.CreateAgentConfigInput{
+			ProjectID: kernelTestProjectID, Source: string(raw), SourceFormat: "json",
+			ConfiguredModelID: config.ConfiguredModelID, CompiledDefinition: compiled.CanonicalJSON,
+			EffectiveDefinitionHash: compiled.Hash,
 		},
+		AgentID:                 agentID,
+		ExpectedCurrentConfigID: config.ID,
+		ActorType:               "user",
+		ActorID:                 kernelTestUserID,
+		IdempotencyKey:          "kernel-handler-" + identifier,
+	})
+	require.NoError(t, err)
+
+	tx, err := fixture.Pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, integrationstore.LockIntegrationsTx(ctx, tx, kernelTestProjectID, nil, install.ID))
+	address := integrationstore.ConversationAddress{Kind: "thread", Ref: providerRef}
+	require.NoError(
+		t,
+		integrationstore.LockConversationTx(ctx, tx, kernelTestProjectID, install.ID, address),
 	)
-	if err != nil {
-		t.Fatalf("create integration target: %v", err)
-	}
-	if err := storagetest.SeedAgentIntegrationTarget(
+	_, err = tx.Exec(
 		ctx,
-		fixture.Pool,
+		"SELECT id FROM agents WHERE project_id = $1 AND id = $2 FOR UPDATE",
 		kernelTestProjectID,
 		agentID,
-		target.ID,
-	); err != nil {
-		t.Fatalf("set current integration target: %v", err)
+	)
+	require.NoError(t, err)
+	target, err := fixture.Store.Integrations().
+		EnsureConversationTargetTx(ctx, tx, integrationstore.EnsureConversationTargetInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID, IntegrationID: install.ID,
+			Address: address, LaunchKey: "default",
+		})
+	require.NoError(t, err)
+	require.NoError(
+		t,
+		fixture.Store.Integrations().
+			AssignAgentIntegrationConversationTx(ctx, tx, kernelTestProjectID, agentID, install.ID, address),
+	)
+	require.NoError(t, tx.Commit(ctx))
+	return kernelSlackHandler{botToken: botToken, integration: install, target: target}
+}
+
+func (f kernelFixture) admitSlackContentInputTurn(
+	t *testing.T,
+	ctx context.Context,
+	handler kernelSlackHandler,
+	text string,
+	now time.Time,
+) ModelWorkExecution {
+	t.Helper()
+	agentID := handler.target.AgentID
+	inbox := f.Store.Integrations()
+	scope, err := integrationdefinition.ParseConversation(
+		handler.integration.Provider, handler.target.ScopeKind, handler.target.ScopeRef,
+	)
+	require.NoError(t, err)
+	conversation, err := scope.ConversationJSON()
+	require.NoError(t, err)
+	_, err = inbox.CreateIntegrationSubscription(ctx, integrationstore.CreateIntegrationSubscriptionInput{
+		OrgID: kernelTestOrgID, ProjectID: kernelTestProjectID, AgentID: agentID,
+		IntegrationID: handler.integration.ID, Conversation: conversation,
+	})
+	require.NoError(t, err)
+	actor, err := executionstore.IntegrationActorParams(handler.integration, "U_KERNEL_TEST", nil)
+	require.NoError(t, err)
+	event := integrationruntime.IntegrationEvent{
+		Event:         integrationdefinition.Event{Kind: "message", Scope: scope},
+		SemanticKey:   "kernel-slack-input-" + agentID.String(),
+		ContentBlocks: mustKernelJSON([]map[string]string{{"type": "text", "text": text}}),
+		Actor:         actor,
 	}
-	return botToken
+	_, _, err = inbox.AcceptIntegrationReceipt(ctx, integrationstore.VerifiedIntegrationReceipt{
+		ProjectID: kernelTestProjectID, IntegrationID: handler.integration.ID,
+		ReceiptKey: event.SemanticKey, Payload: event.ContentBlocks,
+	})
+	require.NoError(t, err)
+	receipt, found, err := inbox.ClaimIntegrationInbox(ctx, integrationstore.ClaimIntegrationInboxInput{
+		ProjectID: kernelTestProjectID, IntegrationID: handler.integration.ID, LeaseDuration: time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, found)
+	router := integrationruntime.NewIntegrationRouter(f.Store.Execution(), inbox)
+	plan, _, err := router.Freeze(ctx, receipt.Lease(), &event, nil)
+	require.NoError(t, err)
+	require.Len(t, plan.Recipients, 1)
+	results, err := router.Admit(ctx, receipt.Lease(), nil)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Input)
+	require.True(t, results[0].Input.Created)
+	require.Equal(t, handler.target.ID, results[0].Input.AgentInput.IntegrationTargetID)
+	selection, err := f.Store.Execution().GetInteractionSelection(ctx, kernelTestProjectID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{AutoSelect: true}, selection,
+		"queued Slack content must not select a destination before turn admission")
+	claim, found, err := f.Store.Execution().ClaimNextAgentWork(ctx, kernelTestClaimInput(now.Add(2*time.Millisecond)))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, executionstore.AgentWorkModel, claim.Kind)
+	require.Equal(t, agentID, claim.AgentID)
+	require.Equal(t, []uuid.UUID{results[0].Input.AgentInput.ID}, claim.Model.InputIDs)
+	selection, err = f.Store.Execution().GetInteractionSelection(ctx, kernelTestProjectID, agentID)
+	require.NoError(t, err)
+	require.Equal(t, executionstore.InteractionSelection{
+		AutoSelect: true, IntegrationTargetID: handler.target.ID, HandlerKey: handler.integration.Name,
+	}, selection, "admitted Slack origin selects the configured handler")
+	return modelWorkExecutionFromClaimForKernelTest(claim, now.Add(3*time.Millisecond))
 }
 
 func TestAgentExecutorSettlesTurnWhenConfiguredModelWasDeleted(t *testing.T) {
@@ -480,7 +671,14 @@ func TestAgentExecutorSettlesTurnWhenConfiguredModelWasDeleted(t *testing.T) {
 		t.Fatalf("delete configured model: %v", err)
 	}
 
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "continue", now.Add(time.Millisecond))
+	work := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		agentID,
+		userID,
+		"continue",
+		now.Add(time.Millisecond),
+	)
 	executor := AgentExecutor{
 		Store: fixture.Store,
 		ModelResolver: modelprovider.Resolver{
@@ -545,11 +743,15 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossGrantReplacement(t *testing.T) 
 				)
 			})
 		},
-		responses: []model.Response{{
-			ID:         "resp_after_replacement_grant",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "prepared request completed"}},
-			StopReason: model.StopReasonEndTurn,
-		}},
+		responses: []model.Response{
+			{
+				ID: "resp_after_replacement_grant",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "prepared request completed"},
+				},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -615,7 +817,8 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossCredentialRotation(t *testing.T
 	if err != nil {
 		t.Fatalf("load model provider: %v", err)
 	}
-	credential, err := fixture.Store.Secrets().GetSecret(ctx, config.OrgID, provider.CredentialSecretID)
+	credential, err := fixture.Store.Secrets().
+		GetSecret(ctx, config.OrgID, provider.CredentialSecretID)
 	if err != nil {
 		t.Fatalf("load model credential: %v", err)
 	}
@@ -638,11 +841,15 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossCredentialRotation(t *testing.T
 				)
 			})
 		},
-		responses: []model.Response{{
-			ID:         "resp_after_credential_rotation",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "prepared request completed"}},
-			StopReason: model.StopReasonEndTurn,
-		}},
+		responses: []model.Response{
+			{
+				ID: "resp_after_credential_rotation",
+				Content: []model.ResponsePart{
+					{Type: model.ResponsePartTypeText, Text: "prepared request completed"},
+				},
+				StopReason: model.StopReasonEndTurn,
+			},
+		},
 	}
 	executor := AgentExecutor{
 		Store:         fixture.Store,
@@ -657,7 +864,11 @@ func TestAgentExecutorAllowsPreparedAttemptAcrossCredentialRotation(t *testing.T
 		t.Fatalf("rotate credential after request preparation: %v", rotationErr)
 	}
 	if rotatedVersion.ID == uuid.Nil || rotatedVersion.ID == credential.CurrentVersionID {
-		t.Fatalf("credential version was not rotated: initial=%s rotated=%s", credential.CurrentVersionID, rotatedVersion.ID)
+		t.Fatalf(
+			"credential version was not rotated: initial=%s rotated=%s",
+			credential.CurrentVersionID,
+			rotatedVersion.ID,
+		)
 	}
 	if modelClient.preparedCount() != 1 || modelClient.respondedCount() != 1 {
 		t.Fatalf(
@@ -718,7 +929,8 @@ tools:
 	if err != nil {
 		t.Fatalf("launch agent: %v", err)
 	}
-	config, found, err := fixture.Store.Execution().GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
+	config, found, err := fixture.Store.Execution().
+		GetAgentConfig(ctx, kernelTestProjectID, profile.CurrentConfigID)
 	if err != nil {
 		t.Fatalf("load agent config: %v", err)
 	}
@@ -738,7 +950,14 @@ tools:
 	); err != nil {
 		t.Fatalf("disable model tool support: %v", err)
 	}
-	turn := fixture.admitContentInputTurn(t, ctx, launch.Agent.ID, kernelTestUserID, "hello", now.Add(3*time.Millisecond))
+	turn := fixture.admitContentInputTurn(
+		t,
+		ctx,
+		launch.Agent.ID,
+		kernelTestUserID,
+		"hello",
+		now.Add(3*time.Millisecond),
+	)
 	modelClient := &sequenceKernelModel{
 		providerModelSlug: "tool-support-model",
 		capabilities:      model.Capabilities{SupportsTools: &supportsTools},
@@ -761,7 +980,10 @@ tools:
 		t.Fatalf("execute turn with unsupported required tools: %v", err)
 	}
 	if modelClient.preparedCount() != 0 {
-		t.Fatalf("model prepared %d requests after tool-support rejection, want 0", modelClient.preparedCount())
+		t.Fatalf(
+			"model prepared %d requests after tool-support rejection, want 0",
+			modelClient.preparedCount(),
+		)
 	}
 	assertDurableModelErrorForKernelTest(
 		t,

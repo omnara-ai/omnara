@@ -239,15 +239,18 @@ func TestWebConfigRoute(t *testing.T) {
 		opts           []Option
 		wantBillingURL string
 		wantAPIURL     string
+		wantPublicURL  string
 	}{
 		{
 			name: "public config set",
 			opts: []Option{
 				WithBillingURL("https://billing.omnara.test/credits/"),
 				WithPublicAPIURL("https://api.omnara.test/v1/"),
+				WithPublicURL("https://dashboard.omnara.test/"),
 			},
 			wantBillingURL: "https://billing.omnara.test/credits",
 			wantAPIURL:     "https://api.omnara.test/v1",
+			wantPublicURL:  "https://dashboard.omnara.test",
 		},
 		{name: "unset values omitted"},
 	}
@@ -255,7 +258,11 @@ func TestWebConfigRoute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := mustNewUnitServer(t, tt.opts...)
 			rec := httptest.NewRecorder()
-			server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, webConfigPath, nil))
+			target := webConfigPath
+			if tt.wantPublicURL != "" {
+				target = tt.wantPublicURL + webConfigPath
+			}
+			server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 			if rec.Code != http.StatusOK {
 				t.Fatalf("web config status = %d, want %d", rec.Code, http.StatusOK)
 			}
@@ -266,6 +273,7 @@ func TestWebConfigRoute(t *testing.T) {
 			for key, want := range map[string]string{
 				"billing_url": tt.wantBillingURL,
 				"api_url":     tt.wantAPIURL,
+				"public_url":  tt.wantPublicURL,
 			} {
 				got, ok := body[key]
 				if want == "" {
@@ -738,8 +746,8 @@ func TestPublicIDEncodingInvariantReturnsHTTP500(t *testing.T) {
 
 func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) {
 	authorization, err := toolpermission.NewAuthorization(
-		"set_integration_target",
-		json.RawMessage(`{"target_ref":"slack-abcd"}`),
+		"set_interaction_handler",
+		json.RawMessage(`{"destination":null}`),
 	)
 	if err != nil {
 		t.Fatalf("build permission authorization: %v", err)
@@ -752,8 +760,8 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 		t.Fatal("always_ask permission mode missing")
 	}
 	value, err := toolpermission.NewAllowDenyForm(
-		"Permission requested for set_integration_target",
-		[]interactionform.ContextItem{{Label: "Target", Value: "slack-abcd"}},
+		"Permission requested for set_interaction_handler",
+		[]interactionform.ContextItem{{Label: "Destination", Value: "Omnara dashboard"}},
 	)
 	if err != nil {
 		t.Fatalf("build permission interaction form: %v", err)
@@ -808,10 +816,10 @@ func TestAgentInteractionResponseOmitsInternalPermissionAuthority(t *testing.T) 
 	if _, exposed := request["authorization"]; exposed {
 		t.Fatalf("public response exposed internal authorization: %+v", request)
 	}
-	if request["title"] != "Permission requested for set_integration_target" {
+	if request["title"] != "Permission requested for set_interaction_handler" {
 		t.Fatalf("public response lost interaction form title: %+v", request)
 	}
-	if decoded["tool_name"] != "set_integration_target" {
+	if decoded["tool_name"] != "set_interaction_handler" {
 		t.Fatalf("public response lost permission tool name: %+v", decoded)
 	}
 	if toolCallID, ok := decoded["tool_call_id"].(string); !ok || !strings.HasPrefix(toolCallID, "tcl_") {
@@ -1483,7 +1491,8 @@ func TestFlattenedRouteTableMatchesOnlyExactNestedRoutes(t *testing.T) {
 		{
 			name:   "slack setup route exact match",
 			method: http.MethodPost,
-			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/agent-profiles/" + agentProfilePath +
+			path: "/api/v1/orgs/" + orgPath + "/projects/" + projectPath + "/integrations/" +
+				strings.Replace(agentProfilePath, "aprf_", "itg_", 1) +
 				"/slack-setup",
 			body: `{}`,
 			want: http.StatusForbidden,

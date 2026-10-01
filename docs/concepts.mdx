@@ -32,6 +32,19 @@ Once an agent has started, interact with it by:
 * [Sending inputs](/events/sending-input), such as messages or file attachments
 * Resolving [questions and approvals](/events/interactions)
 
+## Integrations
+
+[Integrations](/integrations/overview) connect one project to a provider such as Slack, Discord
+or GitHub. Create an integration from the project's Integrations page, configure its credentials,
+and optionally choose which profiles it launches from provider events.
+
+An integration can supply tools for taking actions, a subscription capability for
+receiving activity, and an interaction handler for presenting questions and approvals. Agent configs
+select tools and handlers; launch requests or the integration subscriptions API attach
+conversations to agents. Changing config or removing a sending tool does not
+change subscriptions. Stop incoming forwarding from the integration's **Conversations**
+list or delete the subscription through the API.
+
 ## Continue
 
 <CardGroup cols={2}>

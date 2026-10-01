@@ -16,8 +16,40 @@ import (
 type DaemonProcessOffer struct {
 	Process          ProcessRecord     `json:"process"`
 	Env              map[string]string `json:"env"`
+	GitCredentials   bool              `json:"git_credentials"`
 	PreparationError string            `json:"preparation_error"`
 	RetryError       error             `json:"-"`
+}
+
+type DaemonGitCredentialsScope struct {
+	ProjectID     uuid.UUID
+	AgentID       uuid.UUID
+	IntegrationID uuid.UUID
+}
+
+func (s *Store) GetDaemonGitCredentialsScope(
+	ctx context.Context,
+	orgID, machineID, processID uuid.UUID,
+) (DaemonGitCredentialsScope, bool, error) {
+	if orgID == uuid.Nil || machineID == uuid.Nil || processID == uuid.Nil {
+		return DaemonGitCredentialsScope{}, false, errors.New("organization, machine, and process are required")
+	}
+	row, err := s.q.GetDaemonGitCredentialsScope(ctx, dbsqlc.GetDaemonGitCredentialsScopeParams{
+		OrgID: orgID, MachineID: machineID, ProcessID: processID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DaemonGitCredentialsScope{}, false, nil
+	}
+	if err != nil {
+		return DaemonGitCredentialsScope{}, false, fmt.Errorf("load daemon Git credentials scope: %w", err)
+	}
+	if row.OriginalIntegrationID == uuid.Nil || row.CurrentIntegrationID != row.OriginalIntegrationID {
+		return DaemonGitCredentialsScope{}, false, nil
+	}
+	return DaemonGitCredentialsScope{
+		ProjectID: row.ProjectID, AgentID: row.AgentID,
+		IntegrationID: row.OriginalIntegrationID,
+	}, true, nil
 }
 
 type DaemonArtifactProcessScope struct {

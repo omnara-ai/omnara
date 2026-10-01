@@ -205,7 +205,7 @@ func TestFilePreShareResultExplainsMissingScope(t *testing.T) {
 	t.Parallel()
 	result := filePreShareResult(ErrorResult("missing_scope"))
 	if result.Code != "permanent_failure" || result.ProviderCode != "missing_scope" ||
-		result.Message != "Slack integration must be reauthorized with files:write before it can send artifacts." {
+		result.Message != "Slack app must be reauthorized with files:write before it can send artifacts." {
 		t.Fatalf("pre-share result = %+v", result)
 	}
 }

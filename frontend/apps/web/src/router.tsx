@@ -164,6 +164,36 @@ const projectAgentsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
+const integrationsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations',
+  component: lazyRouteComponent(() => import('@/routes/IntegrationsPage'), 'IntegrationsPage'),
+})
+
+const integrationCatalogRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/new',
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateIntegrationPage'),
+    'CreateIntegrationPage',
+  ),
+})
+
+const createIntegrationRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/new/$integrationKind',
+  component: lazyRouteComponent(
+    () => import('@/routes/CreateIntegrationPage'),
+    'CreateIntegrationPage',
+  ),
+})
+
+const integrationDetailRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/integrations/$integrationId',
+  component: lazyRouteComponent(() => import('@/routes/IntegrationPage'), 'IntegrationPage'),
+})
+
 const projectGrantsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/grants',
@@ -319,6 +349,10 @@ const routeTree = rootRoute.addChildren([
       organizationSettingsRoute,
       projectRoute,
       projectAgentsRoute,
+      integrationsRoute,
+      integrationCatalogRoute,
+      createIntegrationRoute,
+      integrationDetailRoute,
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,

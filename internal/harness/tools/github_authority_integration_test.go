@@ -1,0 +1,133 @@
+//go:build integration
+
+package tools
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/model"
+	"github.com/omnara-ai/omnara/internal/storage/executionstore"
+	"github.com/omnara-ai/omnara/internal/storage/integrationstore"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func githubToolTestCalls() []model.ToolCall {
+	return []model.ToolCall{
+		{ID: "read", Name: "int__chat__read", Input: json.RawMessage(`{}`)},
+		{ID: "reviews", Name: "int__chat__read", Input: json.RawMessage(`{"section":"reviews"}`)},
+		{ID: "threads", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review_threads"}`)},
+		{ID: "pending-review", Name: "int__chat__read", Input: json.RawMessage(`{"section":"pending_review"}`)},
+		{ID: "review", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review","review_id":42}`)},
+		{ID: "review-comments", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review_comments","review_id":42}`)},
+		{ID: "start-review", Name: "int__chat__start_review", Input: json.RawMessage(`{"commit_id":"abc123"}`)},
+		{ID: "discard-review", Name: "int__chat__discard_review", Input: json.RawMessage(`{"review_id":42}`)},
+		{ID: "submit-review", Name: "int__chat__submit_review", Input: json.RawMessage(`{"review_id":42,"body":"Summary"}`)},
+		{ID: "draft-comment", Name: "int__chat__review_comment", Input: json.RawMessage(`{"review_id":42,"body":"Finding","path":"a.go","line":1,"side":"RIGHT"}`)},
+		{ID: "discussion", Name: "int__chat__discussion_comment", Input: json.RawMessage(`{"body":"Review"}`)},
+		{
+			ID: "review-comment", Name: "int__chat__review_comment",
+			Input: json.RawMessage(`{"body":"Fix","commit_id":"abc123","path":"service.go","line":9,"side":"RIGHT"}`),
+		},
+		{ID: "reply", Name: "int__chat__reply", Input: json.RawMessage(`{"comment_id":31,"body":"Resolved"}`)},
+	}
+}
+
+func TestGitHubIntegrationAuthorityBeforeEveryRequest(t *testing.T) {
+	for _, call := range githubToolTestCalls() {
+		for _, scenario := range []string{"removed-before-dispatch", "removed-after-token", "disconnected"} {
+			t.Run(call.ID+"/"+scenario, func(t *testing.T) {
+				ctx := t.Context()
+				f := newIntegrationToolFixtureWithOptions(t, ctx, "github-authority", toolFixtureOptions{
+					withGitHubIntegration: true, withToolContext: true,
+				})
+				f.recordToolCalls(t, ctx, []model.ToolCall{call}, f.Now)
+				source, err := agentconfig.ParseSource(
+					agentconfig.SourceFormat(f.AgentConfig.SourceFormat),
+					[]byte(f.AgentConfig.Source),
+				)
+				require.NoError(t, err)
+				delete(source.Tools, call.Name)
+				changeInput := integrationToolConfigChangeInput(t, f, source)
+				revoke := func() error {
+					if scenario == "disconnected" {
+						_, err := f.Store.Integrations().DisconnectIntegration(
+							ctx,
+							integrationstore.DisconnectIntegrationInput{
+								ProjectID: f.Agent.ProjectID, IntegrationID: f.Install.ID, ExpectedSetupRevision: &f.Install.SetupRevision,
+							},
+						)
+						return err
+					}
+					_, err := f.Store.Execution().ChangeAgentConfig(ctx, changeInput)
+					return err
+				}
+				if scenario == "removed-before-dispatch" {
+					require.NoError(t, revoke())
+				}
+				var requests atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if requests.Add(1) != 1 || scenario == "removed-before-dispatch" ||
+						r.URL.Path != "/app/installations/22/access_tokens" {
+						t.Errorf("provider request after authority was revoked: %s %s", r.Method, r.URL.Path)
+						w.WriteHeader(http.StatusForbidden)
+						return
+					}
+					if !assert.NoError(t, revoke()) {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+					writeToolTestJSON(w, map[string]any{
+						"token": "installation-token", "expires_at": time.Now().Add(time.Hour),
+					})
+				}))
+				defer server.Close()
+				_, err = dispatchAsyncToolToTerminal(t, ctx,
+					Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+				require.NoError(t, err)
+				record, err := f.Store.Execution().GetToolCall(ctx, f.Agent.ProjectID, f.Agent.ID, f.toolCallID(t, ctx, call.ID))
+				require.NoError(t, err)
+				require.Equal(t, executionstore.ToolResultOutcomeFailed, record.Outcome)
+				require.Equal(t, "integration_tool_failed", toolResultMapFromTestParts(t, record.ResultContentParts)["code"])
+				if scenario == "removed-before-dispatch" {
+					require.Zero(t, requests.Load())
+				} else {
+					require.EqualValues(t, 1, requests.Load(), "minting a token must not preserve revoked authority")
+				}
+			})
+		}
+	}
+}
+
+func TestGitHubIntegrationReplyRejectsForeignPullRequest(t *testing.T) {
+	ctx := t.Context()
+	f := newIntegrationToolFixtureWithOptions(t, ctx, "github-foreign-reply", toolFixtureOptions{
+		withGitHubIntegration: true, withToolContext: true,
+	})
+	var reads, posts atomic.Int32
+	server := githubToolTestServer(t, "write", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		reads.Add(1)
+		assert.Equal(t, "/repos/octo/renamed/pulls/comments/31", r.URL.Path)
+		writeToolTestJSON(w, map[string]any{
+			"id": 31, "pull_request_url": "https://api.github.com/repos/octo/renamed/pulls/8",
+		})
+	})
+	call := f.recordToolCall(t, ctx, "reply", "int__chat__reply", `{"comment_id":31,"body":"Reply"}`, f.Now)
+	result, err := dispatchAsyncToolToTerminal(t, ctx,
+		Executor{Store: f.Store, IntegrationHTTPClient: integrationProviderTestClient(server)}, f.turn(), call)
+	require.NoError(t, err)
+	require.Equal(t, "scope_mismatch", toolResultMapFromTestParts(t, result.ContentParts)["code"])
+	require.EqualValues(t, 1, reads.Load())
+	require.Zero(t, posts.Load(), "a comment ID from another PR must not redirect the reply")
+}

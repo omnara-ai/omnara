@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -309,6 +310,30 @@ func TestDispatchMapsArguments(t *testing.T) {
 	if got := echoed.Query["metadata[env]"]; len(got) != 1 || got[0] != "prod" {
 		t.Fatalf("deepObject query = %v", echoed.Query)
 	}
+
+	target := map[string]any{
+		"type":           "integration",
+		"integration_id": "itg_abcdefghijklmnopqrstuvwxyz",
+		"settings": map[string]any{
+			"agent_profile_id":         "aprf_abcdefghijklmnopqrstuvwxyz",
+			"channel_id":               "C123",
+			"opening_message_template": "Daily review",
+			"message_template":         "Review today's changes",
+		},
+	}
+	echoed, result = callEcho(t, session, "crons_create", map[string]any{
+		"orgID": testOrgID, "projectID": testProject,
+		"name": "daily-review", "cron": "0 9 * * *", "target": target,
+	})
+	if result.IsError {
+		t.Fatalf("integration cron rejected: %+v", result.Content)
+	}
+	if err := json.Unmarshal(echoed.Body, &body); err != nil {
+		t.Fatalf("decode cron body: %v", err)
+	}
+	if !reflect.DeepEqual(body["target"], target) {
+		t.Fatalf("cron target = %v, want %v", body["target"], target)
+	}
 }
 
 func TestInputSchemaIsEnforced(t *testing.T) {
@@ -330,6 +355,10 @@ func TestInputSchemaIsEnforced(t *testing.T) {
 		}},
 		{name: "wrong body type", tool: "agents_launch", arguments: map[string]any{
 			"orgID": testOrgID, "projectID": testProject, "config": testConfigID, "name": 7,
+		}},
+		{name: "missing integration settings", tool: "crons_create", arguments: map[string]any{
+			"orgID": testOrgID, "projectID": testProject, "name": "daily-review", "cron": "0 9 * * *",
+			"target": map[string]any{"type": "integration", "integration_id": "itg_abcdefghijklmnopqrstuvwxyz"},
 		}},
 	}
 	for _, tc := range cases {

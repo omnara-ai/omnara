@@ -223,7 +223,11 @@ func TestPreparePassesThroughContextMessageRoles(t *testing.T) {
 	prepared, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{Messages: []modelcontext.Message{
 			{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"hi"}]`)},
-			{Sequence: 2, Role: modelprotocol.RoleAssistant, Content: json.RawMessage(`[{"type":"text","text":"hello"}]`)},
+			{
+				Sequence: 2,
+				Role:     modelprotocol.RoleAssistant,
+				Content:  json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
 		}},
 		Policy: model.RequestPolicy{MaxOutputTokens: 64},
 	})
@@ -289,7 +293,9 @@ func TestPreparePreservesCanonicalToolResultContent(t *testing.T) {
 					Outcome:            executionstore.ToolResultOutcomeSucceeded,
 					ContentParts: json.RawMessage(
 						`[{"type":"structured_data","value":{"outcome":"succeeded"}},{"type":"structured_data","value":` +
-							string(canonicalValue) + `}]`,
+							string(
+								canonicalValue,
+							) + `}]`,
 					),
 				},
 			},
@@ -436,7 +442,9 @@ func TestPrepareRejectsToolsWhenModelDoesNotSupportTools(t *testing.T) {
 	}
 	_, err := client.Prepare(context.Background(), model.PrepareInput{
 		Context: modelcontext.Bundle{
-			ToolSpecs: []modelcontext.ToolSpec{{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+			ToolSpecs: []modelcontext.ToolSpec{
+				{Name: "run_command", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			},
 		},
 		Policy: model.RequestPolicy{MaxOutputTokens: 64},
 	})
@@ -560,22 +568,16 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		Context: modelcontext.Bundle{
 			SystemPrompt:      "sys",
 			ContextCheckpoint: &modelcontext.CheckpointRef{ID: "ccp_1", Summary: "stable summary"},
-			IntegrationTargets: []modelcontext.IntegrationTargetRef{
-				{
-					TargetRef:       "slack-abcd",
-					DurableID:       "internal-target-id",
-					Provider:        "slack",
-					ProviderRefKind: "thread",
-					Label:           "slack thread C123",
-					IsCurrent:       true,
-				},
-			},
 			Messages: []modelcontext.Message{
-				{Sequence: 1, Role: modelprotocol.RoleUser, Content: json.RawMessage(`[{"type":"text","text":"changing user suffix"}]`)},
+				{
+					Sequence: 1,
+					Role:     modelprotocol.RoleUser,
+					Content:  json.RawMessage(`[{"type":"text","text":"changing user suffix"}]`),
+				},
 			},
 			ToolSpecs: []modelcontext.ToolSpec{
 				{Name: toolcatalog.ToolNameRunCommand},
-				{Name: toolcatalog.ToolNameSendIntegrationMessage},
+				{Name: toolcatalog.ToolNameAskQuestion},
 			},
 			InputEventSequence: 10,
 		},
@@ -609,12 +611,9 @@ func TestPrepareCacheBreakpointsStayOnStablePrefix(t *testing.T) {
 		!strings.Contains(system, "context_checkpoint") {
 		t.Fatalf("expected only fixed checkpoint guidance in the cached system prefix: %s", system)
 	}
-	if len(systemBlocks) != 2 || systemBlocks[0].CacheControl != nil ||
-		systemBlocks[1].CacheControl == nil ||
-		!strings.Contains(systemBlocks[1].Text, "External integration targets") ||
-		!strings.Contains(systemBlocks[1].Text, "slack-abcd") ||
-		strings.Contains(systemBlocks[1].Text, "internal-target-id") {
-		t.Fatalf("expected integration target refs without durable ids: %s", system)
+	if len(systemBlocks) != 1 || systemBlocks[0].CacheControl == nil ||
+		!strings.HasPrefix(systemBlocks[0].Text, "sys\n\n") {
+		t.Fatalf("expected a cache breakpoint on the system prefix: %s", system)
 	}
 	if len(payload.Messages) != 1 || len(payload.Messages[0].Content) != 2 {
 		t.Fatalf("messages = %+v, want checkpoint/history blocks", payload.Messages)

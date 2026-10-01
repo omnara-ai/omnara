@@ -61,7 +61,7 @@ func (q *Queries) ArchiveAgent(ctx context.Context, arg ArchiveAgentParams) (int
 
 const getAgent = `-- name: GetAgent :one
 SELECT id, org_id, project_id, state, name,
-       agent_profile_id, current_config_id, integration_target_id,
+       agent_profile_id, current_config_id, interaction_target_id,
        coalesce(idempotency_key, '') AS idempotency_key,
        next_event_sequence, created_at, updated_at, archived_at,
        parent_agent_id, subagent_key
@@ -81,7 +81,7 @@ type GetAgentRow struct {
 	Name                string
 	AgentProfileID      *uuid.UUID
 	CurrentConfigID     uuid.UUID
-	IntegrationTargetID *uuid.UUID
+	InteractionTargetID *uuid.UUID
 	IdempotencyKey      string
 	NextEventSequence   int64
 	CreatedAt           time.Time
@@ -102,7 +102,7 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (GetAgentRow
 		&i.Name,
 		&i.AgentProfileID,
 		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
+		&i.InteractionTargetID,
 		&i.IdempotencyKey,
 		&i.NextEventSequence,
 		&i.CreatedAt,
@@ -116,7 +116,7 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (GetAgentRow
 
 const getAgentByIdempotencyKey = `-- name: GetAgentByIdempotencyKey :one
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
        agent.parent_agent_id, agent.subagent_key,
@@ -149,7 +149,7 @@ type GetAgentByIdempotencyKeyRow struct {
 	Name                    string
 	AgentProfileID          *uuid.UUID
 	CurrentConfigID         uuid.UUID
-	IntegrationTargetID     *uuid.UUID
+	InteractionTargetID     *uuid.UUID
 	IdempotencyKey          string
 	NextEventSequence       int64
 	CreatedAt               time.Time
@@ -174,7 +174,7 @@ func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentById
 		&i.Name,
 		&i.AgentProfileID,
 		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
+		&i.InteractionTargetID,
 		&i.IdempotencyKey,
 		&i.NextEventSequence,
 		&i.CreatedAt,
@@ -190,7 +190,7 @@ func (q *Queries) GetAgentByIdempotencyKey(ctx context.Context, arg GetAgentById
 
 const getAgentInProject = `-- name: GetAgentInProject :one
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
        agent.parent_agent_id, agent.subagent_key,
@@ -222,7 +222,7 @@ type GetAgentInProjectRow struct {
 	Name                    string
 	AgentProfileID          *uuid.UUID
 	CurrentConfigID         uuid.UUID
-	IntegrationTargetID     *uuid.UUID
+	InteractionTargetID     *uuid.UUID
 	IdempotencyKey          string
 	NextEventSequence       int64
 	CreatedAt               time.Time
@@ -247,7 +247,7 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 		&i.Name,
 		&i.AgentProfileID,
 		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
+		&i.InteractionTargetID,
 		&i.IdempotencyKey,
 		&i.NextEventSequence,
 		&i.CreatedAt,
@@ -264,30 +264,30 @@ func (q *Queries) GetAgentInProject(ctx context.Context, arg GetAgentInProjectPa
 const insertAgent = `-- name: InsertAgent :one
 WITH inserted AS (
     INSERT INTO agents(
-        org_id, project_id, state, name, agent_profile_id, current_config_id,
+        id, org_id, project_id, state, name, agent_profile_id, current_config_id,
         idempotency_key, parent_agent_id, subagent_key,
         archive_after_idle_minutes, created_at, updated_at
     )
     SELECT
-        $1, $2, 'active', $3,
-        $4, $5, $6,
-        $7, $8,
-        $9,
+        coalesce($1::uuid, uuidv7()), $2, $3, 'active', $4,
+        $5, $6, $7,
+        $8, $9,
+        $10,
         transaction_timestamp(), transaction_timestamp()
     FROM projects project
     JOIN orgs org ON org.id = project.org_id
-    WHERE project.org_id = $1
-      AND project.id = $2
+    WHERE project.org_id = $2
+      AND project.id = $3
       AND project.deleted_at IS NULL
       AND org.deleted_at IS NULL
     ON CONFLICT (project_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
     RETURNING id, org_id, project_id, state, name,
-              agent_profile_id, current_config_id, integration_target_id,
+              agent_profile_id, current_config_id, interaction_target_id,
               idempotency_key, next_event_sequence, created_at, updated_at, archived_at,
               parent_agent_id, subagent_key
 )
 SELECT agent.id, agent.org_id, agent.project_id, agent.state, agent.name,
-       agent.agent_profile_id, agent.current_config_id, agent.integration_target_id,
+       agent.agent_profile_id, agent.current_config_id, agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence, agent.created_at, agent.updated_at, agent.archived_at,
        agent.parent_agent_id, agent.subagent_key,
@@ -306,6 +306,7 @@ LEFT JOIN model_provider_configs model_provider_config
 `
 
 type InsertAgentParams struct {
+	ID                      *uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	Name                    string
@@ -325,7 +326,7 @@ type InsertAgentRow struct {
 	Name                    string
 	AgentProfileID          *uuid.UUID
 	CurrentConfigID         uuid.UUID
-	IntegrationTargetID     *uuid.UUID
+	InteractionTargetID     *uuid.UUID
 	IdempotencyKey          string
 	NextEventSequence       int64
 	CreatedAt               time.Time
@@ -341,6 +342,7 @@ type InsertAgentRow struct {
 // Display-only model names must still resolve after the model or provider config is soft deleted.
 func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (InsertAgentRow, error) {
 	row := q.db.QueryRow(ctx, insertAgent,
+		arg.ID,
 		arg.OrgID,
 		arg.ProjectID,
 		arg.Name,
@@ -360,7 +362,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 		&i.Name,
 		&i.AgentProfileID,
 		&i.CurrentConfigID,
-		&i.IntegrationTargetID,
+		&i.InteractionTargetID,
 		&i.IdempotencyKey,
 		&i.NextEventSequence,
 		&i.CreatedAt,
@@ -383,7 +385,7 @@ SELECT agent.id,
        agent.name,
        agent.agent_profile_id,
        agent.current_config_id,
-       agent.integration_target_id,
+       agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence,
        agent.created_at,
@@ -391,35 +393,28 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
-       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name,
-       CASE $7::text
+       CASE $6::text
          WHEN 'name' THEN lower(agent.name)
          WHEN 'created_at' THEN to_char(agent.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'updated_at' THEN to_char(agent.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')
          WHEN 'state' THEN agent.state
-         WHEN 'integration_provider' THEN lower(install.provider)
-         WHEN 'integration_target_kind' THEN lower(target.provider_ref_kind)
-       END::text AS sort_key,
-       CASE $7::text
-         WHEN 'integration_provider' THEN target.id IS NULL
-         WHEN 'integration_target_kind' THEN target.id IS NULL
-         ELSE false
-       END AS sort_is_null
+       END::text AS sort_key
 FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
  AND target.agent_id = agent.id
- AND target.id = agent.integration_target_id
+ AND target.id = agent.interaction_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -430,56 +425,45 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = $8
-  AND ($9::boolean OR agent.state = 'active')
-  AND ($10::text = '' OR agent.name ILIKE $10::text ESCAPE '\')
-  AND (COALESCE(cardinality($11::text[]), 0) = 0 OR install.provider = ANY($11::text[]))
-  AND (COALESCE(cardinality($12::text[]), 0) = 0 OR target.provider_ref_kind = ANY($12::text[]))
-  AND ($13::boolean IS NULL OR (target.id IS NOT NULL) = $13::boolean)
-  AND ($14::uuid IS NULL OR agent.agent_profile_id = $14::uuid)
-  AND ($15::uuid IS NULL OR agent.parent_agent_id = $15::uuid)
-  AND ($16::boolean OR $15::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+WHERE agent.project_id = $7
+  AND ($8::boolean OR agent.state = 'active')
+  AND ($9::text = '' OR agent.name ILIKE $9::text ESCAPE '\')
+  AND ($10::uuid IS NULL OR agent.agent_profile_id = $10::uuid)
+  AND ($11::uuid IS NULL OR agent.parent_agent_id = $11::uuid)
+  AND ($12::boolean OR $11::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
 )
 SELECT id, org_id, project_id, state, name, agent_profile_id, current_config_id,
-       integration_target_id, idempotency_key,
+       interaction_target_id, idempotency_key,
        next_event_sequence, created_at, updated_at,
-       archived_at, parent_agent_id, subagent_key, integration_target_provider,
-       integration_target_provider_tenant_id, integration_target_provider_ref,
-       integration_target_provider_ref_kind,
+       archived_at, parent_agent_id, subagent_key, integration_target_integration_kind,
+       integration_target_provider_tenant_id, integration_target_scope_ref,
+       integration_target_scope_kind,
        integration_target_display_name, model_name,
-       model_provider_config_name, sort_key, sort_is_null
+       model_provider_config_name, sort_key
 FROM listed
 WHERE $1::boolean = false
-   OR sort_is_null > $2::boolean
-   OR (sort_is_null = $2::boolean AND (
-        ($3::boolean = false AND (sort_key, id) > ($4::text, $5::uuid))
-     OR ($3::boolean = true AND (sort_key, id) < ($4::text, $5::uuid))
-   ))
-ORDER BY sort_is_null ASC,
-         CASE WHEN $3::boolean = false THEN sort_key END ASC,
-         CASE WHEN $3::boolean = true THEN sort_key END DESC,
-         CASE WHEN $3::boolean = false THEN id END ASC,
-         CASE WHEN $3::boolean = true THEN id END DESC
-LIMIT $6::bigint
+   OR ($2::boolean = false AND (sort_key, id) > ($3::text, $4::uuid))
+   OR ($2::boolean = true AND (sort_key, id) < ($3::text, $4::uuid))
+ORDER BY CASE WHEN $2::boolean = false THEN sort_key END ASC,
+         CASE WHEN $2::boolean = true THEN sort_key END DESC,
+         CASE WHEN $2::boolean = false THEN id END ASC,
+         CASE WHEN $2::boolean = true THEN id END DESC
+LIMIT $5::bigint
 `
 
 type ListAgentsForProjectParams struct {
-	CursorSet              bool
-	CursorIsNull           bool
-	SortDesc               bool
-	CursorKey              string
-	CursorID               uuid.UUID
-	RowLimit               int64
-	SortField              string
-	ProjectID              uuid.UUID
-	IncludeArchived        bool
-	NamePattern            string
-	IntegrationProviders   []string
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
+	CursorSet        bool
+	SortDesc         bool
+	CursorKey        string
+	CursorID         uuid.UUID
+	RowLimit         int64
+	SortField        string
+	ProjectID        uuid.UUID
+	IncludeArchived  bool
+	NamePattern      string
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
 }
 
 type ListAgentsForProjectRow struct {
@@ -490,7 +474,7 @@ type ListAgentsForProjectRow struct {
 	Name                              string
 	AgentProfileID                    *uuid.UUID
 	CurrentConfigID                   uuid.UUID
-	IntegrationTargetID               *uuid.UUID
+	InteractionTargetID               *uuid.UUID
 	IdempotencyKey                    string
 	NextEventSequence                 int64
 	CreatedAt                         time.Time
@@ -498,21 +482,19 @@ type ListAgentsForProjectRow struct {
 	ArchivedAt                        *time.Time
 	ParentAgentID                     *uuid.UUID
 	SubagentKey                       string
-	IntegrationTargetProvider         string
+	IntegrationTargetIntegrationKind  string
 	IntegrationTargetProviderTenantID string
-	IntegrationTargetProviderRef      string
-	IntegrationTargetProviderRefKind  string
+	IntegrationTargetScopeRef         string
+	IntegrationTargetScopeKind        string
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
 	SortKey                           string
-	SortIsNull                        bool
 }
 
 func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForProjectParams) ([]ListAgentsForProjectRow, error) {
 	rows, err := q.db.Query(ctx, listAgentsForProject,
 		arg.CursorSet,
-		arg.CursorIsNull,
 		arg.SortDesc,
 		arg.CursorKey,
 		arg.CursorID,
@@ -521,9 +503,6 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.ProjectID,
 		arg.IncludeArchived,
 		arg.NamePattern,
-		arg.IntegrationProviders,
-		arg.IntegrationTargetKinds,
-		arg.HasIntegrationTarget,
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
@@ -543,7 +522,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 			&i.Name,
 			&i.AgentProfileID,
 			&i.CurrentConfigID,
-			&i.IntegrationTargetID,
+			&i.InteractionTargetID,
 			&i.IdempotencyKey,
 			&i.NextEventSequence,
 			&i.CreatedAt,
@@ -551,15 +530,14 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 			&i.ArchivedAt,
 			&i.ParentAgentID,
 			&i.SubagentKey,
-			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetIntegrationKind,
 			&i.IntegrationTargetProviderTenantID,
-			&i.IntegrationTargetProviderRef,
-			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetScopeRef,
+			&i.IntegrationTargetScopeKind,
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,
 			&i.SortKey,
-			&i.SortIsNull,
 		); err != nil {
 			return nil, err
 		}
@@ -579,7 +557,7 @@ SELECT agent.id,
        agent.name,
        agent.agent_profile_id,
        agent.current_config_id,
-       agent.integration_target_id,
+       agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence,
        agent.created_at,
@@ -587,10 +565,10 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
-       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name
@@ -598,11 +576,11 @@ FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
  AND target.agent_id = agent.id
- AND target.id = agent.integration_target_id
+ AND target.id = agent.interaction_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -616,34 +594,28 @@ JOIN model_provider_configs model_provider_config
 WHERE agent.project_id = $1
   AND ($2::boolean OR agent.state = 'active')
   AND ($3::text = '' OR agent.name ILIKE $3::text ESCAPE '\')
-  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR install.provider = ANY($4::text[]))
-  AND (COALESCE(cardinality($5::text[]), 0) = 0 OR target.provider_ref_kind = ANY($5::text[]))
-  AND ($6::boolean IS NULL OR (target.id IS NOT NULL) = $6::boolean)
-  AND ($7::uuid IS NULL OR agent.agent_profile_id = $7::uuid)
-  AND ($8::uuid IS NULL OR agent.parent_agent_id = $8::uuid)
-  AND ($9::boolean OR $8::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
+  AND ($4::uuid IS NULL OR agent.agent_profile_id = $4::uuid)
+  AND ($5::uuid IS NULL OR agent.parent_agent_id = $5::uuid)
+  AND ($6::boolean OR $5::uuid IS NOT NULL OR agent.parent_agent_id IS NULL)
   AND (
-    $10::boolean = false
-    OR (agent.created_at, agent.id) < ($11::timestamptz, $12::uuid)
+    $7::boolean = false
+    OR (agent.created_at, agent.id) < ($8::timestamptz, $9::uuid)
   )
 ORDER BY agent.created_at DESC, agent.id DESC
-LIMIT $13::bigint
+LIMIT $10::bigint
 `
 
 type ListAgentsForProjectByCreatedAtDescParams struct {
-	ProjectID              uuid.UUID
-	IncludeArchived        bool
-	NamePattern            string
-	IntegrationProviders   []string
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
-	CursorSet              bool
-	CursorCreatedAt        time.Time
-	CursorID               uuid.UUID
-	RowLimit               int64
+	ProjectID        uuid.UUID
+	IncludeArchived  bool
+	NamePattern      string
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
+	CursorSet        bool
+	CursorCreatedAt  time.Time
+	CursorID         uuid.UUID
+	RowLimit         int64
 }
 
 type ListAgentsForProjectByCreatedAtDescRow struct {
@@ -654,7 +626,7 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 	Name                              string
 	AgentProfileID                    *uuid.UUID
 	CurrentConfigID                   uuid.UUID
-	IntegrationTargetID               *uuid.UUID
+	InteractionTargetID               *uuid.UUID
 	IdempotencyKey                    string
 	NextEventSequence                 int64
 	CreatedAt                         time.Time
@@ -662,10 +634,10 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 	ArchivedAt                        *time.Time
 	ParentAgentID                     *uuid.UUID
 	SubagentKey                       string
-	IntegrationTargetProvider         string
+	IntegrationTargetIntegrationKind  string
 	IntegrationTargetProviderTenantID string
-	IntegrationTargetProviderRef      string
-	IntegrationTargetProviderRefKind  string
+	IntegrationTargetScopeRef         string
+	IntegrationTargetScopeKind        string
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
@@ -676,9 +648,6 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 		arg.ProjectID,
 		arg.IncludeArchived,
 		arg.NamePattern,
-		arg.IntegrationProviders,
-		arg.IntegrationTargetKinds,
-		arg.HasIntegrationTarget,
 		arg.AgentProfileID,
 		arg.ParentAgentID,
 		arg.IncludeSubagents,
@@ -702,7 +671,7 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 			&i.Name,
 			&i.AgentProfileID,
 			&i.CurrentConfigID,
-			&i.IntegrationTargetID,
+			&i.InteractionTargetID,
 			&i.IdempotencyKey,
 			&i.NextEventSequence,
 			&i.CreatedAt,
@@ -710,10 +679,10 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 			&i.ArchivedAt,
 			&i.ParentAgentID,
 			&i.SubagentKey,
-			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetIntegrationKind,
 			&i.IntegrationTargetProviderTenantID,
-			&i.IntegrationTargetProviderRef,
-			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetScopeRef,
+			&i.IntegrationTargetScopeKind,
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,
@@ -736,7 +705,7 @@ SELECT agent.id,
        agent.name,
        agent.agent_profile_id,
        agent.current_config_id,
-       agent.integration_target_id,
+       agent.interaction_target_id,
        coalesce(agent.idempotency_key, '') AS idempotency_key,
        agent.next_event_sequence,
        agent.created_at,
@@ -744,10 +713,10 @@ SELECT agent.id,
        agent.archived_at,
        agent.parent_agent_id,
        agent.subagent_key,
-       coalesce(install.provider, '') AS integration_target_provider,
+       coalesce(install.integration_kind, '') AS integration_target_integration_kind,
        coalesce(install.provider_tenant_id, '') AS integration_target_provider_tenant_id,
-       coalesce(target.provider_ref, '') AS integration_target_provider_ref,
-       coalesce(target.provider_ref_kind, '') AS integration_target_provider_ref_kind,
+       coalesce(target.scope_ref, '') AS integration_target_scope_ref,
+       coalesce(target.scope_kind, '') AS integration_target_scope_kind,
        coalesce(target.display_name, '') AS integration_target_display_name,
        configured_model.name AS model_name,
        model_provider_config.name AS model_provider_config_name
@@ -755,11 +724,11 @@ FROM agents agent
 LEFT JOIN integration_targets target
   ON target.project_id = agent.project_id
  AND target.agent_id = agent.id
- AND target.id = agent.integration_target_id
+ AND target.id = agent.interaction_target_id
  AND target.deleted_at IS NULL
-LEFT JOIN integration_installs install
+LEFT JOIN integrations install
   ON install.project_id = target.project_id
- AND install.id = target.integration_install_id
+ AND install.id = target.integration_id
  AND install.deleted_at IS NULL
 JOIN agent_configs agent_config
   ON agent_config.project_id = agent.project_id
@@ -790,7 +759,7 @@ type ListRecentAgentsForProjectsRow struct {
 	Name                              string
 	AgentProfileID                    *uuid.UUID
 	CurrentConfigID                   uuid.UUID
-	IntegrationTargetID               *uuid.UUID
+	InteractionTargetID               *uuid.UUID
 	IdempotencyKey                    string
 	NextEventSequence                 int64
 	CreatedAt                         time.Time
@@ -798,10 +767,10 @@ type ListRecentAgentsForProjectsRow struct {
 	ArchivedAt                        *time.Time
 	ParentAgentID                     *uuid.UUID
 	SubagentKey                       string
-	IntegrationTargetProvider         string
+	IntegrationTargetIntegrationKind  string
 	IntegrationTargetProviderTenantID string
-	IntegrationTargetProviderRef      string
-	IntegrationTargetProviderRefKind  string
+	IntegrationTargetScopeRef         string
+	IntegrationTargetScopeKind        string
 	IntegrationTargetDisplayName      string
 	ModelName                         string
 	ModelProviderConfigName           string
@@ -824,7 +793,7 @@ func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecen
 			&i.Name,
 			&i.AgentProfileID,
 			&i.CurrentConfigID,
-			&i.IntegrationTargetID,
+			&i.InteractionTargetID,
 			&i.IdempotencyKey,
 			&i.NextEventSequence,
 			&i.CreatedAt,
@@ -832,10 +801,10 @@ func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecen
 			&i.ArchivedAt,
 			&i.ParentAgentID,
 			&i.SubagentKey,
-			&i.IntegrationTargetProvider,
+			&i.IntegrationTargetIntegrationKind,
 			&i.IntegrationTargetProviderTenantID,
-			&i.IntegrationTargetProviderRef,
-			&i.IntegrationTargetProviderRefKind,
+			&i.IntegrationTargetScopeRef,
+			&i.IntegrationTargetScopeKind,
 			&i.IntegrationTargetDisplayName,
 			&i.ModelName,
 			&i.ModelProviderConfigName,
@@ -851,7 +820,7 @@ func (q *Queries) ListRecentAgentsForProjects(ctx context.Context, arg ListRecen
 }
 
 const lockAgentInProject = `-- name: LockAgentInProject :one
-SELECT id, org_id
+SELECT id, org_id, state
 FROM agents
 WHERE project_id = $1 AND id = $2
 FOR UPDATE
@@ -865,12 +834,13 @@ type LockAgentInProjectParams struct {
 type LockAgentInProjectRow struct {
 	ID    uuid.UUID
 	OrgID uuid.UUID
+	State string
 }
 
 func (q *Queries) LockAgentInProject(ctx context.Context, arg LockAgentInProjectParams) (LockAgentInProjectRow, error) {
 	row := q.db.QueryRow(ctx, lockAgentInProject, arg.ProjectID, arg.ID)
 	var i LockAgentInProjectRow
-	err := row.Scan(&i.ID, &i.OrgID)
+	err := row.Scan(&i.ID, &i.OrgID, &i.State)
 	return i, err
 }
 

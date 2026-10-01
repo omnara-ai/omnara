@@ -72,8 +72,6 @@ const (
 	AgentActionRead            = authz.AgentRead
 	AgentActionOperate         = authz.AgentOperate
 
-	ActorProviderOmnara   = "omnara"
-	ActorProviderSlack    = "slack"
 	ActorProviderExternal = "external"
 )
 

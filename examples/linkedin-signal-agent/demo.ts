@@ -53,7 +53,7 @@
 // Jupyter with the Deno kernel (`deno jupyter --install`).
 
 // %%
-import { bearerToken, createOmnaraClient, openAgentEventStream, sdk } from '@omnara/sdk'
+import { bearerToken, createOmnaraClient, openAgentEventStream, sdk, type Integration, type CreateIntegrationRequest } from '@omnara/sdk'
 
 // process.env is available in Deno, Node, and Bun; declaring it inline keeps
 // this file dependency-free (no @types/node).
@@ -302,11 +302,11 @@ good outcome — never pad it. For each item:
 - link: the item's linkedinUrl field
 - suggested action: reply, track the author, or ignore
 
-Deliver. When this conversation is driven through an integration such as
-Slack, send the digest with send_integration_message — the external user
-only sees messages sent that way. Otherwise present the digest directly in
-the conversation. If someone replies asking for a draft, write the reply
-text for a human to post — helpful, never salesy, always disclosing the
+Deliver. When a Slack integration provides an int__<integration-name>__post_message tool,
+use that tool to send the digest to the conversation that launched you.
+The external user only sees messages sent with that tool. Otherwise present
+the digest directly in the conversation. If someone replies asking for a
+draft, write the reply text for a human to post — helpful, never salesy, always disclosing the
 affiliation. Never post to LinkedIn yourself.
 `,
   model: {
@@ -323,8 +323,6 @@ affiliation. Never post to LinkedIn yourself.
   tools: {
     web_search: {},
     web_fetch: {},
-    send_integration_message: { permission: { mode: 'always_allow' } },
-    set_integration_target: {},
   },
 }
 
@@ -419,16 +417,47 @@ console.log('\nDone. The agent stays available — message it from the console o
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
 
 if (slackAppConfigurationToken) {
-  const { data: slack } = await sdk.createSlackSetup({
-    client,
-    path: { ...path, agentProfileID: profile.id },
-    body: {
-      app_name: 'LinkedIn Signal Agent',
-      app_configuration_token: slackAppConfigurationToken,
+  const integrationName = 'linkedin-signal-agent'
+  let existingIntegration: Integration | undefined
+  let cursor: string | undefined
+  do {
+    const { data: integrations } = await sdk.listIntegrations({ client, path, query: { cursor } })
+    existingIntegration = integrations.data.find((integration) => integration.name === integrationName)
+    cursor = integrations.next_cursor ?? undefined
+  } while (!existingIntegration && cursor)
+
+  if (existingIntegration && existingIntegration.integration_kind !== 'slack_thread') {
+    throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
+  }
+  const body: CreateIntegrationRequest = {
+    name: integrationName,
+    integration_kind: 'slack_thread',
+    settings: {
+      ...existingIntegration?.settings,
+      launcher: { profiles: [profile.id] },
     },
-  })
-  console.log('open this URL to install the Slack app:')
-  console.log(slack.oauth_url)
+  }
+  const { data: integration } = existingIntegration
+    ? await sdk.updateIntegration({
+        client,
+        path: { ...path, integrationID: existingIntegration.id },
+        body: { settings: body.settings },
+      })
+    : await sdk.createIntegration({ client, path, body })
+
+  if (integration.state === 'active') {
+    console.log('Slack integration already connected:', integration.name, integration.id)
+  } else if (integration.provider_account_ref) {
+    console.log('Reconnect this Slack integration in the project Integrations page:', integration.name, integration.id)
+  } else {
+    const { data: slack } = await sdk.createIntegrationSlackSetup({
+      client,
+      path: { ...path, integrationID: integration.id },
+      body: { app_name: 'LinkedIn Signal Agent', app_configuration_token: slackAppConfigurationToken },
+    })
+    console.log('open this URL to install the Slack app:')
+    console.log(slack.oauth_url)
+  }
 } else {
   console.log('skipped — set SLACK_APP_CONFIGURATION_TOKEN in .env to connect Slack')
 }
@@ -441,9 +470,6 @@ if (slackAppConfigurationToken) {
 // scans its own 24-hour window (`postedLimit: "24h"` in the scraper input),
 // so there is no dedupe state to keep.
 //
-// Scheduled runs have no Slack thread, so their digests land in the Omnara
-// console. For daily digests in a Slack channel, mention the bot there once
-// — each firing then delivers to that thread.
 
 // %%
 // Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.

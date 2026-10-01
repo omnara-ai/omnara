@@ -21,10 +21,11 @@ const (
 	SecretAvailabilityDirect = "direct"
 	SecretAvailabilityGrant  = "grant"
 
-	SecretKindGeneric             = secrets.KindGeneric
-	SecretKindOAuthTokenSet       = secrets.KindOAuthTokenSet
-	SecretKindSlackAppCredentials = secrets.KindSlackAppCredentials
-	SecretKindAWSCredentials      = secrets.KindAWSCredentials
+	SecretKindGeneric              = secrets.KindGeneric
+	SecretKindOAuthTokenSet        = secrets.KindOAuthTokenSet
+	SecretKindSlackAppCredentials  = secrets.KindSlackAppCredentials
+	SecretKindGitHubAppCredentials = secrets.KindGitHubAppCredentials
+	SecretKindAWSCredentials       = secrets.KindAWSCredentials
 
 	MaxSecretMetadataBytes = 16 * 1024
 )

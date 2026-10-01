@@ -71,15 +71,10 @@ export function AgentConfigToolsField({
     .filter((tool) => catalogByName.get(tool.name)?.implicit)
     .sort((a, b) => a.name.localeCompare(b.name))
   const visibleTools = catalog
-    ? tools.filter(
-        (tool) => !catalogByName.get(tool.name)?.implicit && tool.name !== 'set_integration_target',
-      )
+    ? tools.filter((tool) => !catalogByName.get(tool.name)?.implicit)
     : []
   const availableTools = catalogTools.filter(
-    (entry) =>
-      !entry.implicit &&
-      entry.name !== 'set_integration_target' &&
-      tools.every((tool) => tool.name !== entry.name),
+    (entry) => !entry.implicit && tools.every((tool) => tool.name !== entry.name),
   )
 
   return (
@@ -131,14 +126,9 @@ export function AgentConfigToolsField({
               >
                 <ToolName name={tool.name} entry={entry} />
                 <PermissionModeSelect
-                  toolName={tool.name}
+                  tool={tool}
                   entry={entry}
                   allowDisable={tool.enabled === false}
-                  value={
-                    tool.enabled === false
-                      ? 'disabled'
-                      : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
-                  }
                   onChange={(mode) => {
                     onToolsChange(
                       tools.map((currentTool) =>
@@ -223,14 +213,9 @@ function AgentConfigIncludedTools({
             <div key={name} className="flex flex-wrap items-center gap-2 px-4 py-2 sm:px-5">
               <ToolName name={name} entry={entry} />
               <PermissionModeSelect
-                toolName={name}
+                tool={tool}
                 entry={entry}
                 allowDisable
-                value={
-                  tool.enabled === false
-                    ? 'disabled'
-                    : (tool.permission?.mode ?? entry?.default_permission.mode ?? '')
-                }
                 onChange={(mode) => {
                   onToolChange({
                     ...tool,
@@ -248,24 +233,23 @@ function AgentConfigIncludedTools({
 }
 
 function PermissionModeSelect({
-  toolName,
+  tool,
   entry,
-  value,
   allowDisable = false,
   onChange,
 }: {
-  toolName: string
+  tool: BasicTool
   entry?: ToolCatalogEntry
-  value: string
   allowDisable?: boolean
   onChange: (mode: string) => void
 }) {
-  const options = permissionModeOptions(entry?.permission_modes, value)
+  const permissionMode = tool.permission?.mode ?? entry?.default_permission.mode ?? ''
+  const options = permissionModeOptions(entry?.permission_modes, permissionMode)
   return (
     <PermissionModeGroup
-      label={`${toolName} permission`}
+      label={`${tool.name} permission`}
       options={allowDisable ? [...options, disabledPermissionOption] : options}
-      value={value}
+      value={tool.enabled === false ? 'disabled' : permissionMode}
       disabled={entry == null || (!allowDisable && options.length === 1)}
       onChange={onChange}
     />

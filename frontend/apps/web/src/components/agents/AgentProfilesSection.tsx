@@ -4,7 +4,6 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 
 import { InsufficientCreditsMessage } from '@/components/agents/InsufficientCreditsMessage'
-import { SlackOAuthOutcomeDialog } from '@/components/agents/SlackOAuthOutcomeDialog'
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { TriangleAlert } from '@/components/icons'
@@ -173,7 +172,6 @@ export function AgentProfilesSection({
           emptyMessage="No agent profiles yet. A profile is a saved, reusable agent config for launching agents in one click."
         />
       </div>
-      <SlackOAuthOutcomeDialog />
     </>
   )
 }

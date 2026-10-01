@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/interactionform"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
 	"github.com/omnara-ai/omnara/internal/modelprotocol"
 	"github.com/omnara-ai/omnara/internal/storage"
@@ -913,12 +914,28 @@ func TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction(t *testing.T) 
 		"expired_runtime_question",
 		"ask_question",
 	)
-	interaction := createQuestionInteractionForTest(
-		t,
+	execution, err := fixture.Store.Execution().ExecuteToolCall(
 		ctx,
-		fixture,
-		toolCallID,
+		executionstore.ExecuteToolCallInput{
+			ProjectID: testProjectID, AgentID: fixture.AgentID,
+			ToolCallID: toolCallID, RuntimeLockID: fixture.Lock.ID,
+		},
+		func(*executionstore.ToolCallReader) (executionstore.ToolCallCommand, error) {
+			return executionstore.CreateQuestionForToolCall(executionstore.CreateQuestionInteractionInput{
+				Form: questionInteractionFormForTest(t),
+			}), nil
+		},
 	)
+	if err != nil {
+		t.Fatalf("create question interaction: %v", err)
+	}
+	if execution.Disposition != executionstore.ToolCallDispositionWaiting || !execution.Applied {
+		t.Fatalf("question creation = %+v, want committed durable wait", execution)
+	}
+	interaction, ok := execution.CommandResult.(executionstore.AgentInteractionRecord)
+	if !ok {
+		t.Fatalf("question command result = %T", execution.CommandResult)
+	}
 	expireAgentRuntimeLockForTest(t, ctx, fixture.Store, fixture.Lock.ID)
 	if reaped, err := fixture.Store.Execution().ReapExpiredAgentRuntimeLocks(ctx, 100); err != nil {
 		t.Fatalf("reap expired question runtime: %v", err)
@@ -951,5 +968,20 @@ func TestExpiredRuntimePreservesDurablyWaitingQuestionInteraction(t *testing.T) 
 			storedInteraction,
 			found,
 		)
+	}
+	if _, err := fixture.Store.Execution().ResolveAgentInteraction(ctx, executionstore.ResolveAgentInteractionInput{
+		ProjectID: testProjectID, AgentID: fixture.AgentID, ID: interaction.ID,
+		Resolution: interactionform.Resolution{Answers: []interactionform.Answer{{OptionIndices: []int{0}}}},
+		Actor:      mustOmnaraActorParams(t, fixture.UserID),
+	}); err != nil {
+		t.Fatalf("answer question after worker interruption: %v", err)
+	}
+	completed, err := fixture.Store.Execution().GetToolCall(ctx, testProjectID, fixture.AgentID, toolCallID)
+	if err != nil {
+		t.Fatalf("load answered question: %v", err)
+	}
+	if completed.State != executionstore.ToolCallStateCompleted ||
+		completed.Outcome != executionstore.ToolResultOutcomeSucceeded {
+		t.Fatalf("answered question = %+v, want successful completion", completed)
 	}
 }

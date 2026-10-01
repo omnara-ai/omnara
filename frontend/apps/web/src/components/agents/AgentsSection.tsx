@@ -7,6 +7,7 @@ import {
 import { type Agent, ApiError } from '@omnara/sdk'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
@@ -138,7 +139,11 @@ export function AgentsTable({
                 <span className="text-muted-foreground">—</span>
               ),
           },
-          { id: 'target', header: 'Target', cell: (agent) => <TargetCell agent={agent} /> },
+          {
+            id: 'target',
+            header: 'Interaction destination',
+            cell: (agent) => <TargetCell agent={agent} />,
+          },
           {
             id: 'state',
             header: 'State',
@@ -209,10 +214,24 @@ function TargetCell({ agent }: { agent: Agent }) {
   )
 }
 
-// Where the agent is wired up, without provider-internal thread identifiers.
+const integrationTargetConversation = z.object({
+  channel_id: z.string().optional(),
+  thread_ts: z.string().optional(),
+  thread_id: z.string().optional(),
+})
+
 function integrationTargetLabel(target: NonNullable<Agent['integration_target']>) {
   const conversation = target.display_name.replace(/^#/, '')
-  if (target.provider_ref_kind === 'dm') return 'Direct message'
+  const address = integrationTargetConversation.safeParse(target.conversation)
+  if (!address.success) return conversation || target.provider
+  if (
+    target.provider === 'slack' &&
+    address.data.channel_id?.startsWith('D') &&
+    !address.data.thread_ts
+  )
+    return 'Direct message'
   if (!conversation) return target.provider
-  return target.provider_ref_kind === 'thread' ? `#${conversation} · thread` : `#${conversation}`
+  return address.data.thread_ts || address.data.thread_id
+    ? `#${conversation} · thread`
+    : `#${conversation}`
 }

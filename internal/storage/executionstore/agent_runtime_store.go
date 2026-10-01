@@ -25,6 +25,7 @@ const (
 )
 
 type insertAgentInput struct {
+	ID                      uuid.UUID
 	OrgID                   uuid.UUID
 	ProjectID               uuid.UUID
 	AgentProfileID          uuid.UUID
@@ -45,7 +46,7 @@ type AgentRecord struct {
 	Name                string     `json:"name,omitempty"`
 	CurrentConfigID     uuid.UUID  `json:"current_config_id"`
 	Model               AgentModelDisplay
-	IntegrationTargetID uuid.UUID `json:"integration_target_id,omitempty"`
+	InteractionTargetID uuid.UUID `json:"interaction_target_id,omitempty"`
 	IntegrationTarget   IntegrationTargetDisplay
 	IdempotencyKey      string     `json:"idempotency_key,omitempty"`
 	NextEventSequence   int64      `json:"-"`
@@ -71,8 +72,8 @@ type AgentModelDisplay struct {
 type IntegrationTargetDisplay struct {
 	Provider         string `json:"provider,omitempty"`
 	ProviderTenantID string `json:"-"`
-	ProviderRef      string `json:"provider_ref,omitempty"`
-	ProviderRefKind  string `json:"provider_ref_kind,omitempty"`
+	ScopeRef         string `json:"scope_ref,omitempty"`
+	ScopeKind        string `json:"scope_kind,omitempty"`
 	DisplayName      string `json:"display_name,omitempty"`
 }
 
@@ -83,6 +84,7 @@ func insertAdmittedAgentTx(
 	input insertAgentInput,
 ) (AgentRecord, bool, error) {
 	row, err := qtx.InsertAgent(ctx, dbsqlc.InsertAgentParams{
+		ID:                      storeutil.IDFromNil(input.ID),
 		OrgID:                   input.OrgID,
 		ProjectID:               input.ProjectID,
 		AgentProfileID:          storeutil.IDFromNil(input.AgentProfileID),
@@ -152,14 +154,6 @@ func loadAgentByIdempotencyKeyTx(
 	return agentRecordFromIdempotencySQLC(row), nil
 }
 
-func loadAgentTx(ctx context.Context, tx pgx.Tx, id uuid.UUID) (AgentRecord, error) {
-	row, err := dbsqlc.New(tx).GetAgent(ctx, dbsqlc.GetAgentParams{ID: id})
-	if err != nil {
-		return AgentRecord{}, fmt.Errorf("load agent: %w", err)
-	}
-	return agentRecordFromGetSQLC(row), nil
-}
-
 func loadAgentInProjectTx(ctx context.Context, tx pgx.Tx, projectID, id uuid.UUID) (AgentRecord, error) {
 	row, err := dbsqlc.New(tx).
 		GetAgentInProject(ctx, dbsqlc.GetAgentInProjectParams{ProjectID: projectID, ID: id})
@@ -191,13 +185,10 @@ type ListAgentsForProjectInput struct {
 }
 
 type AgentListFilters struct {
-	IntegrationProviders   []string
-	IntegrationTargetKinds []string
-	HasIntegrationTarget   *bool
-	AgentProfileID         *uuid.UUID
-	ParentAgentID          *uuid.UUID
-	IncludeSubagents       bool
-	IncludeArchived        bool
+	AgentProfileID   *uuid.UUID
+	ParentAgentID    *uuid.UUID
+	IncludeSubagents bool
+	IncludeArchived  bool
 }
 
 type ListAgentsForProjectResult struct {
@@ -220,7 +211,7 @@ func (s *Store) ListAgentsForProject(
 	input.List = listing.Normalize(input.List)
 	if !listing.SortAllowed(
 		input.List.SortField,
-		"name", "created_at", "updated_at", "state", "integration_provider", "integration_target_kind",
+		"name", "created_at", "updated_at", "state",
 	) {
 		return ListAgentsForProjectResult{}, errors.New("unsupported agent list sort")
 	}
@@ -235,15 +226,12 @@ func (s *Store) ListAgentsForProject(
 		ProjectID: input.ProjectID, RowLimit: int64(input.Limit) + 1,
 		NamePattern: input.List.NamePattern, SortField: input.List.SortField,
 		SortDesc: input.List.SortDesc, CursorSet: input.List.After.Set,
-		CursorIsNull: input.List.After.IsNull, CursorKey: input.List.After.Key,
-		CursorID:               input.List.After.ID,
-		IntegrationProviders:   input.Filters.IntegrationProviders,
-		IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-		HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-		AgentProfileID:         input.Filters.AgentProfileID,
-		ParentAgentID:          input.Filters.ParentAgentID,
-		IncludeSubagents:       input.Filters.IncludeSubagents,
-		IncludeArchived:        input.Filters.IncludeArchived,
+		CursorKey:        input.List.After.Key,
+		CursorID:         input.List.After.ID,
+		AgentProfileID:   input.Filters.AgentProfileID,
+		ParentAgentID:    input.Filters.ParentAgentID,
+		IncludeSubagents: input.Filters.IncludeSubagents,
+		IncludeArchived:  input.Filters.IncludeArchived,
 	}
 	rows, err := s.q.ListAgentsForProject(ctx, params)
 	if err != nil {
@@ -256,7 +244,7 @@ func (s *Store) ListAgentsForProject(
 	}
 	if result.HasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		result.Next = listing.Cursor{Set: true, IsNull: last.SortIsNull, Key: last.SortKey, ID: last.ID}
+		result.Next = listing.Cursor{Set: true, Key: last.SortKey, ID: last.ID}
 	}
 	result.Agents = make([]AgentRecord, 0, len(rows))
 	for _, row := range rows {
@@ -315,19 +303,16 @@ func (s *Store) listAgentsForProjectByCreatedAtDesc(
 	rows, err := s.q.ListAgentsForProjectByCreatedAtDesc(
 		ctx,
 		dbsqlc.ListAgentsForProjectByCreatedAtDescParams{
-			ProjectID:              input.ProjectID,
-			NamePattern:            input.List.NamePattern,
-			IntegrationProviders:   input.Filters.IntegrationProviders,
-			IntegrationTargetKinds: input.Filters.IntegrationTargetKinds,
-			HasIntegrationTarget:   input.Filters.HasIntegrationTarget,
-			AgentProfileID:         input.Filters.AgentProfileID,
-			ParentAgentID:          input.Filters.ParentAgentID,
-			IncludeSubagents:       input.Filters.IncludeSubagents,
-			IncludeArchived:        input.Filters.IncludeArchived,
-			CursorSet:              input.List.After.Set,
-			CursorCreatedAt:        cursorCreatedAt,
-			CursorID:               input.List.After.ID,
-			RowLimit:               int64(input.Limit) + 1,
+			ProjectID:        input.ProjectID,
+			NamePattern:      input.List.NamePattern,
+			AgentProfileID:   input.Filters.AgentProfileID,
+			ParentAgentID:    input.Filters.ParentAgentID,
+			IncludeSubagents: input.Filters.IncludeSubagents,
+			IncludeArchived:  input.Filters.IncludeArchived,
+			CursorSet:        input.List.After.Set,
+			CursorCreatedAt:  cursorCreatedAt,
+			CursorID:         input.List.After.ID,
+			RowLimit:         int64(input.Limit) + 1,
 		},
 	)
 	if err != nil {
@@ -466,7 +451,7 @@ func archiveAgentTx(
 	projectID, agentID uuid.UUID,
 	actor *ActorParams,
 ) ([]MachineRecord, error) {
-	actorID, err := resolveActorTx(ctx, qtx, projectID, agentID, actor, uuid.Nil)
+	actorID, err := resolveActorTx(ctx, qtx, projectID, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -478,6 +463,11 @@ func archiveAgentTx(
 		return nil, storeerr.ErrNotFound
 	}
 
+	if err := qtx.DeleteAgentIntegrationSubscriptions(ctx, dbsqlc.DeleteAgentIntegrationSubscriptionsParams{
+		ProjectID: projectID, AgentID: agentID,
+	}); err != nil {
+		return nil, fmt.Errorf("remove archived agent subscriptions: %w", err)
+	}
 	if _, err := qtx.CancelQueuedBacklogInputsForAgent(ctx, dbsqlc.CancelQueuedBacklogInputsForAgentParams{
 		ProjectID: projectID,
 		AgentID:   agentID,
