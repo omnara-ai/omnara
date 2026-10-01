@@ -63,7 +63,7 @@ export function ProjectModelGrantsTable({
       >
         <Button asChild size="sm" variant="ghost">
           <Link to="/models" hash="model-providers">
-            Model providers
+            Providers
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">

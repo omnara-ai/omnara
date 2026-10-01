@@ -124,7 +124,9 @@ func usageDayStart(year int, month time.Month, day int, location *time.Location)
 }
 
 func (filter ModelUsageSeriesFilter) validate() error {
-	if len(filter.OrgIDs) == 0 {
+	// With no projects there is nothing to read, so a caller without any
+	// memberships gets an empty series rather than an error.
+	if len(filter.OrgIDs) == 0 && len(filter.ProjectIDs) > 0 {
 		return errors.New("usage series orgs are required")
 	}
 	if filter.Until.IsZero() {

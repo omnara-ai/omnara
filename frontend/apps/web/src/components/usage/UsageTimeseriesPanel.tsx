@@ -9,11 +9,13 @@ import {
   type UsageBreakdown,
   usageChartData,
   type UsageMeasure,
+  usageMeasureForMetric,
   usageMeasureMetrics,
 } from '@/components/usage/usage-chart-data'
 import { UsageChart } from '@/components/usage/UsageChart'
 import { UsageStatsSkeleton } from '@/components/usage/UsageStats'
 import { errorMessage } from '@/lib/submit-status'
+import { cn } from '@/lib/utils'
 
 export type UsageTimeseriesScope = Omit<
   UsageTimeseriesFilters,
@@ -68,7 +70,11 @@ export function UsageTimeseriesPanel({
     )
   }
   const timeseries = query.data
-  const measureLabel = measures.find((option) => option.value === measure)?.label ?? measure
+  // While a new measure or breakdown loads, the previous payload is kept; draw it as what it is.
+  const shownMeasure = usageMeasureForMetric(timeseries.metric)
+  const shownBreakdown = timeseries.group_by ?? breakdown
+  const measureLabel =
+    measures.find((option) => option.value === shownMeasure)?.label ?? shownMeasure
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4">
@@ -88,10 +94,15 @@ export function UsageTimeseriesPanel({
             />
           </div>
         )}
-        <UsageChart
-          data={usageChartData(timeseries, measure)}
-          label={`${measureLabel} per ${timeseries.interval} by ${breakdown}`}
-        />
+        <div
+          aria-busy={query.isPlaceholderData}
+          className={cn('transition-opacity', query.isPlaceholderData && 'opacity-50')}
+        >
+          <UsageChart
+            data={usageChartData(timeseries, shownMeasure)}
+            label={`${measureLabel} per ${timeseries.interval} by ${shownBreakdown}`}
+          />
+        </div>
       </div>
       {summary?.(timeseries)}
     </div>

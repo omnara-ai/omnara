@@ -22,20 +22,18 @@ export function useSkillShares(orgId: string) {
     if (grants.length === 0) return true
     setSharing(true)
     setError(undefined)
-    try {
-      const results = await Promise.allSettled(grants.map((each) => grantSkill.mutateAsync(each)))
-      const failed = grants.filter((_, index) => results[index]?.status === 'rejected')
-      setPending(failed)
-      if (failed.length > 0) {
-        const projects = new Set(failed.map((each) => each.projectID)).size
-        setError(
-          `The skill was created, but sharing with ${String(projects)} ${projects === 1 ? 'project' : 'projects'} failed.`,
-        )
-      }
-      return failed.length === 0
-    } finally {
-      setSharing(false)
+    // allSettled never rejects, so sharing always ends here.
+    const results = await Promise.allSettled(grants.map((each) => grantSkill.mutateAsync(each)))
+    const failed = grants.filter((_, index) => results[index]?.status === 'rejected')
+    setSharing(false)
+    setPending(failed)
+    if (failed.length > 0) {
+      const projects = new Set(failed.map((each) => each.projectID)).size
+      setError(
+        `The skill was created, but sharing with ${String(projects)} ${projects === 1 ? 'project' : 'projects'} failed.`,
+      )
     }
+    return failed.length === 0
   }
 
   return {

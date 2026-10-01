@@ -102,8 +102,8 @@ export function ConfiguredModelsSection() {
     <>
       <div id="configured-models" className="flex scroll-mt-6 flex-col gap-3">
         <SearchHeader
-          title="Configured models"
-          description="Configure accessible models for your agents"
+          title="Models"
+          description="Configure models to use with your agents"
           guide={guides.modelProviders}
           toolbar={
             <ResourceListToolbar
