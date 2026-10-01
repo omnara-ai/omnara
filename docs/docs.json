@@ -110,7 +110,20 @@
             "pages": [
               "machines/overview",
               "machines/connect",
-              "machines/pools"
+              "machines/pools",
+              {
+                "group": "Sandbox providers",
+                "icon": "cloud",
+                "pages": [
+                  "machines/providers/overview",
+                  "machines/providers/blaxel",
+                  "machines/providers/daytona",
+                  "machines/providers/freestyle",
+                  "machines/providers/modal",
+                  "machines/providers/tenki",
+                  "machines/providers/unikraft"
+                ]
+              }
             ]
           },
           {

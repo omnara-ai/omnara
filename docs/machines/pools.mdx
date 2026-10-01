@@ -12,7 +12,7 @@ A machine pool lets Omnara create machines from a sandbox provider when an agent
 Omnara gives you two ways to run pool machines:
 
 - **Omnara-managed pools** — ready-to-use sandboxes. Omnara manages the sandbox provider account, credentials, and [default machine environment](#default-machine-environment).
-- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, Modal, Freestyle, or Tenki account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies.
+- **Bring your own provider** — connect your Blaxel, Unikraft Cloud, Daytona, Modal, Freestyle, or Tenki account and create a custom pool. You provide the API credential and choose the image or snapshot containing your tools and dependencies. See [Sandbox providers](/machines/providers/overview) for each provider.
 
 ## Default machine environment
 
@@ -40,8 +40,6 @@ Agents can install other tools with `apt-get` or a language's package manager.
 
 A pool machine keeps its files, installed dependencies, and running processes across turns, including when the provider suspends and resumes it while idle.
 
-Omnara configures Modal sandboxes with a 24-hour timeout, after which they terminate regardless of activity.
-
 Omnara deletes a pool machine when:
 
 - The agent calls [`delete_machine`](/tools/built-in#delete_machine).
@@ -68,11 +66,7 @@ Blaxel, Daytona, Modal, Unikraft, Freestyle, and Tenki pools support runtime pro
 New organizations already have default pools granted to their first project. Check the **Machines** page before creating one. Self-hosted deployments configure default pools separately.
 </Note>
 
-For a custom pool, store the provider's API key as an org-owned [secret](/organization/secrets) first. For Modal, the secret value is a JSON object containing both credentials: `{"token_id":"ak-...","token_secret":"as-..."}`.
-
-The Modal app defaults to `omnara` and is created automatically on first provisioning.
-
-For Tenki, the API key selects the workspace. Omit the image (leave it blank in the dashboard) to use Tenki's Ubuntu base image.
+For a custom pool, store the provider's API key as an org-owned [secret](/organization/secrets) first.
 
 <Tabs>
 <Tab title="API">
@@ -92,14 +86,7 @@ For Tenki, the API key selects the workspace. Omit the image (leave it blank in 
 </Tab>
 </Tabs>
 
-Every pool requires `max_total_machines`. Resource requirements then depend on the provider:
-
-- **Blaxel:** memory default and maximums are required; CPU is not configurable.
-- **Unikraft:** CPU and memory defaults and maximums are required.
-- **Daytona:** CPU and memory maximums are required; defaults are optional because the snapshot defines the machine size.
-- **Modal:** CPU and memory defaults and maximums are required. Omnara expresses CPU in vCPU and converts it to Modal physical cores, where one physical core equals two vCPU.
-- **Freestyle:** CPU and memory defaults and maximums are required. Omnara grows the snapshot VM to the configured size; it rejects snapshots whose CPU or memory already exceed that size.
-- **Tenki:** CPU and memory defaults and maximums are required; memory must be a multiple of 2 MB.
+Every pool requires `max_total_machines`. Resource requirements then depend on the provider; see [Sandbox providers](/machines/providers/overview).
 
 ## Grant a pool to a project
 

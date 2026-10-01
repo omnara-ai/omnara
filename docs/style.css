@@ -1,0 +1,20 @@
+img[src*="/logo/providers/"] {
+  object-position: -9999px 0;
+  -webkit-mask: var(--provider-logo) center / contain no-repeat;
+  mask: var(--provider-logo) center / contain no-repeat;
+}
+
+.dark img[src*="/logo/providers/"] {
+  background-color: rgb(var(--gray-500));
+}
+
+.dark a[aria-current="page"] img[src*="/logo/providers/"] {
+  background-color: rgb(var(--primary-light));
+}
+
+img[src*="/logo/providers/blaxel."] { --provider-logo: url("/logo/providers/blaxel.svg"); }
+img[src*="/logo/providers/daytona."] { --provider-logo: url("/logo/providers/daytona.svg"); }
+img[src*="/logo/providers/freestyle."] { --provider-logo: url("/logo/providers/freestyle.svg"); }
+img[src*="/logo/providers/modal."] { --provider-logo: url("/logo/providers/modal.svg"); }
+img[src*="/logo/providers/tenki."] { --provider-logo: url("/logo/providers/tenki.png"); }
+img[src*="/logo/providers/unikraft."] { --provider-logo: url("/logo/providers/unikraft.png"); }
