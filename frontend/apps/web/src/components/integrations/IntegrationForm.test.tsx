@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { type FakeApi, fakeApi, jsonResponse } from '@/test/fake-api'
 import { fakeId, integration as integrationFixture } from '@/test/fixtures'
 import { enableReactActEnvironment } from '@/test/react-act'
-import { button, enter, waitForUI } from '@/test/secret-editor'
+import { button, enter, field, waitForUI } from '@/test/secret-editor'
 
 import { ConnectSlackForm } from './ConnectSlackForm'
 import { IntegrationForm } from './IntegrationForm'
@@ -136,6 +136,63 @@ it.each([200, 500])(
     expect(onSaved).not.toHaveBeenCalled()
     rerender(<ManualSetupOwner visible onSaved={onSaved} />)
     expect(button('Connect integration').disabled).toBe(false)
+  },
+)
+
+it.each(['github_pr', 'discord_thread'] as const)(
+  'updates the default credential name when renaming %s without clearing entered secrets',
+  async (integrationKind) => {
+    render(
+      fakeApi([]),
+      <IntegrationSetup
+        orgId={orgId}
+        projectId={projectId}
+        integrationKind={integrationKind}
+        onSaved={vi.fn()}
+      />,
+    )
+    const secretValues: [string, string][] =
+      integrationKind === 'github_pr'
+        ? [
+            ['RSA private key (PEM)', 'test-key'],
+            ['Webhook secret', 'signature'],
+          ]
+        : [['Bot token', 'token']]
+    const inputs = []
+    for (const [label, value] of secretValues) {
+      await enter(label, value)
+      inputs.push({ label, value, element: field(label) })
+    }
+    expect(field('Credential name').value).toBe(
+      `${integrationKind.replaceAll('_', '-')}-credentials`,
+    )
+    for (const name of ['engineering', 'engineering-2']) {
+      await enter('Integration name', name)
+      expect(field('Credential name').value).toBe(`${name}-credentials`)
+      for (const { label, value, element } of inputs) {
+        expect(field(label)).toBe(element)
+        expect(field(label).value).toBe(value)
+      }
+    }
+  },
+)
+
+it.each(['custom-credentials', ''])(
+  'preserves an explicitly edited credential name %j when the integration is renamed',
+  async (credentialName) => {
+    render(
+      fakeApi([]),
+      <IntegrationSetup
+        orgId={orgId}
+        projectId={projectId}
+        integrationKind="github_pr"
+        onSaved={vi.fn()}
+      />,
+    )
+    await enter('Credential name', credentialName)
+    await enter('Integration name', 'engineering')
+    expect(field('Credential name').value).toBe(credentialName)
+    expect(field('Credential name').validity.valueMissing).toBe(credentialName === '')
   },
 )
 

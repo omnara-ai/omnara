@@ -1,5 +1,6 @@
 import { useProjectAvailableSecrets } from '@omnara/react'
 import type { IntegrationKind } from '@omnara/sdk'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { CheckboxField, Field, FieldLabel } from '@/components/ui/field'
@@ -42,6 +43,7 @@ export function IntegrationSetupCredentials({
   onChooseCredentials: () => void
   disabled: boolean
 }) {
+  const [credentialName, setCredentialName] = useState<string>()
   return (
     <>
       {savedSecret ? (
@@ -70,7 +72,10 @@ export function IntegrationSetupCredentials({
                 <Input
                   id="credential-name"
                   name="secretName"
-                  defaultValue={`${name}-credentials`}
+                  value={credentialName ?? `${name}-credentials`}
+                  onChange={(event) => {
+                    setCredentialName(event.target.value)
+                  }}
                   required
                 />
               </Field>

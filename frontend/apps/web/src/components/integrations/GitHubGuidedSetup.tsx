@@ -20,8 +20,18 @@ import {
 
 import { IntegrationNameField } from './IntegrationNameField'
 import { IntegrationCredentialPicker } from './IntegrationSetupCredentials'
-import type { GitHubInspection, useGitHubGuidedSetup } from './useGitHubGuidedSetup'
+import type {
+  GitHubInspection,
+  GitHubSetupAction,
+  useGitHubGuidedSetup,
+} from './useGitHubGuidedSetup'
 import type { useIntegrationDraft } from './useIntegrationDraft'
+
+const submitLabels: Record<GitHubSetupAction, string> = {
+  register: 'Continue to GitHub',
+  inspect: 'Check GitHub access',
+  connect: 'Connect integration',
+}
 
 export function GitHubGuidedSetup({
   orgId,
@@ -50,6 +60,7 @@ export function GitHubGuidedSetup({
 }) {
   const { resuming, returned, inspection } = guided
   const locked = busy || disabled
+  const showSubmit = inspection ? inspection.result.installations.length > 0 : !returned
   return (
     <form
       onSubmit={(event) => {
@@ -58,24 +69,7 @@ export function GitHubGuidedSetup({
       }}
     >
       <FieldGroup className="text-sm">
-        <div className="flex flex-col gap-2">
-          <h2 className="font-medium">
-            {returned
-              ? 'Connect your GitHub App'
-              : resuming
-                ? 'Connect a saved GitHub App'
-                : 'Create a GitHub App'}
-          </h2>
-          <p className="text-muted-foreground">
-            {returned
-              ? inspection?.result.installations.length
-                ? 'Connect a GitHub account below to finish setup.'
-                : 'Choose which repositories your App can access on GitHub.'
-              : resuming
-                ? 'Select a saved credential, then check which GitHub accounts it can access.'
-                : 'Fill in the details below, then click Continue to GitHub to create your App. You’ll return here to connect it.'}
-          </p>
-        </div>
+        <GitHubSetupIntroduction returned={returned} resuming={resuming} inspection={inspection} />
         <fieldset disabled={busy} className="flex flex-col gap-5">
           {!existing && (
             <IntegrationNameField
@@ -130,49 +124,96 @@ export function GitHubGuidedSetup({
               Cancel
             </Button>
           )}
-          {((!returned && !inspection) ||
-            (inspection && inspection.result.installations.length > 0)) && (
+          {showSubmit && (
             <Button type="submit" loading={busy} disabled={busy || !guided.ready}>
-              {inspection
-                ? 'Connect integration'
-                : resuming
-                  ? 'Check GitHub access'
-                  : 'Continue to GitHub'}
+              {submitLabels[guided.nextAction]}
             </Button>
           )}
         </fieldset>
         {!returned && (
-          <>
-            <FieldSeparator>OR</FieldSeparator>
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <h2 className="font-medium">
-                  {resuming ? 'Other setup options' : 'Use an existing GitHub App'}
-                </h2>
-                <p className="text-muted-foreground">
-                  {resuming
-                    ? 'Create a new App instead, or copy an App’s details from GitHub.'
-                    : 'Choose a credential saved in Omnara, or copy the App’s details from GitHub.'}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={guided.switchCredentialSource}
-                >
-                  {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
-                </Button>
-                <Button type="button" variant="outline" disabled={busy} onClick={onUseExistingApp}>
-                  Enter App details
-                </Button>
-              </div>
-            </div>
-          </>
+          <GitHubSetupAlternatives
+            resuming={resuming}
+            disabled={busy}
+            onSwitchCredentialSource={guided.switchCredentialSource}
+            onUseExistingApp={onUseExistingApp}
+          />
         )}
       </FieldGroup>
     </form>
+  )
+}
+
+function GitHubSetupIntroduction({
+  returned,
+  resuming,
+  inspection,
+}: {
+  returned: boolean
+  resuming: boolean
+  inspection?: GitHubInspection
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <h2 className="font-medium">
+        {returned
+          ? 'Connect your GitHub App'
+          : resuming
+            ? 'Connect a saved GitHub App'
+            : 'Create a GitHub App'}
+      </h2>
+      <p className="text-muted-foreground">
+        {returned
+          ? inspection?.result.installations.length
+            ? 'Connect a GitHub account below to finish setup.'
+            : 'Choose which repositories your App can access on GitHub.'
+          : resuming
+            ? 'Select a saved credential, then check which GitHub accounts it can access.'
+            : 'Fill in the details below, then click Continue to GitHub to create your App. You’ll return here to connect it.'}
+      </p>
+    </div>
+  )
+}
+
+function GitHubSetupAlternatives({
+  resuming,
+  disabled,
+  onSwitchCredentialSource,
+  onUseExistingApp,
+}: {
+  resuming: boolean
+  disabled: boolean
+  onSwitchCredentialSource: () => void
+  onUseExistingApp: () => void
+}) {
+  return (
+    <>
+      <FieldSeparator>OR</FieldSeparator>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <h2 className="font-medium">
+            {resuming ? 'Other setup options' : 'Use an existing GitHub App'}
+          </h2>
+          <p className="text-muted-foreground">
+            {resuming
+              ? 'Create a new App instead, or copy an App’s details from GitHub.'
+              : 'Choose a credential saved in Omnara, or copy the App’s details from GitHub.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            onClick={onSwitchCredentialSource}
+          >
+            {resuming ? 'Create a new GitHub App' : 'Use a saved credential'}
+          </Button>
+          <Button type="button" variant="outline" disabled={disabled} onClick={onUseExistingApp}>
+            Enter App details
+          </Button>
+        </div>
+      </div>
+    </>
   )
 }
 

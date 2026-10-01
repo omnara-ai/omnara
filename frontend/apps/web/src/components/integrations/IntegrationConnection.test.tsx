@@ -143,10 +143,10 @@ it.each([
     })
     await waitForUI(() => {
       expect(button('Save changes')).toBeDefined()
+      expect(container.textContent).toContain('Account connected.')
     })
     expect(api.requestsTo('POST', setupPath)).toHaveLength(1)
     expect(container.querySelector('#provider-tenant')).toBeNull()
-    expect(container.textContent).toContain('Account connected.')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     if (integrationKind === 'github_pr') {
       expect(field('PR opened')).toHaveProperty('checked', !reconnecting)

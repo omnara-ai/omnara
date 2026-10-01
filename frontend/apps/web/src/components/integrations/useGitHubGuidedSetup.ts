@@ -14,6 +14,8 @@ export interface GitHubInspection {
   page: number
 }
 
+export type GitHubSetupAction = 'register' | 'inspect' | 'connect'
+
 export function useGitHubGuidedSetup({
   orgId,
   projectId,
@@ -60,6 +62,7 @@ export function useGitHubGuidedSetup({
     checkReturnedAccess()
   }, [])
   const inspected = inspection?.result
+  const nextAction: GitHubSetupAction = inspected ? 'connect' : resuming ? 'inspect' : 'register'
   const selected = inspected?.installations.find(
     (installation) => installation.id === installationId,
   )
@@ -150,8 +153,8 @@ export function useGitHubGuidedSetup({
   }
 
   function continueSetup() {
-    if (inspected) connect()
-    else if (resuming) inspectInstallations()
+    if (nextAction === 'connect') connect()
+    else if (nextAction === 'inspect') inspectInstallations()
     else register()
   }
 
@@ -196,6 +199,7 @@ export function useGitHubGuidedSetup({
     ready: inspected ? Boolean(selected) : !resuming || Boolean(secretId),
     selectInstallation: setInstallationId,
     inspectInstallations,
+    nextAction,
     continueSetup,
     changeCredential,
     switchCredentialSource,
