@@ -128,8 +128,8 @@ export const createModelProviderFormDefaults: CreateModelProviderFormValues = {
   bedrockAPI: 'chat-completions-v1',
   bedrockAuth: 'api-key',
   region: 'us-west-2',
-  apiFormat: 'openai-chat-completions',
-  baseUrl: '',
+  apiFormat: 'openai-responses',
+  baseUrl: 'https://api.openai.com/v1',
   secretId: '',
   headerRows: [],
   secretHeaderRows: [],
@@ -140,7 +140,7 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
     resourceNameValid(values.name) &&
     values.secretId !== '' &&
     (values.provider !== 'bedrock' || awsRegionPattern.test(values.region.trim())) &&
-    (values.provider !== 'custom' || baseUrlPattern.test(values.baseUrl.trim())) &&
+    (values.provider === 'bedrock' || baseUrlPattern.test(values.baseUrl.trim())) &&
     textRowsValid(values.headerRows) &&
     secretRowsValid(values.secretHeaderRows)
   )
@@ -148,4 +148,14 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
 
 export function providerSecretName(provider: ModelProviderOption) {
   return `${provider}-api-key`
+}
+
+/** The endpoint fields a provider starts with: its preset endpoint, or blank for a custom one. */
+export function modelProviderEndpointDefaults(
+  provider: ModelProviderOption,
+): Pick<CreateModelProviderFormValues, 'baseUrl' | 'apiFormat'> {
+  const endpoint = modelProviderOption(provider).endpoint
+  return endpoint
+    ? { baseUrl: endpoint.baseUrl, apiFormat: endpoint.apiFormat }
+    : { baseUrl: '', apiFormat: 'openai-chat-completions' }
 }

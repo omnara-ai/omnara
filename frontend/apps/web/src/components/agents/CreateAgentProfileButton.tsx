@@ -12,10 +12,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useProjectDirectory } from '@/hooks/use-project-directory'
 
-const label = 'Create agent profile'
+const defaultLabel = 'Create agent profile'
 
 /** Links to the new-profile form for a single project the viewer can manage. */
-export function CreateAgentProfileButton({ projectId }: { projectId: string }) {
+export function CreateAgentProfileButton({
+  projectId,
+  label = defaultLabel,
+}: {
+  projectId: string
+  label?: string
+}) {
   return (
     <Button asChild size="sm">
       <Link to="/projects/$projectId/agents/new" params={{ projectId }}>
@@ -30,14 +36,25 @@ export function CreateAgentProfileButton({ projectId }: { projectId: string }) {
  * only manageable project, asks which one when there are several, and offers
  * to create a project when there are none.
  */
-export function OrgCreateAgentProfileButton({ orgId }: { orgId: string }) {
-  const projects = [...useProjectDirectory(orgId).values()].filter(
-    (project) => project.access.can_manage,
-  )
+export function OrgCreateAgentProfileButton({
+  orgId,
+  label = defaultLabel,
+  offerNewProject = true,
+}: {
+  orgId: string
+  label?: string
+  /** Offer to create a project when the viewer can't manage any; otherwise render nothing. */
+  offerNewProject?: boolean
+}) {
+  const directory = useProjectDirectory(orgId)
+  const projects = [...directory.projects.values()].filter((project) => project.access.can_manage)
+  // Choosing between one project, several, or none needs the whole list.
+  if (!directory.isComplete) return null
 
   const [first, second] = projects
-  if (first && !second) return <CreateAgentProfileButton projectId={first.id} />
-  if (!first) return <NewProjectButton orgId={orgId} label="Create a project" />
+  if (first && !second) return <CreateAgentProfileButton projectId={first.id} label={label} />
+  if (!first)
+    return offerNewProject ? <NewProjectButton orgId={orgId} label="Create a project" /> : null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

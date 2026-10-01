@@ -78,7 +78,7 @@ export function OrgAgentProfilesSection({ orgId }: { orgId: string }) {
   const list = useResourceList<AgentProfileListSort>('-updated_at')
   const query = useOrgAgentProfiles(orgId, { filters: list.apiFilters, sort: list.sort })
   const paged = usePagedQuery(query, list.queryKey)
-  const projects = useProjectDirectory(orgId)
+  const { projects } = useProjectDirectory(orgId)
   return (
     <AgentProfileList
       orgId={orgId}

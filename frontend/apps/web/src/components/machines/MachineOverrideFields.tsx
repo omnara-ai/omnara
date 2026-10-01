@@ -17,13 +17,23 @@ import { StartupScriptField } from './StartupScriptField'
 export function OverridesCollapsible({
   title = 'Overrides',
   description,
+  open: controlledOpen,
+  onOpenChange,
   children,
 }: {
   title?: string
   description?: string
+  /** Controls the open state; omit to let the section manage it. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = (next: boolean) => {
+    setUncontrolledOpen(next)
+    onOpenChange?.(next)
+  }
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="text-muted-foreground group flex items-center gap-2 text-left text-sm">

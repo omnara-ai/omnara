@@ -22,19 +22,21 @@ describe('machinePoolCreateStepValid', () => {
   it('checks only the fields each step owns', () => {
     expect(machinePoolCreateStepValid('provider', blaxel)).toBe(true)
     expect(machinePoolCreateStepValid('provider', { ...blaxel, secretId: '' })).toBe(false)
-    expect(machinePoolCreateStepValid('provider', { ...blaxel, providerScope: '' })).toBe(false)
-    expect(machinePoolCreateStepValid('provider', { ...blaxel, name: '' })).toBe(true)
+    expect(machinePoolCreateStepValid('provider', { ...blaxel, name: '' })).toBe(false)
+    expect(machinePoolCreateStepValid('provider', { ...blaxel, image: '' })).toBe(true)
 
-    expect(machinePoolCreateStepValid('pool', blaxel)).toBe(true)
-    expect(machinePoolCreateStepValid('pool', { ...blaxel, image: ' ' })).toBe(false)
-    expect(machinePoolCreateStepValid('pool', { ...blaxel, name: '' })).toBe(false)
+    expect(machinePoolCreateStepValid('image', blaxel)).toBe(true)
+    expect(machinePoolCreateStepValid('image', { ...blaxel, image: ' ' })).toBe(false)
+    expect(machinePoolCreateStepValid('image', { ...blaxel, providerScope: '' })).toBe(false)
+    const tenki = machinePoolFormAfterProviderChange(blaxel, 'tenki')
+    expect(machinePoolCreateStepValid('image', { ...tenki, image: '' })).toBe(true)
 
     expect(machinePoolCreateStepValid('capacity', blaxel)).toBe(true)
     expect(machinePoolCreateStepValid('capacity', { ...blaxel, location: '' })).toBe(false)
     expect(machinePoolCreateStepValid('capacity', { ...blaxel, memoryGb: '0' })).toBe(false)
     expect(machinePoolCreateStepValid('capacity', { ...blaxel, maxMachines: '-1' })).toBe(false)
 
-    expect(machinePoolCreateStepValid('startup', { ...blaxel, startupScript: '' })).toBe(true)
+    expect(machinePoolCreateStepValid('environment', { ...blaxel, startupScript: '' })).toBe(true)
   })
 })
 

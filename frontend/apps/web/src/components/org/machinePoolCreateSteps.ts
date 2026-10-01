@@ -8,12 +8,12 @@ import {
 } from './MachinePoolDialogState'
 import { machinePoolProviderDefinitions } from './machinePoolProviders'
 
-export const machinePoolCreateSteps = ['provider', 'pool', 'capacity', 'startup'] as const
+export const machinePoolCreateSteps = ['provider', 'image', 'capacity', 'environment'] as const
 
 export type MachinePoolCreateStep = (typeof machinePoolCreateSteps)[number]
 
 /**
- * Whether a create step's own fields are complete. The startup step has only optional
+ * Whether a create step's own fields are complete. The environment step has only optional
  * fields; creating the pool still requires the whole form to be valid.
  */
 export function machinePoolCreateStepValid(
@@ -23,17 +23,18 @@ export function machinePoolCreateStepValid(
   const provider = machinePoolProviderDefinitions[values.provider]
   switch (step) {
     case 'provider':
+      return resourceNameValid(values.name) && values.secretId !== ''
+    case 'image':
       return (
-        values.secretId !== '' && (!provider.scope?.required || values.providerScope.trim() !== '')
+        (provider.resource.optional === true || values.image.trim() !== '') &&
+        (!provider.scope?.required || values.providerScope.trim() !== '')
       )
-    case 'pool':
-      return resourceNameValid(values.name) && values.image.trim() !== ''
     case 'capacity':
       return (
         (!provider.location?.required || values.location.trim() !== '') &&
         machinePoolCapacityValid(values)
       )
-    case 'startup':
+    case 'environment':
       return true
   }
 }
