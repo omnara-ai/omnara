@@ -85,15 +85,7 @@ func (s *Store) MarkProcessStarted(
 	}
 	resultCommitted := false
 	var committedResult json.RawMessage
-	completeToolCallOnStart, err := shouldCompleteLinkedToolCallOnProcessStartTx(
-		ctx,
-		tx,
-		record,
-	)
-	if err != nil {
-		return DaemonProcessReportApplication{}, err
-	}
-	if completeToolCallOnStart {
+	if record.ToolCallID != uuid.Nil && record.FileTransfer == nil {
 		startedRecord := record
 		startedRecord.State = ProcessStateRunning
 		result, err := startedProcessToolResult(startedRecord, input.Result)
@@ -315,27 +307,20 @@ func (s *Store) CompleteDaemonProcess(
 		if resultErr != nil {
 			return DaemonProcessReportApplication{}, resultErr
 		}
+		if len(input.Result) > 0 && string(input.Result) != "null" {
+			result, err = commandTerminalToolResult(record.ID, input.Result)
+			if err != nil {
+				return DaemonProcessReportApplication{}, err
+			}
+		}
 		var contentParts json.RawMessage
-		if outcome == ToolResultOutcomeSucceeded && isUploadArtifactToolCall(toolCall) {
-			outcome, contentParts, err = uploadArtifactProcessToolResultContentParts(
-				ctx,
-				qtx,
-				record,
-			)
-			if err != nil {
-				return DaemonProcessReportApplication{}, err
-			}
+		if record.FileTransfer != nil {
+			outcome, contentParts, err = fileTransferToolResultContentParts(ctx, qtx, record, toolCall.Input, result)
 		} else {
-			if len(input.Result) > 0 && string(input.Result) != "null" {
-				result, err = commandTerminalToolResult(record.ID, input.Result)
-				if err != nil {
-					return DaemonProcessReportApplication{}, err
-				}
-			}
 			contentParts, err = ToolResultContentParts(result)
-			if err != nil {
-				return DaemonProcessReportApplication{}, err
-			}
+		}
+		if err != nil {
+			return DaemonProcessReportApplication{}, err
 		}
 		toolRow, err := qtx.CompleteToolCallFromProcess(
 			ctx,
@@ -464,27 +449,6 @@ func (s *Store) CompleteDaemonProcess(
 		Process:             record,
 		ToolResultCommitted: resultCommitted,
 	}, nil
-}
-
-func shouldCompleteLinkedToolCallOnProcessStartTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	process ProcessRecord,
-) (bool, error) {
-	if process.ToolCallID == uuid.Nil {
-		return false, nil
-	}
-	toolCall, err := getToolCallTx(
-		ctx,
-		tx,
-		process.ProjectID,
-		process.AgentID,
-		process.ToolCallID,
-	)
-	if err != nil {
-		return false, fmt.Errorf("load linked tool call: %w", err)
-	}
-	return !isUploadArtifactToolCall(toolCall), nil
 }
 
 func daemonProcessForReportTx(

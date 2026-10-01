@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/omnara-ai/omnara/internal/processcmd"
 )
 
 type Actor struct {
@@ -214,6 +215,8 @@ type EffectiveResourceLimit struct {
 	MaxActiveByoDaemonTokensPerMachine        int64
 	MaxNonTerminalProcessesPerAgent           int64
 	MaxActiveCronTriggersPerProject           int64
+	MaxActiveMemoryStoresPerProject           int64
+	MaxMemoriesPerStore                       int64
 }
 
 type ExpiredIdlePoolMachineCandidate struct {
@@ -332,6 +335,17 @@ type McpServerCatalog struct {
 	UpdatedAt             time.Time
 }
 
+type MemoryStore struct {
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	Name        string
+	Description string
+	AgentAccess string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DeletedAt   *time.Time
+}
+
 type ModelProviderConfig struct {
 	ID                 uuid.UUID
 	OrgID              uuid.UUID
@@ -416,6 +430,7 @@ type Process struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	LastActivityAt        time.Time
+	FileTransfer          *processcmd.FileTransfer
 }
 
 type ProcessAction struct {

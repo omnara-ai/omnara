@@ -1,0 +1,366 @@
+package memorystore
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omnara-ai/omnara/internal/agentconfig"
+	"github.com/omnara-ai/omnara/internal/dbsafe"
+	"github.com/omnara-ai/omnara/internal/log/logent"
+	"github.com/omnara-ai/omnara/internal/skills"
+	"github.com/omnara-ai/omnara/internal/storage/identitystore"
+	"github.com/omnara-ai/omnara/internal/storage/internal/dbsqlc"
+	"github.com/omnara-ai/omnara/internal/storage/internal/lifecyclelock"
+	"github.com/omnara-ai/omnara/internal/storage/internal/memoryops"
+	"github.com/omnara-ai/omnara/internal/storage/internal/resourceguard"
+	"github.com/omnara-ai/omnara/internal/storage/internal/storeutil"
+	"github.com/omnara-ai/omnara/internal/storage/listing"
+	"github.com/omnara-ai/omnara/internal/storage/storeerr"
+)
+
+const maxDescriptionLength = 1024
+
+type Store struct {
+	pool  *storeutil.Pool
+	q     *dbsqlc.Queries
+	files *Filesystem
+}
+
+func New(pool *pgxpool.Pool, files *Filesystem) *Store {
+	db := storeutil.WrapPool(pool)
+	return &Store{pool: db, q: dbsqlc.New(db), files: files}
+}
+
+type Scope struct {
+	OrgID     uuid.UUID
+	ProjectID uuid.UUID
+	AgentID   uuid.UUID
+	Principal identitystore.PrincipalRecord
+}
+
+type Record struct {
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	Name        string
+	Description string
+	AgentAccess agentconfig.MemoryStoreAccess
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func record(r dbsqlc.MemoryStore) Record {
+	return Record{
+		ID: r.ID, ProjectID: r.ProjectID, Name: r.Name, Description: r.Description,
+		AgentAccess: agentconfig.MemoryStoreAccess(r.AgentAccess), CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	}
+}
+
+func mapped(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storeerr.ErrNotFound
+	}
+	if storeutil.IsUniqueViolation(err) {
+		return storeerr.ErrConflict
+	}
+	return err
+}
+
+func authorize(ctx context.Context, q *dbsqlc.Queries, scope Scope, manage bool) error {
+	if scope.AgentID != uuid.Nil {
+		return storeerr.ErrUnauthorized
+	}
+	action := identitystore.ProjectActionRead
+	if manage {
+		action = identitystore.ProjectActionManage
+	}
+	allowed, err := identitystore.AuthorizeProject(
+		ctx, q,
+		identitystore.AuthorizeProjectInput{
+			Principal: scope.Principal,
+			OrgID:     scope.OrgID,
+			ProjectID: scope.ProjectID,
+			Action:    action,
+		})
+	if err != nil {
+		return fmt.Errorf("authorize memory store: %w", err)
+	}
+	if !allowed {
+		return storeerr.ErrNotFound
+	}
+	return nil
+}
+
+func validateDescription(description string) error {
+	if err := dbsafe.Text(description); err != nil {
+		return err
+	}
+	if utf8.RuneCountInString(description) > maxDescriptionLength {
+		return fmt.Errorf("memory store description must be at most %d characters", maxDescriptionLength)
+	}
+	return nil
+}
+
+func (s *Store) Create(
+	ctx context.Context,
+	scope Scope,
+	name, description string,
+	agentAccess agentconfig.MemoryStoreAccess,
+) (Record, error) {
+	if err := authorize(ctx, s.q, scope, true); err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", err)
+	}
+	if err := skills.ValidateName(name); err != nil {
+		return Record{}, storeerr.InvalidRequest(err)
+	}
+	if err := validateDescription(description); err != nil {
+		return Record{}, storeerr.InvalidRequest(err)
+	}
+	if !agentAccess.Valid() {
+		return Record{}, storeerr.InvalidRequest(errors.New("invalid memory store agent access"))
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return Record{}, fmt.Errorf("generate memory store id: %w", err)
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, scope.OrgID, scope.ProjectID); err != nil {
+		return Record{}, err
+	}
+	q := s.q.WithTx(tx)
+	if err = resourceguard.Lock(ctx, q, "memory_stores", scope.ProjectID.String()); err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", err)
+	}
+	limits, err := resourceguard.ResolveLimits(ctx, q, scope.OrgID)
+	if err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", err)
+	}
+	count, err := q.CountMemoryStores(ctx, dbsqlc.CountMemoryStoresParams{ProjectID: scope.ProjectID})
+	if err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", err)
+	}
+	if count >= limits.MaxActiveMemoryStoresPerProject {
+		return Record{}, fmt.Errorf("memory store limit reached: %w", storeerr.ErrConflict)
+	}
+	r, err := q.CreateMemoryStore(ctx, dbsqlc.CreateMemoryStoreParams{
+		ID:          id,
+		ProjectID:   scope.ProjectID,
+		Name:        name,
+		Description: description,
+		AgentAccess: string(agentAccess),
+	})
+	if err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", mapped(err))
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Record{}, fmt.Errorf("create memory store: %w", err)
+	}
+	return record(r), nil
+}
+
+func (s *Store) Get(ctx context.Context, scope Scope, id uuid.UUID) (Record, error) {
+	if err := authorize(ctx, s.q, scope, false); err != nil {
+		return Record{}, err
+	}
+	r, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
+	if err != nil {
+		return Record{}, fmt.Errorf("get memory store: %w", mapped(err))
+	}
+	return record(r), nil
+}
+
+func (s *Store) Resolve(ctx context.Context, projectID uuid.UUID, name string) (Record, error) {
+	r, err := s.q.GetMemoryStoreByName(ctx, dbsqlc.GetMemoryStoreByNameParams{ProjectID: projectID, Name: name})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Record{}, fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
+	}
+	if err != nil {
+		return Record{}, fmt.Errorf("get memory store: %w", mapped(err))
+	}
+	return record(r), nil
+}
+
+type ListResult struct {
+	Records []Record
+	HasMore bool
+	Next    listing.Cursor
+}
+
+func (s *Store) List(ctx context.Context, scope Scope, options listing.Options, limit int) (ListResult, error) {
+	if err := authorize(ctx, s.q, scope, false); err != nil {
+		return ListResult{}, fmt.Errorf("list memory stores: %w", err)
+	}
+	if options.After.Key != "" {
+		if err := skills.ValidateName(options.After.Key); err != nil {
+			return ListResult{}, storeerr.InvalidRequest(err)
+		}
+	}
+	if limit < 1 || limit > 100 {
+		return ListResult{}, storeerr.InvalidRequest(errors.New("invalid limit"))
+	}
+	rows, err := s.q.ListMemoryStores(ctx, dbsqlc.ListMemoryStoresParams{
+		ProjectID:   scope.ProjectID,
+		AfterName:   options.After.Key,
+		NamePattern: options.NamePattern,
+		RowLimit:    int32(limit + 1),
+	})
+	if err != nil {
+		return ListResult{}, fmt.Errorf("list memory stores: %w", err)
+	}
+	out := ListResult{Records: make([]Record, 0, min(len(rows), limit))}
+	if len(rows) > limit {
+		out.HasMore, rows = true, rows[:limit]
+	}
+	for _, r := range rows {
+		out.Records = append(out.Records, record(r))
+		out.Next = listing.Cursor{Set: true, Key: r.Name, ID: r.ID}
+	}
+	return out, nil
+}
+
+func (s *Store) Update(
+	ctx context.Context,
+	scope Scope,
+	id uuid.UUID,
+	description *string,
+	agentAccess *agentconfig.MemoryStoreAccess,
+) (Record, error) {
+	if err := authorize(ctx, s.q, scope, true); err != nil {
+		return Record{}, fmt.Errorf("update memory store: %w", err)
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Record{}, fmt.Errorf("update memory store: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, scope.OrgID, scope.ProjectID); err != nil {
+		return Record{}, err
+	}
+	q := s.q.WithTx(tx)
+	r, err := q.LockMemoryStore(ctx, dbsqlc.LockMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
+	if err != nil {
+		return Record{}, fmt.Errorf("update memory store: %w", mapped(err))
+	}
+	if description != nil {
+		if err := validateDescription(*description); err != nil {
+			return Record{}, storeerr.InvalidRequest(err)
+		}
+		r.Description = *description
+	}
+	if agentAccess != nil {
+		if !agentAccess.Valid() {
+			return Record{}, storeerr.InvalidRequest(errors.New("invalid memory store agent access"))
+		}
+		r.AgentAccess = string(*agentAccess)
+	}
+	r, err = q.UpdateMemoryStore(ctx, dbsqlc.UpdateMemoryStoreParams{
+		ProjectID:   scope.ProjectID,
+		ID:          id,
+		Description: r.Description,
+		AgentAccess: r.AgentAccess,
+	})
+	if err != nil {
+		return Record{}, fmt.Errorf("update memory store: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Record{}, fmt.Errorf("update memory store: %w", err)
+	}
+	return record(r), nil
+}
+
+func (s *Store) LoadAgentAttachments(
+	ctx context.Context, projectID, agentID uuid.UUID,
+) ([]agentconfig.MemoryStoreCompiled, error) {
+	return loadAgentAttachments(ctx, s.q, projectID, agentID)
+}
+
+func loadAgentAttachments(
+	ctx context.Context, q *dbsqlc.Queries, projectID, agentID uuid.UUID,
+) ([]agentconfig.MemoryStoreCompiled, error) {
+	raw, err := q.GetAgentMemoryConfig(ctx, dbsqlc.GetAgentMemoryConfigParams{ProjectID: projectID, AgentID: agentID})
+	if err != nil {
+		return nil, mapped(err)
+	}
+	var stores []agentconfig.MemoryStoreCompiled
+	if err := json.Unmarshal(raw, &stores); err != nil {
+		return nil, fmt.Errorf("load memory attachments: %w", err)
+	}
+	return stores, nil
+}
+
+func (s *Store) authorizeAttachment(
+	ctx context.Context,
+	q *dbsqlc.Queries,
+	scope Scope,
+	storeID uuid.UUID,
+	write bool,
+) error {
+	if scope.AgentID == uuid.Nil {
+		return authorize(ctx, q, scope, write)
+	}
+	attachments, err := loadAgentAttachments(ctx, q, scope.ProjectID, scope.AgentID)
+	if err != nil {
+		return fmt.Errorf("authorize memory file: %w", err)
+	}
+	for _, attached := range attachments {
+		if attached.ID == storeID {
+			if write && attached.Access != agentconfig.MemoryStoreAccessReadWrite {
+				return fmt.Errorf("memory store attachment is read-only: %w", storeerr.ErrConflict)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("memory store is unavailable: %w", storeerr.ErrNotFound)
+}
+
+func (s *Store) Delete(ctx context.Context, scope Scope, id uuid.UUID) error {
+	if err := authorize(ctx, s.q, scope, true); err != nil {
+		return fmt.Errorf("delete memory store: %w", err)
+	}
+	row, err := s.q.GetMemoryStore(ctx, dbsqlc.GetMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
+	if err != nil {
+		return mapped(err)
+	}
+	ref, err := memoryops.NewStoreRef(scope.OrgID, scope.ProjectID, row.ID, row.Name)
+	if err != nil {
+		return err
+	}
+	lock, err := s.files.Lock(ctx, ref)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("delete memory store: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lifecyclelock.EnterActiveProject(ctx, tx, scope.OrgID, scope.ProjectID); err != nil {
+		return err
+	}
+	q := s.q.WithTx(tx)
+	_, err = q.LockMemoryStore(ctx, dbsqlc.LockMemoryStoreParams{ProjectID: scope.ProjectID, ID: id})
+	if err != nil {
+		return fmt.Errorf("delete memory store: %w", mapped(err))
+	}
+	if err = q.DeleteMemoryStore(ctx, dbsqlc.DeleteMemoryStoreParams{ProjectID: scope.ProjectID, ID: id}); err != nil {
+		return fmt.Errorf("delete memory store: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("delete memory store: %w", err)
+	}
+	if err := s.files.RemoveStore(ref); err != nil {
+		logent.MemoryCleanupFailed(ctx, logent.MemoryCleanupDeleteStore, scope.OrgID, scope.ProjectID, id, err)
+	}
+	return nil
+}

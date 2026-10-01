@@ -18,7 +18,7 @@ COPY --chown=101:101 --from=web-build /src/frontend/apps/web/dist /usr/share/ngi
 FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS go-base
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && mkdir -p /out/memory
 COPY . .
 
 FROM go-base AS api-build
@@ -31,7 +31,9 @@ RUN mkdir -p frontend/apps/web/dist \
 FROM go-base AS worker-build
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-worker ./cmd/worker \
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-file-exec ./cmd/file-exec \
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/omnara-file-edit ./cmd/file-edit
 
 FROM go-base AS maintenance-build
 ARG TARGETOS
@@ -54,14 +56,27 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a
 WORKDIR /app
 
 FROM runtime AS api
+COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
 ENV OMNARA_WEB_SERVING=disabled
 ENV OMNARA_MCP_REGISTRY_SNAPSHOT_PATH=/app/mcp-registry/mcp-registry.json
 COPY --from=api-build /out/omnara-api /usr/local/bin/omnara-api
 COPY --from=mcp-registry-snapshot --chown=nonroot:nonroot /out/mcp-registry.json /app/mcp-registry/mcp-registry.json
 ENTRYPOINT ["/usr/local/bin/omnara-api"]
 
-FROM runtime AS worker
-COPY --from=worker-build /out/omnara-worker /usr/local/bin/omnara-worker
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS file-tools
+RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends ripgrep sed libcap2-bin
+COPY cmd/file-edit/install.sh /src/file-edit/install.sh
+COPY --from=worker-build /out/omnara-file-edit /src/omnara-file-edit
+RUN sh /src/file-edit/install.sh /src/omnara-file-edit /out
+
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS worker
+WORKDIR /app
+COPY --from=file-tools /usr/bin/rg /usr/local/bin/
+COPY --from=file-tools /usr/lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/
+COPY --from=go-base --chown=nonroot:nonroot /out/memory /var/lib/omnara/memory
+COPY --from=worker-build /out/omnara-worker /out/omnara-file-exec /usr/local/bin/
+COPY --from=file-tools /out/ /
 ENTRYPOINT ["/usr/local/bin/omnara-worker"]
 
 FROM runtime AS maintenance

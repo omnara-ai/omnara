@@ -25,6 +25,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "__omnara_file_transfer" {
+		os.Exit(runFileTransferProbe())
+	}
 	if len(os.Args) == 4 && os.Args[1] == runnerSubcommand {
 		lockFD, err := strconv.Atoi(os.Args[3])
 		if err == nil {

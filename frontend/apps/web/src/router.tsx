@@ -182,6 +182,19 @@ const projectSkillsRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
 })
 
+const projectMemoryRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/memory',
+  component: lazyRouteComponent(() => import('@/routes/ProjectMemoryPage'), 'ProjectMemoryPage'),
+})
+
+const memoryStoreRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/memory/$storeId',
+  validateSearch: z.object({ path: z.string().optional(), folder: z.string().optional() }),
+  component: lazyRouteComponent(() => import('@/routes/MemoryStorePage'), 'MemoryStorePage'),
+})
+
 const projectUsageRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/usage',
@@ -322,6 +335,8 @@ const routeTree = rootRoute.addChildren([
       projectGrantsRoute,
       projectSecretsRoute,
       projectSkillsRoute,
+      projectMemoryRoute,
+      memoryStoreRoute,
       projectUsageRoute,
       agentProfileRoute,
       createAgentRoute,

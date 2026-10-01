@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/notifications"
 	"github.com/omnara-ai/omnara/internal/processcmd"
@@ -237,71 +238,89 @@ func commandTerminalToolResult(
 	return marshalJSON(object)
 }
 
-func isUploadArtifactToolCall(call ToolCallRecord) bool {
-	if call.Type != toolcatalog.ToolTypeBuiltIn {
-		return false
+func fileTransferToolResultContentParts(
+	ctx context.Context,
+	qtx *dbsqlc.Queries,
+	process ProcessRecord,
+	input, result json.RawMessage,
+) (ToolResultOutcome, json.RawMessage, error) {
+	direction := process.FileTransfer.Direction
+	var observed struct {
+		FileTransfer *daemonprotocol.FileTransferResult `json:"file_transfer"`
 	}
-	if call.Name != toolcatalog.ToolNameUploadFile {
-		return false
+	valid := json.Unmarshal(result, &observed) == nil && observed.FileTransfer != nil &&
+		observed.FileTransfer.Validate(direction) == nil
+	metadata := observed.FileTransfer
+	if process.State != ProcessStateExited || process.ExitCode == nil || *process.ExitCode != 0 {
+		if valid && metadata.Error != nil && process.ExitCode != nil && *process.ExitCode != 0 &&
+			(process.State == ProcessStateExited ||
+				(process.State == ProcessStateFailed && process.StateReasonCode == "nonzero_exit")) {
+			return failedFileTransferToolResultContentParts(result, *metadata.Error)
+		}
+		contentParts, err := ToolResultContentParts(result)
+		return ToolResultOutcomeFailed, contentParts, err
 	}
-	var input struct {
+	invalidMetadata := daemonprotocol.FileTransferError{Message: direction + " completed without valid file metadata"}
+	if !valid || metadata.Error != nil {
+		return failedFileTransferToolResultContentParts(result, invalidMetadata)
+	}
+	var request struct {
 		Path string `json:"path"`
 	}
-	return json.Unmarshal(call.Input, &input) == nil && input.Path == toolcatalog.ArtifactVFSRoot
+	if err := json.Unmarshal(input, &request); err != nil {
+		return "", nil, fmt.Errorf("decode file transfer request: %w", err)
+	}
+	parts := []map[string]any{{"type": "structured_data", "value": metadata}}
+	if direction == "upload" {
+		if request.Path == toolcatalog.ArtifactVFSRoot {
+			artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
+				ProjectID:      process.ProjectID,
+				AgentID:        process.AgentID,
+				IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return failedFileTransferToolResultContentParts(result,
+					daemonprotocol.FileTransferError{Message: "upload completed without an artifact"})
+			}
+			if err != nil {
+				return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
+			}
+			path := toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID)
+			if metadata.Path != path || metadata.Digest != artifact.Digest {
+				return failedFileTransferToolResultContentParts(result, invalidMetadata)
+			}
+			parts = append(parts, map[string]any{
+				"type": "media_ref", "artifact_id": artifact.ID.String(), "exclude_from_model_context": true,
+			})
+		} else if metadata.Path != request.Path {
+			return failedFileTransferToolResultContentParts(result, invalidMetadata)
+		}
+	}
+	contentParts, err := marshalJSON(parts)
+	return ToolResultOutcomeSucceeded, contentParts, err
 }
 
 func UploadArtifactIdempotencyKey(toolCallID uuid.UUID) string {
 	return "upload-artifact:" + toolCallID.String()
 }
 
-func uploadArtifactProcessToolResultContentParts(
-	ctx context.Context,
-	qtx *dbsqlc.Queries,
-	process ProcessRecord,
+func failedFileTransferToolResultContentParts(
+	result json.RawMessage,
+	failure daemonprotocol.FileTransferError,
 ) (ToolResultOutcome, json.RawMessage, error) {
-	artifact, err := qtx.GetArtifactByIdempotencyKey(ctx, dbsqlc.GetArtifactByIdempotencyKeyParams{
-		ProjectID:      process.ProjectID,
-		AgentID:        process.AgentID,
-		IdempotencyKey: UploadArtifactIdempotencyKey(process.ToolCallID),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return failedUploadArtifactProcessToolResultContentParts(
-			process,
-			"upload completed without an artifact",
-		)
+	var value map[string]any
+	if err := json.Unmarshal(result, &value); err != nil {
+		return "", nil, fmt.Errorf("decode file transfer result: %w", err)
 	}
-	if err != nil {
-		return "", nil, fmt.Errorf("load uploaded artifact: %w", err)
+	delete(value, "file_transfer")
+	value["error"] = failure.Message
+	if failure.Code != "" {
+		value["code"] = failure.Code
 	}
-	contentParts, err := marshalJSON([]map[string]any{
-		{
-			"type": "structured_data",
-			"value": map[string]any{
-				"path": toolcatalog.ArtifactVFSRoot + "/" + publicResourceID(publicid.KindArtifact, artifact.ID),
-			},
-		},
-		{
-			"type":                       "media_ref",
-			"artifact_id":                artifact.ID.String(),
-			"exclude_from_model_context": true,
-		},
-	})
-	return ToolResultOutcomeSucceeded, contentParts, err
-}
-
-func failedUploadArtifactProcessToolResultContentParts(
-	process ProcessRecord,
-	message string,
-) (ToolResultOutcome, json.RawMessage, error) {
-	result, err := marshalJSON(map[string]any{
-		"process_id": publicResourceID(publicid.KindProcess, process.ID),
-		"state":      process.State,
-		"error":      message,
-	})
-	if err != nil {
-		return "", nil, err
+	if failure.CurrentDigest != "" {
+		value["current_digest"] = failure.CurrentDigest
 	}
-	contentParts, err := ToolResultContentParts(result)
+	contentParts, err := marshalJSON([]map[string]any{{"type": "structured_data", "value": value}})
 	return ToolResultOutcomeFailed, contentParts, err
 }
 

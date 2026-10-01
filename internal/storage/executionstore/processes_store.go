@@ -20,41 +20,51 @@ type DaemonProcessOffer struct {
 	RetryError       error             `json:"-"`
 }
 
-type DaemonArtifactProcessScope struct {
-	ProjectID uuid.UUID
-	AgentID   uuid.UUID
-	Path      string
+type DaemonFileProcessScope struct {
+	OrgID          uuid.UUID
+	ProjectID      uuid.UUID
+	AgentID        uuid.UUID
+	ToolCallID     uuid.UUID
+	Path           string
+	ExpectedDigest *string
 }
 
-func (s *Store) GetDaemonArtifactProcessScope(
+func (s *Store) GetDaemonFileProcessScope(
 	ctx context.Context,
-	orgID, machineID, toolCallID uuid.UUID,
+	orgID, machineID, processID uuid.UUID,
 	toolName string,
-) (DaemonArtifactProcessScope, bool, error) {
-	if orgID == uuid.Nil || machineID == uuid.Nil || toolCallID == uuid.Nil {
-		return DaemonArtifactProcessScope{}, false, errors.New(
-			"organization id, machine id, and tool call id are required",
+) (DaemonFileProcessScope, bool, error) {
+	if orgID == uuid.Nil || machineID == uuid.Nil || processID == uuid.Nil {
+		return DaemonFileProcessScope{}, false, errors.New(
+			"organization id, machine id, and process id are required",
 		)
 	}
 	if toolName == "" {
-		return DaemonArtifactProcessScope{}, false, errors.New("tool name is required")
+		return DaemonFileProcessScope{}, false, errors.New("tool name is required")
 	}
-	record, err := s.q.GetDaemonArtifactProcessScope(ctx, dbsqlc.GetDaemonArtifactProcessScopeParams{
-		OrgID:      orgID,
-		MachineID:  machineID,
-		ToolCallID: toolCallID,
-		ToolName:   toolName,
+	record, err := s.q.GetDaemonFileProcessScope(ctx, dbsqlc.GetDaemonFileProcessScopeParams{
+		OrgID:     orgID,
+		MachineID: machineID,
+		ProcessID: processID,
+		ToolName:  toolName,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DaemonArtifactProcessScope{}, false, nil
+		return DaemonFileProcessScope{}, false, nil
 	}
 	if err != nil {
-		return DaemonArtifactProcessScope{}, false, fmt.Errorf("load daemon artifact process scope: %w", err)
+		return DaemonFileProcessScope{}, false, fmt.Errorf("load daemon file process scope: %w", err)
 	}
-	return DaemonArtifactProcessScope{
-		ProjectID: record.ProjectID,
-		AgentID:   record.AgentID,
-		Path:      record.Path,
+	var expectedDigest *string
+	if record.ExpectedDigest != "" {
+		expectedDigest = &record.ExpectedDigest
+	}
+	return DaemonFileProcessScope{
+		OrgID:          orgID,
+		ProjectID:      record.ProjectID,
+		AgentID:        record.AgentID,
+		ToolCallID:     record.ToolCallID,
+		Path:           record.Path,
+		ExpectedDigest: expectedDigest,
 	}, true, nil
 }
 
@@ -65,15 +75,22 @@ func (t *toolCallTransaction) startProcess(
 	if input.AgentMachineBindingID == uuid.Nil {
 		return ProcessRecord{}, errors.New("agent machine binding is required")
 	}
-	if input.Command == "" {
-		return ProcessRecord{}, errors.New("process command is required")
+	if input.FileTransfer != nil {
+		if input.Command != "" || input.ShellSelector != "" || input.IOMode != processcmd.IOModePipe {
+			return ProcessRecord{}, errors.New("file transfers require pipe IO and no shell command")
+		}
+		if err := input.FileTransfer.Validate(); err != nil {
+			return ProcessRecord{}, err
+		}
+	} else {
+		spec, err := processcmd.NormalizeShellCommand(input.Command, input.ShellSelector)
+		if err != nil {
+			return ProcessRecord{}, err
+		}
+		input.Command = spec.Command
+		input.ShellSelector = spec.Shell
 	}
-	spec, err := processcmd.NormalizeShellCommand(input.Command, input.ShellSelector)
-	if err != nil {
-		return ProcessRecord{}, err
-	}
-	input.Command = spec.Command
-	input.ShellSelector = spec.Shell
+	var err error
 	input.IOMode, err = processcmd.NormalizeIOMode(input.IOMode)
 	if err != nil {
 		return ProcessRecord{}, err
@@ -177,6 +194,7 @@ func (t *toolCallTransaction) startProcess(
 		ToolCallID:            toolCallID,
 		IoMode:                string(input.IOMode),
 		Command:               input.Command,
+		FileTransfer:          input.FileTransfer,
 		ShellSelector:         string(input.ShellSelector),
 		Cwd:                   cwd,
 		Env:                   processEnv,
@@ -231,6 +249,8 @@ func processReplayMatches(existing ProcessRecord, input CreateProcessInput) bool
 	return existing.AgentMachineBindingID == input.AgentMachineBindingID &&
 		existing.IOMode == input.IOMode &&
 		existing.Command == input.Command &&
+		((existing.FileTransfer == nil && input.FileTransfer == nil) ||
+			(existing.FileTransfer != nil && input.FileTransfer != nil && *existing.FileTransfer == *input.FileTransfer)) &&
 		existing.ShellSelector == input.ShellSelector &&
 		existing.TimeoutSeconds == input.TimeoutSeconds &&
 		existing.InitialWaitMS == input.InitialWaitMS

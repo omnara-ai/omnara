@@ -23,6 +23,7 @@ export function agentBuilderToolsSource(source: BasicConfig): string {
         row.kind === 'pool' ? { machine_pool_name: row.name } : { machine_name: row.name },
       ),
     skills: source.skillIds,
+    memory_stores: source.memoryStores,
     subagents: Object.fromEntries(
       source.subagents.filter(subagentValid).map((row) => {
         const { type, profile } = subagentWire(row)

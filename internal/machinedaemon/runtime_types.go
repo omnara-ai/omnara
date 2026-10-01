@@ -128,6 +128,7 @@ type ProcessAssignment struct {
 }
 
 type Process struct {
+	FileTransfer  *processcmd.FileTransfer `json:"file_transfer,omitempty"`
 	Command       string                   `json:"command"`
 	ShellSelector processcmd.ShellSelector `json:"shell_selector"`
 	Cwd           string                   `json:"cwd"`
@@ -203,6 +204,9 @@ type processRuntime struct {
 }
 
 type localProcessRunner struct {
+	fileTransfer        *processcmd.FileTransfer
+	transferReader      *os.File
+	transferResult      chan fileTransferOutcome
 	cmd                 *exec.Cmd
 	startErr            error
 	containment         atomic.Pointer[processContainment]

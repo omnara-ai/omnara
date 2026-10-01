@@ -50,6 +50,7 @@ const (
 	KindConfiguredModel         Kind = "configured_model"
 	KindConfiguredModelRevision Kind = "configured_model_revision"
 	KindProjectModelGrant       Kind = "project_model_grant"
+	KindMemoryStore             Kind = "memory_store"
 	KindSkill                   Kind = "skill"
 	KindSkillRevision           Kind = "skill_revision"
 	KindSkillGrant              Kind = "skill_grant"
@@ -95,6 +96,7 @@ var kindPrefixes = map[Kind]string{
 	KindConfiguredModel:         "mdl",
 	KindConfiguredModelRevision: "mrev",
 	KindProjectModelGrant:       "pmog",
+	KindMemoryStore:             "mst",
 	KindSkill:                   "skl",
 	KindSkillRevision:           "skr",
 	KindSkillGrant:              "skg",

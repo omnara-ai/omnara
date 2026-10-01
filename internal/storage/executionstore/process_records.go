@@ -49,6 +49,7 @@ const (
 )
 
 type CreateProcessInput struct {
+	FileTransfer          *processcmd.FileTransfer
 	AgentMachineBindingID uuid.UUID
 	IOMode                processcmd.IOMode
 	Command               string
@@ -146,6 +147,7 @@ type CompleteDaemonProcessInput struct {
 }
 
 type ProcessRecord struct {
+	FileTransfer          *processcmd.FileTransfer `json:"file_transfer,omitempty"`
 	ID                    uuid.UUID                `json:"id"`
 	OrgID                 uuid.UUID                `json:"org_id"`
 	ProjectID             uuid.UUID                `json:"project_id"`
@@ -193,6 +195,7 @@ type ProcessActionRecord struct {
 }
 
 type ActiveProcessRecord struct {
+	FileTransfer    *processcmd.FileTransfer `json:"file_transfer,omitempty"`
 	ID              uuid.UUID                `json:"id"`
 	State           ProcessState             `json:"state"`
 	MachineID       uuid.UUID                `json:"machine_id"`

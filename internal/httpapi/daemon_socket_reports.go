@@ -264,6 +264,7 @@ func daemonProcessOfferMessage(processID string, offer executionstore.DaemonProc
 	}
 	if processOffer.PreparationError == "" {
 		processOffer = &daemonprotocol.ProcessOffer{
+			FileTransfer:   offer.Process.FileTransfer,
 			ProcessID:      processID,
 			IOMode:         offer.Process.IOMode,
 			Command:        offer.Process.Command,

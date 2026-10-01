@@ -219,6 +219,7 @@ func (e *serviceE2EEnvironment) startAPIWithWebServing(
 		"OMNARA_REDIS_URL="+e.redisURL,
 		"OMNARA_PUBLIC_URL="+e.publicURL,
 		"OMNARA_WEB_SERVING="+webServing,
+		"OMNARA_MEMORY_DIR="+filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_LOG_LEVEL="+serviceE2EEnvDefault("OMNARA_E2E_API_LOG_LEVEL", "error"),
@@ -261,14 +262,22 @@ func (e *serviceE2EEnvironment) startWorker(
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build worker: %v\n%s", err, output)
 	}
+	build = exec.CommandContext(ctx, goBin(e.repoRoot), "build",
+		"-o", filepath.Join(e.root, "omnara-file-exec"), "./cmd/file-exec")
+	build.Dir = e.repoRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build file launcher: %v\n%s", err, output)
+	}
 	cmd := exec.Command(workerPath)
 	cmd.Dir = e.repoRoot
 	workerEnv := []string{
+		"PATH=" + e.root + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"OMNARA_ALLOW_INSECURE_DEV_DEFAULTS=1",
 		"OMNARA_WORKER_METRICS_ADDR=" + e.workerListenAddr,
 		"OMNARA_DATABASE_URL=" + e.databaseURL,
 		"OMNARA_REDIS_URL=" + e.redisURL,
 		"OMNARA_PUBLIC_URL=" + workerPublicURL,
+		"OMNARA_MEMORY_DIR=" + filepath.Join(e.root, "memory"),
 		"OMNARA_SECRET_ENCRYPTION_KEYS={\"e2e-local\":\"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\"}",
 		"OMNARA_SECRET_ENCRYPTION_ACTIVE_KEY_ID=e2e-local",
 		"OMNARA_LOG_LEVEL=" + opts.LogLevel,

@@ -21,7 +21,13 @@ const (
 	defaultPoolInitialNumMachines = 1
 )
 
+type MemoryStoreCompiled struct {
+	ID     uuid.UUID         `json:"id"`
+	Access MemoryStoreAccess `json:"access"`
+}
+
 type Compiled struct {
+	MemoryStores   []MemoryStoreCompiled        `json:"memory_stores,omitempty"`
 	Version        string                       `json:"version,omitempty"`
 	Instruction    string                       `json:"instruction"`
 	Model          ModelCompiled                `json:"model,omitempty"`
@@ -151,6 +157,7 @@ type Result struct {
 }
 
 type CompileOptions struct {
+	ResolveMemoryStoreName    func(string) (uuid.UUID, error)
 	AllowInsecureLocalMCPHTTP bool
 	ResolveModelSelection     func(providerConfig string, configuredModelName string) (ResolvedModelSelection, error)
 	ValidateSecretID          func(secretID uuid.UUID, expectedKind secrets.Kind) error
@@ -263,6 +270,24 @@ func compile(source AgentConfigSource, opts CompileOptions) (Compiled, error) {
 		}
 		compiled.MCP = mcpServers
 	}
+	seenMemoryStores := make(map[uuid.UUID]bool)
+	for i, store := range source.MemoryStores {
+		if opts.ResolveMemoryStoreName == nil {
+			return Compiled{}, issuef(jsonPointer("memory_stores"), "memory store resolution is unavailable")
+		}
+		id, err := opts.ResolveMemoryStoreName(store.Name)
+		if err != nil {
+			return Compiled{}, issueOr(jsonPointer("memory_stores", i), err)
+		}
+		if id == uuid.Nil {
+			return Compiled{}, issuef(jsonPointer("memory_stores", i), "invalid resolved memory store")
+		}
+		if seenMemoryStores[id] {
+			return Compiled{}, issuef(jsonPointer("memory_stores", i), "duplicate memory store %q", store.Name)
+		}
+		seenMemoryStores[id] = true
+		compiled.MemoryStores = append(compiled.MemoryStores, MemoryStoreCompiled{ID: id, Access: store.Access})
+	}
 	if len(source.Skills) > 0 {
 		skills, err := compileSkills(source.Skills, opts)
 		if err != nil {
@@ -346,6 +371,12 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 	if len(source.Subagents) > 0 {
 		names = append(names, toolcatalog.SubagentToolNames()...)
 	}
+	for _, store := range source.MemoryStores {
+		if store.Access == MemoryStoreAccessReadWrite {
+			names = append(names, toolcatalog.ToolNameWriteFile)
+			break
+		}
+	}
 	if sourceDefersAnyTool(source) {
 		names = append(names, toolcatalog.ToolNameToolSearch)
 	}
@@ -353,15 +384,17 @@ func missingDefaultToolNames(source AgentConfigSource) []string {
 		_, configured := source.Tools[name]
 		return configured
 	})
-	hasTools := len(names) > 0 || len(source.MCP) > 0
+	includeFileRetrievalDefaults := len(names) > 0 || len(source.MCP) > 0 || len(source.MemoryStores) > 0
 	for _, tool := range source.Tools {
 		if tool.Enabled == nil || *tool.Enabled {
-			hasTools = true
+			includeFileRetrievalDefaults = true
 			break
 		}
 	}
-	if hasTools {
-		for _, name := range []string{toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles} {
+	if includeFileRetrievalDefaults {
+		for _, name := range []string{
+			toolcatalog.ToolNameListFiles, toolcatalog.ToolNameReadFile, toolcatalog.ToolNameSearchFiles,
+		} {
 			if _, configured := source.Tools[name]; !configured {
 				names = append(names, name)
 			}
