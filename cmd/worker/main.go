@@ -147,7 +147,19 @@ func main() {
 		httpRecorder,
 		metrics.WithHTTPClientPathLabel("/search"),
 	)
-	searchProvider := webaccess.ExaProvider{APIKey: cfg.ExaAPIKey, HTTPClient: searchHTTPClient}
+	var searchProvider webaccess.SearchProvider = webaccess.ExaProvider{
+		APIKey:     cfg.ExaAPIKey,
+		HTTPClient: searchHTTPClient,
+	}
+	if cfg.WebSearchProvider == "telem" {
+		searchProvider = webaccess.TelemProvider{
+			APIKey:           cfg.TelemAPIKey,
+			ProvidersInclude: cfg.TelemProvidersInclude,
+			ProvidersExclude: cfg.TelemProvidersExclude,
+			AutoRouting:      cfg.TelemAutoRouting,
+			HTTPClient:       searchHTTPClient,
+		}
+	}
 	webFetcher := webaccess.NewFetcher(webaccess.FetcherOptions{AllowLoopback: cfg.AllowInsecureDev})
 	machinePoolManager := machinepool.NewManager(store.Execution(), store.Identity(), cfg.PublicAPIURL)
 	backgroundRunner, err := tools.NewBackgroundExecutionRunner(
