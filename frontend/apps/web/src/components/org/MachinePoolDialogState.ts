@@ -170,10 +170,10 @@ export function machinePoolFormAfterProviderChange(
   }
 }
 
-export function machinePoolFormValid(
+export function machinePoolCapacityValid(
   values: MachinePoolFormValues,
   mode: MachinePoolFormMode = 'create',
-) {
+): boolean {
   const provider = machinePoolProviderDefinitions[values.provider]
   const clusterEdit = mode === 'cluster-edit'
   const maxMachinesValid = clusterEdit || nonNegativeInt32(values.maxMachines)
@@ -191,6 +191,15 @@ export function machinePoolFormValid(
         (maxMachinesValid &&
           (values.maxTotalMemoryGb.trim() !== '' ||
             memoryAggregateFitsInt32(values.memoryGb, values.maxMachines)))))
+  return maxMachinesValid && cpuValid && memoryValid
+}
+
+export function machinePoolFormValid(
+  values: MachinePoolFormValues,
+  mode: MachinePoolFormMode = 'create',
+) {
+  const provider = machinePoolProviderDefinitions[values.provider]
+  const clusterEdit = mode === 'cluster-edit'
   return (
     (clusterEdit ||
       (resourceNameValid(values.name) &&
@@ -198,9 +207,7 @@ export function machinePoolFormValid(
         (!provider.location?.required || values.location.trim() !== '') &&
         (!provider.scope?.required || values.providerScope.trim() !== '') &&
         values.secretId !== '')) &&
-    maxMachinesValid &&
-    cpuValid &&
-    memoryValid &&
+    machinePoolCapacityValid(values, mode) &&
     textRowsValid(values.envRows) &&
     secretRowsValid(values.secretEnvRows) &&
     optionalPositiveInt32Valid(values.maxMachineCpu) &&

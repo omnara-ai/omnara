@@ -17,6 +17,7 @@ import (
 type UsageInterval string
 
 const (
+	UsageIntervalHour  UsageInterval = "hour"
 	UsageIntervalDay   UsageInterval = "day"
 	UsageIntervalWeek  UsageInterval = "week"
 	UsageIntervalMonth UsageInterval = "month"
@@ -61,6 +62,8 @@ func UsageBucketStarts(
 	local := since.In(location)
 	year, month, day := local.Date()
 	switch interval {
+	case UsageIntervalHour:
+		return usageHourStarts(local, until, limit)
 	case UsageIntervalDay:
 	case UsageIntervalWeek:
 		day -= (int(local.Weekday()) + 6) % 7
@@ -86,6 +89,23 @@ func UsageBucketStarts(
 			day++
 		}
 	}
+}
+
+// usageHourStarts steps whole elapsed hours from the local hour containing
+// since, so repeated and skipped daylight-saving hours stay one hour wide.
+func usageHourStarts(since, until time.Time, limit int) ([]time.Time, bool) {
+	start := since.Add(-time.Duration(since.Minute())*time.Minute -
+		time.Duration(since.Second())*time.Second -
+		time.Duration(since.Nanosecond()))
+	starts := []time.Time{}
+	for len(starts) == 0 || start.Before(until) {
+		if len(starts) == limit {
+			return nil, false
+		}
+		starts = append(starts, start)
+		start = start.Add(time.Hour)
+	}
+	return starts, true
 }
 
 // UsageDayStart returns the start of the calendar day containing now in location.

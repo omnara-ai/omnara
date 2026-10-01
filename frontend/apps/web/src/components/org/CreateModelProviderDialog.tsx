@@ -1,4 +1,4 @@
-import { useCreateModelProvider, useDeleteModelProvider } from '@omnara/react'
+import { useCreateModelProvider } from '@omnara/react'
 import type {
   CreateModelProviderConfigRequest,
   ModelCatalog,
@@ -19,37 +19,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ResourceNameFieldError } from '@/components/ui/resource-name-error'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import type { SubmitStatus } from '@/lib/submit-status'
 import { idle, statusError, submitError } from '@/lib/submit-status'
 
-import { AddDiscoveredModelsStep } from './AddDiscoveredModelsStep'
+import { AddConfiguredModelsView } from './AddConfiguredModelsView'
 import {
-  apiFormatLabel,
-  apiFormatOptions,
-  awsRegionPattern,
-  baseUrlPattern,
   bedrockAPIOption,
-  bedrockAPIOptions,
-  bedrockAuthOption,
-  bedrockAuthOptions,
+  bedrockBaseUrl,
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   type CreateModelProviderFormValues,
   modelProviderOption,
-  modelProviderOptions,
   providerSecretName,
 } from './CreateModelProviderDialogState'
-import { ModelDiscoveryFailureStep } from './ModelDiscoveryFailureStep'
+import { CustomProviderFields, ModelProviderEndpointSettings } from './ModelProviderEndpoint'
+import { ModelProviderTypeSelect } from './ModelProviderTypeSelect'
 
 type DialogPhase =
   | { step: 'provider' }
@@ -79,7 +66,7 @@ function modelProviderRequest(
     ...common,
     api_format: api.apiFormat,
     api_variant: 'bedrock',
-    base_url: `https://bedrock-mantle.${region}.api.aws${api.basePath}`,
+    base_url: bedrockBaseUrl(values.bedrockAPI, region),
   }
   if (values.bedrockAuth !== 'sigv4') return request
   return {
@@ -87,151 +74,6 @@ function modelProviderRequest(
     auth_kind: 'sigv4',
     auth_options: { service: 'bedrock-mantle', region },
   }
-}
-
-function BedrockProviderFields({
-  values,
-  onChange,
-}: {
-  values: CreateModelProviderFormValues
-  onChange: (patch: Partial<CreateModelProviderFormValues>) => void
-}) {
-  const regionValid = awsRegionPattern.test(values.region.trim())
-  const sigv4 = values.bedrockAuth === 'sigv4'
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Field>
-        <FieldLabel htmlFor="mp-bedrock-api">API and endpoint</FieldLabel>
-        <Select
-          value={values.bedrockAPI}
-          onValueChange={(value) => {
-            const option = bedrockAPIOptions.find((candidate) => candidate.value === value)
-            if (!option) return
-            onChange({ bedrockAPI: option.value })
-          }}
-        >
-          <SelectTrigger id="mp-bedrock-api" className="w-full">
-            <SelectValue>{bedrockAPIOption(values.bedrockAPI).label}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {bedrockAPIOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <FieldDescription>Use the endpoint listed for the model by AWS.</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="mp-bedrock-auth">Authentication</FieldLabel>
-        <Select
-          value={values.bedrockAuth}
-          onValueChange={(value) => {
-            const option = bedrockAuthOptions.find((candidate) => candidate.value === value)
-            if (!option) return
-            onChange({ bedrockAuth: option.value, secretId: '' })
-          }}
-        >
-          <SelectTrigger id="mp-bedrock-auth" className="w-full">
-            <SelectValue>{bedrockAuthOption(values.bedrockAuth).label}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {bedrockAuthOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="mp-region">AWS region</FieldLabel>
-        <Input
-          id="mp-region"
-          required
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          pattern={awsRegionPattern.source}
-          value={values.region}
-          placeholder="us-west-2"
-          aria-invalid={!regionValid}
-          onChange={(event) => {
-            onChange({ region: event.target.value })
-          }}
-        />
-        <FieldDescription>
-          {!regionValid
-            ? 'Enter an AWS region such as us-west-2.'
-            : sigv4
-              ? 'The AWS region used to sign model requests.'
-              : 'The region where your Bedrock API key was generated.'}
-        </FieldDescription>
-      </Field>
-    </div>
-  )
-}
-
-function CustomProviderFields({
-  values,
-  onChange,
-}: {
-  values: CreateModelProviderFormValues
-  onChange: (patch: Partial<CreateModelProviderFormValues>) => void
-}) {
-  const baseUrlValid = baseUrlPattern.test(values.baseUrl.trim())
-
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Field>
-        <FieldLabel htmlFor="mp-api-format">API format</FieldLabel>
-        <Select
-          value={values.apiFormat}
-          onValueChange={(value) => {
-            const option = apiFormatOptions.find((candidate) => candidate.value === value)
-            if (!option) return
-            onChange({ apiFormat: option.value })
-          }}
-        >
-          <SelectTrigger id="mp-api-format" className="w-full">
-            <SelectValue>{apiFormatLabel(values.apiFormat)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {apiFormatOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <FieldDescription>The wire protocol the endpoint speaks.</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="mp-base-url">Base URL</FieldLabel>
-        <Input
-          id="mp-base-url"
-          required
-          type="url"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          value={values.baseUrl}
-          placeholder="https://api.example.com/v1"
-          aria-invalid={values.baseUrl !== '' && !baseUrlValid}
-          onChange={(event) => {
-            onChange({ baseUrl: event.target.value })
-          }}
-        />
-        <FieldDescription>
-          {baseUrlValid
-            ? 'A public HTTPS endpoint. The request path defaults from the API format.'
-            : 'Enter a URL such as https://api.example.com/v1.'}
-        </FieldDescription>
-      </Field>
-    </div>
-  )
 }
 
 function credentialFieldCopy(
@@ -248,8 +90,8 @@ function credentialFieldCopy(
     }
   }
   return {
-    label: `${provider.label} API key`,
-    placeholder: `Search secrets for your ${provider.label} API key…`,
+    label: 'API key',
+    placeholder: 'Search secrets…',
     emptyDescription: `No secrets yet — use New secret to store your ${provider.label} API key.`,
     defaultSecretName: providerSecretName(values.provider),
     kind: 'generic' as const,
@@ -266,7 +108,6 @@ export function CreateModelProviderDialog({
   orgId: string
 }) {
   const createModelProvider = useCreateModelProvider(orgId)
-  const deleteModelProvider = useDeleteModelProvider(orgId)
   const [phase, setPhase] = useState<DialogPhase>({ step: 'provider' })
   const [values, setValues] = useState<CreateModelProviderFormValues>(
     createModelProviderFormDefaults,
@@ -296,10 +137,6 @@ export function CreateModelProviderDialog({
     try {
       const result = await createModelProvider.mutateAsync(modelProviderRequest(values))
       if (submissionGeneration !== providerSubmissionGeneration.current) return
-      if (result.config.api_variant === 'bedrock' && result.model_catalog.status === 'ok') {
-        close()
-        return
-      }
       setPhase({
         step: 'models',
         provider: result.config,
@@ -311,14 +148,9 @@ export function CreateModelProviderDialog({
     }
   }
 
-  async function backFromDiscovery(providerID: string) {
-    await deleteModelProvider.mutateAsync(providerID)
-    setPhase({ step: 'provider' })
-  }
-
   const provider = modelProviderOption(values.provider)
   const credential = credentialFieldCopy(values, provider)
-  const providerPending = createModelProvider.isPending || deleteModelProvider.isPending
+  const providerPending = createModelProvider.isPending
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -327,7 +159,7 @@ export function CreateModelProviderDialog({
           <>
             <DialogHeader>
               <DialogTitle>Add model provider</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="sr-only">
                 Connect OpenAI, OpenRouter, Anthropic, Amazon Bedrock, or a custom endpoint.
               </DialogDescription>
             </DialogHeader>
@@ -337,31 +169,13 @@ export function CreateModelProviderDialog({
               }}
             >
               <FieldGroup>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel htmlFor="mp-provider">Provider</FieldLabel>
-                    <Select
-                      value={values.provider}
-                      onValueChange={(value) => {
-                        const option = modelProviderOptions.find(
-                          (candidate) => candidate.value === value,
-                        )
-                        if (!option) return
-                        setValues((prev) => ({ ...prev, provider: option.value, secretId: '' }))
-                      }}
-                    >
-                      <SelectTrigger id="mp-provider" className="w-full">
-                        <SelectValue>{provider.label}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {modelProviderOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
+                <ModelProviderTypeSelect
+                  value={values.provider}
+                  onValueChange={(nextProvider) => {
+                    setValues((prev) => ({ ...prev, provider: nextProvider, secretId: '' }))
+                  }}
+                />
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                   <Field>
                     <FieldLabel htmlFor="mp-name">Name</FieldLabel>
                     <Input
@@ -375,15 +189,24 @@ export function CreateModelProviderDialog({
                     />
                     <ResourceNameFieldError value={values.name} />
                   </Field>
-                </div>
-                {values.provider === 'bedrock' && (
-                  <BedrockProviderFields
-                    values={values}
-                    onChange={(patch) => {
-                      setValues((prev) => ({ ...prev, ...patch }))
+                  <CredentialSecretField
+                    key={`${values.provider}-${values.bedrockAuth}`}
+                    orgId={orgId}
+                    enabled={open}
+                    value={values.secretId}
+                    onChange={(secretId) => {
+                      setValues((prev) =>
+                        prev.provider === provider.value ? { ...prev, secretId } : prev,
+                      )
                     }}
+                    label={credential.label}
+                    placeholder={credential.placeholder}
+                    emptyDescription={credential.emptyDescription}
+                    defaultSecretName={credential.defaultSecretName}
+                    secretValuePlaceholder={provider.keyPlaceholder}
+                    kind={credential.kind}
                   />
-                )}
+                </div>
                 {values.provider === 'custom' && (
                   <CustomProviderFields
                     values={values}
@@ -392,45 +215,39 @@ export function CreateModelProviderDialog({
                     }}
                   />
                 )}
-                <CredentialSecretField
-                  key={`${values.provider}-${values.bedrockAuth}`}
-                  orgId={orgId}
-                  enabled={open}
-                  value={values.secretId}
-                  onChange={(secretId) => {
-                    setValues((prev) =>
-                      prev.provider === provider.value ? { ...prev, secretId } : prev,
-                    )
-                  }}
-                  label={credential.label}
-                  placeholder={credential.placeholder}
-                  emptyDescription={credential.emptyDescription}
-                  defaultSecretName={credential.defaultSecretName}
-                  secretValuePlaceholder={provider.keyPlaceholder}
-                  kind={credential.kind}
-                />
                 <OverridesCollapsible title="Advanced">
-                  <KeyValueEditor
-                    orgId={orgId}
-                    enabled={open}
-                    label="Headers"
-                    itemLabel="Header"
-                    keyPlaceholder="Header-Name"
-                    textRows={values.headerRows}
-                    secretRows={values.secretHeaderRows}
-                    onChange={({ textRows, secretRows }) => {
-                      setValues((prev) => ({
-                        ...prev,
-                        headerRows: textRows,
-                        secretHeaderRows: secretRows,
-                      }))
-                    }}
-                  />
+                  <FieldGroup>
+                    <ModelProviderEndpointSettings
+                      values={values}
+                      onChange={(patch) => {
+                        setValues((prev) => ({ ...prev, ...patch }))
+                      }}
+                    />
+                    <KeyValueEditor
+                      orgId={orgId}
+                      enabled={open}
+                      label="Headers"
+                      itemLabel="Header"
+                      keyPlaceholder="Header-Name"
+                      textRows={values.headerRows}
+                      secretRows={values.secretHeaderRows}
+                      onChange={({ textRows, secretRows }) => {
+                        setValues((prev) => ({
+                          ...prev,
+                          headerRows: textRows,
+                          secretHeaderRows: secretRows,
+                        }))
+                      }}
+                    />
+                  </FieldGroup>
                 </OverridesCollapsible>
                 {statusError(status) && (
                   <p className="text-destructive text-sm">{statusError(status)}</p>
                 )}
-                <DialogFooter>
+                <DialogFooter className="-mx-4 border-t px-4 pt-4 sm:-mx-6 sm:px-6">
+                  <Button type="button" variant="outline" onClick={close}>
+                    Cancel
+                  </Button>
                   <Button
                     type="submit"
                     disabled={providerPending || !createModelProviderFormValid(values)}
@@ -442,18 +259,14 @@ export function CreateModelProviderDialog({
               </FieldGroup>
             </form>
           </>
-        ) : phase.discovery.status === 'ok' && (phase.discovery.models?.length ?? 0) > 0 ? (
-          <AddDiscoveredModelsStep
-            orgId={orgId}
-            provider={phase.provider}
-            discoveredModels={phase.discovery.models ?? []}
-            onDone={close}
-          />
         ) : (
-          <ModelDiscoveryFailureStep
-            deleting={deleteModelProvider.isPending}
-            onBack={() => backFromDiscovery(phase.provider.id)}
-            onContinue={close}
+          <AddConfiguredModelsView
+            orgId={orgId}
+            providers={[phase.provider]}
+            defaultProviderId={phase.provider.id}
+            initialCatalog={phase.discovery}
+            dismissLabel="Skip for now"
+            onDone={close}
           />
         )}
       </DialogContent>

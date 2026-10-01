@@ -5,6 +5,7 @@ import {
   defaultUsageRange,
   isDefaultUsageRange,
   lastDaysUsageRange,
+  lastHoursUsageRange,
   usageDateRange,
   usageDateRangeLabel,
 } from '@/components/usage/usage-date-range'
@@ -37,5 +38,16 @@ describe('usageDateRange', () => {
     expect(isDefaultUsageRange(range)).toBe(true)
     expect(usageDateRangeLabel(range)).toBe('Last 30 days')
     expect(isDefaultUsageRange(lastDaysUsageRange(7))).toBe(false)
+  })
+
+  it('covers the last 24 hours in hourly buckets, starting on the hour', () => {
+    const range = lastHoursUsageRange(24)
+    const since = new Date()
+    since.setMinutes(0, 0, 0)
+    since.setHours(since.getHours() - 23)
+    expect(range.window).toEqual({ since: since.toISOString() })
+    expect(range.interval).toBe('hour')
+    expect(isDefaultUsageRange(range)).toBe(false)
+    expect(usageDateRangeLabel(range)).toBe('Last 24 hours')
   })
 })

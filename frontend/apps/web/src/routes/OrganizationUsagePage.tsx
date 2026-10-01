@@ -26,7 +26,11 @@ export function OrganizationUsagePage() {
         </div>
         <UsageReportView
           query={query}
-          chart={<UsageTimeseriesPanel filters={{ ...range.window, orgIDs: [activeOrg.id] }} />}
+          chart={
+            <UsageTimeseriesPanel
+              filters={{ ...range.window, interval: range.interval, orgIDs: [activeOrg.id] }}
+            />
+          }
           emptyMessage={
             filtered
               ? 'No model usage in this time range.'

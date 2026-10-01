@@ -583,8 +583,8 @@ paths:
             $ref: '#/components/schemas/UsageTimeseriesInterval'
           description: >-
             Bucket width. Omit to pick one from the window length: days up to 92
-            days, weeks up to 730 days, months beyond. The window may span at
-            most 400 buckets.
+            days, weeks up to 730 days, months beyond. Hourly buckets are used
+            only when requested. The window may span at most 400 buckets.
         - name: metric
           in: query
           required: false
@@ -13377,8 +13377,12 @@ components:
           description: Messages sent to agents today, not counting messages to or from subagents.
     UsageTimeseriesInterval:
       type: string
-      enum: [day, week, month]
-      x-enum-varnames: [UsageTimeseriesIntervalDay, UsageTimeseriesIntervalWeek, UsageTimeseriesIntervalMonth]
+      enum: [hour, day, week, month]
+      x-enum-varnames:
+        - UsageTimeseriesIntervalHour
+        - UsageTimeseriesIntervalDay
+        - UsageTimeseriesIntervalWeek
+        - UsageTimeseriesIntervalMonth
     UsageTimeseriesMetric:
       type: string
       description: >-

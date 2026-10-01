@@ -1,83 +1,37 @@
-import type { DiscoveredProviderModel, ModelProviderConfig } from '@omnara/sdk'
+import type { CreateConfiguredModelRequest, DiscoveredProviderModel } from '@omnara/sdk'
 
-import { resourceNameSuggestion, resourceNameValid } from '@/lib/resource-name'
+import { resourceNameError, resourceNameSuggestion } from '@/lib/resource-name'
 
-export interface ConfiguredModelFormValues {
-  /** Provider id; '' falls back to the first available provider. */
-  providerId: string
+/** A model selected for creation, with editable fields kept as input drafts. */
+export interface ConfiguredModelDraft {
+  slug: string
   name: string
-  providerModelSlug: string
   contextWindowTokens: string
   maxOutputTokens: string
-  defaultMaxOutputTokens: string
-  projectGrantIds: string[]
 }
-
-export const configuredModelFormDefaults: ConfiguredModelFormValues = {
-  providerId: '',
-  name: '',
-  providerModelSlug: '',
-  contextWindowTokens: '',
-  maxOutputTokens: '',
-  defaultMaxOutputTokens: '',
-  projectGrantIds: [],
-}
-
-type DiscoveredModelPrefillField =
-  | 'name'
-  | 'providerModelSlug'
-  | 'contextWindowTokens'
-  | 'maxOutputTokens'
-  | 'defaultMaxOutputTokens'
 
 export function configuredModelSuggestedName(providerModelSlug: string) {
   return resourceNameSuggestion(providerModelSlug, 'Configured model')
 }
 
-function isGeneratedName(values: ConfiguredModelFormValues) {
-  return values.name === configuredModelSuggestedName(values.providerModelSlug)
-}
-
-export function discoveredModelPrefill(
-  values: ConfiguredModelFormValues,
-  model: DiscoveredProviderModel,
-): [DiscoveredModelPrefillField, string][] {
-  const updates: [DiscoveredModelPrefillField, string][] = [['providerModelSlug', model.slug]]
-  if (values.name === '' || isGeneratedName(values)) {
-    updates.push(['name', configuredModelSuggestedName(model.slug)])
+/** A draft prefilled from the provider's catalog: suggested name and reported token limits. */
+export function configuredModelDraft(
+  model: Pick<DiscoveredProviderModel, 'slug' | 'context_window_tokens' | 'max_output_tokens'>,
+): ConfiguredModelDraft {
+  return {
+    slug: model.slug,
+    name: configuredModelSuggestedName(model.slug),
+    contextWindowTokens:
+      model.context_window_tokens === undefined ? '' : String(model.context_window_tokens),
+    maxOutputTokens: model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
   }
-  updates.push([
-    'contextWindowTokens',
-    model.context_window_tokens === undefined ? '' : String(model.context_window_tokens),
-  ])
-  updates.push([
-    'maxOutputTokens',
-    model.max_output_tokens === undefined ? '' : String(model.max_output_tokens),
-  ])
-  return updates
 }
 
-export function providerChangeReset(
-  values: ConfiguredModelFormValues,
-): [DiscoveredModelPrefillField, string][] {
-  const updates: [DiscoveredModelPrefillField, string][] = [
-    ['providerModelSlug', ''],
-    ['contextWindowTokens', ''],
-    ['maxOutputTokens', ''],
-    ['defaultMaxOutputTokens', ''],
-  ]
-  if (isGeneratedName(values)) {
-    updates.push(['name', ''])
-  }
-  return updates
-}
-
-export function configuredModelTokenLimitsError(
-  values: Pick<
-    ConfiguredModelFormValues,
-    'contextWindowTokens' | 'maxOutputTokens' | 'defaultMaxOutputTokens'
-  >,
-) {
+export function configuredModelTokenLimitsError(values: {
+  contextWindowTokens: string
+  maxOutputTokens: string
+  defaultMaxOutputTokens: string
+}) {
   const contextWindowTokensValue = Number(values.contextWindowTokens)
   const maxOutputTokensValue = Number(values.maxOutputTokens)
   const defaultMaxOutputTokensValue = Number(values.defaultMaxOutputTokens)
@@ -104,14 +58,35 @@ export function configuredModelTokenLimitsError(
   return ''
 }
 
-export function configuredModelFormValid(
-  values: ConfiguredModelFormValues,
-  provider: ModelProviderConfig | undefined,
-) {
+/** Why a draft cannot be created yet, or '' when it is ready. */
+export function configuredModelDraftError(draft: ConfiguredModelDraft) {
+  const nameError = resourceNameError(draft.name)
+  if (nameError) return nameError
+  if (draft.contextWindowTokens.trim() === '') {
+    return 'Enter the context window; the provider did not report it.'
+  }
+  return configuredModelTokenLimitsError({ ...draft, defaultMaxOutputTokens: '' })
+}
+
+export function configuredModelDraftRequest(
+  draft: ConfiguredModelDraft,
+): CreateConfiguredModelRequest {
+  const request: CreateConfiguredModelRequest = {
+    name: draft.name,
+    provider_model_slug: draft.slug,
+    context_window_tokens: Number(draft.contextWindowTokens),
+    supports_tools: true,
+    supports_reasoning: false,
+  }
+  if (draft.maxOutputTokens.trim() !== '') request.max_output_tokens = Number(draft.maxOutputTokens)
+  return request
+}
+
+export function discoveredModelMatches(model: DiscoveredProviderModel, search: string) {
+  const query = search.trim().toLowerCase()
+  if (query === '') return true
   return (
-    provider !== undefined &&
-    resourceNameValid(values.name) &&
-    values.providerModelSlug.trim() !== '' &&
-    !configuredModelTokenLimitsError(values)
+    model.slug.toLowerCase().includes(query) ||
+    (model.display_name?.toLowerCase().includes(query) ?? false)
   )
 }
