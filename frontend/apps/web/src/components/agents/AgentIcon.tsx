@@ -76,9 +76,10 @@ export function AgentIcon({
           width={texturePeriod}
           height={texturePeriod}
           patternUnits="userSpaceOnUse"
-          fill={color}
         >
-          <TextureMarks texture={style.texture} period={texturePeriod} />
+          <g fill={color}>
+            <TextureMarks texture={style.texture} period={texturePeriod} />
+          </g>
         </pattern>
         {sweeping && (
           <>

@@ -93,7 +93,9 @@ async function createProfile(page: Page, name: string, instruction: string) {
   await selectConfiguredModel(page)
   await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create profile' }).click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
+  )
 }
 
 function uniqueName(base: string) {
@@ -221,7 +223,7 @@ test('creates an agent from YAML', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
+  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
 
@@ -276,7 +278,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
+  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
 
@@ -406,7 +408,9 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
   await page.getByRole('button', { name: 'Launch' }).click()
   await expect.poll(() => confirms.length).toBe(1)
   expect(confirms[0]).toContain('unsaved configuration changes')
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
+  )
 
   await page.getByRole('button', { name: 'Discard changes' }).click()
   await expect(page.getByText('# draft edit')).toHaveCount(0)

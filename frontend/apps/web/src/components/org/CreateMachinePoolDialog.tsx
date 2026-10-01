@@ -1,5 +1,6 @@
 import { useCreateMachinePool, useGrantMachinePoolToProject, useSecret } from '@omnara/react'
 import type { MachinePool } from '@omnara/sdk'
+import { useMutation } from '@tanstack/react-query'
 import { type ReactNode, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 
 import { OverridesCollapsible } from '@/components/machines/MachineOverrideFields'
@@ -69,7 +70,6 @@ export function CreateMachinePoolDialog({
   const grantMachinePool = useGrantMachinePoolToProject(orgId)
   const [phase, setPhase] = useState<RetryGrantsPhase<MachinePool>>({ kind: 'form', error: '' })
   const [values, setValues] = useState<MachinePoolFormValues>(machinePoolFormDefaults)
-  const [submitting, setSubmitting] = useState(false)
   const [current, setCurrent] = useState(0)
   const [reached, setReached] = useState(0)
   // The current step's card can be folded away without leaving the step.
@@ -106,11 +106,10 @@ export function CreateMachinePoolDialog({
       : 'upcoming'
   }
 
-  async function create() {
-    if (submitting || (phase.kind === 'form' && !valid)) return
-    setSubmitting(true)
-    setPhase((prev) => ({ ...prev, error: '' }))
-    try {
+  // Creating the pool fans out to one grant call per project; the whole flow is the
+  // mutation the dialog waits on, since each grant call's isPending only tracks the latest.
+  const createPool = useMutation({
+    mutationFn: async () => {
       let pool = phase.kind === 'retry-grants' ? phase.created : null
       pool ??= await createMachinePool.mutateAsync(machinePoolCreateRequest(values))
       const grantResults = await Promise.allSettled(
@@ -140,17 +139,23 @@ export function CreateMachinePoolDialog({
       setCollapsed(false)
       setReached(0)
       onOpenChange(false)
-    } catch (err) {
+    },
+    onError: (err) => {
       setPhase((prev) => ({ ...prev, error: errorMessage(err, 'Could not create pool') }))
-    } finally {
-      setSubmitting(false)
-    }
+    },
+  })
+  const submitting = createPool.isPending
+
+  function create() {
+    if (submitting || (phase.kind === 'form' && !valid)) return
+    setPhase((prev) => ({ ...prev, error: '' }))
+    createPool.mutate()
   }
 
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (phase.kind === 'retry-grants' || isLast) {
-      void create()
+      create()
       return
     }
     if (machinePoolCreateStepValid(currentStep, values)) goToStep(current + 1)
@@ -309,7 +314,7 @@ export function CreateMachinePoolDialog({
                     variant="outline"
                     disabled={submitting}
                     onClick={() => {
-                      void create()
+                      create()
                     }}
                   >
                     Skip &amp; create

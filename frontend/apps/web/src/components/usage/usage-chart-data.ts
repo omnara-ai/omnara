@@ -29,6 +29,13 @@ export const usageMeasureMetrics: Record<UsageMeasure, UsageTimeseriesMetric> = 
   calls: 'count_model_calls',
 }
 
+/** The measure a timeseries was fetched for, so a stale payload is never drawn with newer toggles. */
+export function usageMeasureForMetric(metric: UsageTimeseriesMetric): UsageMeasure {
+  if (metric === 'sum_cost') return 'cost'
+  if (metric === 'count_model_calls') return 'calls'
+  return 'tokens'
+}
+
 export interface UsageSeries {
   key: string
   name: string

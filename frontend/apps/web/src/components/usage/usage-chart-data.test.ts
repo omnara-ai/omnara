@@ -9,6 +9,8 @@ import {
   otherSeriesKey,
   usageBucketEnd,
   usageChartData,
+  usageMeasureForMetric,
+  usageMeasureMetrics,
   usageMeasureValue,
   usageTicks,
 } from '@/components/usage/usage-chart-data'
@@ -53,6 +55,15 @@ describe('usageMeasureValue', () => {
     expect(usageMeasureValue(value, 'tokens')).toBe(150)
     expect(usageMeasureValue(value, 'cost')).toBe(0.0125)
     expect(usageMeasureValue(value, 'calls')).toBe(3)
+  })
+})
+
+describe('usageMeasureForMetric', () => {
+  it('recovers the measure a timeseries was fetched for', () => {
+    for (const measure of ['tokens', 'cost', 'calls'] as const) {
+      expect(usageMeasureForMetric(usageMeasureMetrics[measure])).toBe(measure)
+    }
+    expect(usageMeasureForMetric('sum_input_tokens')).toBe('tokens')
   })
 })
 

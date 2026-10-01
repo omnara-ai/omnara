@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useInfiniteQueryItems } from '@/hooks/use-infinite-query-items'
 import { useActiveOrg } from '@/lib/use-active-org'
+import { useProjectPage } from '@/lib/use-project-page'
 
 import { currentSection, organizationPaths, projectPaths } from './scoped-sections'
 
@@ -26,7 +27,8 @@ export function ProjectSwitcher() {
   const section = useRouterState({ select: (state) => currentSection(state.location.pathname) })
   const navigate = useNavigate()
   const [newOpen, setNewOpen] = useState(false)
-  const currentProject = projects.find((project) => project.id === projectId)
+  // Loads further pages until the current project is found, so its name never waits on Load more.
+  const { project: currentProject } = useProjectPage()
   const CurrentIcon = projectId ? Folder : LayoutGrid
 
   return (

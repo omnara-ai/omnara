@@ -235,6 +235,38 @@ func TestGetUsageTimeseries(t *testing.T) {
 	assertUsageTotals(t, "other org", overviewUsageObject(t, otherUsage, "totals"), nothing)
 }
 
+func TestGetUsageTimeseriesWithoutMemberships(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pool := openIntegrationDB(t, ctx)
+	handler := newIntegrationServer(pool)
+	store := integrationStoreForHandler(t, handler)
+	user, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
+		Email: "usage-series-orgless@example.com", DisplayName: "Orgless",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	token, err := store.Identity().CreatePersonalAccessTokenWithPlaintext(
+		ctx, identitystore.CreatePersonalAccessTokenInput{UserID: user.ID, Name: "orgless"},
+	)
+	if err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	for _, query := range []url.Values{
+		{},
+		{"since": {time.Now().AddDate(0, 0, -7).Format(time.RFC3339)}},
+	} {
+		body := requestJSONWithHeaders(
+			t, handler, http.MethodGet, "/api/v1/usage/timeseries?"+query.Encode(), "", "",
+			http.StatusOK, authHeaders(token.Token),
+		)
+		assertUsageTotals(t, "orgless", overviewUsageObject(t, body, "totals"), expectedUsage{cost: "0"})
+		assertOverviewActiveAgents(t, body, 0)
+	}
+}
+
 func TestGetOrgOverviewToday(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

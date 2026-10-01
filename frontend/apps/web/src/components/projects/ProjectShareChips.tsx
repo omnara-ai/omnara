@@ -27,11 +27,9 @@ export function ProjectShareChips({
   isProjectEligible: (project: VisibleProject) => boolean
 }) {
   const { projects: directory } = useProjectDirectory(orgId)
+  const unavailable = new Set([...value, ...excludedProjectIds])
   const available = [...directory.values()].filter(
-    (project) =>
-      isProjectEligible(project) &&
-      !value.includes(project.id) &&
-      !excludedProjectIds.includes(project.id),
+    (project) => isProjectEligible(project) && !unavailable.has(project.id),
   )
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm">
