@@ -161,8 +161,6 @@ func discordInboxMessage(
 	if !discordConversationalMessage(message) {
 		return discord.MessageEvent{}, false, nil
 	}
-	// Stickers, polls and forwarded snapshots alone contain no supported input.
-	// Keep native mentions and attachment-only messages on the normal path.
 	if !message.MentionsBot && len(message.Message.MentionRoles) == 0 &&
 		message.Message.Content == "" && len(message.Message.Attachments) == 0 {
 		return discord.MessageEvent{}, false, nil
@@ -311,9 +309,6 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 		}
 	}
 	if routeEvent != nil && !message.MentionsBot {
-		// Ordinary thread messages match only the exact thread subscription or an
-		// unsettled launch/menu for that thread. MESSAGE_CREATE already carries
-		// that ID; parent-channel subscribers only receive mentioned starters.
 		event, _, err := discordIntegrationMessageEvent(integrationSetup, message,
 			discord.Scope{GuildID: message.Message.GuildID, ThreadID: message.Message.ChannelID},
 			message.Message.ChannelID, false)
@@ -335,10 +330,10 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 		var apiErr *discord.APIError
 		if errors.As(err, &apiErr) &&
 			(apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound) {
-			// Only a recognized Discord error proves the target is inaccessible;
-			// an unclassified edge response must retain the retry window.
 			switch apiErr.ProviderCode {
-			case 10003, 50001, 50013: // Unknown Channel, Missing Access, Missing Permissions.
+			// Unknown Channel, Missing Access, Missing Permissions:
+			// https://docs.discord.com/developers/topics/opcodes-and-status-codes#json-json-error-codes
+			case 10003, 50001, 50013:
 				return IntegrationInboxExpansion{}, fmt.Errorf(
 					"%w: get Discord inbound channel: %w",
 					ErrIntegrationInboundPermanent,
@@ -352,7 +347,6 @@ func (p *DiscordIntegrationInboxProvider) ExpandRouted(
 	if err != nil || !ok {
 		return IntegrationInboxExpansion{}, err
 	}
-	// Mentions need channel facts to distinguish a starter from an existing thread.
 	if routeEvent != nil && message.MentionsBot {
 		if routed, err := routeEvent(event); err != nil || !routed {
 			return IntegrationInboxExpansion{}, err
@@ -565,7 +559,6 @@ func (p *DiscordIntegrationInboxProvider) PrepareConversation(
 	if err != nil {
 		return err
 	}
-	// Mention eligibility is frozen; preparation rechecks the source address and live authority.
 	if scope.ThreadID == "" {
 		scope.ThreadID = message.Message.ID
 	}
@@ -587,7 +580,9 @@ func discordInboundThreadError(err error) error {
 	if errors.As(err, &apiErr) &&
 		(apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusNotFound) {
 		switch apiErr.ProviderCode {
-		case 10008, 50001, 50013: // Unknown Message, Missing Access, Missing Permissions.
+		// Unknown Message, Missing Access, Missing Permissions:
+		// https://docs.discord.com/developers/topics/opcodes-and-status-codes#json-json-error-codes
+		case 10008, 50001, 50013:
 			return fmt.Errorf("%w: create Discord inbound thread: %w", ErrIntegrationInboundPermanent, err)
 		}
 	}

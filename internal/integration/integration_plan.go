@@ -37,8 +37,6 @@ type integrationEventCandidates struct {
 	candidates integrationstore.IntegrationRoutingCandidates
 }
 
-// Freeze fences feedback computed before planning with expected candidates.
-// Existing or uncertain commits never count as created.
 func (r *IntegrationRouter) Freeze(
 	ctx context.Context, lease integrationstore.IntegrationInboxLease, event *IntegrationEvent,
 	expected *integrationstore.IntegrationRoutingCandidates,
@@ -127,7 +125,6 @@ func (r *IntegrationRouter) Freeze(
 			}
 		}
 		if err := work.FreezePlan(ctx, raw); err != nil {
-			// FreezePlan rejects immutable plan shape/size; admission capacity remains retryable.
 			if errors.Is(err, storeerr.ErrInvalidRequest) {
 				return fmt.Errorf("%w: freeze inbox plan: %w", ErrIntegrationInboundPermanent, err)
 			}

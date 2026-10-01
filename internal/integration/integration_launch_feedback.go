@@ -58,7 +58,6 @@ func (p *SlackIntegrationInboxProvider) NotifyLaunchUnavailable(
 	if scope == nil {
 		return nil
 	}
-	// Channel mentions have sibling message callbacks; DMs only have message callbacks.
 	if scope.ThreadTS != "" && envelope.Event.Type != "app_mention" {
 		return nil
 	}
@@ -88,7 +87,6 @@ func (p *DiscordIntegrationInboxProvider) NotifyLaunchUnavailable(
 		return err
 	}
 	target := discord.Scope{GuildID: scope.GuildID, ChannelID: scope.ChannelID, ThreadID: scope.ThreadID}
-	// A missing profile must not create a conversation just to report the failure.
 	if metadata.ThreadStarter {
 		target.ThreadID = ""
 	}

@@ -103,9 +103,7 @@ export function installIntegrationFailureTracking(page: FailureTrackingPage) {
     /^request: GET .*\/integrations\/itg_[a-z2-7]+\/subscriptions(?:\?.*)? \(net::ERR_ABORTED\)$/,
     /^request: GET .*\/cron-triggers\?.* \(net::ERR_ABORTED\)$/,
     /^request: POST .*\/agent-configs\/tools \(net::ERR_ABORTED\)$/,
-    // Full-document navigation also cancels intent-preloaded route chunks.
     /^request: GET .*\/assets\/[^/]+\.js \(net::ERR_ABORTED\)$/,
-    // Navigation can also cancel a lazily loaded bundled font.
     new RegExp(String.raw`^request: GET ${origin}/assets/[^/?]+\.woff2 \(net::ERR_ABORTED\)$`),
   ])
 }

@@ -83,8 +83,6 @@ func TestPublicCompiledDefinition(t *testing.T) {
 
 	t.Run("detail without source", func(t *testing.T) {
 		t.Parallel()
-		// Launcher-derived configs have no source: the compiled view must expose
-		// their Git credentials without relying on source YAML or JSON.
 		detail, err := agentConfigDetailResponse(openapi.AgentConfigSummary{}, raw)
 		require.NoError(t, err)
 		body, err := json.Marshal(detail)

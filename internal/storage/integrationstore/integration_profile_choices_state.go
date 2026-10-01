@@ -73,7 +73,6 @@ func validateIntegrationProfileChoiceState(record IntegrationProfileChoiceRecord
 	if err := encoder.Encode(record.Options); err != nil {
 		return err
 	}
-	// json.Encoder adds a trailing newline.
 	if options.Len()-1 > 16*1024 {
 		return inboxInvalid("profile choice options exceed bounds")
 	}

@@ -6,7 +6,6 @@ import (
 )
 
 func CheckIdentity(ctx context.Context, config OAuthConfig, token string, expected Identity) error {
-	// Secret rotation can change a token without changing the saved integration identity.
 	if token == "" || expected.WorkspaceID == "" || expected.BotUserID == "" {
 		return errors.New("slack token and expected workspace/bot identity are required")
 	}

@@ -844,7 +844,6 @@ func TestCompleteIntegrationInboxRequiresEveryRecipientOutcome(t *testing.T) {
 	require.Equal(t, map[string]executionstore.InboxRecipientOutcome{
 		"a": executionstore.InboxRecipientDelivered, "b": executionstore.InboxRecipientDelivered,
 	}, readOutcomes())
-	// Historical replay must survive deletion of the integration and its targets.
 	require.NoError(t, f.store.Integrations().DeleteIntegration(f.ctx, testOrgID, testProjectID, f.integration.ID))
 	replayed, err := f.store.Execution().AdmitInboxLaunchRecipient(f.ctx, f.receipt.Lease(), "a", nil)
 	require.NoError(t, err)

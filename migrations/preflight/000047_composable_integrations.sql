@@ -1,5 +1,4 @@
--- Schema-44/45/46 inventory of the gates in migrations/000047_composable_integrations.sql.
--- Run with psql -X -v ON_ERROR_STOP=1. Every blocker result must be empty.
+-- Run with psql -X -v ON_ERROR_STOP=1. Every blocker result must be empty before migration.
 BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 
 SELECT current_database(), pg_is_in_recovery(),
@@ -16,7 +15,6 @@ BEGIN
 END;
 $preflight$;
 
--- Raw work is deployment-wide, including agents without a Slack target.
 WITH raw_work AS (
 SELECT 'runtime_lock' AS blocker, id, agent_id
 FROM agent_runtime_locks WHERE lease_expires_at > statement_timestamp()

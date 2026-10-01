@@ -313,8 +313,6 @@ if (slackAppConfigurationToken) {
   if (existingIntegration && existingIntegration.integration_kind !== 'slack_thread') {
     throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
   }
-  // The integration owns its launcher profile. Launching from Slack supplies the
-  // namespaced tools, integration-owned thread subscription, and interaction handler to the agent.
   const body: CreateIntegrationRequest = {
     name: integrationName,
     integration_kind: 'slack_thread',
@@ -355,9 +353,6 @@ if (slackAppConfigurationToken) {
 // cron trigger that launches a fresh scan every weekday at 9am. Each run
 // searches its own 24-hour window, so there is no dedupe state to keep.
 //
-// Scheduled runs have no Slack thread, so their digests land in the Omnara
-// console. For daily digests in a Slack channel, mention the bot there once
-// and point the trigger at that agent instead of the profile.
 
 // %%
 // Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.

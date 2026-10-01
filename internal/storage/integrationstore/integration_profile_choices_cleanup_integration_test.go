@@ -80,8 +80,6 @@ func TestIntegrationProfileChoiceCleanupRespectsScopeAndTerminalRetention(t *tes
 			require.NoError(t, err)
 			require.Zero(t, count)
 			if deleted {
-				// A bounded cleanup can leave the chosen receipt behind; state
-				// cleanup must remain safe until that receipt's batch is removed.
 				for range 4 {
 					_, err = f.store.CleanupDeletedIntegrationInbox(f.ctx, 1)
 					require.NoError(t, err)

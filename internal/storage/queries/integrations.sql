@@ -24,7 +24,6 @@ FROM integrations
 WHERE project_id = sqlc.arg(project_id) AND id = sqlc.arg(id) AND deleted_at IS NULL
 FOR UPDATE;
 
--- Lock order: project/integration gates (sorted integration IDs), inbox receipt, conversation gate, profile/agent rows.
 -- name: LockIntegrationLifecycleShared :exec
 SELECT pg_advisory_xact_lock_shared(hashtextextended('integration:' || sqlc.arg(integration_id)::uuid::text, 0));
 
@@ -98,7 +97,6 @@ WHERE project_id = sqlc.arg(project_id) AND deleted_at IS NULL;
 
 -- name: IntegrationOAuthFlowConsumed :one
 -- @sqlc-vet-disable integrations-deleted-at
--- Tombstones also prevent reusing a completed setup attempt.
 SELECT EXISTS (SELECT 1 FROM integrations WHERE last_oauth_flow_id = sqlc.arg(flow_id)) AS consumed;
 
 -- name: ListIntegrationMetadataByIDs :many

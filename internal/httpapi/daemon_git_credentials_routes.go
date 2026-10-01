@@ -68,7 +68,6 @@ func (s strictOpenAPIServer) GetDaemonGitCredentials(
 	if err != nil {
 		return nil, daemonGitCredentialsError(ctx, err)
 	}
-	// Recheck after issuance and cache hits alike; never return a token under stale authority.
 	current, err := s.server.daemonGitCredentialsAuthority(ctx, scope, processID)
 	if err != nil {
 		return nil, daemonGitCredentialsError(ctx, err)

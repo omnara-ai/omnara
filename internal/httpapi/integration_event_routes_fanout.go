@@ -78,7 +78,6 @@ func fanoutIntegrations(
 				if verified {
 					stage = "intake"
 				}
-				// Raw storage/decryption errors can contain credentials; log only their type.
 				log.LoggerFromContext(ctx).WarnContext(ctx, "provider event integration failed",
 					"provider", integration.Provider, "project_id", integration.ProjectID, "integration_id", integration.ID,
 					"integration_state", integration.State,

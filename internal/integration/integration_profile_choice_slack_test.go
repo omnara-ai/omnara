@@ -115,7 +115,6 @@ func TestSlackProfileChoiceSkipsOldHistoryAndRecoversAtInclusiveBoundary(t *test
 			defer server.Close()
 			config := slack.OAuthConfig{APIURL: server.URL, HTTPClient: server.Client()}
 			for attempt := range 2 {
-				// A fresh provider receives the same persisted creation time, but no recorded message ID.
 				provider := NewSlackIntegrationInboxProvider(config, access, access, nil)
 				channel, message, err := provider.PresentProfileChoice(t.Context(), setup, choice, nil)
 				require.NoError(t, err)
@@ -208,7 +207,6 @@ func TestSlackProfileChoiceRecoversUnrecordedMenu(t *testing.T) {
 				wantPosts = 0
 			}
 			require.Equal(t, wantPosts, posts.Load())
-			// The publication receipt was never recorded; a new provider must recover it again.
 			provider = NewSlackIntegrationInboxProvider(config, access, access, nil)
 			channel, message, err = provider.PresentProfileChoice(t.Context(), setup, choice, check)
 			require.NoError(t, err)

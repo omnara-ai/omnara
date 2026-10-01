@@ -64,8 +64,6 @@ func (s *Store) enterInboxIntegration(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, integration.OrgID, projectID); err != nil {
 		return err
 	}
-	// Acquire every integration gate before the receipt; adding one later can deadlock
-	// with another receipt and concurrent integration revocation.
 	return lockIntegrationsTx(ctx, tx, projectID, additional, []uuid.UUID{integrationID})
 }
 
@@ -163,7 +161,6 @@ func (s *Store) OldestReadyIntegrationInboxLag(ctx context.Context) (time.Durati
 }
 
 func (s *Store) RecoverIntegrationInbox(ctx context.Context, limit int) (int64, error) {
-	// Separate budgets prevent either backlog from starving the other.
 	if err := validateInboxBatch(limit); err != nil {
 		return 0, err
 	}

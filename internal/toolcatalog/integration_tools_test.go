@@ -32,6 +32,12 @@ func TestConversationBoundIntegrationToolActionSchemas(t *testing.T) {
 					action = `{"body":"review"}`
 				case IntegrationOperationReviewComment:
 					action = `{"body":"review","commit_id":"abc","path":"a.go","line":7,"side":"RIGHT"}`
+				case IntegrationOperationStartReview:
+					action = `{"commit_id":"abc"}`
+				case IntegrationOperationSubmitReview:
+					action = `{"review_id":42,"body":"Summary"}`
+				case IntegrationOperationDiscardReview:
+					action = `{"review_id":42}`
 				case IntegrationOperationReply:
 					action = `{"body":"reply","comment_id":9007199254740995}`
 				}
@@ -109,6 +115,9 @@ func TestGitHubReviewReadSchemas(t *testing.T) {
 	require.NoError(t, err)
 	for _, input := range []string{
 		`{"section":"reviews","page":2,"limit":100}`,
+		`{"section":"pending_review"}`,
+		`{"section":"review","review_id":42}`,
+		`{"section":"review_comments","review_id":42,"page":2,"limit":1}`,
 		`{"section":"review_threads","cursor":"opaque-cursor","limit":1}`,
 	} {
 		require.NoError(t, jsonschema.Validate(entry.InputSchema, []byte(input)))
@@ -121,6 +130,28 @@ func TestGitHubReviewReadSchemas(t *testing.T) {
 		`{"section":"pending_reviews"}`,
 	} {
 		require.Error(t, jsonschema.Validate(entry.InputSchema, []byte(input)))
+	}
+}
+
+func TestReviewCommentSelectsImmediateOrPendingPublication(t *testing.T) {
+	tool, _ := LookupIntegrationTool(integrationdefinition.GitHubPR, IntegrationOperationReviewComment)
+	entry, err := tool.Prepare(IntegrationToolName("reviews", IntegrationOperationReviewComment))
+	require.NoError(t, err)
+	for _, selector := range []struct {
+		value string
+		valid bool
+	}{
+		{`,"commit_id":"abc"`, true},
+		{`,"review_id":42`, true},
+		{`,"review_id":0`, false},
+	} {
+		input := `{"body":"Finding","path":"a.go","line":7,"side":"RIGHT"` + selector.value + `}`
+		err := jsonschema.Validate(entry.InputSchema, []byte(input))
+		if selector.valid {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
 	}
 }
 

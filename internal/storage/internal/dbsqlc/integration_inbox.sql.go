@@ -208,7 +208,6 @@ type FailInactiveIntegrationInboxReceiptsParams struct {
 	RowLimit int32
 }
 
-// Scan inactive integrations first so recovery does not sort or scan healthy inbox history.
 func (q *Queries) FailInactiveIntegrationInboxReceipts(ctx context.Context, arg FailInactiveIntegrationInboxReceiptsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, failInactiveIntegrationInboxReceipts, arg.RowLimit)
 	if err != nil {

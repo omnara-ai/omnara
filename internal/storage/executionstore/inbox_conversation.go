@@ -17,8 +17,6 @@ import (
 // It does not grant authority for other recipients in the same conversation.
 var ErrInboxRecipientSettled = errors.New("inbox recipient is already settled")
 
-// CheckInboxConversationAuthority recognizes historical delivery and terminal
-// archival before provider preparation, without persisting a separate outcome.
 func (s *Store) CheckInboxConversationAuthority(
 	ctx context.Context,
 	lease integrationstore.IntegrationInboxLease,
@@ -93,9 +91,6 @@ func (s *Store) CheckInboxConversationAuthority(
 			return err
 		}
 		return ErrInboxRecipientSettled
-	}
-	if err := integrationstore.LockIntegrationsTx(ctx, tx, lease.ProjectID, resources, locked.IntegrationID); err != nil {
-		return err
 	}
 	if err := lockIntegrationConversationsTx(ctx, tx, lease.ProjectID,
 		AgentInputOrigin{IntegrationID: locked.IntegrationID, Address: address}); err != nil {

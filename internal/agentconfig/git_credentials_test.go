@@ -140,8 +140,6 @@ func TestGitCredentialsDerivationPreservesExplicitChoice(t *testing.T) {
 	require.Equal(t, baseline, derived.GitCredentials)
 	require.Nil(t, base.GitCredentials, "derivation must not mutate the source profile")
 
-	// An existing choice wins without resolving the launcher default or rebinding
-	// the profile's immutable ID through its saved name.
 	base.GitCredentials = baseline
 	derived, err = DeriveWithIntegrationCapabilities(base, IntegrationCapabilitiesSource{
 		GitCredentials: &GitCredentialsSource{Integration: "another-app"},

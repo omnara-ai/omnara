@@ -35,8 +35,6 @@ func CleanupTerminalIntegrationInboxArtifacts(
 	artifacts IntegrationInboxArtifactCleaner,
 	projectID, receiptID uuid.UUID,
 ) error {
-	// Artifact IDs are unique to this receipt. Once terminal, no attempt can admit them;
-	// the artifact store protects uploads that already have durable artifact rows.
 	if projectID == uuid.Nil || receiptID == uuid.Nil || inbox == nil || artifacts == nil {
 		return storeerr.InvalidRequest(errors.New("project, receipt, inbox reader and artifact cleaner are required"))
 	}

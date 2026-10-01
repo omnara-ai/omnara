@@ -22,8 +22,6 @@ const (
 	InboxRecipientSkipped   InboxRecipientOutcome = "skipped"
 )
 
-// InboxPlannedFile reads the immutable metadata needed for storage admission.
-// Provider file identity and fetching remain owned by the integration consumer.
 type InboxPlannedFile struct {
 	ArtifactID     uuid.UUID                       `json:"artifact_id"`
 	ProviderFileID string                          `json:"provider_file_id"`
@@ -37,9 +35,6 @@ type inboxRecipientResult struct {
 	SiblingDelivered bool
 }
 
-// GetIntegrationInboxOutcomes reads historical execution facts, not live authority.
-// An archived recipient with an existing input remains delivered; one without an
-// input is skipped. Neither outcome grants permission to deliver any new work.
 func (s *Store) GetIntegrationInboxOutcomes(
 	ctx context.Context, receipt integrationstore.IntegrationInboxRecord,
 ) (map[string]InboxRecipientOutcome, error) {
@@ -67,8 +62,6 @@ func integrationInboxOutcomes(
 	return outcomes, nil
 }
 
-// CompleteIntegrationInbox fences completion and checks every frozen recipient in
-// the same transaction. A failed upload leaves its pending recipient incomplete.
 func (s *Store) CompleteIntegrationInbox(ctx context.Context, lease integrationstore.IntegrationInboxLease) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

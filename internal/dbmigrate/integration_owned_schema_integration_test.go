@@ -122,8 +122,6 @@ func TestIntegrationActorMigrationPreservesLegacySlackAttribution(t *testing.T) 
 		VALUES($1,$2,'slack','T_OLD','U_OLD','Historical sender','{"retained":"history"}',now(),now())`, id, ids.ProjectID)
 	require.NoError(t, err)
 	execution := executionstore.New(pool, executionstore.Config{})
-	// Seed against schema46 directly: current stores depend on the renamed
-	// resource-limit view introduced by the cutover.
 	modelID, revisionID, configID := uuid.New(), uuid.New(), uuid.New()
 	_, err = pool.Exec(ctx, `WITH model AS (
 		INSERT INTO configured_models
@@ -159,7 +157,6 @@ func TestIntegrationActorMigrationPreservesLegacySlackAttribution(t *testing.T) 
 		SET state='resolved',admitted_event_id=$2,admitted_at=now(),resolved_at=now()
 		WHERE id=$1`, inputID, eventID)
 	require.NoError(t, err)
-	// A real historical message followed by a stop is quiescent for cutover.
 	stopInputID, stopEventID := uuid.New(), uuid.New()
 	_, err = tx.Exec(ctx, `WITH input AS (
 		INSERT INTO agent_inputs(id,project_id,agent_id,state,input_kind,control_type,delivery_mode,queued_at)

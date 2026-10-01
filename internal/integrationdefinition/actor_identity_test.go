@@ -27,7 +27,6 @@ func TestActorIdentityUsesPlatformPersonScope(t *testing.T) {
 			require.Equal(t, tc.label, label)
 		})
 	}
-	// New Slack kinds inherit person identity from the platform, not the kind.
 	futureChannel := Definition{IntegrationKind: "future_slack_channel", Provider: ProviderSlack}
 	namespace, label, err := futureChannel.ActorIdentity("T123")
 	require.NoError(t, err)

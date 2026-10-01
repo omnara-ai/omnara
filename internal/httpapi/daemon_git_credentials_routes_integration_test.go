@@ -209,7 +209,6 @@ func (f *daemonGitCredentialsFixture) changeConfig(
 func TestDaemonGitCredentialsOriginalConfigOffersAndLiveAuthorization(t *testing.T) {
 	t.Parallel()
 	f := newDaemonGitCredentialsFixture(t)
-	// Enabling credentials later must neither enable the old offer nor authorize the old shell.
 	f.changeConfig(t, f.disabled, f.enabled)
 	offers, err := f.project.Store.Execution().ListDaemonProcessOffers(t.Context(), executionstore.DaemonWorkInput{
 		Authority: f.process.authority(), Limit: 10,
@@ -221,7 +220,7 @@ func TestDaemonGitCredentialsOriginalConfigOffersAndLiveAuthorization(t *testing
 		require.Equal(t, want, offer.GitCredentials)
 		require.Equal(t, want, daemonProcessOfferMessage("process", offer).ProcessOffer.GitCredentials)
 	}
-	f.request(t, f.process.Token, f.process.ProcessID, http.StatusNotFound) // Queued, not execution-granted.
+	f.request(t, f.process.Token, f.process.ProcessID, http.StatusNotFound)
 	f.accept(t, f.disabled)
 	f.accept(t, f.process)
 	f.request(t, f.disabled.Token, f.disabled.ProcessID, http.StatusNotFound)
@@ -241,7 +240,6 @@ func TestDaemonGitCredentialsOriginalConfigOffersAndLiveAuthorization(t *testing
 	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &credential))
 	require.Equal(t, "git-installation-token-1", credential.Token)
 	require.True(t, credential.ExpiresAt.After(time.Now().Add(45*time.Minute)))
-	// A starting process can request credentials even after the original tool's runtime lease expires.
 	pool := integrationPoolForHandler(t, f.handler)
 	_, err = pool.Exec(t.Context(), `UPDATE agent_runtime_locks
  SET started_at=now()-interval '2 minutes', renewed_at=now()-interval '1 minute',

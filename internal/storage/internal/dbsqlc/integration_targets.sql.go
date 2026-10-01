@@ -370,7 +370,6 @@ type LockIntegrationConversationParams struct {
 	Ref           string
 }
 
-// Lock order: project/integration gates, conversation gate, then agent locks.
 func (q *Queries) LockIntegrationConversation(ctx context.Context, arg LockIntegrationConversationParams) error {
 	_, err := q.db.Exec(ctx, lockIntegrationConversation,
 		arg.ProjectID,

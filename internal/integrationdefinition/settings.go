@@ -12,8 +12,6 @@ import (
 
 const MaxSettingsBytes = 128 * 1024
 
-// SettingsDefinition owns the complete settings document, including any launcher.
-// The kernel stores JSON without interpreting an integration's fields.
 type SettingsDefinition struct {
 	InputSchema      json.RawMessage
 	Description      string
@@ -28,7 +26,6 @@ type LauncherDefinition struct {
 	MayLaunchWithoutSelection func(json.RawMessage, Event) bool
 }
 
-// LaunchIntent contains only admission facts, not a public settings contract.
 type LaunchIntent struct {
 	LaunchKey string
 	ProfileID uuid.UUID

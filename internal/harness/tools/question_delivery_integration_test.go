@@ -235,7 +235,6 @@ func TestQuestionPresentationReplayAndTakeoverDoNotResend(t *testing.T) {
 			prepareInteractionPromptFixture(t, ctx, f)
 			call := model.ToolCall{ID: "question", Name: "ask_question", Input: json.RawMessage(
 				`{"questions":[{"prompt":"Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}`)}
-			// A ready sibling gives the replacement worker work while the question waits.
 			f.recordToolCalls(t, ctx, []model.ToolCall{call, {ID: "sibling", Name: "list_agents", Input: json.RawMessage(`{}`)}}, f.Now)
 			if scenario == "receipt_write_failure" {
 				_, err := f.Pool.Exec(ctx, `

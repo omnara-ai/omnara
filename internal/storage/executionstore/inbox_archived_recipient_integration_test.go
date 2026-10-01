@@ -177,7 +177,6 @@ func TestInboxInputOutcomesSurviveArchivalAndDeletedTargets(t *testing.T) {
 	pending := freezeInboxInput(t, f, recipient, "historical-skipped", time.Minute)
 	_, _, err = f.store.Execution().ArchiveAgent(f.ctx, testProjectID, agent.Agent.ID, userPrincipal(f.user.ID))
 	require.NoError(t, err)
-	// Resolve archival before any admission or upload attempt for the pending recipient.
 	require.ErrorIs(t, f.store.Execution().CheckInboxConversationAuthority(
 		f.ctx, pending.Lease(), "recipient", recipient.Input.Origin.Address), executionstore.ErrInboxRecipientSettled)
 	require.NoError(t, f.store.Execution().CompleteIntegrationInbox(f.ctx, pending.Lease()))

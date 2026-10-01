@@ -59,7 +59,6 @@ func (e Executor) sendSlackArtifacts(
 			return slackIntegrationFailureContent(target.TargetRef, result)
 		}
 	}
-	// Upload preparation must not consume the final publication retry budget.
 	slept = 0
 	for attempt := 1; attempt <= integrationMessageSendAttempts; attempt++ {
 		if err := e.ensureIntegrationPostOwnership(ctx, turn); err != nil {
@@ -92,7 +91,6 @@ func (e Executor) sendSlackArtifacts(
 				continue
 			}
 		}
-		// An uncertain completion is never retried: uploads may already be posted.
 		return slackIntegrationFailureContent(target.TargetRef, result)
 	}
 	return toolResultContent{}, errors.New("slack file publication was not confirmed")

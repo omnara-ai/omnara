@@ -80,9 +80,7 @@ export function profileIntegrationSetup(input: {
   integrationKind: IntegrationKind
   name: string
   profileId?: string
-  /** Ordered alternatives for Slack/Discord; replaces profileId when supplied. */
   profileIds?: readonly string[]
-  /** Defaults to true; use false to create a metadata-only draft. */
   launcher?: boolean
   channelId?: string
   repositoryId?: string

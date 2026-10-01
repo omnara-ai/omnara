@@ -114,7 +114,6 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 	// only credentials. Bound the conversion and durable save together.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), integrationOAuthTimeout)
 	defer cancel()
-	// Do not retry this one-time manifest conversion.
 	client, err := github.NewSetupClient(github.SetupConfig{
 		APIURL: s.githubClientConfig.APIURL, HTTPClient: s.githubClientConfig.HTTPClient,
 		BeforeRequest: s.githubClientConfig.BeforeRequest,
@@ -145,7 +144,6 @@ func (s *Server) githubManifestCallbackRoute(w http.ResponseWriter, r *http.Requ
 		outcome("secret_save_failed")
 		return
 	}
-	// Keep credentials through canceled or pending installations; manifest conversion is one-time.
 	ref, err := publicid.Encode(publicid.KindSecret, secret.ID)
 	if err != nil {
 		apierror.Write(w, openapi.ErrorCodeInternalError)

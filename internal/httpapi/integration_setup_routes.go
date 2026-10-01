@@ -150,8 +150,6 @@ func (s strictOpenAPIServer) integrationSetupInput(
 	if decodeErr != nil {
 		return input, storeerr.InvalidRequest(decodeErr)
 	}
-	// Key unwrapping and provider credential parsing happen outside the storage
-	// transaction. The save checks this revision after taking the secret lock.
 	credential, readErr := s.server.store.Secrets().ReadProjectAvailableSecretPayload(
 		ctx, secretstore.ReadProjectAvailableSecretPayloadInput{
 			OrgID:     input.OrgID,

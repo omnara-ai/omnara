@@ -1,5 +1,7 @@
 import type { IntegrationKind } from '@omnara/sdk'
 
+// Official logos: https://slack.com/media-kit, https://discord.com/branding,
+// https://brand.github.com/foundations/logo
 import discordLogo from '@/assets/integrations/discord.svg'
 import githubLogo from '@/assets/integrations/github-black.svg'
 import githubDarkLogo from '@/assets/integrations/github-white.svg'

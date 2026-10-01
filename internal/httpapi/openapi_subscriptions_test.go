@@ -14,7 +14,6 @@ import (
 )
 
 func TestGeneratedSubscriptionRequestsPreserveConversation(t *testing.T) {
-	// This repository ID exceeds float64's exact integer range.
 	const conversation = `{"repository_id":9007199254740993,"pull_request":42}`
 	var create openapi.CreateIntegrationSubscriptionRequest
 	require.NoError(t, json.Unmarshal(

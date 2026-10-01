@@ -28,7 +28,6 @@ type ClearDeletedIntegrationTargetsFromAgentsParams struct {
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
-// Clears agent references before soft deleting the integration's targets.
 func (q *Queries) ClearDeletedIntegrationTargetsFromAgents(ctx context.Context, arg ClearDeletedIntegrationTargetsFromAgentsParams) error {
 	_, err := q.db.Exec(ctx, clearDeletedIntegrationTargetsFromAgents, arg.ProjectID, arg.IntegrationID)
 	return err
@@ -115,7 +114,6 @@ type ListIntegrationAgentIDsForLifecycleParams struct {
 }
 
 // @sqlc-vet-disable integration-targets-deleted-at
-// Include historical targets whose agents may still hold references to clear.
 func (q *Queries) ListIntegrationAgentIDsForLifecycle(ctx context.Context, arg ListIntegrationAgentIDsForLifecycleParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listIntegrationAgentIDsForLifecycle, arg.ProjectID, arg.IntegrationID)
 	if err != nil {

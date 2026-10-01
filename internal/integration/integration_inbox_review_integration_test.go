@@ -33,7 +33,7 @@ func TestIntegrationInboxObserverFollowupWaitsForLaunch(t *testing.T) {
 	} {
 		for _, mentioned := range []bool{false, true} {
 			if scenario.terminal && mentioned {
-				continue // A fresh mention after failure may legitimately request a replacement launch.
+				continue
 			}
 			t.Run(fmt.Sprintf("%s/mentioned=%t", scenario.name, mentioned), func(t *testing.T) {
 				t.Parallel()
@@ -325,7 +325,6 @@ func TestIntegrationInboxWorkerInvalidFrozenPlanIsTerminal(t *testing.T) {
 			f.event.Event.Mentioned = false
 			metadataSize := 1
 			if normalized {
-				// JSONB adds one space per element, taking a valid raw plan over the durable bound.
 				metadataSize += 8192
 			}
 			metadata := make([]string, metadataSize)

@@ -283,7 +283,6 @@ func (p InteractionPresenter) Present(ctx context.Context, projectID, agentID, i
 	var receipt InteractionReceipt
 	switch access.integrationSetup.Provider {
 	case integrationdefinition.ProviderSlack:
-		// The outer loop owns retries for both authority reads and auth.test.
 		preflightClient := slack.WithRequestCheck(p.HTTPClient, checkOnce)
 		var target slack.MessageTarget
 		if err := retryInteractionPreflight(ctx, func() error {
@@ -372,9 +371,6 @@ func slackPromptError(result slack.APIResult, err error) error {
 	return nil
 }
 
-// Only use this for reads before publication; neither a send nor an ambiguous
-// send result may enter this loop. Discord retries its identity/channel reads
-// in its HTTP client.
 func retryInteractionPreflight(ctx context.Context, read func() error) error {
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -508,7 +504,6 @@ func interactionClosedText(record executionstore.AgentInteractionRecord, limit i
 			parts = append(parts, "• "+option.Label)
 		}
 	}
-	// Reserve room for the closure status even when the original form is long.
 	summary := []rune(strings.Join(parts, "\n"))
 	available := limit - len([]rune(status)) - len("\n\n")
 	if len(summary) > available {

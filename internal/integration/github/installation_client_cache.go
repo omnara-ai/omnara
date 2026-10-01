@@ -28,7 +28,6 @@ type installationClientKey struct {
 	appID          int64
 }
 
-// NewInstallationClientCache excludes request-scoped BeforeRequest authority callbacks.
 func NewInstallationClientCache(config InstallationClientCacheConfig) (*InstallationClientCache, error) {
 	clients, err := simplelru.NewLRU[installationClientKey, *Client](config.Capacity, nil)
 	if err != nil {

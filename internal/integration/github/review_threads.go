@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"unicode/utf8"
 )
 
@@ -19,9 +18,7 @@ type ReviewThread struct {
 	IsOutdated bool   `json:"is_outdated"`
 	Path       string `json:"path"`
 	Line       *int   `json:"line"`
-	// CommentID identifies the first available comment, for review_comments/reply.
-	// Bodies and replies are read through the existing REST comment pages.
-	CommentID int64 `json:"comment_id,omitempty"`
+	CommentID  int64  `json:"comment_id,omitempty"`
 }
 
 type ReviewThreadsPage struct {
@@ -77,64 +74,40 @@ func (c *Client) ListReviewThreads(
 	if options.Cursor != "" {
 		after = &options.Cursor
 	}
-	input := struct {
-		Query     string `json:"query"`
-		Variables struct {
-			ID    string  `json:"id"`
-			First int     `json:"first"`
-			After *string `json:"after"`
-		} `json:"variables"`
-	}{Query: reviewThreadsQuery}
-	input.Variables.ID, input.Variables.First, input.Variables.After = pull.metadata.NodeID, options.Limit, after
+	variables := struct {
+		ID    string  `json:"id"`
+		First int     `json:"first"`
+		After *string `json:"after"`
+	}{pull.metadata.NodeID, options.Limit, after}
 	var response struct {
-		Errors []json.RawMessage `json:"errors"`
-		Data   struct {
-			Node *struct {
-				TypeName       string      `json:"__typename"`
-				FullDatabaseID json.Number `json:"fullDatabaseId"`
-				Number         int         `json:"number"`
-				ReviewThreads  struct {
-					Nodes []struct {
-						ID         string `json:"id"`
-						IsResolved *bool  `json:"isResolved"`
-						IsOutdated *bool  `json:"isOutdated"`
-						Path       string `json:"path"`
-						Line       *int   `json:"line"`
-						Comments   struct {
-							Nodes []struct {
-								FullDatabaseID json.Number `json:"fullDatabaseId"`
-							} `json:"nodes"`
-						} `json:"comments"`
-					} `json:"nodes"`
-					PageInfo struct {
-						HasNextPage *bool  `json:"hasNextPage"`
-						EndCursor   string `json:"endCursor"`
-					} `json:"pageInfo"`
-				} `json:"reviewThreads"`
-			} `json:"node"`
-		} `json:"data"`
+		Node *struct {
+			TypeName       string      `json:"__typename"`
+			FullDatabaseID json.Number `json:"fullDatabaseId"`
+			Number         int         `json:"number"`
+			ReviewThreads  struct {
+				Nodes []struct {
+					ID         string `json:"id"`
+					IsResolved *bool  `json:"isResolved"`
+					IsOutdated *bool  `json:"isOutdated"`
+					Path       string `json:"path"`
+					Line       *int   `json:"line"`
+					Comments   struct {
+						Nodes []struct {
+							FullDatabaseID json.Number `json:"fullDatabaseId"`
+						} `json:"nodes"`
+					} `json:"comments"`
+				} `json:"nodes"`
+				PageInfo struct {
+					HasNextPage *bool  `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+			} `json:"reviewThreads"`
+		} `json:"node"`
 	}
-	// POST is transport here, not a mutation. Reuse bounded HTTP, credential
-	// fences and safe read retries, without ambiguous-publication errors.
-	header, err := c.doJSON(ctx, http.MethodPost, "/graphql", pull.token, input, &response, false)
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
-		c.invalidateToken(ctx, pull.token)
-	}
-	if err != nil {
+	if err := c.graphQL(ctx, pull.token, reviewThreadsQuery, variables, &response, false); err != nil {
 		return ReviewThreadsPage{}, err
 	}
-	if len(response.Errors) != 0 {
-		// HTTP 200 can contain partial data or a rate-limit error. Never return
-		// partial thread state or expose the provider's error messages.
-		if header.Get("X-Ratelimit-Remaining") == "0" || header.Get("Retry-After") != "" {
-			err := responseError(http.StatusForbidden, header, nil, false, c.now())
-			err.StatusCode = http.StatusOK
-			return ReviewThreadsPage{}, err
-		}
-		return ReviewThreadsPage{}, &APIError{Code: InvalidResponse, StatusCode: http.StatusOK}
-	}
-	node := response.Data.Node
+	node := response.Node
 	if node == nil {
 		return ReviewThreadsPage{}, &APIError{Code: InvalidResponse}
 	}

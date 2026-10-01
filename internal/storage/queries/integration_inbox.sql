@@ -166,7 +166,6 @@ SET state = CASE WHEN NOT scoped.active OR inbox.attempt_count >= sqlc.arg(max_a
     updated_at = statement_timestamp()
 FROM scoped WHERE inbox.id = scoped.id;
 
--- Scan inactive integrations first so recovery does not sort or scan healthy inbox history.
 -- name: FailInactiveIntegrationInboxReceipts :execrows
 WITH inactive_integrations AS MATERIALIZED (
   SELECT integration.project_id, array_agg(integration.id) AS integration_ids

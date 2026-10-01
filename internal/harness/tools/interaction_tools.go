@@ -28,8 +28,6 @@ func validateQuestionInput(input json.RawMessage) error {
 	return err
 }
 
-// The background hook presents the committed interaction once, best effort.
-// A dropped or failed presentation leaves the dashboard interaction available.
 func prepareStructuredQuestion(
 	ctx context.Context,
 	call transactionalToolContext,

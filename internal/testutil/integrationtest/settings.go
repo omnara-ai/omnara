@@ -6,7 +6,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/publicid"
 )
 
-// ChatSettings is fixture data for the two shipped chat definitions.
 func ChatSettings(channel string, profiles ...uuid.UUID) json.RawMessage {
 	ids := make([]string, len(profiles))
 	for i, id := range profiles {

@@ -23,8 +23,6 @@ func TestGitHubManifestConversionSavesCredentialsAfterBrowserCancellation(t *tes
 	_, token, state := f.start(t)
 	browserCtx, disconnect := context.WithCancel(t.Context())
 	defer disconnect()
-	// The local GitHub server has consumed the one-time code, but has not yet
-	// sent the credentials. Disconnecting must cancel neither receipt nor save.
 	f.onConvert = disconnect
 	request := httptest.NewRequest(http.MethodGet,
 		"https://omnara.test"+githubManifestCallbackPath+"?"+url.Values{

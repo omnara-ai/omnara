@@ -164,7 +164,6 @@ func (s *Server) discordPingIntegration(
 	}
 }
 
-// This only selects a PING key; the handler must still validate timestamp age and protocol.
 func discordPingKeyMatches(integration integrationstore.IntegrationRecord, header http.Header, raw []byte) bool {
 	key, err := hex.DecodeString(integrationruntime.DiscordInteractionPublicKey(integration.ProviderConfig))
 	if err != nil || len(key) != ed25519.PublicKeySize {

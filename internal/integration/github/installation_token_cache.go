@@ -79,7 +79,6 @@ func (c *installationTokenCache) token(
 		return "", err
 	}
 	c.mu.Lock()
-	// Eviction can allow another mint; do not reinsert an entry detached during HTTP.
 	entry.value = fresh
 	c.mu.Unlock()
 	return fresh.token, nil

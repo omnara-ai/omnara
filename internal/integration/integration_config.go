@@ -18,7 +18,6 @@ func DeriveIntegrationProfileConfig(
 	additions agentconfig.IntegrationCapabilitiesSource,
 	opts agentconfig.CompileOptions,
 ) (executionstore.CreateAgentConfigInput, error) {
-	// Source stays empty because the original source would describe the unmodified profile.
 	if base.ID == uuid.Nil || base.ProjectID == uuid.Nil {
 		return executionstore.CreateAgentConfigInput{}, fmt.Errorf("a pinned project config is required")
 	}

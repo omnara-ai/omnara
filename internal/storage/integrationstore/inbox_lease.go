@@ -150,7 +150,6 @@ func (w *IntegrationInboxLeaseTx) Fail(ctx context.Context, reason string) error
 	return inboxLeaseMutation("fail inbox", rows, err)
 }
 
-// CheckLease fences expiry after admission lock waits using a fresh database statement.
 func (w *IntegrationInboxLeaseTx) CheckLease(ctx context.Context) error {
 	_, err := w.q.CheckIntegrationInboxLease(ctx, dbsqlc.CheckIntegrationInboxLeaseParams{
 		ProjectID: w.lease.ProjectID, ID: w.lease.ReceiptID, ClaimToken: w.lease.Token,
@@ -257,7 +256,7 @@ func inboxRecipients(raw json.RawMessage) (map[string]json.RawMessage, error) {
 }
 
 func boundedInboxError(reason string) string {
-	// Reasons are persisted; callers must redact credentials.
+	// This diagnostic is persisted; callers must omit credentials.
 	reason = strings.ToValidUTF8(strings.ReplaceAll(reason, "\x00", ""), "\uFFFD")
 	if strings.TrimSpace(reason) == "" {
 		reason = "inbox processing failed"

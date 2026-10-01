@@ -139,7 +139,6 @@ func (s *Store) launchAgentTx(
 	if err := lifecyclelock.EnterActiveProject(ctx, tx, project.OrgID, input.ProjectID); err != nil {
 		return LaunchAgentResult{}, err
 	}
-	// Replay must survive integration revocation; concurrent first attempts serialize below.
 	if result, found, err := launchReplayMaybeTx(ctx, qtx, input); err != nil || found {
 		return result, err
 	}

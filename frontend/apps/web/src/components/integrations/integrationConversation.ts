@@ -34,7 +34,6 @@ export function integrationConversation(
       if (!address.success) break
       const { channel_id, thread_id } = address.data
       if (!channel_id && !thread_id) break
-      // Indexed subscription addresses contain no guild ID for a Discord URL.
       return {
         label: thread_id ? `Thread ${thread_id}` : `Channel ${channel_id}`,
       }
@@ -42,7 +41,6 @@ export function integrationConversation(
     case 'github_pr': {
       const address = githubAddress.safeParse(subscription.conversation)
       if (!address.success) break
-      // The API supplies a repository ID, not the owner/name needed for a PR URL.
       return {
         label: `Repository ${address.data.repository_id} · PR #${address.data.pull_request}`,
       }

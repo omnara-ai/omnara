@@ -28,6 +28,12 @@ func readPage[T any](
 	if err != nil {
 		return nil, 0, err
 	}
+	return readPreparedPage[T](ctx, c, pull, suffix, options)
+}
+
+func readPreparedPage[T any](
+	ctx context.Context, c *Client, pull preparedPull, suffix string, options PageOptions,
+) ([]T, int, error) {
 	path := repoPath(pull.repository) + suffix
 	query := url.Values{"page": {strconv.Itoa(options.Page)}, "per_page": {strconv.Itoa(options.PerPage)}}
 	var output []T

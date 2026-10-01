@@ -31,7 +31,6 @@ func TestDaemonGitCredentialsPermanentFailureStopsHelperRetries(t *testing.T) {
 			listener, err := localipc.Listen(t.Context(), endpoint)
 			require.NoError(t, err)
 			var requests atomic.Int32
-			// Forward the helper's requests into the real machine-authenticated HTTP route.
 			server := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(
 				func(w http.ResponseWriter, r *http.Request) {
 					requests.Add(1)

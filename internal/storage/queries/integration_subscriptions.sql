@@ -43,7 +43,6 @@ SELECT EXISTS (
 SELECT count(*)::bigint FROM integration_subscriptions
 WHERE project_id = sqlc.arg(project_id) AND agent_id = sqlc.arg(agent_id);
 
--- The unique conversation index permits only one subscription per agent at this exact address.
 -- name: CountIntegrationConversationSubscriptions :one
 SELECT count(*)::bigint FROM integration_subscriptions
 WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integration_id)

@@ -304,8 +304,6 @@ func newCapturedHTTPFixtureWithDismiss(
 		201,
 		authHeaders(project.AdminToken),
 	)
-	// The dashboard input clears automatic selection on admission. The explicit
-	// setter in this tool batch selects support again before the prompt is captured.
 	record := createInteractionForAgent(
 		t,
 		ctx,

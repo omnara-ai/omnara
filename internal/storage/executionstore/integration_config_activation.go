@@ -62,8 +62,6 @@ func configChangeReplayExistsTx(ctx context.Context, q *dbsqlc.Queries, input Ch
 	return true, nil
 }
 
-// Previous-only integrations need no gate: activation leaves subscriptions unchanged
-// and reconciles interaction selection under the agent lock.
 func lockConfigChangeIntegrationsTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -84,7 +82,6 @@ func lockConfigChangeIntegrationsTx(
 		return err
 	}
 	if err := integrationstore.LockIntegrationsTx(ctx, tx, input.ProjectID, next.ReferencedIntegrationIDs()); err != nil {
-		// An activation may have committed while we waited; replay must survive revocation.
 		if replay, replayErr := configChangeReplayExistsTx(ctx, q, input); replayErr == nil && replay {
 			return nil
 		}

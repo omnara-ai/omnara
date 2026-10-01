@@ -1,6 +1,5 @@
 -- Ping/unknown-installation verification only; ordinary deliveries verify each
 -- matching integration independently rather than borrowing these fallback credentials.
--- Include disconnected integrations so signed callbacks can be acknowledged without work.
 -- name: ListGitHubWebhookCredentialIntegrations :many
 SELECT DISTINCT ON (integration.credential_secret_id)
   integration.id, integration.org_id, integration.project_id, integration.installed_by_user_id,

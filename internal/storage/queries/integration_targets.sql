@@ -1,4 +1,3 @@
--- Lock order: project/integration gates, conversation gate, then agent locks.
 -- name: LockIntegrationConversation :exec
 SELECT pg_advisory_xact_lock(hashtextextended(
     'integration_conversation:' || jsonb_build_array(sqlc.arg(project_id)::uuid, sqlc.arg(integration_id)::uuid,

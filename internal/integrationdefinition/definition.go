@@ -70,7 +70,9 @@ func Lookup(id Kind) (Definition, bool) {
 		d = Definition{
 			IntegrationKind: id,
 			Provider:        ProviderGitHub,
-			Tools:           []string{"read", "discussion_comment", "review_comment", "reply"},
+			Tools: []string{
+				"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
+			},
 			Subscription: &SubscriptionDefinition{
 				Provider: ProviderGitHub,
 				Events:   []string{"discussion_comment", "review_comment", "commit"},

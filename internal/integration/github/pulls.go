@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -119,7 +118,7 @@ type ReviewsPage struct {
 	NextPage int      `json:"next_page,omitempty"`
 }
 
-// FilesPage can end at GitHub's 3,000-file limit; compare PullRequest.ChangedFiles to detect truncation.
+// FilesPage is capped at 3,000 files: https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files
 type FilesPage struct {
 	Files    []File `json:"files"`
 	NextPage int    `json:"next_page,omitempty"`
@@ -238,13 +237,19 @@ type ReviewCommentArgs struct {
 }
 
 func (args ReviewCommentArgs) validate() error {
+	if strings.TrimSpace(args.CommitID) == "" || len(args.CommitID) > 128 {
+		return errors.New("github review comment requires commit_id")
+	}
+	return args.validateLocation()
+}
+
+func (args ReviewCommentArgs) validateLocation() error {
 	if err := validateBody(args.Body); err != nil {
 		return err
 	}
-	if strings.TrimSpace(args.CommitID) == "" || len(args.CommitID) > 128 ||
-		strings.TrimSpace(args.Path) == "" || len(args.Path) > 4096 || !utf8.ValidString(args.Path) ||
+	if strings.TrimSpace(args.Path) == "" || len(args.Path) > 4096 || !utf8.ValidString(args.Path) ||
 		args.Line <= 0 || !diffSide(args.Side) {
-		return errors.New("github review comment requires commit_id, path, positive line and LEFT or RIGHT side")
+		return errors.New("github review comment requires path, positive line and LEFT or RIGHT side")
 	}
 	if (args.StartLine == nil) != (args.StartSide == "") {
 		return errors.New("github multiline comment requires both start_line and start_side")
@@ -272,22 +277,23 @@ func (c *Client) CreateReviewComment(
 	}
 	var result ReviewComment
 	_, err = c.request(ctx, pull.token, http.MethodPost, pullPath(pull.repository, pull.number)+"/comments", args, &result)
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.Code == PermanentFailure && apiErr.StatusCode == http.StatusUnprocessableEntity {
-		return ReviewComment{}, fmt.Errorf(
+	if err != nil {
+		return ReviewComment{}, reviewValidationError(err,
 			"GitHub rejected the review comment; check the body and ensure commit_id, path, line, side "+
-				"and any start_line/start_side match the pull request diff: %w", err)
+				"and any start_line/start_side match the pull request diff. "+
+				"A pending review can also block immediate comments; read pending_review to check, then continue, submit, or discard that draft")
 	}
-	if err == nil && result.ID <= 0 {
-		err = &APIError{Code: DeliveryUnknown}
+	if result.ID <= 0 {
+		return ReviewComment{}, &APIError{Code: DeliveryUnknown}
 	}
-	return result, err
+	return result, nil
 }
 
 func (c *Client) Reply(
 	ctx context.Context, scope Scope, commentID int64, body string,
 ) (ReviewComment, error) {
-	// GitHub accepts only top-level review comment IDs as reply targets.
+	// Replies require a top-level comment:
+	// https://docs.github.com/en/rest/pulls/comments#create-a-reply-for-a-review-comment
 	ctx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	if err := validateBody(body); err != nil {
@@ -318,10 +324,15 @@ func (c *Client) Reply(
 	_, err = c.request(ctx, pull.token, http.MethodPost, path, struct {
 		Body string `json:"body"`
 	}{body}, &result)
-	if err == nil && result.ID <= 0 {
-		err = &APIError{Code: DeliveryUnknown}
+	if err != nil {
+		return ReviewComment{}, reviewValidationError(err,
+			"GitHub rejected the reply. A pending review can block immediate replies; "+
+				"read pending_review to check, then continue, submit, or discard that draft")
 	}
-	return result, err
+	if result.ID <= 0 {
+		return ReviewComment{}, &APIError{Code: DeliveryUnknown}
+	}
+	return result, nil
 }
 
 func (c *Client) getReviewComment(
@@ -333,8 +344,7 @@ func (c *Client) getReviewComment(
 	if err != nil {
 		return ReviewComment{}, err
 	}
-	u, err := url.Parse(comment.PullRequestURL)
-	if err != nil || !c.sameEndpoint(u, pullPath(pull.repository, pull.number)) || u.RawQuery != "" || comment.ID != id {
+	if !c.matchesPullURL(pull, comment.PullRequestURL) || comment.ID != id {
 		return ReviewComment{}, &APIError{Code: ScopeMismatch}
 	}
 	return comment, nil

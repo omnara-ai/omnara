@@ -391,8 +391,6 @@ func prepareInteractionPromptFixture(t *testing.T, ctx context.Context, f integr
 		f.Agent.ID,
 	)
 	require.NoError(t, err)
-	// The launch input is already admitted. Give this prompt fixture authority
-	// over that conversation before selecting its origin for the tool batch.
 	assigned, found, err := integrationstore.GetAgentIntegrationConversationTargetTx(
 		ctx, tx, toolsTestProjectID, f.Agent.ID, f.Install.ID,
 	)

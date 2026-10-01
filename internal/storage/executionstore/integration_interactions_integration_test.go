@@ -101,7 +101,6 @@ func (f integrationInteractionFixture) target(
 	t *testing.T, agentID uuid.UUID, address string,
 ) integrationstore.IntegrationTargetRecord {
 	t.Helper()
-	// Admitting input here would disturb the fixture's already-active tool turn.
 	integrationID := f.integration.ID
 	if strings.HasPrefix(address, "C456:") {
 		integrationID = f.otherIntegration.ID
@@ -256,8 +255,6 @@ func (f integrationInteractionFixture) questionForOrigin(
 ) executionstore.AgentInteractionRecord {
 	t.Helper()
 	id := createToolCallForProcessTest(t, f.ctx, f.process, uuid.NewString(), "ask_question")
-	// The tool helper admits originless seed content. Set this fixture's explicit
-	// origin afterward; unsupported origins still clear and pinned choices still hold.
 	f.selectOrigin(t, targetID)
 	return createQuestionInteractionForTest(t, f.ctx, f.process, id)
 }

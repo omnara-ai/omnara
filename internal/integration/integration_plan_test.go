@@ -604,7 +604,6 @@ func TestIntegrationPlanLargeSingleMessageFanoutSharesContentAndDeduplicatesAgen
 	event.ContentBlocks = content
 	request, err := prepareIntegrationEvent(event, integrations.integrationSetup)
 	require.NoError(t, err)
-	// The planner accepts the full routing budget, not an invented aggregate 64 cap.
 	for range 8 * 16 {
 		id := uuid.New()
 		request.candidates.Subscriptions = append(request.candidates.Subscriptions,

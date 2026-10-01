@@ -30,7 +30,6 @@ func (p *SlackIntegrationInboxProvider) PublishScheduledRoot(
 	}
 	switch {
 	case result.StatusCode >= 500 || result.TransientFailure || result.DeliveryUnknown:
-		// Slack may have published before the timeout or server error; retrying could duplicate it.
 		return integrationdefinition.Scope{}, fmt.Errorf(
 			"%w: Slack opening publication could not be confirmed", ErrScheduledActionFailed,
 		)

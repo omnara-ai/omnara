@@ -877,7 +877,6 @@ func cronTriggerTargetsEqual(a, b CronTriggerTarget) bool {
 	if a.Settings == nil || b.Settings == nil {
 		return a.Settings == nil && b.Settings == nil
 	}
-	// PostgreSQL jsonb reformats canonical JSON on read.
 	return jsoncanonical.Equal(a.Settings, b.Settings)
 }
 

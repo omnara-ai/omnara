@@ -21,7 +21,8 @@ type GitHubAppIdentity struct {
 	BotLogin  string `json:"bot_login"`
 }
 
-// GitHubIntegrationInboxProvider derives identity from body fields: GitHub does not sign event/delivery headers.
+// GitHubIntegrationInboxProvider uses signed body fields because event/delivery headers are unsigned:
+// https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
 type GitHubIntegrationInboxProvider struct {
 	config       github.Config
 	secrets      GitHubInboxSecrets
@@ -290,7 +291,7 @@ func githubPayloadEventType(p githubEventPayload) string {
 }
 
 func GitHubWebhookInstallationMatches(c integrationstore.IntegrationRecord, event github.Webhook) bool {
-	// GitHub can omit app_id; intake HMAC verification with this integration's credentials establishes App identity.
+	// GitHub can omit app_id; ingress has already verified this integration's HMAC signature.
 	appID, appErr := strconv.ParseInt(c.ProviderTenantID, 10, 64)
 	installationID, installationErr := strconv.ParseInt(c.ProviderAccountRef, 10, 64)
 	return c.Provider == integrationstore.IntegrationProviderGitHub && appErr == nil && installationErr == nil &&

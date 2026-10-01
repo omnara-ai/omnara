@@ -24,7 +24,6 @@ func AppendEventInputContext(
 func appendInputContext(
 	integrationName string, scope Scope, content json.RawMessage, details *InputContext,
 ) (json.RawMessage, error) {
-	// Hidden blocks reach the model while the console renders the original message separately.
 	guidance := ""
 	if details != nil {
 		guidance = "The bot_mentioned field indicates whether this message addressed your integration bot. " +

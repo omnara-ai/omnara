@@ -32,8 +32,7 @@ type IntegrationInboxProvider interface {
 	DownloadFile(context.Context, integrationstore.IntegrationRecord, []byte, string) (IntegrationInboxFile, error)
 }
 
-// ErrIntegrationInboundPermanent marks work its owning workflow cannot retry.
-// Provider expansion must not use it for temporary credential or recipient authority failures.
+// ErrIntegrationInboundPermanent must not classify temporary credential or recipient-authority failures.
 var ErrIntegrationInboundPermanent = errors.New("permanent integration inbound failure")
 
 // IntegrationInboxRoutingProvider checks a single conversational event before fetching

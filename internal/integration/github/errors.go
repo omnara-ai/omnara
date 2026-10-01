@@ -56,10 +56,32 @@ func contextCause(err error) error {
 func responseError(status int, header http.Header, body []byte, mutation bool, now time.Time) *APIError {
 	result := &APIError{Code: PermanentFailure, StatusCode: status}
 	var payload struct {
-		Message string `json:"message"`
+		Message string            `json:"message"`
+		Errors  []json.RawMessage `json:"errors"`
 	}
 	_ = json.Unmarshal(body, &payload)
 	message := strings.ToLower(payload.Message)
+	if status == http.StatusUnprocessableEntity {
+		messages := []string{message}
+		for _, item := range payload.Errors {
+			var text string
+			if json.Unmarshal(item, &text) != nil {
+				var detail struct {
+					Message string `json:"message"`
+				}
+				_ = json.Unmarshal(item, &detail)
+				text = detail.Message
+			}
+			messages = append(messages, strings.ToLower(text))
+		}
+		for _, text := range messages {
+			if strings.Contains(text, "can only have one pending review") {
+				result.cause = errors.New("this bot already has a pending review on this PR; read pending_review to " +
+					"continue it, submit_review to publish it, or discard_review to delete it")
+				break
+			}
+		}
+	}
 	limited := status == http.StatusTooManyRequests || (status == http.StatusForbidden &&
 		(header.Get("X-Ratelimit-Remaining") == "0" || header.Get("Retry-After") != "" ||
 			strings.Contains(message, "rate limit") || strings.Contains(message, "abuse detection")))

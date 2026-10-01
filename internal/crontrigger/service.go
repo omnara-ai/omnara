@@ -70,7 +70,7 @@ func (s *Service) FireDueTriggers(ctx context.Context) (FireStats, error) {
 			} else if queued {
 				stats.Queued++
 			}
-			continue // Handoff owns completion, including cancellation and skips.
+			continue
 		}
 		fired := false
 		if err := s.fireTrigger(ctx, trigger); err != nil {

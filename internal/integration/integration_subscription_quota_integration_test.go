@@ -100,7 +100,6 @@ func TestIntegrationInboxConversationQuotaPreservesObserversAndRetriesLaunch(t *
 			if scenario == "unsubscribe then retry" {
 				removeTestAgentSubscriptions(t, f.store, f.integration, observers[0])
 			} else {
-				// Exercise the final budgeted attempt without waiting through every backoff.
 				_, err = f.pool.Exec(ctx, `UPDATE integration_inbox SET attempt_count=$2 WHERE id=$1`,
 					receipt.ID, integrationstore.IntegrationInboxMaxAttempts-1)
 				require.NoError(t, err)

@@ -1273,7 +1273,9 @@ tools:
 		if permission == "" {
 			permission = toolpermission.ModeAlwaysAllow
 		}
-		for _, operation := range []string{"read", "discussion_comment", "review_comment", "reply"} {
+		for _, operation := range []string{
+			"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
+		} {
 			sourceYAML += "  int__chat__" + operation + ":\n    permission: {mode: " + permission + "}\n"
 		}
 	}

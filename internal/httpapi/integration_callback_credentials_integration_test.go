@@ -55,8 +55,6 @@ func beginCallbackCredentialRevocation(
 ) pgx.Tx {
 	t.Helper()
 	tx := integrationdb.BeginTx(t, t.Context(), pool)
-	// Hold the same exclusive secret lock as DeleteSecretGrant, then commit only
-	// after the signed callback has reached its shared secret lock.
 	_, err := tx.Exec(t.Context(), `SELECT id FROM secrets WHERE org_id=$1 AND id=$2 FOR UPDATE`,
 		grant.OrgID, grant.SecretID)
 	require.NoError(t, err)

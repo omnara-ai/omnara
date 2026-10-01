@@ -109,6 +109,11 @@ tools:
     permission: {mode: always_ask}
   int__reviews__reply:
     permission: {mode: always_ask}
+  int__reviews__start_review: {}
+  int__reviews__submit_review:
+    permission: {mode: always_ask}
+  int__reviews__discard_review:
+    permission: {mode: always_ask}
 ```
 
 The GitHub launcher assigns one pull request to the agent. Every tool operates on
@@ -119,7 +124,8 @@ assign or change the tools' PR. Machine Git authentication uses the separate
 `git_credentials` capability described below.
 
 `read` returns PR details by default. Its `section` can select `diff`, `files`,
-`discussion_comments`, `review_comments`, `reviews` or `review_threads`.
+`discussion_comments`, `review_comments`, `reviews`, `review`, `pending_review` or
+`review_threads`.
 Comments, files and submitted `reviews` use `page` and `limit`; follow `next_page`
 until it is absent, including after an empty page. `reviews` includes the overall
 review body, state (such as `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED`), author,
@@ -137,9 +143,29 @@ and accept a `limit` of 1–100. Oversized `diff` reads fail with guidance to us
 `review_comment` posts on the diff using `body`, `commit_id`, `path`, `line` and
 `side` (`LEFT` or `RIGHT`); provide `start_line` and `start_side` together for a
 multiline comment. `reply` uses `comment_id` and `body` to reply to an existing
-review comment. These publish individual comments; Omnara does not stage a review
-or publish one when an agent stops. A network failure can leave publication
-uncertain; inspect GitHub before repeating the action.
+review comment. These publish individual comments.
+
+To build a review incrementally, first use `read` with `section: pending_review`.
+It returns this bot's pending review, or `null`. GitHub allows one pending review
+per bot per PR, including when multiple integrations use the same bot.
+`start_review` creates a draft at `commit_id` and returns its `id`. Pass that
+`review_id` instead of `commit_id` to `review_comment` to add unpublished findings
+one at a time. A pending review can prevent immediate inline comments or replies;
+continue, publish, or discard the draft before retrying a rejected operation.
+
+Use `read` with `section: review` and `review_id` for the review's summary and state,
+and `section: review_comments` with that ID to page through its comments.
+`submit_review` publishes those findings with `body` as the summary. It submits a
+COMMENT review; it does not approve or request changes. `discard_review` deletes
+only the specified pending review and its unpublished comments. Inspect the draft
+before either action. If submission requires approval, its tool call contains the
+review ID and summary; the inline findings remain in GitHub.
+
+GitHub stores the draft. Stopping or restarting an agent neither publishes nor
+deletes it. An uncertain network result requires read-back before repeating the
+action: `pending_review` for draft creation/deletion, `review` for submission, or
+`review_comments` for a draft comment. Existing agents need the new operations
+enabled in their configuration; their saved tool selection does not change automatically.
 
 ## Git credentials
 
@@ -268,7 +294,3 @@ Omnara does not run an automatic GitHub redelivery scheduler.
 Completed and failed raw receipts are eligible for cleanup seven days after
 finishing. Their transport deduplication window ends when they are deleted; agent
 conversation history is preserved.
-
-See [Composable integrations](/integrations/overview) for mixing these tools with another
-provider's subscription or approval destination, and [Custom integrations](/integrations/custom-integrations)
-for a service that routes its own events through the public API.

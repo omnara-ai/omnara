@@ -102,7 +102,6 @@ func TestLauncherArchivedOwnerWithScheduledKeyPreventsRespawn(t *testing.T) {
 	_, _, err = f.store.Execution().ArchiveAgent(t.Context(), f.ids.ProjectID, owner.ID,
 		identitystore.NewUserPrincipal(f.ids.ProviderAdminUserID))
 	require.NoError(t, err)
-	// A deleted profile is permitted and cannot erase saved conversation ownership.
 	require.NoError(t, f.store.Execution().DeleteAgentProfile(t.Context(), f.ids.ProjectID, f.profiles[0].ID))
 	event := f.event
 	event.SemanticKey = "later-mention"

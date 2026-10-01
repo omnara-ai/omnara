@@ -403,7 +403,6 @@ func TestIntegrationInboxSkippedUploadsCleanupAndPreparationErrors(t *testing.T)
 				require.Contains(t, blobs.content, skippedBlob, "best-effort cleanup can leave an orphan")
 				blobs.failKey = ""
 			}
-			// Explicit replay tests idempotency; the worker does not retry completed receipts.
 			replayed, err := consumer.Consume(ctx, receipt.Lease())
 			require.NoError(t, err)
 			require.Len(t, replayed, 2)

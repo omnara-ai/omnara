@@ -14,7 +14,6 @@ const integrationStateMaxDataBytes = 2 * 1024 * 1024
 func encodeIntegrationState(value any) (json.RawMessage, error) {
 	var data bytes.Buffer
 	encoder := json.NewEncoder(&data)
-	// HTML escaping can push an otherwise valid event over the byte limit.
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(value); err != nil {
 		return nil, err
@@ -33,7 +32,6 @@ func (s *Store) CleanupIntegrationStates(ctx context.Context, choiceRetention ti
 	if err := validateInboxBatch(limit); err != nil {
 		return 0, err
 	}
-	// Prioritize deleted owners so expired-menu traffic cannot starve teardown.
 	deleted, err := s.q.CleanupDeletedIntegrationStates(ctx, dbsqlc.CleanupDeletedIntegrationStatesParams{
 		RowLimit: int32(limit),
 	})

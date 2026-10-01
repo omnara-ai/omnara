@@ -308,8 +308,6 @@ func TestIntegrationTargetRechecksAgentAfterArchiveWait(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockAgentInProject", 1)
 	targetDone := integrationdb.RunAsyncError(func() error {
-		// Exercise the target mutation directly: inbox admission has a distinct
-		// successful, durable skip outcome when the recipient was archived.
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return err
@@ -480,8 +478,6 @@ func TestIntegrationDeletionFreezesTargetAgents(t *testing.T) {
 	})
 	integrationdb.WaitForNamedLockWaiters(t, ctx, pool, "LockIntegrationLifecycleShared", 1)
 
-	// Deleting one install must not block a different install or lock the late
-	// target's agent while waiting. Exercise both through normal admission paths.
 	otherInstall := mustCreateIntegration(t, ctx, store, slackIntegrationSetupInput(
 		admin.ID, credentialID, "A_OTHER", "T_GROWTH",
 	))

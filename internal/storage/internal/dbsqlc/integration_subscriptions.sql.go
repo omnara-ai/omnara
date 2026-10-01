@@ -43,7 +43,6 @@ type CountIntegrationConversationSubscriptionsParams struct {
 	ScopeRef      string
 }
 
-// The unique conversation index permits only one subscription per agent at this exact address.
 func (q *Queries) CountIntegrationConversationSubscriptions(ctx context.Context, arg CountIntegrationConversationSubscriptionsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countIntegrationConversationSubscriptions,
 		arg.ProjectID,

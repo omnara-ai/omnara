@@ -61,8 +61,6 @@ type setupApp struct {
 }
 
 func (c *SetupClient) ConvertManifest(ctx context.Context, code string) (ManifestConversion, error) {
-	// Conversion consumes a one-time code, so preserve valid credentials even for
-	// enterprise owners; App inspection rejects those owners afterward.
 	if len(code) == 0 || len(code) > 512 {
 		return ManifestConversion{}, errors.New("invalid github manifest code")
 	}

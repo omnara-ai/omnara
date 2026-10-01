@@ -106,7 +106,6 @@ func TestIntegrationSubscriptionConversationQuotaIndependentScopes(t *testing.T)
 	}
 	require.Len(t, agents, 32)
 
-	// The same agent can occupy one slot in each scope; routing retains both matches for deduplication.
 	require.NoError(t, f.store.DeleteIntegrationSubscription(
 		f.ctx, f.org, f.project, f.integrationID, threadSubscription.ID))
 	input := subscriptionInput(f, channelAgent, `{"channel_id":"C123","thread_ts":"1.2"}`)

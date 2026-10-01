@@ -33,8 +33,6 @@ func (e *IntegrationLaunchClaimError) Error() string {
 
 func (e *IntegrationLaunchClaimError) Unwrap() error { return ErrIntegrationLaunchReserved }
 
-// InboxLaunchClaim reserves an integration/address so concurrent plans
-// cannot split the initial conversation membership.
 type InboxLaunchClaim struct {
 	IntegrationID uuid.UUID           `json:"integration_id"`
 	Address       ConversationAddress `json:"address"`
@@ -109,7 +107,6 @@ func (w *IntegrationInboxLeaseTx) CheckNoUnsettledIntegrationLaunch(
 	if err != nil {
 		return err
 	}
-	// Ownership commits with the launch, independently of other recipients still retrying in its receipt.
 	if len(settled) != 0 {
 		return nil
 	}
@@ -142,8 +139,6 @@ func (w *IntegrationInboxLeaseTx) reserveIntegrationLaunchClaims(
 	if err != nil {
 		return err
 	}
-	// Only a scheduler-accepted receipt can reserve the scheduled launch key;
-	// provider payloads and selected profile choices do not confer that authority.
 	if w.record.Source != IntegrationInboxSourceScheduled {
 		for _, launchKeys := range identities {
 			if launchKeys["scheduled"] {

@@ -27,7 +27,6 @@ type DaemonGitCredentialsScope struct {
 	IntegrationID uuid.UUID
 }
 
-// GetDaemonGitCredentialsScope authorizes active execution independently of its original tool lease.
 func (s *Store) GetDaemonGitCredentialsScope(
 	ctx context.Context,
 	orgID, machineID, processID uuid.UUID,

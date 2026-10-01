@@ -331,7 +331,6 @@ type IntegrationOAuthFlowConsumedParams struct {
 }
 
 // @sqlc-vet-disable integrations-deleted-at
-// Tombstones also prevent reusing a completed setup attempt.
 func (q *Queries) IntegrationOAuthFlowConsumed(ctx context.Context, arg IntegrationOAuthFlowConsumedParams) (bool, error) {
 	row := q.db.QueryRow(ctx, integrationOAuthFlowConsumed, arg.FlowID)
 	var consumed bool
@@ -587,7 +586,6 @@ type LockIntegrationLifecycleSharedParams struct {
 	IntegrationID uuid.UUID
 }
 
-// Lock order: project/integration gates (sorted integration IDs), inbox receipt, conversation gate, profile/agent rows.
 func (q *Queries) LockIntegrationLifecycleShared(ctx context.Context, arg LockIntegrationLifecycleSharedParams) error {
 	_, err := q.db.Exec(ctx, lockIntegrationLifecycleShared, arg.IntegrationID)
 	return err

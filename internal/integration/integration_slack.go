@@ -294,8 +294,6 @@ func (p *SlackIntegrationInboxProvider) ExpandRouted(
 	if kind == "thread" && normalized.Event.Mentioned {
 		hasOwner, err := p.integrations.HasIntegrationLaunchOwner(enrichCtx, integrationSetup.ProjectID,
 			integrationSetup.ID, integrationstore.ConversationAddress{Kind: kind, Ref: ref})
-		// History is optional. An unavailable ownership read must not replay old
-		// context into an established conversation or prevent the new input.
 		newConversation = err == nil && !hasOwner
 	}
 	history, status, _ := slack.FetchRecentContextMessages(

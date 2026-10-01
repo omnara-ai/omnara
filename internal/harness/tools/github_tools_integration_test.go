@@ -55,6 +55,7 @@ func createGitHubToolIntegration(
 			ExpectedSetupRevision: integration.SetupRevision, InstalledByUserID: userID,
 			Provider: integrationdefinition.ProviderGitHub, ProviderTenantID: "11", ProviderAccountRef: "22",
 			CredentialSecretID: secret.ID, CredentialVersionID: version.ID, CredentialAppID: 11,
+			ProviderIdentity: json.RawMessage(`{"bot_user_id":999,"bot_login":"helper[bot]"}`),
 		},
 	)
 	require.NoError(t, err)
@@ -76,7 +77,13 @@ func githubToolTestServer(t *testing.T, permission string, operation http.Handle
 				return
 			}
 			assert.Equal(t, []int64{123}, input.RepositoryIDs)
-			assert.Equal(t, map[string]string{"pull_requests": permission, "metadata": "read"}, input.Permissions)
+			if permission == "" {
+				assert.Contains(t, []string{"read", "write"}, input.Permissions["pull_requests"])
+				assert.Equal(t, "read", input.Permissions["metadata"])
+				assert.Len(t, input.Permissions, 2)
+			} else {
+				assert.Equal(t, map[string]string{"pull_requests": permission, "metadata": "read"}, input.Permissions)
+			}
 			writeToolTestJSON(w, map[string]any{
 				"token": "installation-token", "expires_at": time.Now().Add(time.Hour),
 			})
@@ -224,7 +231,6 @@ func TestGitHubIntegrationReviewThreadPages(t *testing.T) {
 			})
 			input, err := json.Marshal(map[string]any{"section": "review_threads", "cursor": cursor, "limit": 1})
 			require.NoError(t, err)
-			// Omit the optional cursor on the first page, as required by the tool schema.
 			if cursor == "" {
 				input = []byte(`{"section":"review_threads","limit":1}`)
 			}
@@ -438,7 +444,7 @@ func TestGitHubIntegrationProviderFailureDoesNotResend(t *testing.T) {
 				require.Contains(t, body["message"], "commit_id")
 				require.Contains(t, body["message"], "pull request diff")
 			} else {
-				require.Contains(t, body["message"], "Read the PR before deciding whether to resend")
+				require.Contains(t, body["message"], "Read back the comment or review before retrying")
 			}
 			require.NotContains(t, string(result.ContentParts), "private-provider-details")
 			replay, err := dispatchAsyncToolToTerminal(t, ctx, executor, f.turn(), call)

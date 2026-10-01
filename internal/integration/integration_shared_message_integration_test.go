@@ -39,7 +39,6 @@ func TestIntegrationInboxLargeSingleMessageFanout(t *testing.T) {
 		}
 		createTestIntegrationSubscription(t, store, setup, agent.Agent.ID, address)
 	}
-	// Sixteen per address, with one agent present in both hierarchical scopes.
 	createTestIntegrationSubscription(t, store, setup, agents[0], `{"channel_id":"C123"}`)
 	text := "large-fanout-once:" + strings.Repeat("x", 100*1024)
 	content, err := json.Marshal([]map[string]string{{"type": "text", "text": text}})

@@ -95,3 +95,8 @@ func repoPath(repository Repository) string {
 func pullPath(repository Repository, number int) string {
 	return repoPath(repository) + "/pulls/" + strconv.Itoa(number)
 }
+
+func (c *Client) matchesPullURL(pull preparedPull, raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && c.sameEndpoint(u, pullPath(pull.repository, pull.number)) && u.RawQuery == ""
+}

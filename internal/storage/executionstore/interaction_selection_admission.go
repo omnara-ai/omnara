@@ -35,8 +35,6 @@ func selectAdmittedInteractionDestinationTx(
 			return nil
 		}
 	}
-	// Only trailing originless content needs actor classification. An explicit origin
-	// or unattributed input settles selection before any earlier input can matter.
 	var actorIDs []uuid.UUID
 	seen := map[uuid.UUID]bool{}
 	for i := len(inputs) - 1; i >= 0; i-- {

@@ -105,7 +105,6 @@ func TestInternalActorMetadataPersistsAndPreservesHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"retained":"history"}`, string(actor.Metadata))
 
-	// Adding a source label must write even when the identity and name match.
 	params.Metadata = resourcemeta.Metadata{"source_label": "Slack"}
 	withLabelID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, testProjectID, &params)
 	require.NoError(t, err)
@@ -114,14 +113,12 @@ func TestInternalActorMetadataPersistsAndPreservesHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"retained":"history","source_label":"Slack"}`, string(withLabel.Metadata))
 
-	// A repeated labeled input does not churn the actor row.
 	_, err = executionstore.IntegrationResolveActorTx(ctx, store.q, testProjectID, &params)
 	require.NoError(t, err)
 	repeated, err := store.Execution().GetActor(ctx, testProjectID, actorID)
 	require.NoError(t, err)
 	require.Equal(t, withLabel.UpdatedAt, repeated.UpdatedAt)
 
-	// Older/internal callers that omit metadata cannot erase the historical label.
 	params.Metadata = nil
 	params.DisplayName = nil
 	_, err = executionstore.IntegrationResolveActorTx(ctx, store.q, testProjectID, &params)
@@ -130,7 +127,6 @@ func TestInternalActorMetadataPersistsAndPreservesHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, withLabel, omitted)
 
-	// Internal producers can refresh a label without replacing unrelated metadata.
 	params.Metadata = resourcemeta.Metadata{"source_label": "Updated source"}
 	_, err = executionstore.IntegrationResolveActorTx(ctx, store.q, testProjectID, &params)
 	require.NoError(t, err)
@@ -140,7 +136,6 @@ func TestInternalActorMetadataPersistsAndPreservesHistory(t *testing.T) {
 	require.Equal(t, name, updated.DisplayName)
 	require.Equal(t, actor.CreatedAt, updated.CreatedAt)
 
-	// New labeled actors must persist metadata on INSERT as well as UPDATE.
 	params.ProviderTenantID = "discord"
 	params.Metadata = resourcemeta.Metadata{"source_label": "Discord"}
 	discordID, err := executionstore.IntegrationResolveActorTx(ctx, store.q, testProjectID, &params)

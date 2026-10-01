@@ -39,7 +39,6 @@ func TestClearDeletedIntegrationTargetsUsesAgentIdentity(t *testing.T) {
  interaction_auto_select=false, state='archived', archived_at=now() WHERE id=$1`, historical.ID, historicalTarget)
 	f.exec(t, `UPDATE agents SET interaction_target_id=$2, interaction_handler_key='other',
  interaction_auto_select=false WHERE id=$1`, moved.ID, retainedTarget)
-	// A project with many unrelated agents must still use per-target agent lookups.
 	f.exec(t, `INSERT INTO agents(org_id,project_id,state,name,current_config_id,created_at,updated_at)
  SELECT org_id,project_id,'active','unrelated',current_config_id,now(),now()
  FROM agents CROSS JOIN generate_series(1,10000) WHERE id=$1`, current.ID)
@@ -67,7 +66,6 @@ func TestClearDeletedIntegrationTargetsUsesAgentIdentity(t *testing.T) {
 
 	query, args := bindInboxQueryFile(t, "integration_target_lifecycle.sql",
 		"ClearDeletedIntegrationTargetsFromAgents", parameters)
-	// Project scoping remains required even with a globally unique integration ID.
 	foreignQuery, foreignArgs := bindInboxQueryFile(t, "integration_target_lifecycle.sql",
 		"ClearDeletedIntegrationTargetsFromAgents", map[string]any{
 			"project_id": uuid.New(), "integration_id": f.integrationID,

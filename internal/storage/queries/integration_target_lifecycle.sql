@@ -5,7 +5,6 @@ WHERE project_id = sqlc.arg(project_id) AND integration_id = sqlc.arg(integratio
 
 -- name: ListIntegrationAgentIDsForLifecycle :many
 -- @sqlc-vet-disable integration-targets-deleted-at
--- Include historical targets whose agents may still hold references to clear.
 SELECT target.agent_id FROM integration_targets target
 WHERE target.project_id = sqlc.arg(project_id) AND target.integration_id = sqlc.arg(integration_id)
 UNION
@@ -15,7 +14,6 @@ ORDER BY agent_id;
 
 -- name: ClearDeletedIntegrationTargetsFromAgents :exec
 -- @sqlc-vet-disable integration-targets-deleted-at
--- Clears agent references before soft deleting the integration's targets.
 UPDATE agents agent SET interaction_target_id = NULL, interaction_handler_key = NULL, updated_at = statement_timestamp()
 FROM integration_targets target
 WHERE agent.project_id = sqlc.arg(project_id)

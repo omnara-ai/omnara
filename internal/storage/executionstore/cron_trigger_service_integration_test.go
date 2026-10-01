@@ -34,7 +34,6 @@ func TestFireDueTriggersProfileUsesOccurrenceTimezone(t *testing.T) {
 	_, err = f.store.pool.Exec(f.ctx, `UPDATE cron_triggers
  SET next_fire_after='2026-03-09T01:30:00Z', last_fired_at='2026-03-07T17:00:00Z' WHERE id=$1`, trigger.ID)
 	require.NoError(t, err)
-	// PostgreSQL in Docker may have a different clock from the test host.
 	before, err := f.store.q.DBNow(f.ctx)
 	require.NoError(t, err)
 	service := crontrigger.NewService(f.store.Execution(), nil, slog.Default())

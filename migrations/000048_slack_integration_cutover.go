@@ -246,7 +246,6 @@ func rewriteSlackToolKeys(root map[string]any, integrations []slackCutoverIntegr
 			if len(integrations) == 0 {
 				return false, errors.New("disabled legacy send policy has no known Slack integration; repair before cutover")
 			}
-			// Deleted integration names cannot resolve when this source is saved again.
 			for _, integration := range integrations {
 				if integration.deleted {
 					continue
@@ -290,7 +289,6 @@ func rewriteSlackToolsYAML(raw []byte, integrations []slackCutoverIntegration) (
 		return nil, false, err
 	}
 	root := document.Content[0]
-	// Expand aliases before editing shared YAML nodes to avoid changing their other uses.
 	if fileToolYAMLHasReferences(root) {
 		if err := root.Encode(expected); err != nil {
 			return nil, false, err

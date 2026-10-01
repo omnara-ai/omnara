@@ -30,12 +30,8 @@ The integration type identifies its behavior: `slack_thread`, `discord_thread` o
 Updates contain only `settings`; the integration name and kind are immutable.
 
 `GET /orgs/{orgID}/projects/{projectID}/integration-definitions` lists each registered
-`integration_kind` and its `capabilities`. Saved integrations also expose `integration_kind`; neither
-record includes a provider classification. Saved integrations use `itg_` IDs;
+`integration_kind` and its `capabilities`. Saved integrations use `itg_` IDs;
 profile choices use `ipc_` IDs, while agent interactions keep `int_` IDs.
-Code contributors register a precise
-behavior type without an `omnara.` prefix, following the
-[integration implementation guide](https://github.com/omnara-ai/omnara/blob/main/internal/integration/CONTRIBUTING.md).
 
 A saved integration starts disconnected. Connecting verifies its provider identity and
 saves a reference to encrypted credentials. Add profiles and a launcher when
@@ -110,8 +106,7 @@ which resources it can access; ordinary tool permissions still apply.
 
 The integration's credential permissions remain the provider access boundary; Omnara also
 checks project ownership, current integration status and ordinary
-[tool permission](/tools/permissions). The
-[OpenAPI contract](/api-reference/openapi.yaml) defines the catalog and launch API.
+[tool permission](/tools/permissions).
 
 Names are resolved to immutable integration IDs, not integration types, when the config is
 compiled. Deleting an integration and reusing its name does not redirect old agents. Re-save profiles that should
@@ -193,7 +188,7 @@ Launcher settings belong to each integration's schema, published in
 profiles when launching; removing a profile is allowed, and an unavailable profile
 requires updating the launcher. Use subscriptions to forward to existing agents. A receive-only
 subscription does not prevent launching. True saved launch ownership prevents a
-replacement even after archival; explicit restart is deferred.
+replacement even after archival.
 
 The create-agent API accepts `tools` and `interaction_handlers` when deriving a
 config from a pinned config or profile, plus independent `subscriptions`

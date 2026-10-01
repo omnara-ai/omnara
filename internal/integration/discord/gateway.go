@@ -17,8 +17,8 @@ import (
 	"github.com/omnara-ai/omnara/internal/outboundhttp"
 )
 
-// ThreadBotIntents includes GUILD_MESSAGES (512) and MESSAGE_CONTENT (32768) for replies without mentions.
-// Enable MESSAGE_CONTENT in the Discord developer portal too.
+// ThreadBotIntents requires MESSAGE_CONTENT portal approval to receive replies without mentions:
+// https://docs.discord.com/developers/events/gateway#gateway-intents
 const ThreadBotIntents = 512 + 32768
 
 type GatewayInfo struct {
@@ -139,7 +139,8 @@ func RunShard(ctx context.Context, config ShardConfig, persisted *Checkpoint, co
 	var workerErr error
 	defer func() {
 		cancel()
-		// Close codes 1000/1001 invalidate Discord sessions; closing TCP preserves resumability.
+		// Closing TCP preserves the session; codes 1000/1001 invalidate it:
+		// https://docs.discord.com/developers/events/gateway#resuming
 		_ = socket.CloseNow()
 		jobs.Wait()
 		if workerErr != nil && !errors.Is(workerErr, context.Canceled) && !errors.Is(runErr, workerErr) {

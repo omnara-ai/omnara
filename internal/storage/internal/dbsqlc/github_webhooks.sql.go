@@ -48,7 +48,6 @@ type ListGitHubWebhookCredentialIntegrationsParams struct {
 
 // Ping/unknown-installation verification only; ordinary deliveries verify each
 // matching integration independently rather than borrowing these fallback credentials.
-// Include disconnected integrations so signed callbacks can be acknowledged without work.
 func (q *Queries) ListGitHubWebhookCredentialIntegrations(ctx context.Context, arg ListGitHubWebhookCredentialIntegrationsParams) ([]Integration, error) {
 	rows, err := q.db.Query(ctx, listGitHubWebhookCredentialIntegrations, arg.IntegrationKinds, arg.GithubAppID, arg.RowLimit)
 	if err != nil {

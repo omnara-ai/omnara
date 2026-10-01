@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -13,10 +14,11 @@ import (
 )
 
 type githubReadInput struct {
-	Section string `json:"section,omitempty"`
-	Page    int    `json:"page,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-	Cursor  string `json:"cursor,omitempty"`
+	Section  string `json:"section,omitempty"`
+	Page     int    `json:"page,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	Cursor   string `json:"cursor,omitempty"`
+	ReviewID int64  `json:"review_id,omitempty"`
 }
 
 type githubDiscussionInput struct {
@@ -25,6 +27,20 @@ type githubDiscussionInput struct {
 
 type githubReviewCommentInput struct {
 	github.ReviewCommentArgs
+	ReviewID int64 `json:"review_id,omitempty"`
+}
+
+type githubStartReviewInput struct {
+	CommitID string `json:"commit_id"`
+}
+
+type githubSubmitReviewInput struct {
+	ReviewID int64  `json:"review_id"`
+	Body     string `json:"body"`
+}
+
+type githubDiscardReviewInput struct {
+	ReviewID int64 `json:"review_id"`
 }
 
 type githubReplyInput struct {
@@ -60,6 +76,9 @@ func runGitHubTool(
 		if input.Section == "review_threads" && input.Page != 0 {
 			return integrationToolFailure(errors.New("GitHub review_threads uses cursor, not page"))
 		}
+		if input.ReviewID != 0 && input.Section != "review" && input.Section != "review_comments" {
+			return integrationToolFailure(errors.New("review_id is only supported for GitHub review and review_comments"))
+		}
 		options := github.PageOptions{Page: input.Page, PerPage: input.Limit}
 		switch input.Section {
 		case "", "pull_request":
@@ -67,9 +86,30 @@ func runGitHubTool(
 		case "discussion_comments":
 			result, err = client.ListDiscussionComments(ctx, providerScope, options)
 		case "review_comments":
-			result, err = client.ListReviewComments(ctx, providerScope, options)
+			if input.ReviewID != 0 {
+				result, err = client.ListReviewCommentsForReview(ctx, providerScope, input.ReviewID, options)
+			} else {
+				result, err = client.ListReviewComments(ctx, providerScope, options)
+			}
 		case "reviews":
 			result, err = client.ListReviews(ctx, providerScope, options)
+		case "review":
+			result, err = client.GetReview(ctx, providerScope, input.ReviewID)
+		case "pending_review":
+			var identity github.AppIdentity
+			if err := json.Unmarshal(access.Integration.ProviderIdentity, &identity); err != nil {
+				return integrationToolFailure(errors.New("GitHub integration has no verified bot identity"))
+			}
+			var review *github.Review
+			var pending github.Review
+			var found bool
+			pending, found, err = client.GetPendingReview(ctx, providerScope, identity.BotUserID)
+			if found {
+				review = &pending
+			}
+			result = struct {
+				Review *github.Review `json:"review"`
+			}{review}
 		case "review_threads":
 			result, err = client.ListReviewThreads(ctx, providerScope, github.ReviewThreadsOptions{
 				Cursor: input.Cursor, Limit: input.Limit,
@@ -92,7 +132,33 @@ func runGitHubTool(
 		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub review comment"); err != nil {
 			return integrationToolFailure(err)
 		}
-		result, err = client.CreateReviewComment(ctx, providerScope, input.ReviewCommentArgs)
+		if (input.ReviewID == 0) == (input.CommitID == "") {
+			return integrationToolFailure(errors.New(
+				"supply exactly one of commit_id to publish immediately, or review_id to add to a pending review"))
+		}
+		if input.ReviewID != 0 {
+			result, err = client.AddPendingReviewComment(ctx, providerScope, input.ReviewID, input.ReviewCommentArgs)
+		} else {
+			result, err = client.CreateReviewComment(ctx, providerScope, input.ReviewCommentArgs)
+		}
+	case toolcatalog.IntegrationOperationStartReview:
+		var input githubStartReviewInput
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub start review"); err != nil {
+			return integrationToolFailure(err)
+		}
+		result, err = client.StartReview(ctx, providerScope, input.CommitID)
+	case toolcatalog.IntegrationOperationSubmitReview:
+		var input githubSubmitReviewInput
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub submit review"); err != nil {
+			return integrationToolFailure(err)
+		}
+		result, err = client.SubmitReview(ctx, providerScope, input.ReviewID, input.Body)
+	case toolcatalog.IntegrationOperationDiscardReview:
+		var input githubDiscardReviewInput
+		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub discard review"); err != nil {
+			return integrationToolFailure(err)
+		}
+		result, err = client.DiscardReview(ctx, providerScope, input.ReviewID)
 	case toolcatalog.IntegrationOperationReply:
 		var input githubReplyInput
 		if err := decodeSingleStrictJSON(record.Input, &input, "GitHub review reply"); err != nil {
@@ -152,7 +218,11 @@ func integrationToolFailure(err error) (asyncPhaseResult, error) {
 		result.Code = string(apiError.Code)
 		result.RetryAfterSeconds = int64(apiError.RetryAfter.Seconds())
 		if apiError.Code == github.DeliveryUnknown {
-			result.Message = "GitHub may have accepted this message. Read the PR before deciding whether to resend."
+			result.Message = "GitHub may have accepted this operation. Read back the comment or review before retrying; " +
+				"use the read tool to check the relevant comments or review state."
+			if errors.Unwrap(apiError) != nil {
+				result.Message = err.Error() + ". " + result.Message
+			}
 		}
 	}
 	content, marshalErr := structuredToolResultContent(result)

@@ -11,7 +11,6 @@ import (
 type IntegrationStateProcess func(*IntegrationEvent, []byte) ([]IntegrationRecipientAdmission, error)
 
 // IntegrationStateHandler completes through process (nil event for no deliveries), or returns an error.
-// It owns state interpretation and any workflow-specific failure classification.
 type IntegrationStateHandler func(context.Context, integrationstore.IntegrationInboxRecord,
 	integrationstore.IntegrationRecord, IntegrationStateProcess) ([]IntegrationRecipientAdmission, error)
 

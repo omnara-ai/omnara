@@ -249,7 +249,6 @@ func (w *IntegrationInboxWorker) nextIntegration(
 }
 
 func (w *IntegrationInboxWorker) consume(ctx context.Context, receipt integrationstore.IntegrationInboxRecord) error {
-	// Leave lease time to record a timed-out attempt.
 	deadline := time.Now().Add(integrationstore.IntegrationInboxMaxLease - 15*time.Second)
 	if receipt.ClaimExpiresAt != nil && receipt.ClaimExpiresAt.Add(-15*time.Second).Before(deadline) {
 		deadline = receipt.ClaimExpiresAt.Add(-15 * time.Second)

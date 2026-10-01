@@ -51,7 +51,6 @@ func TestWebE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Chromium maps this hostname to local TLS so secure-cookie and callback checks stay enabled.
 	proxy := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(apiURL))
 	t.Cleanup(proxy.Close)
 	env.publicURL = strings.Replace(proxy.URL, "127.0.0.1", "app.omnara.test", 1)

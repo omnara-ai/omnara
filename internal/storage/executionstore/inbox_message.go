@@ -10,8 +10,6 @@ import (
 	"github.com/omnara-ai/omnara/internal/storage/storeerr"
 )
 
-// InboxMessage is frozen once for all recipients. ArtifactIDs on each recipient
-// align with Files; only those identities change when constructing an agent input.
 type InboxMessage struct {
 	Scope                  integrationdefinition.Scope `json:"scope"`
 	ContentBlocks          json.RawMessage             `json:"content_blocks"`
@@ -25,8 +23,6 @@ type InboxMessage struct {
 	Files                  []InboxPlannedFile          `json:"files,omitempty"`
 }
 
-// RecipientContent substitutes frozen per-agent identities without duplicating
-// the shared message or expected file metadata in durable work state.
 func (m InboxMessage) RecipientContent(ids []uuid.UUID) (json.RawMessage, []InboxPlannedFile, error) {
 	invalid := func() (json.RawMessage, []InboxPlannedFile, error) {
 		return nil, nil, storeerr.InvalidRequest(errors.New("invalid frozen message artifact identities"))

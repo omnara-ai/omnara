@@ -32,7 +32,6 @@ func TestStandaloneIntegrationToolAccessAndRevocation(t *testing.T) {
 			_, err = executor.prepareIntegrationToolAccess(ctx, f.turn(), access)
 			require.ErrorContains(t, err, "no assigned conversation", "shipped tools keep their conversation restriction")
 
-			// A local definition exercises standalone execution without exporting a test operation.
 			access.Authority.Definition.Scope = toolcatalog.IntegrationToolScopeIntegration
 			access, err = executor.prepareIntegrationToolAccess(ctx, f.turn(), access)
 			require.NoError(t, err)

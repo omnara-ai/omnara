@@ -44,9 +44,7 @@ type UpsertActorIdentityInput struct {
 	ProviderTenantID string
 	ProviderUserID   string
 	DisplayName      string
-	// Metadata entries supplied by internal producers are merged into the saved
-	// attributes. Omitted entries preserve historical attribution.
-	Metadata resourcemeta.Metadata
+	Metadata         resourcemeta.Metadata
 }
 
 func upsertActorIdentityTx(

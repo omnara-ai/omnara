@@ -98,7 +98,6 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 	if err != nil {
 		// Release the connection before diagnostic reads, which may need the pool's only session.
 		_ = tx.Rollback(ctx)
-		// Another attempt may have committed and released its lease while this worker waited.
 		if outcome, readErr := resolveInboxLaunchOutcome(
 			ctx, s.q, snapshot.ProjectID, recipient,
 		); readErr == nil && outcome.Outcome != InboxRecipientPending {
@@ -117,11 +116,6 @@ func (s *Store) admitInboxLaunchRecipientOnce(
 	}
 	artifacts, err = validateInboxLaunchArtifacts(recipient, artifacts)
 	if err != nil {
-		return LaunchAgentResult{}, err
-	}
-	// These gates are already held. Recheck only this recipient's authority so another
-	// recipient's revocation cannot block its independent progress.
-	if err := integrationstore.LockIntegrationsTx(ctx, tx, lease.ProjectID, resources); err != nil {
 		return LaunchAgentResult{}, err
 	}
 	claim := recipient.LaunchClaim

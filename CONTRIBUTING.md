@@ -17,14 +17,6 @@ vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 - Run the relevant checks described in the README's
   [Development section](README.md#development).
 
-## Built-in integrations
-
-Slack, Discord and GitHub are examples for adding a hosted integration through a code PR.
-Follow the [integration implementation guide](internal/integration/CONTRIBUTING.md) for
-extension points, shared infrastructure and tests. Customer-hosted integrations
-can use the [ordinary public APIs](docs/integrations/custom-integrations.mdx)
-without contributing code or registering an Omnara integration.
-
 ## Generated files
 
 Do not edit generated files by hand. After changing the OpenAPI contract, run:
@@ -34,10 +26,6 @@ make openapi-generate
 make docs-openapi
 make web-generate
 ```
-
-`make openapi-generate` also regenerates the agent config JSON schema and the
-shared OpenAPI definitions from the config schema source. To regenerate just
-those schemas, run `make config-schema-generate`.
 
 After changing SQL queries, run:
 

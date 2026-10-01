@@ -26,12 +26,11 @@ const (
 )
 
 type Config struct {
-	Credentials    Credentials
-	InstallationID int64
-	HTTPClient     *http.Client
-	BeforeRequest  func(context.Context) error
-	APIURL         string
-	// Supplying both IDs shares repository tokens without sharing BeforeRequest.
+	Credentials         Credentials
+	InstallationID      int64
+	HTTPClient          *http.Client
+	BeforeRequest       func(context.Context) error
+	APIURL              string
 	CredentialSecretID  uuid.UUID
 	CredentialVersionID uuid.UUID
 }
@@ -133,7 +132,7 @@ func newAppClient(config SetupConfig) (*appClient, error) {
 func (c *Client) request(
 	ctx context.Context, token, method, path string, input, output any,
 ) (http.Header, error) {
-	mutation := method == http.MethodPost
+	mutation := method != http.MethodGet && method != http.MethodHead
 	header, err := c.doJSON(ctx, method, path, token, input, output, mutation)
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
@@ -173,8 +172,6 @@ func (c *appClient) do(
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
 		return nil, nil, errors.New("invalid github API path")
 	}
-	// GraphQL queries use POST but are safe to retry, unlike comment publication
-	// or other POST operations such as token issuance.
 	read := method == http.MethodGet || (method == http.MethodPost && path == "/graphql" && !mutation)
 	for attempt := range 3 {
 		if err := ctx.Err(); err != nil {

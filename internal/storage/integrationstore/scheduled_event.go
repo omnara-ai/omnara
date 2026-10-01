@@ -111,7 +111,6 @@ func (r IntegrationInboxRecord) ValidateScheduledPlan(
 	if integration.ID != r.IntegrationID || integration.ProjectID != r.ProjectID {
 		return storeerr.ErrUnauthorized
 	}
-	// Admission validated the immutable receipt; avoid schema compilation under locks.
 	var frozen struct {
 		Message struct {
 			Scope         integrationdefinition.Scope `json:"scope"`

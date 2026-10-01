@@ -474,7 +474,6 @@ func validateIntegrationProfileChoiceOptions(
 		}
 		ids = append(ids, option.ProfileID)
 	}
-	// These reads reject stale menu choices; admission still locks the live profile.
 	profiles, err := q.GetAgentProfileDisplayNames(ctx, dbsqlc.GetAgentProfileDisplayNamesParams{
 		ProjectID: integration.ProjectID, ProfileIds: ids,
 	})

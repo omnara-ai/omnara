@@ -92,7 +92,6 @@ func RegisterIntegrationSubscriptionsTx(
 		record.AgentName = agent.Name
 		result = append(result, record)
 	}
-	// A lowered quota must not invalidate replay of an existing subscription.
 	if !inserted {
 		return result, nil
 	}

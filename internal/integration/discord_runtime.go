@@ -174,8 +174,6 @@ func (r *DiscordRuntime) run(
 	runErr = r.connect(ctx, integrationSetup, claim)
 }
 
-// Runtime failures are exposed by GET integration. Persist only bounded, fixed messages;
-// provider payloads, transport URLs and internal error details belong in the log.
 func discordRuntimeFailureMessage(err error) string {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return ""

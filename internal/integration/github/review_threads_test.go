@@ -165,8 +165,6 @@ func TestReviewThreadsAcceptChangedGlobalIDEncoding(t *testing.T) {
 	body := testReviewThreadsResponse([]any{testReviewThread()}, false, nil)
 	data := testutil.RequireType[map[string]any](t, body["data"])
 	node := testutil.RequireType[map[string]any](t, data["node"])
-	// preparePull returns PR_7, while GraphQL can represent the same node using
-	// a newer encoding. Its database ID, type and PR number still match.
 	node["id"] = "PR_new_encoding"
 	client, _ := testClient(t, withPreparedPull(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(body)

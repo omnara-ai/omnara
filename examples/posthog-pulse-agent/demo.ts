@@ -271,9 +271,6 @@ console.log('\nDone. The agent stays available — message it from the console o
 //    to install the Slack app.
 // 3. Invite the bot to a channel and mention it.
 //
-// Slack-launched pulses land in the thread, and replies become instructions —
-// "why did signups spike?" in the thread gets answered with fresh PostHog
-// queries.
 
 // %%
 const slackAppConfigurationToken = env.SLACK_APP_CONFIGURATION_TOKEN ?? '' // xoxe.xoxp-... from https://api.slack.com/apps
@@ -291,8 +288,6 @@ if (slackAppConfigurationToken) {
   if (existingIntegration && existingIntegration.integration_kind !== 'slack_thread') {
     throw new Error(`${integrationName} already belongs to another integration type; choose a different name`)
   }
-  // The integration owns its launcher profile. Launching from Slack supplies the
-  // namespaced tools, integration-owned thread subscription, and interaction handler to the agent.
   const body: CreateIntegrationRequest = {
     name: integrationName,
     integration_kind: 'slack_thread',
@@ -333,8 +328,6 @@ if (slackAppConfigurationToken) {
 // cron trigger that launches a fresh pulse every morning at 9am. Each run
 // reports on "yesterday" in your PostHog project's timezone and recomputes
 // the 7-day baseline from scratch, so there is no state between runs.
-// Profile-targeted runs deliver to the console. For Slack delivery, mention
-// the bot once and point the trigger at that agent instead of the profile.
 
 // %%
 // Opt-in: the cron trigger is only created when SCHEDULE_DAILY=1 is set.

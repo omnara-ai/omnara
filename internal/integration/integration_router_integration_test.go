@@ -105,7 +105,6 @@ func TestIntegrationRouterConcurrentFreezePartialRecoveryAndPinnedConfig(t *test
 	require.Error(t, err)
 	require.Len(t, results, 1)
 	require.True(t, results[0].Input.Created)
-	// Change the live profile config after partial admission: recovery keeps its frozen base/config IDs.
 	var compiled agentconfig.Compiled
 	require.NoError(t, json.Unmarshal(base.CompiledDefinition, &compiled))
 	compiled.Instruction = "edited profile"

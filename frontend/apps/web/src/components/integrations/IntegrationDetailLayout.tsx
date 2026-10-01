@@ -44,7 +44,6 @@ export function IntegrationDetailLayout({
       canSetUp &&
       (draft || (integration.integration_kind === 'github_pr' && hasGitHubSetupReturn())),
   )
-  // A different flow activating the integration must not unmount this connection attempt.
   const finishConnection = useCallback(
     (savedIntegration: Integration) => {
       setConnecting(false)

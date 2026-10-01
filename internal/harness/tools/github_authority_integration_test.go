@@ -23,6 +23,13 @@ func githubToolTestCalls() []model.ToolCall {
 		{ID: "read", Name: "int__chat__read", Input: json.RawMessage(`{}`)},
 		{ID: "reviews", Name: "int__chat__read", Input: json.RawMessage(`{"section":"reviews"}`)},
 		{ID: "threads", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review_threads"}`)},
+		{ID: "pending-review", Name: "int__chat__read", Input: json.RawMessage(`{"section":"pending_review"}`)},
+		{ID: "review", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review","review_id":42}`)},
+		{ID: "review-comments", Name: "int__chat__read", Input: json.RawMessage(`{"section":"review_comments","review_id":42}`)},
+		{ID: "start-review", Name: "int__chat__start_review", Input: json.RawMessage(`{"commit_id":"abc123"}`)},
+		{ID: "discard-review", Name: "int__chat__discard_review", Input: json.RawMessage(`{"review_id":42}`)},
+		{ID: "submit-review", Name: "int__chat__submit_review", Input: json.RawMessage(`{"review_id":42,"body":"Summary"}`)},
+		{ID: "draft-comment", Name: "int__chat__review_comment", Input: json.RawMessage(`{"review_id":42,"body":"Finding","path":"a.go","line":1,"side":"RIGHT"}`)},
 		{ID: "discussion", Name: "int__chat__discussion_comment", Input: json.RawMessage(`{"body":"Review"}`)},
 		{
 			ID: "review-comment", Name: "int__chat__review_comment",

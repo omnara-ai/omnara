@@ -88,7 +88,6 @@ func (s *Store) IntegrationRoutingCandidatesTx(
 	q := dbsqlc.New(tx)
 	result := IntegrationRoutingCandidates{}
 	if definition, ok := integrationdefinition.Lookup(integration.IntegrationKind); ok && definition.Launcher != nil {
-		// The definition evaluates settings and event scope before planning a launch.
 		result.Launcher = &integration
 	}
 
