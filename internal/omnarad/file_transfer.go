@@ -1,10 +1,8 @@
 package omnarad
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,147 +15,115 @@ import (
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/processcmd"
-	"github.com/omnara-ai/omnara/internal/publicid"
+	"github.com/omnara-ai/omnara/internal/textutil"
 )
 
-type fileTransferResult struct {
-	Path   string `json:"path,omitempty"`
-	Digest string `json:"digest,omitempty"`
-}
+const maxFileTransferErrorBytes = 1024
 
-func runFileTransfer(ctx context.Context, direction, toolCallID, encodedPath string, stdout io.Writer) error {
-	switch direction {
-	case "download":
-		return downloadFile(ctx, toolCallID, encodedPath, "/file", true, stdout)
-	case "upload":
-		raw, err := uploadFile(ctx, toolCallID, encodedPath, "/file", true)
-		if err != nil {
-			return err
-		}
-		var result fileTransferResult
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		if err := decoder.Decode(&result); err != nil {
-			return fmt.Errorf("decode file upload response: %w", err)
-		}
-		if err := requireJSONEOF(decoder); err != nil {
-			return fmt.Errorf("decode file upload response: %w", err)
-		}
-		if result.Path == "" {
-			return errors.New("file upload response is missing path")
-		}
-		if err := daemonprotocol.ValidateFileDigest(result.Digest); err != nil {
-			return errors.New("file transfer response contains an invalid digest")
-		}
-		if err := json.NewEncoder(stdout).Encode(result); err != nil {
-			return fmt.Errorf("write file transfer result: %w", err)
-		}
-		return nil
-	default:
-		return errors.New("invalid transfer direction")
-	}
-}
-
-func uploadFile(ctx context.Context, toolCallID, encodedPath, endpointSuffix string, allowEmpty bool) ([]byte, error) {
-	path, err := resolveTransferPath(toolCallID, encodedPath)
+func runFileTransfer(ctx context.Context, direction, processID, localPath string, resultWriter io.Writer) error {
+	result, err := transferFile(ctx, direction, processID, localPath)
 	if err != nil {
-		return nil, err
+		failure := daemonprotocol.FileTransferError{Code: "file_transfer_failed", Message: err.Error()}
+		var apiErr *daemonprotocol.FileTransferError
+		if errors.As(err, &apiErr) {
+			failure = *apiErr
+		}
+		failure.Message = textutil.TruncateBytes(failure.Message, maxFileTransferErrorBytes)
+		result = daemonprotocol.FileTransferResult{Error: &failure}
 	}
+	if writeErr := json.NewEncoder(resultWriter).Encode(result); writeErr != nil {
+		return errors.Join(err, fmt.Errorf("write file transfer result: %w", writeErr))
+	}
+	return err
+}
+
+func transferFile(
+	ctx context.Context, direction, processID, localPath string,
+) (daemonprotocol.FileTransferResult, error) {
+	transfer := processcmd.FileTransfer{Direction: direction, LocalPath: localPath}
+	if err := transfer.Validate(); err != nil {
+		return daemonprotocol.FileTransferResult{}, err
+	}
+	path, err := processcmd.ExpandHomeRelativePath(localPath)
+	if err != nil {
+		return daemonprotocol.FileTransferResult{}, fmt.Errorf("resolve user home: %w", err)
+	}
+	if direction == "upload" {
+		return uploadFile(ctx, processID, path)
+	}
+	return downloadFile(ctx, processID, path)
+}
+
+func uploadFile(ctx context.Context, processID, path string) (daemonprotocol.FileTransferResult, error) {
 	file, err := openTransferFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
+		return daemonprotocol.FileTransferResult{}, fmt.Errorf("open file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("inspect file: %w", err)
+		return daemonprotocol.FileTransferResult{}, fmt.Errorf("inspect file: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, errors.New("source must be a regular file")
-	}
-	if info.Size() == 0 && !allowEmpty {
-		return nil, errors.New("file cannot be empty")
+		return daemonprotocol.FileTransferResult{}, errors.New("source must be a regular file")
 	}
 	if info.Size() > daemonprotocol.MaxFileTransferBytes {
-		return nil, errors.New("file exceeds the upload size limit")
+		return daemonprotocol.FileTransferResult{}, errors.New("file exceeds the upload size limit")
 	}
 	var body io.Reader
 	if info.Size() > 0 {
 		body = io.NewSectionReader(file, 0, info.Size())
 	}
-	endpointSuffix += "?filename=" + url.QueryEscape(filepath.Base(path))
-	response, err := requestFileTransfer(ctx, toolCallID, endpointSuffix, http.MethodPost, body, info.Size())
+	query := "?filename=" + url.QueryEscape(filepath.Base(path))
+	response, err := requestFileTransfer(ctx, processID, query, http.MethodPost, body, info.Size())
 	if err != nil {
-		return nil, err
+		return daemonprotocol.FileTransferResult{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
-	return readFileTransferResponse(response.Body)
+	bodyBytes, err := readFileTransferResponse(response.Body)
+	if err != nil {
+		return daemonprotocol.FileTransferResult{}, err
+	}
+	var result daemonprotocol.FileTransferResult
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return result, fmt.Errorf("decode file upload response: %w", err)
+	}
+	return result, nil
 }
 
-func downloadFile(
-	ctx context.Context, toolCallID, encodedPath, endpointSuffix string, requireDigest bool, stdout io.Writer,
-) error {
-	path, err := resolveTransferPath(toolCallID, encodedPath)
-	if err != nil {
-		return err
-	}
+func downloadFile(ctx context.Context, processID, path string) (daemonprotocol.FileTransferResult, error) {
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".omnara-file-*")
 	if err != nil {
-		return fmt.Errorf("create temporary file: %w", err)
+		return daemonprotocol.FileTransferResult{}, fmt.Errorf("create temporary file: %w", err)
 	}
 	defer func() {
 		_ = temporary.Close()
 		_ = os.Remove(temporary.Name())
 	}()
-	response, err := requestFileTransfer(ctx, toolCallID, endpointSuffix, http.MethodGet, nil, 0)
+	response, err := requestFileTransfer(ctx, processID, "", http.MethodGet, nil, 0)
 	if err != nil {
-		return err
+		return daemonprotocol.FileTransferResult{}, err
 	}
 	defer func() { _ = response.Body.Close() }()
 	digest := response.Header.Get("X-Omnara-File-Digest")
-	if requireDigest || digest != "" {
-		if err := daemonprotocol.ValidateFileDigest(digest); err != nil {
-			return errors.New("file transfer response contains an invalid digest")
-		}
+	if err := daemonprotocol.ValidateFileDigest(digest); err != nil {
+		return daemonprotocol.FileTransferResult{}, errors.New("file transfer response contains an invalid digest")
 	}
 	if err := writeDownloadedFile(path, temporary, response.Body, digest); err != nil {
-		return err
+		return daemonprotocol.FileTransferResult{}, err
 	}
-	if digest == "" {
-		return nil
-	}
-	if err := json.NewEncoder(stdout).Encode(fileTransferResult{Digest: digest}); err != nil {
-		return fmt.Errorf("write file transfer result: %w", err)
-	}
-	return nil
-}
-
-func resolveTransferPath(toolCallID, encodedPath string) (string, error) {
-	if _, err := publicid.Decode(publicid.KindToolCall, toolCallID); err != nil {
-		return "", errors.New("invalid tool call id")
-	}
-	rawPath, err := base64.RawURLEncoding.DecodeString(encodedPath)
-	if err != nil {
-		return "", fmt.Errorf("decode file path: %w", err)
-	}
-	if len(rawPath) == 0 || bytes.ContainsRune(rawPath, 0) {
-		return "", errors.New("file path must be non-empty and cannot contain NUL")
-	}
-	path, err := processcmd.ExpandHomeRelativePath(string(rawPath))
-	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
-	}
-	return path, nil
+	return daemonprotocol.FileTransferResult{Digest: digest}, nil
 }
 
 func requestFileTransfer(
-	ctx context.Context, toolCallID, endpointSuffix, method string, body io.Reader, size int64,
+	ctx context.Context, processID, query, method string, body io.Reader, size int64,
 ) (*http.Response, error) {
 	config, _, _, err := loadRuntimeConfig(false)
 	if err != nil {
 		return nil, fmt.Errorf("load daemon config: %w", err)
 	}
-	endpoint := strings.TrimRight(config.APIURL, "/") + "/daemon/tool-calls/" +
-		url.PathEscape(toolCallID) + endpointSuffix
+	endpoint := strings.TrimRight(config.APIURL, "/") + "/daemon/processes/" +
+		url.PathEscape(processID) + "/file" + query
 	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return nil, fmt.Errorf("create file transfer request: %w", err)
@@ -181,6 +147,10 @@ func requestFileTransfer(
 		raw, err := readFileTransferResponse(response.Body)
 		if err != nil {
 			return nil, err
+		}
+		var apiErr daemonprotocol.FileTransferError
+		if json.Unmarshal(raw, &apiErr) == nil && apiErr.Code != "" && apiErr.Message != "" {
+			return nil, fmt.Errorf("transfer file: %w", &apiErr)
 		}
 		message := strings.TrimSpace(string(raw))
 		if message == "" {
@@ -220,7 +190,7 @@ func writeDownloadedFile(path string, temporary *os.File, body io.Reader, digest
 	if written > limit {
 		return errors.New("file download exceeds the size limit")
 	}
-	if digest != "" && fmt.Sprintf("sha256:%x", hash.Sum(nil)) != digest {
+	if fmt.Sprintf("sha256:%x", hash.Sum(nil)) != digest {
 		return errors.New("file download digest mismatch")
 	}
 	if err := temporary.Close(); err != nil {

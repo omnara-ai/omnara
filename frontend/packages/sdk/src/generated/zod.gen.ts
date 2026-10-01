@@ -2804,10 +2804,6 @@ export const zBootstrapDaemonResponse = z.object({
     machine_id: zMachineId
 });
 
-export const zUploadArtifactResponse = z.object({
-    artifact_id: zArtifactId
-});
-
 export const zCreateProjectRequest = z.object({
     name: zResourceName
 });
@@ -5163,33 +5159,8 @@ export const zGetDaemonSkillArchiveQuery = z.object({
  */
 export const zGetDaemonSkillArchiveResponse = z.instanceof(Blob);
 
-export const zUploadDaemonArtifactBody = z.instanceof(Blob);
-
-export const zUploadDaemonArtifactPath = z.object({
-    toolCallID: zToolCallId
-});
-
-export const zUploadDaemonArtifactQuery = z.object({
-    filename: z.string().min(1).max(255)
-});
-
-/**
- * Artifact created.
- */
-export const zUploadDaemonArtifactResponse = zUploadArtifactResponse;
-
-export const zDownloadDaemonArtifactPath = z.object({
-    toolCallID: zToolCallId,
-    artifactID: zArtifactId
-});
-
-/**
- * Artifact bytes, served with the artifact's stored content type.
- */
-export const zDownloadDaemonArtifactResponse = z.instanceof(Blob);
-
 export const zDownloadDaemonFilePath = z.object({
-    toolCallID: zToolCallId
+    processID: zProcessId
 });
 
 /**
@@ -5200,7 +5171,7 @@ export const zDownloadDaemonFileResponse = z.instanceof(Blob);
 export const zUploadDaemonFileBody = z.instanceof(Blob);
 
 export const zUploadDaemonFilePath = z.object({
-    toolCallID: zToolCallId
+    processID: zProcessId
 });
 
 export const zUploadDaemonFileQuery = z.object({

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +20,7 @@ import (
 )
 
 func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	artifactID := fileTransferTestPublicID(t, publicid.KindArtifact)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("artifact bytes")))
 	var wantName atomic.Value
@@ -30,7 +30,7 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 			t.Error("expected filename is not configured")
 		}
 		if r.Method != http.MethodPost ||
-			r.URL.Path != "/api/v1/daemon/tool-calls/"+toolCallID+"/file" ||
+			r.URL.Path != "/api/v1/daemon/processes/"+processID+"/file" ||
 			r.URL.Query().Get("filename") != expectedFilename {
 			t.Errorf("unexpected upload request: %s %s", r.Method, r.URL.String())
 		}
@@ -84,17 +84,17 @@ func TestFileTransferUploadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			wantName.Store(filepath.Base(test.path))
-			var stdout bytes.Buffer
+			var result bytes.Buffer
 			err := runFileTransfer(context.Background(),
 				"upload",
-				toolCallID,
-				base64.RawURLEncoding.EncodeToString([]byte(test.path)), &stdout)
+				processID,
+				test.path, &result)
 			if err != nil {
 				t.Fatalf("upload artifact: %v", err)
 			}
 			want := `{"path":"/artifacts/` + artifactID + `","digest":"` + digest + `"}` + "\n"
-			if stdout.String() != want {
-				t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+			if result.String() != want {
+				t.Fatalf("result = %q, want %q", result.String(), want)
 			}
 		})
 	}
@@ -107,7 +107,7 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 	}))
 	defer server.Close()
 	setConfiguredDaemonEnvironment(t, t.TempDir(), server.URL, "")
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	tests := []struct {
 		name string
 		path func(*testing.T) string
@@ -138,28 +138,40 @@ func TestFileTransferUploadRejectsInvalidFiles(t *testing.T) {
 			},
 			want: "regular file",
 		},
+		{
+			name: "missing",
+			path: func(t *testing.T) string { return filepath.Join(t.TempDir(), "missing") },
+			want: "open file",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := test.path(t)
+			var result bytes.Buffer
 			err := runFileTransfer(context.Background(),
 				"upload",
-				toolCallID,
-				base64.RawURLEncoding.EncodeToString([]byte(path)), io.Discard)
+				processID,
+				path, &result)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+			var metadata daemonprotocol.FileTransferResult
+			if err := json.Unmarshal(result.Bytes(), &metadata); err != nil {
+				t.Fatal(err)
+			}
+			if metadata.Error == nil || metadata.Error.Code != "file_transfer_failed" || metadata.Error.Message != err.Error() {
+				t.Fatalf("unexpected failure result: %s", &result)
 			}
 		})
 	}
 }
 
 func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	path := filepath.Join(t.TempDir(), "shot.png")
 	if err := os.WriteFile(path, []byte("artifact bytes"), 0o600); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
-	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(path))
 
 	var followed atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -172,7 +184,7 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 	defer redirect.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "redirect-home"), redirect.URL, "")
 	direction := "upload"
-	err := runFileTransfer(context.Background(), direction, toolCallID, encodedPath, io.Discard)
+	err := runFileTransfer(context.Background(), direction, processID, path, io.Discard)
 	if err == nil {
 		t.Fatal("redirected upload succeeded")
 	}
@@ -185,7 +197,7 @@ func TestFileTransferUploadRejectsRedirectAndOversizedResponse(t *testing.T) {
 	}))
 	defer largeResponse.Close()
 	setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "large-response-home"), largeResponse.URL, "")
-	err = runFileTransfer(context.Background(), direction, toolCallID, encodedPath, io.Discard)
+	err = runFileTransfer(context.Background(), direction, processID, path, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "response is too large") {
 		t.Fatalf("oversized response error = %v", err)
 	}

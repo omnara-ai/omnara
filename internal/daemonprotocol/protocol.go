@@ -350,6 +350,7 @@ func decodeEnvelope(data []byte, dst any) error {
 }
 
 type ProcessOffer struct {
+	FileTransfer     *processcmd.FileTransfer `json:"file_transfer,omitempty"`
 	ProcessID        string                   `json:"process_id"`
 	PreparationError string                   `json:"preparation_error,omitempty"`
 	IOMode           processcmd.IOMode        `json:"io_mode"`
@@ -359,6 +360,47 @@ type ProcessOffer struct {
 	Env              map[string]string        `json:"env,omitempty"`
 	WaitMs           int                      `json:"wait_ms,omitempty"`
 	TimeoutSeconds   int                      `json:"timeout_seconds"`
+}
+
+type FileTransferResult struct {
+	Path   string             `json:"path,omitempty"`
+	Digest string             `json:"digest,omitempty"`
+	Error  *FileTransferError `json:"error,omitempty"`
+}
+
+type FileTransferError struct {
+	Code          string `json:"code"`
+	Message       string `json:"error"`
+	CurrentDigest string `json:"current_digest,omitempty"`
+}
+
+func (e *FileTransferError) Error() string {
+	return e.Message
+}
+
+func (r FileTransferResult) Validate(direction string) error {
+	if r.Error != nil {
+		if r.Path != "" || r.Digest != "" || r.Error.Code == "" || r.Error.Message == "" {
+			return errors.New("invalid file transfer error")
+		}
+		if r.Error.CurrentDigest != "" {
+			return ValidateFileDigest(r.Error.CurrentDigest)
+		}
+		return nil
+	}
+	if err := ValidateFileDigest(r.Digest); err != nil {
+		return err
+	}
+	if direction == "download" {
+		if r.Path != "" {
+			return errors.New("download result must not contain an upload path")
+		}
+		return nil
+	}
+	if r.Path == "" {
+		return errors.New("file transfer result is missing path")
+	}
+	return nil
 }
 
 type ActionOffer struct {

@@ -219,8 +219,6 @@ const (
 	operationUpdateOrgMember               operationID = "UpdateOrgMember"
 	operationUpdateProjectMachinePoolGrant operationID = "UpdateProjectMachinePoolGrant"
 	operationUpdateProjectModelGrant       operationID = "UpdateProjectModelGrant"
-	operationDownloadDaemonArtifact        operationID = "DownloadDaemonArtifact"
-	operationUploadDaemonArtifact          operationID = "UploadDaemonArtifact"
 )
 
 type operationPolicy struct {
@@ -436,12 +434,6 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 		customScope("machine daemon token + token-scoped runtime ownership"),
 	),
 	operationSocketMachineDaemonRuntime: machineDaemonPolicy(customScope("daemon runtime websocket upgrade")),
-	operationUploadDaemonArtifact: machineDaemonPolicy(
-		customScope("machine daemon token + active artifact upload process"),
-	),
-	operationDownloadDaemonArtifact: machineDaemonPolicy(
-		customScope("machine daemon token + active artifact download process"),
-	),
 }
 
 func newOpenAPIAuthorizer() (operationAuthorizer, error) {

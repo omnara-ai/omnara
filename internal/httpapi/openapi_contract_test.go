@@ -275,8 +275,8 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		{"/daemon/runtimes/{runtimeID}/end", "post"},
 		{"/daemon/runtimes/{runtimeID}/sleep", "post"},
 		{"/daemon/skills/{skillID}/archive", "get"},
-		{"/daemon/tool-calls/{toolCallID}/artifact", "post"},
-		{"/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content", "get"},
+		{"/daemon/processes/{processID}/file", "post"},
+		{"/daemon/processes/{processID}/file", "get"},
 	} {
 		operation := openAPIOperation(t, doc.Paths, route.path, route.method)
 		hidden, ok := operation["x-hidden"].(bool)
@@ -309,13 +309,12 @@ func TestOpenAPISpecialRouteContracts(t *testing.T) {
 		"delete /orgs/{orgID}/api-keys/{keyID}/projects/{projectID}": true,
 	}
 	machineOnlyMutations := map[string]bool{
-		"post /daemon/bootstrap":                        true,
-		"post /daemon/failures":                         true,
-		"post /daemon/runtimes":                         true,
-		"post /daemon/runtimes/{runtimeID}/end":         true,
-		"post /daemon/runtimes/{runtimeID}/sleep":       true,
-		"post /daemon/tool-calls/{toolCallID}/file":     true,
-		"post /daemon/tool-calls/{toolCallID}/artifact": true,
+		"post /daemon/bootstrap":                  true,
+		"post /daemon/failures":                   true,
+		"post /daemon/runtimes":                   true,
+		"post /daemon/runtimes/{runtimeID}/end":   true,
+		"post /daemon/runtimes/{runtimeID}/sleep": true,
+		"post /daemon/processes/{processID}/file": true,
 	}
 	mutatingMethods := map[string]bool{"post": true, "put": true, "patch": true, "delete": true}
 	for path, pathItemAny := range doc.Paths {
@@ -1371,7 +1370,7 @@ func (*trackingReadCloser) Close() error {
 	return nil
 }
 
-func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
+func TestOpenAPIRequestValidatorDoesNotPreReadDaemonFileBody(t *testing.T) {
 	t.Parallel()
 	validator, err := newOpenAPIRequestValidator()
 	if err != nil {
@@ -1381,7 +1380,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	source := &trackingReadCloser{reader: bytes.NewReader(body)}
 	handler := validator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if source.bytesRead != 0 {
-			t.Errorf("artifact body was read before reaching handler: %d bytes", source.bytesRead)
+			t.Errorf("file body was read before reaching handler: %d bytes", source.bytesRead)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
 		}
@@ -1400,7 +1399,7 @@ func TestOpenAPIRequestValidatorDoesNotPreReadDaemonArtifactBody(t *testing.T) {
 	}))
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/api/v1/daemon/tool-calls/tcl_"+strings.Repeat("a", 26)+"/artifact?filename=shot.png",
+		"/api/v1/daemon/processes/prc_"+strings.Repeat("a", 26)+"/file?filename=shot.png",
 		source,
 	)
 	req.ContentLength = int64(len(body))

@@ -2,7 +2,6 @@ package omnarad
 
 import (
 	"context"
-	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,10 +17,10 @@ import (
 )
 
 func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) {
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet ||
-			r.URL.Path != "/api/v1/daemon/tool-calls/"+toolCallID+"/file" {
+			r.URL.Path != "/api/v1/daemon/processes/"+processID+"/file" {
 			t.Errorf("unexpected download request: %s %s", r.Method, r.URL.String())
 		}
 		if r.Header.Get("Authorization") != "Bearer token-a" ||
@@ -70,8 +69,8 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 			}
 			err := runFileTransfer(context.Background(),
 				"download",
-				toolCallID,
-				base64.RawURLEncoding.EncodeToString([]byte(test.path)), io.Discard)
+				processID,
+				test.path, io.Discard)
 			if err != nil {
 				t.Fatalf("download artifact: %v", err)
 			}
@@ -94,7 +93,7 @@ func TestFileTransferDownloadSupportsAbsoluteRelativeAndHomePaths(t *testing.T) 
 }
 
 func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	content := strings.Repeat("x", daemonprotocol.MaxFileDownloadBytes)
 	digest := blobstore.ContentDigest([]byte(content))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -106,8 +105,8 @@ func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "large-artifact.txt")
 	err := runFileTransfer(context.Background(),
 		"download",
-		toolCallID,
-		base64.RawURLEncoding.EncodeToString([]byte(destination)), io.Discard)
+		processID,
+		destination, io.Discard)
 	if err != nil {
 		t.Fatalf("download at size limit: %v", err)
 	}
@@ -121,13 +120,12 @@ func TestFileTransferDownloadAcceptsSizeLimit(t *testing.T) {
 }
 
 func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	destinationDir := t.TempDir()
 	destination := filepath.Join(destinationDir, "artifact.bin")
 	if err := os.WriteFile(destination, []byte("existing bytes"), 0o600); err != nil {
 		t.Fatalf("write destination: %v", err)
 	}
-	encodedPath := base64.RawURLEncoding.EncodeToString([]byte(destination))
 
 	var followed atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -179,8 +177,8 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 			setConfiguredDaemonEnvironment(t, filepath.Join(t.TempDir(), "daemon-home"), server.URL, "")
 			err := runFileTransfer(context.Background(),
 				"download",
-				toolCallID,
-				encodedPath, io.Discard)
+				processID,
+				destination, io.Discard)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -200,7 +198,7 @@ func TestFileTransferDownloadPreservesDestinationOnFailures(t *testing.T) {
 }
 
 func TestFileTransferDownloadDoesNotCreateParentDirectory(t *testing.T) {
-	toolCallID := fileTransferTestPublicID(t, publicid.KindToolCall)
+	processID := fileTransferTestPublicID(t, publicid.KindProcess)
 	var requested atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requested.Store(true)
@@ -211,8 +209,8 @@ func TestFileTransferDownloadDoesNotCreateParentDirectory(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "missing", "artifact.bin")
 	err := runFileTransfer(context.Background(),
 		"download",
-		toolCallID,
-		base64.RawURLEncoding.EncodeToString([]byte(destination)), io.Discard)
+		processID,
+		destination, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "create temporary file") {
 		t.Fatalf("error = %v", err)
 	}

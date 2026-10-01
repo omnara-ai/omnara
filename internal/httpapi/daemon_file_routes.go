@@ -27,14 +27,14 @@ import (
 
 func (s strictOpenAPIServer) daemonTransferScope(
 	ctx context.Context,
-	toolID string,
+	processID string,
 	toolName string,
 ) (executionstore.DaemonFileProcessScope, error) {
 	scope, err := machineDaemonScopeFromContext(ctx)
 	if err != nil {
 		return executionstore.DaemonFileProcessScope{}, *err
 	}
-	id, ok := parseOpenAPIPublicID(publicid.KindToolCall, toolID)
+	id, ok := parseOpenAPIPublicID(publicid.KindProcess, processID)
 	if !ok {
 		return executionstore.DaemonFileProcessScope{}, storeerr.ErrNotFound
 	}
@@ -81,7 +81,7 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 	ctx context.Context,
 	req openapi.UploadDaemonFileRequestObject,
 ) (openapi.UploadDaemonFileResponseObject, error) {
-	process, err := s.daemonTransferScope(ctx, req.ToolCallID,
+	process, err := s.daemonTransferScope(ctx, req.ProcessID,
 		toolcatalog.ToolNameUploadFile)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -91,7 +91,7 @@ func (s strictOpenAPIServer) UploadDaemonFile(
 		if req.Params.Filename != nil {
 			filename = *req.Params.Filename
 		}
-		artifact, err := s.uploadDaemonArtifact(ctx, req.ToolCallID, filename, req.Body, process)
+		artifact, err := s.uploadDaemonArtifact(ctx, filename, req.Body, process)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +125,7 @@ func (s strictOpenAPIServer) DownloadDaemonFile(
 	ctx context.Context,
 	req openapi.DownloadDaemonFileRequestObject,
 ) (openapi.DownloadDaemonFileResponseObject, error) {
-	process, err := s.daemonTransferScope(ctx, req.ToolCallID,
+	process, err := s.daemonTransferScope(ctx, req.ProcessID,
 		toolcatalog.ToolNameDownloadFile)
 	if err != nil {
 		return nil, apierror.ProjectScoped(err)
@@ -166,14 +166,10 @@ func uploadedArtifactContentType(filename string, content []byte) string {
 
 func (s strictOpenAPIServer) uploadDaemonArtifact(
 	ctx context.Context,
-	publicToolCallID, filename string,
+	filename string,
 	body io.Reader,
 	uploadScope executionstore.DaemonFileProcessScope,
 ) (artifactstore.ArtifactRecord, error) {
-	toolCallID, err := publicid.Decode(publicid.KindToolCall, publicToolCallID)
-	if err != nil {
-		return artifactstore.ArtifactRecord{}, apierror.FromCode(openapi.ErrorCodeNotFound, "not found")
-	}
 	if filename == "" || !utf8.ValidString(filename) ||
 		utf8.RuneCountInString(filename) > 255 || strings.Contains(filename, "\x00") {
 		return artifactstore.ArtifactRecord{}, apierror.FromCode(
@@ -220,7 +216,7 @@ func (s strictOpenAPIServer) uploadDaemonArtifact(
 		Filename:       filename,
 		Content:        content,
 		MaxBytes:       daemonprotocol.MaxFileTransferBytes,
-		IdempotencyKey: executionstore.UploadArtifactIdempotencyKey(toolCallID),
+		IdempotencyKey: executionstore.UploadArtifactIdempotencyKey(uploadScope.ToolCallID),
 	})
 	if err != nil {
 		return artifactstore.ArtifactRecord{}, apierror.OrgScoped(err)

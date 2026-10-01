@@ -665,6 +665,7 @@ func (t *daemonSocketTransport) offerProcess(
 	assignment := ProcessAssignment{
 		ID: offer.ProcessID,
 		Process: Process{
+			FileTransfer:  offer.FileTransfer,
 			Command:       offer.Command,
 			ShellSelector: offer.ShellSelector,
 			Cwd:           offer.Cwd,

@@ -3428,10 +3428,6 @@ export type BootstrapDaemonResponse = {
     machine_id: MachineId;
 };
 
-export type UploadArtifactResponse = {
-    artifact_id: ArtifactId;
-};
-
 export type CreateProjectRequest = {
     name: ResourceName;
 };
@@ -15110,142 +15106,13 @@ export type GetDaemonSkillArchiveResponses = {
 
 export type GetDaemonSkillArchiveResponse = GetDaemonSkillArchiveResponses[keyof GetDaemonSkillArchiveResponses];
 
-export type UploadDaemonArtifactData = {
-    body: Blob | File;
-    path: {
-        toolCallID: ToolCallId;
-    };
-    query: {
-        filename: string;
-    };
-    url: '/daemon/tool-calls/{toolCallID}/artifact';
-};
-
-export type UploadDaemonArtifactErrors = {
-    /**
-     * The request was invalid.
-     */
-    400: Error;
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The uploaded artifact is too large.
-     */
-    413: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type UploadDaemonArtifactError = UploadDaemonArtifactErrors[keyof UploadDaemonArtifactErrors];
-
-export type UploadDaemonArtifactResponses = {
-    /**
-     * Artifact created.
-     */
-    201: UploadArtifactResponse;
-};
-
-export type UploadDaemonArtifactResponse = UploadDaemonArtifactResponses[keyof UploadDaemonArtifactResponses];
-
-export type DownloadDaemonArtifactData = {
-    body?: never;
-    path: {
-        toolCallID: ToolCallId;
-        artifactID: ArtifactId;
-    };
-    query?: never;
-    url: '/daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content';
-};
-
-export type DownloadDaemonArtifactErrors = {
-    /**
-     * Authentication is required or invalid.
-     */
-    401: Error;
-    /**
-     * The authenticated principal is not authorized.
-     */
-    403: Error;
-    /**
-     * The requested resource was not found or is not visible.
-     */
-    404: Error;
-    /**
-     * The service dependency required to satisfy the request is unavailable.
-     */
-    503: Error;
-    /**
-     * Any other client error. The body carries the shared Error envelope restricted to client error codes; statuses with a dedicated response above are documented precisely.
-     */
-    '4XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ClientErrorCode;
-    };
-    /**
-     * Any other server error. The body carries the shared Error envelope restricted to server error codes.
-     */
-    '5XX': {
-        /**
-         * Human-readable error message. Do not match on it programmatically.
-         */
-        error: string;
-        code: ServerErrorCode;
-    };
-};
-
-export type DownloadDaemonArtifactError = DownloadDaemonArtifactErrors[keyof DownloadDaemonArtifactErrors];
-
-export type DownloadDaemonArtifactResponses = {
-    /**
-     * Artifact bytes, served with the artifact's stored content type.
-     */
-    200: Blob | File;
-};
-
-export type DownloadDaemonArtifactResponse = DownloadDaemonArtifactResponses[keyof DownloadDaemonArtifactResponses];
-
 export type DownloadDaemonFileData = {
     body?: never;
     path: {
-        toolCallID: ToolCallId;
+        processID: ProcessId;
     };
     query?: never;
-    url: '/daemon/tool-calls/{toolCallID}/file';
+    url: '/daemon/processes/{processID}/file';
 };
 
 export type DownloadDaemonFileErrors = {
@@ -15313,7 +15180,7 @@ export type DownloadDaemonFileResponse = DownloadDaemonFileResponses[keyof Downl
 export type UploadDaemonFileData = {
     body?: Blob | File;
     path: {
-        toolCallID: ToolCallId;
+        processID: ProcessId;
     };
     query?: {
         /**
@@ -15321,7 +15188,7 @@ export type UploadDaemonFileData = {
          */
         filename?: string;
     };
-    url: '/daemon/tool-calls/{toolCallID}/file';
+    url: '/daemon/processes/{processID}/file';
 };
 
 export type UploadDaemonFileErrors = {

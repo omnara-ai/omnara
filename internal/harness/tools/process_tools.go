@@ -637,6 +637,9 @@ func processListObservations(records []executionstore.ActiveProcessRecord) []pro
 			Cwd:          record.Cwd,
 			UpdatedAt:    record.UpdatedAt.UTC().Format(timeRFC3339Nano),
 		}
+		if record.FileTransfer != nil {
+			item.CommandLabel = record.FileTransfer.Label()
+		}
 		if record.SourceStartedAt != nil {
 			item.StartedAt = record.SourceStartedAt.UTC().Format(timeRFC3339Nano)
 		}

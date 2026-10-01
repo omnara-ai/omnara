@@ -230,7 +230,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 	}
 	upload := makeFixture("memory-upload", "upload_file", nil)
 	call := func(f daemonProcessFixture, method string, content []byte, status int) map[string]any {
-		id, err := publicid.Encode(publicid.KindToolCall, f.ToolCallUUID)
+		id, err := publicid.Encode(publicid.KindProcess, f.ProcessUUID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -238,7 +238,7 @@ func testDaemonMemoryTransfer(t *testing.T, content []byte) {
 		if method == http.MethodPost {
 			payload = content
 		}
-		req := httptest.NewRequest(method, "/api/v1/daemon/tool-calls/"+id+"/file", bytes.NewReader(payload))
+		req := httptest.NewRequest(method, "/api/v1/daemon/processes/"+id+"/file", bytes.NewReader(payload))
 		req.Header.Set("Authorization", "Bearer "+f.Token)
 		req.Header.Set("Content-Type", "application/octet-stream")
 		rec := httptest.NewRecorder()

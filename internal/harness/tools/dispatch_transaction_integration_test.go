@@ -1414,16 +1414,13 @@ func TestFileToolsApprovalDispatch(t *testing.T) {
 			if err != nil || !found {
 				t.Fatalf("load process found=%v err=%v", found, err)
 			}
-			publicCallID, err := publicid.Encode(publicid.KindToolCall, callID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := fileTransferProcessInput("upload", publicCallID, "report.pdf", serverPath)
+			want := fileTransferProcessInput("upload", "report.pdf")
 			if name == "download_file" {
-				want = fileTransferProcessInput("download", publicCallID, "report.pdf", serverPath)
+				want = fileTransferProcessInput("download", "report.pdf")
 			}
 			if process.AgentMachineBindingID != bindingID || process.Command != want.Command ||
-				process.TimeoutSeconds != want.TimeoutSeconds {
+				process.TimeoutSeconds != want.TimeoutSeconds || process.FileTransfer == nil ||
+				*process.FileTransfer != *want.FileTransfer {
 				t.Fatalf("process=%+v want=%+v", process, want)
 			}
 			record, err := fixture.Store.Execution().GetToolCall(ctx, toolsTestProjectID, fixture.Agent.ID, callID)

@@ -83,3 +83,5 @@ Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agents removed the optional property `agent_config/compiler_version` from the response with the `201` status
 Compiled format transitions are owned by migrations: POST /orgs/{orgID}/projects/{projectID}/agents/{agentID}/config removed the optional property `agent_config/compiler_version` from the response with the `200` status
 MCP discovery errors are client-facing 422s: POST /orgs/{orgID}/projects/{projectID}/mcp-servers/tools the response property `auth` became optional for the status `422`
+Typed daemon file transfers replace artifact routes: POST /daemon/tool-calls/{toolCallID}/artifact api path removed without deprecation
+Typed daemon file transfers replace artifact routes: GET /daemon/tool-calls/{toolCallID}/artifacts/{artifactID}/content api path removed without deprecation

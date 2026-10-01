@@ -144,11 +144,11 @@ func TestUploadDaemonFileArtifactAuthorizationAndPersistence(t *testing.T) {
 			return json.RawMessage(`{"path":"/artifacts","source":"screenshot.png"}`)
 		},
 	)
-	requestDaemonFileArtifactUploadForToolCall(
+	requestDaemonFileArtifactUploadForProcess(
 		t,
 		handler,
 		otherFixture.Token,
-		fixture.ToolCallUUID,
+		fixture.ProcessUUID,
 		"other.png",
 		[]byte("other"),
 		http.StatusNotFound,
@@ -366,7 +366,7 @@ func TestDownloadDaemonFileArtifactAuthorizationAndContent(t *testing.T) {
 		t,
 		handler,
 		fixture.Token,
-		fixture.ToolCallUUID,
+		fixture.ProcessUUID,
 		http.StatusOK,
 	)
 	disposition, params, err := mime.ParseMediaType(recorder.Header().Get("Content-Disposition"))
@@ -430,7 +430,7 @@ func TestDownloadDaemonFileArtifactAuthorizationAndContent(t *testing.T) {
 		t,
 		handler,
 		crossAgent.Token,
-		crossAgent.ToolCallUUID,
+		crossAgent.ProcessUUID,
 		http.StatusNotFound,
 	)
 
@@ -464,7 +464,7 @@ func TestDownloadDaemonFileArtifactAuthorizationAndContent(t *testing.T) {
 		t,
 		handler,
 		wrongTool.Token,
-		wrongTool.ToolCallUUID,
+		wrongTool.ProcessUUID,
 		http.StatusNotFound,
 	)
 }
@@ -473,12 +473,12 @@ func requestDaemonFileArtifactDownload(
 	t *testing.T,
 	handler http.Handler,
 	token string,
-	toolCallID uuid.UUID,
+	processID uuid.UUID,
 	wantStatus int,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	publicToolCallID := testPublicID(t, publicid.KindToolCall, toolCallID)
-	path := "/api/v1/daemon/tool-calls/" + publicToolCallID +
+	publicProcessID := testPublicID(t, publicid.KindProcess, processID)
+	path := "/api/v1/daemon/processes/" + publicProcessID +
 		"/file"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -506,29 +506,29 @@ func requestDaemonFileArtifactUpload(
 	wantStatus int,
 ) map[string]any {
 	t.Helper()
-	return requestDaemonFileArtifactUploadForToolCall(
+	return requestDaemonFileArtifactUploadForProcess(
 		t,
 		handler,
 		fixture.Token,
-		fixture.ToolCallUUID,
+		fixture.ProcessUUID,
 		filename,
 		body,
 		wantStatus,
 	)
 }
 
-func requestDaemonFileArtifactUploadForToolCall(
+func requestDaemonFileArtifactUploadForProcess(
 	t *testing.T,
 	handler http.Handler,
 	token string,
-	toolCallID uuid.UUID,
+	processID uuid.UUID,
 	filename string,
 	body []byte,
 	wantStatus int,
 ) map[string]any {
 	t.Helper()
-	publicToolCallID := testPublicID(t, publicid.KindToolCall, toolCallID)
-	path := "/api/v1/daemon/tool-calls/" + publicToolCallID +
+	publicProcessID := testPublicID(t, publicid.KindProcess, processID)
+	path := "/api/v1/daemon/processes/" + publicProcessID +
 		"/file?filename=" + url.QueryEscape(filename)
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -583,7 +583,7 @@ func TestDaemonFileProcessScopeRejectsWrongMachine(t *testing.T) {
 		ctx,
 		fixture.OrgUUID,
 		uuid.UUID{1},
-		fixture.ToolCallUUID,
+		fixture.ProcessUUID,
 		"upload_file",
 	)
 	if err != nil {

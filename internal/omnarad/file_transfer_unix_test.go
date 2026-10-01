@@ -4,7 +4,6 @@ package omnarad
 
 import (
 	"context"
-	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,8 +21,8 @@ func TestFileTransferUploadRejectsFIFOWithoutBlocking(t *testing.T) {
 	}
 	err := runFileTransfer(context.Background(),
 		"upload",
-		fileTransferTestPublicID(t, publicid.KindToolCall),
-		base64.RawURLEncoding.EncodeToString([]byte(path)), io.Discard)
+		fileTransferTestPublicID(t, publicid.KindProcess),
+		path, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("fifo error = %v", err)
 	}

@@ -2,13 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   zCreateSkillRequest,
-  zDownloadDaemonArtifactResponse,
   zDownloadDaemonFileResponse,
   zDownloadMemoryFileResponse,
   zGetArtifactContentResponse,
   zGetDaemonSkillArchiveResponse,
   zUpdateSkillRequest,
-  zUploadDaemonArtifactBody,
   zUploadDaemonFileBody,
   zWriteMemoryFileBody,
 } from './generated/zod.gen'
@@ -18,8 +16,6 @@ describe('generated binary schemas', () => {
     ['memory upload', zWriteMemoryFileBody],
     ['memory download', zDownloadMemoryFileResponse],
     ['artifact content', zGetArtifactContentResponse],
-    ['daemon artifact upload', zUploadDaemonArtifactBody],
-    ['daemon artifact download', zDownloadDaemonArtifactResponse],
     ['daemon file upload', zUploadDaemonFileBody],
     ['daemon file download', zDownloadDaemonFileResponse],
     ['skill upload', zCreateSkillRequest.shape.archive],
