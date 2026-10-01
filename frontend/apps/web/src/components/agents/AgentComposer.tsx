@@ -228,9 +228,12 @@ export function AgentComposer({
   }
 
   return (
-    <form onSubmit={onSubmit} className="bg-background relative rounded-2xl border p-2 shadow-sm">
+    <form
+      onSubmit={onSubmit}
+      className="bg-background relative rounded-3xl border p-2 pt-3 shadow-sm"
+    >
       {dragging && (
-        <div className="bg-background/95 border-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-2xl border-2 text-sm font-medium shadow-sm">
+        <div className="bg-background/95 border-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-3xl border-2 text-sm font-medium shadow-sm">
           <Upload className="size-5" /> Drop files to attach
         </div>
       )}
@@ -238,20 +241,38 @@ export function AgentComposer({
       <ComposerNotice message={chat.error?.message} />
       <ComposerNotice message={cancelError?.message} />
       <ComposerNotice message={attachmentError} role="alert" />
-      <div className="flex items-end gap-1">
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          hidden
-          disabled={!acceptsFiles}
-          onChange={onFileChange}
-        />
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        hidden
+        disabled={!acceptsFiles}
+        onChange={onFileChange}
+      />
+      <Textarea
+        variant="embedded"
+        value={text}
+        placeholder={composerPlaceholder(canOperate, chat.historyStatus)}
+        className="max-h-40 min-h-12 w-full resize-none px-2 py-1.5"
+        disabled={!ready}
+        readOnly={submitting}
+        onChange={(event) => {
+          setText(event.target.value)
+        }}
+        onKeyDown={onKeyDown}
+        onPaste={(event) => {
+          const files = event.clipboardData.files
+          if (files.length === 0 || !acceptsFiles) return
+          event.preventDefault()
+          void addFiles(files)
+        }}
+      />
+      <div className="flex items-center justify-between gap-2 pt-1">
         <Button
           type="button"
-          variant="secondary"
+          variant="ghost"
           size="icon"
-          className="shrink-0 rounded-full"
+          className="rounded-full"
           aria-label="Add files"
           title="Add files"
           disabled={!acceptsFiles}
@@ -259,25 +280,7 @@ export function AgentComposer({
           icon={<FilePlus className="size-4.5" />}
           onClick={() => inputRef.current?.click()}
         />
-        <Textarea
-          variant="embedded"
-          value={text}
-          placeholder={composerPlaceholder(canOperate, chat.historyStatus)}
-          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none px-2 py-2"
-          disabled={!ready}
-          readOnly={submitting}
-          onChange={(event) => {
-            setText(event.target.value)
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={(event) => {
-            const files = event.clipboardData.files
-            if (files.length === 0 || !acceptsFiles) return
-            event.preventDefault()
-            void addFiles(files)
-          }}
-        />
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           {working && (
             <Button
               type="button"

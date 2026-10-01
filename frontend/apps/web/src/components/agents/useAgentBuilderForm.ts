@@ -82,6 +82,7 @@ export interface BasicConfig {
   instruction: string
   providerConfig: string
   modelName: string
+  reasoningEffort: string
   machineSources: BasicMachineSource[]
   tools: BasicTool[]
   interactionHandlers: Record<string, ConfigIntegrationCapabilitySource>
@@ -118,6 +119,7 @@ export const emptyBasicConfig: BasicConfig = {
   instruction: '',
   providerConfig: '',
   modelName: '',
+  reasoningEffort: '',
   machineSources: [],
   tools: [],
   interactionHandlers: {},
@@ -186,7 +188,11 @@ export function useAgentBuilderForm(
       setDraft(config ?? emptyBasicConfig)
     },
     instruction: draft.instruction,
-    model: { providerConfig: draft.providerConfig, modelName: draft.modelName },
+    model: {
+      providerConfig: draft.providerConfig,
+      modelName: draft.modelName,
+      reasoningEffort: draft.reasoningEffort,
+    },
     machineSources: draft.machineSources,
     tools: draft.tools,
     interactionHandlers: draft.interactionHandlers,
@@ -202,7 +208,11 @@ export function useAgentBuilderForm(
       patch({ instruction })
     },
     setModel: (model: ModelSelection) => {
-      patch({ providerConfig: model.providerConfig, modelName: model.modelName })
+      patch({
+        providerConfig: model.providerConfig,
+        modelName: model.modelName,
+        reasoningEffort: model.reasoningEffort,
+      })
     },
     setMachineSources: (machineSources: BasicMachineSource[]) => {
       patch({ machineSources })
@@ -334,6 +344,11 @@ function applyToDocument(
   const modelName = normalizeResourceName(config.modelName)
   if (modelName !== normalizeResourceName(baseline?.modelName ?? ''))
     set(['model', 'name'], modelName)
+  const reasoningEffort = config.reasoningEffort.trim()
+  if (reasoningEffort !== (baseline?.reasoningEffort ?? '')) {
+    if (reasoningEffort === '') del(['model', 'reasoning'])
+    else set(['model', 'reasoning', 'effort'], reasoningEffort)
+  }
 
   applyMachineSources(doc, config.machineSources, baseline?.machineSources ?? null, set, del)
   applyNamedEntries(

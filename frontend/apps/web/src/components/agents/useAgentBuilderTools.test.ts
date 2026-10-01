@@ -59,6 +59,7 @@ describe('agentBuilderToolsSource', () => {
     const handler = {}
     const source = {
       instruction: 'Review',
+      model: { provider_config: 'anthropic', name: 'reviewer', reasoning: { effort: 'high' } },
       tools: { int__chat__post_message: tool },
       interaction_handlers: { chat: handler },
       event_webhook: {
@@ -70,13 +71,18 @@ describe('agentBuilderToolsSource', () => {
     const session = createBasicConfigSession(JSON.stringify(source))
     if (session.initialDraft === null)
       throw new Error('Integration source must support builder preview')
-    const changed = { ...session.initialDraft, instruction: 'Updated instruction' }
+    const changed = {
+      ...session.initialDraft,
+      instruction: 'Updated instruction',
+      reasoningEffort: 'medium',
+    }
     const preview: unknown = JSON.parse(agentBuilderToolsSource(changed))
     expect(preview).toMatchObject({
       tools: { int__chat__post_message: tool },
       interaction_handlers: source.interaction_handlers,
     })
     const updated = createBasicConfigSession(session.apply(changed)).initialDraft
+    expect(updated?.reasoningEffort).toBe('medium')
     expect(updated?.interactionHandlers).toEqual(source.interaction_handlers)
     expect(updated?.eventWebhookUrl).toBe(source.event_webhook.url)
     expect(updated?.eventWebhookEvents).toEqual(source.event_webhook.events)
@@ -95,6 +101,7 @@ describe('agentBuilderToolsSource', () => {
       createBasicConfigSession('').apply(webhookEdit),
     ).initialDraft
     expect(restored?.interactionHandlers).toEqual(changed.interactionHandlers)
+    expect(restored?.reasoningEffort).toBe('medium')
     expect(restored?.tools).toEqual(changed.tools)
     expect(restored?.eventWebhookUrl).toBe(webhookEdit.eventWebhookUrl)
     expect(restored?.eventWebhookEvents).toEqual(webhookEdit.eventWebhookEvents)

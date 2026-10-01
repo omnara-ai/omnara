@@ -181,7 +181,10 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 	secretID := publicidTestID(140)
 	base := Compiled{
 		Instruction: "Keep the compiled policy.",
-		Model:       ModelCompiled{ConfiguredModelID: publicidTestID(141)},
+		Model: ModelCompiled{
+			ConfiguredModelID: publicidTestID(141),
+			Reasoning:         &ModelReasoningCompiled{Effort: "high"},
+		},
 		MachineSources: []MachineSourceCompiled{{
 			MachinePoolID: publicidTestID(142), MaxMachines: 1,
 			SecretEnvOverlay: map[string]*uuid.UUID{"TOKEN": &secretID},
@@ -222,7 +225,9 @@ func TestIntegrationCompositionPreservesCompiledReferencesAndWebhook(t *testing.
 	child := SubagentCompiledFrom(derived, derived.Subagents["worker"], SubagentDepth{})
 	require.Empty(t, child.Tools)
 	require.Empty(t, child.InteractionHandlers)
-	require.Equal(t, *base.Subagents["worker"].Model, child.Model)
+	childModel := *base.Subagents["worker"].Model
+	childModel.Reasoning = base.Model.Reasoning
+	require.Equal(t, childModel, child.Model)
 	require.Equal(t, base.EventWebhook, child.EventWebhook)
 	require.Equal(t, base.MachineSources, child.MachineSources)
 	require.Equal(t, base.MCP, child.MCP)

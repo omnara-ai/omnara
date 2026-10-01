@@ -915,7 +915,11 @@ func (s strictOpenAPIServer) ListProjectModelGrants(
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, openapigen.ProjectModelGrantListItem{Grant: response, Model: model})
+		out = append(out, openapigen.ProjectModelGrantListItem{
+			Grant:              response,
+			Model:              model,
+			EffectiveReasoning: projectModelGrantEffectiveReasoningResponse(record.Effective),
+		})
 	}
 	nextCursor, err := encodeResourceListNextCursor(
 		page.HasMore, page.Next, list, "project_model_grants",
@@ -927,6 +931,19 @@ func (s strictOpenAPIServer) ListProjectModelGrants(
 	return openapigen.ListProjectModelGrants200JSONResponse(
 		openapigen.ListProjectModelGrantsResponse{Data: out, NextCursor: nullableFromPtr(nextCursor)},
 	), nil
+}
+
+func projectModelGrantEffectiveReasoningResponse(
+	effective *modelstore.ConfiguredModelRevisionRecord,
+) openapigen.ProjectModelGrantEffectiveReasoning {
+	if effective == nil || !effective.SupportsReasoning {
+		return openapigen.ProjectModelGrantEffectiveReasoning{SupportedReasoningEfforts: []string{}}
+	}
+	return openapigen.ProjectModelGrantEffectiveReasoning{
+		SupportsReasoning:         true,
+		DefaultReasoningEffort:    effective.DefaultReasoningEffort,
+		SupportedReasoningEfforts: cloneStringSlice(effective.SupportedReasoningEfforts),
+	}
 }
 
 func configuredModelSummaryResponse(

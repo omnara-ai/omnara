@@ -296,6 +296,15 @@ export const zUpdateProjectModelGrantRequest = z.object({
     output_modalities: z.array(z.string()).optional()
 });
 
+/**
+ * Reasoning settings agents in this project get for the model, after project grant overrides are applied to the configured model's current revision.
+ */
+export const zProjectModelGrantEffectiveReasoning = z.object({
+    supports_reasoning: z.boolean(),
+    default_reasoning_effort: z.string(),
+    supported_reasoning_efforts: z.array(z.string())
+});
+
 export const zMachinePoolId = z.string().regex(/^mpo_[a-z2-7]{26}$/);
 
 export const zMachineId = z.string().regex(/^mch_[a-z2-7]{26}$/);
@@ -473,7 +482,8 @@ export const zConfiguredModelSummary = z.object({
 
 export const zProjectModelGrantListItem = z.object({
     grant: zProjectModelGrant,
-    model: zConfiguredModelSummary
+    model: zConfiguredModelSummary,
+    effective_reasoning: zProjectModelGrantEffectiveReasoning
 });
 
 export const zListProjectModelGrantsResponse = z.object({

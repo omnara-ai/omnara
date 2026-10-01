@@ -575,6 +575,29 @@ model:
 		restoredGrant["supports_tools"] != true {
 		t.Fatalf("restored model grant mismatch: %+v", restoredGrant)
 	}
+	listedGrants := testutil.RequireType[[]any](t, requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/model-grants",
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)["data"])
+	var effectiveReasoning map[string]any
+	for _, listed := range listedGrants {
+		item := testutil.RequireType[map[string]any](t, listed)
+		if testutil.RequireType[map[string]any](t, item["model"])["id"] == configuredModelID {
+			effectiveReasoning = testutil.RequireType[map[string]any](t, item["effective_reasoning"])
+		}
+	}
+	listedEfforts := testutil.RequireType[[]any](t, effectiveReasoning["supported_reasoning_efforts"])
+	if effectiveReasoning["supports_reasoning"] != true ||
+		effectiveReasoning["default_reasoning_effort"] != "medium" ||
+		len(listedEfforts) != 2 || listedEfforts[0] != "low" || listedEfforts[1] != "medium" {
+		t.Fatalf("listed effective reasoning = %+v, want grant reasoning", effectiveReasoning)
+	}
 	requestJSONWithHeaders(
 		t,
 		handler,

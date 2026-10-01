@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
 	"testing"
 
 	"github.com/omnara-ai/omnara/internal/httpapi/openapi"
@@ -19,25 +21,30 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 	catalog, ok := response.(openapi.ListIntegrationDefinitions200JSONResponse)
 	require.True(t, ok)
 	require.Len(t, catalog.Data, 3)
-	toolCount := 0
 	for _, definition := range catalog.Data {
-		toolCount += len(definition.Capabilities.Tools)
 		t.Run(string(definition.IntegrationKind), func(t *testing.T) {
 			var destination json.RawMessage
 			var destinationFields []string
+			var operations []string
 			switch integrationdefinition.Kind(definition.IntegrationKind) {
 			case integrationdefinition.SlackThread:
 				destination = json.RawMessage(`{"channel_id":"C123","thread_ts":"111.222"}`)
 				destinationFields = []string{"channel_id", "thread_ts"}
+				operations = []string{"read", "post_message"}
 			case integrationdefinition.DiscordThread:
 				destination = json.RawMessage(`{"channel_id":"123","thread_id":"456","guild_id":"789"}`)
 				destinationFields = []string{"channel_id", "thread_id", "guild_id"}
+				operations = []string{"read", "post_message"}
 			case integrationdefinition.GitHubPR:
 				destination = json.RawMessage(`{"repository_id":9007199254740993,"pull_request":42}`)
 				destinationFields = []string{"repository_id", "pull_request"}
+				operations = []string{
+					"read", "discussion_comment", "review_comment", "reply", "start_review", "submit_review", "discard_review",
+				}
 			default:
 				t.Fatalf("unexpected integration %q", definition.IntegrationKind)
 			}
+			require.ElementsMatch(t, operations, slices.Collect(maps.Keys(definition.Capabilities.Tools)))
 			for operation, tool := range definition.Capabilities.Tools {
 				require.NotEmpty(t, tool.Description)
 				properties, ok := tool.InputSchema["properties"].(map[string]any)
@@ -103,5 +110,4 @@ func TestIntegrationCatalogStaticArgumentSchemas(t *testing.T) {
 			require.Error(t, jsonschema.Validate(schema, json.RawMessage(`{"unexpected":true}`)))
 		})
 	}
-	require.Equal(t, 8, toolCount)
 }

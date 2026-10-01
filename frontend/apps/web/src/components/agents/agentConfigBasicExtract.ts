@@ -137,7 +137,14 @@ export type SubagentEntry = z.infer<typeof subagentEntry>
 const basicDocument = z.looseObject({
   version: z.literal('v1').optional(),
   instruction: optionalText,
-  model: z.looseObject({ provider_config: optionalText, name: optionalText }).nullable().optional(),
+  model: z
+    .looseObject({
+      provider_config: optionalText,
+      name: optionalText,
+      reasoning: z.strictObject({ effort: z.string() }).optional(),
+    })
+    .nullable()
+    .optional(),
   machine_sources: z.array(z.union([poolEntry, machineEntry])).optional(),
   tools: z.record(z.string(), toolEntry).optional(),
   interaction_handlers: z.record(z.string(), zConfigIntegrationCapabilitySource).optional(),
@@ -189,6 +196,7 @@ export function extractBasicConfig(document: Document): BasicConfig | null {
     instruction: normalizeMultiline(doc.instruction ?? ''),
     providerConfig: doc.model?.provider_config ?? '',
     modelName: doc.model?.name ?? '',
+    reasoningEffort: doc.model?.reasoning?.effort ?? '',
     machineSources,
     tools: Object.entries(doc.tools ?? {}).map(([name, entry]) => toolDraft(name, entry)),
     interactionHandlers: doc.interaction_handlers ?? {},
