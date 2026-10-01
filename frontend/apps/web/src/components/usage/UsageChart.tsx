@@ -80,7 +80,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
         aria-valuetext={columnSummary(data, data.columns[focusedIndex ?? count - 1])}
         tabIndex={0}
         className={cn(
-          'focus-visible:ring-ring/50 relative rounded-sm outline-none focus-visible:ring-2',
+          'focus-visible:ring-ring/50 border-muted-foreground/35 relative border-b border-l outline-none focus-visible:ring-2',
           plotHeightClass,
         )}
         onKeyDown={moveFocus}

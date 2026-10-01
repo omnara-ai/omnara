@@ -1,5 +1,6 @@
 import { type ProjectAvailableSkillListSort, useProjectAvailableSkills } from '@omnara/react'
 import { Link } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
@@ -21,10 +22,13 @@ export function ProjectSkillGrantsTable({
   orgId,
   projectId,
   projectName,
+  actions,
 }: {
   orgId: string
   projectId: string
   projectName: string
+  /** Header controls, e.g. tabs. */
+  actions?: ReactNode
 }) {
   const list = useResourceList<ProjectAvailableSkillListSort>('-updated_at')
   const query = useProjectAvailableSkills(orgId, projectId, {
@@ -48,7 +52,9 @@ export function ProjectSkillGrantsTable({
             showSearch={showToolbar}
           />
         }
-      />
+      >
+        {actions}
+      </SearchHeader>
       <DataTable
         columns={[
           {

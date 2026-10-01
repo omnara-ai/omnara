@@ -11,6 +11,13 @@ export function SkillsPage() {
   })
   const owner = ownerParam === 'organization' ? 'organization' : 'user'
 
+  const ownerTabs = (
+    <TabsList aria-label="Skill owner">
+      <TabsTrigger value="user">User</TabsTrigger>
+      <TabsTrigger value="organization">Organization</TabsTrigger>
+    </TabsList>
+  )
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <PageBreadcrumb items={[{ id: 'skills', label: 'Skills' }]} />
@@ -23,15 +30,11 @@ export function SkillsPage() {
         }}
         className="gap-6"
       >
-        <TabsList aria-label="Skill owner">
-          <TabsTrigger value="user">User</TabsTrigger>
-          <TabsTrigger value="organization">Organization</TabsTrigger>
-        </TabsList>
         <TabsContent value="user">
-          <SkillsSection owner={{ kind: 'user' }} />
+          <SkillsSection owner={{ kind: 'user' }} actions={ownerTabs} />
         </TabsContent>
         <TabsContent value="organization">
-          <SkillsSection />
+          <SkillsSection actions={ownerTabs} />
         </TabsContent>
       </Tabs>
     </div>

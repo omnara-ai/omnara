@@ -50,9 +50,10 @@ export function ModelProvidersSection() {
 
   return (
     <>
-      <div className="flex flex-col gap-3">
+      <div id="model-providers" className="flex scroll-mt-6 flex-col gap-3">
         <SearchHeader
           title="Model providers"
+          description="Configure model providers and API keys"
           guide={guides.modelProviders}
           toolbar={
             <ResourceListToolbar

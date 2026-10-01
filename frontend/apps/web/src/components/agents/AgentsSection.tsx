@@ -18,7 +18,7 @@ import {
   AgentCardTime,
 } from '@/components/agents/AgentCardList'
 import { AgentIcon } from '@/components/agents/AgentIcon'
-import { ProjectTag } from '@/components/agents/ProjectTag'
+import { AgentOrigin } from '@/components/agents/AgentOrigin'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
 import { Ellipsis, SettingsIcon } from '@/components/icons'
 import { Badge } from '@/components/ui/badge'
@@ -216,7 +216,6 @@ function AgentInstanceCard({
   const projectId = agent.project_id
   const usage = useAgentUsage(orgId, projectId, agent.id, true)
   const archiveAgent = useArchiveAgent(orgId, projectId)
-  const status = agentStatusLabel(agent)
 
   function archive() {
     if (!window.confirm(`Archive ${agent.name || 'this agent'}?`)) return
@@ -227,24 +226,16 @@ function AgentInstanceCard({
     })
   }
 
-  const details = [
-    status && (
-      <span key="status" className="shrink-0">
-        {status}
-      </span>
-    ),
-    agent.model && (
-      <span key="model" className="truncate font-mono">
-        {agent.model.name}
-      </span>
-    ),
-    agent.model && (
-      <span key="provider" className="truncate">
-        {agent.model.provider_config}
-      </span>
-    ),
-    agent.integration_target && <TargetCell key="target" agent={agent} />,
-  ].filter(Boolean)
+  const target = agent.integration_target && <TargetCell key="target" agent={agent} />
+  const subtitle = (
+    <AgentOrigin
+      orgId={orgId}
+      agent={agent}
+      project={project}
+      showProfile={showProfile}
+      after={target}
+    />
+  )
   return (
     <AgentCard
       icon={agentIcon(agent.agent_profile_id, agent.id)}
@@ -263,19 +254,9 @@ function AgentInstanceCard({
               subagent
             </Badge>
           )}
-          {project && <ProjectTag project={project} />}
         </>
       }
-      subtitle={details.flatMap((detail, index) =>
-        index === 0
-          ? [detail]
-          : [
-              <span key={`separator-${index}`} aria-hidden="true">
-                ·
-              </span>,
-              detail,
-            ],
-      )}
+      subtitle={subtitle}
       meta={
         <>
           {usage.data && (
@@ -289,6 +270,7 @@ function AgentInstanceCard({
           <AgentCardTime
             label="Last active"
             value={agent.activity?.last_activity_at ?? agent.updated_at}
+            status={agent.activity?.state === 'idle' ? undefined : agentStatusLabel(agent)}
           />
           <AgentActionsMenu
             orgId={orgId}

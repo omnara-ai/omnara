@@ -63,7 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <ScopedNav />
         </SidebarContent>
         <SidebarFooter>
-          <SidebarMenu>
+          <SidebarMenu className="gap-1">
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <a href="https://docs.omnara.com" target="_blank" rel="noreferrer">

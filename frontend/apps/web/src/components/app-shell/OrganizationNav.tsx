@@ -30,22 +30,35 @@ export function OrganizationNav() {
   }
 
   return (
-    <NavSection
-      items={[
-        item('/', 'Overview', House, true),
-        item('/agents', 'Agents', Bot, true),
-        item('/usage', 'Usage', ChartBar, true),
-        item('/models', 'Models', Box),
-        item('/machines', 'Machines', Server),
-        item('/secrets', 'Secrets', KeyRound),
-        item('/skills', 'Skills', Sparkles),
-        item('/members', 'Members', Users),
-        item('/user/api-tokens', 'API Tokens', Fingerprint),
-      ]}
-    >
-      {webConfig?.billingHref && (
-        <NavExternalLink href={webConfig.billingHref} label="Credits" icon={CreditCard} />
-      )}
-    </NavSection>
+    <>
+      <NavSection
+        label="Organization"
+        items={[
+          item('/', 'Overview', House, true),
+          item('/agents', 'Agents', Bot, true),
+          item('/usage', 'Usage', ChartBar, true),
+        ]}
+      >
+        {webConfig?.billingHref && (
+          <NavExternalLink href={webConfig.billingHref} label="Credits" icon={CreditCard} />
+        )}
+      </NavSection>
+      <NavSection
+        label="Resources"
+        items={[
+          item('/models', 'Models', Box),
+          item('/machines', 'Machines', Server),
+          item('/secrets', 'Secrets', KeyRound),
+          item('/skills', 'Skills', Sparkles),
+        ]}
+      />
+      <NavSection
+        label="Access"
+        items={[
+          item('/members', 'Members', Users),
+          item('/user/api-tokens', 'API Tokens', Fingerprint),
+        ]}
+      />
+    </>
   )
 }

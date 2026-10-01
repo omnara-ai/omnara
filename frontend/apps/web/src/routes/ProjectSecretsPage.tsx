@@ -1,8 +1,9 @@
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 
 import { SecretsSection } from '@/components/overview/SecretsSection'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 import { ProjectSecretGrantsTable } from '@/components/projects/ProjectSecretGrantsTable'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function ProjectSecretsPage() {
@@ -11,6 +12,20 @@ export function ProjectSecretsPage() {
     select: (search) => search.tab ?? 'project',
   })
   const navigate = useNavigate({ from: '/projects/$projectId/secrets' })
+
+  const sourceTabs = (
+    <>
+      <Button asChild size="sm" variant="ghost">
+        <Link to="/secrets" search={{ owner: 'organization' }}>
+          Organization secrets
+        </Link>
+      </Button>
+      <TabsList aria-label="Secret source">
+        <TabsTrigger value="project">Project</TabsTrigger>
+        <TabsTrigger value="shared">Shared</TabsTrigger>
+      </TabsList>
+    </>
+  )
 
   return (
     <ProjectPageFrame title="Secrets">
@@ -22,12 +37,9 @@ export function ProjectSecretsPage() {
           }}
           className="gap-6"
         >
-          <TabsList aria-label="Secret source">
-            <TabsTrigger value="project">Project</TabsTrigger>
-            <TabsTrigger value="shared">Shared</TabsTrigger>
-          </TabsList>
           <TabsContent value="project">
             <SecretsSection
+              actions={sourceTabs}
               owner={{ kind: 'project', project_id: projectId }}
               canRead={project?.access.can_manage ?? false}
               canManage={project?.access.can_manage ?? false}
@@ -36,14 +48,18 @@ export function ProjectSecretsPage() {
           <TabsContent value="shared">
             {project?.access.can_manage_access ? (
               <ProjectSecretGrantsTable
+                actions={sourceTabs}
                 orgId={activeOrg.id}
                 projectId={projectId}
                 projectName={project.name}
               />
             ) : (
-              <p className="text-muted-foreground text-sm">
-                You don&rsquo;t have permission to view shared secrets in this project.
-              </p>
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-end">{sourceTabs}</div>
+                <p className="text-muted-foreground text-sm">
+                  You don&rsquo;t have permission to view shared secrets in this project.
+                </p>
+              </div>
             )}
           </TabsContent>
         </Tabs>

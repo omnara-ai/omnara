@@ -219,14 +219,23 @@ export function AgentCardStatToggle({
   )
 }
 
-export function AgentCardTime({ label, value }: { label: string; value: string }) {
+export function AgentCardTime({
+  label,
+  value,
+  status,
+}: {
+  label: string
+  value: string
+  /** Shown instead of the time when the state matters more than when, e.g. "Working". */
+  status?: string
+}) {
   return (
     <time
       dateTime={value}
       title={`${label} ${formatDateTime(value) ?? ''}`}
-      className="text-muted-foreground text-xs tabular-nums"
+      className="text-muted-foreground whitespace-nowrap text-xs tabular-nums"
     >
-      {formatTimeAgo(value)}
+      {status ?? formatTimeAgo(value)}
     </time>
   )
 }

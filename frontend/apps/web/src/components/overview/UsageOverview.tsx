@@ -5,6 +5,7 @@ import { OverviewSectionHeader } from '@/components/overview/OverviewSectionHead
 import { ReportedCost } from '@/components/usage/ReportedCost'
 import { formatUsageValue, usageMeasureValue } from '@/components/usage/usage-chart-data'
 import { lastDaysUsageWindow } from '@/components/usage/usage-date-range'
+import { UsageStats } from '@/components/usage/UsageStats'
 import {
   UsageTimeseriesPanel,
   type UsageTimeseriesScope,
@@ -39,32 +40,22 @@ export function UsageOverview({
 function UsageFigures({ timeseries }: { timeseries: UsageTimeseries }) {
   const { totals } = timeseries
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-3 pb-3 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-10">
-      <UsageFigure
-        value={formatUsageValue('tokens', usageMeasureValue(totals, 'tokens'))}
-        label="tokens"
-      />
-      <UsageFigure
-        value={
-          <ReportedCost
-            modelCalls={totals.model_calls}
-            cost={totals.cost}
-            format={(decimal) => formatUsageValue('cost', Number(decimal))}
-          />
-        }
-        label="cost"
-      />
-      <UsageFigure value={formatCount(totals.model_calls)} label="model calls" />
-      <UsageFigure value={formatCount(timeseries.active_agents)} label="active agents" />
-    </div>
-  )
-}
-
-function UsageFigure({ value, label }: { value: ReactNode; label: string }) {
-  return (
-    <p className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-      <span className="text-xl font-semibold tracking-[-0.03em] sm:text-3xl">{value}</span>
-      <span className="text-muted-foreground text-sm">{label}</span>
-    </p>
+    <UsageStats
+      stats={[
+        { label: 'Tokens', value: formatUsageValue('tokens', usageMeasureValue(totals, 'tokens')) },
+        {
+          label: 'Cost',
+          value: (
+            <ReportedCost
+              modelCalls={totals.model_calls}
+              cost={totals.cost}
+              format={(decimal) => formatUsageValue('cost', Number(decimal))}
+            />
+          ),
+        },
+        { label: 'Model calls', value: formatCount(totals.model_calls) },
+        { label: 'Active agents', value: formatCount(timeseries.active_agents) },
+      ]}
+    />
   )
 }

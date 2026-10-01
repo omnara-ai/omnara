@@ -1,5 +1,5 @@
 import { type SkillListSort, type SkillOwnerScope, useSkills } from '@omnara/react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
@@ -22,10 +22,13 @@ export function SkillsSection({
   owner = { kind: 'org' },
   canRead: canReadOverride,
   canManage: canManageOverride,
+  actions,
 }: {
   owner?: SkillOwnerScope
   canRead?: boolean
   canManage?: boolean
+  /** Extra header controls shown before the create button, e.g. tabs. */
+  actions?: ReactNode
 }) {
   const { activeOrg } = useActiveOrg()
   const canManage =
@@ -35,16 +38,27 @@ export function SkillsSection({
 
   if (!canRead) {
     return (
-      <p className="text-muted-foreground text-sm">
-        You don’t have permission to view skills here.
-      </p>
+      <div className="flex flex-col gap-3">
+        {actions && <div className="flex justify-end">{actions}</div>}
+        <p className="text-muted-foreground text-sm">
+          You don’t have permission to view skills here.
+        </p>
+      </div>
     )
   }
 
-  return <SkillsList owner={owner} canManage={canManage} />
+  return <SkillsList owner={owner} canManage={canManage} actions={actions} />
 }
 
-function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: boolean }) {
+function SkillsList({
+  owner,
+  canManage,
+  actions,
+}: {
+  owner: SkillOwnerScope
+  canManage: boolean
+  actions?: ReactNode
+}) {
   const { activeOrg } = useActiveOrg()
   const list = useResourceList<SkillListSort>('-updated_at')
   const query = useSkills(activeOrg.id, owner, {
@@ -83,6 +97,7 @@ function SkillsList({ owner, canManage }: { owner: SkillOwnerScope; canManage: b
             />
           }
         >
+          {actions}
           {createSkillButton()}
         </SearchHeader>
         <DataTable

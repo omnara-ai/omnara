@@ -62,6 +62,7 @@ export function MachinePoolsSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine pools"
+          description="Configure pools of sandboxes for agents to use"
           guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
