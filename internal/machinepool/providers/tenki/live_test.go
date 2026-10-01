@@ -42,17 +42,25 @@ func TestTenkiProviderLiveSmoke(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
 		id := resourceID
-		if id == "" {
-			var found bool
-			var err error
-			id, found, err = machineProvider.InspectMachine(cleanupCtx, installationID, machineID, provisioning, "")
+		for attempt := 0; id == "" && attempt < 10; attempt++ {
+			if attempt > 0 {
+				select {
+				case <-cleanupCtx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
+			}
+			foundID, found, err := machineProvider.InspectMachine(cleanupCtx, installationID, machineID, provisioning, "")
 			if err != nil {
 				t.Errorf("find live tenki session for cleanup: %v", err)
 				return
 			}
-			if !found {
-				return
+			if found {
+				id = foundID
 			}
+		}
+		if id == "" {
+			return
 		}
 		if err := machineProvider.DeleteMachine(cleanupCtx, installationID, machineID, provisioning, id); err != nil {
 			t.Errorf("delete live tenki session: %v", err)
@@ -61,16 +69,17 @@ func TestTenkiProviderLiveSmoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	concreteProvider.AuthorizeCreation()
-	result, err := machineProvider.ProvisionMachine(ctx, installationID, machineID, provisioning, "live-smoke-token", nil)
+	result, err := machineProvider.ProvisionMachine(
+		ctx, installationID, machineID, provisioning, "live-smoke-token", nil, true,
+	)
 	resourceID = result.ProviderResourceID
 	require.NoError(t, err)
 	require.NotEmpty(t, resourceID)
 	require.Eventually(t, func() bool {
-		adopted, err := machineProvider.ProvisionMachine(
-			ctx, installationID, machineID, provisioning, "live-smoke-token", nil,
+		existing, err := machineProvider.ProvisionMachine(
+			ctx, installationID, machineID, provisioning, "live-smoke-token", nil, false,
 		)
-		return err == nil && adopted.ProviderResourceID == resourceID
+		return err == nil && existing.ProviderResourceID == resourceID
 	}, time.Minute, time.Second)
 	current, found, err := liveAPI.Get(ctx, resourceID)
 	require.NoError(t, err)

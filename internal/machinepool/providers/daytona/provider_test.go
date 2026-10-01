@@ -26,6 +26,7 @@ func TestDaytonaProviderProvisionCreatesSandboxAndDaemonSession(t *testing.T) {
 		provisioning,
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision daytona sandbox: %v", err)
@@ -60,6 +61,7 @@ func TestDaytonaProviderProvisionIncludesMachineEnv(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		map[string]string{"APP_ENV": "production", "GITHUB_TOKEN": "resolved-secret"},
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision daytona sandbox: %v", err)
@@ -87,6 +89,7 @@ func TestDaytonaProviderProvisionConvergesOnExistingSession(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision existing daytona sandbox: %v", err)
@@ -113,6 +116,7 @@ func TestDaytonaProviderProvisionRejectsUnexpectedOwnership(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err == nil || !strings.Contains(err.Error(), "expected ownership label") || api.createSessionCalls != 0 {
 		t.Fatalf("ownership error = %v, create session calls = %d", err, api.createSessionCalls)
@@ -132,6 +136,7 @@ func TestDaytonaProviderProvisionReplacesExitedSession(t *testing.T) {
 		testMachineProvisioning(t, "team-snapshot", "us", ""),
 		"machine-token",
 		nil,
+		true,
 	)
 	if err != nil || resourceID.ProviderResourceID != api.sandbox.ID || api.deleteSessionCalls != 1 ||
 		api.createSessionCalls != 1 || api.executeCalls != 1 {
@@ -159,6 +164,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if err != nil || resourceID.ProviderResourceID != api.sandbox.ID ||
 			api.getSandboxCalls != 2 || api.deleteCalls != 0 {
@@ -184,6 +190,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if !errors.Is(err, context.DeadlineExceeded) ||
 			result.ProviderResourceID != api.sandbox.ID || api.deleteCalls != 0 {
@@ -206,6 +213,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if !errors.Is(err, providers.ErrResourceReplaced) || api.deleteCalls != 1 {
 			t.Fatalf("terminal result = error %v deletes %d", err, api.deleteCalls)
@@ -222,6 +230,7 @@ func TestDaytonaProviderProvisionHandlesUnusableSandbox(t *testing.T) {
 			testMachineProvisioning(t, "team-snapshot", "us", ""),
 			"token",
 			nil,
+			true,
 		)
 		if err == nil || !strings.Contains(
 			err.Error(),

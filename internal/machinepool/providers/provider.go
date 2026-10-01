@@ -79,13 +79,16 @@ type Provider interface {
 	// wrapping ErrResourceReplaced so callers discard previously observed ids.
 	// machineEnv is the machine's resolved environment and is applied to the
 	// provider resource at creation; retries that adopt an existing resource
-	// keep the environment it was created with.
+	// keep the environment it was created with. firstAttempt is true until a
+	// provisioning attempt has been recorded for the machine, including retries
+	// within that attempt.
 	ProvisionMachine(
 		ctx context.Context,
 		installationID, machineID uuid.UUID,
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		machineToken string,
 		machineEnv map[string]string,
+		firstAttempt bool,
 	) (ProvisionMachineResult, error)
 	InspectMachine(
 		ctx context.Context,
@@ -93,17 +96,6 @@ type Provider interface {
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
-}
-
-// CreationGuardedProvider is for providers that cannot deduplicate create
-// requests. The manager authorizes creation only on a machine's first provider
-// attempt; without authorization the provider must adopt instead of creating.
-type CreationGuardedProvider interface {
-	AuthorizeCreation()
-}
-
-type EnvironmentValidator interface {
-	ValidateMachineEnvironment(executionstore.MachineProvisioningConfig, map[string]string) error
 }
 
 type Definition interface {

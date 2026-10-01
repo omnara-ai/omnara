@@ -417,8 +417,8 @@ func validateMachineEnvironment(environment MachineEnvironment) error {
 		if strings.ContainsRune(value, 0) {
 			return fmt.Errorf("env.%s cannot contain NUL", key)
 		}
-		if len(key)+len("=")+len(value) > MaxEnvironmentEntryBytes {
-			return fmt.Errorf("env.%s must be at most %d bytes including its key", key, MaxEnvironmentEntryBytes)
+		if err := validateEnvironmentEntrySize("env", key, value); err != nil {
+			return err
 		}
 	}
 	if _, err := validateEnvNames("secret_env", environment.SecretEnv); err != nil {
@@ -444,6 +444,13 @@ func validateMachineEnvironmentOverlay(overlay MachineEnvironmentOverlay) error 
 	}
 	if _, err := validateEnvNames("secret_env", overlay.SecretEnv); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateEnvironmentEntrySize(field, key, value string) error {
+	if len(key)+len("=")+len(value) > MaxEnvironmentEntryBytes {
+		return fmt.Errorf("%s.%s must be at most %d bytes including its key", field, key, MaxEnvironmentEntryBytes)
 	}
 	return nil
 }
@@ -798,6 +805,9 @@ func (s *Store) resolveEnvironmentSecrets(
 				)
 			}
 			resolvedSecrets[secretID] = value
+		}
+		if err := validateEnvironmentEntrySize("secret_env", envName, value); err != nil {
+			return nil, fmt.Errorf("%w: %w", storeerr.ErrPermanentEnvironment, err)
 		}
 		resolvedBytes += len(envName) + len(value)
 		if resolvedBytes > MaxResolvedEnvironmentBytes {

@@ -1657,6 +1657,7 @@ func (*runtimeReconciliationTestProvider) ProvisionMachine(
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
+	bool,
 ) (providers.ProvisionMachineResult, error) {
 	return providers.ProvisionMachineResult{}, errors.New("not implemented by runtime test provider")
 }

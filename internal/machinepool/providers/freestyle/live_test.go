@@ -83,6 +83,7 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 		provisioning,
 		"live-smoke-token",
 		nil,
+		true,
 	)
 	if err != nil {
 		t.Fatalf("provision live freestyle VM: %v", err)
@@ -108,6 +109,7 @@ func TestFreestyleProviderLiveSmoke(t *testing.T) {
 		provisioning,
 		"live-smoke-token",
 		nil,
+		true,
 	)
 	if err != nil || reprovisioned.ProviderResourceID != result.ProviderResourceID {
 		t.Fatalf("reprovision live freestyle VM = %+v, error %v", reprovisioned, err)

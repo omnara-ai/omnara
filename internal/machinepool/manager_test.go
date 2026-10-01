@@ -367,6 +367,7 @@ func (p provisionRetryProvider) ProvisionMachine(
 	executionstore.MachineProvisioningConfig,
 	string,
 	map[string]string,
+	bool,
 ) (providers.ProvisionMachineResult, error) {
 	return p.provision()
 }
@@ -414,6 +415,7 @@ func provisionWithRetryForTest(
 		executionstore.MachineProvisioningConfig{},
 		"",
 		nil,
+		true,
 	)
 }
 

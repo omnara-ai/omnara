@@ -2264,6 +2264,7 @@ type captureProvider struct {
 	provisioning          *executionstore.MachineProvisioningConfig
 	machineEnv            map[string]string
 	machineToken          string
+	firstAttempt          bool
 	provisionErr          error
 	prepare               func(executionstore.MachineProvisioningConfig) (executionstore.MachineResourceFacts, error)
 	installationID        uuid.UUID
@@ -2305,7 +2306,9 @@ func (p *captureProvider) ProvisionMachine(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	firstAttempt bool,
 ) (providers.ProvisionMachineResult, error) {
+	p.firstAttempt = firstAttempt
 	p.installationID = installationID
 	p.machineID = machineID
 	p.provisioning = &machineProvisioning

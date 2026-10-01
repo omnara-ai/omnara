@@ -27,17 +27,10 @@ const (
 var runtimeEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type provider struct {
-	api          apiClient
-	omnaraAPIURL string
-	mayCreate    bool
+	api             apiClient
+	omnaraAPIURL    string
+	createAttempted bool
 }
-
-var (
-	_ providers.CreationGuardedProvider = (*provider)(nil)
-	_ providers.EnvironmentValidator    = (*provider)(nil)
-)
-
-func (p *provider) AuthorizeCreation() { p.mayCreate = true }
 
 func (*provider) ProvisioningTimeout() time.Duration { return provisioningTimeout }
 
@@ -57,6 +50,7 @@ func (p *provider) ProvisionMachine(
 	config executionstore.MachineProvisioningConfig,
 	token string,
 	machineEnv map[string]string,
+	firstAttempt bool,
 ) (providers.ProvisionMachineResult, error) {
 	var result providers.ProvisionMachineResult
 	options, err := providerOptionsFromProvisioning(config)
@@ -76,8 +70,8 @@ func (p *provider) ProvisionMachine(
 		return result, err
 	}
 	var current session
-	if p.mayCreate {
-		p.mayCreate = false
+	if firstAttempt && !p.createAttempted {
+		p.createAttempted = true
 		current, err = p.api.Create(ctx, createRequest{
 			OwnerID:       "self",
 			OwnerType:     "SERVICE",
@@ -98,8 +92,8 @@ func (p *provider) ProvisionMachine(
 			},
 		})
 		if err != nil {
-			p.mayCreate = isTooManyRequests(err)
-			if !p.mayCreate && rejectedBeforeCreate(err) {
+			p.createAttempted = !isTooManyRequests(err)
+			if p.createAttempted && rejectedBeforeCreate(err) {
 				return result, fmt.Errorf("create tenki session: %w: %w", err, providers.ErrPermanent)
 			}
 			return result, fmt.Errorf("create tenki session: %w", err)
@@ -126,28 +120,6 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
-func (p *provider) ValidateMachineEnvironment(
-	config executionstore.MachineProvisioningConfig,
-	machineEnv map[string]string,
-) error {
-	options, err := providerOptionsFromProvisioning(config)
-	if err != nil {
-		return err
-	}
-	env, err := p.runtimeEnv(options.StartupScript, "", machineEnv)
-	if err != nil {
-		return err
-	}
-	size := 0
-	for key, value := range env {
-		size += len(key) + len(value) + runtimeEnvOverhead
-	}
-	if size > maxRuntimeEnvBytes {
-		return fmt.Errorf("tenki env and startup_script must total at most about %d bytes", maxRuntimeEnvBytes)
-	}
-	return nil
-}
-
 func (p *provider) runtimeEnv(startupScript, token string, machineEnv map[string]string) (map[string]string, error) {
 	env, err := providers.BuildManagedMachineEnv(p.omnaraAPIURL, token, startupScript, machineEnv)
 	if err != nil {
@@ -155,6 +127,17 @@ func (p *provider) runtimeEnv(startupScript, token string, machineEnv map[string
 	}
 	maps.DeleteFunc(env, func(name, _ string) bool { return !runtimeEnvNamePattern.MatchString(name) })
 	env[providers.ManagedBootstrapScriptEnvVar] = providers.ManagedBootScriptPayload()
+	size := 0
+	for key, value := range env {
+		size += len(key) + len(value) + runtimeEnvOverhead
+	}
+	if size > maxRuntimeEnvBytes {
+		return nil, fmt.Errorf(
+			"tenki env and startup_script must total at most about %d bytes: %w",
+			maxRuntimeEnvBytes,
+			providers.ErrPermanent,
+		)
+	}
 	return env, nil
 }
 

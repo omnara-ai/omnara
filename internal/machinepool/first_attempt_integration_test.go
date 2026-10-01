@@ -5,58 +5,21 @@ package machinepool
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
-	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 	"github.com/stretchr/testify/require"
 )
 
-type creationGuardDefinition struct {
-	testProviderDefinition
-	instances   []*creationGuardCapture
-	validateErr error
-}
-
-func (d *creationGuardDefinition) NewProvider(
-	json.RawMessage,
-	providers.RuntimeConfig,
-) (providers.Provider, error) {
-	p := &creationGuardCapture{
-		captureProvider: captureProvider{provisionResourceID: "owned-session"},
-		validateErr:     d.validateErr,
-	}
-	d.instances = append(d.instances, p)
-	return p, nil
-}
-
-type creationGuardCapture struct {
-	captureProvider
-	authorized  bool
-	validateErr error
-}
-
-func (p *creationGuardCapture) AuthorizeCreation() { p.authorized = true }
-
-func (p *creationGuardCapture) ValidateMachineEnvironment(
-	executionstore.MachineProvisioningConfig,
-	map[string]string,
-) error {
-	return p.validateErr
-}
-
-func TestManagerGatesFirstDurableProviderAttempt(t *testing.T) {
+func TestManagerPassesFirstProvisionAttempt(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		attempted  bool
-		invalidEnv bool
+		name      string
+		attempted bool
 	}{
 		{name: "new machine"},
 		{name: "restart after ambiguous create", attempted: true},
-		{name: "invalid environment", invalidEnv: true},
 	} {
 		t.Run(
 			test.name,
@@ -69,22 +32,22 @@ func TestManagerGatesFirstDurableProviderAttempt(t *testing.T) {
 					storage.WithMachinePoolProviders(machinePoolProviderTestResolvers{}),
 				)
 				now := time.Now().Add(-time.Hour)
-				orgID := seedManagerOrg(t, ctx, pool, "guarded-create", now)
+				orgID := seedManagerOrg(t, ctx, pool, "first-attempt", now)
 				projectID, _ := seedManagerProjectActor(
 					t,
 					ctx,
 					pool,
 					store,
 					orgID,
-					"guarded-project",
-					"guarded@example.com",
+					"first-attempt-project",
+					"first-attempt@example.com",
 					now,
 				)
 				secretID := createProviderAuthSecretForManagerTest(t, ctx, pool, store, orgID, "provider-auth", "token")
 				machinePool, err := store.Execution().
 					CreateMachinePool(ctx, machinePoolInputWithDefaultMachineForManagerTest(t, executionstore.CreateMachinePoolInput{
 						OrgID:                orgID,
-						Name:                 "guarded",
+						Name:                 "first-attempt",
 						Provider:             "capture",
 						ProviderAuthSecretID: secretID,
 						ProviderConfig:       json.RawMessage(`{}`),
@@ -123,31 +86,15 @@ func TestManagerGatesFirstDurableProviderAttempt(t *testing.T) {
 					)
 					require.NoError(t, err)
 				}
-				definition := &creationGuardDefinition{}
-				if test.invalidEnv {
-					definition.validateErr = errors.New("invalid env")
-				}
+				definition := &testProviderDefinition{provider: &captureProvider{provisionResourceID: "owned-session"}}
 				manager := Manager{
 					Execution:    store.Execution(),
 					Identity:     store.Identity(),
 					Catalog:      testProviderCatalog(definition),
 					PublicAPIURL: "https://api.omnara.test/api/v1",
 				}
-				if test.invalidEnv {
-					require.ErrorIs(t, manager.ProvisionMachine(ctx, orgID, machineID), definition.validateErr)
-					require.Len(t, definition.instances, 1)
-					require.False(t, definition.instances[0].authorized)
-					require.Nil(t, definition.instances[0].provisioning)
-					machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
-					require.NoError(t, err)
-					require.Nil(t, machine.ProviderProvisionAttemptedAt)
-					require.Equal(t, executionstore.MachineLifecycleStateDeleted, machine.LifecycleState)
-					require.NotNil(t, machine.DeletedAt)
-					return
-				}
 				require.NoError(t, manager.ProvisionMachine(ctx, orgID, machineID))
-				require.Len(t, definition.instances, 1)
-				require.Equal(t, !test.attempted, definition.instances[0].authorized)
+				require.Equal(t, !test.attempted, definition.provider.firstAttempt)
 				machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
 				require.NoError(t, err)
 				require.NotNil(t, machine.ProviderProvisionAttemptedAt)

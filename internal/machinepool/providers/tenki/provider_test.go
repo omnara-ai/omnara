@@ -16,10 +16,10 @@ func TestProvisionStartsDaemonFromBootRuntime(t *testing.T) {
 	a := &fakeAPI{}
 	p := testProvider(a)
 	installationID, machineID := uuid.New(), uuid.New()
-	p.AuthorizeCreation()
 	result, err := p.ProvisionMachine(
 		t.Context(), installationID, machineID, testProvisioning(), "machine-token",
 		map[string]string{"USER_KEY": "value", "my-var": "value"},
+		true,
 	)
 	require.NoError(t, err)
 	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
@@ -61,22 +61,30 @@ func TestProvisionKeepsCustomImageDiskUnlessSet(t *testing.T) {
 		a := &fakeAPI{}
 		p := testProvider(a)
 		installationID, machineID := uuid.New(), uuid.New()
-		p.AuthorizeCreation()
 		config := testProvisioning()
 		config.ProviderOptions = test.options
-		_, err := p.ProvisionMachine(t.Context(), installationID, machineID, config, "token", nil)
+		_, err := p.ProvisionMachine(t.Context(), installationID, machineID, config, "token", nil, true)
 		require.NoError(t, err)
 		require.Equal(t, "ws/custom", a.requests[0].RegistryRef)
 		require.Equal(t, test.disk, a.requests[0].DiskSizeGB)
 	}
 }
 
-func TestValidateMachineEnvironmentLimitsBootEnvSize(t *testing.T) {
-	p := testProvider(&fakeAPI{})
+func TestProvisionRejectsOversizedBootEnvBeforeCreate(t *testing.T) {
+	a := &fakeAPI{}
 	big := strings.Repeat("x", maxRuntimeEnvBytes)
+	installationID, machineID := uuid.New(), uuid.New()
+	_, err := testProvider(a).ProvisionMachine(
+		t.Context(), installationID, machineID, testProvisioning(), "token", map[string]string{"BIG": big}, true,
+	)
+	require.ErrorIs(t, err, providers.ErrPermanent)
+	require.ErrorContains(t, err, "tenki env")
+	require.Empty(t, a.requests)
 	filtered := map[string]string{"lower_Case_1": "x", "my-var": big}
-	require.NoError(t, p.ValidateMachineEnvironment(testProvisioning(), filtered))
-	require.ErrorContains(t, p.ValidateMachineEnvironment(testProvisioning(), map[string]string{"BIG": big}), "tenki env")
+	_, err = testProvider(a).ProvisionMachine(
+		t.Context(), installationID, machineID, testProvisioning(), "token", filtered, true,
+	)
+	require.NoError(t, err)
 }
 
 func TestLostCreateResponseNeverCreatesDuplicate(t *testing.T) {
@@ -84,22 +92,21 @@ func TestLostCreateResponseNeverCreatesDuplicate(t *testing.T) {
 	a := &fakeAPI{createErr: errors.New("lost response")}
 	installationID, machineID := uuid.New(), uuid.New()
 	p := testProvider(a)
-	p.AuthorizeCreation()
-	_, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
+	_, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil, true)
 	require.ErrorContains(t, err, "lost response")
 	a.hide = true
 	for range 3 {
-		_, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
+		_, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil, true)
 		require.ErrorContains(t, err, "outcome is unknown")
 	}
 	p = testProvider(a)
 	for range 3 {
-		_, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
+		_, err = p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil, false)
 		require.ErrorContains(t, err, "outcome is unknown")
 	}
 	require.Equal(t, 1, len(a.requests))
 	a.hide = false
-	result, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil)
+	result, err := p.ProvisionMachine(ctx, installationID, machineID, testProvisioning(), "token", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
 	require.Equal(t, 1, len(a.requests))
@@ -120,12 +127,11 @@ func TestCreateRejectionsArePermanentExceptTooManyRequests(t *testing.T) {
 		a := &fakeAPI{rejectErr: test.err}
 		p := testProvider(a)
 		installationID, machineID := uuid.New(), uuid.New()
-		p.AuthorizeCreation()
-		_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+		_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil, true)
 		require.ErrorIs(t, err, test.err)
 		require.Equal(t, test.permanent, errors.Is(err, providers.ErrPermanent), "%v", test.err)
 		a.rejectErr = nil
-		_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+		_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil, true)
 		if test.recreates {
 			require.NoError(t, err, "%v", test.err)
 			require.Equal(t, 2, len(a.requests))
@@ -136,24 +142,23 @@ func TestCreateRejectionsArePermanentExceptTooManyRequests(t *testing.T) {
 	}
 }
 
-func TestAuthorizedCreationDoesNotDependOnDiscovery(t *testing.T) {
+func TestFirstAttemptCreatesWithoutDiscovery(t *testing.T) {
 	a := &fakeAPI{listErr: errors.New("list unavailable")}
 	p := testProvider(a)
 	installationID, machineID := uuid.New(), uuid.New()
-	p.AuthorizeCreation()
-	result, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+	result, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil, true)
 	require.NoError(t, err)
 	require.Equal(t, a.sessions[0].ID, result.ProviderResourceID)
-	_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+	_, err = p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil, true)
 	require.ErrorContains(t, err, "list unavailable")
 	require.Equal(t, 1, len(a.requests))
 }
 
-func TestCreationRequiresDurableAuthorization(t *testing.T) {
+func TestLaterAttemptNeverCreates(t *testing.T) {
 	a := &fakeAPI{}
 	p := testProvider(a)
 	installationID, machineID := uuid.New(), uuid.New()
-	_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil)
+	_, err := p.ProvisionMachine(t.Context(), installationID, machineID, testProvisioning(), "token", nil, false)
 	require.ErrorContains(t, err, "outcome is unknown")
 	require.Zero(t, len(a.requests))
 }
