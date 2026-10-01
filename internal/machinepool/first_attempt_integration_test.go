@@ -91,7 +91,7 @@ func TestManagerPassesFirstProvisionAttempt(t *testing.T) {
 				}
 				definition := &testProviderDefinition{provider: &captureProvider{provisionResourceID: "owned-session"}}
 				if test.invalidEnv {
-					definition.provider.validateEnvErr = errors.New("invalid env")
+					definition.provider.validateConfigErr = errors.New("invalid env")
 				}
 				manager := Manager{
 					Execution:    store.Execution(),
@@ -100,7 +100,7 @@ func TestManagerPassesFirstProvisionAttempt(t *testing.T) {
 					PublicAPIURL: "https://api.omnara.test/api/v1",
 				}
 				if test.invalidEnv {
-					require.ErrorIs(t, manager.ProvisionMachine(ctx, orgID, machineID), definition.provider.validateEnvErr)
+					require.ErrorIs(t, manager.ProvisionMachine(ctx, orgID, machineID), definition.provider.validateConfigErr)
 					require.Nil(t, definition.provider.provisioning)
 					machine, err := store.Execution().GetMachine(ctx, orgID, machineID)
 					require.NoError(t, err)

@@ -32,8 +32,6 @@ type provider struct {
 	createAttempted bool
 }
 
-var _ providers.EnvironmentValidator = (*provider)(nil)
-
 func (*provider) ProvisioningTimeout() time.Duration { return provisioningTimeout }
 
 func (*provider) PrepareProvisioning(
@@ -122,7 +120,7 @@ func (p *provider) ProvisionMachine(
 	return result, nil
 }
 
-func (p *provider) ValidateMachineEnvironment(
+func (p *provider) ValidateMachineConfig(
 	config executionstore.MachineProvisioningConfig,
 	machineEnv map[string]string,
 ) error {

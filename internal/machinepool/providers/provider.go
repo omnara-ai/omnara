@@ -68,6 +68,9 @@ type Provider interface {
 		context.Context,
 		executionstore.MachineProvisioningConfig,
 	) (executionstore.MachineResourceFacts, error)
+	// ValidateMachineConfig runs with the resolved environment before the
+	// provisioning attempt is recorded; an error permanently fails the machine.
+	ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error
 	// ProvisionMachine must be idempotent by installation and machine identity;
 	// the caller may retry it immediately after any error.
 	// Calling it is the external side-effect boundary and must be recorded durably first.
@@ -96,10 +99,6 @@ type Provider interface {
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		providerResourceID string,
 	) (string, bool, error)
-}
-
-type EnvironmentValidator interface {
-	ValidateMachineEnvironment(executionstore.MachineProvisioningConfig, map[string]string) error
 }
 
 type Definition interface {

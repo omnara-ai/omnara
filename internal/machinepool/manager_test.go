@@ -383,6 +383,10 @@ func (provisionRetryProvider) PrepareProvisioning(
 	return executionstore.MachineResourceFacts{}, errors.New("not implemented")
 }
 
+func (provisionRetryProvider) ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error {
+	return nil
+}
+
 func (provisionRetryProvider) InspectMachine(
 	context.Context,
 	uuid.UUID,

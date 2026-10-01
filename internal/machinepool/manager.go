@@ -176,10 +176,8 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 			err,
 		)
 	}
-	if validator, ok := provider.(providers.EnvironmentValidator); ok {
-		if err := validator.ValidateMachineEnvironment(machineProvisioning, machineEnv); err != nil {
-			return m.cleanupFailedProvision(ctx, machine, "machine_environment_invalid", err.Error(), err)
-		}
+	if err := provider.ValidateMachineConfig(machineProvisioning, machineEnv); err != nil {
+		return m.cleanupFailedProvision(ctx, machine, "machine_config_invalid", err.Error(), err)
 	}
 	providerProvisioning, err := m.Execution.BeginPoolMachineProviderProvisioning(
 		ctx,
