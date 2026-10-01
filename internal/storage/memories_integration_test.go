@@ -155,7 +155,6 @@ func TestMemoryConcurrentWritesAndReplay(t *testing.T) {
 }
 
 func TestMemoryAgentAttachmentsAndListing(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)

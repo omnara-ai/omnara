@@ -56,7 +56,6 @@ func TestCreateAgentConfigWithoutSource(t *testing.T) {
 }
 
 func TestCreateAgentConfigMemoryStoreIDs(t *testing.T) {
-	t.Parallel()
 	ctx := t.Context()
 	pool := openIntegrationDB(t, ctx)
 	seedMigratedDB(t, ctx, pool)
