@@ -26,7 +26,6 @@ const (
 	ModelCallContextCanceled  ModelCallState = "canceled"
 
 	ModelCallRecoveryRetry                  ModelCallRecoveryKind = "retry"
-	ModelCallRecoveryRestoreOutput          ModelCallRecoveryKind = "restore_output"
 	ModelCallRecoveryCompact                ModelCallRecoveryKind = "compact"
 	ModelCallRecoveryCompactOptional        ModelCallRecoveryKind = "compact_optional"
 	ModelCallRecoveryResumeNormal           ModelCallRecoveryKind = "resume_normal"
@@ -52,7 +51,6 @@ type ModelCallContextRecord struct {
 
 	RecoveryCheckpointRetainedBytes *int `json:"recovery_checkpoint_retained_bytes,omitempty"`
 
-	RecoveryMaxOutputTokens   *int                                `json:"recovery_max_output_tokens,omitempty"`
 	OptionalInputTargetTokens *int                                `json:"optional_input_target_tokens,omitempty"`
 	OptionalCompactionOutcome OptionalCompactionOutcome           `json:"optional_compaction_outcome,omitempty"`
 	RequestInputIdentity      *modelenvelope.RequestInputIdentity `json:"request_input_identity,omitempty"`
@@ -166,7 +164,6 @@ type ReplaceCompactionSourceInput struct {
 
 type RecordRecoverableModelCallFailureInput struct {
 	RecoveryCheckpointRetainedBytes *int
-	RecoveryMaxOutputTokens         *int
 	OptionalInputTargetTokens       *int
 	ProjectID                       uuid.UUID
 	AgentID                         uuid.UUID

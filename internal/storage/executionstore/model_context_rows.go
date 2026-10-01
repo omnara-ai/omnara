@@ -15,7 +15,6 @@ func modelCallContextRecordFromSQLC(row dbsqlc.GetModelCallContextRow) ModelCall
 		ParentNormalModelCallContextID:  storeutil.IDFromPtr(row.ParentNormalModelCallContextID),
 		ReplacesCheckpointID:            storeutil.IDFromPtr(row.ReplacesCheckpointID),
 		SourceExcerptBytes:              intFromInt32Ptr(row.SourceExcerptBytes),
-		RecoveryMaxOutputTokens:         intFromInt32Ptr(row.RecoveryMaxOutputTokens),
 		RecoveryCheckpointRetainedBytes: intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
 		OptionalInputTargetTokens:       intFromInt32Ptr(row.OptionalInputTargetTokens),
 		OptionalCompactionOutcome:       OptionalCompactionOutcome(stringFromSQLCText(row.OptionalCompactionOutcome)),

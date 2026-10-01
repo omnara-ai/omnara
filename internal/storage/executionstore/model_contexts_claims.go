@@ -478,7 +478,7 @@ func claimNextModelCallContextTx(
 		return modelCallContextClaimTx{context: latest}, nil
 	}
 	if predecessor.State == ModelCallContextFailed &&
-		(predecessor.RecoveryKind == ModelCallRecoveryRetry || predecessor.RecoveryKind == ModelCallRecoveryRestoreOutput ||
+		(predecessor.RecoveryKind == ModelCallRecoveryRetry ||
 			predecessor.RecoveryKind == ModelCallRecoveryCompactOptional ||
 			predecessor.RecoveryKind == ModelCallRecoveryCompact) {
 		modelRevision, err := getModelCallRevisionForClaim(

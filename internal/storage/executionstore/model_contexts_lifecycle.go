@@ -23,7 +23,7 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if input.RecoveryKind == "" {
 		input.RecoveryKind = ModelCallRecoveryRetry
 	}
-	if input.RecoveryKind != ModelCallRecoveryRetry && input.RecoveryKind != ModelCallRecoveryRestoreOutput {
+	if input.RecoveryKind != ModelCallRecoveryRetry {
 		return ModelCallContextRecord{}, fmt.Errorf(
 			"unsupported retryable model call recovery kind %q",
 			input.RecoveryKind,
@@ -78,14 +78,8 @@ func (s *Store) RecordRetryableModelCallFailure(
 	if err != nil {
 		return ModelCallContextRecord{}, err
 	}
-	if input.RecoveryKind == ModelCallRecoveryRestoreOutput &&
-		(currentContext.OperationKind != ModelCallOperationNormal || recovery.OutputAllowanceRestored) {
-		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
-	}
 	if currentContext.State != ModelCallContextStarted ||
-		(input.RecoveryKind != ModelCallRecoveryRestoreOutput &&
-			input.RecoveryMaxOutputTokens == nil && input.RecoveryCheckpointRetainedBytes == nil &&
-			recovery.RetryCount >= MaxModelCallRetriesPerOperation) {
+		(input.RecoveryCheckpointRetainedBytes == nil && recovery.RetryCount >= MaxModelCallRetriesPerOperation) {
 		return ModelCallContextRecord{}, storeerr.ErrStateTransitionConflict
 	}
 	contextRecord, err := finishModelCallContextTx(ctx, q, finishModelCallContextInput{
@@ -95,7 +89,6 @@ func (s *Store) RecordRetryableModelCallFailure(
 		RuntimeLockID:                   input.RuntimeLockID,
 		ToState:                         ModelCallContextFailed,
 		RecoveryKind:                    input.RecoveryKind,
-		RecoveryMaxOutputTokens:         input.RecoveryMaxOutputTokens,
 		RecoveryCheckpointRetainedBytes: input.RecoveryCheckpointRetainedBytes,
 		APIFormat:                       input.APIFormat,
 		APIVariant:                      input.APIVariant,
@@ -135,15 +128,10 @@ func validateRecoverableModelCallFailure(input RecordRecoverableModelCallFailure
 	if input.RetryDelay < 0 {
 		return errors.New("model call retry delay cannot be negative")
 	}
-	if input.RecoveryKind != ModelCallRecoveryRetry && input.RecoveryKind != ModelCallRecoveryRestoreOutput &&
+	if input.RecoveryKind != ModelCallRecoveryRetry &&
 		input.RecoveryKind != ModelCallRecoveryCompact &&
 		input.RecoveryKind != ModelCallRecoveryCompactOptional {
 		return fmt.Errorf("unsupported model call recovery kind %q", input.RecoveryKind)
-	}
-	if input.RecoveryKind == ModelCallRecoveryRestoreOutput &&
-		(input.APIFormat == "" || input.APIVariant == "" || input.ErrorKind != modelprotocol.ErrorKindTransient ||
-			input.RecoveryMaxOutputTokens != nil || input.RecoveryCheckpointRetainedBytes != nil) {
-		return errors.New("output restoration requires provider no-progress evidence without other recovery actions")
 	}
 	if (input.RecoveryKind == ModelCallRecoveryCompactOptional) != (input.OptionalInputTargetTokens != nil) {
 		return errors.New("optional compaction requires an input target, and other recovery kinds cannot set it")
@@ -190,7 +178,6 @@ func validateModelCallFailureEvidence(
 type finishModelCallContextInput struct {
 	RecoveryCheckpointRetainedBytes *int
 	RequestInputIdentity            *modelenvelope.RequestInputIdentity
-	RecoveryMaxOutputTokens         *int
 	OptionalInputTargetTokens       *int
 	OptionalCompactionOutcome       OptionalCompactionOutcome
 	ProjectID                       uuid.UUID
@@ -249,10 +236,6 @@ func finishModelCallContextWithAuthorityTx(
 			return ModelCallContextRecord{}, err
 		}
 	}
-	if input.RecoveryMaxOutputTokens != nil &&
-		(*input.RecoveryMaxOutputTokens <= 0 || int64(*input.RecoveryMaxOutputTokens) > 2147483647) {
-		return ModelCallContextRecord{}, errors.New("recovery output allowance must be a positive integer")
-	}
 	usage := usageColumnsFromModelUsage(input.Usage)
 	if err := modelenvelope.ValidateProviderReportedCostUSD(input.ProviderReportedCostUSD); err != nil {
 		return ModelCallContextRecord{}, fmt.Errorf("provider-reported cost: %w", err)
@@ -270,7 +253,6 @@ func finishModelCallContextWithAuthorityTx(
 		retryDelayMicroseconds = &delay
 	}
 	params := dbsqlc.FinishModelCallContextParams{
-		RecoveryMaxOutputTokens:             int32FromIntPtr(input.RecoveryMaxOutputTokens),
 		RecoveryCheckpointRetainedBytes:     int32FromIntPtr(input.RecoveryCheckpointRetainedBytes),
 		OptionalInputTargetTokens:           int32FromIntPtr(input.OptionalInputTargetTokens),
 		OptionalCompactionOutcome:           storeutil.TextFromEmpty(string(input.OptionalCompactionOutcome)),

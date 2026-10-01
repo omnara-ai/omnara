@@ -4,7 +4,6 @@ ALTER TABLE model_call_contexts
     ADD COLUMN parent_normal_model_call_context_id uuid,
     ADD COLUMN replaces_checkpoint_id uuid,
     ADD COLUMN source_excerpt_bytes integer,
-    ADD COLUMN recovery_max_output_tokens integer,
     ADD COLUMN recovery_checkpoint_retained_bytes integer,
     ADD COLUMN optional_input_target_tokens integer,
     ADD COLUMN optional_compaction_outcome text,
@@ -35,10 +34,6 @@ BEGIN
     WHERE conrelid = 'model_call_contexts'::regclass AND contype = 'c'
       AND pg_get_constraintdef(oid) LIKE '%reduce_compaction_source%';
     EXECUTE format('ALTER TABLE model_call_contexts DROP CONSTRAINT %I', existing_name);
-    SELECT conname INTO STRICT existing_name FROM pg_constraint
-    WHERE conrelid = 'model_call_contexts'::regclass AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%retry_at%';
-    EXECUTE format('ALTER TABLE model_call_contexts DROP CONSTRAINT %I', existing_name);
 END;
 $$;
 -- +goose StatementEnd
@@ -47,19 +42,9 @@ ALTER TABLE model_call_contexts
     ADD CONSTRAINT model_call_contexts_recovery CHECK (
         recovery_kind IS NULL OR (
             state = 'failed' AND (
-                (operation_kind = 'normal' AND recovery_kind IN ('retry', 'restore_output', 'compact', 'compact_optional')) OR
+                (operation_kind = 'normal' AND recovery_kind IN ('retry', 'compact', 'compact_optional')) OR
                 (operation_kind = 'compaction' AND recovery_kind IN ('retry', 'reduce_compaction_source', 'resume_normal'))
             )
-        )
-    ),
-    ADD CONSTRAINT model_call_contexts_retry_time CHECK (
-        (coalesce(recovery_kind IN ('retry', 'restore_output'), false)) = (retry_at IS NOT NULL)
-    ),
-    ADD CONSTRAINT model_call_contexts_restore_output CHECK (
-        recovery_kind IS DISTINCT FROM 'restore_output' OR (
-            operation_kind = 'normal' AND error_kind = 'transient' AND api_format <> '' AND api_variant <> ''
-            AND recovery_max_output_tokens IS NULL
-            AND recovery_checkpoint_retained_bytes IS NULL
         )
     ),
     ADD CONSTRAINT model_call_contexts_parent FOREIGN KEY (agent_id, parent_normal_model_call_context_id)
@@ -74,12 +59,6 @@ ALTER TABLE model_call_contexts
         REFERENCES context_checkpoints(agent_id, id),
     ADD CONSTRAINT model_call_contexts_replaced_checkpoint_operation CHECK (
         replaces_checkpoint_id IS NULL OR operation_kind = 'compaction'
-    ),
-    ADD CONSTRAINT model_call_contexts_recovery_output CHECK (
-        recovery_max_output_tokens IS NULL OR (
-            operation_kind = 'normal' AND state = 'failed' AND recovery_kind IS NOT DISTINCT FROM 'retry'
-            AND recovery_max_output_tokens > 0
-        )
     ),
     ADD CONSTRAINT model_call_contexts_recovery_checkpoint_projection CHECK (
         recovery_checkpoint_retained_bytes IS NULL OR (
@@ -219,22 +198,6 @@ $$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE FUNCTION model_call_productive_frontier(p_context_id uuid)
-RETURNS bigint LANGUAGE sql STABLE AS $$
-SELECT coalesce(max(event.sequence), 0)::bigint
-FROM model_call_contexts current
-JOIN agent_events event ON event.agent_id = current.agent_id AND event.sequence <= current.input_event_sequence
-LEFT JOIN model_outputs output ON output.agent_id = event.agent_id AND output.id = event.model_output_id
-LEFT JOIN model_call_contexts producer ON producer.agent_id = output.agent_id AND producer.id = output.model_call_context_id
-WHERE current.id = p_context_id
-  AND (event.event_kind IN ('agent_input', 'tool_result')
-    OR (event.event_kind = 'model_output' AND producer.operation_kind = 'normal' AND producer.state = 'succeeded'
-      AND (output.stop_reason NOT IN ('max_tokens', 'error')
-        OR EXISTS (SELECT 1 FROM tool_calls call WHERE call.agent_id = output.agent_id AND call.model_output_id = output.id))))
-$$;
--- +goose StatementEnd
-
--- +goose StatementBegin
 CREATE OR REPLACE FUNCTION enforce_model_call_context_transition()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -363,26 +326,6 @@ BEGIN
             RAISE EXCEPTION 'recovery checkpoint retained bytes must decrease' USING ERRCODE = '23514';
         END IF;
     END IF;
-    IF NEW.recovery_kind = 'restore_output' AND EXISTS (
-        SELECT 1 FROM model_call_contexts prior
-        WHERE prior.agent_id = NEW.agent_id AND prior.id <> NEW.id
-          AND prior.agent_config_id = NEW.agent_config_id
-          AND prior.configured_model_revision_id = NEW.configured_model_revision_id
-          AND prior.recovery_kind = 'restore_output'
-          AND prior.input_event_sequence >= model_call_productive_frontier(NEW.id)
-    ) THEN
-        RAISE EXCEPTION 'output allowance can only be restored once per productive frontier'
-            USING ERRCODE = '23514';
-    END IF;
-    IF NEW.recovery_max_output_tokens IS NOT NULL AND EXISTS (
-        SELECT 1 FROM model_call_contexts prior
-        WHERE prior.agent_id = NEW.agent_id AND prior.operation_kind = 'normal'
-          AND prior.input_event_sequence = NEW.input_event_sequence
-          AND prior.configured_model_revision_id = NEW.configured_model_revision_id
-          AND prior.id <> NEW.id AND prior.recovery_max_output_tokens <= NEW.recovery_max_output_tokens
-    ) THEN
-        RAISE EXCEPTION 'recovery output allowance must decrease' USING ERRCODE = '23514';
-    END IF;
     RETURN NEW;
 END;
 $$;
@@ -396,7 +339,6 @@ JOIN model_call_contexts failure ON failure.agent_id = current.agent_id
     AND failure.operation_kind = current.operation_kind
 WHERE current.id = p_context_id
   AND failure.state = 'failed' AND failure.recovery_kind = 'retry'
-  AND failure.recovery_max_output_tokens IS NULL
   AND failure.recovery_checkpoint_retained_bytes IS NULL
   AND failure.created_at <= current.created_at
   AND ((current.operation_kind = 'normal' AND failure.input_event_sequence = current.input_event_sequence)
@@ -453,7 +395,7 @@ retry AS (
      AND retry_context.agent_id = p_agent_id
      AND retry_context.id = context.model_call_context_id
      AND retry_context.state = 'failed'
-     AND retry_context.recovery_kind IN ('retry', 'restore_output')
+     AND retry_context.recovery_kind = 'retry'
      AND retry_context.retry_at IS NOT NULL
     WHERE NOT context.has_later_semantic_event
     LIMIT 1

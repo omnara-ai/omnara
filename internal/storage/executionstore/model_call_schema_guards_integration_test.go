@@ -182,17 +182,6 @@ WHERE id = $1
 	)
 }
 
-func TestModelCallContextOutputRecoveryRequiresRetryKind(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	fixture, _, claim := newStartedNormalModelCallTestFixture(t, ctx, "output_recovery_retry_guard")
-	_, err := fixture.Store.pool.Exec(ctx, `UPDATE model_call_contexts
-SET state='failed',recovery_kind=NULL,recovery_max_output_tokens=1024,
-error_kind='context_window',error_message='provider context overflow',completed_at=statement_timestamp()
-WHERE id=$1`, claim.Context.ID)
-	assertPgConstraint(t, err, "23514", "model_call_contexts_recovery_output")
-}
-
 func TestModelCallContextIdentityIndexesRejectDuplicateLogicalContexts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

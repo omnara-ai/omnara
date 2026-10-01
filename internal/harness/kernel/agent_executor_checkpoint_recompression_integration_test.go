@@ -52,7 +52,6 @@ func seedCheckpointBeforeCurrentAttempt(
 type checkpointRecompressionKernelModel struct {
 	*sequenceKernelModel
 	originalSummary string
-	outputOnly      bool
 }
 
 func (m checkpointRecompressionKernelModel) Respond(
@@ -62,12 +61,8 @@ func (m checkpointRecompressionKernelModel) Respond(
 	isSummary := isCompactionRequestBundle(prepared.Bundle)
 	reject := isSummary && len(request.ProviderRequest) > 12_000
 	if !isSummary {
-		if m.outputOnly {
-			reject = prepared.Policy.MaxOutputTokens > 512
-		} else {
-			reject = prepared.Bundle.ContextCheckpoint != nil &&
-				prepared.Bundle.ContextCheckpoint.Summary == m.originalSummary
-		}
+		reject = prepared.Bundle.ContextCheckpoint != nil &&
+			prepared.Bundle.ContextCheckpoint.Summary == m.originalSummary
 	}
 	if reject {
 		m.errs = append([]error{model.ProviderError{
@@ -110,7 +105,7 @@ func TestAgentExecutorRecompressesOversizedCheckpointWithoutConsumingCurrentRequ
 	require.NotNil(t, final.Bundle.ContextCheckpoint)
 	require.Equal(t, prior.SummarizedThroughEventSequence, final.Bundle.ContextCheckpoint.SummarizedThroughEventSequence)
 	require.Contains(t, final.Bundle.ContextCheckpoint.Summary, "omitted")
-	require.Equal(t, 1024, final.Policy.MaxOutputTokens, "recompressed input must not inherit the old one-token cap")
+	require.Equal(t, 1024, final.Policy.MaxOutputTokens)
 	var fullSummaryAttempt, excerptAttempt bool
 	for _, sent := range client.responded {
 		if isCompactionRequestBundle(sent.Bundle) {
@@ -130,27 +125,4 @@ func TestAgentExecutorRecompressesOversizedCheckpointWithoutConsumingCurrentRequ
 		WHERE agent_id=$1 AND replaces_checkpoint_id=$2 AND state='succeeded'`,
 		work.AgentID, prior.ID).Scan(&replacementCount))
 	require.Equal(t, 1, replacementCount)
-}
-
-func TestAgentExecutorReducesOutputBeforeRecompressingSmallCheckpoint(t *testing.T) {
-	ctx := context.Background()
-	fixture, work, prior := seedCheckpointBeforeCurrentAttempt(t, ctx, "A small existing checkpoint.", "Continue.")
-	client := checkpointRecompressionKernelModel{
-		sequenceKernelModel: &sequenceKernelModel{
-			providerModelSlug: "soft-context", preparedInputTokenEstimate: 500,
-			capabilities: model.Capabilities{ContextWindowTokens: 10_000, MaxOutputTokens: new(1024)},
-		},
-		outputOnly: true,
-	}
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(3*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Len(t, client.responded, 2)
-	for _, sent := range client.responded {
-		require.False(t, isCompactionRequestBundle(sent.Bundle))
-		require.Equal(t, prior.Summary, sent.Bundle.ContextCheckpoint.Summary)
-	}
-	require.Equal(t, 512, client.responded[1].Policy.MaxOutputTokens)
-	assertNoTerminalContextErrors(t, ctx, fixture, work.AgentID)
 }

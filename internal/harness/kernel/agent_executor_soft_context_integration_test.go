@@ -195,106 +195,27 @@ func TestAgentExecutorFailedOptionalThenRealOverflowClaimsRequiredCompaction(t *
 	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 }
 
-type minimumOutputKernelModel struct {
-	*sequenceKernelModel
-	minimum int
-}
-
-func (m minimumOutputKernelModel) OutputTokenLimits() (model.OutputTokenLimits, error) {
-	return model.OutputTokenLimits{Minimum: m.minimum}, nil
-}
-
-func TestAgentExecutorOutputRecoveryHonorsMinimumAndBoundsFailures(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/output-recovery", fixture.Now,
-		kernelConfiguredModelOptions{ContextWindowTokens: new(128_000), MaxOutputTokens: new(32_768)})
-	client := minimumOutputKernelModel{
-		sequenceKernelModel: &sequenceKernelModel{
-			providerModelSlug: "output-recovery", preparedInputTokenEstimate: 500,
-			capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(32_768)},
-		},
-		minimum: 2_049,
-	}
-	for range 5 {
-		client.errs = append(client.errs, model.ProviderError{
-			Kind: model.ErrorKindContextWindow, Source: "test", Code: "context_length", Message: "Input still too large",
+func TestAgentExecutorOverflowWithoutCompactableHistoryEndsAfterOneCall(t *testing.T) {
+	for _, kind := range []model.ErrorKind{model.ErrorKindContextWindow, model.ErrorKindPayloadTooLarge} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newKernelFixture(t, ctx)
+			agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/output-recovery", fixture.Now,
+				kernelConfiguredModelOptions{ContextWindowTokens: new(128_000), MaxOutputTokens: new(32_768)})
+			client := &sequenceKernelModel{
+				providerModelSlug: "output-recovery", preparedInputTokenEstimate: 500,
+				capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(32_768)},
+				errs: []error{model.ProviderError{
+					Kind: kind, Source: "test", Code: "request_capacity", Message: "Request exceeds capacity",
+				}},
+			}
+			work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "A request with no old source.", fixture.Now)
+			executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
+			require.NoError(t, executor.ExecuteModelWork(ctx, work))
+			require.Equal(t, 1, client.respondedCount())
+			require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 		})
 	}
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "Try this request.", fixture.Now)
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
-	for i := range 5 {
-		require.NoError(t, executor.ExecuteModelWork(ctx, work))
-		if i < 4 {
-			work = continueTurnOnNewLeaseForKernelTest(
-				t, ctx, fixture, work, fixture.Now.Add(time.Duration(i+1)*time.Second),
-			)
-		}
-	}
-	require.Equal(t, 5, client.respondedCount())
-	for i, allowance := range []int{32_768, 16_384, 8_192, 4_096, 2_049} {
-		require.Equal(t, allowance, client.responded[i].Policy.MaxOutputTokens)
-	}
-	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
-}
-
-func TestAgentExecutorReducedOutputWithoutProgressUsesBoundedRetry(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/output-recovery", fixture.Now,
-		kernelConfiguredModelOptions{ContextWindowTokens: new(128_000), MaxOutputTokens: new(32_768)})
-	client := &sequenceKernelModel{
-		providerModelSlug: "output-recovery", preparedInputTokenEstimate: 500,
-		capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(32_768)},
-		errs: []error{model.ProviderError{
-			Kind: model.ErrorKindContextWindow, Source: "test", Code: "context_length",
-			Message: "Input plus output exceeds capacity",
-		}},
-	}
-	for range 10 {
-		client.responses = append(client.responses, model.Response{
-			ID: uuid.NewString(), StopReason: model.StopReasonMaxTokens,
-		})
-	}
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "Produce useful work.", fixture.Now)
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client),
-		ModelRetryDelay: func(time.Duration) time.Duration { return 0 }}
-	for i := range 11 {
-		require.NoError(t, executor.ExecuteModelWork(ctx, work))
-		if i < 10 {
-			work = continueTurnOnNewLeaseForKernelTest(
-				t, ctx, fixture, work, fixture.Now.Add(time.Duration(i+1)*time.Second),
-			)
-		}
-	}
-	require.Equal(t, 11, client.respondedCount())
-	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
-	var successfulCutoffs, errorOutputs int
-	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE stop_reason='max_tokens'),
-		count(*) FILTER (WHERE stop_reason='error') FROM model_outputs WHERE agent_id=$1`, agentID).Scan(
-		&successfulCutoffs, &errorOutputs,
-	))
-	require.Zero(t, successfulCutoffs, "empty output must not create new frontiers and reset retries")
-	require.Equal(t, 1, errorOutputs)
-}
-
-func TestAgentExecutorPayloadOverflowDoesNotReduceOutputAllowance(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/output-recovery", fixture.Now,
-		kernelConfiguredModelOptions{ContextWindowTokens: new(128_000), MaxOutputTokens: new(32_768)})
-	client := &sequenceKernelModel{
-		providerModelSlug: "output-recovery", preparedInputTokenEstimate: 500,
-		capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(32_768)},
-		errs: []error{model.ProviderError{
-			Kind: model.ErrorKindPayloadTooLarge, Source: "test", Code: "payload_size", Message: "Request body too large",
-		}},
-	}
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "A request with no old source.", fixture.Now)
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 1, client.respondedCount())
-	require.Zero(t, pendingModelWork(t, ctx, fixture, agentID))
 }
 
 type oversizedClosedHistoryKernelModel struct {
@@ -360,41 +281,6 @@ func TestAgentExecutorGenuinelyOversizedClosedMessageRecoversWithMarkedExcerpt(t
 	require.NoError(t, fixture.Pool.QueryRow(ctx, `SELECT count(*) FROM content_blocks
 		WHERE agent_id=$1 AND text_content=$2`, agentID, original).Scan(&originalBlocks))
 	require.Equal(t, 1, originalBlocks)
-	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
-}
-
-func TestAgentExecutorActualOverflowReducesOutputAndCarriesAcrossMaxTokens(t *testing.T) {
-	ctx := context.Background()
-	fixture := newKernelFixture(t, ctx)
-	agentID, userID := fixture.createAgentWithModelOptions(t, ctx, "openai/output-recovery", fixture.Now,
-		kernelConfiguredModelOptions{ContextWindowTokens: new(128_000), MaxOutputTokens: new(32_768)})
-	client := &sequenceKernelModel{
-		providerModelSlug: "output-recovery", preparedInputTokenEstimate: 500,
-		capabilities: model.Capabilities{ContextWindowTokens: 128_000, MaxOutputTokens: new(32_768)},
-		errs: []error{model.ProviderError{
-			Kind: model.ErrorKindContextWindow, Source: "test", Code: "context_length",
-			Message: "Input plus output exceeds provider capacity",
-		}},
-		responses: []model.Response{
-			{ID: "partial-recovered-output", StopReason: model.StopReasonMaxTokens,
-				Content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "Useful partial work."}}},
-			completeProgressiveSummaryResponse("Completed the work."),
-		},
-	}
-	work := fixture.admitContentInputTurn(t, ctx, agentID, userID, "Complete this work.", fixture.Now)
-	executor := AgentExecutor{Store: fixture.Store, ModelResolver: liveTestModelResolver(fixture.Store, client)}
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 1, client.respondedCount())
-	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 2, client.respondedCount())
-	work = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, work, fixture.Now.Add(2*time.Second))
-	require.NoError(t, executor.ExecuteModelWork(ctx, work))
-	require.Equal(t, 3, client.respondedCount())
-	require.Equal(t, 32_768, client.responded[0].Policy.MaxOutputTokens)
-	require.Equal(t, 16_384, client.responded[1].Policy.MaxOutputTokens)
-	require.Equal(t, 16_384, client.responded[2].Policy.MaxOutputTokens,
-		"max_tokens continuation must not reset the rejected output allowance")
 	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 }
 

@@ -35,17 +35,14 @@ const (
 )
 
 type modelStep struct {
-	State                   modelStepState
-	Context                 executionstore.ModelCallContextRecord
-	Bundle                  modelcontext.Bundle
-	Envelope                modelenvelope.ResponseEnvelope
-	Response                model.Response
-	Resolved                model.ResolvedClient
-	StreamedToolCallIDs     map[string]uuid.UUID
-	RequestInputIdentity    *modelenvelope.RequestInputIdentity
-	MaxOutputTokens         int
-	ReducedOutputAllowance  bool
-	OutputAllowanceRestored bool
+	State                modelStepState
+	Context              executionstore.ModelCallContextRecord
+	Bundle               modelcontext.Bundle
+	Envelope             modelenvelope.ResponseEnvelope
+	Response             model.Response
+	Resolved             model.ResolvedClient
+	StreamedToolCallIDs  map[string]uuid.UUID
+	RequestInputIdentity *modelenvelope.RequestInputIdentity
 }
 
 func (e AgentExecutor) executeModelStep(
@@ -110,8 +107,7 @@ func (e AgentExecutor) executeModelStep(
 		}
 		state := modelStepWaiting
 		if claim.Context.State != executionstore.ModelCallContextStarted &&
-			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry &&
-			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRestoreOutput {
+			claim.Context.RecoveryKind != executionstore.ModelCallRecoveryRetry {
 			state = modelStepDone
 		}
 		return modelStep{State: state, Context: claim.Context}, nil
@@ -268,21 +264,13 @@ func (e AgentExecutor) executeModelStep(
 			Code: preSendErrorCodePrepareModelRequestFailed, Message: "Omnara could not determine the model input target.",
 		})
 	}
-	configuredOutputAllowance := policy.MaxOutputTokens
-	if recovery.RecoveryMaxOutputTokens != nil && !recovery.OutputAllowanceRestored {
-		if policy.MaxOutputTokens == 0 || *recovery.RecoveryMaxOutputTokens < policy.MaxOutputTokens {
-			policy.MaxOutputTokens = *recovery.RecoveryMaxOutputTokens
-		}
-	}
 	prepared, err := model.PrepareForSend(
 		ctx,
 		client,
 		model.PrepareForSendInput{
-			Context:                 bundle,
-			Policy:                  policy,
-			ErrorSource:             modelErrorSourceForClient(client),
-			AllowUncertainInput:     true,
-			PreserveOutputAllowance: recovery.OutputAllowanceRestored,
+			Context:     bundle,
+			Policy:      policy,
+			ErrorSource: modelErrorSourceForClient(client),
 		},
 	)
 	if err != nil {
@@ -343,7 +331,6 @@ func (e AgentExecutor) executeModelStep(
 			policy,
 			err,
 			response,
-			prepared.MaxOutputTokens,
 		)
 	}
 	envelope, err := model.NewResponseEnvelopeForStorage(
@@ -370,16 +357,13 @@ func (e AgentExecutor) executeModelStep(
 		}
 	}
 	step := modelStep{
-		Context:                 claim.Context,
-		Bundle:                  bundle,
-		Envelope:                envelope,
-		Response:                response,
-		Resolved:                resolved,
-		StreamedToolCallIDs:     streamSink.ToolCallIDs(),
-		RequestInputIdentity:    prepared.RequestInputIdentity,
-		MaxOutputTokens:         prepared.MaxOutputTokens,
-		ReducedOutputAllowance:  prepared.MaxOutputTokens > 0 && configuredOutputAllowance > prepared.MaxOutputTokens,
-		OutputAllowanceRestored: recovery.OutputAllowanceRestored,
+		Context:              claim.Context,
+		Bundle:               bundle,
+		Envelope:             envelope,
+		Response:             response,
+		Resolved:             resolved,
+		StreamedToolCallIDs:  streamSink.ToolCallIDs(),
+		RequestInputIdentity: prepared.RequestInputIdentity,
 	}
 	return e.finishModelResponse(ctx, input, step)
 }
@@ -394,23 +378,11 @@ func (e AgentExecutor) finishModelResponse(
 	calls := model.ToolCallsFromEnvelope(step.Envelope)
 	reason := step.Envelope.Normalized.StopReason
 	cause := invalidModelResponse(errorSource, reason, calls)
-	if cause == nil && (step.ReducedOutputAllowance || step.OutputAllowanceRestored) &&
-		reason == model.StopReasonMaxTokens && len(calls) == 0 {
-		visibleProgress := false
-		for _, part := range step.Envelope.Normalized.Content {
-			if part.Type == modelenvelope.ResponsePartTypeText && strings.TrimSpace(part.Text) != "" {
-				visibleProgress = true
-				break
-			}
-		}
-		if !visibleProgress {
-			cause = model.ProviderError{
-				Kind: model.ErrorKindTransient, Source: errorSource, Code: "output_recovery_no_progress",
-				Message: "The model exhausted its output allowance without producing text or a tool call.",
-			}
-			if !step.OutputAllowanceRestored {
-				return e.restoreOutputAllowance(ctx, input, step, cause)
-			}
+	if cause == nil && reason == model.StopReasonMaxTokens && len(calls) == 0 &&
+		strings.TrimSpace(step.Envelope.Text()) == "" {
+		cause = model.ProviderError{
+			Kind: model.ErrorKindTransient, Source: errorSource, Code: "model_output_no_progress",
+			Message: "The model exhausted its output allowance without producing text or a tool call.",
 		}
 	}
 	if cause != nil {
@@ -423,7 +395,6 @@ func (e AgentExecutor) finishModelResponse(
 			true,
 			step.Response,
 			modelretry.Attempt{Number: step.Context.AttemptNumber},
-			step.MaxOutputTokens,
 		)
 	}
 	if len(calls) > 0 {
@@ -475,7 +446,6 @@ func (e AgentExecutor) recordNormalFailure(
 		providerRequestStarted,
 		response,
 		modelretry.Attempt{Number: claim.Context.AttemptNumber},
-		0,
 	)
 }
 
@@ -487,7 +457,6 @@ func (e AgentExecutor) recordNormalProviderFailure(
 	policy model.RequestPolicy,
 	cause error,
 	response model.Response,
-	maxOutputTokens int,
 ) (modelStep, error) {
 	return e.recordNormalFailureForAttempt(
 		ctx,
@@ -502,7 +471,6 @@ func (e AgentExecutor) recordNormalProviderFailure(
 			ProviderReplayCutoffCanAdvance: policy.ProviderReplayCutoffEventSequence <
 				claim.Context.InputEventSequence,
 		},
-		maxOutputTokens,
 	)
 }
 
@@ -515,7 +483,6 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 	providerRequestStarted bool,
 	response model.Response,
 	attempt modelretry.Attempt,
-	maxOutputTokens int,
 ) (modelStep, error) {
 	if trigger, ok := providerInputFailureTrigger(cause); ok {
 		return e.enterContextMaintenance(
@@ -526,7 +493,6 @@ func (e AgentExecutor) recordNormalFailureForAttempt(
 			trigger,
 			providerRequestStarted,
 			response,
-			maxOutputTokens,
 		)
 	}
 	recovery, err := e.Store.Execution().GetModelCallRecoveryState(

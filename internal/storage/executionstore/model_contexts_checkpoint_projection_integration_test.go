@@ -79,7 +79,6 @@ func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *tes
 	ctx := t.Context()
 	fixture, checkpoint, current := checkpointProjectionFixture(t, "projection_restart")
 	failure := checkpointProjectionFailure(fixture, current, 512)
-	failure.RecoveryMaxOutputTokens = new(32)
 	finished, err := fixture.Store.Execution().RecordRetryableModelCallFailure(ctx, failure)
 	require.NoError(t, err)
 	require.Equal(t, new(512), finished.RecoveryCheckpointRetainedBytes)
@@ -102,7 +101,6 @@ func TestCheckpointProjectionSurvivesRestartAndDecreasesThroughMarkerOnly(t *tes
 		require.NoError(t, err)
 		require.Equal(t, checkpoint.ID, state.RecoveryCheckpointID)
 		require.Equal(t, failure.RecoveryCheckpointRetainedBytes, state.RecoveryCheckpointRetainedBytes)
-		require.Equal(t, new(32), state.RecoveryMaxOutputTokens)
 		require.Zero(t, state.RetryCount)
 		_, err = fixture.Store.Execution().RecordRetryableModelCallFailure(ctx,
 			checkpointProjectionFailure(fixture, current, *state.RecoveryCheckpointRetainedBytes))

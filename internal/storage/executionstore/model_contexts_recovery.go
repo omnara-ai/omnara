@@ -11,7 +11,6 @@ import (
 )
 
 type ModelCallRecoveryState struct {
-	OutputAllowanceRestored               bool
 	RecoveryCheckpointID                  uuid.UUID
 	RecoveryCheckpointRetainedBytes       *int
 	CheckpointRecompressionAttempted      bool
@@ -24,7 +23,6 @@ type ModelCallRecoveryState struct {
 	LatestObservedNormalInputTokens       int
 	MinimumObservedNormalInputTokens      int
 	HasPriorNormalAttempt                 bool
-	RecoveryMaxOutputTokens               *int
 	CheckpointNeedsNormalAttempt          bool
 }
 
@@ -49,8 +47,7 @@ func getModelCallRecoveryStateTx(
 	if err != nil {
 		return ModelCallRecoveryState{}, fmt.Errorf("load model call recovery state: %w", err)
 	}
-	state := ModelCallRecoveryState{
-		OutputAllowanceRestored:               row.OutputAllowanceRestored,
+	return ModelCallRecoveryState{
 		RecoveryCheckpointID:                  storeutil.IDFromPtr(row.RecoveryCheckpointID),
 		RecoveryCheckpointRetainedBytes:       intFromInt32Ptr(row.RecoveryCheckpointRetainedBytes),
 		CheckpointRecompressionAttempted:      row.CheckpointRecompressionAttempted,
@@ -64,10 +61,5 @@ func getModelCallRecoveryStateTx(
 		MinimumObservedNormalInputTokens:      int(row.MinimumObservedNormalInputTokens),
 		HasPriorNormalAttempt:                 row.HasPriorNormalAttempt,
 		CheckpointNeedsNormalAttempt:          row.CheckpointNeedsNormalAttempt,
-	}
-	if row.RecoveryMaxOutputTokens > 0 {
-		limit := int(row.RecoveryMaxOutputTokens)
-		state.RecoveryMaxOutputTokens = &limit
-	}
-	return state, nil
+	}, nil
 }

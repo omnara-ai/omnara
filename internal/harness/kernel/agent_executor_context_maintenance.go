@@ -119,7 +119,6 @@ func (e AgentExecutor) enterContextMaintenance(
 	trigger contextMaintenanceTrigger,
 	providerRequestStarted bool,
 	response model.Response,
-	maxOutputTokens int,
 ) (modelStep, error) {
 	plan, ok, err := e.planCompactionForContext(
 		ctx,
@@ -135,20 +134,13 @@ func (e AgentExecutor) enterContextMaintenance(
 			ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
 		)
 	}
-	recovery, err := e.Store.Execution().GetModelCallRecoveryState(
-		ctx, input.ProjectID, input.AgentID, claim.Context.ID,
-	)
-	if err != nil {
-		return modelStep{}, err
-	}
-	if trigger.Kind == model.ErrorKindContextWindow && !recovery.OutputAllowanceRestored {
-		if step, reduced, reduceErr := e.retryWithSmallerOutputAllowance(
-			ctx, input, claim, resolved, trigger, response, maxOutputTokens,
-		); reduceErr != nil || reduced {
-			return step, reduceErr
-		}
-	}
 	if ok {
+		recovery, err := e.Store.Execution().GetModelCallRecoveryState(
+			ctx, input.ProjectID, input.AgentID, claim.Context.ID,
+		)
+		if err != nil {
+			return modelStep{}, err
+		}
 		if !recovery.CheckpointRecompressionAttempted && recovery.RecoveryCheckpointRetainedBytes == nil {
 			return e.enterPlannedContextMaintenance(
 				ctx, input, claim, resolved, trigger, providerRequestStarted, response, plan,
@@ -178,32 +170,6 @@ func (e AgentExecutor) enterContextMaintenance(
 	return e.recordTerminalContextMaintenanceFailure(
 		ctx, input, claim, resolved, trigger, providerRequestStarted, response,
 	)
-}
-
-func (e AgentExecutor) restoreOutputAllowance(
-	ctx context.Context,
-	input ModelWorkExecution,
-	step modelStep,
-	cause error,
-) (modelStep, error) {
-	evidence := modelretry.EvidenceFor(cause)
-	failure := collectNormalCallFailureEvidence(step.Resolved, evidence.RequestID, true, step.Response)
-	record, err := e.Store.Execution().RecordRetryableModelCallFailure(ctx,
-		executionstore.RecordRecoverableModelCallFailureInput{
-			ProjectID: input.ProjectID, AgentID: input.AgentID,
-			ModelCallContextID: step.Context.ID, RuntimeLockID: input.RuntimeLockID,
-			RecoveryKind: executionstore.ModelCallRecoveryRestoreOutput,
-			APIFormat:    failure.APIFormat, APIVariant: failure.APIVariant,
-			ProviderRequestID: failure.ProviderRequestID, ProviderResponseID: failure.ProviderResponseID,
-			ErrorKind: evidence.Kind, ErrorCode: evidence.Code, ErrorMessage: evidence.Message,
-			ErrorDetails: evidence.Details, Usage: failure.Usage,
-			ProviderReportedCostUSD: failure.ProviderReportedCostUSD, ProviderMetadata: failure.ProviderMetadata,
-		},
-	)
-	if err != nil {
-		return modelStep{}, errors.Join(cause, err)
-	}
-	return modelStep{State: modelStepWaiting, Context: record, Resolved: step.Resolved}, nil
 }
 
 func (e AgentExecutor) retryWithCheckpointExcerpt(
@@ -344,46 +310,6 @@ func shouldAttemptOptionalCompaction(
 	return !recovery.LastOptionalCompactionNeedsHeadroom ||
 		(recovery.MinimumObservedNormalInputTokens > 0 &&
 			recovery.MinimumObservedNormalInputTokens <= workingInputTarget*optionalCompactionRearmHeadroomPercent/100)
-}
-
-func (e AgentExecutor) retryWithSmallerOutputAllowance(
-	ctx context.Context,
-	input ModelWorkExecution,
-	claim executionstore.ModelCallClaim,
-	resolved model.ResolvedClient,
-	trigger contextMaintenanceTrigger,
-	response model.Response,
-	maxOutputTokens int,
-) (modelStep, bool, error) {
-	limits, err := model.OutputTokenLimitsForClient(resolved.Client, modelErrorSourceForClient(resolved.Client))
-	if err != nil {
-		return modelStep{}, false, err
-	}
-	minimum := max(1, limits.Minimum)
-	if maxOutputTokens <= minimum {
-		return modelStep{}, false, nil
-	}
-	nextAllowance := max(minimum, maxOutputTokens/2)
-	evidence := collectNormalCallFailureEvidence(resolved, trigger.RequestID, true, response)
-	contextRecord, err := e.Store.Execution().RecordRetryableModelCallFailure(
-		ctx,
-		executionstore.RecordRecoverableModelCallFailureInput{
-			ProjectID: input.ProjectID, AgentID: input.AgentID,
-			ModelCallContextID: claim.Context.ID, RuntimeLockID: input.RuntimeLockID,
-			RecoveryKind: executionstore.ModelCallRecoveryRetry,
-			APIFormat:    evidence.APIFormat, APIVariant: evidence.APIVariant,
-			ProviderRequestID: evidence.ProviderRequestID, ProviderResponseID: evidence.ProviderResponseID,
-			ErrorKind: trigger.Kind, ErrorCode: trigger.Code,
-			ErrorMessage: trigger.Message, ErrorDetails: trigger.Details,
-			Usage: evidence.Usage, ProviderReportedCostUSD: evidence.ProviderReportedCostUSD,
-			ProviderMetadata:        evidence.ProviderMetadata,
-			RecoveryMaxOutputTokens: &nextAllowance,
-		},
-	)
-	if err != nil {
-		return modelStep{}, false, errors.Join(trigger.Cause, err)
-	}
-	return modelStep{State: modelStepWaiting, Context: contextRecord, Resolved: resolved}, true, nil
 }
 
 func (e AgentExecutor) recordTerminalContextMaintenanceFailure(

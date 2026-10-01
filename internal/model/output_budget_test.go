@@ -13,7 +13,6 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 		name                              string
 		window, allowance, input, minimum int
 		reserveFull                       bool
-		preserveAllowance, uncertainInput bool
 		wantAllowance, wantUsable         int
 		wantOver                          bool
 	}{
@@ -82,21 +81,6 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 			wantUsable:    31000,
 			wantOver:      true,
 		},
-		{
-			name: "restored output bypasses estimated remaining capacity", window: 1000,
-			allowance: 900, input: 400, preserveAllowance: true,
-			wantAllowance: 900, wantUsable: 450,
-		},
-		{
-			name: "uncertain input normally reduces output", window: 1000,
-			allowance: 900, input: 500, uncertainInput: true,
-			wantAllowance: 500, wantUsable: 450, wantOver: true,
-		},
-		{
-			name: "restored output bypasses uncertain input reduction", window: 1000,
-			allowance: 900, input: 500, uncertainInput: true, preserveAllowance: true,
-			wantAllowance: 900, wantUsable: 450, wantOver: true,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &budgetPrepareClient{
@@ -113,7 +97,6 @@ func TestOutputBudgetSeparatesAdmissionFromWireAllowance(t *testing.T) {
 				Policy: RequestPolicy{
 					MaxOutputTokens: tc.allowance,
 				}, ReserveFullOutputAllowance: tc.reserveFull, ErrorSource: "budget-test",
-				PreserveOutputAllowance: tc.preserveAllowance, AllowUncertainInput: tc.uncertainInput,
 			})
 			require.NoError(t, err)
 			var wire RequestPolicy

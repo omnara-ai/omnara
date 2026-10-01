@@ -112,18 +112,13 @@ func TestAgentExecutorRecoversWithDurableCheckpointExcerptsAfterOneRewrite(t *te
 					}
 					require.Equal(t, initialMessages, sent.Bundle.Messages)
 					require.Contains(t, string(sent.ProviderRequest), current)
-					if kind == model.ErrorKindPayloadTooLarge {
-						require.Equal(t, 1024, sent.Policy.MaxOutputTokens)
-					}
+					require.Equal(t, 1024, sent.Policy.MaxOutputTokens)
 					if strings.Contains(sent.Bundle.ContextCheckpoint.Summary, "Earlier history excerpted") {
 						if previousLength > 0 {
 							require.Less(t, len(sent.ProviderRequest), previousLength)
 						}
 						previousLength = len(sent.ProviderRequest)
 						excerpts++
-						if kind == model.ErrorKindContextWindow {
-							require.Equal(t, 1, sent.Policy.MaxOutputTokens)
-						}
 					}
 				}
 				require.Greater(t, excerpts, 1)
@@ -230,7 +225,7 @@ func TestAgentExecutorCheckpointExcerptSurvivesTransientEmptyMaxTokens(t *testin
 	last := client.responded[len(client.responded)-1]
 	previous := client.responded[len(client.responded)-2]
 	require.Equal(t, previous.Bundle.ContextCheckpoint, last.Bundle.ContextCheckpoint)
-	require.Equal(t, 1, previous.Policy.MaxOutputTokens)
+	require.Equal(t, 1024, previous.Policy.MaxOutputTokens)
 	require.Equal(t, 1024, last.Policy.MaxOutputTokens)
 	require.Equal(t, 1, client.summaryCalls)
 	assertNoTerminalContextErrors(t, ctx, fixture, work.AgentID)
