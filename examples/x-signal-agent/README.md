@@ -1,61 +1,50 @@
 # X Signal Agent
 
-An agent that listens to X (Twitter) for you. Once a day it searches the last
-24 hours of conversation about any topic you pick, filters out the noise, and
-delivers a short digest — at most five posts, each with why it matters and a
-suggested action. Reply in Slack (or the Omnara console) to ask for reply
-drafts or push back on the filtering. It never posts to X.
+An agent that listens to X (Twitter) for you. Each run it searches the last
+24 hours of posts about a topic you pick, filters out the noise, and delivers
+a digest of at most five posts, each with why it matters and a suggested
+action:
 
-The whole example is one runnable TypeScript file, [demo.ts](demo.ts). The agent itself
-is a single config object — there is no service to deploy. Run it top to
-bottom and you have your own.
+> **1. Founder comparing agent runtimes for their support bot**
+> Asks whether to build on claude managed agents or another managed agent provider; 40 replies, no clear answer yet.
+> **Why it matters:** an active buyer weighing exactly this category.
+> **Author:** @jdoe, CTO at a 20-person fintech
+> **Suggested action:** reply with how you handle long-running agents.
+
+Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+to ask for reply drafts or push back on the filtering. It never posts to X.
 
 ## What you need
 
-- An Omnara account ([app.omnara.com](https://app.omnara.com)) with an API key
-- An X API bearer token with pay-per-use billing
-  ([console.x.com](https://console.x.com)) — a daily scan costs on the order
-  of cents
-- A TypeScript runtime: [Deno](https://docs.deno.com/runtime/getting_started/installation/),
-  Node 22.18+, or [Bun](https://bun.sh)
+- An Omnara account ([app.omnara.com](https://app.omnara.com))
+- An X API bearer token with pay-per-use billing from
+  [console.x.com](https://console.x.com). A daily scan costs on the order of
+  cents.
 
-## Run it
+## Deploy
 
-```sh
-brew install deno
+Open Claude Code, Codex, or Cursor and say:
 
-cd examples/x-signal-agent
-cp .env.example .env      # set OMNARA_API_KEY and X_BEARER_TOKEN
-deno install              # fetch @omnara/sdk into node_modules
-deno run --env-file --allow-all demo.ts
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/x-signal-agent/SKILL.md and follow it to deploy the X signal agent.
 ```
 
-Nothing in `demo.ts` is Deno-specific — `.env` loading is native in every
-runtime and `@omnara/sdk` is a normal npm package, so Node and Bun run the
-same file:
+Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
+helps you write the X search for your topic, stores your X token as an Omnara
+secret (you put it in a `.env` file), creates the agent from
+[agent.yaml](agent.yaml), and runs a first scan. Then it helps you put the
+agent in your own app or Slack, and optionally runs it on a daily schedule.
+Ask it to change anything along the way, like the instruction or the model.
 
-```sh
-npm install && node --env-file=.env demo.ts   # Node 22.18+
-bun install && bun demo.ts                    # Bun (reads .env automatically)
-```
-
-Prefer notebook cells? `demo.ts` is in
-[jupytext](https://jupytext.readthedocs.io/) percent format — open it in
-Jupyter with jupytext and the Deno kernel (`deno jupyter --install`).
-
-One section holds the topic and the X search
-query — edit those two lines to point the agent at whatever you want to
-track. Every section is idempotent: rerun after editing and the agent updates
+Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
+commands. Run this again any time to change the topic; it updates the agent
 in place.
 
-## Slack and scheduling (optional)
+## How it works
 
-The demo can create a Slack app for you. Invite the bot to a channel and
-mention it — the agent delivers its digest in that thread, and thread replies
-become instructions to the agent. There is no default channel: it answers
-wherever it is mentioned or DM'd.
-
-The last section schedules a weekday-morning scan — opt-in: set
-`SCHEDULE_DAILY=1` in `.env`. Scheduled runs launched from
-the profile deliver to the Omnara console; to get them in a Slack channel,
-mention the bot there once and point the trigger at that agent instead.
+[agent.yaml](agent.yaml) is the whole agent. It runs on a machine from your
+project's machine pool, where it calls the X API with `curl`; the token is
+injected as the `X_BEARER_TOKEN` environment variable and never appears in the
+config or the event log. The filter rules, the five-post cap, and "nothing
+worth your time today" as a valid result are plain instruction text you can
+read and edit.

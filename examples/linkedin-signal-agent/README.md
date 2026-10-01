@@ -1,72 +1,62 @@
 # LinkedIn Signal Agent
 
-An agent that listens to LinkedIn for you. Once a day it searches the last 24
-hours of posts about any topic you pick, filters out the noise, and delivers
-a short digest — at most five posts, each with why it matters and a suggested
-action. Reply in Slack (or the Omnara console) to ask for reply drafts or
-push back on the filtering. It never posts to LinkedIn.
+An agent that listens to LinkedIn for you. Each run it scrapes the last 24
+hours of posts matching your keyword searches, plus new posts from the
+companies and people you track, filters out the noise, and delivers a digest
+of at most five posts, each with why it matters and a suggested action:
 
-There is no LinkedIn API key involved — LinkedIn's official API has no
-public post search — and **no LinkedIn account or session cookie** to risk:
-the agent fetches through an Apify-hosted MCP server backed by two no-cookie
-scrapers, [harvestapi/linkedin-post-search](https://apify.com/harvestapi/linkedin-post-search)
-for keyword search and
-[harvestapi/linkedin-profile-posts](https://apify.com/harvestapi/linkedin-profile-posts)
-for tracked company/profile feeds. An Apify token is the only credential,
-and like the [Reddit signal agent](../reddit-signal-agent) it needs no
-machine pool: the entire fetch layer is the MCP server.
+> **1. Platform lead describing their in-house agent runtime**
+> Their team runs customer-facing agents on Kubernetes and spent a quarter on retries and sandbox provisioning; asks how others handle it.
+> **Why it matters:** a demand signal: exactly the infrastructure this team replaces.
+> **Author:** Jane Doe, Head of Platform at a Series B logistics startup
+> **Suggested action:** reply with how you handle machine failures, disclosing the affiliation.
 
-The whole example is one runnable TypeScript file, [demo.ts](demo.ts). The agent itself
-is a single config object — there is no service to deploy. Run it top to
-bottom and you have your own.
+Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+to ask for reply drafts or push back on the filtering. It never posts to
+LinkedIn.
 
 ## What you need
 
-- An Omnara account ([app.omnara.com](https://app.omnara.com)) with an API key
-- A free Apify account ([console.apify.com](https://console.apify.com/sign-up))
-  — no credit card; the API token is under **Settings → Integrations**. Both
-  scrapers are pay-per-result (~$2 per 1,000 posts), so a capped scan costs
-  about $0.52; a weekday cron runs ~$11/month, past the free plan's $5 credit
-- A TypeScript runtime: [Deno](https://docs.deno.com/runtime/getting_started/installation/),
-  Node 22.18+, or [Bun](https://bun.sh)
+- An Omnara account ([app.omnara.com](https://app.omnara.com))
+- A free Apify account ([console.apify.com](https://console.apify.com/sign-up),
+  no credit card). LinkedIn's API has no public post search, so the agent
+  scrapes through Apify's hosted MCP server, using scrapers that need no
+  LinkedIn account or cookie. A scan is capped at about 260 posts, roughly
+  $0.50 at most; Apify's free plan includes $5 of usage a month.
 
-## Run it
+## Deploy
 
-```sh
-brew install deno
+Open Claude Code, Codex, or Cursor and say:
 
-cd examples/linkedin-signal-agent
-cp .env.example .env      # set OMNARA_API_KEY and APIFY_TOKEN
-deno install              # fetch @omnara/sdk into node_modules
-deno run --env-file --allow-all demo.ts
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/linkedin-signal-agent/SKILL.md and follow it to deploy the LinkedIn signal agent.
 ```
 
-Nothing in `demo.ts` is Deno-specific — `.env` loading is native in every
-runtime and `@omnara/sdk` is a normal npm package, so Node and Bun run the
-same file:
+Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
+helps you describe your product and pick the searches and companies to track,
+stores your Apify token as an Omnara secret (you put it in a `.env` file),
+creates the agent from [agent.yaml](agent.yaml), and runs a first scan. Then
+it helps you put the agent in your own app or Slack, and optionally runs it on
+a daily schedule. Ask it to change anything along the way, like the
+instruction or the model.
 
-```sh
-npm install && node --env-file=.env demo.ts   # Node 22.18+
-bun install && bun demo.ts                    # Bun (reads .env automatically)
-```
+Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
+commands. Run this again any time to change what it tracks; it updates the
+agent in place.
 
-Prefer notebook cells? `demo.ts` is in
-[jupytext](https://jupytext.readthedocs.io/) percent format — open it in
-Jupyter with jupytext and the Deno kernel (`deno jupyter --install`).
+## How it works
 
-One section holds the topic, the LinkedIn
-search queries, and the tracked company/profile URLs — edit those lines to
-point the agent at whatever you want to track. Every section is idempotent:
-rerun after editing and the agent updates in place.
+[agent.yaml](agent.yaml) is the whole agent. Its only fetch layer is Apify's
+MCP server, pinned to two scrapers:
+[harvestapi/linkedin-post-search](https://apify.com/harvestapi/linkedin-post-search)
+for keywords and
+[harvestapi/linkedin-profile-posts](https://apify.com/harvestapi/linkedin-profile-posts)
+for tracked feeds, so it needs no machine pool. A scan starts each scraper
+once, waits for both, and pools the results. Omnara sends the Apify token as
+the bearer token on each MCP request; it never appears in the config or the
+event log. The team context, the filter rules, the five-post cap, and
+"nothing worth your time today" as a valid result are plain instruction text
+you can read and edit.
 
-## Slack and scheduling (optional)
-
-The demo can create a Slack app for you. Invite the bot to a channel and
-mention it — the agent delivers its digest in that thread, and thread replies
-become instructions to the agent. There is no default channel: it answers
-wherever it is mentioned or DM'd.
-
-The last section schedules a weekday-morning scan — opt-in: set
-`SCHEDULE_DAILY=1` in `.env`. Scheduled runs launched from
-the profile deliver to the Omnara console; to get them in a Slack channel,
-mention the bot there once and point the trigger at that agent instead.
+Scraping avoids LinkedIn's API restrictions, not its terms of service, so keep
+this agent internal-facing.

@@ -1,84 +1,52 @@
 # PostHog Pulse Agent
 
-An agent that reads your PostHog for you. Every morning it queries your
-project through the hosted
-[PostHog MCP server](https://posthog.com/docs/model-context-protocol),
-compares yesterday against the trailing 7-day average, and delivers a short
-usage pulse — active users, event volume, top events, and callouts for
-anything that moved more than ~30%. Reply in Slack (or the Omnara console)
-to drill into any number ("why did signups spike?"). It is read-only
-against PostHog.
+An agent that reads your PostHog for you. Each run it queries your project
+through PostHog's hosted MCP server, compares yesterday against the trailing
+7-day average, and delivers a short usage pulse:
 
-The whole example is one runnable TypeScript file, [demo.ts](demo.ts). The agent
-itself is a single config object — no service to deploy, and no machine
-either: MCP calls are dispatched by Omnara's control plane, so the PostHog
-key never leaves Omnara's server side. (The sibling
-[x-signal-agent](../x-signal-agent) shows the other integration pattern —
-an agent running `curl` on a pool machine with a secret injected as an
-environment variable.)
+> **412 active users (+9% vs 7-day avg), 18.2k events (+4%)**
+> **Top events:** pageview 9.1k (390 users), dashboard_viewed 2.4k (210), query_run 1.9k (140), invite_sent 310 (95), export_clicked 220 (60)
+> **Callouts:** invite_sent up 2.3x, almost all from one org; looks like a team onboarding, not a trend.
+
+Reply to it wherever you use it (your own app, Slack, or the Omnara console)
+to drill into any number ("why did signups spike?"). It's read-only against
+PostHog.
 
 ## What you need
 
-- An Omnara account ([app.omnara.com](https://app.omnara.com)) with an API key
+- An Omnara account ([app.omnara.com](https://app.omnara.com))
 - A PostHog personal API key created with the
-  [MCP Server preset](https://app.posthog.com/settings/user-api-keys?preset=mcp_server)
-  — MCP calls are free (rate-limited, not billed)
-- A TypeScript runtime: [Deno](https://docs.deno.com/runtime/getting_started/installation/),
-  Node 22.18+, or [Bun](https://bun.sh)
+  [MCP Server preset](https://app.posthog.com/settings/user-api-keys?preset=mcp_server),
+  which scopes it to one PostHog project. US and EU accounts both work, and
+  MCP calls are free.
 
-## Run it
+## Deploy
 
-```sh
-brew install deno
-
-cd examples/posthog-pulse-agent
-cp .env.example .env      # set OMNARA_API_KEY and POSTHOG_API_KEY
-deno install              # fetch @omnara/sdk into node_modules
-deno run --env-file --allow-all demo.ts
-```
-
-Nothing in `demo.ts` is Deno-specific — `.env` loading is native in every
-runtime and `@omnara/sdk` is a normal npm package, so Node and Bun run the
-same file:
-
-```sh
-npm install && node --env-file=.env demo.ts   # Node 22.18+
-bun install && bun demo.ts                    # Bun (reads .env automatically)
-```
-
-Prefer notebook cells? `demo.ts` is in
-[jupytext](https://jupytext.readthedocs.io/) percent format — open it in
-Jupyter with jupytext and the Deno kernel (`deno jupyter --install`).
-
-One section holds the agent — the metrics, the
-call budget, and the report format are plain-English instruction you can
-edit. Every section is idempotent: rerun after editing and the agent updates
-in place (and the secret rotates to the current `.env` value).
-
-The agent stays read-only by construction. Its MCP URL
+Open Claude Code, Codex, or Cursor and say:
 
 ```text
-https://mcp.posthog.com/mcp?mode=tools&features=insights,data_schema,sql
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/posthog-pulse-agent/SKILL.md and follow it to deploy the PostHog pulse agent.
 ```
 
-filters PostHog's ~40+ tools down to the query surface (`query-*`,
-`read-data-schema`, `execute-sql`) — write tools aren't enabled by default for this
-agent. The key lives in an Omnara project secret referenced from the config's
-`auth` block and is attached as the bearer header server-side; it never
-appears in the config or event log. EU cloud accounts: swap the host for
-`mcp-eu.posthog.com` in the agent section. In the event stream, calls appear as
-`mcp__posthog__query-trends` and so on.
+Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
+asks whether there are specific events you always want in the pulse, stores
+your PostHog key as an Omnara secret (you put it in a `.env` file), creates
+the agent from [agent.yaml](agent.yaml), and runs a first pulse. Then it
+helps you put the agent in your own app or Slack, and optionally runs it
+every morning. Ask it to change anything along the way, like the instruction
+or the model.
 
-## Slack and scheduling (optional)
+Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
+commands. Run this again any time to change what it reports; it updates the
+agent in place.
 
-The demo can create a Slack app for you (set
-`SLACK_APP_CONFIGURATION_TOKEN` in `.env`). Invite the bot to a channel and
-mention it — the agent delivers the pulse in that thread, and thread replies
-become instructions, so the team can drill into any number right there.
-Without Slack, pulses appear in the console.
+## How it works
 
-The last section schedules a daily 9am pulse — opt-in: set
-`SCHEDULE_DAILY=1` in `.env`. Each firing launches a fresh
-agent that reports on "yesterday" in your PostHog project's timezone and
-recomputes the 7-day baseline from scratch — there is no state between
-runs. Disable or delete the trigger in the console to stop.
+[agent.yaml](agent.yaml) is the whole agent, and it needs no machine pool:
+Omnara calls PostHog's MCP server directly, sending the key as the bearer
+token on each request, so the key never appears in the config or the event
+log. The MCP URL limits the agent to PostHog's query tools and turns on
+PostHog's read-only mode, so it can't change anything in your project. Each
+run makes two standing queries plus at most a few follow-ups, and "steady
+day" is a valid result. The metrics, the call budget, and the report format
+are plain instruction text you can read and edit.
