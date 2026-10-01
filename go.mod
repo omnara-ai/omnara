@@ -21,7 +21,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/kaptinlin/jsonschema v0.9.9
 	github.com/modal-labs/modal-client/go v0.10.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
