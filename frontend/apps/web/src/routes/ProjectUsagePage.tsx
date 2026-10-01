@@ -31,7 +31,12 @@ function ProjectUsage({ orgId, projectId }: { orgId: string; projectId: string }
         query={query}
         chart={
           <UsageTimeseriesPanel
-            filters={{ ...range.window, orgIDs: [orgId], projectIDs: [projectId] }}
+            filters={{
+              ...range.window,
+              interval: range.interval,
+              orgIDs: [orgId],
+              projectIDs: [projectId],
+            }}
           />
         }
         emptyMessage={

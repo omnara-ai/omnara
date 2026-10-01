@@ -170,6 +170,19 @@ func TestGetUsageTimeseries(t *testing.T) {
 			t.Fatalf("weekly bucket_starts[%d] = %v, want a UTC Monday midnight", index, start)
 		}
 	}
+	hourStart := now.Truncate(time.Hour)
+	hourly := get(project.AdminToken, url.Values{
+		"timezone": {zone},
+		"since":    {hourStart.Add(-23 * time.Hour).Format(time.RFC3339)},
+		"until":    {hourStart.Add(time.Hour).Format(time.RFC3339)},
+		"interval": {"hour"},
+	}, http.StatusOK)
+	hourlyStarts := testutil.RequireType[[]any](t, hourly["bucket_starts"])
+	if hourly["interval"] != "hour" || len(hourlyStarts) != 24 ||
+		!parseOverviewUsageTime(t, hourlyStarts[23]).Equal(hourStart) {
+		t.Fatalf("hourly timeseries = %+v, want 24 buckets ending at %v", hourly, hourStart)
+	}
+	assertUsageTotals(t, "last 24 hours", overviewUsageObject(t, hourly, "totals"), all)
 
 	viewer, err := storagetest.CreateVerifiedUser(ctx, pool, storagetest.CreateVerifiedUserInput{
 		Email: "usage-series-viewer@example.com", DisplayName: "Usage Series Viewer",
@@ -208,7 +221,8 @@ func TestGetUsageTimeseries(t *testing.T) {
 	for _, query := range []url.Values{
 		{"timezone": {"Mars/Olympus_Mons"}},
 		{"metric": {"sum_everything"}},
-		{"interval": {"hour"}},
+		{"interval": {"minute"}},
+		{"since": {since.Format(time.RFC3339)}, "interval": {"hour"}},
 		{"since": {now.Format(time.RFC3339)}, "until": {now.Add(-time.Hour).Format(time.RFC3339)}},
 		{"since": {now.AddDate(-2, 0, 0).Format(time.RFC3339)}, "interval": {"day"}},
 		{"project_ids": {"not-a-project"}},

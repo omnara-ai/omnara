@@ -1,8 +1,9 @@
 import { useSkill, useUpdateSkill } from '@omnara/react'
-import type { Skill } from '@omnara/sdk'
+import type { Skill, SkillFile } from '@omnara/sdk'
 import { type SyntheticEvent, useState } from 'react'
 
 import { LazySkillMdEditor } from '@/components/skills/LazySkillMdEditor'
+import { SkillFileTree } from '@/components/skills/SkillFileTree'
 import { SkillSourcePicker } from '@/components/skills/SkillSourcePicker'
 import { Button } from '@/components/ui/button'
 import {
@@ -97,6 +98,7 @@ function CurrentSkillMdField({
   loading,
   failed,
   value,
+  files,
   readOnly,
   problem,
   onChange,
@@ -105,6 +107,7 @@ function CurrentSkillMdField({
   loading: boolean
   failed: boolean
   value: string
+  files: SkillFile[] | undefined
   readOnly: boolean
   problem: SkillMdProblem | undefined
   onChange: (value: string) => void
@@ -116,14 +119,25 @@ function CurrentSkillMdField({
       ) : failed ? (
         <p className="text-destructive text-sm">Could not load SKILL.md.</p>
       ) : (
-        <LazySkillMdEditor
-          id={skillId}
-          className="h-[65vh]"
-          value={value}
-          readOnly={readOnly}
-          problem={problem}
-          onChange={onChange}
-        />
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_18rem]">
+          <LazySkillMdEditor
+            id={skillId}
+            className="h-[65vh]"
+            value={value}
+            readOnly={readOnly}
+            problem={problem}
+            onChange={onChange}
+          />
+          {files && (
+            <section
+              aria-label="Files"
+              className="flex min-h-0 flex-col gap-2 rounded-md border p-3 sm:h-[65vh]"
+            >
+              <h3 className="text-muted-foreground text-xs font-medium">Files</h3>
+              <SkillFileTree files={files} className="max-h-48 sm:max-h-none sm:flex-1" />
+            </section>
+          )}
+        </div>
       )}
       <FieldDescription>All other files in the skill are kept unchanged.</FieldDescription>
     </Field>
@@ -252,6 +266,7 @@ export function UpdateSkillDialog({
                   loading={detail.isPending}
                   failed={detail.isError}
                   value={editorValue}
+                  files={detail.data?.files}
                   readOnly={updateSkill.isPending}
                   problem={draftCheck.ok ? undefined : draftCheck.problem}
                   onChange={(nextValue) => {

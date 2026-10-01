@@ -141,3 +141,45 @@ func TestModelUsageSeriesFilterValidation(t *testing.T) {
 		t.Fatalf("valid filter: %v", err)
 	}
 }
+
+func TestUsageBucketStartsKeepHoursWholeAcrossDaylightSaving(t *testing.T) {
+	losAngeles := loadUsageSeriesLocation(t, "America/Los_Angeles")
+	assertUsageBucketStarts(
+		t, usageBucketStarts(
+			t,
+			time.Date(2026, 11, 1, 7, 45, 0, 0, time.UTC),
+			time.Date(2026, 11, 1, 10, 30, 0, 0, time.UTC),
+			UsageIntervalHour, losAngeles,
+		),
+		time.Date(2026, 11, 1, 7, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC),
+	)
+}
+
+func TestUsageBucketStartsAlignHoursToTheLocalHour(t *testing.T) {
+	kolkata := loadUsageSeriesLocation(t, "Asia/Kolkata")
+	assertUsageBucketStarts(
+		t, usageBucketStarts(
+			t,
+			time.Date(2026, 9, 21, 10, 15, 0, 0, time.UTC),
+			time.Date(2026, 9, 21, 11, 45, 0, 0, time.UTC),
+			UsageIntervalHour, kolkata,
+		),
+		time.Date(2026, 9, 21, 9, 30, 0, 0, time.UTC),
+		time.Date(2026, 9, 21, 10, 30, 0, 0, time.UTC),
+		time.Date(2026, 9, 21, 11, 30, 0, 0, time.UTC),
+	)
+}
+
+func TestUsageBucketStartsRejectTooManyHours(t *testing.T) {
+	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, ok := UsageBucketStarts(since, since.Add(3*time.Hour), UsageIntervalHour, time.UTC, 2); ok {
+		t.Fatal("expected three hourly buckets to exceed a limit of two")
+	}
+	starts, ok := UsageBucketStarts(since, since.Add(2*time.Hour), UsageIntervalHour, time.UTC, 2)
+	if !ok || len(starts) != 2 {
+		t.Fatalf("bucket starts = %v, %v; want two buckets", starts, ok)
+	}
+}

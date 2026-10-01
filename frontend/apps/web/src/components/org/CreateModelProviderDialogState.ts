@@ -1,8 +1,4 @@
-import type {
-  CreateConfiguredModelRequest,
-  DiscoveredProviderModel,
-  ModelApiFormat,
-} from '@omnara/sdk'
+import type { ModelApiFormat } from '@omnara/sdk'
 
 import {
   type SecretRow,
@@ -12,18 +8,44 @@ import {
 } from '@/components/key-value/keyValueRows'
 import { resourceNameValid } from '@/lib/resource-name'
 
-import {
-  configuredModelSuggestedName,
-  configuredModelTokenLimitsError,
-} from './CreateConfiguredModelDialogState'
-
 export const modelProviderOptions = [
-  { value: 'openai', label: 'OpenAI', keyPlaceholder: 'sk-…' },
-  { value: 'openrouter', label: 'OpenRouter', keyPlaceholder: 'sk-or-v1-…' },
-  { value: 'anthropic', label: 'Anthropic', keyPlaceholder: 'sk-ant-…' },
-  { value: 'bedrock', label: 'Amazon Bedrock', keyPlaceholder: 'Bedrock API key' },
-  { value: 'custom', label: 'Custom endpoint', keyPlaceholder: 'API key' },
-] as const
+  {
+    value: 'openai',
+    label: 'OpenAI',
+    keyPlaceholder: 'sk-…',
+    endpoint: { baseUrl: 'https://api.openai.com/v1', apiFormat: 'openai-responses' },
+  },
+  {
+    value: 'openrouter',
+    label: 'OpenRouter',
+    keyPlaceholder: 'sk-or-v1-…',
+    endpoint: { baseUrl: 'https://openrouter.ai/api/v1', apiFormat: 'openai-chat-completions' },
+  },
+  {
+    value: 'anthropic',
+    label: 'Anthropic',
+    keyPlaceholder: 'sk-ant-…',
+    endpoint: { baseUrl: 'https://api.anthropic.com/v1', apiFormat: 'anthropic-messages' },
+  },
+  {
+    value: 'bedrock',
+    label: 'Amazon Bedrock',
+    keyPlaceholder: 'Bedrock API key',
+    endpoint: undefined,
+  },
+  {
+    value: 'custom',
+    label: 'Custom endpoint',
+    keyPlaceholder: 'API key',
+    endpoint: undefined,
+  },
+] as const satisfies readonly {
+  value: string
+  label: string
+  keyPlaceholder: string
+  /** The endpoint a preset configures server-side; Bedrock and custom derive theirs from fields. */
+  endpoint: { baseUrl: string; apiFormat: ModelApiFormat } | undefined
+}[]
 
 export type ModelProviderOption = (typeof modelProviderOptions)[number]['value']
 
@@ -75,6 +97,10 @@ export function modelProviderOption(value: ModelProviderOption) {
   return modelProviderOptions.find((option) => option.value === value) ?? modelProviderOptions[0]
 }
 
+export function bedrockBaseUrl(api: BedrockAPI, region: string) {
+  return `https://bedrock-mantle.${region.trim()}.api.aws${bedrockAPIOption(api).basePath}`
+}
+
 export function bedrockAPIOption(value: BedrockAPI) {
   return bedrockAPIOptions.find((option) => option.value === value) ?? bedrockAPIOptions[0]
 }
@@ -122,29 +148,4 @@ export function createModelProviderFormValid(values: CreateModelProviderFormValu
 
 export function providerSecretName(provider: ModelProviderOption) {
   return `${provider}-api-key`
-}
-
-export function configuredModelRequestForDiscoveredModel(
-  model: DiscoveredProviderModel,
-): CreateConfiguredModelRequest {
-  if (!canCreateDiscoveredModel(model) || model.context_window_tokens === undefined) {
-    throw new Error(`Token limits are missing or invalid for ${model.slug}`)
-  }
-  const request: CreateConfiguredModelRequest = {
-    name: configuredModelSuggestedName(model.slug),
-    provider_model_slug: model.slug,
-    context_window_tokens: model.context_window_tokens,
-    supports_tools: true,
-    supports_reasoning: false,
-  }
-  if (model.max_output_tokens !== undefined) request.max_output_tokens = model.max_output_tokens
-  return request
-}
-
-export function canCreateDiscoveredModel(model: DiscoveredProviderModel) {
-  return !configuredModelTokenLimitsError({
-    contextWindowTokens: String(model.context_window_tokens ?? ''),
-    maxOutputTokens: String(model.max_output_tokens ?? ''),
-    defaultMaxOutputTokens: '',
-  })
 }

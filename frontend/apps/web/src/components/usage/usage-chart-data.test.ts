@@ -124,6 +124,13 @@ describe('bucket formatting', () => {
     expect(usageBucketEnd(start, 'week')).toEqual(new Date(2026, 8, 8))
     expect(usageBucketEnd(start, 'day')).toEqual(new Date(2026, 8, 2))
   })
+
+  it('labels hours by time of day and ends them an hour later', () => {
+    const start = new Date(2026, 8, 1, 15)
+    expect(formatBucketLabel(start, 'hour')).not.toBe(formatBucketLabel(start, 'day'))
+    expect(formatBucketTitle(start, 'hour')).not.toBe(formatBucketTitle(start, 'day'))
+    expect(usageBucketEnd(start, 'hour')).toEqual(new Date(2026, 8, 1, 16))
+  })
 })
 
 describe('usageTicks', () => {

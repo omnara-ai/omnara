@@ -2893,6 +2893,7 @@ export const zOrgOverviewResponse = z.object({
 });
 
 export const zUsageTimeseriesInterval = z.enum([
+    'hour',
     'day',
     'week',
     'month'

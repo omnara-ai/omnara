@@ -5,7 +5,7 @@ import type {
   UsageTimeseriesSeries,
   UsageTotals,
 } from '@omnara/sdk'
-import { addDays, addMonths, addWeeks } from 'date-fns'
+import { addDays, addHours, addMonths, addWeeks } from 'date-fns'
 
 import { type AgentIconSpec, profileIcon, tintColor } from '@/lib/agent-icon'
 import { formatCompactCount, formatCount, formatUsd } from '@/lib/format'
@@ -98,6 +98,7 @@ export function usageChartData(timeseries: UsageTimeseries, measure: UsageMeasur
 }
 
 export function usageBucketEnd(start: Date, interval: UsageTimeseriesInterval) {
+  if (interval === 'hour') return addHours(start, 1)
   if (interval === 'month') return addMonths(start, 1)
   if (interval === 'week') return addWeeks(start, 1)
   return addDays(start, 1)
@@ -157,12 +158,21 @@ const dayTitleFormatter = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 })
 const monthTitleFormatter = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' })
+const hourLabelFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric' })
+const hourTitleFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'long',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
 
 export function formatBucketLabel(start: Date, interval: UsageTimeseriesInterval) {
+  if (interval === 'hour') return hourLabelFormatter.format(start)
   return interval === 'month' ? monthLabelFormatter.format(start) : dayLabelFormatter.format(start)
 }
 
 export function formatBucketTitle(start: Date, interval: UsageTimeseriesInterval) {
+  if (interval === 'hour') return hourTitleFormatter.format(start)
   if (interval === 'month') return monthTitleFormatter.format(start)
   if (interval === 'week') return `Week of ${dayTitleFormatter.format(start)}`
   return dayTitleFormatter.format(start)

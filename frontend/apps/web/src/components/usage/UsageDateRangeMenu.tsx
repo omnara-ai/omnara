@@ -17,16 +17,23 @@ import {
 import {
   allTimeUsageRange,
   lastDaysUsageRange,
+  lastHoursUsageRange,
   type UsageDateRange,
   usageDateRange,
   usageDateRangeLabel,
   usageRangePresetDays,
+  usageRangePresetHours,
 } from '@/components/usage/usage-date-range'
 
 const allTimePreset = 'all'
 const customPreset = 'custom'
 
+function hoursPreset(hours: number) {
+  return `${hours}h`
+}
+
 function presetValue(range: UsageDateRange) {
+  if (range.hours !== undefined) return hoursPreset(range.hours)
   if (range.days !== undefined) return String(range.days)
   return range.from ? customPreset : allTimePreset
 }
@@ -57,10 +64,20 @@ export function UsageDateRangeMenu({
               onChange(allTimeUsageRange)
               return
             }
+            const hours = usageRangePresetHours.find((option) => hoursPreset(option) === preset)
+            if (hours !== undefined) {
+              onChange(lastHoursUsageRange(hours))
+              return
+            }
             const days = usageRangePresetDays.find((option) => String(option) === preset)
             if (days !== undefined) onChange(lastDaysUsageRange(days))
           }}
         >
+          {usageRangePresetHours.map((hours) => (
+            <DropdownMenuRadioItem key={hoursPreset(hours)} value={hoursPreset(hours)}>
+              Last {hours} hours
+            </DropdownMenuRadioItem>
+          ))}
           {usageRangePresetDays.map((days) => (
             <DropdownMenuRadioItem key={days} value={String(days)}>
               Last {days} days

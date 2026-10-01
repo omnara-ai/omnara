@@ -3507,7 +3507,7 @@ export type OrgOverviewToday = {
     messages_sent: number;
 };
 
-export type UsageTimeseriesInterval = 'day' | 'week' | 'month';
+export type UsageTimeseriesInterval = 'hour' | 'day' | 'week' | 'month';
 
 /**
  * `sum_tokens` is input plus output tokens. `sum_cost` is provider-reported cost in USD. `count_model_calls` counts model calls that recorded usage.
@@ -4675,7 +4675,7 @@ export type GetUsageTimeseriesData = {
          */
         timezone?: string;
         /**
-         * Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. The window may span at most 400 buckets.
+         * Bucket width. Omit to pick one from the window length: days up to 92 days, weeks up to 730 days, months beyond. Hourly buckets are used only when requested. The window may span at most 400 buckets.
          */
         interval?: UsageTimeseriesInterval;
         /**
