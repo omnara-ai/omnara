@@ -90,6 +90,24 @@ const organizationMachinesRoute = createRoute({
   ),
 })
 
+const byoMachinesRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/machines/byo',
+  component: lazyRouteComponent(() => import('@/routes/ByoMachinesPage'), 'ByoMachinesPage'),
+})
+
+const modelProviderRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/models/providers/$providerId',
+  component: lazyRouteComponent(() => import('@/routes/ModelProviderPage'), 'ModelProviderPage'),
+})
+
+const machinePoolRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/machines/pools/$poolId',
+  component: lazyRouteComponent(() => import('@/routes/MachinePoolPage'), 'MachinePoolPage'),
+})
+
 const organizationModelsSearch = z.object({ provider: z.string().optional().catch(undefined) })
 
 const organizationModelsRoute = createRoute({
@@ -218,6 +236,33 @@ const projectMachinesRoute = createRoute({
   component: lazyRouteComponent(
     () => import('@/routes/ProjectMachinesPage'),
     'ProjectMachinesPage',
+  ),
+})
+
+const projectModelProviderRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/models/providers/$providerId',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectModelProviderPage'),
+    'ProjectModelProviderPage',
+  ),
+})
+
+const projectByoMachinesRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/machines/byo',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectByoMachinesPage'),
+    'ProjectByoMachinesPage',
+  ),
+})
+
+const projectMachinePoolRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/machines/pools/$poolId',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectMachinePoolPage'),
+    'ProjectMachinePoolPage',
   ),
 })
 
@@ -413,7 +458,10 @@ const routeTree = rootRoute.addChildren([
       overviewRoute,
       membersRoute,
       organizationMachinesRoute,
+      byoMachinesRoute,
+      machinePoolRoute,
       organizationModelsRoute,
+      modelProviderRoute,
       organizationAgentsRoute,
       organizationUsageRoute,
       secretsRoute,
@@ -427,7 +475,10 @@ const routeTree = rootRoute.addChildren([
       createIntegrationRoute,
       integrationDetailRoute,
       projectModelsRoute,
+      projectModelProviderRoute,
       projectMachinesRoute,
+      projectByoMachinesRoute,
+      projectMachinePoolRoute,
       projectSecretsRoute,
       projectSkillsRoute,
       projectMemoryRoute,

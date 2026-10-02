@@ -5439,6 +5439,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only machines provisioned by this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:
@@ -5890,6 +5896,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ResourceNameFilter'
         - $ref: '#/components/parameters/MachineSourceKindFilter'
+        - name: machine_pool_id
+          in: query
+          required: false
+          description: Return only machines provisioned by this machine pool.
+          schema:
+            $ref: '#/components/schemas/MachinePoolID'
         - name: sort
           in: query
           schema:

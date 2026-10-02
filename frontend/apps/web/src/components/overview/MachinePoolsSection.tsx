@@ -1,56 +1,61 @@
-import { type MachinePoolListSort, useDeleteMachinePool, useMachinePools } from '@omnara/react'
-import { ApiError, type MachinePool } from '@omnara/sdk'
-import { useState } from 'react'
+import { type MachinePoolListSort, useMachinePools, useMachines } from '@omnara/react'
+import type { MachinePool } from '@omnara/sdk'
+import { Link } from '@tanstack/react-router'
+import { type ReactNode, useId, useState } from 'react'
 
-import { DataTable } from '@/components/data-table/DataTable'
-import { type DetailItem, DetailList } from '@/components/data-table/DetailList'
+import {
+  AgentCard,
+  AgentCardGlyph,
+  agentCardLinkClass,
+  AgentCardList,
+  agentCardMoreLinkClass,
+  AgentCardStatToggle,
+  AgentCardTime,
+} from '@/components/agents/AgentCardList'
+import { ManagedLogo, OmnaraManagedTag } from '@/components/brand/OmnaraManaged'
 import { ResourceListToolbar } from '@/components/data-table/ResourceListToolbar'
+import { Monitor, Server } from '@/components/icons'
 import { SearchHeader } from '@/components/layout/SearchHeader'
-import { CreateMachinePoolDialog } from '@/components/org/CreateMachinePoolDialog'
-import { EditMachinePoolDialog } from '@/components/org/EditMachinePoolDialog'
-import { GrantPoolToProjectDialog } from '@/components/org/GrantPoolToProjectDialog'
+import { machinePoolProviderLabel } from '@/components/org/MachinePoolDialogState'
+import { MachinePoolProviderLogo } from '@/components/org/MachinePoolProviderLogo'
 import {
-  isMachinePoolProvider,
-  machinePoolProviderDefinitions,
-  machinePoolScopeValue,
-} from '@/components/org/machinePoolProviders'
-import { ResourceRowActions } from '@/components/overview/ResourceRowActions'
+  MachinePoolActions,
+  type MachinePoolDialog,
+  MachinePoolDialogs,
+} from '@/components/overview/MachinePoolActions'
+import { formatPoolMachines, formatPoolResources } from '@/components/overview/machinePoolFormat'
+import { MachinePreviewList } from '@/components/overview/MachinePreviewList'
 import { Button } from '@/components/ui/button'
-import { usePagedQuery } from '@/hooks/use-paged-query'
-import {
-  resourceSortOptions,
-  useListToolbarVisibility,
-  useResourceList,
-} from '@/hooks/use-resource-list'
+import { useAllPages } from '@/hooks/use-all-pages'
+import { useArrayPagination } from '@/hooks/use-array-pagination'
+import { resourceSortOptions, useResourceList } from '@/hooks/use-resource-list'
 import { guides } from '@/lib/docs'
-import { formatDateTime } from '@/lib/format'
-import { formatMemoryGb } from '@/lib/machine-memory'
+import { formatCount } from '@/lib/format'
+import { clusterFirst } from '@/lib/management-kind'
 import { canManageOrg } from '@/lib/permissions'
-import { providerOptionStrings } from '@/lib/provider-options'
 import { useActiveOrg } from '@/lib/use-active-org'
 
-type ActiveDialog =
-  | { kind: 'create' }
-  | { kind: 'edit'; pool: MachinePool }
-  | { kind: 'grant'; pool: MachinePool }
-  | null
+const previewLimit = 5
 
 export function MachinePoolsSection() {
   const { activeOrg } = useActiveOrg()
   const canManage = canManageOrg(activeOrg.role)
   const list = useResourceList<MachinePoolListSort>('-created_at')
   const query = useMachinePools(activeOrg.id, { filters: list.apiFilters, sort: list.sort })
-  const paged = usePagedQuery(query, list.queryKey)
-  const showToolbar = useListToolbarVisibility(list, paged.pagination, query.isSuccess)
-  const deletePool = useDeleteMachinePool(activeOrg.id)
-  const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
+  // Omnara-managed pools always lead, so order the whole set client-side.
+  const poolPages = useAllPages(query)
+  const paged = useArrayPagination(
+    poolPages.isPending ? [] : clusterFirst(poolPages.items),
+    (pool) => pool.id,
+  )
+  const [poolDialog, setPoolDialog] = useState<MachinePoolDialog>(null)
 
   const newPoolButton = () =>
     canManage ? (
       <Button
         size="sm"
         onClick={() => {
-          setActiveDialog({ kind: 'create' })
+          setPoolDialog({ kind: 'create' })
         }}
       >
         New pool
@@ -62,7 +67,7 @@ export function MachinePoolsSection() {
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Machine pools"
-          description="Configure pools of sandboxes for agents to use"
+          description="Configure pools of sandboxes for agents to use, or connect your own machines"
           guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
@@ -70,158 +75,30 @@ export function MachinePoolsSection() {
               onSearchChange={list.setSearch}
               sort={{ value: list.sort, options: resourceSortOptions, onChange: list.setSort }}
               placeholder="Search pools by name…"
-              showSearch={showToolbar}
+              showSearch
             />
           }
         >
           {newPoolButton()}
         </SearchHeader>
-        <DataTable
-          columns={[
-            {
-              id: 'name',
-              header: 'Name',
-              cell: (pool) => (
-                <span className="inline-flex max-w-full items-center gap-2">
-                  <span className="truncate font-medium">{pool.name}</span>
-                  {pool.management_kind === 'cluster' && (
-                    <span className="text-muted-foreground">cluster</span>
-                  )}
-                </span>
-              ),
-            },
-            { id: 'provider', header: 'Provider', cell: (pool) => pool.provider },
-            {
-              id: 'machines-in-use',
-              header: 'Machines in use',
-              className: 'w-44',
-              cell: (pool) =>
-                pool.usage ? `${pool.usage.machines} / ${pool.max_total_machines}` : '—',
-            },
-            {
-              id: 'resources-in-use',
-              header: 'Resources in use',
-              className: 'w-44',
-              cell: formatResourceUsage,
-            },
-            {
-              id: 'actions',
-              header: '',
-              className: 'w-14',
-              isActions: true,
-              cell: (pool) =>
-                canManage ? (
-                  <ResourceRowActions
-                    onEdit={() => {
-                      setActiveDialog({ kind: 'edit', pool })
-                    }}
-                    onGrant={() => {
-                      setActiveDialog({ kind: 'grant', pool })
-                    }}
-                    onDelete={
-                      pool.management_kind === 'tenant'
-                        ? () => {
-                            if (!window.confirm(`Delete machine pool ${pool.name}?`)) return
-                            deletePool.mutate(pool.id, {
-                              onError: (error) => {
-                                window.alert(
-                                  error instanceof ApiError
-                                    ? error.message
-                                    : 'Could not delete machine pool',
-                                )
-                              },
-                            })
-                          }
-                        : undefined
-                    }
-                  />
-                ) : null,
-            },
-          ]}
-          data={paged.rows}
-          isFiltered={list.isFiltering}
-          pagination={paged.pagination}
-          getRowId={(pool) => pool.id}
-          rowExpanded={(pool) => (
-            <DetailList
-              items={[
-                { label: 'ID', value: pool.id, mono: true },
-                { label: 'Description', value: pool.description },
-                ...providerDetails(pool),
-                ...(pool.provider_auth_secret_id
-                  ? [
-                      {
-                        label: 'Provider credential',
-                        value: pool.provider_auth_secret_id,
-                        mono: true,
-                      },
-                    ]
-                  : []),
-                {
-                  label: 'Startup script',
-                  value: (
-                    <span className="whitespace-pre-wrap">
-                      {providerOptionStrings(pool.default_machine_provider_options)
-                        .startup_script ?? 'None'}
-                    </span>
-                  ),
-                  mono: true,
-                },
-                {
-                  label: 'Runtime protection',
-                  value: pool.runtime_protection_enabled ? 'Enabled' : 'Disabled',
-                },
-                { label: 'Working directory', value: pool.default_cwd, mono: true },
-                {
-                  label: 'Environment variables',
-                  value: formatEntries(pool.default_machine_env),
-                  mono: true,
-                },
-                {
-                  label: 'Secret variables',
-                  value: formatEntries(pool.default_machine_secret_env),
-                  mono: true,
-                },
-                { label: 'Machine quota', value: pool.max_total_machines },
-                {
-                  label: 'CPU quota',
-                  value: formatCPU(pool.max_total_cpu),
-                },
-                {
-                  label: 'Memory quota',
-                  value: formatMemoryGb(pool.max_total_memory_mb),
-                },
-                {
-                  label: 'Default CPU per machine',
-                  value: formatCPU(pool.default_machine_cpu),
-                },
-                {
-                  label: 'Min CPU per machine',
-                  value: formatCPU(pool.min_machine_cpu),
-                },
-                {
-                  label: 'Max CPU per machine',
-                  value: formatCPU(pool.max_machine_cpu),
-                },
-                {
-                  label: 'Default memory per machine',
-                  value: formatMemoryGb(pool.default_machine_memory_mb),
-                },
-                {
-                  label: 'Min memory per machine',
-                  value: formatMemoryGb(pool.min_machine_memory_mb),
-                },
-                {
-                  label: 'Max memory per machine',
-                  value: formatMemoryGb(pool.max_machine_memory_mb),
-                },
-                { label: 'Created', value: formatDateTime(pool.created_at) },
-                { label: 'Updated', value: formatDateTime(pool.updated_at) },
-              ]}
+        <ByoMachinesCard orgId={activeOrg.id} />
+        <AgentCardList
+          items={paged.rows}
+          getId={(pool) => pool.id}
+          renderCard={(pool) => (
+            <MachinePoolCard
+              pool={pool}
+              actions={
+                canManage && (
+                  <MachinePoolActions orgId={activeOrg.id} pool={pool} onOpen={setPoolDialog} />
+                )
+              }
             />
           )}
-          isPending={query.isPending}
-          isError={query.isError}
+          isFiltered={list.isFiltering}
+          pagination={paged.pagination}
+          isPending={poolPages.isPending}
+          isError={poolPages.isError}
           onRetry={() => {
             void query.refetch()
           }}
@@ -230,98 +107,168 @@ export function MachinePoolsSection() {
         />
       </div>
       {canManage && (
-        <CreateMachinePoolDialog
-          open={activeDialog?.kind === 'create'}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setActiveDialog(null)
-          }}
+        <MachinePoolDialogs
           orgId={activeOrg.id}
-        />
-      )}
-      {canManage && activeDialog?.kind === 'edit' && (
-        <EditMachinePoolDialog
-          key={activeDialog.pool.id}
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setActiveDialog(null)
+          dialog={poolDialog}
+          onClose={() => {
+            setPoolDialog(null)
           }}
-          orgId={activeOrg.id}
-          pool={activeDialog.pool}
-        />
-      )}
-      {canManage && activeDialog?.kind === 'grant' && (
-        <GrantPoolToProjectDialog
-          key={activeDialog.pool.id}
-          open
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setActiveDialog(null)
-          }}
-          orgId={activeOrg.id}
-          pool={activeDialog.pool}
         />
       )}
     </>
   )
 }
 
-function formatCPU(value: number | null) {
-  return value === null ? undefined : `${value} vCPU`
-}
-
-function formatResourceUsage(pool: MachinePool) {
-  const values: string[] = []
-  if (pool.max_total_cpu !== null) {
-    values.push(`${pool.usage?.cpu ?? '—'} / ${pool.max_total_cpu} vCPU`)
+function MachinePoolCard({ pool, actions }: { pool: MachinePool; actions: ReactNode }) {
+  const { activeOrg } = useActiveOrg()
+  const [expanded, setExpanded] = useState(false)
+  const expansionId = useId()
+  // Fetched only once opened: one extra row tells us whether "View all" is needed.
+  const preview = useMachines(activeOrg.id, {
+    filters: { machine_pool_id: pool.id },
+    sort: '-updated_at',
+    pageSize: previewLimit + 1,
+    enabled: expanded,
+  })
+  const firstPage = preview.data?.pages[0]?.data ?? []
+  const resources = formatPoolResources(pool)
+  const expansion = {
+    id: expansionId,
+    open: expanded,
+    content: (
+      <MachinePreviewList
+        machines={firstPage.slice(0, previewLimit)}
+        isPending={preview.isPending}
+        isError={preview.isError}
+        emptyMessage="No machines yet. The pool provisions machines as agents need them."
+        viewAll={
+          firstPage.length > previewLimit && (
+            <Link
+              to="/machines/pools/$poolId"
+              params={{ poolId: pool.id }}
+              className={agentCardMoreLinkClass}
+            >
+              View all machines →
+            </Link>
+          )
+        }
+      />
+    ),
   }
-  if (pool.max_total_memory_mb !== null) {
-    values.push(
-      `${formatMemoryGb(pool.usage?.memory_mb) ?? '—'} / ${formatMemoryGb(pool.max_total_memory_mb)}`,
-    )
-  }
-  if (values.length === 0) return '—'
   return (
-    <span className="flex flex-col whitespace-nowrap py-1.5">
-      {values.map((value) => (
-        <span key={value}>{value}</span>
-      ))}
-    </span>
+    <AgentCard
+      icon={
+        <AgentCardGlyph>
+          <ManagedLogo managed={pool.management_kind === 'cluster'}>
+            <MachinePoolProviderLogo provider={pool.provider} />
+          </ManagedLogo>
+        </AgentCardGlyph>
+      }
+      title={
+        <>
+          <Link
+            to="/machines/pools/$poolId"
+            params={{ poolId: pool.id }}
+            className={agentCardLinkClass}
+          >
+            {pool.name}
+          </Link>
+          {pool.management_kind === 'cluster' && <OmnaraManagedTag />}
+        </>
+      }
+      subtitle={<PoolSubtitle pool={pool} />}
+      meta={
+        <>
+          <AgentCardTime label="Updated" value={pool.updated_at} />
+          {actions}
+        </>
+      }
+      footer={resources && <span className="truncate tabular-nums">{resources}</span>}
+      stats={
+        <AgentCardStatToggle
+          icon={Server}
+          label={pool.max_total_machines === 1 ? 'machine' : 'machines'}
+          value={formatPoolMachines(pool)}
+          expansion={expansion}
+          onToggle={() => {
+            setExpanded((open) => !open)
+          }}
+        />
+      }
+      expansion={expansion}
+    />
   )
 }
 
-function providerDetails(pool: MachinePool): DetailItem[] {
-  if (!isMachinePoolProvider(pool.provider)) return []
-  const definition = machinePoolProviderDefinitions[pool.provider]
-  const options = providerOptionStrings(pool.default_machine_provider_options)
-  const details: DetailItem[] = [
-    {
-      label: `${definition.label} ${definition.resource.label.toLowerCase()}`,
-      value: options[definition.resource.key],
-      mono: true,
-    },
-  ]
-  if (definition.location) {
-    const location = options[definition.location.key]
-    const defaultLocation = definition.location.required ? undefined : 'Automatic'
-    details.push({
-      label: `${definition.label} ${definition.location.label.toLowerCase()}`,
-      value: location == null || location === '' ? defaultLocation : location,
-    })
-  }
-  if (definition.scope) {
-    details.push({
-      label: `${definition.label} ${definition.scope.label.toLowerCase()}`,
-      value: machinePoolScopeValue(pool.provider, pool.provider_config),
-    })
-  }
-  return details
+export function PoolSubtitle({ pool }: { pool: MachinePool }) {
+  return (
+    <>
+      <span className="shrink-0">{machinePoolProviderLabel(pool.provider)}</span>
+      {pool.description && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="truncate">{pool.description}</span>
+        </>
+      )}
+    </>
+  )
 }
 
-function formatEntries(values: Record<string, string>) {
-  const entries = Object.entries(values).sort(([left], [right]) => left.localeCompare(right))
-  if (entries.length === 0) return 'None'
+function ByoMachinesCard({ orgId }: { orgId: string }) {
+  const machines = useAllPages(
+    useMachines(orgId, { filters: { source_kind: 'byo' }, sort: '-updated_at' }),
+  )
+  const [expanded, setExpanded] = useState(false)
+  const expansionId = useId()
+  const count = machines.items.length
+  const expansion = {
+    id: expansionId,
+    open: expanded,
+    content: (
+      <MachinePreviewList
+        machines={machines.items.slice(0, previewLimit)}
+        isPending={machines.isPending}
+        isError={machines.isError}
+        emptyMessage="No machines connected yet. Connect a machine you operate to run agents on it."
+        viewAll={
+          count > previewLimit && (
+            <Link to="/machines/byo" className={agentCardMoreLinkClass}>
+              View all {formatCount(count)} machines →
+            </Link>
+          )
+        }
+      />
+    ),
+  }
   return (
-    <span className="whitespace-pre-wrap break-all">
-      {entries.map(([key, value]) => `${key}=${value}`).join('\n')}
-    </span>
+    <AgentCard
+      icon={
+        <AgentCardGlyph>
+          <Monitor aria-hidden="true" />
+        </AgentCardGlyph>
+      }
+      title={
+        <Link to="/machines/byo" className={agentCardLinkClass}>
+          BYO Machines
+        </Link>
+      }
+      subtitle={<span className="truncate">Machines you connect and run yourself</span>}
+      meta={
+        machines.items[0] && <AgentCardTime label="Updated" value={machines.items[0].updated_at} />
+      }
+      footer={<span className="truncate">Not part of any pool</span>}
+      stats={
+        <AgentCardStatToggle
+          icon={Server}
+          label={count === 1 ? 'machine' : 'machines'}
+          value={machines.isPending || machines.isError ? undefined : formatCount(count)}
+          expansion={expansion}
+          onToggle={() => {
+            setExpanded((open) => !open)
+          }}
+        />
+      }
+      expansion={expansion}
+    />
   )
 }

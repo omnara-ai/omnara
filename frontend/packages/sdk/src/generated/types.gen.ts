@@ -12414,6 +12414,10 @@ export type ListVisibleProjectMachinesData = {
          * Filter machines by source kind. Omit to include both BYO and pooled machines.
          */
         source_kind?: MachineSourceKind;
+        /**
+         * Return only machines provisioned by this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.
@@ -13114,6 +13118,10 @@ export type ListVisibleMachinesData = {
          * Filter machines by source kind. Omit to include both BYO and pooled machines.
          */
         source_kind?: MachineSourceKind;
+        /**
+         * Return only machines provisioned by this machine pool.
+         */
+        machine_pool_id?: MachinePoolId;
         sort?: ResourceListSort;
         /**
          * Maximum number of items to return in one page.

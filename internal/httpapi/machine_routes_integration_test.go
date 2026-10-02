@@ -764,6 +764,44 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 	if ids := machineIDsFromListResponse(t, poolOnly); stringSetHas(ids, byoID) || !stringSetHas(ids, poolMachineID) {
 		t.Fatalf("pool filter should only include pool machine, got %+v", ids)
 	}
+	poolPublicID := testPublicID(t, publicid.KindMachinePool, machinePool.ID)
+	inPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machines?machine_pool_id="+poolPublicID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if ids := machineIDsFromListResponse(t, inPool); stringSetHas(ids, byoID) || !stringSetHas(ids, poolMachineID) {
+		t.Fatalf("machine pool filter should only include that pool's machine, got %+v", ids)
+	}
+	otherPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machines?machine_pool_id="+
+			testPublicID(t, publicid.KindMachinePool, uuid.New()),
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(project.AdminToken),
+	)
+	if ids := machineIDsFromListResponse(t, otherPool); len(ids) != 0 {
+		t.Fatalf("unknown machine pool filter should match nothing, got %+v", ids)
+	}
+	requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		"/api/v1/orgs/"+project.OrgID+"/machines?machine_pool_id="+poolMachineID,
+		"",
+		"",
+		http.StatusBadRequest,
+		authHeaders(project.AdminToken),
+	)
 	detail := requestJSONWithHeaders(
 		t,
 		handler,
@@ -862,6 +900,33 @@ func TestMachineInventoryIncludesPoolMachinesAndRestrictsBYOOnlyOperations(
 		http.StatusBadRequest,
 		authHeaders(viewerPAT.Token),
 	)
+	projectInPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machines?machine_pool_id="+poolPublicID,
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(viewerPAT.Token),
+	)
+	if ids := machineIDsFromListResponse(t, projectInPool); !stringSetHas(ids, poolMachineID) {
+		t.Fatalf("project machine pool filter should include the pool machine, got %+v", ids)
+	}
+	projectOtherPool := requestJSONWithHeaders(
+		t,
+		handler,
+		http.MethodGet,
+		project.ProjectPath+"/machines?machine_pool_id="+
+			testPublicID(t, publicid.KindMachinePool, uuid.New()),
+		"",
+		"",
+		http.StatusOK,
+		authHeaders(viewerPAT.Token),
+	)
+	if ids := machineIDsFromListResponse(t, projectOtherPool); len(ids) != 0 {
+		t.Fatalf("project filter for an unknown pool should match nothing, got %+v", ids)
+	}
 	poolTokenID := testPublicID(t, publicid.KindMachineDaemonToken, httpTestID("pool-machine-token-route"))
 	requestJSONWithHeaders(
 		t,

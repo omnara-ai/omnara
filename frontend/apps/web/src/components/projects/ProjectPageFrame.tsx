@@ -1,11 +1,15 @@
 import type { ReactNode } from 'react'
 
+import { type Crumb, PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { FullPageSpinner } from '@/components/ui/spinner'
 import { useProjectPage } from '@/lib/use-project-page'
 
 export function ProjectPageFrame({
+  crumbs,
   children,
 }: {
+  /** Breadcrumb trail, shown only on nested pages. */
+  crumbs?: Crumb[]
   children: (context: ReturnType<typeof useProjectPage>) => ReactNode
 }) {
   const context = useProjectPage()
@@ -23,5 +27,10 @@ export function ProjectPageFrame({
     )
   }
 
-  return <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">{children(context)}</div>
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+      {crumbs && <PageBreadcrumb items={crumbs} />}
+      {children(context)}
+    </div>
+  )
 }
