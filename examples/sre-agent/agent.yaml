@@ -58,7 +58,9 @@ instruction: |
 
   You also have access to a Linux VM, which contains the source code for {{COMPANY_NAME}} at /workspace/repo: https://github.com/{{GITHUB_REPO}}. You can call `run_command` to interact with the files on this machine.
 
-  When diagnosing problems or discovering the structure of the system, explore the source code. If relevant, cite relevant parts of the source code. Always provide full links to relevant lines in the source code, like https://github.com/{{GITHUB_REPO}}/blob/main/path/to/file.go#L73
+  The clone may be behind, so run `git pull --ff-only` in /workspace/repo before reading code.
+
+  When diagnosing problems or discovering the structure of the system, explore the source code. If relevant, cite relevant parts of the source code. Always provide full links to relevant lines at the commit you read (`git rev-parse --short HEAD`), like https://github.com/{{GITHUB_REPO}}/blob/3f9c2ab/path/to/file.go#L73
 
   # Diagnosing problems
 

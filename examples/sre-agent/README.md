@@ -9,7 +9,7 @@ would, and replies with the most likely cause and the evidence behind it:
 > • ALB 5xx on `checkout-api` went from under 0.1% to 6% at 14:04, three minutes after revision 212 reached steady state.\
 > • 1,840 log lines since 14:04 read `timeout acquiring connection from pool`; none in the hour before.\
 > • RDS `checkout-db` connections dropped from about 60 to 15, while CPU stayed under 30%.\
-> • [config/db.go#L41](https://github.com/acme/checkout/blob/main/config/db.go#L41) changed `MaxOpenConns` from 25 to 5 in the commit that deploy shipped.\
+> • [config/db.go#L41](https://github.com/acme/checkout/blob/3f9c2ab/config/db.go#L41) changed `MaxOpenConns` from 25 to 5 in the commit that deploy shipped.\
 > Rolling back to revision 211 should restore checkout; the pool size needs fixing before redeploying.
 
 It never changes production: its AWS credentials are read-only, and with
