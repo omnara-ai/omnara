@@ -88,9 +88,6 @@ func TestFetcherLiveExtractsPublicHTML(t *testing.T) {
 	if !strings.Contains(markdown.Content, "documentation examples") {
 		t.Fatalf("markdown content missing expected body text: %q", markdown.Content)
 	}
-	if !strings.Contains(markdown.Content, "](") {
-		t.Fatalf("markdown content does not appear to preserve links: %q", markdown.Content)
-	}
 
 	text, err := fetcher.Fetch(ctx, FetchRequest{URL: "https://example.com/", Format: "text", TimeoutSeconds: 20})
 	if err != nil {
@@ -132,6 +129,9 @@ func TestFetcherLiveExtractsGoDocsHTML(t *testing.T) {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("markdown content missing %q", want)
 		}
+	}
+	if !strings.Contains(result.Content, "](") {
+		t.Fatalf("markdown content does not appear to preserve links: %q", result.Content[:min(500, len(result.Content))])
 	}
 	if strings.Contains(result.Content, "<script") || strings.Contains(result.Content, "<nav") {
 		t.Fatalf("markdown content appears to include raw page chrome: %q", result.Content[:min(500, len(result.Content))])
