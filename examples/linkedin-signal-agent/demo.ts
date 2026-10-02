@@ -311,7 +311,7 @@ affiliation. Never post to LinkedIn yourself.
 `,
   model: {
     provider_config: 'omnara-openrouter', // default model provider config in your org
-    name: 'openai/gpt-6-sol', // configured model name on that provider config
+    name: 'openai/gpt-6.1-sol', // configured model name on that provider config
   },
   mcp: {
     linkedin: {
