@@ -717,7 +717,7 @@ SELECT min(CASE WHEN event.event_kind = 'model_output' THEN event.sequence END),
 	}
 }
 
-func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *testing.T) {
+func TestAgentExecutorTriesUnansweredOpeningAfterEstimatedOversizedContinuation(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	agentID, userID := fixture.createAgent(t, ctx, "openai/kernel-test", fixture.Now)
@@ -795,6 +795,7 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 		},
 		responses: []model.Response{
 			completeProgressiveSummaryResponse("Earlier seed history remains relevant."),
+			completeProgressiveSummaryResponse("The current request was accepted."),
 		},
 	}
 	runNow := fixture.Now.Add(4 * time.Second)
@@ -813,15 +814,18 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 	if compactionModel.respondedCount() != 1 {
 		t.Fatalf("serialized-candidate provider calls = %d, want 1", compactionModel.respondedCount())
 	}
-	assertDurableModelErrorForKernelTest(
-		t,
-		ctx,
-		fixture,
-		agentID,
-		turn.TurnID,
-		string(model.ErrorKindContextWindow),
-		"compaction_source_irreducible",
-	)
+	turn = continueTurnOnNewLeaseForKernelTest(t, ctx, fixture, turn, runNow.Add(time.Second))
+	if err := executor.ExecuteModelWork(ctx, turn); err != nil {
+		t.Fatalf("execute normal request after checkpoint: %v", err)
+	}
+	if compactionModel.respondedCount() != 2 || isCompactionRequestBundle(compactionModel.responded[1].Bundle) {
+		t.Fatalf("expected an actual normal provider request after checkpoint")
+	}
+	currentInput := "current input " + strings.Repeat("must remain semantically represented ", 50)
+	if !strings.Contains(string(compactionModel.responded[1].ProviderRequest), currentInput) {
+		t.Fatal("normal request must preserve the complete unanswered opening")
+	}
+	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 	var checkpoints int
 	if err := fixture.Pool.QueryRow(ctx, `
 		SELECT count(*)
@@ -832,7 +836,7 @@ func TestAgentExecutorStopsWhenOnlyUnansweredOpeningExceedsSerializedBudget(t *t
 	); err != nil {
 		t.Fatalf("count serialized-candidate checkpoints: %v", err)
 	}
-	if checkpoints != 0 {
-		t.Fatalf("serialized-candidate checkpoint count = %d, want 0", checkpoints)
+	if checkpoints != 1 {
+		t.Fatalf("serialized-candidate checkpoint count = %d, want 1", checkpoints)
 	}
 }

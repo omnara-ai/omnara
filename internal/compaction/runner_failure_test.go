@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/events"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/model/anthropicmessages"
@@ -27,8 +28,8 @@ func TestCompactionResponseOutcomePrecedesSummaryContent(t *testing.T) {
 		code      string
 		ambiguous bool
 	}{
-		{model.StopReasonMaxTokens, false, "", "", false},
-		{model.StopReasonMaxTokens, true, model.ErrorKindTransient, "tool_use", false},
+		{model.StopReasonMaxTokens, false, model.ErrorKindTransient, compactionErrorCodeSummaryTruncated, false},
+		{model.StopReasonMaxTokens, true, model.ErrorKindTransient, compactionErrorCodeSummaryTruncated, false},
 		{model.StopReasonContextWindow, false, model.ErrorKindContextWindow, "context_window", false},
 		{model.StopReasonContextWindow, true, model.ErrorKindContextWindow, "context_window", false},
 		{model.StopReasonRefusal, false, model.ErrorKindInvalidRequest, "refusal", false},
@@ -192,9 +193,22 @@ func TestCompactionRequestPolicyRejectsIncompatibleNormalAllowance(t *testing.T)
 	}
 }
 
+func TestRunnerRejectsClaimWithoutParent(t *testing.T) {
+	input := runInput(testPlan(1, 1, 2))
+	claim := newCompactionClaim(input, 1, time.Time{})
+	claim.Context.ParentNormalModelCallContextID = uuid.Nil
+	store := &fakeStore{}
+	client := &summaryModel{}
+
+	_, err := testRunner(store, client).RunClaimed(context.Background(), input, claim)
+	require.ErrorIs(t, err, storeerr.ErrStateTransitionConflict)
+	require.Empty(t, client.requests)
+	require.Empty(t, store.publishInputs)
+}
+
 func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.T) {
 	input := runInput(testPlan(2, 2, 2))
-	claim := newCompactionClaim(compactionClaimInput(input, time.Time{}), 0, time.Time{})
+	claim := newCompactionClaim(input, 0, time.Time{})
 	claim.Claimed = false
 	claim.Context.State = executionstore.ModelCallContextFailed
 	claim.Context.ErrorCode = storeerr.ManagedWorkAdmissionDeniedCode
@@ -206,96 +220,11 @@ func TestRunnerReturnsSuppliedTerminalClaimBeforeCompactionPreflight(t *testing.
 		t.Fatalf("return supplied terminal compaction claim: %v", err)
 	}
 	if result.State != RunTerminal || result.ModelCallContextID != claim.Context.ID ||
-		len(store.claimInputs) != 0 || len(client.requests) != 0 {
+		len(client.requests) != 0 {
 		t.Fatalf(
-			"terminal result=%+v claims=%+v requests=%d",
+			"terminal result=%+v requests=%d",
 			result,
-			store.claimInputs,
 			len(client.requests),
-		)
-	}
-}
-
-func TestRunnerClaimsNewContextForDueRetry(t *testing.T) {
-	now := time.Unix(123, 0).UTC()
-	input := runInput(testPlan(1, 1, 1))
-	predecessor := newCompactionClaim(compactionClaimInput(input, now.Add(-time.Minute)), 1, now.Add(-time.Minute))
-	retryAt := now.Add(-time.Second)
-	predecessor.Created = false
-	predecessor.Claimed = false
-	predecessor.Context.State = executionstore.ModelCallContextFailed
-	predecessor.Context.RecoveryKind = executionstore.ModelCallRecoveryRetry
-	predecessor.Context.AttemptNumber = 1
-	predecessor.Context.RetryAt = &retryAt
-
-	store := &fakeStore{
-		events: []executionstore.CompactionSourceEventRecord{
-			textCompactionEvent(1, strings.Repeat("closed source context ", 20)),
-		},
-		claimResults: []executionstore.ModelCallClaim{predecessor},
-	}
-	client := &summaryModel{}
-	result, err := testRunner(store, client, func() time.Time { return now }).
-		Run(context.Background(), input)
-	if err != nil {
-		t.Fatalf("run due compaction retry: %v", err)
-	}
-	if result.State != RunCompleted || result.ModelCallContextID == predecessor.Context.ID ||
-		len(store.nextClaimInputs) != 1 ||
-		store.nextClaimInputs[0].PredecessorModelCallContextID != predecessor.Context.ID {
-		t.Fatalf(
-			"retry result=%+v next claims=%+v predecessor=%+v",
-			result,
-			store.nextClaimInputs,
-			predecessor.Context,
-		)
-	}
-	if len(client.requests) != 1 || len(store.publishInputs) != 1 ||
-		store.publishInputs[0].ModelCallContextID != result.ModelCallContextID ||
-		result.Checkpoint == nil ||
-		result.Checkpoint.ProducerModelCallContextID != result.ModelCallContextID {
-		t.Fatalf(
-			"retry result=%+v requests=%+v publications=%+v",
-			result,
-			client.requests,
-			store.publishInputs,
-		)
-	}
-	claimed := store.claims[len(store.claims)-1].Context
-	if claimed.AttemptNumber != 2 {
-		t.Fatalf("retry attempt = %+v", claimed)
-	}
-}
-
-func TestRunnerLeavesFutureRetryScheduled(t *testing.T) {
-	now := time.Unix(123, 0).UTC()
-	input := runInput(testPlan(1, 1, 1))
-	claim := newCompactionClaim(compactionClaimInput(input, now.Add(-time.Minute)), 1, now.Add(-time.Minute))
-	retryAt := now.Add(time.Minute)
-	claim.Created = false
-	claim.Claimed = false
-	claim.Context.State = executionstore.ModelCallContextFailed
-	claim.Context.RecoveryKind = executionstore.ModelCallRecoveryRetry
-	claim.Context.RetryAt = &retryAt
-	store := &fakeStore{
-		events:       []executionstore.CompactionSourceEventRecord{textCompactionEvent(1, "closed source")},
-		claimResults: []executionstore.ModelCallClaim{claim},
-	}
-
-	client := &summaryModel{}
-	result, err := testRunner(store, client, func() time.Time { return now }).
-		Run(context.Background(), input)
-	if err != nil {
-		t.Fatalf("run future compaction retry: %v", err)
-	}
-	if result.State != RunRetryScheduled || result.RetryAt == nil ||
-		!result.RetryAt.Equal(retryAt) || len(client.requests) != 0 ||
-		len(store.publishInputs) != 0 {
-		t.Fatalf(
-			"future retry result=%+v requests=%+v publications=%+v",
-			result,
-			client.requests,
-			store.publishInputs,
 		)
 	}
 }
@@ -313,9 +242,9 @@ func TestRunnerRetriesDatabaseUnsafeSummaryAsMalformedProviderResponse(t *testin
 			Text: "unsafe\x00summary",
 		}},
 	}}}}
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run malformed compaction response: %v", err)
@@ -353,34 +282,10 @@ func TestRunnerClearsDatabaseUnsafeResponseEvidenceWhenRetriesAreExhausted(t *te
 			Text: "complete summary",
 		}},
 	}}}}
-	firstResult, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
-	)
-	if err != nil || firstResult.State != RunRetryScheduled {
-		t.Fatalf("run first malformed compaction response: result=%+v err=%v", firstResult, err)
-	}
-
-	exhaustedClaim := store.claims[0]
-	exhaustedClaim.Created = false
-	exhaustedClaim.Context.ID = testIDN(299)
-	exhaustedClaim.Context.AttemptNumber = executionstore.MaxModelCallRetriesPerOperation + 1
-	exhaustedClaim.Context.State = executionstore.ModelCallContextStarted
-	store.claimResults = []executionstore.ModelCallClaim{exhaustedClaim}
-	client.results = []summaryResult{{response: model.Response{
-		ID:                      "resp\x00malformed",
-		ServedProviderModelSlug: "served\x00malformed",
-		ProviderReportedCostUSD: "0.0000015",
-		StopReason:              model.StopReasonEndTurn,
-		Content: []model.ResponsePart{{
-			Type: model.ResponsePartTypeText,
-			Text: "complete summary",
-		}},
-	}}}
-
-	terminalResult, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	store.compactionRetryCount = executionstore.MaxModelCallRetriesPerOperation
+	compactionInput := runInput(testPlan(1, 1, 1))
+	terminalResult, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run exhausted malformed compaction response: %v", err)
@@ -413,10 +318,9 @@ func TestRunnerRetriesToolUsingCompactionResponseWithDatabaseSafeEvidence(t *tes
 			ToolInput:      json.RawMessage(`{}`),
 		}},
 	}}}}
-
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run semantic compaction failure: %v", err)
@@ -439,10 +343,9 @@ func TestRunnerRetriesEmptyCompactionSummary(t *testing.T) {
 		ID:         "resp_empty_summary",
 		StopReason: model.StopReasonEndTurn,
 	}}}}
-
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run empty compaction summary: %v", err)
@@ -463,10 +366,9 @@ func TestRunnerRetriesAmbiguousCompactionStopReasons(t *testing.T) {
 				ID:         "resp_ambiguous_stop",
 				StopReason: stopReason,
 			}}}}
-
-			result, err := testRunner(store, client).Run(
-				context.Background(),
-				runInput(testPlan(1, 1, 1)),
+			compactionInput := runInput(testPlan(1, 1, 1))
+			result, err := testRunner(store, client).RunClaimed(
+				context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 			)
 			if err != nil {
 				t.Fatalf("run ambiguous compaction response: %v", err)
@@ -486,11 +388,11 @@ func TestRunnerDurablyRetriesUnclassifiedResolverFailureBeforeProviderSend(t *te
 	}}
 	wantErr := errors.New("database connection unavailable")
 	runner := Runner{
-		Store:          store,
-		Resolver:       errorResolver{err: wantErr},
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: errorResolver{err: wantErr},
 	}
-	result, err := runner.Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := runner.RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil || result.State != RunRetryScheduled {
 		t.Fatalf("run unclassified resolver failure: result=%+v err=%v", result, err)
 	}
@@ -518,29 +420,16 @@ func TestRunnerStopsAfterEighthRetryableResolverFailure(t *testing.T) {
 		Message: "the model resolver is temporarily unavailable",
 	}
 	runner := Runner{
-		Store:          store,
-		Resolver:       errorResolver{err: providerErr},
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: errorResolver{err: providerErr},
 	}
 	input := runInput(testPlan(1, 1, 1))
-	first, err := runner.Run(context.Background(), input)
-	if err != nil || first.State != RunRetryScheduled || len(store.retryFailures) != 1 {
-		t.Fatalf("first pre-send compaction failure: result=%+v retry=%+v err=%v", first, store.retryFailures, err)
-	}
-
-	exhaustedClaim := store.claims[0]
-	exhaustedClaim.Created = false
-	exhaustedClaim.Context.ID = testIDN(299)
-	exhaustedClaim.Context.AttemptNumber = executionstore.MaxModelCallRetriesPerOperation + 1
-	exhaustedClaim.Context.State = executionstore.ModelCallContextStarted
-	exhaustedClaim.Context.RetryAt = nil
-	store.claimResults = []executionstore.ModelCallClaim{exhaustedClaim}
-
-	terminal, err := runner.Run(context.Background(), input)
+	store.compactionRetryCount = executionstore.MaxModelCallRetriesPerOperation
+	terminal, err := runner.RunClaimed(context.Background(), input, store.addStartedClaim(input))
 	if err != nil {
 		t.Fatalf("ninth pre-send compaction failure: %v", err)
 	}
-	if terminal.State != RunTerminal || len(store.retryFailures) != 1 ||
+	if terminal.State != RunTerminal || len(store.retryFailures) != 0 ||
 		len(store.terminalFailures) != 1 {
 		t.Fatalf(
 			"ninth attempt result=%+v retries=%+v terminal=%+v",
@@ -562,9 +451,9 @@ func TestRunnerDurablyRetriesUnclassifiedPrepareFailureBeforeProviderSend(t *tes
 	}}
 	wantErr := errors.New("artifact store unavailable")
 	client := &summaryModel{prepareErrs: []error{wantErr}}
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil || result.State != RunRetryScheduled {
 		t.Fatalf("run unclassified prepare failure: result=%+v err=%v", result, err)
@@ -592,9 +481,9 @@ func TestRunnerRecordsClassifiedPrepareFailureBeforeProviderSend(t *testing.T) {
 		Code:    "unsupported_input_modality",
 		Message: "the selected model does not accept this input modality",
 	}}}
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run classified prepare failure: %v", err)
@@ -629,9 +518,9 @@ func TestRunnerTerminatesInvalidCompactionOutputPolicyBeforeProviderPreparation(
 		Client:   providerClient,
 		provider: providerClient,
 	}
-	result, err := testRunner(store, client).Run(
-		context.Background(),
-		runInput(testPlan(1, 1, 1)),
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).RunClaimed(
+		context.Background(), compactionInput, store.addStartedClaim(compactionInput),
 	)
 	if err != nil {
 		t.Fatalf("run invalid compaction output policy: %v", err)
@@ -694,11 +583,11 @@ func TestRunnerClassifiesMissingLiveGrantAsAuthFailure(t *testing.T) {
 		textCompactionEvent(1, "closed source"),
 	}}
 	runner := Runner{
-		Store:          store,
-		Resolver:       errorResolver{err: storeerr.ErrModelGrantUnavailable},
-		ContextBuilder: &fakeContextBuilder{},
+		Store:    store,
+		Resolver: errorResolver{err: storeerr.ErrModelGrantUnavailable},
 	}
-	result, err := runner.Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := runner.RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run without live grant: %v", err)
 	}
@@ -723,8 +612,9 @@ func TestRunnerSchedulesExplicitRateLimitFailureDurably(t *testing.T) {
 		Message: "try later", RequestID: "req_rate", RetryAfter: &model.RetryAfter{DeltaSeconds: &seconds},
 	}}}}
 	now := time.Unix(1_000, 0).UTC()
+	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := testRunner(store, client, func() time.Time { return now }).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run rate-limited compaction: %v", err)
 	}
@@ -747,8 +637,9 @@ func TestRunnerRecordsAmbiguousPostSendFailureInEvidence(t *testing.T) {
 	client := &summaryModel{results: []summaryResult{{err: model.AmbiguousProviderOutcome(
 		model.ProviderError{Kind: model.ErrorKindTransient, Code: "connection_reset", Message: "connection reset"},
 	)}}}
+	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run ambiguous compaction: %v", err)
 	}
@@ -768,8 +659,9 @@ func TestRunnerStopsAuthFailureWithoutRetry(t *testing.T) {
 		Kind: model.ErrorKindAuth, Code: "invalid_api_key", Message: "invalid key",
 		RetryAfter: &model.RetryAfter{DeltaSeconds: &seconds, HTTPDate: &retryAt},
 	}}}}
+	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run auth failure: %v", err)
 	}
@@ -791,8 +683,9 @@ func TestRunnerStopsReplayRejectionWithoutReplayRecovery(t *testing.T) {
 		Message:   "provider labeled the canonical summary request as rejected replay",
 		Retryable: &retry,
 	}}}}
+	compactionInput := runInput(testPlan(1, 1, 1))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 1, 1)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run replay-rejected compaction: %v", err)
 	}
@@ -843,8 +736,9 @@ func TestRunnerReplacesTruncatedSummaryWithStrictlySmallerSafeSource(t *testing.
 				}},
 				{response: completeSummaryResponse("## Goal\nPreserve the first completed unit.\n\n## Next Steps\nContinue.")},
 			}}
+			compactionInput := runInput(testPlan(1, 4, 4))
 			result, err := testRunner(store, client).
-				Run(context.Background(), runInput(testPlan(1, 4, 4)))
+				RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 			if err != nil {
 				t.Fatalf("run truncated compaction: %v", err)
 			}
@@ -863,10 +757,10 @@ func TestRunnerReplacesTruncatedSummaryWithStrictlySmallerSafeSource(t *testing.
 				store.replacements[0].Usage.OutputTokens != 9 {
 				t.Fatalf("replacement evidence = %+v", store.replacements[0])
 			}
-			if len(store.claimInputs) != 1 || store.claims[1].Context.SourceEventSequenceEnd == nil ||
+			if len(store.claims) != 2 || store.claims[1].Context.SourceEventSequenceEnd == nil ||
 				*store.claims[1].Context.SourceEventSequenceEnd != nextEnd ||
 				len(store.publishInputs) != 1 || store.publishInputs[0].ProviderRequestID != "req_complete" {
-				t.Fatalf("structural retry claims=%+v publishes=%+v", store.claimInputs, store.publishInputs)
+				t.Fatalf("structural retry claims=%+v publishes=%+v", store.claims, store.publishInputs)
 			}
 		})
 	}
@@ -890,8 +784,9 @@ func TestRunnerBoundsErrorEvidenceBeforeReplacingCompactionSource(t *testing.T) 
 		},
 		{response: completeSummaryResponse("## Goal\nPreserve the first unit.\n\n## Next Steps\nContinue.")},
 	}}
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run compaction with unsafe error evidence: %v", err)
 	}
@@ -930,9 +825,9 @@ func TestRunnerReplacesNonReducingSummaryWithSmallerSource(t *testing.T) {
 		{response: completeSummaryResponse(priorSummary + strings.Repeat("n", 4_000))},
 		{response: completeSummaryResponse(priorSummary + "\n\n## Next Steps\nContinue.")},
 	}}
-
+	compactionInput := runInput(testPlan(2, 4, 4))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(2, 4, 4)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run non-reducing compaction: %v", err)
 	}
@@ -968,8 +863,9 @@ func TestRunnerReplacesContextWindowStopWithStrictlySmallerSafeSource(t *testing
 		{response: model.Response{ID: "resp_context_window", StopReason: model.StopReasonContextWindow}},
 		{response: completeSummaryResponse("## Goal\nPreserve the first unit.\n\n## Next Steps\nContinue.")},
 	}}
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run context-window compaction: %v", err)
 	}
@@ -993,8 +889,9 @@ func TestRunnerReplacesPayloadTooLargeFailureWithStrictlySmallerSafeSource(t *te
 		}},
 		{response: completeSummaryResponse("## Goal\nPreserve the first unit.\n\n## Next Steps\nContinue.")},
 	}}
+	compactionInput := runInput(testPlan(1, 2, 2))
 	result, err := testRunner(store, client).
-		Run(context.Background(), runInput(testPlan(1, 2, 2)))
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run payload-too-large compaction: %v", err)
 	}
@@ -1006,77 +903,31 @@ func TestRunnerReplacesPayloadTooLargeFailureWithStrictlySmallerSafeSource(t *te
 	}
 }
 
-func TestRunnerUsesSmallestTruncatedSummaryWhenUsable(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		content    []model.ResponsePart
-		errorCode  string
-		overBudget bool
-	}{
-		{name: "partial text", content: []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial summary"}}},
-		{name: "empty", errorCode: "empty_summary"},
-		{
-			name:      "reasoning only",
-			content:   []model.ResponsePart{{Type: model.ResponsePartTypeReasoning, Text: "thinking"}},
-			errorCode: "empty_summary",
-		},
-		{name: "tool call", content: []model.ResponsePart{
-			{Type: model.ResponsePartTypeText, Text: "partial summary"},
-			{Type: model.ResponsePartTypeToolCall, ProviderCallID: "call_1", ToolName: "unexpected", ToolInput: json.RawMessage(`{}`)},
-		}, errorCode: "tool_use"},
-		{
-			name: "not smaller",
-			content: []model.ResponsePart{{
-				Type: model.ResponsePartTypeText, Text: strings.Repeat("larger summary ", 200),
-			}},
-			errorCode: compactionErrorCodeSourceIrreducible,
-		},
-		{
-			name:       "continuation over budget",
-			content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "partial summary"}},
-			errorCode:  compactionErrorCodeSourceIrreducible,
-			overBudget: true,
-		},
+func TestRunnerNeverPublishesSmallestTruncatedSummary(t *testing.T) {
+	for _, content := range [][]model.ResponsePart{
+		nil,
+		{{Type: model.ResponsePartTypeText, Text: "partial summary"}},
+		{{Type: model.ResponsePartTypeReasoning, Text: "thinking"}},
+		{{Type: model.ResponsePartTypeToolCall, ProviderCallID: "call_1", ToolName: "unexpected", ToolInput: json.RawMessage(`{}`)}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
-				textCompactionEvent(1, strings.Repeat("only closed unit ", 100)),
-			}}
-			client := &summaryModel{results: []summaryResult{{response: model.Response{
-				ID: "resp_truncated", ProviderRequestID: "req_truncated",
-				StopReason: model.StopReasonMaxTokens, Content: tc.content,
-				Usage: model.Usage{InputTokens: 51, OutputTokens: 11},
-			}}}}
-			if tc.overBudget {
-				client.checkpointPreparedEstimates = []int{300_000}
-			}
-			result, err := testRunner(store, client).Run(context.Background(), runInput(testPlan(1, 1, 1)))
-			require.NoError(t, err)
-			require.Len(t, client.requests, 1)
-			require.Empty(t, store.replacements)
-			if tc.errorCode != "" {
-				require.Empty(t, store.publishInputs)
-				if tc.errorCode == compactionErrorCodeSourceIrreducible {
-					require.Equal(t, RunTerminal, result.State)
-					require.Len(t, store.terminalFailures, 1)
-					require.Equal(t, tc.errorCode, store.terminalFailures[0].ErrorCode)
-				} else {
-					require.Equal(t, RunRetryScheduled, result.State)
-					require.Len(t, store.retryFailures, 1)
-					require.Equal(t, tc.errorCode, store.retryFailures[0].ErrorCode)
-				}
-				return
-			}
-			require.Equal(t, RunCompleted, result.State)
-			require.Empty(t, store.terminalFailures)
-			require.Empty(t, store.retryFailures)
-			require.Len(t, store.publishInputs, 1)
-			published := store.publishInputs[0]
-			require.Equal(t, "partial summary", published.Summary)
-			require.Equal(t, "resp_truncated", published.ProviderResponseID)
-			require.Equal(t, "req_truncated", published.ProviderRequestID)
-			require.Equal(t, model.Usage{InputTokens: 51, OutputTokens: 11}, published.Usage)
-		})
+		store := &fakeStore{events: []executionstore.CompactionSourceEventRecord{
+			textCompactionEvent(1, strings.Repeat("only closed unit ", 100)),
+		}}
+		client := &summaryModel{results: []summaryResult{{response: model.Response{
+			ID: "resp_truncated", ProviderRequestID: "req_truncated", StopReason: model.StopReasonMaxTokens,
+			Content: content, Usage: model.Usage{InputTokens: 51, OutputTokens: 11},
+		}}}}
+		compactionInput := runInput(testPlan(1, 1, 2))
+		result, err := testRunner(store, client).
+			RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
+		require.NoError(t, err)
+		require.Equal(t, RunRetryScheduled, result.State)
+		require.Len(t, client.requests, 1)
+		require.Empty(t, store.replacements)
+		require.Empty(t, store.publishInputs)
+		require.Len(t, store.retryFailures, 1)
+		require.Equal(t, compactionErrorCodeSummaryTruncated, store.retryFailures[0].ErrorCode)
+		require.Equal(t, model.Usage{InputTokens: 51, OutputTokens: 11}, store.retryFailures[0].Usage)
 	}
 }
 
@@ -1087,7 +938,9 @@ func TestRunnerStopsSmallestNonReducingSummaryWithoutRepeatingRequest(t *testing
 	client := &summaryModel{results: []summaryResult{{
 		response: completeSummaryResponse(strings.Repeat("larger summary ", 20)),
 	}}}
-	result, err := testRunner(store, client).Run(context.Background(), runInput(testPlan(1, 1, 1)))
+	compactionInput := runInput(testPlan(1, 1, 1))
+	result, err := testRunner(store, client).
+		RunClaimed(context.Background(), compactionInput, store.addStartedClaim(compactionInput))
 	if err != nil {
 		t.Fatalf("run non-reducing compaction: %v", err)
 	}

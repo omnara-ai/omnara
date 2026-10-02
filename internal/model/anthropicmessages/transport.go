@@ -12,8 +12,9 @@ import (
 
 func (c Client) routeClient() route.Client {
 	return route.Client{
-		ProviderModelSlug: c.RequestedProviderModelSlug(),
-		ModelCapabilities: c.ModelCapabilities,
+		ProviderModelSlug:  c.RequestedProviderModelSlug(),
+		InputIdentityScope: c.InputIdentityScope,
+		ModelCapabilities:  c.ModelCapabilities,
 		Endpoint: route.StaticEndpoint{
 			BaseURL:        c.BaseURL,
 			DefaultBaseURL: "https://api.anthropic.com/v1",

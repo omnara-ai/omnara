@@ -422,39 +422,22 @@ LIMIT 1
 	if completedCompactionContext.SourceEventSequenceEnd == nil {
 		t.Fatalf("completed compaction context has no source range: %+v", completedCompactionContext)
 	}
-	parentContext, found, err := fixture.Store.Execution().GetNormalModelCallContextForFrontier(
+	replayedClaim, err := fixture.Store.Execution().ClaimNextModelCallContext(
 		ctx,
-		kernelTestProjectID,
-		agentID,
-		completedCompactionContext.InputEventSequence,
-	)
-	if err != nil || !found {
-		t.Fatalf("load completed compaction parent: found=%v err=%v", found, err)
-	}
-	replayedCompaction, err := (compaction.Runner{
-		Store:          compaction.NewStore(fixture.Store.Execution()),
-		Resolver:       executor.ModelResolver,
-		ContextBuilder: executor.contextBuilder(),
-		Now:            executor.Now,
-	}).Run(ctx, compaction.RunInput{
-		Plan: compaction.Plan{
-			ProjectID:          kernelTestProjectID,
-			AgentID:            agentID,
-			InputEventSequence: completedCompactionContext.InputEventSequence,
-			EventSequenceStart: compactionSourceStartForKernelTest(t, ctx, fixture.Store, completedCompactionContext),
-			EventSequenceEnd:   *completedCompactionContext.SourceEventSequenceEnd,
+		executionstore.ClaimNextModelCallContextInput{
+			ProjectID: kernelTestProjectID, AgentID: agentID,
+			PredecessorModelCallContextID: completedCompactionContext.ID,
+			RuntimeLockID:                 retryTurn.RuntimeLockID,
 		},
-		TurnID:                   retryTurn.TurnID,
-		OpeningInputIDs:          retryTurn.InputIDs,
-		OpeningEventSequence:     retryTurn.OpeningEventSequence,
-		RuntimeLockID:            retryTurn.RuntimeLockID,
-		ParentModelCallContextID: parentContext.ID,
-	})
-	if err != nil {
-		t.Fatalf("replay completed compaction: %v", err)
+	)
+	if err != nil || replayedClaim.Created || replayedClaim.Claimed {
+		t.Fatalf("completed compaction created another claim: claim=%+v err=%v", replayedClaim, err)
 	}
-	if replayedCompaction.State != compaction.RunCompleted || replayedCompaction.Checkpoint == nil {
-		t.Fatalf("replayed compaction = %+v, want adopted checkpoint", replayedCompaction)
+	checkpoint, found, err := fixture.Store.Execution().GetContextCheckpointByProducerContext(
+		ctx, kernelTestProjectID, agentID, completedCompactionContext.ID,
+	)
+	if err != nil || !found || checkpoint.ProducerModelCallContextID != completedCompactionContext.ID {
+		t.Fatalf("load completed compaction checkpoint: checkpoint=%+v found=%v err=%v", checkpoint, found, err)
 	}
 	if retryModel.respondedCount() != 2 {
 		t.Fatalf("completed compaction replay made a provider request; prepared=%d", retryModel.respondedCount())
@@ -1343,16 +1326,10 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 		},
 		responses: malformedResponses,
 	}
-	executor := AgentExecutor{
-		Store:           fixture.Store,
-		ModelResolver:   liveTestModelResolver(fixture.Store, compactionModel),
-		ModelRetryDelay: immediateKernelModelRetryDelay,
-	}
 	currentNow := runNow
 	runner := compaction.Runner{
-		Store:           compaction.NewStore(fixture.Store.Execution()),
-		Resolver:        executor.ModelResolver,
-		ContextBuilder:  executor.contextBuilder(),
+		Store:           fixture.Store.Execution(),
+		Resolver:        liveTestModelResolver(fixture.Store, compactionModel),
 		Now:             func() time.Time { return currentNow },
 		ModelRetryDelay: immediateKernelModelRetryDelay,
 	}
@@ -1364,19 +1341,28 @@ func TestCompactionExhaustsMalformedResponsesWithoutPersistingUnsafeEvidence(t *
 			EventSequenceStart: 1,
 			EventSequenceEnd:   turn.OpeningEventSequence - 1,
 		},
-		TurnID:                   turn.TurnID,
-		OpeningInputIDs:          turn.InputIDs,
-		OpeningEventSequence:     turn.OpeningEventSequence,
-		RuntimeLockID:            turn.RuntimeLockID,
-		ParentModelCallContextID: parent.Context.ID,
+		TurnID:               turn.TurnID,
+		OpeningInputIDs:      turn.InputIDs,
+		OpeningEventSequence: turn.OpeningEventSequence,
+		RuntimeLockID:        turn.RuntimeLockID,
 	}
 	var result compaction.RunResult
 	for attemptNumber := 1; attemptNumber <= maxAttempts; attemptNumber++ {
-		if attemptNumber == 1 {
-			result, err = runner.RunClaimed(ctx, runInput, handoff.CompactionCall)
-		} else {
-			result, err = runner.Run(ctx, runInput)
+		claim := handoff.CompactionCall
+		if attemptNumber > 1 {
+			claim, err = fixture.Store.Execution().ClaimNextModelCallContext(
+				ctx,
+				executionstore.ClaimNextModelCallContextInput{
+					ProjectID: kernelTestProjectID, AgentID: agentID,
+					PredecessorModelCallContextID: result.ModelCallContextID,
+					RuntimeLockID:                 turn.RuntimeLockID,
+				},
+			)
+			if err != nil || !claim.Created || !claim.Claimed {
+				t.Fatalf("claim malformed compaction retry %d: claim=%+v err=%v", attemptNumber, claim, err)
+			}
 		}
+		result, err = runner.RunClaimed(ctx, runInput, claim)
 		if err != nil {
 			t.Fatalf("run malformed compaction response attempt %d: %v", attemptNumber, err)
 		}

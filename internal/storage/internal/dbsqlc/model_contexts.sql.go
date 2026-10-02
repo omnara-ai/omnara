@@ -103,16 +103,16 @@ const finishModelCallContext = `-- name: FinishModelCallContext :one
 WITH agent_scope AS MATERIALIZED (
   SELECT agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $21
-    AND agent.id = $22
+  WHERE agent.project_id = $26
+    AND agent.id = $27
 ),
 runtime AS MATERIALIZED (
   SELECT agent.project_id, runtime_lock.agent_id, runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN agent_scope agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $23
+  WHERE runtime_lock.id = $28
     AND (
-      $24::boolean
+      $29::boolean
       OR (
         runtime_lock.cancel_requested_at IS NULL
         AND runtime_lock.lease_expires_at > statement_timestamp()
@@ -143,11 +143,16 @@ SET state = $1,
     reasoning_output_tokens = $17::integer,
     provider_reported_cost_usd = $18::text::numeric,
     provider_metadata = $19,
+    recovery_checkpoint_retained_bytes = $20::integer,
+    optional_input_target_tokens = $21::integer,
+    optional_compaction_outcome = $22::text,
+    request_input_fingerprint = $23::text,
+    request_input_item_count = $24::integer,
     completed_at = statement_timestamp()
 FROM runtime
 WHERE context.project_id = runtime.project_id
   AND context.agent_id = runtime.agent_id
-  AND context.id = $20
+  AND context.id = $25
   AND context.runtime_lock_id = runtime.id
   AND context.state = 'started'
 RETURNING context.id
@@ -173,6 +178,11 @@ type FinishModelCallContextParams struct {
 	ReasoningOutputTokens               *int32
 	ProviderReportedCostUsd             *string
 	ProviderMetadata                    json.RawMessage
+	RecoveryCheckpointRetainedBytes     *int32
+	OptionalInputTargetTokens           *int32
+	OptionalCompactionOutcome           *string
+	RequestInputFingerprint             *string
+	RequestInputItemCount               *int32
 	ID                                  uuid.UUID
 	ProjectID                           uuid.UUID
 	AgentID                             uuid.UUID
@@ -201,6 +211,11 @@ func (q *Queries) FinishModelCallContext(ctx context.Context, arg FinishModelCal
 		arg.ReasoningOutputTokens,
 		arg.ProviderReportedCostUsd,
 		arg.ProviderMetadata,
+		arg.RecoveryCheckpointRetainedBytes,
+		arg.OptionalInputTargetTokens,
+		arg.OptionalCompactionOutcome,
+		arg.RequestInputFingerprint,
+		arg.RequestInputItemCount,
 		arg.ID,
 		arg.ProjectID,
 		arg.AgentID,
@@ -218,23 +233,32 @@ FROM model_call_contexts context
 WHERE context.project_id = $1
   AND context.agent_id = $2
   AND context.operation_kind = 'compaction'
-  AND context.input_event_sequence = $3
-  AND context.source_event_sequence_end = $4
+  AND context.parent_normal_model_call_context_id = $3
+  AND context.source_excerpt_bytes IS NOT DISTINCT FROM $4::integer
+  AND context.replaces_checkpoint_id IS NOT DISTINCT FROM $5::uuid
+  AND context.input_event_sequence = $6
+  AND context.source_event_sequence_end = $7
 ORDER BY context.attempt_number DESC
 LIMIT 1
 `
 
 type GetCompactionModelCallContextByIdentityParams struct {
-	ProjectID              uuid.UUID
-	AgentID                uuid.UUID
-	InputEventSequence     int64
-	SourceEventSequenceEnd *int64
+	ProjectID                      uuid.UUID
+	AgentID                        uuid.UUID
+	ParentNormalModelCallContextID *uuid.UUID
+	SourceExcerptBytes             *int32
+	ReplacesCheckpointID           *uuid.UUID
+	InputEventSequence             int64
+	SourceEventSequenceEnd         *int64
 }
 
 func (q *Queries) GetCompactionModelCallContextByIdentity(ctx context.Context, arg GetCompactionModelCallContextByIdentityParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, getCompactionModelCallContextByIdentity,
 		arg.ProjectID,
 		arg.AgentID,
+		arg.ParentNormalModelCallContextID,
+		arg.SourceExcerptBytes,
+		arg.ReplacesCheckpointID,
 		arg.InputEventSequence,
 		arg.SourceEventSequenceEnd,
 	)
@@ -269,7 +293,13 @@ const getModelCallContext = `-- name: GetModelCallContext :one
 SELECT context.id, context.org_id, context.project_id, context.agent_id,
   context.operation_kind, context.attempt_number, context.agent_config_id,
   context.configured_model_revision_id, context.input_event_sequence,
-  context.source_event_sequence_end,
+  context.source_event_sequence_end, context.parent_normal_model_call_context_id,
+  context.source_excerpt_bytes, context.replaces_checkpoint_id,
+  context.recovery_checkpoint_retained_bytes,
+  context.optional_input_target_tokens,
+  context.optional_compaction_outcome,
+  context.request_input_fingerprint,
+  context.request_input_item_count,
   context.runtime_lock_id, context.state, context.recovery_kind,
   context.api_format, context.api_variant, context.provider_request_id,
   context.provider_response_id, context.error_kind, context.error_code,
@@ -293,38 +323,46 @@ type GetModelCallContextParams struct {
 }
 
 type GetModelCallContextRow struct {
-	ID                        uuid.UUID
-	OrgID                     uuid.UUID
-	ProjectID                 uuid.UUID
-	AgentID                   uuid.UUID
-	OperationKind             string
-	AttemptNumber             int32
-	AgentConfigID             uuid.UUID
-	ConfiguredModelRevisionID uuid.UUID
-	InputEventSequence        int64
-	SourceEventSequenceEnd    *int64
-	RuntimeLockID             uuid.UUID
-	State                     string
-	RecoveryKind              *string
-	ApiFormat                 string
-	ApiVariant                string
-	ProviderRequestID         string
-	ProviderResponseID        string
-	ErrorKind                 string
-	ErrorCode                 string
-	ErrorMessage              string
-	ErrorDetails              json.RawMessage
-	RetryAt                   *time.Time
-	InputTokensTotal          *int32
-	UncachedInputTokens       *int32
-	CacheReadInputTokens      *int32
-	CacheWriteInputTokens     *int32
-	OutputTokensTotal         *int32
-	ReasoningOutputTokens     *int32
-	CreatedAt                 time.Time
-	CompletedAt               *time.Time
-	ProviderReportedCostUsd   string
-	ProviderMetadata          json.RawMessage
+	ID                              uuid.UUID
+	OrgID                           uuid.UUID
+	ProjectID                       uuid.UUID
+	AgentID                         uuid.UUID
+	OperationKind                   string
+	AttemptNumber                   int32
+	AgentConfigID                   uuid.UUID
+	ConfiguredModelRevisionID       uuid.UUID
+	InputEventSequence              int64
+	SourceEventSequenceEnd          *int64
+	ParentNormalModelCallContextID  *uuid.UUID
+	SourceExcerptBytes              *int32
+	ReplacesCheckpointID            *uuid.UUID
+	RecoveryCheckpointRetainedBytes *int32
+	OptionalInputTargetTokens       *int32
+	OptionalCompactionOutcome       *string
+	RequestInputFingerprint         *string
+	RequestInputItemCount           *int32
+	RuntimeLockID                   uuid.UUID
+	State                           string
+	RecoveryKind                    *string
+	ApiFormat                       string
+	ApiVariant                      string
+	ProviderRequestID               string
+	ProviderResponseID              string
+	ErrorKind                       string
+	ErrorCode                       string
+	ErrorMessage                    string
+	ErrorDetails                    json.RawMessage
+	RetryAt                         *time.Time
+	InputTokensTotal                *int32
+	UncachedInputTokens             *int32
+	CacheReadInputTokens            *int32
+	CacheWriteInputTokens           *int32
+	OutputTokensTotal               *int32
+	ReasoningOutputTokens           *int32
+	CreatedAt                       time.Time
+	CompletedAt                     *time.Time
+	ProviderReportedCostUsd         string
+	ProviderMetadata                json.RawMessage
 }
 
 func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallContextParams) (GetModelCallContextRow, error) {
@@ -341,6 +379,14 @@ func (q *Queries) GetModelCallContext(ctx context.Context, arg GetModelCallConte
 		&i.ConfiguredModelRevisionID,
 		&i.InputEventSequence,
 		&i.SourceEventSequenceEnd,
+		&i.ParentNormalModelCallContextID,
+		&i.SourceExcerptBytes,
+		&i.ReplacesCheckpointID,
+		&i.RecoveryCheckpointRetainedBytes,
+		&i.OptionalInputTargetTokens,
+		&i.OptionalCompactionOutcome,
+		&i.RequestInputFingerprint,
+		&i.RequestInputItemCount,
 		&i.RuntimeLockID,
 		&i.State,
 		&i.RecoveryKind,
@@ -409,6 +455,139 @@ func (q *Queries) GetModelCallContextTurnID(ctx context.Context, arg GetModelCal
 	var turn_id uuid.UUID
 	err := row.Scan(&turn_id)
 	return turn_id, err
+}
+
+const getModelCallRecoveryState = `-- name: GetModelCallRecoveryState :one
+WITH current AS MATERIALIZED (
+  SELECT context.id, context.agent_id, context.operation_kind, context.input_event_sequence,
+         context.parent_normal_model_call_context_id, context.configured_model_revision_id,
+         context.agent_config_id, context.created_at
+  FROM model_call_contexts context
+  WHERE context.project_id = $1 AND context.agent_id = $2
+    AND context.id = $3
+), latest_optional AS MATERIALIZED (
+  SELECT prior.id, prior.optional_input_target_tokens, prior.completed_at
+  FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
+  WHERE prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
+    AND prior.configured_model_revision_id = current.configured_model_revision_id
+    AND prior.agent_config_id = current.agent_config_id
+    AND prior.created_at < current.created_at
+  ORDER BY prior.created_at DESC, prior.id DESC LIMIT 1
+), latest_optional_child AS MATERIALIZED (
+  SELECT child.state, child.optional_compaction_outcome
+  FROM model_call_contexts child JOIN latest_optional ON child.parent_normal_model_call_context_id = latest_optional.id
+  ORDER BY child.created_at DESC, child.id DESC LIMIT 1
+), latest_observed_normal AS MATERIALIZED (
+  SELECT measured.input_tokens_total,
+         min(nullif(measured.input_tokens_total, 0)) OVER () AS minimum_input_tokens
+  FROM model_call_contexts measured
+  JOIN current ON measured.agent_id = current.agent_id
+    AND measured.configured_model_revision_id = current.configured_model_revision_id
+    AND measured.agent_config_id = current.agent_config_id
+  JOIN latest_optional ON measured.created_at > latest_optional.completed_at
+  WHERE measured.operation_kind = 'normal' AND measured.state = 'succeeded'
+    AND measured.created_at < current.created_at
+  ORDER BY measured.created_at DESC, measured.id DESC LIMIT 1
+), latest_checkpoint AS MATERIALIZED (
+  SELECT event.sequence, checkpoint.id, checkpoint.summarized_through_event_sequence
+  FROM agent_events event JOIN current ON event.agent_id = current.agent_id
+  JOIN context_checkpoints checkpoint ON checkpoint.id = event.context_checkpoint_id AND checkpoint.agent_id = event.agent_id
+  WHERE event.event_kind = 'context_checkpoint' AND event.sequence <= current.input_event_sequence
+  ORDER BY event.sequence DESC LIMIT 1
+), checkpoint_projection AS MATERIALIZED (
+  SELECT latest_checkpoint.id AS recovery_checkpoint_id, prior.recovery_checkpoint_retained_bytes
+  FROM model_call_contexts prior JOIN current ON prior.agent_id = current.agent_id
+  JOIN latest_checkpoint ON prior.input_event_sequence >= latest_checkpoint.sequence
+    AND prior.input_event_sequence <= current.input_event_sequence
+  WHERE prior.configured_model_revision_id = current.configured_model_revision_id
+    AND prior.agent_config_id = current.agent_config_id
+    AND prior.recovery_checkpoint_retained_bytes IS NOT NULL
+    AND prior.created_at < current.created_at
+  ORDER BY prior.recovery_checkpoint_retained_bytes LIMIT 1
+)
+SELECT model_call_transient_retry_count(current.id)::bigint AS retry_count,
+       coalesce(parent.recovery_kind, '')::text AS parent_recovery_kind,
+       checkpoint_projection.recovery_checkpoint_id,
+       checkpoint_projection.recovery_checkpoint_retained_bytes,
+       EXISTS (
+         SELECT 1 FROM model_call_contexts prior
+         JOIN context_checkpoints replaced ON replaced.id = prior.replaces_checkpoint_id
+           AND replaced.agent_id = prior.agent_id
+         JOIN latest_checkpoint ON latest_checkpoint.summarized_through_event_sequence = replaced.summarized_through_event_sequence
+         WHERE prior.agent_id = current.agent_id AND prior.agent_config_id = current.agent_config_id
+           AND prior.configured_model_revision_id = current.configured_model_revision_id
+           AND prior.created_at < current.created_at
+       )::boolean AS checkpoint_recompression_attempted,
+       latest_optional.id AS last_optional_context_id,
+       coalesce(latest_optional.optional_input_target_tokens, 0)::integer AS last_optional_input_target_tokens,
+       coalesce(latest_optional_child.state = 'succeeded'
+         OR latest_optional_child.optional_compaction_outcome = 'ineffective',
+         false)::boolean AS last_optional_compaction_needs_headroom,
+       EXISTS (
+         SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+           AND prior.operation_kind = 'normal' AND prior.recovery_kind = 'compact_optional'
+           AND prior.input_event_sequence = current.input_event_sequence AND prior.created_at < current.created_at
+       )::boolean AS optional_compaction_attempted_at_frontier,
+       coalesce(latest_observed_normal.input_tokens_total, 0)::integer AS latest_observed_normal_input_tokens,
+       coalesce(latest_observed_normal.minimum_input_tokens, 0)::integer AS minimum_observed_normal_input_tokens,
+       EXISTS (SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+          AND prior.operation_kind = 'normal' AND prior.input_event_sequence = current.input_event_sequence
+          AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional')::boolean AS has_prior_normal_attempt,
+       (latest_checkpoint.sequence IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM model_call_contexts prior WHERE prior.agent_id = current.agent_id
+            AND prior.operation_kind = 'normal' AND prior.input_event_sequence >= latest_checkpoint.sequence
+            AND prior.created_at < current.created_at AND prior.recovery_kind IS DISTINCT FROM 'compact_optional'
+       ))::boolean AS checkpoint_needs_normal_attempt
+FROM current
+LEFT JOIN model_call_contexts parent ON parent.id = current.parent_normal_model_call_context_id
+LEFT JOIN latest_optional ON true
+LEFT JOIN latest_optional_child ON true
+LEFT JOIN latest_observed_normal ON true
+LEFT JOIN latest_checkpoint ON true
+LEFT JOIN checkpoint_projection ON true
+`
+
+type GetModelCallRecoveryStateParams struct {
+	ProjectID          uuid.UUID
+	AgentID            uuid.UUID
+	ModelCallContextID uuid.UUID
+}
+
+type GetModelCallRecoveryStateRow struct {
+	RetryCount                            int64
+	ParentRecoveryKind                    string
+	RecoveryCheckpointID                  *uuid.UUID
+	RecoveryCheckpointRetainedBytes       *int32
+	CheckpointRecompressionAttempted      bool
+	LastOptionalContextID                 *uuid.UUID
+	LastOptionalInputTargetTokens         int32
+	LastOptionalCompactionNeedsHeadroom   bool
+	OptionalCompactionAttemptedAtFrontier bool
+	LatestObservedNormalInputTokens       int32
+	MinimumObservedNormalInputTokens      int32
+	HasPriorNormalAttempt                 bool
+	CheckpointNeedsNormalAttempt          bool
+}
+
+func (q *Queries) GetModelCallRecoveryState(ctx context.Context, arg GetModelCallRecoveryStateParams) (GetModelCallRecoveryStateRow, error) {
+	row := q.db.QueryRow(ctx, getModelCallRecoveryState, arg.ProjectID, arg.AgentID, arg.ModelCallContextID)
+	var i GetModelCallRecoveryStateRow
+	err := row.Scan(
+		&i.RetryCount,
+		&i.ParentRecoveryKind,
+		&i.RecoveryCheckpointID,
+		&i.RecoveryCheckpointRetainedBytes,
+		&i.CheckpointRecompressionAttempted,
+		&i.LastOptionalContextID,
+		&i.LastOptionalInputTargetTokens,
+		&i.LastOptionalCompactionNeedsHeadroom,
+		&i.OptionalCompactionAttemptedAtFrontier,
+		&i.LatestObservedNormalInputTokens,
+		&i.MinimumObservedNormalInputTokens,
+		&i.HasPriorNormalAttempt,
+		&i.CheckpointNeedsNormalAttempt,
+	)
+	return i, err
 }
 
 const getModelCallRevisionForClaim = `-- name: GetModelCallRevisionForClaim :one
@@ -532,20 +711,34 @@ predecessor AS MATERIALIZED (
   SELECT context.id, context.org_id, context.project_id, context.agent_id,
          context.operation_kind, context.attempt_number,
          context.agent_config_id, context.input_event_sequence,
-         context.source_event_sequence_end
+         context.source_event_sequence_end, context.parent_normal_model_call_context_id,
+         context.source_excerpt_bytes, context.replaces_checkpoint_id
   FROM model_call_contexts context
   JOIN agent_scope agent ON agent.project_id = context.project_id
     AND agent.id = context.agent_id
   WHERE context.id = $3
     AND context.state = 'failed'
-    AND context.recovery_kind = 'retry'
-    AND context.retry_at <= statement_timestamp()
-    AND context.attempt_number <= $4::integer
-    AND EXISTS (
-      SELECT 1
-      FROM agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
-      WHERE continuable.model_call_context_id = context.id
-        AND NOT continuable.has_later_semantic_event
+    AND (
+      (context.recovery_kind = 'retry'
+        AND context.retry_at <= statement_timestamp()
+        AND model_call_transient_retry_count(context.id) <= $4::integer
+        AND EXISTS (
+          SELECT 1 FROM agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
+          WHERE continuable.model_call_context_id = context.id AND NOT continuable.has_later_semantic_event
+        ))
+      OR (context.operation_kind = 'normal' AND context.recovery_kind IN ('compact', 'compact_optional')
+        AND NOT EXISTS (SELECT 1 FROM model_call_contexts newer
+          WHERE newer.agent_id = context.agent_id AND newer.operation_kind = 'normal'
+            AND newer.input_event_sequence = context.input_event_sequence
+            AND newer.attempt_number > context.attempt_number)
+        AND EXISTS (
+          SELECT 1 FROM model_call_contexts child
+          JOIN agent_continuable_model_contexts(context.project_id, context.agent_id) continuable
+            ON continuable.model_call_context_id = child.id
+          WHERE child.parent_normal_model_call_context_id = context.id
+            AND child.state = 'failed' AND child.recovery_kind = 'resume_normal'
+            AND NOT continuable.has_later_semantic_event
+        ))
     )
 ),
 selected_model AS MATERIALIZED (
@@ -569,7 +762,8 @@ live_runtime AS MATERIALIZED (
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, parent_normal_model_call_context_id, source_excerpt_bytes,
+  replaces_checkpoint_id, runtime_lock_id, state, created_at
 )
 SELECT predecessor.org_id,
        predecessor.project_id,
@@ -580,6 +774,9 @@ SELECT predecessor.org_id,
        selected_model.configured_model_revision_id,
        predecessor.input_event_sequence,
        predecessor.source_event_sequence_end,
+       predecessor.parent_normal_model_call_context_id,
+       predecessor.source_excerpt_bytes,
+       predecessor.replaces_checkpoint_id,
        live_runtime.id,
        'started',
        statement_timestamp()
@@ -700,31 +897,31 @@ const insertTriggeredCompactionModelCallContext = `-- name: InsertTriggeredCompa
 WITH active_agent AS MATERIALIZED (
   SELECT agent.org_id, agent.project_id, agent.id
   FROM agents agent
-  WHERE agent.project_id = $2
-    AND agent.id = $3
+  WHERE agent.project_id = $4
+    AND agent.id = $5
     AND agent.state = 'active'
 ),
 live_runtime AS MATERIALIZED (
   SELECT runtime_lock.id
   FROM agent_runtime_locks runtime_lock
   JOIN active_agent agent ON agent.id = runtime_lock.agent_id
-  WHERE runtime_lock.id = $4
+  WHERE runtime_lock.id = $6
     AND runtime_lock.cancel_requested_at IS NULL
     AND runtime_lock.lease_expires_at > statement_timestamp()
 ),
 latest_compaction AS MATERIALIZED (
   SELECT dependency.id, dependency.state, dependency.recovery_kind,
-         dependency.input_event_sequence, dependency.source_event_sequence_end
+         dependency.input_event_sequence, dependency.source_event_sequence_end, dependency.source_excerpt_bytes
   FROM model_call_contexts dependency
   JOIN model_call_contexts parent ON parent.project_id = dependency.project_id
     AND parent.agent_id = dependency.agent_id
-    AND parent.id = $5
+    AND parent.id = $7
   JOIN active_agent agent ON agent.project_id = parent.project_id
     AND agent.id = parent.agent_id
   WHERE dependency.operation_kind = 'compaction'
-    AND dependency.input_event_sequence = parent.input_event_sequence
+    AND dependency.parent_normal_model_call_context_id = parent.id
   ORDER BY dependency.source_event_sequence_end ASC,
-           dependency.attempt_number DESC
+           dependency.source_excerpt_bytes ASC NULLS LAST, dependency.attempt_number DESC
   LIMIT 1
 ),
 blocked AS MATERIALIZED (
@@ -734,17 +931,20 @@ blocked AS MATERIALIZED (
   JOIN active_agent agent ON agent.project_id = context.project_id
     AND agent.id = context.agent_id
   LEFT JOIN latest_compaction latest ON true
-  WHERE context.id = $5
+  WHERE context.id = $7
     AND context.operation_kind = 'normal'
     AND context.state = 'failed'
-    AND context.recovery_kind = 'compact'
+    AND context.recovery_kind IN ('compact', 'compact_optional')
     AND (
       latest.id IS NULL
       OR (
         latest.state = 'failed'
         AND latest.recovery_kind = 'reduce_compaction_source'
         AND latest.input_event_sequence = context.input_event_sequence
-        AND $1::bigint < latest.source_event_sequence_end
+        AND ($1::bigint < latest.source_event_sequence_end
+          OR ($1::bigint = latest.source_event_sequence_end
+            AND $2::integer IS NOT NULL
+            AND (latest.source_excerpt_bytes IS NULL OR $2::integer < latest.source_excerpt_bytes)))
       )
     )
 ),
@@ -752,16 +952,17 @@ selected_model AS MATERIALIZED (
   SELECT blocked.id AS blocked_context_id,
          revision.id AS configured_model_revision_id
   FROM blocked
-  JOIN agent_configs config ON config.project_id = $2
+  JOIN agent_configs config ON config.project_id = $4
     AND config.id = blocked.agent_config_id
   JOIN configured_model_revisions revision ON revision.org_id = config.org_id
     AND revision.configured_model_id = config.configured_model_id
-    AND revision.id = $6
+    AND revision.id = $8
 )
 INSERT INTO model_call_contexts(
   org_id, project_id, agent_id, operation_kind, attempt_number,
   agent_config_id, configured_model_revision_id, input_event_sequence,
-  source_event_sequence_end, runtime_lock_id, state, created_at
+  source_event_sequence_end, parent_normal_model_call_context_id, source_excerpt_bytes,
+  replaces_checkpoint_id, runtime_lock_id, state, created_at
 )
 SELECT active_agent.org_id,
        active_agent.project_id,
@@ -772,6 +973,9 @@ SELECT active_agent.org_id,
        selected_model.configured_model_revision_id,
        blocked.input_event_sequence,
        $1,
+       blocked.id,
+       $2::integer,
+       $3::uuid,
        live_runtime.id,
        'started',
        statement_timestamp()
@@ -784,6 +988,8 @@ RETURNING id
 
 type InsertTriggeredCompactionModelCallContextParams struct {
 	SourceEventSequenceEnd    *int64
+	SourceExcerptBytes        *int32
+	ReplacesCheckpointID      *uuid.UUID
 	ProjectID                 uuid.UUID
 	AgentID                   uuid.UUID
 	RuntimeLockID             uuid.UUID
@@ -794,6 +1000,8 @@ type InsertTriggeredCompactionModelCallContextParams struct {
 func (q *Queries) InsertTriggeredCompactionModelCallContext(ctx context.Context, arg InsertTriggeredCompactionModelCallContextParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, insertTriggeredCompactionModelCallContext,
 		arg.SourceEventSequenceEnd,
+		arg.SourceExcerptBytes,
+		arg.ReplacesCheckpointID,
 		arg.ProjectID,
 		arg.AgentID,
 		arg.RuntimeLockID,

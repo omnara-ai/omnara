@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/omnara-ai/omnara/internal/harness/tools"
-	"github.com/omnara-ai/omnara/internal/integration/slack"
 	"github.com/omnara-ai/omnara/internal/model"
 	"github.com/omnara-ai/omnara/internal/modelcontext"
 	"github.com/omnara-ai/omnara/internal/modelenvelope"
@@ -752,7 +751,7 @@ func TestAgentExecutorCarriesDurableProviderReplayIntoNextTurn(t *testing.T) {
 	}
 }
 
-func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreducible(t *testing.T) {
+func TestAgentExecutorSendsEstimatedOversizedOpeningWithoutFalseRuntimeError(t *testing.T) {
 	ctx := context.Background()
 	fixture := newKernelFixture(t, ctx)
 	now := fixture.Now
@@ -775,8 +774,8 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 		providerModelSlug:          "serialized-overflow-model",
 		preparedInputTokenEstimate: 200_000,
 		responses: []model.Response{{
-			ID:         "must-not-be-sent",
-			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "unexpected"}},
+			ID:         "provider-accepted",
+			Content:    []model.ResponsePart{{Type: model.ResponsePartTypeText, Text: "The provider accepted the request."}},
 			StopReason: model.StopReasonEndTurn,
 		}},
 	}
@@ -819,76 +818,21 @@ func TestAgentExecutorStopsSerializedProviderRequestOverflowWhenOpeningIsIrreduc
 	if postedDecodeErr != nil {
 		t.Fatalf("decode Slack runtime message: %v", postedDecodeErr)
 	}
-	if postCount != 1 {
-		t.Fatalf("Slack runtime message post count = %d, want 1", postCount)
+	if postCount != 0 || postedText != "" {
+		t.Fatalf("unexpected runtime error notification count=%d text=%q", postCount, postedText)
 	}
-	if postedText != slack.AgentRequestFailureMessage {
-		t.Fatalf("Slack runtime message text = %q", postedText)
+	if len(modelClient.respondHadSink) != 1 {
+		t.Fatalf("provider respond calls = %d, want one", len(modelClient.respondHadSink))
 	}
-	if len(modelClient.respondHadSink) != 0 {
-		t.Fatalf("provider respond calls = %d, want none", len(modelClient.respondHadSink))
-	}
+	assertNoTerminalContextErrors(t, ctx, fixture, agentID)
 	var state executionstore.ModelCallState
-	var recoveryKind executionstore.ModelCallRecoveryKind
-	var errorKind, errorCode string
-	var errorDetails json.RawMessage
-	if err := fixture.Pool.QueryRow(ctx, `
-SELECT context.state, coalesce(context.recovery_kind, ''), context.error_kind, context.error_code,
-       context.error_details
-FROM model_call_contexts context
-WHERE context.project_id = $1
-  AND context.agent_id = $2
-  AND context.input_event_sequence = $3
-`, kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(
-		&state,
-		&recoveryKind,
-		&errorKind,
-		&errorCode,
-		&errorDetails,
-	); err != nil {
-		t.Fatalf("load serialized overflow attempt: %v", err)
+	if err := fixture.Pool.QueryRow(ctx, `SELECT state FROM model_call_contexts
+		WHERE project_id=$1 AND agent_id=$2 AND input_event_sequence=$3`,
+		kernelTestProjectID, agentID, turn.OpeningEventSequence).Scan(&state); err != nil {
+		t.Fatalf("load normal provider attempt: %v", err)
 	}
-	if state != executionstore.ModelCallContextFailed || recoveryKind != "" ||
-		errorKind != string(model.ErrorKindContextWindow) ||
-		errorCode != "context_cannot_be_compacted" {
-		t.Fatalf(
-			"serialized overflow attempt = %q/%q/%q/%q",
-			state,
-			recoveryKind,
-			errorKind,
-			errorCode,
-		)
-	}
-	var details struct {
-		CompactionTrigger struct {
-			Kind    string          `json:"kind"`
-			Code    string          `json:"code"`
-			Message string          `json:"message"`
-			Details json.RawMessage `json:"details"`
-		} `json:"compaction_trigger"`
-	}
-	if err := json.Unmarshal(errorDetails, &details); err != nil {
-		t.Fatalf("decode serialized overflow details: %v", err)
-	}
-	trigger := details.CompactionTrigger
-	var triggerDetails struct {
-		Source           string                      `json:"source"`
-		RequestAdmission model.InputBudgetAssessment `json:"request_admission"`
-	}
-	if err := json.Unmarshal(trigger.Details, &triggerDetails); err != nil {
-		t.Fatalf("decode serialized overflow trigger details: %v", err)
-	}
-	if trigger.Kind != string(model.ErrorKindContextWindow) ||
-		trigger.Code != "configured_input_budget_exceeded" ||
-		!strings.Contains(trigger.Message, "exceeding the configured budget") ||
-		triggerDetails.Source != "openai-responses" ||
-		triggerDetails.RequestAdmission.EstimatedInputTokens <=
-			triggerDetails.RequestAdmission.UsableInputTokens {
-		t.Fatalf(
-			"serialized overflow compaction trigger = %+v source=%q",
-			trigger,
-			triggerDetails.Source,
-		)
+	if state != executionstore.ModelCallContextSucceeded {
+		t.Fatalf("normal provider attempt state=%s, want succeeded", state)
 	}
 	var compactionDependencies int
 	if err := fixture.Pool.QueryRow(ctx, `
@@ -1268,7 +1212,7 @@ WHERE context.project_id = $1
 	); err != nil {
 		t.Fatalf("load compactable serialized overflow attempt: %v", err)
 	}
-	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryCompact ||
+	if state != executionstore.ModelCallContextFailed || recoveryKind != executionstore.ModelCallRecoveryCompactOptional ||
 		errorCode != "configured_input_budget_exceeded" {
 		t.Fatalf(
 			"compactable serialized overflow attempt = %q/%q/%q",

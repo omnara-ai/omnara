@@ -98,7 +98,7 @@ Most agents can use the configured model's defaults. Override these fields only 
 
 | Field | What it does |
 | --- | --- |
-| `context_window_tokens` | Cap the effective context window below the model's maximum. |
+| `context_window_tokens` | Working target for input and output tokens. Guides compaction; provider-accepted requests can exceed it. |
 | `default_max_output_tokens` | Per-request output-token cap sent to the provider. |
 | `cache_retention` | Prompt-cache preference: `none`, `short` (default), or `long`. |
 | `reasoning.effort` | Reasoning effort for models that support it (for example `low`, `medium`, `high`). |

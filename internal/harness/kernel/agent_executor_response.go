@@ -19,6 +19,7 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	contextRow executionstore.ModelCallContextRecord,
 	providerRequestID string,
 	envelope modelenvelope.ResponseEnvelope,
+	requestInputIdentity *modelenvelope.RequestInputIdentity,
 	specs []modelcontext.ToolSpec,
 	streamedToolCallIDs map[string]uuid.UUID,
 ) (events.Event, error) {
@@ -42,13 +43,14 @@ func (e AgentExecutor) recordToolCallSourceEvent(
 	event, _, err := e.Store.Execution().RecordToolCallSourceAndCompleteContext(
 		ctx,
 		executionstore.RecordToolCallSourceAndCompleteContextInput{
-			ProjectID:          input.ProjectID,
-			AgentID:            input.AgentID,
-			RuntimeLockID:      input.RuntimeLockID,
-			ModelCallContextID: contextRow.ID,
-			ProviderRequestID:  providerRequestID,
-			ProviderResponse:   envelope,
-			ToolCallBindings:   bindings,
+			ProjectID:            input.ProjectID,
+			AgentID:              input.AgentID,
+			RuntimeLockID:        input.RuntimeLockID,
+			ModelCallContextID:   contextRow.ID,
+			ProviderRequestID:    providerRequestID,
+			ProviderResponse:     envelope,
+			RequestInputIdentity: requestInputIdentity,
+			ToolCallBindings:     bindings,
 		},
 	)
 	return event, err
