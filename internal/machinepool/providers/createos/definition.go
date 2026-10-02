@@ -1,38 +1,38 @@
 package createos
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
+	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 	"github.com/omnara-ai/omnara/internal/machinepool/provideroptions"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
-const defaultAPIBaseURL = "https://api.sb.createos.sh"
+const apiBaseURL = "https://api.sb.createos.sh"
 
 type providerConfig struct {
-	APIBaseURL           string   `json:"api_base_url,omitempty"`
-	AllowedShapes        []string `json:"allowed_shapes,omitempty"`
-	AllowedRootFSes      []string `json:"allowed_rootfses,omitempty"`
-	LegacyAllowedRegions []string `json:"allowed_regions,omitempty"`
+	AllowedShapes   []string `json:"allowed_shapes,omitempty"`
+	AllowedRootFSes []string `json:"allowed_rootfses,omitempty"`
 }
 
 type providerOptions struct {
 	Shape         string `json:"shape"`
 	RootFS        string `json:"rootfs"`
-	LegacyRegion  string `json:"region"`
-	StartupScript string `json:"startup_script"`
+	StartupScript string `json:"startup_script,omitempty"`
+	SleepAfterMS  int    `json:"sleep_after_ms,omitempty"`
 }
 
 type Definition struct{}
 
+var _ providers.Definition = Definition{}
 var _ providers.RuntimeProviderDefinition = Definition{}
 
-func resourcePolicy() providers.MachineResourcePolicy {
+func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
 	return providers.MachineResourcePolicy{
 		CPU: providers.MachineResourceContract{
 			PoolDefault:  providers.MachineResourceOptional,
@@ -47,51 +47,55 @@ func resourcePolicy() providers.MachineResourcePolicy {
 	}
 }
 
-func (Definition) ResourcePolicy() providers.MachineResourcePolicy {
-	return resourcePolicy()
-}
-
 func (Definition) NewProvider(
 	raw json.RawMessage,
-	runtime providers.RuntimeConfig,
+	runtimeConfig providers.RuntimeConfig,
 ) (providers.Provider, error) {
-	return newProvider(raw, runtime)
+	return newProvider(raw, runtimeConfig)
 }
 
 func (Definition) NewRuntimeProvider(
 	raw json.RawMessage,
-	runtime providers.RuntimeConfig,
+	runtimeConfig providers.RuntimeConfig,
 ) (providers.RuntimeProvider, error) {
-	return newProvider(raw, runtime)
+	return newProvider(raw, runtimeConfig)
 }
 
-func newProvider(raw json.RawMessage, runtime providers.RuntimeConfig) (*provider, error) {
-	config, err := parseProviderConfig(raw)
-	if err != nil {
+func newProvider(
+	raw json.RawMessage,
+	runtimeConfig providers.RuntimeConfig,
+) (*provider, error) {
+	if _, err := parseProviderConfig(raw); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(runtime.ProviderAuthToken) == "" {
+	token := strings.TrimSpace(runtimeConfig.ProviderAuthToken)
+	if token == "" {
 		return nil, errors.New("createos provider auth token is required")
 	}
 	return &provider{
-		api:          newRESTClient(config.APIBaseURL, runtime.ProviderAuthToken, nil),
-		omnaraAPIURL: runtime.OmnaraAPIURL,
+		api:          newRESTClient(apiBaseURL, token, nil),
+		omnaraAPIURL: runtimeConfig.OmnaraAPIURL,
+		pollDelay:    pollDelay,
 	}, nil
 }
 
 func (Definition) ResolveMachineProviderOptions(
-	defaults, project, agent map[string]json.RawMessage,
+	defaultOptions map[string]json.RawMessage,
+	projectOptions map[string]json.RawMessage,
+	agentOptions map[string]json.RawMessage,
 ) map[string]json.RawMessage {
-	options := provideroptions.Merge(defaults, project, agent)
-	delete(options, "region")
-	return options
+	return provideroptions.Merge(defaultOptions, projectOptions, agentOptions)
 }
 
-func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
-	if err := providers.ValidateMachinePoolResourcePolicy(providers.CreateOS, policy, resourcePolicy()); err != nil {
+func (definition Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) error {
+	if err := providers.ValidateMachinePoolResourcePolicy(
+		providers.CreateOS,
+		policy,
+		definition.ResourcePolicy(),
+	); err != nil {
 		return err
 	}
-	options, err := parseProviderOptions(policy.DefaultProvisioning.ProviderOptions)
+	defaultOptions, err := parseProviderOptions(policy.DefaultProvisioning.ProviderOptions)
 	if err != nil {
 		return err
 	}
@@ -99,28 +103,28 @@ func (Definition) ValidatePool(policy executionstore.MachinePoolProviderPolicy) 
 	if err != nil {
 		return err
 	}
-	return validateAllowedOptions(options, options, config)
+	return validateAllowedOptions(defaultOptions, defaultOptions, config)
 }
 
 func (definition Definition) ValidateMachineProvisioning(
 	policy executionstore.MachinePoolProviderPolicy,
-	provisioning executionstore.MachineProvisioningConfig,
+	machineProvisioning executionstore.MachineProvisioningConfig,
 ) error {
 	if err := definition.ValidatePool(policy); err != nil {
 		return err
 	}
 	if err := providers.ValidateMachineProvisioningResourcePolicy(
 		providers.CreateOS,
-		provisioning,
-		resourcePolicy(),
+		machineProvisioning,
+		definition.ResourcePolicy(),
 	); err != nil {
 		return err
 	}
-	defaults, err := parseProviderOptions(policy.DefaultProvisioning.ProviderOptions)
+	defaultOptions, err := parseProviderOptions(policy.DefaultProvisioning.ProviderOptions)
 	if err != nil {
 		return err
 	}
-	options, err := parseProviderOptions(provisioning.ProviderOptions)
+	machineOptions, err := parseProviderOptions(machineProvisioning.ProviderOptions)
 	if err != nil {
 		return err
 	}
@@ -128,43 +132,38 @@ func (definition Definition) ValidateMachineProvisioning(
 	if err != nil {
 		return err
 	}
-	return validateAllowedOptions(options, defaults, config)
+	return validateAllowedOptions(machineOptions, defaultOptions, config)
 }
 
 func (definition Definition) BuildMachineProvisioningIntent(
 	policy executionstore.MachinePoolProviderPolicy,
-	provisioning executionstore.MachineProvisioningConfig,
+	machineProvisioning executionstore.MachineProvisioningConfig,
 ) (executionstore.MachineProvisioningConfig, error) {
-	if err := definition.ValidateMachineProvisioning(policy, provisioning); err != nil {
+	if err := definition.ValidateMachineProvisioning(policy, machineProvisioning); err != nil {
 		return executionstore.MachineProvisioningConfig{}, err
 	}
-	provisioning.CPU = nil
-	provisioning.MemoryMB = nil
-	provisioning.ProviderOptions = provideroptions.Merge(provisioning.ProviderOptions, nil, nil)
-	delete(provisioning.ProviderOptions, "region")
-	return provisioning, nil
+	machineProvisioning.CPU = nil
+	machineProvisioning.MemoryMB = nil
+	return machineProvisioning, nil
 }
 
-func validateAllowedOptions(options, defaults providerOptions, config providerConfig) error {
-	checks := []struct {
-		what, field, value, fallback string
-		allowed                      []string
-	}{
-		{"createos shape", "allowed_shapes", options.Shape, defaults.Shape, config.AllowedShapes},
-		{"createos rootfs", "allowed_rootfses", options.RootFS, defaults.RootFS, config.AllowedRootFSes},
+func validateAllowedOptions(options, defaultOptions providerOptions, config providerConfig) error {
+	if err := providers.ValidateAllowedValue(
+		"createos shape",
+		"allowed_shapes",
+		options.Shape,
+		config.AllowedShapes,
+		defaultOptions.Shape,
+	); err != nil {
+		return err
 	}
-	for _, check := range checks {
-		if err := providers.ValidateAllowedValue(
-			check.what,
-			check.field,
-			check.value,
-			check.allowed,
-			check.fallback,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
+	return providers.ValidateAllowedValue(
+		"createos rootfs",
+		"allowed_rootfses",
+		options.RootFS,
+		config.AllowedRootFSes,
+		defaultOptions.RootFS,
+	)
 }
 
 func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
@@ -175,19 +174,11 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	if err := providers.DecodeStrictJSON(raw, &config); err != nil {
 		return providerConfig{}, fmt.Errorf("decode createos provider config: %w", err)
 	}
-	config.APIBaseURL = strings.TrimSpace(config.APIBaseURL)
-	if config.APIBaseURL == "" {
-		config.APIBaseURL = defaultAPIBaseURL
-	}
-	normalized, err := normalizeAPIBaseURL(config.APIBaseURL)
-	if err != nil {
-		return providerConfig{}, err
-	}
-	config.APIBaseURL = normalized
+	var err error
 	config.AllowedShapes, err = providers.NormalizeAllowlist(
 		"createos provider config allowed_shapes",
 		config.AllowedShapes,
-		providers.ValidateDNSLabel,
+		validateShape,
 	)
 	if err != nil {
 		return providerConfig{}, err
@@ -203,42 +194,49 @@ func parseProviderConfig(raw json.RawMessage) (providerConfig, error) {
 	return config, nil
 }
 
-func parseProviderOptions(raw map[string]json.RawMessage) (providerOptions, error) {
-	if raw == nil {
+func parseProviderOptions(rawOptions map[string]json.RawMessage) (providerOptions, error) {
+	if rawOptions == nil {
 		return providerOptions{}, errors.New("createos machine config requires provider_options")
 	}
-	encoded, err := json.Marshal(raw)
+	raw, err := json.Marshal(rawOptions)
 	if err != nil {
 		return providerOptions{}, fmt.Errorf("encode createos provider_options: %w", err)
 	}
 	var options providerOptions
-	if err := providers.DecodeStrictJSON(encoded, &options); err != nil {
+	if err := providers.DecodeStrictJSON(raw, &options); err != nil {
 		return providerOptions{}, fmt.Errorf("decode createos provider_options: %w", err)
 	}
 	options.Shape = strings.TrimSpace(options.Shape)
-	options.RootFS = strings.TrimSpace(options.RootFS)
-	if err := providers.ValidateDNSLabel(options.Shape); err != nil {
+	if err := validateShape(options.Shape); err != nil {
 		return providerOptions{}, fmt.Errorf("createos machine config shape: %w", err)
 	}
+	options.RootFS = strings.TrimSpace(options.RootFS)
 	if err := providers.ValidateImageRef(options.RootFS); err != nil {
 		return providerOptions{}, fmt.Errorf("createos machine config rootfs: %w", err)
 	}
-	if err := providers.ValidateManagedStartupScript("createos machine config", options.StartupScript); err != nil {
-		return providerOptions{}, err
+	if base64.StdEncoding.EncodedLen(len(options.StartupScript)) > maxSandboxEnvValueBytes {
+		return providerOptions{}, fmt.Errorf(
+			"createos machine config startup_script must be at most %d bytes",
+			base64.StdEncoding.DecodedLen(maxSandboxEnvValueBytes),
+		)
+	}
+	if options.SleepAfterMS != 0 {
+		if _, err := daemonprotocol.SleepAfterDuration(options.SleepAfterMS); err != nil {
+			return providerOptions{}, fmt.Errorf("createos machine config sleep_after_ms %w", err)
+		}
 	}
 	return options, nil
 }
 
-func normalizeAPIBaseURL(value string) (string, error) {
-	parsed, err := url.Parse(strings.TrimRight(value, "/"))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", errors.New("createos api base url must be an absolute URL")
+func validateShape(value string) error {
+	if value == "" {
+		return errors.New("value must be non-empty")
 	}
-	if !providers.IsHTTPS(parsed) {
-		return "", errors.New("createos api base url must use https")
+	if value == "*" {
+		return errors.New(`value must not be "*"`)
 	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("createos api base url must not include query or fragment")
+	if len(value) > 255 || strings.ContainsRune(value, 0) {
+		return errors.New("value is invalid")
 	}
-	return parsed.String(), nil
+	return nil
 }

@@ -168,8 +168,6 @@ const (
 	operationListEvents                    operationID = "ListEvents"
 	operationListIntegrationInstalls       operationID = "ListIntegrationInstalls"
 	operationListMachinePools              operationID = "ListMachinePools"
-	operationListCreateOSRootFS            operationID = "ListCreateOSRootFS"
-	operationListCreateOSMachineSizes      operationID = "ListCreateOSMachineSizes"
 	operationListModelProviderConfigs      operationID = "ListModelProviderConfigs"
 	operationListMemberProjectAccess       operationID = "ListMemberProjectAccess"
 	operationListOrgAPIKeys                operationID = "ListOrgAPIKeys"
@@ -290,8 +288,6 @@ var openAPIOperationPolicies = map[operationID]operationPolicy{
 	operationCreateMachine:              accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationConnectBYOMachine:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationListMachinePools:           accountPolicy(orgScope(identitystore.OrgActionManage)),
-	operationListCreateOSRootFS:         accountPolicy(orgScope(identitystore.OrgActionRead)),
-	operationListCreateOSMachineSizes:   accountPolicy(orgScope(identitystore.OrgActionRead)),
 	operationCreateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationGetMachinePool:             accountPolicy(orgScope(identitystore.OrgActionManage)),
 	operationUpdateMachinePool:          accountPolicy(orgScope(identitystore.OrgActionManage)),

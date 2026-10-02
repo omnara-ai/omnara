@@ -13,33 +13,21 @@ import (
 )
 
 type apiClient interface {
-	ListShapes(context.Context) ([]Shape, error)
-	ListRootFS(context.Context) (RootFSCatalog, error)
+	ListShapes(context.Context) ([]sandboxShape, error)
 	CreateSandbox(context.Context, createSandboxRequest) (sandbox, error)
-	ListSandboxes(context.Context, int, int) ([]sandbox, int, error)
+	ListSandboxes(context.Context, sandboxStatus, int, int) ([]sandbox, int, error)
 	GetSandbox(context.Context, string) (sandbox, bool, error)
 	DeleteSandbox(context.Context, string) error
+	ResumeSandbox(context.Context, string) error
 	ListProcesses(context.Context, string) ([]process, error)
-	CreateProcess(context.Context, string, createProcessRequest) (process, error)
+	CreateProcess(context.Context, string, commandRequest) (process, error)
+	Exec(context.Context, string, commandRequest) error
 }
 
-type Shape struct {
+type sandboxShape struct {
 	ID     string `json:"id"`
 	VCPU   int    `json:"vcpu"`
 	MemMiB int    `json:"mem_mib"`
-}
-
-type RootFS struct {
-	Name        string  `json:"name"`
-	Description *string `json:"description,omitempty"`
-	Deprecated  bool    `json:"deprecated,omitempty"`
-	Successor   *string `json:"successor,omitempty"`
-}
-
-type RootFSCatalog struct {
-	Names   []string `json:"rootfs"`
-	Default string   `json:"default"`
-	Entries []RootFS `json:"entries,omitempty"`
 }
 
 type sandboxStatus string
@@ -62,27 +50,31 @@ type sandbox struct {
 	Name   string        `json:"name"`
 	Status sandboxStatus `json:"status"`
 	Shape  string        `json:"shape"`
-	RootFS string        `json:"rootfs"`
-	Region string        `json:"region"`
 }
 
 type createSandboxRequest struct {
 	Shape  string            `json:"shape"`
-	RootFS string            `json:"rootfs,omitempty"`
+	RootFS string            `json:"rootfs"`
 	Name   string            `json:"name"`
 	Envs   map[string]string `json:"envs"`
 }
 
+const (
+	processStateStarting = "starting"
+	processStateRunning  = "running"
+)
+
 type process struct {
-	ID           string `json:"process_id"`
-	State        string `json:"state"`
-	LeaderExited bool   `json:"leader_exited"`
+	ID           string   `json:"process_id"`
+	Command      string   `json:"cmd"`
+	Args         []string `json:"args"`
+	State        string   `json:"state"`
+	LeaderExited bool     `json:"leader_exited"`
 }
 
-type createProcessRequest struct {
-	Command string            `json:"cmd"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
+type commandRequest struct {
+	Command string   `json:"cmd"`
+	Args    []string `json:"args,omitempty"`
 }
 
 type restClient struct {
@@ -97,26 +89,12 @@ func newRESTClient(baseURL, token string, client *http.Client) *restClient {
 	return &restClient{baseURL: baseURL, token: token, httpClient: client}
 }
 
-func (c *restClient) ListShapes(ctx context.Context) ([]Shape, error) {
+func (c *restClient) ListShapes(ctx context.Context) ([]sandboxShape, error) {
 	var out struct {
-		Data []Shape `json:"data"`
+		Data []sandboxShape `json:"data"`
 	}
 	err := c.do(ctx, http.MethodGet, "/v1/shapes", nil, &out)
 	return out.Data, err
-}
-
-func ListShapes(ctx context.Context, token string) ([]Shape, error) {
-	return newRESTClient(defaultAPIBaseURL, token, nil).ListShapes(ctx)
-}
-
-func (c *restClient) ListRootFS(ctx context.Context) (RootFSCatalog, error) {
-	var out RootFSCatalog
-	err := c.do(ctx, http.MethodGet, "/v1/rootfs", nil, &out)
-	return out, err
-}
-
-func ListRootFS(ctx context.Context, token string) (RootFSCatalog, error) {
-	return newRESTClient(defaultAPIBaseURL, token, nil).ListRootFS(ctx)
 }
 
 func (c *restClient) CreateSandbox(ctx context.Context, input createSandboxRequest) (sandbox, error) {
@@ -125,8 +103,16 @@ func (c *restClient) CreateSandbox(ctx context.Context, input createSandboxReque
 	return out, err
 }
 
-func (c *restClient) ListSandboxes(ctx context.Context, limit, offset int) ([]sandbox, int, error) {
-	values := url.Values{"limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}}
+func (c *restClient) ListSandboxes(
+	ctx context.Context,
+	status sandboxStatus,
+	limit, offset int,
+) ([]sandbox, int, error) {
+	values := url.Values{
+		"status": {string(status)},
+		"limit":  {strconv.Itoa(limit)},
+		"offset": {strconv.Itoa(offset)},
+	}
 	var out struct {
 		Data       []sandbox `json:"data"`
 		Pagination struct {
@@ -154,6 +140,10 @@ func (c *restClient) DeleteSandbox(ctx context.Context, id string) error {
 	return err
 }
 
+func (c *restClient) ResumeSandbox(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/sandboxes/"+url.PathEscape(id)+"/resume", nil, nil)
+}
+
 func (c *restClient) ListProcesses(ctx context.Context, id string) ([]process, error) {
 	var out struct {
 		Processes []process `json:"processes"`
@@ -162,10 +152,24 @@ func (c *restClient) ListProcesses(ctx context.Context, id string) ([]process, e
 	return out.Processes, err
 }
 
-func (c *restClient) CreateProcess(ctx context.Context, id string, input createProcessRequest) (process, error) {
+func (c *restClient) CreateProcess(ctx context.Context, id string, input commandRequest) (process, error) {
 	var out process
 	err := c.do(ctx, http.MethodPost, "/v1/sandboxes/"+url.PathEscape(id)+"/processes", input, &out)
 	return out, err
+}
+
+func (c *restClient) Exec(ctx context.Context, id string, input commandRequest) error {
+	var out struct {
+		Result struct {
+			ExitCode *int   `json:"exit_code"`
+			Error    string `json:"error"`
+		} `json:"result"`
+	}
+	err := c.do(ctx, http.MethodPost, "/v1/sandboxes/"+url.PathEscape(id)+"/exec", input, &out)
+	if err == nil && (out.Result.ExitCode == nil || *out.Result.ExitCode != 0 || out.Result.Error != "") {
+		err = errors.New("createos command did not exit 0")
+	}
+	return err
 }
 
 func (c *restClient) do(ctx context.Context, method, path string, body, out any) error {
@@ -188,30 +192,41 @@ func (c *restClient) do(ctx context.Context, method, path string, body, out any)
 		return nil
 	}
 	var envelope struct {
-		Status string          `json:"status"`
-		Data   json.RawMessage `json:"data"`
+		Data json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body, &envelope); err != nil {
 		return fmt.Errorf("decode createos response: %w", err)
 	}
-	// Managed-process endpoints return their resource directly.
-	raw := response.Body
-	if envelope.Status != "" {
-		raw = envelope.Data
-	}
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	if err := json.Unmarshal(envelope.Data, out); err != nil {
 		return fmt.Errorf("decode createos response data: %w", err)
 	}
 	return nil
 }
 
-type apiError struct{ StatusCode int }
+type apiError struct {
+	StatusCode int
+}
 
-func (e apiError) Error() string { return fmt.Sprintf("createos API returned HTTP %d", e.StatusCode) }
+func (e apiError) Error() string {
+	return fmt.Sprintf("createos API returned HTTP %d", e.StatusCode)
+}
+
+func apiStatusCode(err error) int {
+	var apiErr apiError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode
+	}
+	return 0
+}
+
+func transientAPIError(err error) bool {
+	status := apiStatusCode(err)
+	return status == 0 || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
 func isNotFound(err error) bool {
-	var e apiError
-	return errors.As(err, &e) && e.StatusCode == http.StatusNotFound
+	return apiStatusCode(err) == http.StatusNotFound
 }

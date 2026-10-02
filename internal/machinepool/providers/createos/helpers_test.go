@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/storage/executionstore"
 )
 
@@ -17,37 +19,39 @@ func mustRawJSON(t *testing.T, value any) json.RawMessage {
 	return raw
 }
 
-func testOptions(t *testing.T, shape, rootfs, region, startupScript string) map[string]json.RawMessage {
+func testOptions(t *testing.T, shape, rootfs, startupScript string) map[string]json.RawMessage {
 	t.Helper()
-	return map[string]json.RawMessage{
-		"shape":          mustRawJSON(t, shape),
-		"rootfs":         mustRawJSON(t, rootfs),
-		"region":         mustRawJSON(t, region),
-		"startup_script": mustRawJSON(t, startupScript),
+	options := map[string]json.RawMessage{
+		"shape":  mustRawJSON(t, shape),
+		"rootfs": mustRawJSON(t, rootfs),
 	}
+	if startupScript != "" {
+		options["startup_script"] = mustRawJSON(t, startupScript)
+	}
+	return options
 }
 
 func testMachineProvisioning(
 	t *testing.T,
-	shape, rootfs, region, startupScript string,
+	shape, rootfs, startupScript string,
 ) executionstore.MachineProvisioningConfig {
 	t.Helper()
 	return executionstore.MachineProvisioningConfig{
-		ProviderOptions: testOptions(t, shape, rootfs, region, startupScript),
+		ProviderOptions: testOptions(t, shape, rootfs, startupScript),
 	}
 }
 
 func testPoolPolicy(
 	t *testing.T,
 	config json.RawMessage,
-	shape, rootfs, region string,
+	shape, rootfs string,
 ) executionstore.MachinePoolProviderPolicy {
 	t.Helper()
 	maxCPU := 8
 	maxMemoryMB := 16384
 	return executionstore.MachinePoolProviderPolicy{
 		DefaultProvisioning: executionstore.MachineProvisioningConfig{
-			ProviderOptions: testOptions(t, shape, rootfs, region, ""),
+			ProviderOptions: testOptions(t, shape, rootfs, ""),
 		},
 		ResourceLimits: executionstore.MachineResourceLimits{
 			MaxTotalCPU:        &maxCPU,
@@ -59,146 +63,170 @@ func testPoolPolicy(
 	}
 }
 
+func mustAllocationName(t *testing.T, installationID, machineID uuid.UUID) string {
+	t.Helper()
+	name, err := allocationName(installationID, machineID)
+	if err != nil {
+		t.Fatalf("allocation name: %v", err)
+	}
+	return name
+}
+
 func newTestProvider(api apiClient) *provider {
 	return &provider{
 		api:          api,
 		omnaraAPIURL: "https://api.omnara.test/v1",
+		pollDelay:    time.Millisecond,
 	}
 }
 
-// sandboxPage is one response from the paginated sandbox listing.
-type sandboxPage struct {
-	items []sandbox
-	total int
+type listQuery struct {
+	status        sandboxStatus
+	limit, offset int
 }
 
 type fakeAPI struct {
-	shapes      []Shape
-	shapesErr   error
-	shapeCalls  int
-	rootfs      RootFSCatalog
-	rootfsErr   error
-	rootfsCalls int
+	shapes     []sandboxShape
+	shapesErr  error
+	shapeCalls int
 
-	createRequest createSandboxRequest
-	createCalls   int
-	createErr     error
-	created       sandbox
+	createRequest    createSandboxRequest
+	createCalls      int
+	createErr        error
+	createErrCreates bool
+	created          sandbox
 
-	listPages   []sandboxPage
-	listErr     error
-	listQueries [][2]int
+	sandboxes   []sandbox
+	pageLimit   int
+	listQueries []listQuery
 
-	getResults []sandbox
-	getFound   bool
-	getErr     error
-	getLookups []string
+	getResults   []sandbox
+	getFound     bool
+	getErrs      []error
+	getLookups   []string
+	getDeadlines []time.Duration
 
 	deleteCalls int
 	deletedID   string
-	deleteErr   error
 
-	processes     []process
-	processErr    error
-	processCalls  int
-	processTarget string
+	resumeCalls int
+	resumeErr   error
 
-	createdProcess       process
+	processes []process
+
 	createProcessCalls   int
-	createProcessErr     error
-	createProcessRequest createProcessRequest
+	createProcessRequest commandRequest
 	createProcessTarget  string
+
+	execCalls   int
+	execTarget  string
+	execRequest commandRequest
+	execErrs    []error
 }
 
 func newFakeAPI() *fakeAPI {
-	created := sandbox{
-		ID:     "sb-123",
-		Status: sandboxStatusRunning,
-		Shape:  "s-1vcpu-1gb",
-		RootFS: "devbox:1",
-		Region: "us",
-	}
 	return &fakeAPI{
-		shapes:         []Shape{{ID: "s-1vcpu-1gb", VCPU: 1, MemMiB: 1024}},
-		rootfs:         RootFSCatalog{Names: []string{"devbox:1"}, Default: "devbox:1"},
-		created:        created,
-		getFound:       true,
-		createdProcess: process{ID: "proc-1", State: "running"},
+		shapes: []sandboxShape{{ID: "s-1vcpu-1gb", VCPU: 1, MemMiB: 1024}},
+		created: sandbox{
+			ID:     "sb-123",
+			Status: sandboxStatusRunning,
+			Shape:  "s-1vcpu-1gb",
+		},
+		getFound: true,
 	}
 }
 
-func (a *fakeAPI) ListShapes(context.Context) ([]Shape, error) {
+func (a *fakeAPI) ListShapes(context.Context) ([]sandboxShape, error) {
 	a.shapeCalls++
 	return a.shapes, a.shapesErr
-}
-
-func (a *fakeAPI) ListRootFS(context.Context) (RootFSCatalog, error) {
-	a.rootfsCalls++
-	return a.rootfs, a.rootfsErr
 }
 
 func (a *fakeAPI) CreateSandbox(_ context.Context, request createSandboxRequest) (sandbox, error) {
 	a.createCalls++
 	a.createRequest = request
-	if a.createErr != nil {
-		return sandbox{}, a.createErr
-	}
 	if a.created.Name == "" {
 		a.created.Name = request.Name
 	}
-	return a.created, nil
+	if a.createErr != nil {
+		if a.createErrCreates {
+			a.sandboxes = append(a.sandboxes, a.created)
+		}
+		return sandbox{}, a.createErr
+	}
+	return sandbox{ID: a.created.ID, Name: a.created.Name}, nil
 }
 
-func (a *fakeAPI) ListSandboxes(_ context.Context, limit, offset int) ([]sandbox, int, error) {
-	a.listQueries = append(a.listQueries, [2]int{limit, offset})
-	if a.listErr != nil {
-		return nil, 0, a.listErr
+func (a *fakeAPI) ListSandboxes(
+	_ context.Context,
+	status sandboxStatus,
+	limit, offset int,
+) ([]sandbox, int, error) {
+	a.listQueries = append(a.listQueries, listQuery{status: status, limit: limit, offset: offset})
+	if a.pageLimit > 0 {
+		limit = min(limit, a.pageLimit)
 	}
-	if len(a.listPages) == 0 {
-		return nil, 0, nil
+	var matching []sandbox
+	for _, item := range a.sandboxes {
+		if item.Status == status {
+			matching = append(matching, item)
+		}
 	}
-	page := a.listPages[0]
-	a.listPages = a.listPages[1:]
-	return page.items, page.total, nil
+	if offset >= len(matching) {
+		return nil, len(matching), nil
+	}
+	return matching[offset:min(offset+limit, len(matching))], len(matching), nil
 }
 
-func (a *fakeAPI) GetSandbox(_ context.Context, id string) (sandbox, bool, error) {
+func (a *fakeAPI) GetSandbox(ctx context.Context, id string) (sandbox, bool, error) {
 	a.getLookups = append(a.getLookups, id)
-	if a.getErr != nil {
-		return sandbox{}, false, a.getErr
+	if deadline, ok := ctx.Deadline(); ok {
+		a.getDeadlines = append(a.getDeadlines, time.Until(deadline))
+	}
+	if len(a.getErrs) > 0 {
+		err := a.getErrs[0]
+		a.getErrs = a.getErrs[1:]
+		return sandbox{}, false, err
 	}
 	if len(a.getResults) > 0 {
 		next := a.getResults[0]
 		a.getResults = a.getResults[1:]
 		return next, a.getFound, nil
 	}
-	target := a.created
-	if target.Name == "" {
-		target.Name = a.createRequest.Name
-	}
-	return target, a.getFound, nil
+	return a.created, a.getFound, nil
 }
 
 func (a *fakeAPI) DeleteSandbox(_ context.Context, id string) error {
 	a.deleteCalls++
 	a.deletedID = id
-	return a.deleteErr
+	return nil
 }
 
-func (a *fakeAPI) ListProcesses(_ context.Context, id string) ([]process, error) {
-	a.processCalls++
-	a.processTarget = id
-	return a.processes, a.processErr
+func (a *fakeAPI) ResumeSandbox(context.Context, string) error {
+	a.resumeCalls++
+	return a.resumeErr
 }
 
-func (a *fakeAPI) CreateProcess(_ context.Context, id string, request createProcessRequest) (process, error) {
+func (a *fakeAPI) ListProcesses(context.Context, string) ([]process, error) {
+	return a.processes, nil
+}
+
+func (a *fakeAPI) CreateProcess(_ context.Context, id string, request commandRequest) (process, error) {
 	a.createProcessCalls++
 	a.createProcessTarget = id
 	a.createProcessRequest = request
-	if a.createProcessErr != nil {
-		return process{}, a.createProcessErr
+	return process{ID: "proc-1", State: processStateRunning}, nil
+}
+
+func (a *fakeAPI) Exec(_ context.Context, id string, request commandRequest) error {
+	a.execCalls++
+	a.execTarget = id
+	a.execRequest = request
+	if len(a.execErrs) > 0 {
+		err := a.execErrs[0]
+		a.execErrs = a.execErrs[1:]
+		return err
 	}
-	return a.createdProcess, nil
+	return nil
 }
 
 var _ apiClient = (*fakeAPI)(nil)

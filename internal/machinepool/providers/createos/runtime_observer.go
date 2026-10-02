@@ -3,19 +3,34 @@ package createos
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
 )
+
+const runtimeObservationTimeout = 5 * time.Second
 
 func (p *provider) ObserveRuntimeStates(
 	ctx context.Context,
 	targets []providers.RuntimeTarget,
 ) ([]providers.RuntimeObservation, error) {
 	observations := make([]providers.RuntimeObservation, len(targets))
+	resourceCounts := make(map[string]int, len(targets))
+	machineCounts := make(map[uuid.UUID]int, len(targets))
 	for index, target := range targets {
-		observation, err := p.ObserveRuntimeState(ctx, target)
+		observations[index] = target.UnknownObservation()
+		resourceCounts[target.ProviderResourceID]++
+		machineCounts[target.MachineID]++
+	}
+	for index, target := range targets {
+		if resourceCounts[target.ProviderResourceID] != 1 || machineCounts[target.MachineID] != 1 {
+			continue
+		}
+		observationCtx, cancel := context.WithTimeout(ctx, runtimeObservationTimeout)
+		observation, err := p.ObserveRuntimeState(observationCtx, target)
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -56,18 +71,16 @@ func (p *provider) ObserveRuntimeState(
 }
 
 func createOSRuntimeState(status sandboxStatus) providers.RuntimeState {
-	switch sandboxStatus(strings.ToLower(strings.TrimSpace(string(status)))) {
+	switch status {
 	case sandboxStatusRunning:
 		return providers.RuntimeStateRunning
-	case sandboxStatusPaused:
+	case sandboxStatusPaused, sandboxStatusError:
 		return providers.RuntimeStateInactive
 	case sandboxStatusCreating, sandboxStatusPausing, sandboxStatusResuming,
 		sandboxStatusForking, sandboxStatusDestroying:
 		return providers.RuntimeStateTransitional
 	case sandboxStatusDestroyed, sandboxStatusFailed:
 		return providers.RuntimeStateTerminated
-	case sandboxStatusError:
-		return providers.RuntimeStateUnknown
 	default:
 		return providers.RuntimeStateUnknown
 	}

@@ -1,11 +1,16 @@
 package machinedaemon
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/omnara-ai/omnara/internal/daemonprotocol"
 )
+
+const createOSSelfPauseTimeout = 3 * time.Second
 
 type sleepPlatform interface {
 	allowSleep() error
@@ -26,6 +31,11 @@ func newSleepPlatform(name string) (sleepPlatform, error) {
 		}, nil
 	case daemonprotocol.SleepPlatformBlaxel:
 		return newBlaxelSleepPlatform()
+	case daemonprotocol.SleepPlatformCreateOS:
+		return createOSSleepPlatform{
+			pauseURL:   daemonprotocol.CreateOSSelfPauseURL,
+			httpClient: &http.Client{Timeout: createOSSelfPauseTimeout},
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported daemon sleep platform %q", name)
 	}
@@ -49,3 +59,26 @@ func (p controlFileSleepPlatform) write(value string) error {
 	}
 	return nil
 }
+
+type createOSSleepPlatform struct {
+	pauseURL   string
+	httpClient *http.Client
+}
+
+func (p createOSSleepPlatform) allowSleep() error {
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, p.pauseURL, nil)
+	if err != nil {
+		return fmt.Errorf("build createos self-pause request: %w", err)
+	}
+	response, err := p.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("createos self-pause request failed: %w", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("createos self-pause returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
+func (createOSSleepPlatform) preventSleep() error { return nil }

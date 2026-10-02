@@ -382,7 +382,6 @@ func TestOpenAPINamePropertiesUseExplicitContracts(t *testing.T) {
 		"Actor.display_name":                             "",
 		"AgentInteraction.tool_name":                     "",
 		"CreateMachinePoolRequestBase.provider_config":   "",
-		"CreateOSRootFS.name":                            "",
 		"CreateSlackSetupRequest.app_name":               "",
 		"CurrentUserIdentity.display_name":               "",
 		"DiscoveredProviderModel.display_name":           "",
@@ -979,6 +978,18 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			name: "boxd missing memory limit",
 			body: `{"provider":"boxd",` + common +
 				`,"max_total_cpu":4,"max_machine_cpu":2,"max_machine_memory_mb":8192}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "createos",
+			body: `{"provider":"createos",` + common +
+				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "createos missing cpu limit",
+			body: `{"provider":"createos",` + common +
+				`,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
 			want: http.StatusBadRequest,
 		},
 		{

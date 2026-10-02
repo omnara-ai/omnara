@@ -39,22 +39,6 @@ func TestCreateOSRESTClientSendsTheAPIKeyAndUnwrapsTheEnvelope(t *testing.T) {
 	}
 }
 
-func TestCreateOSRESTClientReadsTheRootFSCatalog(t *testing.T) {
-	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/rootfs" {
-			t.Errorf("rootfs path = %q", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"status":"success","data":{"rootfs":["devbox:1"],"default":"devbox:1"}}`))
-	})
-	catalog, err := client.ListRootFS(context.Background())
-	if err != nil {
-		t.Fatalf("list rootfs: %v", err)
-	}
-	if catalog.Default != "devbox:1" || len(catalog.Names) != 1 {
-		t.Fatalf("rootfs catalog = %+v, want one entry defaulting to devbox:1", catalog)
-	}
-}
-
 func TestCreateOSRESTClientCreatesSandboxesWithTheRequestedShape(t *testing.T) {
 	var received map[string]json.RawMessage
 	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -103,32 +87,20 @@ func TestCreateOSRESTClientCreatesSandboxesWithTheRequestedShape(t *testing.T) {
 
 func TestCreateOSRESTClientPagesThroughSandboxes(t *testing.T) {
 	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("limit") != "500" || r.URL.Query().Get("offset") != "1000" {
+		query := r.URL.Query()
+		if query.Get("status") != "running" || query.Get("limit") != "500" || query.Get("offset") != "1000" {
 			t.Errorf("list query = %q", r.URL.RawQuery)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
 		}
 		_, _ = w.Write([]byte(`{"status":"success","data":{"data":[{"id":"sb-1"}],"pagination":{"total":1001}}}`))
 	})
-	items, total, err := client.ListSandboxes(context.Background(), 500, 1000)
+	items, total, err := client.ListSandboxes(context.Background(), sandboxStatusRunning, 500, 1000)
 	if err != nil {
 		t.Fatalf("list sandboxes: %v", err)
 	}
 	if len(items) != 1 || total != 1001 {
 		t.Fatalf("list sandboxes = %d items of %d total", len(items), total)
-	}
-}
-
-func TestCreateOSRESTClientPaginationTotalComesFromTheEnvelope(t *testing.T) {
-	client := newTestRESTClient(t, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"success","data":{"data":[],"pagination":{"total":0}}}`))
-	})
-	items, total, err := client.ListSandboxes(context.Background(), 500, 0)
-	if err != nil {
-		t.Fatalf("list sandboxes: %v", err)
-	}
-	if len(items) != 0 || total != 0 {
-		t.Fatalf("list sandboxes = %d items of %d total, want an empty page", len(items), total)
 	}
 }
 
@@ -157,6 +129,43 @@ func TestCreateOSRESTClientDeletingAMissingSandboxSucceeds(t *testing.T) {
 	}
 }
 
+func TestCreateOSRESTClientResumesSandboxes(t *testing.T) {
+	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/sandboxes/sb-123/resume" {
+			t.Errorf("resume request = %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"id":"sb-123","status":"resuming"}}`))
+	})
+	if err := client.ResumeSandbox(context.Background(), "sb-123"); err != nil {
+		t.Fatalf("resume sandbox: %v", err)
+	}
+}
+
+func TestCreateOSRESTClientExecRequiresASuccessfulExit(t *testing.T) {
+	for body, wantErr := range map[string]bool{
+		`{"status":"success","data":{"result":{"exit_code":0}}}`:                             false,
+		`{"status":"success","data":{"result":{"exit_code":7}}}`:                             true,
+		`{"status":"success","data":{"result":{"exit_code":0,"error":"exec format error"}}}`: true,
+		`{"status":"success","data":{}}`:                                                     true,
+	} {
+		var received commandRequest
+		client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/v1/sandboxes/sb-123/exec" {
+				t.Errorf("exec request = %s %s", r.Method, r.URL.Path)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				t.Errorf("decode exec request: %v", err)
+			}
+			_, _ = w.Write([]byte(body))
+		})
+		err := client.Exec(context.Background(), "sb-123", commandRequest{Command: "curl", Args: []string{"-q"}})
+		if (err != nil) != wantErr || received.Command != "curl" {
+			t.Fatalf("exec with %s error = %v request = %+v", body, err, received)
+		}
+	}
+}
+
 func TestCreateOSRESTClientReportsAPIFailures(t *testing.T) {
 	client := newTestRESTClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -182,14 +191,16 @@ func TestCreateOSRESTClientEscapesSandboxIDsInPaths(t *testing.T) {
 	}
 }
 
-func TestCreateOSRESTClientReadsProcessesWithoutAnEnvelope(t *testing.T) {
+func TestCreateOSRESTClientListsProcesses(t *testing.T) {
 	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/sandboxes/sb-123/processes" {
 			t.Errorf("processes path = %q", r.URL.Path)
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
 		}
-		_, _ = w.Write([]byte(`{"processes":[{"process_id":"proc-1","state":"running","leader_exited":false}]}`))
+		_, _ = w.Write([]byte(
+			`{"status":"success","data":{"processes":[{"process_id":"proc-1","state":"running","leader_exited":false}]}}`,
+		))
 	})
 	processes, err := client.ListProcesses(context.Background(), "sb-123")
 	if err != nil {
@@ -201,7 +212,7 @@ func TestCreateOSRESTClientReadsProcessesWithoutAnEnvelope(t *testing.T) {
 }
 
 func TestCreateOSRESTClientStartsProcesses(t *testing.T) {
-	var received createProcessRequest
+	var received commandRequest
 	client := newTestRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("create process method = %s", r.Method)
@@ -213,9 +224,9 @@ func TestCreateOSRESTClientStartsProcesses(t *testing.T) {
 			http.Error(w, "test handler failed", http.StatusInternalServerError)
 			return
 		}
-		_, _ = w.Write([]byte(`{"process_id":"proc-1","state":"starting"}`))
+		_, _ = w.Write([]byte(`{"status":"success","data":{"process_id":"proc-1","state":"starting"}}`))
 	})
-	created, err := client.CreateProcess(context.Background(), "sb-123", createProcessRequest{
+	created, err := client.CreateProcess(context.Background(), "sb-123", commandRequest{
 		Command: "/bin/sh",
 		Args:    []string{"-c", "true"},
 	})
@@ -227,14 +238,5 @@ func TestCreateOSRESTClientStartsProcesses(t *testing.T) {
 	}
 	if received.Command != "/bin/sh" || len(received.Args) != 2 {
 		t.Fatalf("create process request = %+v, want the command and args carried through", received)
-	}
-}
-
-func TestCreateOSRESTClientAcceptsEmptyResponses(t *testing.T) {
-	client := newTestRESTClient(t, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	if err := client.DeleteSandbox(context.Background(), "sb-123"); err != nil {
-		t.Fatalf("delete sandbox: %v", err)
 	}
 }

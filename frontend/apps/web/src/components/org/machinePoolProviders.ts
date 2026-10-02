@@ -18,7 +18,6 @@ interface MachinePoolProviderDefinition {
     placeholder: string
     defaultValue: string
     required: boolean
-    hidden?: boolean
   }
   scope?: {
     key: string
@@ -39,9 +38,6 @@ interface MachinePoolProviderDefinition {
     memoryMb: MachinePoolResourceMode
     defaultCpu?: string
     defaultMemoryGb?: string
-    // Both default to true when omitted.
-    showSizeControls?: boolean
-    showLimitControls?: boolean
   }
 }
 
@@ -244,28 +240,22 @@ const createos: MachinePoolProviderDefinition = {
   resource: {
     key: 'shape',
     label: 'Shape',
-    placeholder: 's-1vcpu-1gb',
-    description: 'CPU and memory come from the selected shape.',
+    placeholder: 's-2vcpu-4gb',
+    description: 'The max vCPU and memory must be at least the shape size.',
+    descriptionHref: 'https://docs.createos.sh/Sandbox/Limits',
   },
   location: {
-    key: 'region',
-    label: 'Region',
-    placeholder: '',
-    defaultValue: '',
-    required: false,
-    hidden: true,
-  },
-  credential: {
-    label: 'CreateOS API token',
-    placeholder: 'Search secrets for your CreateOS token…',
-    emptyDescription: 'No secrets yet — use New secret to store your CreateOS API token.',
-    defaultSecretName: 'createos-api-token',
-    secretValuePlaceholder: 'Provider API token',
+    key: 'rootfs',
+    label: 'Root filesystem',
+    placeholder: 'devbox:1',
+    defaultValue: 'devbox:1',
+    required: true,
   },
   resources: {
     cpu: 'provider-resolved',
     memoryMb: 'provider-resolved',
-    showSizeControls: false,
+    defaultCpu: '2',
+    defaultMemoryGb: '4',
   },
 }
 
@@ -280,16 +270,6 @@ export const machinePoolProviderDefinitions = {
   boxd,
   createos,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
-
-/** The resource mode the form honours; a provider that hides its size controls resolves them itself. */
-export function machinePoolFormResourceMode(
-  provider: MachinePoolProvider,
-  resource: 'cpu' | 'memoryMb',
-): MachinePoolResourceMode {
-  const definition = machinePoolProviderDefinitions[provider]
-  if (definition.resources.showSizeControls === false) return 'unsupported'
-  return definition.resources[resource]
-}
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {
   return Object.hasOwn(machinePoolProviderDefinitions, value)

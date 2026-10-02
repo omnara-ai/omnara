@@ -13,8 +13,6 @@ import {
   unexposableMcpTools,
 } from './useAgentBuilderForm'
 
-const createOSMachineTypeOption = 'shape'
-
 const fullConfig: BasicConfig = {
   ...emptyBasicConfig,
   instruction: 'You are a research assistant.\n\nCite sources.',
@@ -509,42 +507,6 @@ mcp:
       },
     ])
     expect(applyToSource(source, config)).toBe(source)
-  })
-
-  it('removes the legacy CreateOS region while editing an agent', () => {
-    const source = `${minimalYaml}machine_sources:
-  - machine_pool_name: "createos-pool"
-    machine_provider_options_overlay: {"shape":"s-2vcpu-4gb","region":"eu","startup_script":"echo ready"}
-`
-    const config = mustDeserialize(source)
-    expect(config.machineSources).toMatchObject([
-      {
-        kind: 'pool',
-        name: 'createos-pool',
-        provider: 'createos',
-        providerOptions: {
-          resource: 's-2vcpu-4gb',
-          location: 'eu',
-          startupScript: 'echo ready',
-        },
-      },
-    ])
-    const updated = applyToSource(source, {
-      ...config,
-      machineSources: config.machineSources.map((row) => ({ ...row, defaultCwd: '/workspace' })),
-    })
-    expect(parse(updated)).toMatchObject({
-      machine_sources: [
-        {
-          machine_pool_name: 'createos-pool',
-          cwd: '/workspace',
-          machine_provider_options_overlay: {
-            [createOSMachineTypeOption]: 's-2vcpu-4gb',
-            startup_script: 'echo ready',
-          },
-        },
-      ],
-    })
   })
 
   it('rejects provider options overlays no provider accounts for', () => {

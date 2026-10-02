@@ -24,7 +24,7 @@ export function providerOptionsOverlay(
   const overlay: Record<string, string> = {}
   if (!clusterManaged) {
     if (draft.resource.trim() !== '') overlay[definition.resource.key] = draft.resource.trim()
-    if (definition.location && !definition.location.hidden && draft.location.trim() !== '') {
+    if (definition.location && draft.location.trim() !== '') {
       overlay[definition.location.key] = draft.location.trim()
     }
   }

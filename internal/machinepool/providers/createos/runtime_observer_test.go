@@ -7,21 +7,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/testutil/providercontract"
 )
 
 func testRuntimeTarget(t *testing.T, resourceID string) (providers.RuntimeTarget, string) {
 	t.Helper()
 	installationID := uuid.New()
 	machineID := uuid.New()
-	name, err := allocationName(installationID, machineID)
-	if err != nil {
-		t.Fatalf("allocation name: %v", err)
-	}
 	return providers.RuntimeTarget{
 		InstallationID:     installationID,
 		MachineID:          machineID,
 		ProviderResourceID: resourceID,
-	}, name
+	}, mustAllocationName(t, installationID, machineID)
 }
 
 func TestCreateOSRuntimeStateMapsSandboxStatus(t *testing.T) {
@@ -38,8 +35,7 @@ func TestCreateOSRuntimeStateMapsSandboxStatus(t *testing.T) {
 		{sandboxStatusDestroying, providers.RuntimeStateTransitional},
 		{sandboxStatusDestroyed, providers.RuntimeStateTerminated},
 		{sandboxStatusFailed, providers.RuntimeStateTerminated},
-		{sandboxStatusError, providers.RuntimeStateUnknown},
-		{sandboxStatus("  RUNNING  "), providers.RuntimeStateRunning},
+		{sandboxStatusError, providers.RuntimeStateInactive},
 		{sandboxStatus("something-new"), providers.RuntimeStateUnknown},
 		{sandboxStatus(""), providers.RuntimeStateUnknown},
 	} {
@@ -57,7 +53,7 @@ func TestCreateOSObserveRuntimeStateReportsRunningSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observe runtime state: %v", err)
 	}
-	providercontractAssert(t, observation, providers.RuntimeStateRunning)
+	providercontract.AssertRuntimeObservation(t, target, observation, providers.RuntimeStateRunning)
 }
 
 func TestCreateOSObserveRuntimeStateReportsMissingSandboxAsTerminated(t *testing.T) {
@@ -68,7 +64,7 @@ func TestCreateOSObserveRuntimeStateReportsMissingSandboxAsTerminated(t *testing
 	if err != nil {
 		t.Fatalf("observe runtime state: %v", err)
 	}
-	providercontractAssert(t, observation, providers.RuntimeStateTerminated)
+	providercontract.AssertRuntimeObservation(t, target, observation, providers.RuntimeStateTerminated)
 }
 
 func TestCreateOSObserveRuntimeStateIgnoresForeignSandbox(t *testing.T) {
@@ -79,7 +75,7 @@ func TestCreateOSObserveRuntimeStateIgnoresForeignSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observe runtime state: %v", err)
 	}
-	providercontractAssert(t, observation, providers.RuntimeStateUnknown)
+	providercontract.AssertRuntimeObservation(t, target, observation, providers.RuntimeStateUnknown)
 }
 
 func TestCreateOSObserveRuntimeStateSkipsInvalidTargets(t *testing.T) {
@@ -110,9 +106,10 @@ func TestCreateOSObserveRuntimeStateSkipsInvalidTargets(t *testing.T) {
 
 func TestCreateOSObserveRuntimeStateWrapsLookupFailures(t *testing.T) {
 	api := newFakeAPI()
-	api.getErr = errors.New("control plane is unavailable")
+	lookupErr := errors.New("control plane is unavailable")
+	api.getErrs = []error{lookupErr}
 	target, _ := testRuntimeTarget(t, "sb-123")
-	if _, err := newTestProvider(api).ObserveRuntimeState(context.Background(), target); err == nil {
+	if _, err := newTestProvider(api).ObserveRuntimeState(context.Background(), target); !errors.Is(err, lookupErr) {
 		t.Fatal("observe runtime state hid the lookup failure")
 	}
 }
@@ -145,7 +142,7 @@ func TestCreateOSObserveRuntimeStatesKeepsTargetOrder(t *testing.T) {
 
 func TestCreateOSObserveRuntimeStatesFailsWholeBatch(t *testing.T) {
 	api := newFakeAPI()
-	api.getErr = errors.New("control plane is unavailable")
+	api.getErrs = []error{errors.New("control plane is unavailable")}
 	target, _ := testRuntimeTarget(t, "sb-123")
 	if _, err := newTestProvider(api).ObserveRuntimeStates(
 		context.Background(),
@@ -155,9 +152,52 @@ func TestCreateOSObserveRuntimeStatesFailsWholeBatch(t *testing.T) {
 	}
 }
 
-func providercontractAssert(t *testing.T, observation providers.RuntimeObservation, want providers.RuntimeState) {
-	t.Helper()
-	if observation.State != want {
-		t.Fatalf("runtime state = %v, want %v", observation.State, want)
+func TestCreateOSObserveRuntimeStatesTreatsDuplicateTargetsAsUnknown(t *testing.T) {
+	api := newFakeAPI()
+	sharedResourceA, _ := testRuntimeTarget(t, "sb-shared")
+	sharedResourceB, _ := testRuntimeTarget(t, "sb-shared")
+	sharedMachineA, _ := testRuntimeTarget(t, "sb-machine-a")
+	sharedMachineB := sharedMachineA
+	sharedMachineB.ProviderResourceID = "sb-machine-b"
+	unique, uniqueName := testRuntimeTarget(t, "sb-unique")
+	api.getResults = []sandbox{{ID: "sb-unique", Name: uniqueName, Status: sandboxStatusRunning}}
+	observations, err := newTestProvider(api).ObserveRuntimeStates(
+		context.Background(),
+		[]providers.RuntimeTarget{sharedResourceA, sharedResourceB, sharedMachineA, sharedMachineB, unique},
+	)
+	if err != nil {
+		t.Fatalf("observe runtime states: %v", err)
+	}
+	for index, observation := range observations[:4] {
+		if observation.State != providers.RuntimeStateUnknown {
+			t.Fatalf("duplicate target %d state = %v, want unknown", index, observation.State)
+		}
+	}
+	if observations[4].State != providers.RuntimeStateRunning || len(api.getLookups) != 1 {
+		t.Fatalf("unique observation = %+v lookups = %v, want one exact read", observations[4], api.getLookups)
+	}
+}
+
+func TestCreateOSObserveRuntimeStatesBoundsEachObservation(t *testing.T) {
+	api := newFakeAPI()
+	first, firstName := testRuntimeTarget(t, "sb-first")
+	second, secondName := testRuntimeTarget(t, "sb-second")
+	api.getResults = []sandbox{
+		{ID: "sb-first", Name: firstName, Status: sandboxStatusRunning},
+		{ID: "sb-second", Name: secondName, Status: sandboxStatusRunning},
+	}
+	if _, err := newTestProvider(api).ObserveRuntimeStates(
+		context.Background(),
+		[]providers.RuntimeTarget{first, second},
+	); err != nil {
+		t.Fatalf("observe runtime states: %v", err)
+	}
+	if len(api.getDeadlines) != 2 {
+		t.Fatalf("bounded lookups = %d, want 2", len(api.getDeadlines))
+	}
+	for _, remaining := range api.getDeadlines {
+		if remaining <= 0 || remaining > runtimeObservationTimeout {
+			t.Fatalf("lookup deadline = %v, want at most %v", remaining, runtimeObservationTimeout)
+		}
 	}
 }

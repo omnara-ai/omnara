@@ -6502,91 +6502,6 @@ paths:
           $ref: '#/components/responses/ClientError'
         '5XX':
           $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machine-providers/createos/machine-sizes:
-    parameters:
-      - name: orgID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
-    get:
-      operationId: listCreateOSMachineSizes
-      tags: [Machine Pools]
-      summary: List CreateOS sandbox shapes
-      description: Uses an organization-owned credential secret to fetch the live CreateOS shape catalog.
-      security:
-        - bearerAuth: []
-        - browserSessionCookie: []
-      parameters:
-        - name: provider_auth_secret_id
-          in: query
-          required: true
-          schema:
-            $ref: '#/components/schemas/SecretID'
-      responses:
-        '200':
-          description: Available CreateOS shapes.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListCreateOSMachineSizesResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '4XX':
-          $ref: '#/components/responses/ClientError'
-        '5XX':
-          $ref: '#/components/responses/ServerError'
-  /orgs/{orgID}/machine-providers/createos/rootfs:
-    parameters:
-      - name: orgID
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: '^org_[a-z2-7]{26}$'
-    get:
-      operationId: listCreateOSRootFS
-      tags: [Machine Pools]
-      summary: List CreateOS root filesystems
-      security:
-        - bearerAuth: []
-        - browserSessionCookie: []
-      parameters:
-        - name: provider_auth_secret_id
-          in: query
-          required: true
-          schema:
-            $ref: '#/components/schemas/SecretID'
-      responses:
-        '200':
-          description: Available CreateOS root filesystems.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListCreateOSRootFSResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '4XX':
-          $ref: '#/components/responses/ClientError'
-        '5XX':
-          $ref: '#/components/responses/ServerError'
   /orgs/{orgID}/machine-pools/{poolID}:
     parameters:
       - name: orgID
@@ -12547,25 +12462,7 @@ components:
               properties:
                 provider:
                   type: string
-                  enum: [daytona, boxd]
-                max_total_cpu:
-                  type: integer
-                  format: int32
-                max_total_memory_mb:
-                  type: integer
-                  format: int32
-                max_machine_cpu:
-                  type: integer
-                  format: int32
-                max_machine_memory_mb:
-                  type: integer
-                  format: int32
-            - type: object
-              required: [provider, max_total_cpu, max_total_memory_mb, max_machine_cpu, max_machine_memory_mb]
-              properties:
-                provider:
-                  type: string
-                  enum: [createos]
+                  enum: [daytona, boxd, createos]
                 max_total_cpu:
                   type: integer
                   format: int32
@@ -12599,56 +12496,6 @@ components:
                   - required: [max_total_cpu]
                   - required: [min_machine_cpu]
                   - required: [max_machine_cpu]
-    CreateOSMachineSize:
-      type: object
-      additionalProperties: false
-      required: [id, vcpu, memory_mb]
-      properties:
-        id:
-          type: string
-          minLength: 1
-        vcpu:
-          type: integer
-          format: int32
-          minimum: 1
-        memory_mb:
-          type: integer
-          format: int32
-          minimum: 1
-    ListCreateOSMachineSizesResponse:
-      type: object
-      additionalProperties: false
-      required: [data]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreateOSMachineSize'
-    CreateOSRootFS:
-      type: object
-      additionalProperties: false
-      required: [name, deprecated]
-      properties:
-        name:
-          type: string
-          minLength: 1
-        description:
-          type: string
-        deprecated:
-          type: boolean
-        successor:
-          type: string
-    ListCreateOSRootFSResponse:
-      type: object
-      additionalProperties: false
-      required: [data, default]
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreateOSRootFS'
-        default:
-          type: string
     CreateMachinePoolRequestBase:
       type: object
       additionalProperties: false

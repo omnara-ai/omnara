@@ -1,9 +1,5 @@
 import { MachinePoolInputField } from './MachinePoolInputField'
-import {
-  machinePoolFormResourceMode,
-  type MachinePoolProvider,
-  machinePoolProviderDefinitions,
-} from './machinePoolProviders'
+import { type MachinePoolProvider, machinePoolProviderDefinitions } from './machinePoolProviders'
 
 export function MachinePoolResourceFields({
   provider,
@@ -29,13 +25,10 @@ export function MachinePoolResourceFields({
   onMaxMachinesChange: (value: string) => void
 }) {
   const definition = machinePoolProviderDefinitions[provider]
-  const hasSizeControls =
-    machinePoolFormResourceMode(provider, 'cpu') !== 'unsupported' ||
-    machinePoolFormResourceMode(provider, 'memoryMb') !== 'unsupported'
   return (
     <>
-      <div className={hasSizeControls ? 'grid gap-4 sm:grid-cols-2' : 'grid gap-4'}>
-        {!clusterManaged && definition.location && !definition.location.hidden && (
+      <div className="grid gap-4 sm:grid-cols-2">
+        {!clusterManaged && definition.location && (
           <MachinePoolInputField
             id="mpool-location"
             label={definition.location.label}
@@ -46,7 +39,7 @@ export function MachinePoolResourceFields({
             onValueChange={onLocationChange}
           />
         )}
-        {machinePoolFormResourceMode(provider, 'cpu') !== 'unsupported' && (
+        {definition.resources.cpu !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-cpu"
             label={
@@ -62,7 +55,7 @@ export function MachinePoolResourceFields({
             onValueChange={onCpuChange}
           />
         )}
-        {machinePoolFormResourceMode(provider, 'memoryMb') !== 'unsupported' && (
+        {definition.resources.memoryMb !== 'unsupported' && (
           <MachinePoolInputField
             id="mpool-memory"
             label={

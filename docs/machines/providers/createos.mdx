@@ -1,0 +1,61 @@
+---
+title: CreateOS
+description: Give every agent its own computer, a Firecracker microVM that boots in about 30 ms
+icon: "/logo/providers/createos.svg"
+---
+
+[CreateOS Sandbox](https://createos.sh/products/sandbox) is a safe computer for AI agents. Each machine is a Firecracker microVM with its own kernel, root filesystem, and network identity: the isolation of a VM with the startup speed of a container. Connect your CreateOS account with a custom pool.
+
+## Why CreateOS
+
+- **A real machine boundary, not a shared kernel.** Every machine runs its own Linux kernel, so code inside it can't see the host or other tenants, and AI-generated code runs isolated from your own infrastructure.
+- **Boots in about 30 ms.** CreateOS starts a full Linux VM in about 30 ms at p90.
+- **Pause when idle, resume in place.** With [sleep](/machines/providers/overview#sleep-when-idle) on, an idle machine pauses as a snapshot of its memory, processes, and disk. When an agent needs it again, it picks up exactly where it left off, with no cold boot and no setup to re-run.
+- **Your tools, preinstalled.** The `devbox:1` root filesystem is Ubuntu 24.04 with Python 3.12, pandas, NumPy, scikit-learn, and the OpenAI and Anthropic SDKs, plus Node.js 24, Bun, Go, Rust, and Docker. For your own stack, build a template from a Dockerfile once, and every machine launches with it, with no reprovisioning per run.
+
+## Set up a CreateOS pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [CreateOS dashboard](https://createos.sh/app/profile), open **Profile Settings**, go to **API Keys**, and create a key. Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose a shape and root filesystem">
+    The shape sets each machine's CPU and memory, such as `s-2vcpu-4gb` for 2 vCPU and 4 GiB. The shapes you can use depend on your CreateOS plan; see CreateOS's [limits](https://docs.createos.sh/Sandbox/Limits).
+
+    The root filesystem is the image each machine boots from. `devbox:1` works as is. For your own tools, build a [template](https://docs.createos.sh/Sandbox/REST-API/Templates) from a Dockerfile that meets the [custom image requirements](/machines/providers/overview#custom-image-requirements), and use the template's name as the root filesystem.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **CreateOS**. Enter the credential, shape, root filesystem, CPU and memory maximums, and capacity limits. The maximums must be at least the shape's size.
+
+    Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the startup script. CreateOS allows at most 64 variables per machine, including the ones Omnara adds, with up to 4 KiB each and 64 KiB in total, so the startup script can be at most 3,072 bytes.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "createos-pool",
+  "provider": "createos",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "shape": "s-2vcpu-4gb",
+    "rootfs": "devbox:1",
+    "sleep_after_ms": 300000 // optional
+  },
+  "max_machine_cpu": 2,
+  "max_machine_memory_mb": 4096,
+  "max_total_cpu": 20,
+  "max_total_memory_mb": 40960,
+  "max_total_machines": 10
+}
+```
+
+- `shape` is a CreateOS shape name. The shape sets each machine's size, so CPU and memory defaults are optional, and the maximums must be at least the shape's size.
+- `rootfs` is required. Use a built-in root filesystem such as `devbox:1`, or the name of one of your templates.
+- `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts, and `allowed_shapes` and `allowed_rootfses` in `provider_config` are [allowlists](/machines/providers/overview#allowlists).
