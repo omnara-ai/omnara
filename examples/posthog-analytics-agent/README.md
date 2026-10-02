@@ -28,17 +28,9 @@ Open Claude Code, Codex, Cursor, or any other coding agent and say:
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/posthog-analytics-agent/SKILL.md and follow it to deploy the PostHog analytics agent.
 ```
 
-Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
-asks whether there are specific events you always want in the report, stores
-your PostHog key as an Omnara secret (you put it in a `.env` file), creates
-the agent from [agent.yaml](agent.yaml), and gets a first report. Then it
-helps you put the agent in your own app (existing or new) or Slack, and optionally runs it
-every morning. Ask it to change anything along the way, like the instruction
-or the model.
-
-Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
-commands. Run this again any time to change what it reports; it updates the
-agent in place.
+Your coding agent follows [SKILL.md](SKILL.md), which is plain steps with the
+exact `npx omnara` commands if you'd rather run them yourself. Run it again
+any time to change what it reports; it updates the agent in place.
 
 ## How it works
 

@@ -87,11 +87,15 @@ machine_sources:
     env_overlay:
       GITHUB_REPO: "{{GITHUB_REPO}}"
     secret_env_overlay:
-      GH_TOKEN: "{{GITHUB_TOKEN_SECRET_ID}}"    # git and gh read GH_TOKEN for private repos
+      GH_TOKEN: "{{GITHUB_TOKEN_SECRET_ID}}"    # gh reads it; `gh auth setup-git` lets git use it too
     machine_provider_options_overlay:
       startup_script: |
         #!/bin/sh
-        set -e
+        set -eu
+        if [ -n "${GH_TOKEN:-}" ]; then
+          gh auth setup-git
+        fi
+        mkdir -p /workspace
         if [ ! -d /workspace/repo/.git ]; then
           git clone --depth 50 "https://github.com/$GITHUB_REPO" /workspace/repo
         fi

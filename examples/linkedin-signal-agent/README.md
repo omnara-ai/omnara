@@ -32,17 +32,9 @@ Open Claude Code, Codex, Cursor, or any other coding agent and say:
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/linkedin-signal-agent/SKILL.md and follow it to deploy the LinkedIn signal agent.
 ```
 
-Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
-helps you describe your product and pick the searches and companies to track,
-stores your Apify token as an Omnara secret (you put it in a `.env` file),
-creates the agent from [agent.yaml](agent.yaml), and runs a first scan. Then
-it helps you put the agent in your own app (existing or new) or Slack, and optionally runs it on
-a daily schedule. Ask it to change anything along the way, like the
-instruction or the model.
-
-Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
-commands. Run this again any time to change what it tracks; it updates the
-agent in place.
+Your coding agent follows [SKILL.md](SKILL.md), which is plain steps with the
+exact `npx omnara` commands if you'd rather run them yourself. Run it again
+any time to change what it tracks; it updates the agent in place.
 
 ## How it works
 

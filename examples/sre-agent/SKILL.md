@@ -149,7 +149,11 @@ npx omnara secrets mcp-oauth --owner-kind project --owner-project-id <project-id
 
 It opens Grafana's authorization page (`--no-browser` prints the link to share
 instead), waits for the user to approve, and prints the secret's ID as
-`GRAFANA_SECRET_ID`. The agent acts as the user who approves.
+`GRAFANA_SECRET_ID`. The agent acts as the user who approves. For dashboard
+writes, that user must grant write access on the consent page, which Grafana
+allows only with the Assistant Admin role (or the
+`grafana-assistant-app.cloud-mcp.scope:write` permission); without it the
+agent stays read-only.
 
 **Self-hosted Grafana.** The user runs
 [mcp-grafana](https://github.com/grafana/mcp-grafana) with
@@ -236,12 +240,13 @@ error to the code behind it and cite the exact lines. Ask which repository
    - None: `npx omnara profiles create --name sre-agent --file ./sre-agent.yaml --json`
    - Exists: `npx omnara profiles update <agent-profile-id> --file ./sre-agent.yaml --json`
 
-   Note the profile `id`.
+   Note the profile's `id` and `current_config_id` from the output.
 
 ## 8. Run a first health check
 
 ```sh
-npx omnara agents launch --profile <agent-profile-id> --message "Run a production health check." --json
+npx omnara agents launch --profile <agent-profile-id> --config <current-config-id> \
+  --message "Run a production health check." --json
 ```
 
 Give the user the link to watch it work:

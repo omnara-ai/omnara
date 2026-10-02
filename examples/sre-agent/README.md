@@ -13,9 +13,9 @@ would, and replies with the most likely cause and the evidence behind it:
 > Rolling back to revision 211 should restore checkout; the pool size needs fixing before redeploying.
 
 It never changes production: its AWS credentials are read-only, and with
-Grafana connected, the only thing it can write is dashboards, which it builds
-when a result is too much for one message. Reply to it wherever you use it (your own app,
-Slack, or the Omnara console) to dig further.
+Grafana connected, the only thing it can write is dashboards. Reply to it
+wherever you use it (your own app, Slack, or the Omnara console) to dig
+further.
 
 ## What you need
 
@@ -35,16 +35,9 @@ Open Claude Code, Codex, Cursor, or any other coding agent and say:
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/sre-agent/SKILL.md and follow it to deploy the SRE agent.
 ```
 
-Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
-asks about your system, sets up read-only AWS credentials (you put the keys in
-a `.env` file, or it creates the IAM user for you), connects Grafana and your
-repository if you want them, creates the agent from [agent.yaml](agent.yaml),
-and runs a first health check. Then it helps you put the agent in your own app (existing or new) or Slack, and optionally runs a daily health check. Ask it to change
-anything along the way, like the instruction or the model.
-
-Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
-commands. Run this again any time to add a data source; it updates the agent
-in place.
+Your coding agent follows [SKILL.md](SKILL.md), which is plain steps with the
+exact `npx omnara` commands if you'd rather run them yourself. Run it again
+any time to add a data source; it updates the agent in place.
 
 ## How it works
 

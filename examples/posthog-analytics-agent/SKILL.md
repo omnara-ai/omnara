@@ -125,12 +125,13 @@ This agent needs no machine pool: PostHog's MCP server does all the querying.
    - None: `npx omnara profiles create --name posthog-analytics-agent --file ./posthog-analytics-agent.yaml --json`
    - Exists: `npx omnara profiles update <agent-profile-id> --file ./posthog-analytics-agent.yaml --json`
 
-   Note the profile `id`.
+   Note the profile's `id` and `current_config_id` from the output.
 
 ## 6. Get a first report
 
 ```sh
-npx omnara agents launch --profile <agent-profile-id> --message "Run the daily PostHog usage report now." --json
+npx omnara agents launch --profile <agent-profile-id> --config <current-config-id> \
+  --message "Run the daily PostHog usage report now." --json
 ```
 
 Give the user the link to watch it work:

@@ -131,12 +131,13 @@ tokens**. A daily scan costs on the order of cents.
    - None: `npx omnara profiles create --name x-signal-agent --file ./x-signal-agent.yaml --json`
    - Exists: `npx omnara profiles update <agent-profile-id> --file ./x-signal-agent.yaml --json`
 
-   Note the profile `id`.
+   Note the profile's `id` and `current_config_id` from the output.
 
 ## 6. Run a first scan
 
 ```sh
-npx omnara agents launch --profile <agent-profile-id> --message "Run the X scan now." --json
+npx omnara agents launch --profile <agent-profile-id> --config <current-config-id> \
+  --message "Run the X scan now." --json
 ```
 
 Give the user the link to watch it work:
