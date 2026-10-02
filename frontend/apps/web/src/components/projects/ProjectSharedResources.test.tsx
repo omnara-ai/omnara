@@ -320,11 +320,12 @@ it('requires org management to change machine grants', async () => {
 it('lets org admins with project access edit and stop sharing machine grants', async () => {
   await renderAt(`/projects/${projectId}/machines`, { access: adminAccess, role: 'admin' })
 
+  // BYO machines are shared from their own page, so only the pool has row actions here.
   await vi.waitFor(() => {
-    expect(buttonsLabelled('Row actions')).toHaveLength(2)
+    expect(buttonsLabelled('Row actions')).toHaveLength(1)
   })
   expect(hasButtonText('Share pool')).toBe(true)
-  expect(hasButtonText('Share machines')).toBe(true)
+  expect(hasButtonText('Show available')).toBe(true)
 })
 
 it.each([

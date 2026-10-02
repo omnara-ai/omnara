@@ -1,4 +1,4 @@
-import { ProjectModelGrantsTable } from '@/components/projects/ProjectModelGrantsTable'
+import { ProjectModelsView } from '@/components/projects/ProjectModelsView'
 import { ProjectPageFrame } from '@/components/projects/ProjectPageFrame'
 
 export function ProjectModelsPage() {
@@ -6,7 +6,7 @@ export function ProjectModelsPage() {
     <ProjectPageFrame>
       {({ activeOrg, projectId, project }) =>
         project?.access.can_read ? (
-          <ProjectModelGrantsTable
+          <ProjectModelsView
             orgId={activeOrg.id}
             projectId={projectId}
             canManageAccess={project.access.can_manage_access}

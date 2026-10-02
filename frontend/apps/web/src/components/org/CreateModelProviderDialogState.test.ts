@@ -4,6 +4,7 @@ import {
   createModelProviderFormDefaults,
   createModelProviderFormValid,
   modelProviderEndpointDefaults,
+  modelProviderKind,
 } from './CreateModelProviderDialogState'
 
 describe('createModelProviderFormValid', () => {
@@ -58,5 +59,33 @@ describe('createModelProviderFormValid', () => {
         secretHeaderRows: [{ ...secretHeader, secretId: '' }],
       }),
     ).toBe(false)
+  })
+})
+
+describe('modelProviderKind', () => {
+  const config = { api_variant: 'default', auth_kind: 'bearer', base_url: '' }
+
+  it('matches presets by host', () => {
+    expect(modelProviderKind({ ...config, base_url: 'https://api.openai.com/v1' })).toBe('openai')
+    expect(modelProviderKind({ ...config, base_url: 'https://api.anthropic.com/v1' })).toBe(
+      'anthropic',
+    )
+    expect(modelProviderKind({ ...config, base_url: 'https://openrouter.ai/api/v1' })).toBe(
+      'openrouter',
+    )
+    expect(
+      modelProviderKind({ ...config, base_url: 'https://bedrock-mantle.us-east-1.api.aws/v1' }),
+    ).toBe('bedrock')
+  })
+
+  it('prefers the API variant and SigV4 auth over the host', () => {
+    expect(modelProviderKind({ ...config, api_variant: 'openrouter' })).toBe('openrouter')
+    expect(modelProviderKind({ ...config, auth_kind: 'sigv4' })).toBe('bedrock')
+  })
+
+  it('falls back to custom for unknown or lookalike hosts', () => {
+    expect(modelProviderKind({ ...config, base_url: 'https://llm.example.com/v1' })).toBe('custom')
+    expect(modelProviderKind({ ...config, base_url: 'https://notopenai.com/v1' })).toBe('custom')
+    expect(modelProviderKind({ ...config, base_url: 'not a url' })).toBe('custom')
   })
 })
