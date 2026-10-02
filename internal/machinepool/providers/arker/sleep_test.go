@@ -152,6 +152,10 @@ func TestArkerWakeCommandHoldsTheRunWhileTheDaemonIsAwake(t *testing.T) {
 	startLoop := func() <-chan error {
 		t.Helper()
 		cmd := exec.Command("/bin/sh", "-c", loop)
+		cmd.Env = append(
+			os.Environ(),
+			"http_proxy=http://127.0.0.1:9", "HTTP_PROXY=http://127.0.0.1:9", "no_proxy=", "NO_PROXY=",
+		)
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
