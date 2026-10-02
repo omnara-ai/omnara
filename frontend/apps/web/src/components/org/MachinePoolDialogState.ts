@@ -236,6 +236,7 @@ export function machinePoolCreateRequest(values: MachinePoolFormValues): CreateM
     case 'freestyle':
     case 'modal':
     case 'tenki':
+    case 'arker':
       return {
         ...common,
         provider: values.provider,
@@ -380,6 +381,7 @@ export function machinePoolUpdateRequest(
     case 'freestyle':
     case 'modal':
     case 'tenki':
+    case 'arker':
       return {
         ...common,
         provider_config:
@@ -469,6 +471,7 @@ function clusterMachinePoolUpdateRequest(
     case 'freestyle':
     case 'modal':
     case 'tenki':
+    case 'arker':
       return {
         ...common,
         default_machine_cpu: cpu,

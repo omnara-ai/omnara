@@ -116,6 +116,7 @@
                 "icon": "cloud",
                 "pages": [
                   "machines/providers/overview",
+                  "machines/providers/arker",
                   "machines/providers/blaxel",
                   "machines/providers/daytona",
                   "machines/providers/freestyle",

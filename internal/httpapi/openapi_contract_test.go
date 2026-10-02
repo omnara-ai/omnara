@@ -898,6 +898,20 @@ func TestOpenAPIRequestValidatorEnforcesMachinePoolProviderShape(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
+			name: "arker",
+			body: `{"provider":"arker",` + common +
+				`,"default_machine_cpu":1,"default_machine_memory_mb":1024,` +
+				`"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusNoContent,
+		},
+		{
+			name: "arker missing cpu",
+			body: `{"provider":"arker",` + common +
+				`,"default_machine_memory_mb":1024,"max_total_cpu":4,"max_total_memory_mb":8192,` +
+				`"max_machine_cpu":2,"max_machine_memory_mb":4096}`,
+			want: http.StatusBadRequest,
+		},
+		{
 			name: "daytona without resource defaults",
 			body: `{"provider":"daytona",` + common +
 				`,"max_total_cpu":4,"max_total_memory_mb":8192,"max_machine_cpu":2,"max_machine_memory_mb":4096}`,

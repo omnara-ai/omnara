@@ -197,6 +197,25 @@ const tenki: MachinePoolProviderDefinition = {
   resources: { cpu: 'configured', memoryMb: 'configured' },
 }
 
+const arker: MachinePoolProviderDefinition = {
+  label: 'Arker',
+  resource: {
+    key: 'source',
+    label: 'Source VM',
+    placeholder: 'ubuntu-base',
+    description: 'Each machine is a fork of this VM, including its disk and running processes.',
+    descriptionHref: 'https://arker.ai/docs/vms',
+  },
+  location: {
+    key: 'region',
+    label: 'Region',
+    placeholder: 'aws-us-west-2',
+    defaultValue: 'aws-us-west-2',
+    required: true,
+  },
+  resources: { cpu: 'configured', memoryMb: 'configured' },
+}
+
 export const machinePoolProviderDefinitions = {
   unikraft,
   blaxel,
@@ -204,6 +223,7 @@ export const machinePoolProviderDefinitions = {
   modal,
   freestyle,
   tenki,
+  arker,
 } satisfies Record<MachinePoolProvider, MachinePoolProviderDefinition>
 
 export function isMachinePoolProvider(value: string): value is MachinePoolProvider {

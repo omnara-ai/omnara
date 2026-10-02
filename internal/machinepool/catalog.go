@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/omnara-ai/omnara/internal/machinepool/providers"
+	"github.com/omnara-ai/omnara/internal/machinepool/providers/arker"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/blaxel"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/daytona"
 	"github.com/omnara-ai/omnara/internal/machinepool/providers/freestyle"
@@ -23,6 +24,7 @@ type Catalog struct {
 func DefaultCatalog() Catalog {
 	return Catalog{
 		definitions: map[string]providers.Definition{
+			providers.Arker:     arker.Definition{},
 			providers.Blaxel:    blaxel.Definition{},
 			providers.Daytona:   daytona.Definition{},
 			providers.Freestyle: freestyle.Definition{},

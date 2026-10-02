@@ -2769,7 +2769,7 @@ export type Artifact = {
 };
 
 export type CreateMachinePoolRequest = CreateMachinePoolRequestBase & ({
-    provider: 'unikraft' | 'modal' | 'freestyle' | 'tenki';
+    provider: 'unikraft' | 'modal' | 'freestyle' | 'tenki' | 'arker';
     default_machine_cpu: number;
     default_machine_memory_mb: number;
     max_total_cpu: number;

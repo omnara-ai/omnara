@@ -270,6 +270,47 @@ describe('Freestyle machine pools', () => {
   })
 })
 
+describe('Arker machine pools', () => {
+  it('creates a pool with a source VM and region', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'arker' as const,
+      name: 'arker-pool',
+      image: 'ubuntu-base',
+      location: 'aws-us-west-2',
+      secretId: 'sec_arker',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, location: '' })).toBe(false)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'arker',
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.provider_config).toBeUndefined()
+  })
+
+  it('updates the source VM and leaves provider config untouched', () => {
+    const pool = machinePool({
+      provider: 'arker',
+      provider_config: { allowed_regions: ['aws-us-west-2'] },
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected Arker form values')
+
+    const request = machinePoolUpdateRequest(pool, { ...values, image: 'tools-template' })
+    expect(request.provider_config).toBeUndefined()
+    expect(request.default_machine_provider_options).toEqual({
+      source: 'tools-template',
+      region: 'aws-us-west-2',
+    })
+  })
+})
+
 describe('machine pool edit state', () => {
   it('hydrates every shared Blaxel field and preserves hidden provider settings', () => {
     const pool = machinePool({
