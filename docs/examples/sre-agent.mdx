@@ -1,0 +1,17 @@
+---
+title: SRE agent
+description: A production investigator for AWS, with optional Grafana and code access
+icon: "server"
+---
+
+Ask it about a symptom or paste an alert, and it works through AWS, plus Grafana and your source code if you connect them, to report the most likely cause with evidence. Its AWS access is read-only; with Grafana connected, the only thing it can write is dashboards.
+
+## Deploy
+
+Give this prompt to Claude Code, Codex, Cursor, or any other coding agent. It walks you through setup, creates the agent in your Omnara project, and runs it once.
+
+```text
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/sre-agent/SKILL.md and follow it to deploy the SRE agent.
+```
+
+To see how it works or adapt it, browse [`examples/sre-agent`](https://github.com/omnara-ai/omnara/tree/main/examples/sre-agent) on GitHub.

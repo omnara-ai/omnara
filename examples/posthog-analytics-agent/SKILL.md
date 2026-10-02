@@ -1,9 +1,9 @@
 ---
-name: posthog-pulse-agent
-description: Deploy or update the PostHog Pulse Agent on Omnara, an agent that queries a PostHog project through PostHog's MCP server and delivers a daily usage pulse. Use when the user asks to deploy, set up, update, or remove the PostHog pulse agent.
+name: posthog-analytics-agent
+description: Deploy or update the PostHog Analytics Agent on Omnara, an agent that queries a PostHog project through PostHog's MCP server and delivers a daily usage report. Use when the user asks to deploy, set up, update, or remove the PostHog analytics agent.
 ---
 
-# Deploy the PostHog Pulse Agent
+# Deploy the PostHog Analytics Agent
 
 You are setting up an Omnara agent for the user from `agent.yaml` in this
 folder. The goal: an agent profile the user has watched run once, reachable
@@ -50,7 +50,7 @@ Remember the project ID; later steps need it.
 
 ## 2. Choose what to report (optional)
 
-By default the pulse covers yesterday's active users, total event volume, top
+By default the report covers yesterday's active users, total event volume, top
 events, and anything that moved more than about 30% against the 7-day
 average. Ask whether there are specific events the user always wants to see,
 such as signups, purchases, or a key feature. If so, add a line to the
@@ -71,7 +71,7 @@ project to report on there. US and EU accounts both work; PostHog routes the
 key to the right region.
 
 1. Check for an existing secret:
-   `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name posthog-pulse-agent-api-key --json`.
+   `npx omnara secrets list --owner-kind project --owner-project-id <project-id> --name posthog-analytics-agent-api-key --json`.
    If one exists, ask whether to reuse it. To reuse it, note its `id` and skip
    to step 4. To change its value, have the user update it on the
    **Secrets** page of the Omnara dashboard (the ID stays the same) and skip to
@@ -88,7 +88,7 @@ key to the right region.
    ```sh
    set -a && . ./.env && set +a
    npx omnara secrets create --owner-kind project --owner-project-id <project-id> \
-     --name posthog-pulse-agent-api-key --material-kind generic \
+     --name posthog-analytics-agent-api-key --material-kind generic \
      --material-value "$POSTHOG_API_KEY" --json
    ```
 
@@ -107,9 +107,9 @@ This agent needs no machine pool: PostHog's MCP server does all the querying.
 
 ## 5. Create the agent
 
-1. Copy `agent.yaml` from this folder to `./posthog-pulse-agent.yaml` in the
+1. Copy `agent.yaml` from this folder to `./posthog-analytics-agent.yaml` in the
    current directory. If this folder isn't available locally, download
-   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/posthog-pulse-agent/agent.yaml
+   https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/posthog-analytics-agent/agent.yaml
    instead. Add any events from step 2.
 2. In the copy, replace every placeholder:
 
@@ -119,37 +119,41 @@ This agent needs no machine pool: PostHog's MCP server does all the querying.
    | `{{MODEL_PROVIDER_CONFIG}}` | from step 4 |
    | `{{MODEL_NAME}}` | from step 4 |
 
-   Then confirm nothing is left: `grep -n '{{' posthog-pulse-agent.yaml` must
+   Then confirm nothing is left: `grep -n '{{' posthog-analytics-agent.yaml` must
    print nothing.
-3. Check for an existing profile: `npx omnara profiles list --name posthog-pulse-agent --json`.
-   - None: `npx omnara profiles create --name posthog-pulse-agent --file ./posthog-pulse-agent.yaml --json`
-   - Exists: `npx omnara profiles update <agent-profile-id> --file ./posthog-pulse-agent.yaml --json`
+3. Check for an existing profile: `npx omnara profiles list --name posthog-analytics-agent --json`.
+   - None: `npx omnara profiles create --name posthog-analytics-agent --file ./posthog-analytics-agent.yaml --json`
+   - Exists: `npx omnara profiles update <agent-profile-id> --file ./posthog-analytics-agent.yaml --json`
 
    Note the profile `id`.
 
-## 6. Run a first pulse
+## 6. Get a first report
 
 ```sh
-npx omnara agents launch --profile <agent-profile-id> --message "Run the daily PostHog usage pulse now." --json
+npx omnara agents launch --profile <agent-profile-id> --message "Run the daily PostHog usage report now." --json
 ```
 
 Give the user the link to watch it work:
 `https://app.omnara.com/projects/<project-id>/agents/<agent-id>`. The PostHog
-calls show up as `mcp__posthog__…` tools, and a pulse takes about a minute.
+calls show up as `mcp__posthog__…` tools, and a report takes about a minute.
 The user can reply in the console to dig into any number, for example "why
 did signups spike?".
 
 ## 7. Choose where to use it
 
-Ask where the user wants to talk to the agent. Any combination is fine.
+Ask where the user wants to talk to the agent, offering these in this order.
+Any combination is fine.
 
-**Your own app (recommended).** Put the agent in the user's own product or
-internal tool: launch agents from the profile and stream their replies with
-the TypeScript SDK (`@omnara/sdk`) or the REST API; see
-[docs.omnara.com](https://docs.omnara.com). The app needs an org API key: the
-user creates one on the dashboard's **API Tokens** page (**Organization** tab →
+**Their own app, existing or new (recommended).** Put the agent where the
+user's team already works: inside their existing product or internal tool, or, if there's no
+natural home, a small UI built for it. Both are the same integration: launch
+agents from the profile and stream their replies with the TypeScript SDK
+(`@omnara/sdk`) or the REST API; see [docs.omnara.com](https://docs.omnara.com).
+Anything else that can call the API (an alerting webhook, a CI job, a script)
+can start the agent the same way. The app needs an org API key: the user
+creates one on the dashboard's **API Tokens** page (**Organization** tab →
 **New token**), then grants it a role on this project from the key's detail
-panel. Help them wire it into their app.
+panel. Help them wire it in, or build the UI with them.
 
 **Slack.** The bot answers wherever it's mentioned, and thread replies become
 instructions to the agent, so the team can drill into any number in the
@@ -164,13 +168,13 @@ thread.
 
    ```sh
    set -a && . ./.env && set +a
-   npx omnara profiles slack <agent-profile-id> --app-name "PostHog Pulse" \
+   npx omnara profiles slack <agent-profile-id> --app-name "PostHog Analytics" \
      --app-configuration-token "$SLACK_APP_CONFIG_TOKEN"
    ```
 
    It opens a Slack authorization page; the user approves within 10 minutes.
-3. Tell the user to invite the bot to a channel (`/invite @PostHog Pulse`)
-   and mention it: "@PostHog Pulse run today's pulse".
+3. Tell the user to invite the bot to a channel (`/invite @PostHog Analytics`)
+   and mention it: "@PostHog Analytics run today's report".
 
 **Omnara console.** Already done: every agent launched from the profile shows
 up in the console.
@@ -178,27 +182,27 @@ up in the console.
 ## 8. Run it daily (optional)
 
 A schedule works with any of the above. Ask whether the user wants a daily
-pulse, and for the time and timezone (default: every day at 9am in the user's
+report, and for the time and timezone (default: every day at 9am in the user's
 timezone). Set `--cron` and `--timezone` from their answer:
 
 ```sh
-npx omnara crons create --name posthog-pulse-agent-daily \
+npx omnara crons create --name posthog-analytics-agent-daily \
   --target-type profile --target-agent-profile-id <agent-profile-id> \
   --cron '0 9 * * *' --timezone America/Los_Angeles \
-  --message-template 'Run the daily PostHog usage pulse.' --json
+  --message-template 'Run the daily PostHog usage report.' --json
 ```
 
-If `npx omnara crons list --name posthog-pulse-agent-daily --json` already
+If `npx omnara crons list --name posthog-analytics-agent-daily --json` already
 shows a trigger, change it with `npx omnara crons update <cron-trigger-id>`
 (same flags) instead of creating a second one.
 
 Each firing launches a fresh agent from the profile. It reports on
 "yesterday" in the PostHog project's timezone and recomputes the 7-day
 baseline, so there is no state between runs. It shows up in the console, and
-the user's app can pick it up through the SDK or API. To get each pulse in a
+the user's app can pick it up through the SDK or API. To get each report in a
 Slack channel, mention the bot in that channel once, then create the trigger
 with `--target-type agent --target-agent-id <agent-id>` (the agent ID from
-that conversation's console URL), so every pulse posts to that thread.
+that conversation's console URL), so every report posts to that thread.
 
 ## 9. Wrap up
 

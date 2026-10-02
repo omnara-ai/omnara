@@ -6,10 +6,10 @@ subreddits where your audience gathers, filters out the noise, and delivers a
 digest of at most five threads, each with why it matters and a suggested
 action:
 
-> **1. Team asking how to run agents that survive restarts**
-> Their LangGraph agents lose state on every deploy; they're comparing a managed runtime against rolling their own queue.
-> **Why it matters:** a concrete pain point this category solves, with no answer in the thread yet.
-> **Author:** u/jdoe in r/LLMDevs
+> **1. Team asking how to run agents that survive restarts**\
+> Their LangGraph agents lose state on every deploy; they're comparing a managed runtime against rolling their own queue.\
+> **Why it matters:** a concrete pain point this category solves, with no answer in the thread yet.\
+> **Author:** u/jdoe in r/LLMDevs\
 > **Suggested action:** reply with how you handle durable agent state.
 
 Reply to it wherever you use it (your own app, Slack, or the Omnara console)
@@ -27,7 +27,7 @@ Reddit.
 
 ## Deploy
 
-Open Claude Code, Codex, or Cursor and say:
+Open Claude Code, Codex, Cursor, or any other coding agent and say:
 
 ```text
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/reddit-signal-agent/SKILL.md and follow it to deploy the Reddit signal agent.
@@ -37,7 +37,7 @@ Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
 helps you pick the searches and subreddits for your topic, stores your Apify
 token as an Omnara secret (you put it in a `.env` file), creates the agent
 from [agent.yaml](agent.yaml), and runs a first scan. Then it helps you put
-the agent in your own app or Slack, and optionally runs it on a daily
+the agent in your own app (existing or new) or Slack, and optionally runs it on a daily
 schedule. Ask it to change anything along the way, like the instruction or
 the model.
 

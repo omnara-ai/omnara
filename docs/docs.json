@@ -79,6 +79,22 @@
             ]
           },
           {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              {
+                "group": "GTM agents",
+                "pages": [
+                  "examples/x-signal-agent",
+                  "examples/reddit-signal-agent",
+                  "examples/linkedin-signal-agent"
+                ]
+              },
+              "examples/posthog-analytics-agent",
+              "examples/sre-agent"
+            ]
+          },
+          {
             "group": "Agents",
             "pages": [
               "agents/overview",
@@ -125,13 +141,6 @@
             "group": "Integrations",
             "pages": [
               "integrations/slack"
-            ]
-          },
-          {
-            "group": "Examples",
-            "pages": [
-              "examples/overview",
-              "examples/mounted-storage"
             ]
           }
         ]

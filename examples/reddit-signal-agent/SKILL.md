@@ -154,15 +154,19 @@ filtering.
 
 ## 7. Choose where to use it
 
-Ask where the user wants to talk to the agent. Any combination is fine.
+Ask where the user wants to talk to the agent, offering these in this order.
+Any combination is fine.
 
-**Your own app (recommended).** Put the agent in the user's own product or
-internal tool: launch agents from the profile and stream their replies with
-the TypeScript SDK (`@omnara/sdk`) or the REST API; see
-[docs.omnara.com](https://docs.omnara.com). The app needs an org API key: the
-user creates one on the dashboard's **API Tokens** page (**Organization** tab →
+**Their own app, existing or new (recommended).** Put the agent where the
+user's team already works: inside their existing product or internal tool, or, if there's no
+natural home, a small UI built for it. Both are the same integration: launch
+agents from the profile and stream their replies with the TypeScript SDK
+(`@omnara/sdk`) or the REST API; see [docs.omnara.com](https://docs.omnara.com).
+Anything else that can call the API (an alerting webhook, a CI job, a script)
+can start the agent the same way. The app needs an org API key: the user
+creates one on the dashboard's **API Tokens** page (**Organization** tab →
 **New token**), then grants it a role on this project from the key's detail
-panel. Help them wire it into their app.
+panel. Help them wire it in, or build the UI with them.
 
 **Slack.** The bot answers wherever it's mentioned, and thread replies become
 instructions to the agent.

@@ -254,17 +254,20 @@ user wants that data.
 
 ## 9. Choose where to use it
 
-Ask where the user wants to talk to the agent. Any combination is fine.
+Ask where the user wants to talk to the agent, offering these in this order.
+Any combination is fine.
 
-**Your own app (recommended).** Put the agent in the user's own product or
-internal tool: launch agents from the profile and stream their replies with
-the TypeScript SDK (`@omnara/sdk`) or the REST API; see
-[docs.omnara.com](https://docs.omnara.com). The same call can start an
-investigation automatically from their alerting webhook, with the alert text
+**Their own app, existing or new (recommended).** Put the agent where the
+user's team already works: inside their existing product or internal tool, or, if there's no
+natural home, a small UI built for it. Both are the same integration: launch
+agents from the profile and stream their replies with the TypeScript SDK
+(`@omnara/sdk`) or the REST API; see [docs.omnara.com](https://docs.omnara.com).
+Anything else that can call the API can start the agent the same way; for
+example, their alerting webhook can start an investigation with the alert text
 as the message. The app needs an org API key: the user creates one on the
 dashboard's **API Tokens** page (**Organization** tab → **New token**), then
 grants it a role on this project from the key's detail panel. Help them wire
-it into their app.
+it in, or build the UI with them.
 
 **Slack.** The bot answers wherever it's mentioned, and thread replies become
 instructions to the agent. An incidents or alerts channel works well.

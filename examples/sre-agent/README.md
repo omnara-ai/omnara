@@ -1,20 +1,20 @@
 # SRE Agent
 
 A production investigator. Ask it about a symptom ("5xx spike on checkout"),
-paste an alert, or ask why something is slow. It works through AWS, Grafana,
-and your source code the way an on-call engineer would, and replies with the
-most likely cause and the evidence behind it:
+paste an alert, or ask why something is slow. It works through AWS, plus
+Grafana and your source code if you connect them, the way an on-call engineer
+would, and replies with the most likely cause and the evidence behind it:
 
-> **Most likely cause:** the 14:02 UTC deploy of `checkout-api` (task definition revision 212) set the database pool to 5 connections.
-> • ALB 5xx on `checkout-api` went from under 0.1% to 6% at 14:04, three minutes after revision 212 reached steady state.
-> • 1,840 log lines since 14:04 read `timeout acquiring connection from pool`; none in the hour before.
-> • RDS `checkout-db` connections dropped from about 60 to 15, while CPU stayed under 30%.
-> • [config/db.go#L41](https://github.com/acme/checkout/blob/main/config/db.go#L41) changed `MaxOpenConns` from 25 to 5 in the commit that deploy shipped.
+> **Most likely cause:** the 14:02 UTC deploy of `checkout-api` (task definition revision 212) set the database pool to 5 connections.\
+> • ALB 5xx on `checkout-api` went from under 0.1% to 6% at 14:04, three minutes after revision 212 reached steady state.\
+> • 1,840 log lines since 14:04 read `timeout acquiring connection from pool`; none in the hour before.\
+> • RDS `checkout-db` connections dropped from about 60 to 15, while CPU stayed under 30%.\
+> • [config/db.go#L41](https://github.com/acme/checkout/blob/main/config/db.go#L41) changed `MaxOpenConns` from 25 to 5 in the commit that deploy shipped.\
 > Rolling back to revision 211 should restore checkout; the pool size needs fixing before redeploying.
 
-It never changes production: its AWS credentials are read-only, and the only
-thing it can write is Grafana dashboards, which it builds when a result is
-too much for one message. Reply to it wherever you use it (your own app,
+It never changes production: its AWS credentials are read-only, and with
+Grafana connected, the only thing it can write is dashboards, which it builds
+when a result is too much for one message. Reply to it wherever you use it (your own app,
 Slack, or the Omnara console) to dig further.
 
 ## What you need
@@ -29,7 +29,7 @@ Slack, or the Omnara console) to dig further.
 
 ## Deploy
 
-Open Claude Code, Codex, or Cursor and say:
+Open Claude Code, Codex, Cursor, or any other coding agent and say:
 
 ```text
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/sre-agent/SKILL.md and follow it to deploy the SRE agent.
@@ -39,8 +39,7 @@ Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
 asks about your system, sets up read-only AWS credentials (you put the keys in
 a `.env` file, or it creates the IAM user for you), connects Grafana and your
 repository if you want them, creates the agent from [agent.yaml](agent.yaml),
-and runs a first health check. Then it helps you put the agent in your own
-app or Slack, and optionally runs a daily health check. Ask it to change
+and runs a first health check. Then it helps you put the agent in your own app (existing or new) or Slack, and optionally runs a daily health check. Ask it to change
 anything along the way, like the instruction or the model.
 
 Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`

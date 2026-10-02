@@ -1,11 +1,11 @@
-# PostHog Pulse Agent
+# PostHog Analytics Agent
 
 An agent that reads your PostHog for you. Each run it queries your project
 through PostHog's hosted MCP server, compares yesterday against the trailing
-7-day average, and delivers a short usage pulse:
+7-day average, and delivers a short usage report:
 
-> **412 active users (+9% vs 7-day avg), 18.2k events (+4%)**
-> **Top events:** pageview 9.1k (390 users), dashboard_viewed 2.4k (210), query_run 1.9k (140), invite_sent 310 (95), export_clicked 220 (60)
+> **412 active users (+9% vs 7-day avg), 18.2k events (+4%)**\
+> **Top events:** pageview 9.1k (390 users), dashboard_viewed 2.4k (210), query_run 1.9k (140), invite_sent 310 (95), export_clicked 220 (60)\
 > **Callouts:** invite_sent up 2.3x, almost all from one org; looks like a team onboarding, not a trend.
 
 Reply to it wherever you use it (your own app, Slack, or the Omnara console)
@@ -22,17 +22,17 @@ PostHog.
 
 ## Deploy
 
-Open Claude Code, Codex, or Cursor and say:
+Open Claude Code, Codex, Cursor, or any other coding agent and say:
 
 ```text
-Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/posthog-pulse-agent/SKILL.md and follow it to deploy the PostHog pulse agent.
+Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/posthog-analytics-agent/SKILL.md and follow it to deploy the PostHog analytics agent.
 ```
 
 Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
-asks whether there are specific events you always want in the pulse, stores
+asks whether there are specific events you always want in the report, stores
 your PostHog key as an Omnara secret (you put it in a `.env` file), creates
-the agent from [agent.yaml](agent.yaml), and runs a first pulse. Then it
-helps you put the agent in your own app or Slack, and optionally runs it
+the agent from [agent.yaml](agent.yaml), and gets a first report. Then it
+helps you put the agent in your own app (existing or new) or Slack, and optionally runs it
 every morning. Ask it to change anything along the way, like the instruction
 or the model.
 

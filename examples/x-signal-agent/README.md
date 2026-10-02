@@ -5,10 +5,10 @@ An agent that listens to X (Twitter) for you. Each run it searches the last
 a digest of at most five posts, each with why it matters and a suggested
 action:
 
-> **1. Founder comparing agent runtimes for their support bot**
-> Asks whether to build on claude managed agents or another managed agent provider; 40 replies, no clear answer yet.
-> **Why it matters:** an active buyer weighing exactly this category.
-> **Author:** @jdoe, CTO at a 20-person fintech
+> **1. Founder comparing agent runtimes for their support bot**\
+> Asks whether to build on claude managed agents or another managed agent provider; 40 replies, no clear answer yet.\
+> **Why it matters:** an active buyer weighing exactly this category.\
+> **Author:** @jdoe, CTO at a 20-person fintech\
 > **Suggested action:** reply with how you handle long-running agents.
 
 Reply to it wherever you use it (your own app, Slack, or the Omnara console)
@@ -23,7 +23,7 @@ to ask for reply drafts or push back on the filtering. It never posts to X.
 
 ## Deploy
 
-Open Claude Code, Codex, or Cursor and say:
+Open Claude Code, Codex, Cursor, or any other coding agent and say:
 
 ```text
 Read https://raw.githubusercontent.com/omnara-ai/omnara/main/examples/x-signal-agent/SKILL.md and follow it to deploy the X signal agent.
@@ -33,7 +33,7 @@ Your coding agent follows [SKILL.md](SKILL.md): it logs you in to Omnara,
 helps you write the X search for your topic, stores your X token as an Omnara
 secret (you put it in a `.env` file), creates the agent from
 [agent.yaml](agent.yaml), and runs a first scan. Then it helps you put the
-agent in your own app or Slack, and optionally runs it on a daily schedule.
+agent in your own app (existing or new) or Slack, and optionally runs it on a daily schedule.
 Ask it to change anything along the way, like the instruction or the model.
 
 Prefer to do it yourself? SKILL.md is plain steps with the exact `npx omnara`
