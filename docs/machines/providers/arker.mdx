@@ -1,0 +1,73 @@
+---
+title: Arker
+description: Hyper-elastic, durable virtual machines for agents at extreme scale
+icon: "/logo/providers/arker.svg"
+---
+
+[Arker](https://arker.ai) runs hyper-elastic, durable virtual machines for agents at extreme scale, redesigned at every layer to maximize agent performance per dollar. Every machine is a fork of a source VM you choose, either your own or one of Arker's public VMs. Connect your Arker organization with a custom pool.
+
+## Why Arker
+
+- **Faithful forks.** Each machine forks the source VM's full state, disk and memory included, so it starts with your tools installed and your services already running.
+- **Hyper-elastic.** Arker's custom hypervisor spins machines up, down, and resizes them in milliseconds.
+- **Durable, always on.** Arker transparently snapshots machines and restores them on another host if one fails, backed by a 99.9% uptime SLA.
+- **Sleep with your state intact.** With [sleep](/machines/providers/overview#sleep-when-idle) on, Arker suspends idle machines and restores their memory, files, and running processes in milliseconds, even after hours unused.
+- **Run next to your data.** Place machines on AWS, Google Cloud, or Arker's own bare metal, in the same data centers where your backend and data live.
+
+## Set up an Arker pool
+
+<Steps>
+  <Step title="Create an API key">
+    In the [Arker console](https://arker.ai/console/settings/api-keys), create an API key. Store the key as an org-owned [secret](/organization/secrets) in Omnara.
+  </Step>
+  <Step title="Choose or build a source VM">
+    Arker's public `ubuntu-base` VM works as is. To add your own tools, fork it into a named VM in the region your pool will use, install what you need, and use that name as the source. With the [Arker CLI](https://www.npmjs.com/package/@arker-ai/cli):
+
+    ```bash
+    npm install -g @arker-ai/cli
+    export ARKER_API_KEY=ark_live_... ARKER_PROVIDER=aws ARKER_REGION=us-west-2
+    arker fork ubuntu-base --name my-agent-box
+    arker run my-agent-box 'apt-get update && apt-get install -y ripgrep'
+    ```
+
+    - Omnara sets each machine's CPU and memory to the requested size. The disk keeps the source VM's size.
+    - Don't use a VM that has run the Omnara daemon as the source, such as a machine from an Omnara pool. Machines created from it keep the old machine's identity and credentials and never come online.
+  </Step>
+  <Step title="Create the pool">
+    On the **Machines** page, click **New pool** and choose **Arker**. Enter the credential, source VM, region, CPU and memory, and capacity limits.
+
+    Only environment variables whose names use letters, digits, and underscores, and don't start with a digit, reach the startup script.
+
+    To use the API instead, call [Create a pool](/machines/pools#create-a-pool) with the fields under [API fields](#api-fields). The dashboard can't turn on sleep yet, so set `sleep_after_ms` through the API.
+  </Step>
+</Steps>
+
+## API fields
+
+When you create a pool through the API, send these fields in the [Create a pool](/machines/pools#create-a-pool) request. `provider_config` applies to the whole pool, and `default_machine_provider_options` sets the options for each new machine, which project grants and agent configs can override. For example:
+
+```jsonc
+{
+  "name": "arker-pool",
+  "provider": "arker",
+  "provider_auth_secret_id": "sec_hcyd5n6a2bfgik7mv4qtrwz3je",
+  "default_machine_provider_options": {
+    "source": "ubuntu-base",
+    "region": "aws-us-west-2",
+    "sleep_after_ms": 300000 // optional
+  },
+  "default_machine_cpu": 2,
+  "default_machine_memory_mb": 4096,
+  "max_machine_cpu": 4,
+  "max_machine_memory_mb": 5120,
+  "max_total_cpu": 40,
+  "max_total_memory_mb": 51200,
+  "max_total_machines": 10
+}
+```
+
+- `source` is the name of a VM in your Arker organization, or a public VM such as `ubuntu-base`. It must exist in the pool's region.
+- `region` is where machines run, written as it appears in the Arker API endpoint, such as `aws-us-west-2` or `arker-eu`. See [Arker's regions](https://arker.ai/docs/regions).
+- Keep the maximums within the source VM's limits. `ubuntu-base` allows up to 4 vCPU and 5120 MB of memory.
+- `sleep_after_ms` turns on [sleep](/machines/providers/overview#sleep-when-idle). Omit it to keep machines awake.
+- Optional: `startup_script` in `default_machine_provider_options` runs on each new machine before the daemon starts. In `provider_config`, `allowed_sources` and `allowed_regions` are [allowlists](/machines/providers/overview#allowlists), and `api_base_url` replaces the region's API endpoint, such as for a private Arker region.
