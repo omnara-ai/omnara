@@ -33,6 +33,8 @@ function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   })
   page.on('requestfailed', (request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
+    // Leaving a page cancels the queries it still had in flight; an aborted read isn't a failure.
+    if (request.method() === 'GET' && request.failure()?.errorText === 'net::ERR_ABORTED') return
     record(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
   })
   page.on('response', (response) => {

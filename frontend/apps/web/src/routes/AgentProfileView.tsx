@@ -2,7 +2,9 @@ import {
   useAgentProfile,
   useAgentProfileUsage,
   useCreateAgent,
+  useCronTriggers,
   useDeleteAgentProfile,
+  useIntegrationInstalls,
 } from '@omnara/react'
 import { type AgentProfile, ApiError } from '@omnara/sdk'
 import { useLocation, useNavigate, useParams } from '@tanstack/react-router'
@@ -315,9 +317,14 @@ interface ProfileTabProps {
 }
 
 function IntegrationsTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
+  // Shares the list's cached query; while it's empty, the empty state offers the button.
+  const installs = useIntegrationInstalls(orgId, projectId, {
+    filters: { agent_profile_id: profileId },
+  })
+  const hasInstalls = (installs.data?.pages[0]?.data.length ?? 0) > 0
   return (
     <div className="flex flex-col gap-4">
-      {canManage && (
+      {canManage && hasInstalls && (
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={onAdd}>
             Add integration
@@ -342,11 +349,14 @@ function IntegrationsTab({ orgId, projectId, profileId, canManage, onAdd }: Prof
 }
 
 function SchedulesTab({ orgId, projectId, profileId, canManage, onAdd }: ProfileTabProps) {
+  // Shares the list's cached query; while it's empty, the empty state offers the button.
+  const triggers = useCronTriggers(orgId, projectId, { filters: { agent_profile_id: profileId } })
+  const hasTriggers = (triggers.data?.pages[0]?.data.length ?? 0) > 0
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground text-sm">Launch new agents on a schedule</p>
-        {canManage && (
+        {canManage && hasTriggers && (
           <Button size="sm" variant="outline" onClick={onAdd}>
             Add cron schedule
           </Button>
