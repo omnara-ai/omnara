@@ -67,7 +67,7 @@ LOAD_DOTENV = set -a; [ ! -f .env ] || . ./.env; set +a
 	sqlc-generate sqlc-check sql-rules sqlc-vet migrate-test-db sqlc-vet-db sqlc-vet-local-db \
 	unit coverage test-database-contracts test-integration test-integration-storage test-integration-httpapi test-integration-runtime clean-integration-dbs db-up db-down stack-up stack-down fmt run-migrate run-api run-worker run-maintenance mcp-registry-sync \
 	test-service-e2e \
-	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-check-all web-e2e run-web \
+	web-install web-generate web-generate-check build-web build-api build-api-from-dist build-omnarad web-lint web-doctor web-check web-static-check web-build-check web-check-all web-e2e run-web \
 	test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic \
 	test-live-api-format-switching test-live-sandbox-providers test-live \
 	docs-openapi docs-openapi-check
@@ -380,21 +380,22 @@ web-lint:
 web-doctor: ## Run React Doctor against changes from REACT_DOCTOR_BASE
 	cd frontend && pnpm run doctor --base "$(REACT_DOCTOR_BASE)"
 
-web-check: ## Run the frontend test, typecheck, build, lint, and format gate
-	cd frontend && pnpm install --frozen-lockfile && pnpm run generate:api
-	@untracked="$$(git ls-files --others --exclude-standard frontend/packages/sdk/src/generated)"; \
-	if [ -n "$$untracked" ]; then \
-		echo "untracked generated files:"; echo "$$untracked"; exit 1; \
-	fi
-	git diff --exit-code -- frontend/packages/sdk/src/generated
-	cd frontend && pnpm run test && pnpm run typecheck && pnpm run build && pnpm run lint && pnpm run format:check
+web-check: web-static-check web-build-check ## Run the frontend test, typecheck, build, lint, and format gate
+
+web-static-check:
+	cd frontend && pnpm install --frozen-lockfile
+	$(MAKE) web-generate-check
+	cd frontend && pnpm run test && pnpm run typecheck && pnpm run lint && pnpm run format:check
+
+web-build-check:
+	cd frontend && pnpm install --frozen-lockfile && pnpm run generate:api && pnpm run build
 	$(GO) test -run '^$$' -tags=requirespa ./cmd/api
 
 web-check-all: web-check ## Run the frontend gate plus React Doctor locally
 	$(MAKE) web-doctor REACT_DOCTOR_BASE="$(REACT_DOCTOR_BASE)"
 
-web-e2e: web-check db-up
-	cd frontend && pnpm --filter @omnara/web exec playwright install $${CI:+--with-deps} --only-shell chromium
+web-e2e: web-build-check db-up
+	cd frontend && pnpm --filter @omnara/web exec playwright install --only-shell chromium
 	$(SERVICE_E2E_ENV) $(GO) test -count=1 -v -run '^TestWebE2E$$' -tags='integration servicee2e webe2e' ./internal/e2e
 
 run-web:
@@ -494,12 +495,14 @@ test-live-api-format-switching:
 test-live-sandbox-providers:
 	@$(LOAD_DOTENV); \
 	$(GO) test -count=1 -v \
+		./internal/machinepool/providers/arker \
 		./internal/machinepool/providers/blaxel \
 		./internal/machinepool/providers/daytona \
 		./internal/machinepool/providers/freestyle \
 		./internal/machinepool/providers/modal \
+		./internal/machinepool/providers/tenki \
 		./internal/machinepool/providers/unikraft \
-		-run '^Test(Blaxel|Daytona|Freestyle|Modal|Unikraft)ProviderLiveSmoke$$'
+		-run '^Test(Arker|Blaxel|Daytona|Freestyle|Modal|Tenki|Unikraft)ProviderLiveSmoke$$'
 
 test-live: test-live-web test-live-openai-responses test-live-openai-chat-completions test-live-openrouter test-live-anthropic test-live-api-format-switching test-live-sandbox-providers
 

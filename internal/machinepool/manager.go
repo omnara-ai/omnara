@@ -176,6 +176,9 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 			err,
 		)
 	}
+	if err := provider.ValidateMachineConfig(machineProvisioning, machineEnv); err != nil {
+		return m.cleanupFailedProvision(ctx, machine, "machine_config_invalid", err.Error(), err)
+	}
 	providerProvisioning, err := m.Execution.BeginPoolMachineProviderProvisioning(
 		ctx,
 		executionstore.BeginPoolMachineProviderProvisioningInput{
@@ -188,6 +191,7 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 	if err != nil {
 		return err
 	}
+	firstAttempt := machine.ProviderProvisionAttemptedAt == nil
 	machine.ProviderProvisionAttemptedAt = &providerProvisioning.ProviderProvisionAttemptedAt
 	machine.UpdatedAt = providerProvisioning.UpdatedAt
 	providerCtx, cancel = context.WithTimeout(ctx, provider.ProvisioningTimeout())
@@ -199,6 +203,7 @@ func (m Manager) ProvisionMachine(ctx context.Context, orgID, machineID uuid.UUI
 		machineProvisioning,
 		providerProvisioning.DaemonToken.Token,
 		machineEnv,
+		firstAttempt,
 	)
 	cancel()
 	if provisionResult.ProviderResourceID != "" {
@@ -259,6 +264,7 @@ func provisionMachineWithRetry(
 	machineProvisioning executionstore.MachineProvisioningConfig,
 	machineToken string,
 	machineEnv map[string]string,
+	firstAttempt bool,
 ) (providers.ProvisionMachineResult, error) {
 	var observed providers.ProvisionMachineResult
 	var provisionErr error
@@ -270,6 +276,7 @@ func provisionMachineWithRetry(
 			machineProvisioning,
 			machineToken,
 			machineEnv,
+			firstAttempt,
 		)
 		provisionErr = err
 		if errors.Is(err, providers.ErrResourceReplaced) {

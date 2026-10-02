@@ -83,6 +83,42 @@ describe('machine pool names', () => {
   )
 })
 
+describe('Tenki machine pools', () => {
+  it('creates a base-image pool without provider options', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'tenki' as const,
+      name: 'tenki-pool',
+      image: '',
+      secretId: 'sec_tenki',
+    }
+    expect(machinePoolFormValid(values)).toBe(true)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'tenki',
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.default_machine_provider_options).toEqual({})
+  })
+
+  it('clears a custom image while preserving disk size when editing', () => {
+    const pool = machinePool({
+      provider: 'tenki',
+      default_machine_provider_options: { image: 'workspace/custom', disk_size_gb: 40 },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (!values) throw new Error('Expected Tenki pool form')
+    expect(values.location).toBe('')
+    const request = machinePoolUpdateRequest(pool, {
+      ...values,
+      image: '',
+      location: 'stale-region',
+    })
+    expect(request.default_machine_provider_options).toEqual({ disk_size_gb: 40 })
+  })
+})
+
 describe('Modal machine pools', () => {
   it.each(['agents', '', '  '])(
     'creates a pool with app %j and automatic region placement',
@@ -231,6 +267,47 @@ describe('Freestyle machine pools', () => {
       machinePoolUpdateRequest(pool, { ...values, image: 'team/configured-worker' })
         .default_machine_provider_options,
     ).toEqual({ snapshot: 'team/configured-worker', sleep_after_ms: 60_000 })
+  })
+})
+
+describe('Arker machine pools', () => {
+  it('creates a pool with a source VM and region', () => {
+    const values = {
+      ...machinePoolFormDefaults,
+      provider: 'arker' as const,
+      name: 'arker-pool',
+      image: 'ubuntu-base',
+      location: 'aws-us-west-2',
+      secretId: 'sec_arker',
+    }
+
+    expect(machinePoolFormValid(values)).toBe(true)
+    expect(machinePoolFormValid({ ...values, location: '' })).toBe(false)
+    const request = machinePoolCreateRequest(values)
+    expect(request).toMatchObject({
+      provider: 'arker',
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+      default_machine_cpu: 1,
+      default_machine_memory_mb: 1024,
+    })
+    expect(request.provider_config).toBeUndefined()
+  })
+
+  it('updates the source VM and leaves provider config untouched', () => {
+    const pool = machinePool({
+      provider: 'arker',
+      provider_config: { allowed_regions: ['aws-us-west-2'] },
+      default_machine_provider_options: { source: 'ubuntu-base', region: 'aws-us-west-2' },
+    })
+    const values = machinePoolFormFromPool(pool)
+    if (values === null) throw new Error('expected Arker form values')
+
+    const request = machinePoolUpdateRequest(pool, { ...values, image: 'tools-template' })
+    expect(request.provider_config).toBeUndefined()
+    expect(request.default_machine_provider_options).toEqual({
+      source: 'tools-template',
+      region: 'aws-us-west-2',
+    })
   })
 })
 

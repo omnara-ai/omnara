@@ -14,10 +14,12 @@ import (
 )
 
 const (
+	Arker     = "arker"
 	Blaxel    = "blaxel"
 	Daytona   = "daytona"
 	Freestyle = "freestyle"
 	Modal     = "modal"
+	Tenki     = "tenki"
 	Unikraft  = "unikraft"
 )
 
@@ -67,6 +69,9 @@ type Provider interface {
 		context.Context,
 		executionstore.MachineProvisioningConfig,
 	) (executionstore.MachineResourceFacts, error)
+	// ValidateMachineConfig runs with the resolved environment before the
+	// provisioning attempt is recorded; an error permanently fails the machine.
+	ValidateMachineConfig(executionstore.MachineProvisioningConfig, map[string]string) error
 	// ProvisionMachine must be idempotent by installation and machine identity;
 	// the caller may retry it immediately after any error.
 	// Calling it is the external side-effect boundary and must be recorded durably first.
@@ -78,13 +83,16 @@ type Provider interface {
 	// wrapping ErrResourceReplaced so callers discard previously observed ids.
 	// machineEnv is the machine's resolved environment and is applied to the
 	// provider resource at creation; retries that adopt an existing resource
-	// keep the environment it was created with.
+	// keep the environment it was created with. firstAttempt is true until a
+	// provisioning attempt has been recorded for the machine, including retries
+	// within that attempt.
 	ProvisionMachine(
 		ctx context.Context,
 		installationID, machineID uuid.UUID,
 		machineProvisioning executionstore.MachineProvisioningConfig,
 		machineToken string,
 		machineEnv map[string]string,
+		firstAttempt bool,
 	) (ProvisionMachineResult, error)
 	InspectMachine(
 		ctx context.Context,

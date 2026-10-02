@@ -102,8 +102,9 @@ tokens**. A daily scan costs on the order of cents.
    stop and tell the user the project needs a machine pool.
 2. `npx omnara grant models list --json`: each item has `model.provider_config`
    and `model.name`. Ask the user which model to use. Suggest
-   `openai/gpt-6-sol` on `omnara-openrouter` if it's granted (the instruction
-   was tested with it); otherwise suggest a strong general-purpose model from
+   `openai/gpt-6.1-sol` on `omnara-openrouter` if it's granted (it replaces
+   GPT-6 Sol, which the instruction was tested with); otherwise suggest a
+   strong general-purpose model from
    the list. Name a couple of alternatives rather than the whole list, and show
    everything if they ask. The choice gives `MODEL_PROVIDER_CONFIG` and
    `MODEL_NAME`.
