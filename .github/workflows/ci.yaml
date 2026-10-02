@@ -48,6 +48,11 @@ jobs:
 
       - run: make verify-static
 
+      - name: Run GoHawk
+        run: |
+          go install github.com/kojah/gohawk@v0.3.3
+          gohawk -json -enable-all -disable=exitpolicy ./...
+
       - name: Protect released migrations and check API compatibility
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         env:
