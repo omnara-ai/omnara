@@ -51,7 +51,13 @@ export function PageBreadcrumb({ items }: { items: Crumb[] }) {
                   </BreadcrumbLink>
                 ) : item.to ? (
                   <BreadcrumbLink asChild>
-                    <Link to={item.to} params={item.params} className={crumbClass}>
+                    {/* Exact, so an ancestor crumb never also claims aria-current="page". */}
+                    <Link
+                      to={item.to}
+                      params={item.params}
+                      activeOptions={{ exact: true }}
+                      className={crumbClass}
+                    >
                       {content}
                     </Link>
                   </BreadcrumbLink>

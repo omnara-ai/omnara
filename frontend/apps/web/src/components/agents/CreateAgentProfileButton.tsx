@@ -49,7 +49,7 @@ export function OrgCreateAgentProfileButton({
   const directory = useProjectDirectory(orgId)
   const projects = [...directory.projects.values()].filter((project) => project.access.can_manage)
   // Choosing between one project, several, or none needs the whole list.
-  if (!directory.isComplete) return null
+  if (!directory.isLoaded) return null
 
   const [first, second] = projects
   if (first && !second) return <CreateAgentProfileButton projectId={first.id} label={label} />

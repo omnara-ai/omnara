@@ -110,8 +110,10 @@ export function CreateMachinePoolDialog({
   // mutation the dialog waits on, since each grant call's isPending only tracks the latest.
   const createPool = useMutation({
     mutationFn: async () => {
-      let pool = phase.kind === 'retry-grants' ? phase.created : null
-      pool ??= await createMachinePool.mutateAsync(machinePoolCreateRequest(values))
+      const pool =
+        phase.kind === 'retry-grants'
+          ? phase.created
+          : await createMachinePool.mutateAsync(machinePoolCreateRequest(values))
       const grantResults = await Promise.allSettled(
         values.projectGrantIds.map((projectID) =>
           grantMachinePool.mutateAsync({ projectID, machine_pool_id: pool.id }),
