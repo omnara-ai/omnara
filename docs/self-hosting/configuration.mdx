@@ -160,14 +160,14 @@ base_url: https://openrouter.ai/api/v1
 endpoint_path: /chat/completions
 auth_kind: bearer_token
 models:
-  - name: openai/gpt-6-sol
-    provider_model_slug: openai/gpt-6-sol
+  - name: openai/gpt-6.1-sol
+    provider_model_slug: openai/gpt-6.1-sol
     context_window_tokens: 1050000
     max_output_tokens: 128000
     supports_tools: true
     supports_reasoning: true
     default_reasoning_effort: medium
-    supported_reasoning_efforts: [max, xhigh, high, medium, low, none]
+    supported_reasoning_efforts: [max, xhigh, high, medium, low]
     input_modalities: [file, image, text]
     output_modalities: [text]
 ```
