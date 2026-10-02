@@ -374,7 +374,7 @@ func (q *Queries) InsertAgent(ctx context.Context, arg InsertAgentParams) (Inser
 	return i, err
 }
 
-const listAgentsForProject = `-- name: ListAgentsForProject :many
+const listAgentsForProjects = `-- name: ListAgentsForProjects :many
 WITH listed AS (
 SELECT agent.id,
        agent.org_id,
@@ -430,7 +430,7 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = $8
+WHERE agent.project_id = ANY($8::uuid[])
   AND ($9::boolean OR agent.state = 'active')
   AND ($10::text = '' OR agent.name ILIKE $10::text ESCAPE '\')
   AND (COALESCE(cardinality($11::text[]), 0) = 0 OR install.provider = ANY($11::text[]))
@@ -463,7 +463,7 @@ ORDER BY sort_is_null ASC,
 LIMIT $6::bigint
 `
 
-type ListAgentsForProjectParams struct {
+type ListAgentsForProjectsParams struct {
 	CursorSet              bool
 	CursorIsNull           bool
 	SortDesc               bool
@@ -471,7 +471,7 @@ type ListAgentsForProjectParams struct {
 	CursorID               uuid.UUID
 	RowLimit               int64
 	SortField              string
-	ProjectID              uuid.UUID
+	ProjectIds             []uuid.UUID
 	IncludeArchived        bool
 	NamePattern            string
 	IntegrationProviders   []string
@@ -482,7 +482,7 @@ type ListAgentsForProjectParams struct {
 	IncludeSubagents       bool
 }
 
-type ListAgentsForProjectRow struct {
+type ListAgentsForProjectsRow struct {
 	ID                                uuid.UUID
 	OrgID                             uuid.UUID
 	ProjectID                         uuid.UUID
@@ -509,8 +509,8 @@ type ListAgentsForProjectRow struct {
 	SortIsNull                        bool
 }
 
-func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForProjectParams) ([]ListAgentsForProjectRow, error) {
-	rows, err := q.db.Query(ctx, listAgentsForProject,
+func (q *Queries) ListAgentsForProjects(ctx context.Context, arg ListAgentsForProjectsParams) ([]ListAgentsForProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentsForProjects,
 		arg.CursorSet,
 		arg.CursorIsNull,
 		arg.SortDesc,
@@ -518,7 +518,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		arg.CursorID,
 		arg.RowLimit,
 		arg.SortField,
-		arg.ProjectID,
+		arg.ProjectIds,
 		arg.IncludeArchived,
 		arg.NamePattern,
 		arg.IntegrationProviders,
@@ -532,9 +532,9 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAgentsForProjectRow{}
+	items := []ListAgentsForProjectsRow{}
 	for rows.Next() {
-		var i ListAgentsForProjectRow
+		var i ListAgentsForProjectsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
@@ -571,7 +571,7 @@ func (q *Queries) ListAgentsForProject(ctx context.Context, arg ListAgentsForPro
 	return items, nil
 }
 
-const listAgentsForProjectByCreatedAtDesc = `-- name: ListAgentsForProjectByCreatedAtDesc :many
+const listAgentsForProjectsByCreatedAtDesc = `-- name: ListAgentsForProjectsByCreatedAtDesc :many
 SELECT agent.id,
        agent.org_id,
        agent.project_id,
@@ -613,7 +613,7 @@ JOIN configured_models configured_model
 JOIN model_provider_configs model_provider_config
   ON model_provider_config.org_id = configured_model.org_id
  AND model_provider_config.id = configured_model.model_provider_config_id
-WHERE agent.project_id = $1
+WHERE agent.project_id = ANY($1::uuid[])
   AND ($2::boolean OR agent.state = 'active')
   AND ($3::text = '' OR agent.name ILIKE $3::text ESCAPE '\')
   AND (COALESCE(cardinality($4::text[]), 0) = 0 OR install.provider = ANY($4::text[]))
@@ -630,8 +630,8 @@ ORDER BY agent.created_at DESC, agent.id DESC
 LIMIT $13::bigint
 `
 
-type ListAgentsForProjectByCreatedAtDescParams struct {
-	ProjectID              uuid.UUID
+type ListAgentsForProjectsByCreatedAtDescParams struct {
+	ProjectIds             []uuid.UUID
 	IncludeArchived        bool
 	NamePattern            string
 	IntegrationProviders   []string
@@ -646,7 +646,7 @@ type ListAgentsForProjectByCreatedAtDescParams struct {
 	RowLimit               int64
 }
 
-type ListAgentsForProjectByCreatedAtDescRow struct {
+type ListAgentsForProjectsByCreatedAtDescRow struct {
 	ID                                uuid.UUID
 	OrgID                             uuid.UUID
 	ProjectID                         uuid.UUID
@@ -671,9 +671,9 @@ type ListAgentsForProjectByCreatedAtDescRow struct {
 	ModelProviderConfigName           string
 }
 
-func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg ListAgentsForProjectByCreatedAtDescParams) ([]ListAgentsForProjectByCreatedAtDescRow, error) {
-	rows, err := q.db.Query(ctx, listAgentsForProjectByCreatedAtDesc,
-		arg.ProjectID,
+func (q *Queries) ListAgentsForProjectsByCreatedAtDesc(ctx context.Context, arg ListAgentsForProjectsByCreatedAtDescParams) ([]ListAgentsForProjectsByCreatedAtDescRow, error) {
+	rows, err := q.db.Query(ctx, listAgentsForProjectsByCreatedAtDesc,
+		arg.ProjectIds,
 		arg.IncludeArchived,
 		arg.NamePattern,
 		arg.IntegrationProviders,
@@ -691,9 +691,9 @@ func (q *Queries) ListAgentsForProjectByCreatedAtDesc(ctx context.Context, arg L
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAgentsForProjectByCreatedAtDescRow{}
+	items := []ListAgentsForProjectsByCreatedAtDescRow{}
 	for rows.Next() {
-		var i ListAgentsForProjectByCreatedAtDescRow
+		var i ListAgentsForProjectsByCreatedAtDescRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,

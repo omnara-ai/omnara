@@ -151,34 +151,60 @@ const organizationSettingsRoute = createRoute({
 const projectRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId',
-  beforeLoad: ({ params }) => {
-    // The project root has no page of its own; land on the agents list.
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
-    throw redirect({ to: '/projects/$projectId/agents', params })
-  },
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectOverviewPage'),
+    'ProjectOverviewPage',
+  ),
+})
+
+const agentsTabSearch = z.object({
+  tab: z.enum(['profiles', 'instances']).optional().catch(undefined),
+})
+
+const organizationAgentsRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/agents',
+  validateSearch: agentsTabSearch,
+  component: lazyRouteComponent(() => import('@/routes/OrgAgentsPage'), 'OrgAgentsPage'),
 })
 
 const projectAgentsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agents',
+  validateSearch: agentsTabSearch,
   component: lazyRouteComponent(() => import('@/routes/ProjectAgentsPage'), 'ProjectAgentsPage'),
 })
 
-const projectGrantsRoute = createRoute({
+const projectModelsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
-  path: '/projects/$projectId/grants',
-  component: lazyRouteComponent(() => import('@/routes/ProjectGrantsPage'), 'ProjectGrantsPage'),
+  path: '/projects/$projectId/models',
+  component: lazyRouteComponent(() => import('@/routes/ProjectModelsPage'), 'ProjectModelsPage'),
+})
+
+const projectMachinesRoute = createRoute({
+  getParentRoute: () => onboardedRoute,
+  path: '/projects/$projectId/machines',
+  component: lazyRouteComponent(
+    () => import('@/routes/ProjectMachinesPage'),
+    'ProjectMachinesPage',
+  ),
+})
+
+const projectSharingSearch = z.object({
+  tab: z.enum(['project', 'shared']).optional().catch(undefined),
 })
 
 const projectSecretsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/secrets',
+  validateSearch: projectSharingSearch,
   component: lazyRouteComponent(() => import('@/routes/ProjectSecretsPage'), 'ProjectSecretsPage'),
 })
 
 const projectSkillsRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/skills',
+  validateSearch: projectSharingSearch,
   component: lazyRouteComponent(() => import('@/routes/ProjectSkillsPage'), 'ProjectSkillsPage'),
 })
 
@@ -194,6 +220,40 @@ const agentProfileRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/AgentProfileView'), 'AgentProfileView'),
 })
 
+const agentProfileIndexRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/',
+  beforeLoad: ({ params }) => {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router throws redirects.
+    throw redirect({ to: '/projects/$projectId/agent-profiles/$profileId/configuration', params })
+  },
+})
+
+const agentProfileConfigurationRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/configuration',
+})
+
+const agentProfileIntegrationsRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/integrations',
+})
+
+const agentProfileSchedulesRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/schedules',
+})
+
+const agentProfileAgentsRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/agents',
+})
+
+const agentProfileUsageRoute = createRoute({
+  getParentRoute: () => agentProfileRoute,
+  path: '/usage',
+})
+
 const createAgentSearch = z.object({ template: z.string().optional().catch(undefined) })
 
 const createAgentRoute = createRoute({
@@ -203,9 +263,12 @@ const createAgentRoute = createRoute({
   component: lazyRouteComponent(() => import('@/routes/CreateAgentPage'), 'CreateAgentPage'),
 })
 
+const agentSearch = z.object({ config: z.boolean().optional().catch(undefined) })
+
 const agentRoute = createRoute({
   getParentRoute: () => onboardedRoute,
   path: '/projects/$projectId/agents/$agentId',
+  validateSearch: agentSearch,
   component: lazyRouteComponent(() => import('@/routes/AgentView'), 'AgentView'),
 })
 
@@ -312,6 +375,7 @@ const routeTree = rootRoute.addChildren([
       membersRoute,
       organizationMachinesRoute,
       organizationModelsRoute,
+      organizationAgentsRoute,
       organizationUsageRoute,
       secretsRoute,
       skillsRoute,
@@ -319,11 +383,19 @@ const routeTree = rootRoute.addChildren([
       organizationSettingsRoute,
       projectRoute,
       projectAgentsRoute,
-      projectGrantsRoute,
+      projectModelsRoute,
+      projectMachinesRoute,
       projectSecretsRoute,
       projectSkillsRoute,
       projectUsageRoute,
-      agentProfileRoute,
+      agentProfileRoute.addChildren([
+        agentProfileIndexRoute,
+        agentProfileConfigurationRoute,
+        agentProfileIntegrationsRoute,
+        agentProfileSchedulesRoute,
+        agentProfileAgentsRoute,
+        agentProfileUsageRoute,
+      ]),
       createAgentRoute,
       agentRoute.addChildren([agentIndexRoute, agentEventsRoute, agentChatRoute]),
     ]),

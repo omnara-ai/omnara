@@ -27,7 +27,7 @@ const MachineMultiCombobox = createResourceMultiCombobox<VisibleMachine>({
     </span>
   ),
   placeholder: 'Search machines…',
-  emptyMessage: 'No ungranted machines found.',
+  emptyMessage: 'No machines to share.',
 })
 
 export function GrantProjectMachineDialog({
@@ -45,8 +45,8 @@ export function GrantProjectMachineDialog({
 }) {
   const mutation = useGrantMachineToProject(orgId)
   const batch = useBatchGrantSubmit<VisibleMachine>({
-    label: 'machine grant',
-    fallbackError: 'Could not grant machines',
+    label: 'machine',
+    fallbackError: 'Could not share machines',
     itemKey: (machine) => machine.id,
     grant: async (machine) => {
       await mutation.mutateAsync({ projectID: projectId, machineID: machine.id })
@@ -81,7 +81,7 @@ export function GrantProjectMachineDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Grant machines</DialogTitle>
+          <DialogTitle>Share machines</DialogTitle>
           <DialogDescription>
             Let this project run agents on an organization BYO machine.
           </DialogDescription>
@@ -101,13 +101,13 @@ export function GrantProjectMachineDialog({
               />
               {!queryError && !machinesQuery.isPending && machines.length === 0 && (
                 <FieldDescription>
-                  Every organization BYO machine is already granted, or none exist yet.
+                  Every organization BYO machine is already shared, or none exist yet.
                 </FieldDescription>
               )}
             </Field>
             {queryError && (
               <p className="text-destructive text-sm">
-                Could not load grantable machines.{' '}
+                Could not load machines.{' '}
                 <button
                   type="button"
                   className="underline"
@@ -131,7 +131,7 @@ export function GrantProjectMachineDialog({
                 }
                 loading={batch.isSubmitting}
               >
-                Grant machines
+                Share machines
               </Button>
             </DialogFooter>
           </FieldGroup>

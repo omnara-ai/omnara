@@ -31,7 +31,11 @@ export function useBatchGrantSubmit<TItem>({
     setStatus(submitting)
     try {
       const results = await Promise.allSettled(items.map((item) => grant(item)))
-      const failures = collectBatchGrantFailures(items.map(itemKey), results, label)
+      const failures = collectBatchGrantFailures(
+        items.map(itemKey),
+        results,
+        (count) => `${String(count)} ${label}${count === 1 ? '' : 's'}`,
+      )
       const failedIds = new Set(failures?.failedIds)
       const granted = items.filter((item) => !failedIds.has(itemKey(item)))
       if (granted.length > 0) onGranted?.(granted)

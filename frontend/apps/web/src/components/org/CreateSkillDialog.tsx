@@ -5,14 +5,7 @@ import { type SyntheticEvent, useState } from 'react'
 import { CircleCheck, CircleDashed, NoSymbolIcon, XCircleIcon } from '@/components/icons'
 import { LazySkillMdEditor } from '@/components/skills/LazySkillMdEditor'
 import { SkillSourcePicker } from '@/components/skills/SkillSourcePicker'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldGroup } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -27,6 +20,9 @@ import {
 } from '@/lib/skill-bundles'
 import { skillOwnerLabel } from '@/lib/skills'
 import { errorMessage, settleSubmission } from '@/lib/submit-status'
+
+import { CreateSkillFooter } from './CreateSkillFooter'
+import { useSkillShares } from './useSkillShares'
 
 const SKILL_MD_TEMPLATE = `---
 name: my-skill
@@ -146,6 +142,7 @@ export function CreateSkillDialog({
   readSource?: (source: SkillSource) => Promise<SkillBundle[]>
 }) {
   const createSkills = useCreateSkills(orgId)
+  const shares = useSkillShares(orgId)
   const lookupSkills = useSkillNameLookup(orgId, owner)
   const [tab, setTab] = useState('upload')
   const [pickedName, setPickedName] = useState<string>()
@@ -156,7 +153,7 @@ export function CreateSkillDialog({
   const [draftMd, setDraftMd] = useState(SKILL_MD_TEMPLATE)
   const [draftError, setDraftError] = useState<string>()
   const [preparing, setPreparing] = useState(false)
-  const busy = preparing || createSkills.isPending
+  const busy = preparing || createSkills.isPending || shares.sharing
   const pendingItems = (review?.items ?? []).filter(
     (item) => isUploadable(item) && outcomes.get(item.bundle)?.phase !== 'created',
   )
@@ -171,6 +168,7 @@ export function CreateSkillDialog({
     setOutcomes(new Map())
     setDraftMd(SKILL_MD_TEMPLATE)
     setDraftError(undefined)
+    shares.reset()
     onOpenChange(false)
   }
 
@@ -258,7 +256,10 @@ export function CreateSkillDialog({
       reportError(errorMessage(upload.error, UPLOAD_FAILED))
       return
     }
-    if (upload?.phase === 'created') onCreated?.([upload.skill])
+    if (upload?.phase === 'created') {
+      onCreated?.([upload.skill])
+      if (!(await shares.share([upload.skill]))) return
+    }
     close()
   }
 
@@ -283,13 +284,18 @@ export function CreateSkillDialog({
     })
     const created = createdSkills(uploads)
     if (created.length > 0) onCreated?.(created)
-    if (created.length === items.length) close()
+    const shared = await shares.share(created)
+    if (shared && created.length === items.length) close()
   }
 
   function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    if (review) void submitReview()
+    if (shares.pending.length > 0) {
+      void shares.retry().then((shared) => {
+        if (shared) close()
+      })
+    } else if (review) void submitReview()
     else if (tab === 'skill-md') void submitDraft()
     else if (selection) void createOrReview(selection, setSourceError)
   }
@@ -334,23 +340,22 @@ export function CreateSkillDialog({
                 }}
               />
             )}
-            <DialogFooter>
-              {review && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => {
-                    void back()
-                  }}
-                >
-                  Back
-                </Button>
-              )}
-              <Button type="submit" disabled={busy || !canSubmit} loading={busy}>
-                {review ? reviewSubmitLabel(pendingItems, outcomes) : 'Create skill'}
-              </Button>
-            </DialogFooter>
+            <CreateSkillFooter
+              orgId={orgId}
+              shares={owner.kind === 'project' ? undefined : shares}
+              retrying={shares.pending.length > 0}
+              error={shares.error}
+              busy={busy}
+              canSubmit={canSubmit}
+              submitLabel={review ? reviewSubmitLabel(pendingItems, outcomes) : 'Create skill'}
+              onBack={
+                review
+                  ? () => {
+                      void back()
+                    }
+                  : undefined
+              }
+            />
           </FieldGroup>
         </form>
       </DialogContent>

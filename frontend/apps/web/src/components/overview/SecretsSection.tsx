@@ -1,6 +1,6 @@
 import { type SecretListSort, type SecretOwnerScope, useSecrets } from '@omnara/react'
 import type { Secret } from '@omnara/sdk'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { DataTable } from '@/components/data-table/DataTable'
 import { DetailList } from '@/components/data-table/DetailList'
@@ -27,10 +27,13 @@ export function SecretsSection({
   owner = { kind: 'org' },
   canRead: canReadOverride,
   canManage: canManageOverride,
+  actions,
 }: {
   owner?: SecretOwnerScope
   canRead?: boolean
   canManage?: boolean
+  /** Extra header controls shown before the create button, e.g. tabs. */
+  actions?: ReactNode
 }) {
   const { activeOrg } = useActiveOrg()
   const canManage =
@@ -42,16 +45,27 @@ export function SecretsSection({
 
   if (!canRead) {
     return (
-      <p className="text-muted-foreground text-sm">
-        You don’t have permission to view secrets here.
-      </p>
+      <div className="flex flex-col gap-3">
+        {actions && <div className="flex justify-end">{actions}</div>}
+        <p className="text-muted-foreground text-sm">
+          You don’t have permission to view secrets here.
+        </p>
+      </div>
     )
   }
 
-  return <SecretsList owner={owner} canManage={canManage} />
+  return <SecretsList owner={owner} canManage={canManage} actions={actions} />
 }
 
-function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage: boolean }) {
+function SecretsList({
+  owner,
+  canManage,
+  actions,
+}: {
+  owner: SecretOwnerScope
+  canManage: boolean
+  actions?: ReactNode
+}) {
   const { activeOrg } = useActiveOrg()
   const list = useResourceList<SecretListSort>('-updated_at')
   const query = useSecrets(activeOrg.id, owner, {
@@ -80,6 +94,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
       <div className="flex flex-col gap-3">
         <SearchHeader
           title="Secrets"
+          description="Configure secret values to be used with LLM providers, sandbox providers, MCPs, and more."
           guide={guides.secrets}
           toolbar={
             <ResourceListToolbar
@@ -91,6 +106,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
             />
           }
         >
+          {actions}
           {newSecretButton()}
         </SearchHeader>
         <DataTable
@@ -156,6 +172,7 @@ function SecretsList({ owner, canManage }: { owner: SecretOwnerScope; canManage:
             void query.refetch()
           }}
           emptyMessage="No secrets yet. Add the API keys and credentials your providers and pools use."
+          emptyAction={newSecretButton()}
         />
       </div>
       {canManage && (

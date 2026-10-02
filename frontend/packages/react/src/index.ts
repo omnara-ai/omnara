@@ -40,12 +40,14 @@ export {
   type AgentProfileListFilters,
   type AgentProfileListOptions,
   type AgentProfileListSort,
+  type OrgAgentProfileListOptions,
   useAgentProfile,
   useAgentProfileQuery,
   useAgentProfiles,
   useCreateAgentProfile,
   useCreateSlackSetup,
   useDeleteAgentProfile,
+  useOrgAgentProfiles,
   useRenameAgentProfile,
   useUpdateAgentProfile,
 } from './domains/agent-profiles'
@@ -53,12 +55,15 @@ export {
   type AgentListFilters,
   type AgentListOptions,
   type AgentListSort,
+  type OrgAgentListOptions,
   useAgent,
   useAgentConfig,
+  useAgentQuery,
   useAgents,
   useArchiveAgent,
   useCreateAgent,
   useCreateAgentConfig,
+  useOrgAgents,
   useUpdateAgentConfig,
 } from './domains/agents'
 export {
@@ -256,10 +261,12 @@ export { useToolCatalog } from './domains/tool-catalog'
 export {
   type AgentProfileUsageFilters,
   type OrgUsageFilters,
+  type UsageTimeseriesFilters,
   type UsageWindow,
   useAgentProfileUsage,
   useAgentUsage,
   useOrgUsage,
   useProjectUsage,
+  useUsageTimeseries,
 } from './domains/usage'
 export { OmnaraClientProvider, useOmnaraClient } from './omnara-client'

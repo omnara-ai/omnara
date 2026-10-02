@@ -653,7 +653,7 @@ func (q *Queries) InsertAgentProfile(ctx context.Context, arg InsertAgentProfile
 	return i, err
 }
 
-const listAgentProfilesForProject = `-- name: ListAgentProfilesForProject :many
+const listAgentProfilesForProjects = `-- name: ListAgentProfilesForProjects :many
 WITH listed AS (
 SELECT profile.id, project.org_id AS org_id, profile.project_id, profile.name,
        version.agent_config_id AS current_config_id,
@@ -691,7 +691,7 @@ JOIN configured_models model ON model.org_id = config.org_id
   AND model.id = config.configured_model_id
 JOIN model_provider_configs provider ON provider.org_id = model.org_id
   AND provider.id = model.model_provider_config_id
-WHERE profile.project_id = $7
+WHERE profile.project_id = ANY($7::uuid[])
   AND profile.deleted_at IS NULL
   AND ($8::text = '' OR profile.name ILIKE $8::text ESCAPE '\')
   AND ($9::uuid IS NULL OR provider.id = $9::uuid)
@@ -716,14 +716,14 @@ ORDER BY CASE WHEN $2::boolean = false THEN sort_key END ASC,
 LIMIT $5::bigint
 `
 
-type ListAgentProfilesForProjectParams struct {
+type ListAgentProfilesForProjectsParams struct {
 	CursorSet             bool
 	SortDesc              bool
 	CursorKey             string
 	CursorID              uuid.UUID
 	RowLimit              int64
 	SortField             string
-	ProjectID             uuid.UUID
+	ProjectIds            []uuid.UUID
 	NamePattern           string
 	ModelProviderConfigID *uuid.UUID
 	ConfiguredModelID     *uuid.UUID
@@ -731,7 +731,7 @@ type ListAgentProfilesForProjectParams struct {
 	ApiVariants           []string
 }
 
-type ListAgentProfilesForProjectRow struct {
+type ListAgentProfilesForProjectsRow struct {
 	ID                            uuid.UUID
 	OrgID                         uuid.UUID
 	ProjectID                     uuid.UUID
@@ -755,15 +755,15 @@ type ListAgentProfilesForProjectRow struct {
 	SortIsNull                    bool
 }
 
-func (q *Queries) ListAgentProfilesForProject(ctx context.Context, arg ListAgentProfilesForProjectParams) ([]ListAgentProfilesForProjectRow, error) {
-	rows, err := q.db.Query(ctx, listAgentProfilesForProject,
+func (q *Queries) ListAgentProfilesForProjects(ctx context.Context, arg ListAgentProfilesForProjectsParams) ([]ListAgentProfilesForProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentProfilesForProjects,
 		arg.CursorSet,
 		arg.SortDesc,
 		arg.CursorKey,
 		arg.CursorID,
 		arg.RowLimit,
 		arg.SortField,
-		arg.ProjectID,
+		arg.ProjectIds,
 		arg.NamePattern,
 		arg.ModelProviderConfigID,
 		arg.ConfiguredModelID,
@@ -774,9 +774,9 @@ func (q *Queries) ListAgentProfilesForProject(ctx context.Context, arg ListAgent
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAgentProfilesForProjectRow{}
+	items := []ListAgentProfilesForProjectsRow{}
 	for rows.Next() {
-		var i ListAgentProfilesForProjectRow
+		var i ListAgentProfilesForProjectsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,

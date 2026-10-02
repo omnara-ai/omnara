@@ -1,16 +1,18 @@
 import { type KeyboardEvent, useState } from 'react'
 
+import { AgentIcon } from '@/components/agents/AgentIcon'
 import {
-  formatDayLabel,
-  formatDayTitle,
+  formatBucketLabel,
+  formatBucketTitle,
+  formatUsageAxisValue,
   formatUsageValue,
   labelledColumns,
+  usageBucketEnd,
   type UsageChartData,
   type UsageColumn,
   type UsageSeries,
   usageTicks,
-} from '@/components/overview/usage-overview-data'
-import { formatCompactCount } from '@/lib/format'
+} from '@/components/usage/usage-chart-data'
 import { cn } from '@/lib/utils'
 
 const plotHeightClass = 'h-56 sm:h-72'
@@ -23,6 +25,7 @@ const inProgressHatch =
 
 export function UsageChart({ data, label }: { data: UsageChartData; label: string }) {
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null)
+  const [now] = useState(Date.now)
   const count = data.columns.length
   const ticks = usageTicks(Math.max(0, ...data.columns.map((column) => column.total)))
   const top = ticks.at(-1) ?? 0
@@ -30,6 +33,11 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
   const compactLabelled = labelledColumns(count, maxCompactAxisLabels)
   const focusedColumn = focusedIndex === null ? undefined : data.columns[focusedIndex]
   const share = (value: number) => (top > 0 ? `${(value / top) * 100}%` : '0%')
+  const lastColumn = data.columns.at(-1)
+  const lastInProgress =
+    lastColumn !== undefined &&
+    lastColumn.start.getTime() <= now &&
+    now < usageBucketEnd(lastColumn.start, data.interval).getTime()
 
   function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
     const current = focusedIndex ?? count - 1
@@ -59,7 +67,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
               className="text-muted-foreground absolute right-0 translate-y-1/2 text-xs tabular-nums leading-none"
               style={{ bottom: share(tick) }}
             >
-              {formatCompactCount(tick)}
+              {formatUsageAxisValue(data.measure, tick)}
             </span>
           ))}
       </div>
@@ -69,10 +77,10 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
         aria-valuemin={0}
         aria-valuemax={Math.max(0, count - 1)}
         aria-valuenow={focusedIndex ?? Math.max(0, count - 1)}
-        aria-valuetext={columnSummary(data.columns[focusedIndex ?? count - 1])}
+        aria-valuetext={columnSummary(data, data.columns[focusedIndex ?? count - 1])}
         tabIndex={0}
         className={cn(
-          'focus-visible:ring-ring/50 relative rounded-sm outline-none focus-visible:ring-2',
+          'focus-visible:ring-ring/50 border-muted-foreground/35 relative border-b border-l outline-none focus-visible:ring-2',
           plotHeightClass,
         )}
         onKeyDown={moveFocus}
@@ -100,7 +108,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
                 column={column}
                 series={data.series}
                 top={top}
-                inProgress={index === count - 1}
+                inProgress={lastInProgress && index === count - 1}
               />
             </div>
           ))}
@@ -112,6 +120,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
         )}
         {focusedColumn && focusedIndex !== null && (
           <UsageTooltip
+            data={data}
             column={focusedColumn}
             series={data.series}
             index={focusedIndex}
@@ -135,7 +144,7 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
                 left: index === count - 1 ? '100%' : `${((index + 0.5) / count) * 100}%`,
               }}
             >
-              {formatDayLabel(column.start)}
+              {formatBucketLabel(column.start, data.interval)}
             </span>
           ) : null,
         )}
@@ -144,9 +153,9 @@ export function UsageChart({ data, label }: { data: UsageChartData; label: strin
   )
 }
 
-function columnSummary(column: UsageColumn | undefined) {
+function columnSummary(data: UsageChartData, column: UsageColumn | undefined) {
   if (!column) return undefined
-  return `${formatDayTitle(column.start)}: ${formatUsageValue('tokens', column.total)} tokens`
+  return `${formatBucketTitle(column.start, data.interval)}: ${formatUsageValue(data.measure, column.total)}`
 }
 
 function UsageColumnBar({
@@ -198,11 +207,13 @@ function stackSegments(column: UsageColumn, series: UsageSeries[]) {
 }
 
 function UsageTooltip({
+  data,
   column,
   series,
   index,
   count,
 }: {
+  data: UsageChartData
   column: UsageColumn
   series: UsageSeries[]
   index: number
@@ -224,24 +235,29 @@ function UsageTooltip({
       className="bg-popover text-popover-foreground pointer-events-none absolute top-0 z-10 rounded-lg border px-3 py-2.5 shadow-lg"
       style={{ left, width: tooltipWidth }}
     >
-      <p className="text-muted-foreground mb-2 text-xs">{formatDayTitle(column.start)}</p>
+      <p className="text-muted-foreground mb-2 text-xs">
+        {formatBucketTitle(column.start, data.interval)}
+      </p>
       {rows.length > 0 && (
         <ul className="mb-2 flex flex-col gap-1.5 border-b pb-2">
           {rows.map((row) => (
             <li key={row.key} className="flex items-center gap-2 text-xs">
-              <span
-                className="h-3.5 w-1 shrink-0 rounded-full"
-                style={{ backgroundColor: row.color }}
-              />
+              {row.icon ? (
+                <AgentIcon icon={row.icon} className="size-3.5 rounded-[2px]" />
+              ) : (
+                <span className="flex size-3.5 shrink-0 justify-center">
+                  <span className="h-3.5 w-1 rounded-full" style={{ backgroundColor: row.color }} />
+                </span>
+              )}
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
-              <span className="tabular-nums">{formatUsageValue('tokens', row.value)}</span>
+              <span className="tabular-nums">{formatUsageValue(data.measure, row.value)}</span>
             </li>
           ))}
         </ul>
       )}
       <p className="flex items-center justify-between gap-2 text-xs font-medium">
         <span>Total</span>
-        <span className="tabular-nums">{formatUsageValue('tokens', column.total)}</span>
+        <span className="tabular-nums">{formatUsageValue(data.measure, column.total)}</span>
       </p>
     </div>
   )

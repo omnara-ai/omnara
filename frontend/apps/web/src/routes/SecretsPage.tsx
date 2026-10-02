@@ -3,24 +3,24 @@ import { useLocation, useNavigate } from '@tanstack/react-router'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { SecretsSection } from '@/components/overview/SecretsSection'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useActiveOrg } from '@/lib/use-active-org'
 
 export function SecretsPage() {
-  const { activeOrg } = useActiveOrg()
   const navigate = useNavigate()
   const ownerParam = useLocation({
     select: (location) => new URLSearchParams(location.searchStr).get('owner'),
   })
   const owner = ownerParam === 'organization' ? 'organization' : 'user'
 
+  const ownerTabs = (
+    <TabsList aria-label="Secret owner">
+      <TabsTrigger value="user">User</TabsTrigger>
+      <TabsTrigger value="organization">Organization</TabsTrigger>
+    </TabsList>
+  )
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-      <PageBreadcrumb
-        items={[
-          { id: 'organization', label: activeOrg.name, to: '/' },
-          { id: 'secrets', label: 'Secrets' },
-        ]}
-      />
+      <PageBreadcrumb items={[{ id: 'secrets', label: 'Secrets' }]} />
       <Tabs
         value={owner}
         onValueChange={(nextOwner) => {
@@ -30,15 +30,11 @@ export function SecretsPage() {
         }}
         className="gap-6"
       >
-        <TabsList aria-label="Secret owner">
-          <TabsTrigger value="user">User</TabsTrigger>
-          <TabsTrigger value="organization">Organization</TabsTrigger>
-        </TabsList>
         <TabsContent value="user">
-          <SecretsSection owner={{ kind: 'user' }} />
+          <SecretsSection owner={{ kind: 'user' }} actions={ownerTabs} />
         </TabsContent>
         <TabsContent value="organization">
-          <SecretsSection />
+          <SecretsSection actions={ownerTabs} />
         </TabsContent>
       </Tabs>
     </div>

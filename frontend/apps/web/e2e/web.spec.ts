@@ -33,6 +33,8 @@ function installFailureTracking(page: Page, ignore: RegExp[] = []) {
   })
   page.on('requestfailed', (request) => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/auth/login') return
+    // Leaving a page cancels the queries it still had in flight; an aborted read isn't a failure.
+    if (request.method() === 'GET' && request.failure()?.errorText === 'net::ERR_ABORTED') return
     record(`request: ${request.url()} (${request.failure()?.errorText ?? 'failed'})`)
   })
   page.on('response', (response) => {
@@ -78,7 +80,7 @@ async function signIn(page: Page, email: string, returnTo: string) {
 async function selectConfiguredModel(page: Page) {
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.click()
-  await page.getByPlaceholder('Search granted models…').fill(modelName)
+  await page.getByPlaceholder('Search shared models…').fill(modelName)
   await page
     .getByRole('option')
     .filter({ hasText: modelName })
@@ -93,7 +95,9 @@ async function createProfile(page: Page, name: string, instruction: string) {
   await selectConfiguredModel(page)
   await expect(page.getByRole('button', { name: 'Create profile' })).toBeEnabled()
   await page.getByRole('button', { name: 'Create profile' }).click()
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
+  )
 }
 
 function uniqueName(base: string) {
@@ -221,7 +225,7 @@ test('creates an agent from YAML', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
+  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
 
@@ -259,7 +263,7 @@ test('creates an agent with the Builder', async ({ page }) => {
 
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.press('m')
-  const modelSearch = page.getByPlaceholder('Search granted models…')
+  const modelSearch = page.getByPlaceholder('Search shared models…')
   await expect(modelSearch).toHaveValue('m')
   await modelSearch.fill(modelName)
   await modelSearch.clear()
@@ -276,7 +280,7 @@ test('creates an agent with the Builder', async ({ page }) => {
   await page.getByRole('button', { name: 'Create & launch agent' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agents/agt_[a-z2-7]+/events$`))
-  await expect(page.locator('[data-slot="breadcrumb-page"]')).toHaveText(agentName)
+  await expect(page.locator('[data-slot="breadcrumb"] [aria-current="page"]')).toHaveText(agentName)
   expect(failures).toEqual([])
 })
 
@@ -288,7 +292,7 @@ test('creates a profile without launching an agent', async ({ page }) => {
   expect(failures).toEqual([])
 })
 
-test('granting a model from the Builder does not create a profile or agent', async ({ page }) => {
+test('sharing a model from the Builder does not create a profile or agent', async ({ page }) => {
   const failures = installFailureTracking(page)
   await page.route(/\/model-grants(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== 'POST') {
@@ -337,15 +341,15 @@ test('granting a model from the Builder does not create a profile or agent', asy
 
   const modelPicker = page.getByRole('combobox', { name: 'Model', exact: true })
   await modelPicker.click()
-  await expect(page.getByPlaceholder('Search granted models…')).toHaveValue('')
-  const grantModelsAction = page.getByRole('button', { name: 'Grant models…', exact: true })
+  await expect(page.getByPlaceholder('Search shared models…')).toHaveValue('')
+  const grantModelsAction = page.getByRole('button', { name: 'Share models…', exact: true })
   await expect(grantModelsAction).toBeVisible()
   const providerListResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
     return response.request().method() === 'GET' && url.pathname.endsWith('/model-provider-configs')
   })
   await grantModelsAction.press('Enter')
-  const dialog = page.getByRole('dialog', { name: 'Grant models' })
+  const dialog = page.getByRole('dialog', { name: 'Share models' })
   const providerPicker = dialog.getByRole('combobox', { name: 'Provider', exact: true })
   expect((await providerListResponse).ok()).toBe(true)
   await dialog.getByText('Provider', { exact: true }).click()
@@ -363,13 +367,13 @@ test('granting a model from the Builder does not create a profile or agent', asy
   await expect(dialog.getByRole('button', { name: `Remove ${ungrantedModelName}` })).toBeVisible()
   await dialog.getByRole('button', { name: `Clear ${providerConfig}` }).click()
   await expect(dialog.getByRole('button', { name: `Remove ${ungrantedModelName}` })).toHaveCount(0)
-  await expect(dialog.getByRole('button', { name: 'Grant models', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Share models', exact: true })).toBeDisabled()
   await providerPicker.click()
   await providerSearch.fill(providerConfig)
   await page.getByRole('option', { name: providerConfig }).click()
   await configuredModelPicker.fill(ungrantedModelName)
   await page.getByRole('option', { name: ungrantedModelName }).click()
-  await dialog.getByRole('button', { name: 'Grant models' }).click()
+  await dialog.getByRole('button', { name: 'Share models' }).click()
 
   await expect(dialog).toHaveCount(0)
   await expect(modelPicker).toBeFocused()
@@ -406,7 +410,9 @@ test('keeps profile config edits across tabs and confirms launching with unsaved
   await page.getByRole('button', { name: 'Launch' }).click()
   await expect.poll(() => confirms.length).toBe(1)
   expect(confirms[0]).toContain('unsaved configuration changes')
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+$`))
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${projectID}/agent-profiles/aprf_[a-z2-7]+/configuration$`),
+  )
 
   await page.getByRole('button', { name: 'Discard changes' }).click()
   await expect(page.getByText('# draft edit')).toHaveCount(0)

@@ -90,7 +90,8 @@ export function ProjectMachineGrantsTables({
     <>
       <div className="flex flex-col gap-3">
         <SearchHeader
-          title="Machine pool grants"
+          title="Shared machine pools"
+          description="List of machine pools accessible to agents in your current project"
           guide={guides.machinePools}
           toolbar={
             <ResourceListToolbar
@@ -101,7 +102,7 @@ export function ProjectMachineGrantsTables({
                 options: createdResourceSortOptions,
                 onChange: poolList.setSort,
               }}
-              placeholder="Search pool grants by name…"
+              placeholder="Search shared pools by name…"
               showSearch={poolToolbarVisible}
             />
           }
@@ -136,14 +137,15 @@ export function ProjectMachineGrantsTables({
               isActions: true,
               cell: (item) => (
                 <ResourceRowActions
-                  deleteLabel="Delete grant"
+                  deleteLabel="Stop sharing"
                   onEdit={() => {
                     setEditing(item)
                   }}
                   onDelete={
                     canDeleteGrants
                       ? () => {
-                          if (!window.confirm('Delete this machine pool grant?')) return
+                          if (!window.confirm('Stop sharing this machine pool with the project?'))
+                            return
                           deleteGrant.mutate(item.grant.id)
                         }
                       : undefined
@@ -207,7 +209,8 @@ export function ProjectMachineGrantsTables({
           onRetry={() => {
             void grantsQuery.refetch()
           }}
-          emptyMessage="No machine pools granted. Grant a pool so agents in this project can run."
+          emptyMessage="No shared machine pools. Share a pool so agents in this project can run."
+          emptyAction={<GrantMachinePoolButton />}
         />
         {editing && (
           <EditMachinePoolGrantDialog
@@ -224,7 +227,8 @@ export function ProjectMachineGrantsTables({
       </div>
       <div className="flex flex-col gap-3">
         <SearchHeader
-          title="Machine grants"
+          title="Shared machines"
+          description="List of machines accessible to agents in your current project"
           guide={guides.machines}
           toolbar={
             <ResourceListToolbar
@@ -235,7 +239,7 @@ export function ProjectMachineGrantsTables({
                 options: resourceSortOptions,
                 onChange: machineList.setSort,
               }}
-              placeholder="Search machine grants by name…"
+              placeholder="Search shared machines by name…"
               showSearch={machineToolbarVisible}
             />
           }
@@ -263,11 +267,11 @@ export function ProjectMachineGrantsTables({
               isActions: true,
               cell: (item) => (
                 <ResourceRowActions
-                  deleteLabel="Delete grant"
+                  deleteLabel="Stop sharing"
                   onDelete={
                     canDeleteGrants
                       ? () => {
-                          if (!window.confirm('Delete this machine grant?')) return
+                          if (!window.confirm('Stop sharing this machine with the project?')) return
                           deleteMachineGrant.mutate(item.grant.id)
                         }
                       : undefined
@@ -295,7 +299,8 @@ export function ProjectMachineGrantsTables({
           onRetry={() => {
             void machineGrantsQuery.refetch()
           }}
-          emptyMessage="No individual machines granted to this project."
+          emptyMessage="No individual machines shared with this project."
+          emptyAction={<GrantMachineButton />}
         />
       </div>
     </>

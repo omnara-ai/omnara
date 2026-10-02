@@ -1,8 +1,11 @@
 import { useOrgOverview } from '@omnara/react'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 
+import { ArrowRight } from '@/components/icons'
 import { PageBreadcrumb } from '@/components/layout/PageBreadcrumb'
 import { AgentOnboarding } from '@/components/overview/AgentOnboarding'
+import { panelHintClass } from '@/components/overview/CodeBlock'
 import { OverviewSummary } from '@/components/overview/OverviewSummary'
 import { UsageOverview } from '@/components/overview/UsageOverview'
 import { Button } from '@/components/ui/button'
@@ -10,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { canManageOrg } from '@/lib/permissions'
 import { errorMessage } from '@/lib/submit-status'
 import { useActiveOrg } from '@/lib/use-active-org'
+import { cn } from '@/lib/utils'
 
 export function Overview() {
   const { activeOrg } = useActiveOrg()
@@ -32,12 +36,7 @@ export function Overview() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-12">
-      <PageBreadcrumb
-        items={[
-          { id: 'organization', label: activeOrg.name },
-          { id: 'overview', label: 'Overview' },
-        ]}
-      />
+      <PageBreadcrumb items={[{ id: 'overview', label: 'Overview' }]} />
 
       {overviewQuery.isPending ? (
         <Skeleton className="h-28 rounded-xl" />
@@ -52,7 +51,17 @@ export function Overview() {
       ) : overview ? (
         <>
           <OverviewSummary overview={overview} />
-          <UsageOverview usage={overview.usage} canViewReport={canManageOrg(activeOrg.role)} />
+          <UsageOverview
+            filters={{ orgIDs: [activeOrg.id] }}
+            reportLink={
+              canManageOrg(activeOrg.role) && (
+                <Link to="/usage" className={cn(panelHintClass, 'inline-flex hover:underline')}>
+                  Usage report
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </Link>
+              )
+            }
+          />
         </>
       ) : (
         <div className="flex flex-col items-start gap-3">
